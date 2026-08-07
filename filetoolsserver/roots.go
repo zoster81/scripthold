@@ -1,3 +1,4 @@
+//lint:file-ignore SA1019 R20 intentionally preserves deprecated MCP roots during the compatibility window and removes logging from modern discovery.
 package filetoolsserver
 
 import (
@@ -9,10 +10,43 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/filetoolsserver/handler"
 	"github.com/zoster81/scripthold/internal/security"
 )
+
+const methodDiscover = "server/discover"
+
+func createDiscoveryMiddleware(h *handler.Handler, enableClientRoots bool) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method != methodDiscover {
+				return next(ctx, method, req)
+			}
+			if enableClientRoots && !h.HasConfiguredDirectories() {
+				return nil, &jsonrpc.Error{
+					Code:    jsonrpc.CodeMethodNotFound,
+					Message: "server discovery is unavailable while legacy client roots are required",
+				}
+			}
+
+			result, err := next(ctx, method, req)
+			if err != nil {
+				return nil, err
+			}
+			discovery, ok := result.(*mcp.DiscoverResult)
+			if !ok || discovery.Capabilities == nil {
+				return result, nil
+			}
+
+			capabilities := *discovery.Capabilities
+			capabilities.Logging = nil
+			discovery.Capabilities = &capabilities
+			return discovery, nil
+		}
+	}
+}
 
 func createInitializedHandler(lifecycleCtx context.Context, h *handler.Handler, version string, enableClientRoots bool) func(context.Context, *mcp.InitializedRequest) {
 	return func(ctx context.Context, req *mcp.InitializedRequest) {

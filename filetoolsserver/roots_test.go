@@ -1,3 +1,4 @@
+//lint:file-ignore SA1019 R20 compatibility tests intentionally exercise deprecated MCP roots.
 package filetoolsserver
 
 import (

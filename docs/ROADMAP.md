@@ -35,7 +35,7 @@ Product identity and the fork's independent relationship to upstream are defined
 | R17 | COMPLETE | Approved the bounded persistent-backup lifecycle, security boundary, quotas, restore safety, explicit GC, and non-rollback decisions. |
 | R18 | COMPLETE | Implemented and verified the approved persistent-backup subsystem in phased, failure-injected, cross-platform increments. |
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
-| R20 | ACTIVE | Stable SDK `v1.7.0` qualification is complete; stdio version gating is next while the committed runtime remains on `v1.6.1`. |
+| R20 | ACTIVE | Stable SDK `v1.7.0` and stdio version gating are complete in source; same-endpoint dual-generation HTTP is next. |
 
 ---
 
@@ -629,7 +629,7 @@ Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod 
 
 ## Status
 
-Active adoption milestone since 2026-08-06. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Phase 1 defined the compatibility contract and Phase 2 qualified official stable SDK `v1.7.0` through an isolated reversible module change. The committed dependency graph and active runtime remain on `v1.6.1`; no protocol, configuration, handler, tool schema, launcher, or runtime behavior has changed. Phase 3 stdio version gating is next.
+Active adoption milestone since 2026-08-06. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Phase 1 defined the compatibility contract, Phase 2 qualified official stable SDK `v1.7.0`, and Phase 3 updated the source dependency plus stdio negotiation. Configured-root and roots-disabled sessions can negotiate `2026-07-28`; sessions that still require deprecated client roots reject discovery before SDK state mutation and fall back to legacy `2025-11-25` initialization. The 27 tools, three prompts, process roots, backup store, and security policies remain unchanged. No launcher or deployed runtime changed. Phase 4 dual-generation HTTP is next.
 
 ## Goal
 
@@ -638,7 +638,7 @@ Adopt final MCP protocol version `2026-07-28` through an official stable Go SDK 
 ## Design constraints
 
 - The main dependency graph must not use a pre-release or pseudo-version SDK.
-- Committed SDK `v1.6.1` and `2025-11-25` runtime behavior remain authoritative until Phase 3 intentionally adopts qualified stable SDK `v1.7.0` with the reviewed stdio gate.
+- Source SDK `v1.7.0` is authoritative for R20 implementation; publication and deployment remain separately governed until later approval.
 - Stdio may offer `2026-07-28` only when startup roots are configured; deprecated client roots remain a legacy-only compatibility path.
 - HTTP keeps one endpoint and one outer security/admission pipeline, with separate stateful legacy and stateless new-protocol SDK handlers.
 - Authentication, Host, Origin, proxy trust, rate, body budgets, concurrency, timeouts, logging, execution gates, readiness, and shutdown stay common across versions.
@@ -651,7 +651,7 @@ Adopt final MCP protocol version `2026-07-28` through an official stable Go SDK 
 
 - [x] Phase 1 — Define the compatibility boundary, stable-SDK adoption gate, transport architecture, roots deprecation strategy, tests, risks, and completion gate.
 - [x] Phase 2 — Qualified official stable Go SDK `v1.7.0` through a reversible temporary module change, completed API/security review, and recorded the required stdio middleware-gate design correction.
-- [ ] Phase 3 — Implement stdio version gating and discovery without allowing the new protocol to depend on deprecated client roots.
+- [x] Phase 3 — Updated to stable SDK `v1.7.0`; enabled modern stdio discovery for configured-root and roots-disabled sessions; retained deterministic legacy initialization and roots notifications through a pre-discovery middleware gate when startup directories are absent.
 - [ ] Phase 4 — Implement same-endpoint dual-generation HTTP behind the existing hardened middleware, with stateful legacy sessions and stateless new-protocol cancellation.
 - [ ] Phase 5 — Complete conformance, downgrade, malformed-header, interoperability, security failure-injection, race, fuzz, six-target, native, and container gates.
 - [ ] Phase 6 — Align migration, security, publishing, and completion documentation without changing the published runtime unless separately authorized.

@@ -49,6 +49,7 @@ func CheckForUpdatesAsync(parent context.Context, session *mcp.ServerSession, ve
 	defer cancel()
 
 	if msg := updater.Check(ctx, version, false); msg != "" {
+		//lint:ignore SA1019 Legacy sessions retain MCP logging during the R20 compatibility window.
 		_ = session.Log(ctx, &mcp.LoggingMessageParams{
 			Level:  "notice",
 			Logger: "update-checker",

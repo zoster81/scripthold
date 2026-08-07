@@ -2,11 +2,11 @@
 
 ## Status
 
-**R20 phase 2 is complete. Official stable SDK `v1.7.0` has been qualified in an isolated reversible worktree; the committed module graph and active runtime remain on `v1.6.1`. Phase 3 is next.**
+**R20 phase 3 is complete in source. Stdio now negotiates `2026-07-28` only when filesystem authority does not depend on deprecated client roots, while the legacy roots path deterministically falls back to `2025-11-25`. Phase 4 is next; no published runtime or deployment has changed.**
 
 This document defines the compatibility boundary, transport architecture, security invariants, implementation phases, and verification gate for adopting Model Context Protocol version `2026-07-28` while retaining the existing `2025-11-25` behavior.
 
-The committed source baseline still uses `github.com/modelcontextprotocol/go-sdk v1.6.1`. Official stable release `v1.7.0` supports final protocol version `2026-07-28` and passed the Phase 2 qualification gate described below. The dependency update remains intentionally uncommitted until the Phase 3 stdio design is implemented and reviewed.
+The R20 source baseline now uses official stable `github.com/modelcontextprotocol/go-sdk v1.7.0`, which supports final protocol version `2026-07-28`. Phase 2 qualified the release and Phase 3 implements the reviewed stdio negotiation gate. Publication and runtime adoption remain separate later decisions.
 
 Authoritative external references:
 
@@ -130,6 +130,31 @@ Verification evidence:
 
 The compatibility flags documented by `v1.7.0` were reviewed and none is enabled. Official protocol conformance, an independent client, fuzzing, native external smoke, and container validation remain Phase 5 work. No launcher, runtime, deployment, release, tag, commit, or push changed during qualification.
 
+## Phase 3 implementation record
+
+Completed in source on 2026-08-07.
+
+Stdio negotiation behavior:
+
+- the source dependency is updated to official stable Go SDK `v1.7.0` with only the two qualified indirect additions, `golang.org/x/sync v0.22.0` and `golang.org/x/time v0.15.0`;
+- when startup allowed directories exist, normal SDK discovery negotiates `2026-07-28` and tool requests remain bound to those process-owned directories;
+- when client roots are disabled, stdio may also negotiate `2026-07-28`; an empty process root set remains empty and no client metadata broadens it;
+- when client roots are enabled and no startup directories exist, a receiving middleware rejects `server/discover` with JSON-RPC `MethodNotFound` before the SDK discovery handler can mutate session state; the official client then performs the normal legacy initialization fallback and negotiates `2025-11-25`;
+- legacy initialization and `notifications/roots/list_changed` continue to populate and clear the process-wide dynamic roots according to the existing validation rules;
+- modern discovery removes deprecated protocol logging from its capability projection, while legacy initialization retains logging compatibility for the existing update notification path;
+- the shared server, 27-tool catalog, three prompts, backup-store authority, execution policy, limits, error behavior, and lifecycle remain single-instance and transport-independent.
+
+Verification evidence:
+
+- TDD reproduced the pre-upgrade modern-negotiation failure on `v1.6.1`, then reproduced the unsafe modern negotiation of dynamic roots on `v1.7.0` before the middleware gate;
+- focused tests cover configured startup roots, disabled client roots, legacy dynamic roots, roots-change notifications, exact negotiated versions, logging capability projection, 27 tools, and three prompts;
+- focused server, command, and HTTP regressions pass; the complete Go suite passes serially, and the one test that exceeded its deadline during a highly parallel monolithic run passed immediately in isolation and in the complete serial run;
+- every package passes the race detector with CGO and GCC, `go vet`, Staticcheck with only documented local legacy suppressions, and govulncheck;
+- `go mod verify`, `go mod tidy -diff`, the complete 27-tool stdio harness, current Node release tests, and Windows/Linux/macOS amd64/arm64 builds pass;
+- temporary build outputs were removed, and no launcher, active runtime, deployment, release, tag, or push changed.
+
+Official protocol conformance, an independent client, fuzzing, native external smoke, and container validation remain Phase 5 work.
+
 ## Transport architecture
 
 ### Shared server
@@ -155,7 +180,7 @@ When no startup allowed directories are configured:
 - legacy initialization and roots notifications continue to populate the process-wide root set according to the existing rules;
 - startup does not silently broaden access and does not substitute the current working directory.
 
-Phase 2 confirmed that the SDK exposes transport version filtering, but also proved that filtering alone is insufficient for a persistent stdio fallback because discovery mutates session state before legacy initialization. Phase 3 must use a receiving middleware gate to reject `server/discover` before SDK dispatch when startup roots are absent; it must not fork the SDK or broaden filesystem authority.
+Phase 3 implements the reviewed receiving middleware gate. It rejects `server/discover` before SDK dispatch only when client roots are enabled and startup directories are absent. Configured-root and roots-disabled sessions use normal modern discovery. The implementation does not fork the SDK, duplicate the server, or broaden filesystem authority.
 
 ### Streamable HTTP
 
@@ -376,8 +401,8 @@ Legacy stateful sessions remain accepted on the same endpoint. New stateless beh
 
 1. **Design and readiness — complete.** The compatibility contract, protocol coupling, and stable-SDK gate are approved.
 2. **Stable SDK qualification — complete.** Official stable `v1.7.0` passed reversible dependency, API, security, compatibility, race, vulnerability, catalog, and six-target qualification without changing the committed module graph.
-3. **Stdio version gating — next.** Add discovery support when startup roots are present and use a pre-discovery middleware gate to retain legacy roots negotiation when they are absent.
-4. **Dual-generation HTTP.** Add shared version validation and separate stateful/stateless SDK handlers behind the existing hardened middleware, with request cancellation and no stateless session admission.
+3. **Stdio version gating — complete.** Modern discovery is enabled for configured-root and roots-disabled sessions; a pre-discovery middleware gate retains legacy initialization and dynamic roots when startup directories are absent.
+4. **Dual-generation HTTP — next.** Add shared version validation and separate stateful/stateless SDK handlers behind the existing hardened middleware, with request cancellation and no stateless session admission.
 5. **Compatibility and conformance.** Complete official conformance, old/new client interoperability, security failure injection, race, fuzz, six-target, native, and container checks.
 6. **Documentation and completion.** Update protocol/security references, migration guidance, publishing notes, and the completion record without changing the published runtime unless separately authorized.
 

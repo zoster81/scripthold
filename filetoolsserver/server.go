@@ -117,6 +117,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	server := mcp.NewServer(impl, serverOpts)
 	registerProjectPrompts(server)
 
+	server.AddReceivingMiddleware(createDiscoveryMiddleware(h, options.EnableClientRoots))
 	// Repair array/object args some MCP clients send as JSON-encoded strings.
 	server.AddReceivingMiddleware(handler.RepairStringifiedArrayArgs)
 
