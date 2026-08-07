@@ -2,11 +2,11 @@
 
 ## Status
 
-**R20 phase-1 design baseline. No dependency, protocol, transport, configuration, tool schema, or runtime behavior has changed.**
+**R20 phase 2 is complete. Official stable SDK `v1.7.0` has been qualified in an isolated reversible worktree; the committed module graph and active runtime remain on `v1.6.1`. Phase 3 is next.**
 
 This document defines the compatibility boundary, transport architecture, security invariants, implementation phases, and verification gate for adopting Model Context Protocol version `2026-07-28` while retaining the existing `2025-11-25` behavior.
 
-The current source baseline uses `github.com/modelcontextprotocol/go-sdk v1.6.1`. The first Go SDK line that implements `2026-07-28` is currently pre-release. R20 must not place a pre-release SDK in the main runtime dependency graph. Implementation begins only after an official stable SDK release supports the final specification and its release notes, module checksums, API surface, and compatibility behavior have been reviewed.
+The committed source baseline still uses `github.com/modelcontextprotocol/go-sdk v1.6.1`. Official stable release `v1.7.0` supports final protocol version `2026-07-28` and passed the Phase 2 qualification gate described below. The dependency update remains intentionally uncommitted until the Phase 3 stdio design is implemented and reviewed.
 
 Authoritative external references:
 
@@ -93,6 +93,43 @@ No implementation phase may update `go.mod` until all of the following are true:
 
 If the stable SDK cannot satisfy the design through public APIs, R20 stops for a new design review. It must not vendor or fork the SDK opportunistically.
 
+## Phase 2 qualification record
+
+Completed on 2026-08-07 against official stable `github.com/modelcontextprotocol/go-sdk v1.7.0`.
+
+Release and dependency evidence:
+
+- GitHub marks `v1.7.0` as a final, non-draft, non-prerelease release published on 2026-07-28; the Go module resolves the version tag to source commit `bc72835f62eb94d0fb484439f886b6885b075f36`.
+- The module was fetched through the normal Go checksum path with module sum `h1:yqjY2dsbKAC0LSuWZVBMrHgiG8ukXv6NRo0JiALay44=` and `go.mod` sum `h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=`.
+- The temporary module change updates only the SDK and adds `golang.org/x/sync v0.22.0` plus `golang.org/x/time v0.15.0` as indirect dependencies. No new direct dependency is introduced.
+- `go mod verify` and `go mod tidy -diff` pass. The SDK license file records the MCP project's Apache-2.0 transition while retaining MIT terms for contributions not yet relicensed.
+
+Public API and protocol findings:
+
+- `StreamableHTTPOptions.Stateless`, `MaxRequestBodyBytes`, and `PropagateRequestCancellation` provide the required stateless transport, bounded SDK body read, and disconnect cancellation controls.
+- `server/discover`, per-request metadata, standardized HTTP header validation, legacy fallback, and transport-level `ProtocolVersionSupporter` are public SDK behavior; no vendoring or SDK fork is required.
+- Stateful Streamable HTTP continues to negotiate `2025-11-25`; stateless Streamable HTTP negotiates `2026-07-28`, emits no `Mcp-Session-Id`, and exposes the same 27 tools and three prompts.
+- Stateless request cancellation reaches a blocked tool handler when `PropagateRequestCancellation` is enabled.
+- The default SDK capability projection still includes protocol logging unless `ServerOptions.Capabilities` is set explicitly. Phase 3 must project only implemented capabilities and preserve logging solely where legacy compatibility requires it.
+
+Stdio design correction:
+
+- `ProtocolVersionSupporter` correctly removes `2026-07-28` from `server/discover`, but using that filter alone on one persistent stdio-like connection causes the client to attempt legacy `initialize` after discovery has already initialized SDK session state; the SDK then rejects the request as duplicate initialization.
+- A receiving middleware gate that rejects `server/discover` before the SDK discovery handler runs produces a clean fallback to legacy `initialize` and preserves the 27-tool, three-prompt catalog.
+- Phase 3 therefore must not rely on transport filtering alone when startup roots are absent. It must reject discovery before SDK state mutation and retain the existing legacy roots initialization path. When startup roots are present, normal stdio discovery may negotiate `2026-07-28`.
+
+Verification evidence:
+
+- focused new/legacy HTTP, stdio fallback, catalog, no-session-header, and cancellation qualification tests pass;
+- every Go package passes regression tests in deterministic shards, and every package passes the race detector with the workspace GCC/CGO toolchain;
+- `go vet` passes; Staticcheck reports only intentional `SA1019` uses of legacy roots/logging, and the inherited check set passes when only that code is excluded;
+- govulncheck reports no vulnerabilities;
+- the operational harness passes all 27 tools, including backup capture, restore, and GC paths;
+- Windows, Linux, and macOS builds succeed for amd64 and arm64;
+- current release/manifest Node tests pass.
+
+The compatibility flags documented by `v1.7.0` were reviewed and none is enabled. Official protocol conformance, an independent client, fuzzing, native external smoke, and container validation remain Phase 5 work. No launcher, runtime, deployment, release, tag, commit, or push changed during qualification.
+
 ## Transport architecture
 
 ### Shared server
@@ -118,7 +155,7 @@ When no startup allowed directories are configured:
 - legacy initialization and roots notifications continue to populate the process-wide root set according to the existing rules;
 - startup does not silently broaden access and does not substitute the current working directory.
 
-Phase 2 must confirm that the stable SDK exposes a supported way to filter advertised protocol versions by server configuration or transport. If it does not, the stdio adoption design must be revised before implementation.
+Phase 2 confirmed that the SDK exposes transport version filtering, but also proved that filtering alone is insufficient for a persistent stdio fallback because discovery mutates session state before legacy initialization. Phase 3 must use a receiving middleware gate to reject `server/discover` before SDK dispatch when startup roots are absent; it must not fork the SDK or broaden filesystem authority.
 
 ### Streamable HTTP
 
@@ -337,9 +374,9 @@ Legacy stateful sessions remain accepted on the same endpoint. New stateless beh
 
 ## Implementation phases
 
-1. **Design and readiness — active.** Approve this contract, inventory current protocol coupling, and document the stable-SDK adoption gate.
-2. **Stable SDK qualification.** Evaluate the first stable Go SDK release supporting final `2026-07-28` in a temporary reversible module change; confirm public APIs and full backward compatibility before committing dependency changes.
-3. **Stdio version gating.** Add discovery/version support when startup roots are present and retain legacy roots negotiation when they are absent.
+1. **Design and readiness — complete.** The compatibility contract, protocol coupling, and stable-SDK gate are approved.
+2. **Stable SDK qualification — complete.** Official stable `v1.7.0` passed reversible dependency, API, security, compatibility, race, vulnerability, catalog, and six-target qualification without changing the committed module graph.
+3. **Stdio version gating — next.** Add discovery support when startup roots are present and use a pre-discovery middleware gate to retain legacy roots negotiation when they are absent.
 4. **Dual-generation HTTP.** Add shared version validation and separate stateful/stateless SDK handlers behind the existing hardened middleware, with request cancellation and no stateless session admission.
 5. **Compatibility and conformance.** Complete official conformance, old/new client interoperability, security failure injection, race, fuzz, six-target, native, and container checks.
 6. **Documentation and completion.** Update protocol/security references, migration guidance, publishing notes, and the completion record without changing the published runtime unless separately authorized.
