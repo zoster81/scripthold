@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is published and deployed through both supported transports. The live stdio connector and an authenticated stateful Streamable HTTP session have each verified the complete 23-tool catalog from the published binary. R14 is complete after the controlled active rollback and final restoration of the published runtime. R15, R16, R18, and R19 are complete in source and remain unreleased. R17 is complete after approval of the ten persistent-backup lifecycle decisions. R18 implements that contract through a disabled-by-default store foundation, internal capture/recovery/indexing/quota primitives, bounded review/audit, approval-bound edit/package capture, one-shot original-target restore, and explicit generation-bound GC with no background deletion. R19 adds mutation-free offline diagnosis for an existing store without creating, rebuilding, repairing, cleaning, renaming, or deleting store state. R20 is active as a design/readiness milestone for adopting MCP `2026-07-28` only through a stable official Go SDK while preserving legacy stdio and stateful HTTP compatibility.
+Version `2.0.0` is published and deployed through both supported transports. The live stdio connector and an authenticated stateful Streamable HTTP session have each verified the complete 23-tool catalog from the published binary. R14 is complete after the controlled active rollback and final restoration of the published runtime. R15, R16, R18, and R19 are complete in source and remain unreleased. R17 is complete after approval of the ten persistent-backup lifecycle decisions. R18 implements that contract through a disabled-by-default store foundation, internal capture/recovery/indexing/quota primitives, bounded review/audit, approval-bound edit/package capture, one-shot original-target restore, and explicit generation-bound GC with no background deletion. R19 adds mutation-free offline diagnosis for an existing store without creating, rebuilding, repairing, cleaning, renaming, or deleting store state. R20 is active as the staged MCP `2026-07-28` adoption milestone through stable official Go SDK `v1.7.0`, with stdio version gating and same-endpoint dual-generation HTTP now complete in source while legacy compatibility is preserved.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -35,7 +35,7 @@ Product identity and the fork's independent relationship to upstream are defined
 | R17 | COMPLETE | Approved the bounded persistent-backup lifecycle, security boundary, quotas, restore safety, explicit GC, and non-rollback decisions. |
 | R18 | COMPLETE | Implemented and verified the approved persistent-backup subsystem in phased, failure-injected, cross-platform increments. |
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
-| R20 | ACTIVE | Stable SDK `v1.7.0` and stdio version gating are complete in source; same-endpoint dual-generation HTTP is next. |
+| R20 | ACTIVE | Stable SDK `v1.7.0`, stdio version gating, and same-endpoint dual-generation HTTP are complete in source; compatibility and conformance is next. |
 
 ---
 
@@ -629,7 +629,7 @@ Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod 
 
 ## Status
 
-Active adoption milestone since 2026-08-06. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Phase 1 defined the compatibility contract, Phase 2 qualified official stable SDK `v1.7.0`, and Phase 3 updated the source dependency plus stdio negotiation. Configured-root and roots-disabled sessions can negotiate `2026-07-28`; sessions that still require deprecated client roots reject discovery before SDK state mutation and fall back to legacy `2025-11-25` initialization. The 27 tools, three prompts, process roots, backup store, and security policies remain unchanged. No launcher or deployed runtime changed. Phase 4 dual-generation HTTP is next.
+Active adoption milestone since 2026-08-06. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Phases 1-3 established the compatibility contract, qualified SDK `v1.7.0`, and implemented stdio gating. Phase 4 now routes exact `2026-07-28` HTTP traffic to a stateless SDK handler and supported legacy traffic to the existing stateful handler behind the same hardened endpoint. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. The 27 tools, three prompts, process roots, backup store, and security policies remain shared. No launcher or deployed runtime changed. Phase 5 compatibility and conformance is next.
 
 ## Goal
 
@@ -639,7 +639,7 @@ Adopt final MCP protocol version `2026-07-28` through an official stable Go SDK 
 
 - The main dependency graph must not use a pre-release or pseudo-version SDK.
 - Source SDK `v1.7.0` is authoritative for R20 implementation; publication and deployment remain separately governed until later approval.
-- Stdio may offer `2026-07-28` only when startup roots are configured; deprecated client roots remain a legacy-only compatibility path.
+- Stdio may offer `2026-07-28` when startup roots are configured or client roots are disabled; any session that still depends on deprecated client roots remains on the legacy compatibility path.
 - HTTP keeps one endpoint and one outer security/admission pipeline, with separate stateful legacy and stateless new-protocol SDK handlers.
 - Authentication, Host, Origin, proxy trust, rate, body budgets, concurrency, timeouts, logging, execution gates, readiness, and shutdown stay common across versions.
 - Stateless requests create no session, emit no session ID, use no event store, and consume no legacy session capacity.
@@ -652,8 +652,8 @@ Adopt final MCP protocol version `2026-07-28` through an official stable Go SDK 
 - [x] Phase 1 — Define the compatibility boundary, stable-SDK adoption gate, transport architecture, roots deprecation strategy, tests, risks, and completion gate.
 - [x] Phase 2 — Qualified official stable Go SDK `v1.7.0` through a reversible temporary module change, completed API/security review, and recorded the required stdio middleware-gate design correction.
 - [x] Phase 3 — Updated to stable SDK `v1.7.0`; enabled modern stdio discovery for configured-root and roots-disabled sessions; retained deterministic legacy initialization and roots notifications through a pre-discovery middleware gate when startup directories are absent.
-- [ ] Phase 4 — Implement same-endpoint dual-generation HTTP behind the existing hardened middleware, with stateful legacy sessions and stateless new-protocol cancellation.
-- [ ] Phase 5 — Complete conformance, downgrade, malformed-header, interoperability, security failure-injection, race, fuzz, six-target, native, and container gates.
+- [x] Phase 4 — Implemented same-endpoint dual-generation HTTP behind the existing hardened middleware, with exact version routing, stateful legacy sessions, stateless `2026-07-28`, strict malformed-header rejection, cancellation propagation, and no stateless session admission.
+- [ ] Phase 5 — Complete conformance, downgrade, interoperability, security failure-injection, fuzz, native, and container gates while repeating race, static-analysis, vulnerability, and six-target verification.
 - [ ] Phase 6 — Align migration, security, publishing, and completion documentation without changing the published runtime unless separately authorized.
 
 ## Completion gate

@@ -8,7 +8,7 @@ R12 defines the trust model, secure defaults, configuration contract, request pi
 
 R12 approved this design before implementation. R13 implements it with the pinned MCP Go SDK while preserving stdio.
 
-R20 defines the future MCP `2026-07-28` adoption boundary in [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Until its stable-SDK and implementation gates pass, this document's stateful `2025-11-25` behavior remains authoritative. R20 must add any stateless handler behind the same Host, Origin, authentication, proxy, rate, body, concurrency, timeout, logging, execution, readiness, and shutdown controls; it must not weaken or bypass the verified R13 path.
+R20 extends this design through [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Phase 4 is complete in source: the same endpoint and outer security pipeline now route supported legacy versions to the verified stateful handler and exact `2026-07-28` to a stateless SDK handler. Host, Origin, authentication, proxy, rate, body, concurrency, timeout, logging, execution, readiness, and shutdown controls remain common; only legacy traffic enters session admission.
 
 ## Security objectives
 
@@ -222,30 +222,32 @@ The HTTP middleware order is security-significant:
 5. apply per-peer rate limiting;
 6. serve minimal health/readiness routes when applicable;
 7. authenticate the bearer token for the MCP endpoint;
-8. enforce global concurrent-request admission;
-9. enforce method, path, header, per-request body, and aggregate in-flight body limits;
-10. admit or locate the MCP session;
-11. delegate to the pinned SDK Streamable HTTP handler;
-12. emit a redacted access-log record.
+8. validate transport method and protocol-version header shape;
+9. enforce global non-SSE concurrent-request admission plus per-request and aggregate body limits;
+10. route exact `2026-07-28` to the stateless SDK handler or supported legacy traffic to the stateful SDK handler;
+11. admit or locate an MCP session only on the legacy stateful path;
+12. delegate to the selected pinned SDK Streamable HTTP handler;
+13. emit a redacted access-log record.
 
 Failures are rejected at the earliest safe stage and must not initialize an MCP session.
 
 ## HTTP methods and protocol behavior
 
-- The MCP endpoint supports stateful `POST`, `GET`, and `DELETE` according to Streamable HTTP.
-- Other methods return `405 Method Not Allowed` with an accurate `Allow` header.
-- `POST` requires an accepted MCP content type and a bounded body.
-- `GET` is reserved for the authenticated SSE stream of an existing session.
-- `DELETE` terminates the authenticated session identified by `MCP-Session-Id`.
-- Requests after initialization must carry a supported `MCP-Protocol-Version`.
-- A missing required session identifier returns `400`.
-- An unknown, expired, or terminated session returns `404`.
-- A session bound to another principal returns `403`.
-- Malformed JSON, invalid batches, content-type errors, and unsupported protocol versions produce deterministic client errors without stack traces.
+- Supported legacy protocol versions retain stateful `POST`, `GET`, and `DELETE` according to Streamable HTTP.
+- Exact `2026-07-28` uses stateless `POST` only; `GET` and `DELETE` return `405 Method Not Allowed` with `Allow: POST`.
+- `POST` requires an accepted MCP content type and a bounded body on both generations.
+- Legacy `GET` remains the authenticated SSE stream of an existing session, and legacy `DELETE` terminates the authenticated session identified by `Mcp-Session-Id`.
+- Requests after legacy initialization must carry one of the exact supported legacy `Mcp-Protocol-Version` values.
+- Any `Mcp-Session-Id` header on exact `2026-07-28` is rejected rather than ignored.
+- `Last-Event-ID` remains rejected for both generations because no event store is configured.
+- A missing required legacy session identifier returns `400`; an unknown, expired, or terminated legacy session returns `404`; a session bound to another principal returns `403`.
+- Malformed, repeated, empty, contradictory, comma-joined, or unsupported protocol-version values fail before SDK dispatch.
+- `Mcp-Method` and `Mcp-Name` are untrusted metadata; SDK header/body consistency validation remains authoritative after routing.
+- Malformed JSON, invalid batches, content-type errors, and protocol validation failures produce deterministic client errors without stack traces.
 
 ## Session policy
 
-R13 uses stateful sessions with these rules. These rules remain authoritative for legacy protocol requests after R20; future `2026-07-28` stateless requests must bypass session admission entirely rather than emulate a hidden protocol session.
+R13 uses stateful sessions with these rules. They remain authoritative for legacy protocol requests after R20. Exact `2026-07-28` requests now bypass session admission entirely and do not emulate a hidden protocol session.
 
 - session identifiers use the pinned SDK default `crypto/rand.Text` generator and are not replaced by predictable application IDs;
 - a session identifier is routing state, not authentication;
@@ -280,8 +282,8 @@ All clients sharing one static token share one authenticated principal. A truste
 - Header bytes are bounded at the `http.Server` layer.
 - A process-wide semaphore caps active non-SSE HTTP handlers at 64. Long-lived SSE streams are bounded by the session limit.
 - A per-peer token bucket allows 20 requests per second with a burst of 40.
-- The existing `MCP_MAX_SESSIONS` limit caps live sessions.
-- Session creation, authentication failures, malformed requests, GET streams, and DELETE requests all consume rate budget.
+- The existing `MCP_MAX_SESSIONS` limit caps live legacy sessions only; stateless `2026-07-28` traffic neither reserves nor consumes session capacity.
+- Session creation, authentication failures, malformed requests, legacy GET streams, legacy DELETE requests, and stateless POST requests all consume rate budget.
 - Rate or concurrency saturation returns `429` with a bounded `Retry-After` value.
 - Per-peer limiter state is capped at 4096 entries, evicts least-recently-used inactive peers, and removes entries after 10 minutes without activity.
 - Admission state is garbage-collected after inactivity and remains bounded even under source-address churn.
@@ -356,16 +358,17 @@ The existing tool middleware can log human-readable failure messages that may in
 
 ## SDK integration constraints
 
-R13 uses the pinned `github.com/modelcontextprotocol/go-sdk` Streamable HTTP handler with explicit outer controls:
+R13 introduced the pinned `github.com/modelcontextprotocol/go-sdk` stateful Streamable HTTP handler, and R20 Phase 4 adds a second stateless handler behind the same explicit outer controls:
 
-- return the same R11-built `*mcp.Server` for every session;
+- return the same R11-built `*mcp.Server` for every legacy session and every stateless request;
 - keep SDK localhost protection enabled;
 - add an explicit all-method Origin validator because browser protection for unsafe methods alone is insufficient for MCP GET streams;
 - bound the body before the SDK can call `io.ReadAll`, while avoiding an additional full-body copy and enforcing an aggregate reservation budget;
 - keep `EventStore` unset;
-- configure the SDK session idle timeout;
-- populate authenticated principal information in context for SDK session binding;
-- implement an outer bounded session-admission tracker because SDK session storage is internal;
+- configure the stateful SDK session idle timeout;
+- configure the stateless SDK handler with `Stateless`, the same bounded SDK body limit, and `PropagateRequestCancellation`;
+- populate authenticated principal information in context for legacy SDK session binding;
+- implement an outer bounded session-admission tracker because legacy SDK session storage is internal, while stateless traffic bypasses that tracker;
 - use one idempotent lifecycle record per admitted session to prevent capacity leaks or double release;
 - keep the R11 handler logger disabled for HTTP until category-only path-redacted logging exists;
 - coordinate HTTP shutdown without relying on the SDK's unexported test-only close-all helper.
@@ -413,9 +416,14 @@ No SDK fork or new dependency is planned unless R13 proves that these requiremen
 - limiter state is bounded and expires;
 - slow headers, slow bodies, disconnected clients, and stalled SSE streams do not leak goroutines or admission permits.
 
-### Sessions
+### Protocol generations and sessions
 
-- session IDs are non-empty, globally unique in the test population, and valid visible ASCII;
+- exact `2026-07-28` negotiates stateless HTTP, emits no session identifier, and leaves legacy session counts unchanged even when legacy capacity is full;
+- absent-version legacy initialization and all four exact supported legacy versions route to the stateful handler;
+- empty, duplicate, contradictory, comma-joined, malformed, and unsupported protocol-version values fail before SDK dispatch;
+- modern `GET`, `DELETE`, `Last-Event-ID`, and any session header are rejected;
+- a contradictory standard method header and JSON-RPC method is rejected by SDK validation;
+- session IDs are non-empty, globally unique in the legacy test population, and valid visible ASCII;
 - missing session header returns `400` where required;
 - unknown or expired session returns `404`;
 - a different authenticated principal cannot reuse a session;

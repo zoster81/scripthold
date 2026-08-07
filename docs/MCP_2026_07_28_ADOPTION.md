@@ -2,11 +2,11 @@
 
 ## Status
 
-**R20 phase 3 is complete in source. Stdio now negotiates `2026-07-28` only when filesystem authority does not depend on deprecated client roots, while the legacy roots path deterministically falls back to `2025-11-25`. Phase 4 is next; no published runtime or deployment has changed.**
+**R20 phase 4 is complete in source. Stdio and same-endpoint Streamable HTTP now support `2026-07-28` without depending on deprecated client roots or protocol sessions, while supported legacy HTTP remains stateful and legacy stdio roots still fall back deterministically to `2025-11-25`. Phase 5 compatibility and conformance is next; no published runtime or deployment has changed.**
 
 This document defines the compatibility boundary, transport architecture, security invariants, implementation phases, and verification gate for adopting Model Context Protocol version `2026-07-28` while retaining the existing `2025-11-25` behavior.
 
-The R20 source baseline now uses official stable `github.com/modelcontextprotocol/go-sdk v1.7.0`, which supports final protocol version `2026-07-28`. Phase 2 qualified the release and Phase 3 implements the reviewed stdio negotiation gate. Publication and runtime adoption remain separate later decisions.
+The R20 source baseline now uses official stable `github.com/modelcontextprotocol/go-sdk v1.7.0`, which supports final protocol version `2026-07-28`. Phase 2 qualified the release, Phase 3 implements stdio negotiation, and Phase 4 implements same-endpoint stateful/stateless HTTP routing. Publication and runtime adoption remain separate later decisions.
 
 Authoritative external references:
 
@@ -17,17 +17,16 @@ Authoritative external references:
 
 ## Current baseline
 
-The existing implementation intentionally provides two stable transport profiles:
+The implementation intentionally provides one shared server through two transports and two HTTP protocol generations:
 
 - stdio through one SDK transport and the shared `filetoolsserver.BuildServer` server;
-- authenticated stateful Streamable HTTP through a hardened outer handler and the SDK stateful handler.
+- authenticated Streamable HTTP through one hardened outer handler that routes to either a legacy stateful SDK handler or a `2026-07-28` stateless SDK handler.
 
-The HTTP profile currently depends on protocol-level sessions:
+The HTTP generations preserve distinct protocol state while sharing process policy:
 
-- initialization creates an `Mcp-Session-Id`;
-- an application session gate reserves capacity before initialization;
-- later `POST`, `GET`, and `DELETE` requests reauthenticate and address that session;
-- session expiry, shutdown, SSE behavior, request admission, and cancellation have explicit tests;
+- legacy initialization creates an `Mcp-Session-Id`, reserves application session capacity, and retains authenticated `POST`, `GET`, `DELETE`, idle timeout, and SSE semantics;
+- exact `2026-07-28` requests use authenticated stateless `POST`, emit no session identifier, reserve no legacy session capacity, and propagate disconnect cancellation through the SDK stateless option;
+- malformed, duplicate, empty, contradictory, and unsupported protocol-version headers fail before SDK dispatch;
 - `Last-Event-ID` replay remains disabled because no event store is configured.
 
 The stdio profile may use legacy MCP client roots only when no startup allowed directories were supplied. Roots are informational compatibility input, not an access-control boundary. Process-wide normalized allowed directories remain authoritative.
@@ -154,6 +153,32 @@ Verification evidence:
 - temporary build outputs were removed, and no launcher, active runtime, deployment, release, tag, or push changed.
 
 Official protocol conformance, an independent client, fuzzing, native external smoke, and container validation remain Phase 5 work.
+
+## Phase 4 implementation record
+
+Completed in source on 2026-08-07.
+
+HTTP routing behavior:
+
+- the existing `/mcp` endpoint retains one Host, Origin, bearer-authentication, trusted-proxy, rate, concurrency, body-budget, timeout, logging, execution, readiness, and shutdown pipeline;
+- the outer handler accepts exactly the five protocol versions supported by SDK `v1.7.0`: `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05`;
+- an absent protocol-version header remains valid only as the legacy initialization route, the four exact legacy versions route to the stateful handler, and exact `2026-07-28` routes to the stateless handler;
+- repeated, empty, comma-joined, malformed, future, or otherwise unsupported version values fail with a client error before either SDK handler runs;
+- the stateless handler enables `Stateless`, the configured SDK body bound, and `PropagateRequestCancellation`; it accepts only authenticated `POST`, rejects any `Mcp-Session-Id`, and never creates, acquires, releases, or consumes capacity in the legacy session tracker;
+- the legacy handler retains stateful initialization, session IDs, authenticated `POST`/`GET`/`DELETE`, SSE, idle expiry, explicit deletion, and the existing bounded session gate;
+- `Mcp-Method` and `Mcp-Name` remain untrusted network metadata: the application does not authorize from them, and a deliberately contradictory `Mcp-Method` is rejected by SDK header/body validation;
+- both generations use the same `*mcp.Server`, 27 tools, three prompts, process roots, backup store, execution policy, and tool limits.
+
+Verification evidence:
+
+- TDD first proved that the pre-Phase-4 HTTP path negotiated only `2025-11-25`; the new modern-routing test then passed only after the stateless handler was added;
+- focused routing tests cover exact modern/legacy versions, absent legacy initialization, malformed/repeated/contradictory headers, modern GET/DELETE/session-header rejection, no stateless session admission, a full legacy session gate, body-limit enforcement before SDK dispatch, SDK method-header mismatch rejection, 27 tools, three prompts, and modern disconnect cancellation;
+- the complete HTTP package plus focused server/CLI integration pass, followed by the complete serial Go suite;
+- every Go package passes the race detector with CGO/GCC, `go vet`, Staticcheck, govulncheck, `go mod verify`, and clean `go mod tidy -diff`;
+- the 27-tool stdio harness, current Node release tests, and Windows/Linux/macOS amd64/arm64 builds pass, with temporary build outputs removed;
+- no launcher, deployed runtime, release, tag, or push changed.
+
+Official protocol conformance, independent-client interoperability, bounded fuzz campaigns, native external smoke, and container validation remain Phase 5 work.
 
 ## Transport architecture
 
@@ -402,8 +427,8 @@ Legacy stateful sessions remain accepted on the same endpoint. New stateless beh
 1. **Design and readiness — complete.** The compatibility contract, protocol coupling, and stable-SDK gate are approved.
 2. **Stable SDK qualification — complete.** Official stable `v1.7.0` passed reversible dependency, API, security, compatibility, race, vulnerability, catalog, and six-target qualification without changing the committed module graph.
 3. **Stdio version gating — complete.** Modern discovery is enabled for configured-root and roots-disabled sessions; a pre-discovery middleware gate retains legacy initialization and dynamic roots when startup directories are absent.
-4. **Dual-generation HTTP — next.** Add shared version validation and separate stateful/stateless SDK handlers behind the existing hardened middleware, with request cancellation and no stateless session admission.
-5. **Compatibility and conformance.** Complete official conformance, old/new client interoperability, security failure injection, race, fuzz, six-target, native, and container checks.
+4. **Dual-generation HTTP — complete.** Exact version routing now selects separate stateful legacy and stateless `2026-07-28` SDK handlers behind the shared hardened middleware, with strict header rejection, stateless cancellation, and no stateless session admission.
+5. **Compatibility and conformance — next.** Complete official conformance, old/new client interoperability, security failure injection, fuzz, native, and container checks while repeating the established race, static, vulnerability, and six-target gates.
 6. **Documentation and completion.** Update protocol/security references, migration guidance, publishing notes, and the completion record without changing the published runtime unless separately authorized.
 
 ## Completion gate

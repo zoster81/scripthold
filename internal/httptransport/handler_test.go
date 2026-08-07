@@ -303,7 +303,7 @@ func TestHandlerRejectsAggregateBodySaturation(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	h.mcpHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h.legacyMCPHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(started)
 		<-release
 		w.WriteHeader(http.StatusAccepted)
@@ -450,27 +450,15 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		}
 	}
 
-	notification, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		unstarted.URL+cfg.Path,
-		strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`),
-	)
-	if err != nil {
-		t.Fatal(err)
+	legacySessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
+	initialized := legacyRequest(t, ctx, http.MethodPost, unstarted.URL+cfg.Path,
+		`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`, legacySessionID)
+	if initialized.StatusCode != http.StatusAccepted {
+		t.Fatalf("legacy initialized status = %d, body %q", initialized.StatusCode, readBody(t, initialized))
 	}
-	notification.Header.Set("Authorization", "Bearer "+testToken)
-	notification.Header.Set("Content-Type", "application/json")
-	notification.Header.Set("Accept", "application/json, text/event-stream")
-	notification.Header.Set(sessionIDHeader, first.ID())
-	if initialized := first.InitializeResult(); initialized != nil {
-		notification.Header.Set(protocolVersionHeader, initialized.ProtocolVersion)
-	}
-	notification.Header.Set("Mcp-Method", "notifications/roots/list_changed")
-	response, err := http.DefaultClient.Do(notification)
-	if err != nil {
-		t.Fatalf("send roots notification: %v", err)
-	}
+	_ = initialized.Body.Close()
+	response := legacyRequest(t, ctx, http.MethodPost, unstarted.URL+cfg.Path,
+		`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`, legacySessionID)
 	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("roots notification status = %d, body %q", response.StatusCode, readBody(t, response))
 	}
@@ -482,6 +470,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 	if got := marshalJSON(t, rootsAfterNotification.StructuredContent); got != expectedRoots {
 		t.Fatalf("HTTP roots notification changed process roots: %s != %s", got, expectedRoots)
 	}
+	deletedLegacy := legacyRequest(t, ctx, http.MethodDelete, unstarted.URL+cfg.Path, "", legacySessionID)
+	_ = deletedLegacy.Body.Close()
 
 	path := filepath.Join(root, "shared-cp1251.txt")
 	writeResult, err := direct.CallTool(ctx, &mcp.CallToolParams{
@@ -963,7 +953,7 @@ func TestConcurrentRequestLimitRejectsSaturation(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	h.mcpHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h.legacyMCPHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(started)
 		<-release
 		w.WriteHeader(http.StatusAccepted)
@@ -1016,6 +1006,12 @@ func TestHTTPDisconnectCancelsToolContext(t *testing.T) {
 
 	session := connectHTTPClient(t, ctx, unstarted.URL+cfg.Path)
 	defer session.Close()
+	if initialization := session.InitializeResult(); initialization == nil || initialization.ProtocolVersion != protocolVersion20260728 {
+		t.Fatalf("disconnect test did not use modern HTTP: %#v", initialization)
+	}
+	if session.ID() != "" {
+		t.Fatalf("disconnect test unexpectedly created session %q", session.ID())
+	}
 	callCtx, cancelCall := context.WithCancel(ctx)
 	callDone := make(chan error, 1)
 	go func() {
@@ -1052,8 +1048,7 @@ func TestSessionIDsAreUniqueVisibleASCII(t *testing.T) {
 
 	seen := make(map[string]struct{})
 	for index := 0; index < 12; index++ {
-		session := connectHTTPClient(t, ctx, unstarted.URL+cfg.Path)
-		sessionID := session.ID()
+		sessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
 		if sessionID == "" {
 			t.Fatal("empty session ID")
 		}
@@ -1066,7 +1061,8 @@ func TestSessionIDsAreUniqueVisibleASCII(t *testing.T) {
 			t.Fatalf("duplicate session ID %q", sessionID)
 		}
 		seen[sessionID] = struct{}{}
-		_ = session.Close()
+		deleted := legacyRequest(t, ctx, http.MethodDelete, unstarted.URL+cfg.Path, "", sessionID)
+		_ = deleted.Body.Close()
 	}
 }
 
@@ -1084,11 +1080,32 @@ func TestSSEOnlySessionReleasesCapacityAfterIdleTimeout(t *testing.T) {
 	unstarted.Start()
 	defer unstarted.Close()
 
-	first := connectHTTPClient(t, ctx, unstarted.URL+cfg.Path)
-	defer first.Close()
+	firstSessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
+	initialized := legacyRequest(t, ctx, http.MethodPost, unstarted.URL+cfg.Path,
+		`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`, firstSessionID)
+	_ = initialized.Body.Close()
+
+	sseRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, unstarted.URL+cfg.Path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sseRequest.Header.Set("Authorization", "Bearer "+testToken)
+	sseRequest.Header.Set("Accept", "text/event-stream")
+	sseRequest.Header.Set(sessionIDHeader, firstSessionID)
+	sseRequest.Header.Set(protocolVersionHeader, protocolVersion20251125)
+	sseResponse, err := http.DefaultClient.Do(sseRequest)
+	if err != nil {
+		t.Fatalf("open legacy SSE stream: %v", err)
+	}
+	defer sseResponse.Body.Close()
+	if sseResponse.StatusCode != http.StatusOK {
+		t.Fatalf("legacy SSE status = %d, body %q", sseResponse.StatusCode, readBody(t, sseResponse))
+	}
+
 	time.Sleep(cfg.SessionTimeout + sessionTrackerGrace + 150*time.Millisecond)
-	second := connectHTTPClient(t, ctx, unstarted.URL+cfg.Path)
-	_ = second.Close()
+	secondSessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
+	deleted := legacyRequest(t, ctx, http.MethodDelete, unstarted.URL+cfg.Path, "", secondSessionID)
+	_ = deleted.Body.Close()
 }
 
 func TestSessionLimitReleasesAfterDelete(t *testing.T) {
@@ -1104,15 +1121,22 @@ func TestSessionLimitReleasesAfterDelete(t *testing.T) {
 	unstarted.Start()
 	defer unstarted.Close()
 
-	first := connectHTTPClient(t, ctx, unstarted.URL+cfg.Path)
-	if _, err := tryConnectHTTPClient(ctx, unstarted.URL+cfg.Path); err == nil {
-		t.Fatal("second session exceeded configured limit")
+	firstSessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
+	blocked := legacyInitializeResponse(t, ctx, unstarted.URL+cfg.Path)
+	if blocked.StatusCode != http.StatusTooManyRequests || blocked.Header.Get("Retry-After") == "" {
+		t.Fatalf("second legacy session status=%d retry-after=%q, want 429", blocked.StatusCode, blocked.Header.Get("Retry-After"))
 	}
-	if err := first.Close(); err != nil {
-		t.Fatalf("close first: %v", err)
+	_ = blocked.Body.Close()
+
+	deleted := legacyRequest(t, ctx, http.MethodDelete, unstarted.URL+cfg.Path, "", firstSessionID)
+	if deleted.StatusCode < 200 || deleted.StatusCode >= 300 {
+		t.Fatalf("delete first legacy session status = %d, body %q", deleted.StatusCode, readBody(t, deleted))
 	}
-	second := connectHTTPClient(t, ctx, unstarted.URL+cfg.Path)
-	_ = second.Close()
+	_ = deleted.Body.Close()
+
+	secondSessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
+	deleted = legacyRequest(t, ctx, http.MethodDelete, unstarted.URL+cfg.Path, "", secondSessionID)
+	_ = deleted.Body.Close()
 }
 
 func newTestHandler(t *testing.T, maxSessions int) *Handler {

@@ -39,7 +39,7 @@ func TestConcurrentHTTPLoadKeepsAdmissionStateBounded(t *testing.T) {
 
 	var active atomic.Int64
 	var maximum atomic.Int64
-	handler.mcpHandler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+	handler.legacyMCPHandler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		current := active.Add(1)
 		defer active.Add(-1)
 		for {

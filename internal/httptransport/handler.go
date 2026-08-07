@@ -20,46 +20,93 @@ import (
 )
 
 const (
-	sessionIDHeader       = "Mcp-Session-Id"
-	protocolVersionHeader = "Mcp-Protocol-Version"
-	maxForwardedHops      = 16
-	sessionTrackerGrace   = time.Second
-	postRequestTimeout    = time.Duration(internalexecution.MaximumTimeoutSeconds+60) * time.Second
+	sessionIDHeader         = "Mcp-Session-Id"
+	protocolVersionHeader   = "Mcp-Protocol-Version"
+	protocolVersion20260728 = "2026-07-28"
+	protocolVersion20251125 = "2025-11-25"
+	protocolVersion20250618 = "2025-06-18"
+	protocolVersion20250326 = "2025-03-26"
+	protocolVersion20241105 = "2024-11-05"
+	maxForwardedHops        = 16
+	sessionTrackerGrace     = time.Second
+	postRequestTimeout      = time.Duration(internalexecution.MaximumTimeoutSeconds+60) * time.Second
 )
+
+type protocolGeneration uint8
+
+const (
+	protocolGenerationLegacy protocolGeneration = iota
+	protocolGenerationModern
+)
+
+func classifyProtocolVersion(header http.Header) (protocolGeneration, error) {
+	values := header.Values(protocolVersionHeader)
+	if len(values) == 0 {
+		return protocolGenerationLegacy, nil
+	}
+	if len(values) != 1 {
+		return 0, fmt.Errorf("repeated %s header", protocolVersionHeader)
+	}
+	version := values[0]
+	if version == "" || strings.TrimSpace(version) != version || strings.Contains(version, ",") {
+		return 0, fmt.Errorf("invalid %s header", protocolVersionHeader)
+	}
+	switch version {
+	case protocolVersion20260728:
+		return protocolGenerationModern, nil
+	case protocolVersion20251125, protocolVersion20250618, protocolVersion20250326, protocolVersion20241105:
+		return protocolGenerationLegacy, nil
+	default:
+		return 0, fmt.Errorf("unsupported %s header", protocolVersionHeader)
+	}
+}
 
 // Handler applies the approved HTTP security policy before delegating to the
 // pinned MCP Streamable HTTP implementation.
 type Handler struct {
-	config       Config
-	logger       *slog.Logger
-	mcpHandler   http.Handler
-	authHandler  http.Handler
-	concurrency  chan struct{}
-	bodyBudget   *byteBudget
-	sessions     *sessionGate
-	limiter      *peerLimiter
-	ready        atomic.Bool
-	shuttingDown atomic.Bool
+	config           Config
+	logger           *slog.Logger
+	legacyMCPHandler http.Handler
+	modernMCPHandler http.Handler
+	authHandler      http.Handler
+	concurrency      chan struct{}
+	bodyBudget       *byteBudget
+	sessions         *sessionGate
+	limiter          *peerLimiter
+	ready            atomic.Bool
+	shuttingDown     atomic.Bool
 }
 
 // NewHandler creates the secured HTTP handler for one shared MCP server.
 func NewHandler(config Config, server *mcp.Server, logger *slog.Logger) *Handler {
 	discardLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	streamable := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return server },
+	serverForRequest := func(*http.Request) *mcp.Server { return server }
+	legacyStreamable := mcp.NewStreamableHTTPHandler(
+		serverForRequest,
 		&mcp.StreamableHTTPOptions{
-			Logger:         discardLogger,
-			SessionTimeout: config.SessionTimeout,
+			Logger:              discardLogger,
+			SessionTimeout:      config.SessionTimeout,
+			MaxRequestBodyBytes: config.MaxBodyBytes,
+		},
+	)
+	modernStreamable := mcp.NewStreamableHTTPHandler(
+		serverForRequest,
+		&mcp.StreamableHTTPOptions{
+			Logger:                       discardLogger,
+			Stateless:                    true,
+			MaxRequestBodyBytes:          config.MaxBodyBytes,
+			PropagateRequestCancellation: true,
 		},
 	)
 
 	handler := &Handler{
-		config:      config,
-		logger:      logger,
-		mcpHandler:  streamable,
-		concurrency: make(chan struct{}, config.MaxConcurrentRequests),
-		bodyBudget:  newByteBudget(config.MaxInFlightBodyBytes),
-		sessions:    newSessionGate(config.MaxSessions, config.SessionTimeout+sessionTrackerGrace),
+		config:           config,
+		logger:           logger,
+		legacyMCPHandler: legacyStreamable,
+		modernMCPHandler: modernStreamable,
+		concurrency:      make(chan struct{}, config.MaxConcurrentRequests),
+		bodyBudget:       newByteBudget(config.MaxInFlightBodyBytes),
+		sessions:         newSessionGate(config.MaxSessions, config.SessionTimeout+sessionTrackerGrace),
 		limiter: newPeerLimiter(
 			defaultRatePerSec,
 			defaultRateBurst,
@@ -193,6 +240,23 @@ func (handler *Handler) serveAuthenticated(w http.ResponseWriter, request *http.
 		return
 	}
 
+	generation, err := classifyProtocolVersion(request.Header)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	if generation == protocolGenerationModern {
+		if request.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if len(request.Header.Values(sessionIDHeader)) != 0 {
+			http.Error(w, "MCP session IDs are not supported by this protocol version", http.StatusBadRequest)
+			return
+		}
+	}
+
 	if request.Method != http.MethodGet {
 		select {
 		case handler.concurrency <- struct{}{}:
@@ -216,6 +280,16 @@ func (handler *Handler) serveAuthenticated(w http.ResponseWriter, request *http.
 		ctx, cancel := context.WithTimeout(request.Context(), postRequestTimeout)
 		defer cancel()
 		request = request.WithContext(ctx)
+	}
+
+	if generation == protocolGenerationModern {
+		recorder := newStatusRecorder(w)
+		delegate := http.ResponseWriter(recorder)
+		if boundedBody != nil {
+			delegate = newBodyLimitResponseWriter(recorder, boundedBody)
+		}
+		handler.modernMCPHandler.ServeHTTP(delegate, request)
+		return
 	}
 
 	sessionID := request.Header.Get(sessionIDHeader)
@@ -252,7 +326,7 @@ func (handler *Handler) serveAuthenticated(w http.ResponseWriter, request *http.
 	if boundedBody != nil {
 		delegate = newBodyLimitResponseWriter(recorder, boundedBody)
 	}
-	handler.mcpHandler.ServeHTTP(delegate, request)
+	handler.legacyMCPHandler.ServeHTTP(delegate, request)
 	status := recorder.statusCode()
 
 	if reservation != nil {
