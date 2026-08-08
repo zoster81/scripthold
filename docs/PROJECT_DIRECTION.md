@@ -16,13 +16,13 @@ Scripthold is a secure local workspace runtime that lets web-based and local AI 
 
 Scripthold is a secure, encoding-aware MCP filesystem service for local, tunneled, containerized, and explicitly secured network deployments. Its supported scope includes:
 
-- the same authoritative 27-tool unreleased source catalog over stdio and native stateful Streamable HTTP;
+- the same authoritative 27-tool current source catalog over stdio and Streamable HTTP;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, and missing-ancestor validation;
 - bounded-memory decoding, reading, grep, conversion, line-ending, and BOM operations across 24 registered encodings;
 - durable staged mutations with practical concurrent-change detection, no-replace creation, backup rollback, and platform-specific synchronization;
 - an optional dedicated persistent backup store with immutable content-addressed objects, checksummed manifests, bounded management/audit, approval-bound pre-state capture for prepared edits and patch packages, one-shot original-target restore, explicit generation-bound garbage collection, and a separate mutation-free offline diagnostic command for existing stores;
 - transport-independent error categories and tool metadata;
-- a controlled MCP `2026-07-28` adoption path that preserves legacy stdio and stateful HTTP until a stable official Go SDK can provide stateless compatibility without weakening the shared security boundary;
+- MCP `2026-07-28` support through official stable Go SDK `v1.7.0`, with modern stdio gating and stateless HTTP while preserving roots-dependent legacy stdio and stateful HTTP behind the same shared security boundary;
 - optional `run_script` and unrestricted `shell` tools, both disabled by default, with an additional execution gate for HTTP;
 - reproducible multi-platform releases, checksum-driven MCP Registry publication, and a non-root transport-neutral container.
 
@@ -33,7 +33,7 @@ Binary or media interpretation remains outside the server's scope. Per-agent fil
 | Transport | Intended use | Authentication boundary | Directory policy |
 |---|---|---|---|
 | stdio | Client-managed local processes, desktop/CLI MCP clients, and secure tunnel bridges | Operating-system process and client configuration | Startup directories are authoritative; dynamic client roots are accepted only when no directories were configured at startup |
-| stateful Streamable HTTP | Persistent local services, containers, trusted reverse proxies, and explicitly secured remote deployments | Bearer token on every MCP request; loopback by default; TLS or a trusted proxy boundary for non-loopback listeners | Startup directories are immutable and shared by every HTTP session; HTTP client roots are disabled |
+| Streamable HTTP | Persistent local services, containers, trusted reverse proxies, and explicitly secured remote deployments | Bearer token on every MCP request; loopback by default; TLS or a trusted proxy boundary for non-loopback listeners | Startup directories are immutable and shared by all HTTP requests; legacy sessions remain stateful while MCP `2026-07-28` requests are stateless |
 
 Both transports construct the server through the same `BuildServer` path and expose the same tools, limits, execution policy, encoding behavior, and typed errors. The HTTP-specific threat model and deployment rules are defined in [HTTP_SECURITY.md](HTTP_SECURITY.md).
 

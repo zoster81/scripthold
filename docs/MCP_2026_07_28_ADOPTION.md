@@ -2,7 +2,7 @@
 
 ## Status
 
-**R20 phase 4 is complete in source. Stdio and same-endpoint Streamable HTTP now support `2026-07-28` without depending on deprecated client roots or protocol sessions, while supported legacy HTTP remains stateful and legacy stdio roots still fall back deterministically to `2025-11-25`. Phase 5 compatibility and conformance is next; no published runtime or deployment has changed.**
+**R20 is complete in source. Stdio and same-endpoint Streamable HTTP support `2026-07-28` without depending on deprecated client roots or protocol sessions, supported legacy HTTP remains stateful, and legacy stdio roots still fall back deterministically to `2025-11-25`. Compatibility, conformance, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The R20 source remains unreleased and is not present in the deployed `2.0.0` binary.**
 
 This document defines the compatibility boundary, transport architecture, security invariants, implementation phases, and verification gate for adopting Model Context Protocol version `2026-07-28` while retaining the existing `2025-11-25` behavior.
 
@@ -26,7 +26,7 @@ The HTTP generations preserve distinct protocol state while sharing process poli
 
 - legacy initialization creates an `Mcp-Session-Id`, reserves application session capacity, and retains authenticated `POST`, `GET`, `DELETE`, idle timeout, and SSE semantics;
 - exact `2026-07-28` requests use authenticated stateless `POST`, emit no session identifier, reserve no legacy session capacity, and propagate disconnect cancellation through the SDK stateless option;
-- malformed, duplicate, empty, contradictory, and unsupported protocol-version headers fail before SDK dispatch;
+- malformed, duplicate, empty, comma-joined, and whitespace-variant protocol-version headers fail before SDK dispatch, while any other exact unsupported singleton is routed only to the stateless SDK error path so it can return the protocol-defined structured unsupported-version response without creating session state;
 - `Last-Event-ID` replay remains disabled because no event store is configured.
 
 The stdio profile may use legacy MCP client roots only when no startup allowed directories were supplied. Roots are informational compatibility input, not an access-control boundary. Process-wide normalized allowed directories remain authoritative.
@@ -68,7 +68,7 @@ R20 does not add:
 - application-managed OAuth or an authorization server;
 - Enterprise Managed Authorization;
 - Multi Round-Trip Requests for tool confirmations or missing input;
-- list-result cache hints;
+- an application-selected positive list-result cache lifetime or cache policy;
 - distributed tracing export;
 - durable subscriptions or event replay;
 - server-side protocol session state for `2026-07-28`;
@@ -127,7 +127,7 @@ Verification evidence:
 - Windows, Linux, and macOS builds succeed for amd64 and arm64;
 - current release/manifest Node tests pass.
 
-The compatibility flags documented by `v1.7.0` were reviewed and none is enabled. Official protocol conformance, an independent client, fuzzing, native external smoke, and container validation remain Phase 5 work. No launcher, runtime, deployment, release, tag, commit, or push changed during qualification.
+The compatibility flags documented by `v1.7.0` were reviewed and none is enabled. Official protocol conformance, an independent client, fuzzing, native external smoke, and container validation were deferred to Phase 5 and are recorded below. No launcher, runtime, deployment, release, tag, commit, or push changed during qualification.
 
 ## Phase 3 implementation record
 
@@ -163,7 +163,7 @@ HTTP routing behavior:
 - the existing `/mcp` endpoint retains one Host, Origin, bearer-authentication, trusted-proxy, rate, concurrency, body-budget, timeout, logging, execution, readiness, and shutdown pipeline;
 - the outer handler accepts exactly the five protocol versions supported by SDK `v1.7.0`: `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05`;
 - an absent protocol-version header remains valid only as the legacy initialization route, the four exact legacy versions route to the stateful handler, and exact `2026-07-28` routes to the stateless handler;
-- repeated, empty, comma-joined, malformed, future, or otherwise unsupported version values fail with a client error before either SDK handler runs;
+- repeated, empty, comma-joined, and whitespace-variant version values fail before either SDK handler runs; an otherwise well-formed unsupported singleton is routed to the stateless SDK solely so it can return `UnsupportedProtocolVersionError` with HTTP `400` and the supported/requested version data;
 - the stateless handler enables `Stateless`, the configured SDK body bound, and `PropagateRequestCancellation`; it accepts only authenticated `POST`, rejects any `Mcp-Session-Id`, and never creates, acquires, releases, or consumes capacity in the legacy session tracker;
 - the legacy handler retains stateful initialization, session IDs, authenticated `POST`/`GET`/`DELETE`, SSE, idle expiry, explicit deletion, and the existing bounded session gate;
 - `Mcp-Method` and `Mcp-Name` remain untrusted network metadata: the application does not authorize from them, and a deliberately contradictory `Mcp-Method` is rejected by SDK header/body validation;
@@ -178,7 +178,39 @@ Verification evidence:
 - the 27-tool stdio harness, current Node release tests, and Windows/Linux/macOS amd64/arm64 builds pass, with temporary build outputs removed;
 - no launcher, deployed runtime, release, tag, or push changed.
 
-Official protocol conformance, independent-client interoperability, bounded fuzz campaigns, native external smoke, and container validation remain Phase 5 work.
+Official protocol conformance, independent-client interoperability, bounded fuzz campaigns, native external smoke, and container validation were deferred to Phase 5 and are recorded below.
+
+## Phase 5 compatibility and conformance record
+
+Completed in source on 2026-08-08.
+
+Compatibility findings and fixes:
+
+- official conformance first exposed one applicable defect: the outer HTTP router converted an otherwise well-formed unknown protocol version into a plain HTTP `400` before the SDK could return the required structured `UnsupportedProtocolVersionError`;
+- the router now distinguishes malformed header shape from an unsupported singleton. Malformed/repeated/empty/comma-joined/whitespace-variant values still fail at the outer boundary; an unsupported singleton enters only the stateless SDK error lane, never session admission, and returns JSON-RPC code `-32022` with HTTP `400` plus requested/supported version data;
+- the same change preserves every shared authentication, Host, Origin, proxy, rate, concurrency, body-budget, timeout, logging, execution, readiness, and shutdown control;
+- Go SDK `v1.7.0` discovery/list serialization was verified to emit default `ttlMs: 0` and `cacheScope: "public"`; Scripthold selects no positive cache lifetime;
+- execution-test infrastructure also reproduced a generic process-lifecycle edge where a descendant retaining inherited output handles could prolong `Wait` after its direct child exited. `internal/execution` now uses a bounded `Cmd.WaitDelay`, and the Windows process-tree helper has its own bounded termination timeout.
+
+Conformance and interoperability evidence:
+
+- `@modelcontextprotocol/conformance@0.2.0-alpha.10` was used only as external test tooling and is not part of the Go dependency graph;
+- the final `2026-07-28` `server-stateless` run reports 24/28 checks successful. The remaining four are explicitly `Not testable` because the product does not expose the conformance suite's artificial `test_missing_capability`, `test_streaming_elicitation`, or `test_logging_tool` diagnostic tools; the structured unsupported-version and HTTP-400 checks are successful;
+- the independent `http-header-validation` scenario passes 13/13 checks with no failures or warnings, covering method/name mismatch, missing headers, OWS handling, case-insensitive header names, and case-sensitive method values;
+- tools-list, prompts-list, DNS-rebinding, caching, and multi-stream scenarios produced successful applicable checks. The custom-header scenario is not applicable because Scripthold declares no `x-mcp-header` tool annotations;
+- on Windows, some alpha conformance invocations terminate in the Node/libuv harness after printing complete successful scenario results. Those post-result harness aborts are not counted as successful process exits and do not alter the individual protocol-check evidence;
+- independent TypeScript SDK `1.30.0` interoperability negotiates legacy `2025-11-25` with a real session and observes all 27 tools and three prompts. Modern `2026-07-28` behavior is independently exercised by the official conformance client.
+
+Verification evidence:
+
+- focused routing, security-failure, body/concurrency, cancellation, session-capacity, and structured-error tests pass;
+- the complete serial Go suite and complete race coverage pass, followed by `go vet`, Staticcheck, govulncheck, `go mod verify`, and clean `go mod tidy -diff`;
+- bounded fuzz campaigns pass for protocol classification, Host normalization, Origin normalization, trusted-proxy client-address parsing, and JSON-RPC round trips. The JSON-RPC harness excludes only the documented Go SDK `v1.7.0` empty-method decode/encode asymmetry from its round-trip invariant;
+- the full 27-tool operational harness and current Node release tests pass;
+- a native Windows binary built from the final worktree passes the external stdio MCP smoke;
+- Windows, Linux, and macOS amd64/arm64 command builds and affected command/HTTP/execution test binaries compile successfully;
+- a fresh Linux/amd64 container built from the final worktree passes UID `10001`, read-only-root, dropped-capability, `no-new-privileges`, bounded-tmpfs, stdio MCP, direct-TLS HTTP security responses, and clean shutdown checks. A local auxiliary cross-container DNS topology was unavailable in the OCI test backend, so the successful product checks use an in-container TLS client while the repository CI recipe remains the cross-container/external-network gate;
+- no push, tag, release, deployment, launcher modification, or runtime restart is part of this completion record.
 
 ## Transport architecture
 
@@ -218,7 +250,7 @@ The outer handler selects the protocol path only from the normalized `MCP-Protoc
 
 - exact `2026-07-28` routes to the stateless handler;
 - supported legacy versions and legacy initialization without a version header route to the stateful handler;
-- malformed, repeated, contradictory, or unsupported version headers fail before SDK dispatch;
+- malformed, repeated, empty, comma-joined, or whitespace-variant version headers fail before SDK dispatch; an exact unsupported singleton uses the stateless SDK error path only to produce the protocol-defined structured unsupported-version response;
 - `Mcp-Method` and `Mcp-Name` are never trusted for authorization or filesystem policy;
 - header/body method-name consistency remains an SDK protocol-validation responsibility and must be covered by negative tests.
 
@@ -291,9 +323,9 @@ No client-supplied discovery metadata changes process roots or tool registration
 
 ## Tool-list caching
 
-R20 does not initially emit `ttlMs` or `cacheScope` hints.
+The stable Go SDK `v1.7.0` structurally emits its default cache fields in discovery/list results: `ttlMs: 0` and `cacheScope: "public"`. Scripthold does not select a positive cache lifetime or otherwise opt into reusable list-result caching; a zero TTL means the result is immediately stale.
 
-Although this server's catalog is static after startup, caching semantics affect dynamic roots, prompt availability, execution policy, and future protocol behavior. Cache hints may be designed later after client interoperability evidence is available. Absence of cache hints preserves conservative existing behavior.
+Although this server's catalog is static after startup, any future positive cache lifetime would affect dynamic roots compatibility, prompt availability, execution policy, and later protocol behavior. Choosing a positive lifetime or a different application cache policy therefore remains separate future work.
 
 ## Multi Round-Trip Requests
 
@@ -428,11 +460,15 @@ Legacy stateful sessions remain accepted on the same endpoint. New stateless beh
 2. **Stable SDK qualification — complete.** Official stable `v1.7.0` passed reversible dependency, API, security, compatibility, race, vulnerability, catalog, and six-target qualification without changing the committed module graph.
 3. **Stdio version gating — complete.** Modern discovery is enabled for configured-root and roots-disabled sessions; a pre-discovery middleware gate retains legacy initialization and dynamic roots when startup directories are absent.
 4. **Dual-generation HTTP — complete.** Exact version routing now selects separate stateful legacy and stateless `2026-07-28` SDK handlers behind the shared hardened middleware, with strict header rejection, stateless cancellation, and no stateless session admission.
-5. **Compatibility and conformance — next.** Complete official conformance, old/new client interoperability, security failure injection, fuzz, native, and container checks while repeating the established race, static, vulnerability, and six-target gates.
-6. **Documentation and completion.** Update protocol/security references, migration guidance, publishing notes, and the completion record without changing the published runtime unless separately authorized.
+5. **Compatibility and conformance — complete.** Official conformance, independent legacy-client interoperability, security failure injection, bounded fuzz campaigns, native and hardened-container smoke, complete race coverage, static/vulnerability analysis, and six-target command/test compilation passed. The conformance run also exposed and drove the structured unsupported-version fix.
+6. **Documentation and completion — complete.** Protocol/security references, public status, publishing notes, cache-hint reality, and the completion record are aligned without changing the published runtime.
 
 ## Completion gate
 
 R20 is complete only when an official stable Go SDK supports final protocol `2026-07-28`; stdio and HTTP accept the new version without relying on deprecated roots or protocol sessions; supported legacy clients retain their current behavior; stateless and stateful HTTP share every security and resource-control boundary; tool catalogs and results remain equivalent; malformed and downgrade cases fail deterministically; and the complete focused, regression, race, static, vulnerability, conformance, six-target, native, container, documentation, and security verification matrix passes.
+
+## Completion record
+
+The gate completed in source on 2026-08-08. Stable Go SDK `v1.7.0` is the only production MCP SDK dependency; modern stdio and stateless HTTP are verified beside retained legacy behavior; official conformance drove and then verified the structured unsupported-version path; independent legacy interoperability, fuzzing, native and hardened-container smoke, complete Go/race/static/vulnerability checks, and all six supported build targets passed. The source catalog remains 27 tools with three prompts. The milestone remains unreleased and undeployed.
 
 No push, tag, release, deployment, launcher change, or runtime restart is part of the milestone without separate explicit authorization.

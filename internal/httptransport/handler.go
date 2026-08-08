@@ -37,6 +37,7 @@ type protocolGeneration uint8
 const (
 	protocolGenerationLegacy protocolGeneration = iota
 	protocolGenerationModern
+	protocolGenerationUnsupported
 )
 
 func classifyProtocolVersion(header http.Header) (protocolGeneration, error) {
@@ -57,7 +58,7 @@ func classifyProtocolVersion(header http.Header) (protocolGeneration, error) {
 	case protocolVersion20251125, protocolVersion20250618, protocolVersion20250326, protocolVersion20241105:
 		return protocolGenerationLegacy, nil
 	default:
-		return 0, fmt.Errorf("unsupported %s header", protocolVersionHeader)
+		return protocolGenerationUnsupported, nil
 	}
 }
 
@@ -245,7 +246,7 @@ func (handler *Handler) serveAuthenticated(w http.ResponseWriter, request *http.
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	if generation == protocolGenerationModern {
+	if generation != protocolGenerationLegacy {
 		if request.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -282,7 +283,7 @@ func (handler *Handler) serveAuthenticated(w http.ResponseWriter, request *http.
 		request = request.WithContext(ctx)
 	}
 
-	if generation == protocolGenerationModern {
+	if generation != protocolGenerationLegacy {
 		recorder := newStatusRecorder(w)
 		delegate := http.ResponseWriter(recorder)
 		if boundedBody != nil {

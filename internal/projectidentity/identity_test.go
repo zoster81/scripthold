@@ -42,7 +42,7 @@ func TestUpstreamReferencesAreDocumentationOnly(t *testing.T) {
 		"README.md":    1,
 		"CHANGELOG.md": 1,
 		filepath.FromSlash("docs/PROJECT_DIRECTION.md"): 2,
-		filepath.FromSlash("docs/PUBLISHING.md"):        3,
+		filepath.FromSlash("docs/PUBLISHING.md"):        1,
 	}
 	actualCounts := make(map[string]int)
 

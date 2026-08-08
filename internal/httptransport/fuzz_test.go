@@ -114,10 +114,61 @@ func FuzzTrustedProxyClientAddress(f *testing.F) {
 	})
 }
 
+func FuzzClassifyProtocolVersion(f *testing.F) {
+	for _, seed := range []string{
+		protocolVersion20260728,
+		protocolVersion20251125,
+		protocolVersion20250618,
+		protocolVersion20250326,
+		protocolVersion20241105,
+		"v999.0.0",
+		"2027-01-01",
+		"",
+		" 2026-07-28",
+		"2026-07-28,2025-11-25",
+	} {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, value string) {
+		if len(value) > 4096 {
+			t.Skip()
+		}
+		header := make(http.Header)
+		header.Set(protocolVersionHeader, value)
+		generation, err := classifyProtocolVersion(header)
+		invalidShape := value == "" || strings.TrimSpace(value) != value || strings.Contains(value, ",")
+		if invalidShape {
+			if err == nil {
+				t.Fatalf("invalid protocol header %q was accepted as generation %d", value, generation)
+			}
+			return
+		}
+		if err != nil {
+			t.Fatalf("singleton protocol header %q returned error: %v", value, err)
+		}
+		switch value {
+		case protocolVersion20260728:
+			if generation != protocolGenerationModern {
+				t.Fatalf("modern version classified as %d", generation)
+			}
+		case protocolVersion20251125, protocolVersion20250618, protocolVersion20250326, protocolVersion20241105:
+			if generation != protocolGenerationLegacy {
+				t.Fatalf("legacy version %q classified as %d", value, generation)
+			}
+		default:
+			if generation != protocolGenerationUnsupported {
+				t.Fatalf("unsupported version %q classified as %d", value, generation)
+			}
+		}
+	})
+}
+
 func FuzzJSONRPCMessageRoundTrip(f *testing.F) {
 	for _, seed := range [][]byte{
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`),
 		[]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`),
+		[]byte(`{"jsonrpc":"2.0","method":""}`),
 		[]byte(`{"jsonrpc":"2.0","id":"request","result":{}}`),
 		[]byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"invalid"}}`),
 		[]byte(`{}`),
@@ -132,6 +183,12 @@ func FuzzJSONRPCMessageRoundTrip(f *testing.F) {
 		}
 		message, err := jsonrpc.DecodeMessage(data)
 		if err != nil {
+			return
+		}
+		if request, ok := message.(*jsonrpc.Request); ok && request.Method == "" {
+			// SDK v1.7.0 preserves an explicitly empty method while decoding,
+			// but its encoder omits that empty field. Exclude only that known
+			// non-canonical SDK edge from the round-trip invariant.
 			return
 		}
 		encoded, err := jsonrpc.EncodeMessage(message)

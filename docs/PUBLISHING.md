@@ -1,44 +1,23 @@
 # Scripthold publishing notes
 
-This document describes release and distribution work for Scripthold, currently maintained in the `zoster81/scripthold` repository. The original project created by Dimitar Grigorov remains available at `dimitar-grigorov/mcp-file-tools` and is configured locally as the `upstream` Git remote.
+This document is the maintainer procedure for publishing Scripthold from `zoster81/scripthold`. Product direction, historical milestone evidence, and detailed security contracts live in their dedicated documents and are intentionally not repeated here.
 
 ## Current state
 
-- Product name: Scripthold
-- GitHub repository: `https://github.com/zoster81/scripthold`
-- Supported transports: stdio and native stateful Streamable HTTP, constructed from one shared server and 27-tool unreleased source catalog
-- Validated stdio deployment: client-managed local process and ChatGPT Web through the OpenAI Secure MCP Tunnel
-- Validated HTTP deployment: persistent authenticated loopback service; non-loopback deployments require the TLS or trusted-proxy controls in [HTTP_SECURITY.md](HTTP_SECURITY.md)
-- Fork update checker: `zoster81/scripthold` GitHub Releases
-- Completed foundations: shared text-document core (R1), secure filesystem walker (R2), durable atomic mutation layer (R3), typed operation errors (R4), bounded ordered concurrency (R5), shared execution preparation plus authoritative tool metadata (R6), conservative extension-independent encoding detection (R8), bounded-memory streaming (R9), public API compatibility cleanup with a 23-tool catalog (R10), transport-independent server construction plus lifecycle-aware stdio startup (R11), the approved Streamable HTTP threat model and secure defaults (R12), and native stateful Streamable HTTP with security and equivalence coverage (R13)
-- Completed milestone: R14 hardening, 2.0.0 publication, dual-transport deployment, active rollback, restoration, and final handoff
-- Completed milestone: R15 attributed agent-ergonomics and project-aware workflow improvements, preserving the existing 23-tool catalog and adding three transport-independent prompts; the implementation remains unreleased and undeployed
-- Completed development milestone: R16 verified change workflows; deterministic `fingerprint_paths`, bounded one-shot `edit_file` preview/apply, complete strict `patch_package` inspect/dry-run/apply/verify, and typed read-only `verify_state` checks are verified in the unreleased 26-tool R16 source catalog without changing the published 2.0.0 baseline
-- Completed development milestone: R18 persistent backups; the protected store, exact-byte capture/recovery/index/audit core, bounded `backup_store` review, original-target restore, explicit generation-bound GC, approval-bound `edit_file`, and conservative all-target required `patch_package` capture are implemented and verified while the unreleased catalog remains 27 tools and the published runtime remains unchanged
-- Completed development milestone: R19 offline backup-store diagnostics; the approved design, existing-store non-creating opener, bounded fail-soft scanner, strict JSON CLI, and complete cross-platform verification gate are implemented, while every repair, quarantine, salvage, migration, and other mutation capability remains unavailable
-- Active design milestone: R20 MCP `2026-07-28` adoption readiness; the stable `v1.6.1` Go SDK and current `2025-11-25` runtime remain unchanged while same-endpoint stateful/stateless compatibility is designed behind the existing HTTP security boundary, and pre-release SDK dependencies are explicitly forbidden
-- R14 container baseline: Go 1.26.5 builder, Alpine 3.24.1 runtime, static binary, UID/GID 10001, explicit `/data` root, temporary state under `/tmp`, and `SIGTERM` shutdown
-- R14 CI baseline: the GitHub Test workflow passes on Linux, Windows, and macOS, including the complete race detector and native binary MCP smoke; the Build workflow passes all six supported OS/architecture targets plus the hardened Ubuntu container stdio/direct-TLS HTTP gate
-- R14 local container baseline: the Linux/amd64 image builds from the pinned Dockerfile and passes UID/GID 10001, read-only root filesystem, dropped-capability, `no-new-privileges`, bounded-tmpfs, SDK-driven stdio MCP, direct-TLS HTTP, `401`/`403`/`405`/no-CORS, readiness, and clean `SIGTERM` runtime checks under rootless Podman
-- R14 GoReleaser baseline: archive entry owner, group, mode, and modification time are normalized to commit-derived values; two independent snapshots produce identical checksums for all six raw binaries and six platform archives
-- R14 release baseline: fork tag `v2.0.0` points to commit `1530fbb1eab529a1ef7236b4b3df8ab84a9a0d1d`; the release workflow passed on Linux, Windows, and macOS, published all six raw binaries, six archives, and `checksums.txt`, and completed MCP Registry publication
-- R14 Registry baseline: the published historical `io.github.zoster81/mcp-file-tools` version is `2.0.0`; the release-specific manifest contains 6 packages and 23 tools and was published through GitHub OIDC with MCP Publisher 1.7.9
-- R14 deployment baseline: the published Windows amd64 binary is active through both stdio and native Streamable HTTP; live checks passed for version identity, health/readiness, unauthenticated `401`, authenticated session initialization, and the complete 23-tool catalog
-- R14 rollback baseline: the retained R10 build passed an active 23-tool stdio rollback with the HTTP listener intentionally absent; the verified `2.0.0` launcher and runtime were restored, and repeated stdio plus authenticated Streamable HTTP checks passed
-- Authoritative product direction: [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md); plan: [ROADMAP.md](ROADMAP.md); HTTP security design: [HTTP_SECURITY.md](HTTP_SECURITY.md); migration guide: [MIGRATION_2.0.md](MIGRATION_2.0.md); reusable gates: [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md)
-- Release policy: semantic tags must match a dated changelog entry; `v2.0.0` is the first public 2.x release
-- Release source: the final fork-owned semantic tag, which must match the dated changelog entry, embedded binary version, and generated Registry version
-- Go module path: `github.com/zoster81/scripthold`
+- Public release: `2.0.0`, published before the Scripthold repository/asset/Registry rename and retained as the rollback baseline.
+- Next release: `2.1.0`, covering completed R15–R20 work from the current source.
+- Source catalog: 27 tools and 3 guided prompts over stdio and Streamable HTTP.
+- Protocols: MCP `2026-07-28` where roots policy permits it, with retained legacy compatibility; HTTP uses stateless modern requests beside stateful legacy sessions behind one security pipeline.
+- Registry: `2.0.0` remains under historical `io.github.zoster81/mcp-file-tools`; the next release uses `io.github.zoster81/scripthold`.
+- Assets: Scripthold-named releases use `scripthold_<os>_<arch>` names generated by `.goreleaser.yml`.
+- Module: `github.com/zoster81/scripthold`.
+- Release tags must match a dated `CHANGELOG.md` entry and the generated Registry version.
 
-The fork owns its Go module identity and all internal imports. Clone-and-build remains supported for development commits, while packaged installations use fork-owned semantic releases and their verified assets.
-
-R11 defines one process-wide authorization model for every transport: all connections or future HTTP sessions share the directories configured when the process starts, together with the same tool catalog, limits, execution flags, and errors. Sessions are lifecycle and concurrency units, not per-agent ACLs. Prompt instructions may narrow an agent's intended write scope, but technical isolation requires separate server processes and, for concurrent Git changes, separate checkouts or worktrees. Dynamic client roots remain a stdio-only fallback when no startup directories are configured; HTTP sessions must not mutate process roots.
-
-The released native HTTP transport preserves the mandatory [HTTP security design](HTTP_SECURITY.md): loopback by default, bearer authentication on every MCP request, exact Host and Origin validation, no CORS, bounded per-request and aggregate body memory, bounded sessions and request resources, redacted logging, and a second explicit execution opt-in.
+See [ROADMAP.md](ROADMAP.md) for the active 2.1.0 gate, [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) for reusable engineering checks, [HTTP_SECURITY.md](HTTP_SECURITY.md) for transport security, and [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) for lineage and maintenance policy.
 
 ## Fork release flow
 
-Use this flow for later fork-owned semantic releases. Development commits may be tested or deployed internally, but public tags require a dated changelog entry and the full applicable release gate.
+Use this flow for `2.1.0` and later fork-owned semantic releases. Development commits may be tested or deployed internally, but public tags require a dated changelog entry and the full applicable release gate.
 
 1. Ensure the release-scoped roadmap work is complete and `main` is clean, tested, and pushed to `origin`.
 2. Choose a semantic version that has not been used by this fork.
@@ -70,11 +49,11 @@ Use this flow for later fork-owned semantic releases. Development commits may be
 9. Verify the release asset names and SHA-256 values before announcing it.
 10. `.github/workflows/release.yml` invokes the reusable `.github/workflows/publish-registry.yml`, which generates and publishes the fork-owned `server.json` from those verified assets.
 
-The fork-owned Claude Code downloader plugin is removed for 2.0. This avoids a second release downloader, cache, checksum parser, and platform-mapping trust boundary. Claude Code users can configure the published binary directly as a normal stdio MCP server.
-
 ## Public launcher examples
 
 The tracked launchers are intentionally separate, single-transport reference examples. Operators may combine them in a private deployment launcher, but private credentials and machine-specific orchestration must remain outside the repository.
+
+A private combined launcher must normalize process identity across the object shapes it uses: `Start-Process -PassThru` exposes the process identifier as `Id`, while CIM process discovery exposes `ProcessId`. Persist PID files and compare ownership through one normalization helper rather than assuming either property exists universally. Shutdown cleanup must also be idempotent: a child that exits after its parent is stopped is already in the desired terminal state, not a cleanup failure. Validate the complete owned process topology before destructive actions and never broaden cleanup to unrelated process trees.
 
 `examples/start-openai-tunnel.ps1` is the public stdio-through-tunnel quick start. It must:
 
@@ -107,34 +86,9 @@ Real credentials belong in private copies outside the Git checkout.
 
 The source and next-release Registry identity is `io.github.zoster81/scripthold`. The already-published `2.0.0` record remains under the historical `io.github.zoster81/mcp-file-tools` identity and is not rewritten by the repository rename. The Scripthold template and generator have been validated locally with six packages and the authoritative 27-tool source projection, but no Scripthold Registry publication has occurred yet.
 
-## Upstream relationship
+## Project lineage
 
-The upstream Claude Code marketplace and upstream MCP Registry listing install the independent `dimitar-grigorov/mcp-file-tools` implementation. Upstream has continued to evolve its encoding-focused stdio product and has independently implemented several ideas also explored in this fork, including stronger path containment, durable writes, BOM and line-ending behavior, ordered work, BOMless UTF-16 detection, richer grep/edit workflows, MCP prompts, and `.gitignore`-aware traversal.
-
-R15 explicitly credits the original project for its line-number, richer grep, `.gitignore`, sorting, batch-conversion, prompt, patch, and fuzzy-edit features, together with the implementation approaches reviewed during design. The resulting code is reworked for this fork's stable 23-tool catalog, bounded-memory pipeline, durable mutation semantics, secure walker, process-wide roots, and stdio/Streamable HTTP equivalence rather than mechanically synchronized. This is treated as reciprocal exchange: useful functionality, implementation techniques, tests, and security improvements may flow in either direction.
-
-This fork is not an upstream synchronization branch. Its distinguishing scope includes native stateful Streamable HTTP, the reviewed HTTP security contract, optional execution tools, one process-wide multi-transport policy, stricter bounded-memory and durable-mutation guarantees, fork-owned release/Registry infrastructure, and tunnel/container deployment work. Cross-project ideas must be evaluated against each repository's current schemas and architecture rather than copied mechanically. See [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md).
-
-The fork does not publish a Claude Code marketplace plugin in 2.0. Its supported distribution surfaces are release binaries and archives, the container definition, Smithery metadata, and the fork-owned MCP Registry entry.
-
-## Upstream synchronization
-
-Use the two-remotes model:
-
-```text
-origin   -> https://github.com/zoster81/scripthold.git
-upstream -> https://github.com/dimitar-grigorov/mcp-file-tools.git
-```
-
-Fetch and review upstream changes without assuming that the histories remain directly mergeable:
-
-```bash
-git fetch upstream
-git log --oneline --left-right main...upstream/main
-git diff main...upstream/main
-```
-
-Adopt upstream ideas or isolated changes only after redesigning or reviewing them against this fork's roots, streaming, mutation, execution, transport, update-check, release, and deployment behavior. Do not merge or rebase upstream mechanically merely to reduce commit divergence.
+Scripthold remains an independent downstream fork of `dimitar-grigorov/mcp-file-tools` and preserves the original project's GPL-3.0 attribution. Upstream synchronization is not part of the release procedure; evaluate upstream ideas selectively under the maintenance policy in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md).
 
 ## Validation toolchain
 

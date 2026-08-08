@@ -51,42 +51,13 @@ Directories supplied when the process starts remain authoritative and cannot be 
 
 The fork-specific architecture includes authoritative process roots, Windows drive-root handling, optional local execution tools, a shared encoding/BOM-aware streaming text core, deterministic secure traversal, durable atomic mutations, transport-independent typed operation errors, bounded ordered concurrency and aggregate output budgets, shared process preparation, a transport-independent server builder, a fail-closed native Streamable HTTP transport, and an authoritative tool-metadata catalog. The upstream project remains the source of the original encoding-aware file-tool implementation.
 
-## Current Release Status
+## Release Status
 
-Version `2.0.0` completes the planned 2.x API cleanup, bounded-memory text pipeline, transport-independent server architecture, fail-closed native Streamable HTTP transport, cross-platform CI, reproducible packaging, and migration documentation. The release exposes the same 23-tool catalog through stdio and native Streamable HTTP while preserving process-wide allowed-directory policy and disabled-by-default execution tools.
+Version `2.0.0` is the current public release. It exposes 23 tools over stdio and authenticated stateful Streamable HTTP and remains the deployed rollback baseline.
 
-Release binaries and archives are produced for Windows, Linux, and macOS on amd64 and arm64. The published Windows build has also passed a live dual-transport deployment smoke: the stdio connector and an authenticated stateful HTTP session both exposed the complete 23-tool catalog from the same `2.0.0` binary. Credential rotation, service supervision, and rollback remain operator-controlled procedures documented in [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/PUBLISHING.md](docs/PUBLISHING.md).
+The current source is the planned `2.1.0` scope: R15–R20 are complete, the catalog contains 27 tools plus 3 guided prompts, persistent backup/restore/GC and offline backup diagnostics are implemented, and MCP `2026-07-28` is supported through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. See [docs/ROADMAP.md](docs/ROADMAP.md) for the remaining 2.1.0 release gates.
 
-Encoding detection is content-based. File extensions are not used to select or bias an encoding. Unicode BOMs and valid UTF-8 are authoritative. BOMless UTF-16 LE/BE is auto-detected only when structural and decoded-text evidence agree. Empty files are treated as assumed UTF-8; non-empty ambiguous input is reported explicitly and requires an `encoding` override in text operations.
-
-The semantic-tag release workflow validates each release tag against a dated changelog entry before generating binaries, archives, checksums, and Registry metadata.
-
-## Unreleased Development Features
-
-R15 is implemented and verified but remains unreleased and undeployed. It adds backward-compatible optional fields to the existing 23-tool catalog plus three transport-independent prompts: `audit_encodings`, `fix_mojibake`, and `migrate_to_utf8`. Recursive read/search workflows respect nested `.gitignore` rules by default, while mutation additions retain the existing full-document size limits, encoding/BOM-aware pipeline, durable staging, and concurrent-change checks.
-
-R16 is complete and verified in source. `fingerprint_paths` provides deterministic streamed SHA-256 state evidence, `edit_file` adds bounded one-shot `preview`/`apply`, `patch_package` exposes strict `patch-package-v1` `inspect`, `dryRun`, `apply`, and `verify`, and `verify_state` runs ordered typed JSON, text-format, fixed `git diff --check`, and fingerprint checks. The verification tool is read-only, requires no execution feature flag, invokes Git directly without a shell, and distinguishes failed expectations from operational errors. At the completed R16 boundary, package operations created no persistent backup and did not claim multi-file atomicity or automatic rollback; the later approval-bound backup behavior is governed by R17 and R18 below.
-
-R17 approved the persistent-backup lifecycle, and R18 is complete and verified in source. An operator may configure `MCP_BACKUP_STORE_DIR` to initialize a separate non-overlapping internal store with owner-only permissions, one lifetime writer lock, an immutable descriptor, bounded recovery, and a rebuildable index. Internal code captures exact bytes into verified SHA-256 objects and strict checksummed manifests under conservative quotas. `backup_store` exposes bounded read-only status/list/inspect/audit, approval-bound original-target restore, and explicit generation-bound `gcDryRun`/`gcApply`. Restore uses a 256-bit one-shot capability, exact source revalidation, a mandatory safety backup before replacing an existing target, and no-replace creation for a missing target. GC preserves immutable pins and at least one version per target, applies retention and unpinned version-limit policy, removes manifests before fully verified unreferenced objects, recovers only recognized typed trash, and never runs automatically or in the background. `edit_file` preview and `patch_package` manifests may bind `backupPolicy: "required"`; their mutation paths capture approved pre-states before commit. Policy omission, direct editing, and logical no-ops still create no persistent backup. Alternate restore destinations, mutable pinning, automatic rollback, and secure-deletion guarantees remain unavailable.
-
-R19 is complete in source and implements the offline `backup-store diagnose` command. It is read-only and existing-store-only: it acquires the pre-existing exclusive lock without create flags, emits bounded deterministic path-free JSON, and never rebuilds the index, cleans trash, removes staging/orphan data, repairs permissions, or otherwise mutates the store. Quick mode checks metadata; full mode additionally hashes referenced object bytes under explicit bounds. Repair, quarantine, salvage, migration, and every MCP/server behavior remain unavailable.
-
-Run offline diagnosis only after stopping every server that owns the store:
-
-```bash
-scripthold backup-store diagnose \
-  --store /absolute/path/to/backup-store \
-  --mode full \
-  --max-objects 10000 \
-  --max-bytes 1073741824 \
-  --pretty
-```
-
-The command never reads `MCP_BACKUP_STORE_DIR`. It writes exactly one JSON report to stdout and uses exit code `0` for a complete clean report, `2` for diagnosed issues or maintenance such as a rebuildable index, and `1` when no trustworthy report can be emitted. The complete contract is [docs/OFFLINE_BACKUP_DIAGNOSTICS.md](docs/OFFLINE_BACKUP_DIAGNOSTICS.md).
-
-R20 is an active design/readiness milestone for MCP `2026-07-28`. The current runtime remains on the stable Go SDK `v1.6.1` and the existing `2025-11-25` transport behavior. No pre-release SDK is permitted in the main dependency graph. The approved direction is same-endpoint dual-generation HTTP with one shared security pipeline, stateful legacy sessions, stateless new-protocol requests, and stdio version gating that never relies on deprecated client roots for `2026-07-28`. No dependency or runtime behavior has changed yet; see [docs/MCP_2026_07_28_ADOPTION.md](docs/MCP_2026_07_28_ADOPTION.md).
-
-The feature set and relevant implementation approaches were reviewed in the [original project](docs/PROJECT_DIRECTION.md#reciprocal-feature-exchange) and are credited as reciprocal cross-project engineering exchange. This fork's code is reworked for its bounded-memory, secure-walker, durable-mutation, stable-schema, and dual-transport requirements rather than mechanically synchronized; see [Project lineage and independence](#project-lineage-and-independence) and [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md#reciprocal-feature-exchange).
+Encoding detection remains content-based and extension-independent. The semantic-tag workflow requires a dated changelog entry before generating release assets and Registry metadata.
 
 ## What It Does
 
@@ -135,34 +106,20 @@ See [TOOLS.md](TOOLS.md) for detailed parameters and examples.
 
 **Security:** File operations and `run_script` paths are restricted to allowed directories. Recursive filesystem tools resolve every visited entry through a shared secure walker and skip symlinks, Windows junctions, and other reparse points that resolve outside those directories. Mutation handlers revalidate paths before commit and use optimistic snapshots plus atomic or no-replace platform operations. Before `run_script` starts, its script and working directory are revalidated and the script's metadata plus SHA-256 snapshot must still match; this reduces but cannot eliminate the final path-based TOCTOU window without handle-relative execution. The optional `shell` tool revalidates only its working directory; the command itself remains unrestricted and runs with the operating-system permissions of the MCP server process.
 
-## Fork Architecture and Changes
+## Architecture
 
-This repository has evolved from its original upstream codebase. Compared with that baseline, the current source branch adds:
+The current design is organized around a few stable boundaries:
 
-- optional `run_script` and `shell` MCP tools, disabled by default, with shared bounded process preparation but separate authorization policies;
-- an authoritative embedded tool catalog consumed by runtime registration and Registry manifest generation, with drift tests for runtime metadata and documentation coverage;
-- CLI-provided allowed directories as the authoritative fallback for tunnel clients that do not implement MCP roots requests;
-- correct validation of descendants when a Windows drive root such as `D:\` is allowed;
-- encoding-aware `detect_line_endings` and byte-preserving `change_line_endings` support for all 24 registered encodings, including UTF-16 LE/BE;
-- real upstream encoding fixtures covering every registered encoding, including UTF-16 and GBK/GB18030 round-trip tests;
-- conservative, extension-independent BOMless UTF-16 LE/BE detection with malformed-Unicode rejection, binary false-positive protection, deterministic mode semantics, and surrogate-pair handling across chunk boundaries;
-- a shared document encoder used by edits, full writes, and encoding conversions, with public `auto`, `always`, `never`, and `preserve` BOM policies plus byte-identical conversion no-op suppression;
-- a deterministic, cancellation-aware secure walker shared by `tree`, `search_files`, `grep_text_files`, and `fingerprint_paths`, including native Windows junction/reparse-point resolution and protection for deeply nested missing paths behind escaping links;
-- a shared atomic mutation layer for write, edit, conversion, line-ending, BOM, copy, move, and delete operations, with synced staging, transactional backups, no-replace destination commits, cleanup, and practical concurrent-modification detection;
-- a bounded process-local edit preview cache with 256-bit one-shot capabilities, exact prepared bytes, target/result fingerprints, deterministic expiry/eviction, stable file-identity checks, replay prevention, and an optional retained `backupPolicy: "required"` that captures the exact approved pre-state before mutation;
-- a strict `patch-package-v1` inspect/dry-run/apply/verify workflow for bounded ordered existing-file edits, with unknown-field rejection, alias and hard-link detection, one-shot capabilities, shared encoding-aware preparation, optional conservative all-target required-backup reservation and capture before the first commit, deterministic commits, explicit partial-state evidence, and no automatic rollback;
-- an ordered read-only `verify_state` workflow for JSON syntax, encoding/BOM/line-ending/trailing-whitespace expectations, fixed direct `git diff --check`, and shared fingerprints, with strict schemas, bounded diagnostics, filtered process environment, and no shell or execution opt-in;
-- a disabled-by-default persistent-backup subsystem with a dedicated non-overlapping internal root, owner-only Windows DACL or Unix mode/owner validation, a platform-native lifetime writer lock, immutable `backup-store-v1` descriptor, verified SHA-256 object deduplication, strict checksummed manifests, conservative single/package quota reservations, bounded recovery, a rebuildable index, bounded review/audit, opt-in required `edit_file` and `patch_package` pre-state capture, one-shot original-target restore, and explicit generation-bound garbage collection;
-- transport-independent typed operation errors for path validation, access control, encoding, decoding, output encoding, permissions, conflicts, cancellation, limits, and filesystem failures, with centralized MCP and batch mapping that preserves public messages and schemas;
-- a shared bounded ordered worker coordinator used by `read_multiple_files` and `grep_text_files`, with deterministic commits, cancellation-aware dispatch, aggregate output/state budgets, and early stop for global match limits;
-- a bounded-memory text pipeline with incremental decoding for all 24 encodings, 16 MiB decoded-line limits, SHA-256 read sessions, reader-based mutation staging, and hard configured limits for full-document editing;
-- an explicit process configuration and shared server builder separated from transport startup, with a lifecycle-aware stdio runner, signal cancellation, explicit `stdio` transport selection, and equivalence tests across multiple connections to the same process-wide tool and root policy;
-- native stateful Streamable HTTP with mandatory bearer authentication, exact Host/Origin validation, loopback defaults, bounded sessions and request resources, redacted access logging, and a second execution opt-in;
-- release hardening with pinned cross-platform CI, reproducible GoReleaser archives, checksum-driven Registry publication, a non-root transport-neutral container, migration documentation, and sanitized public launch examples.
+- content-based encoding detection and bounded streaming across 24 registered encodings;
+- resolved-root filesystem confinement, secure recursive traversal, and durable staged mutations;
+- deterministic fingerprints, one-shot edit/package approval workflows, and structured verification;
+- an optional non-overlapping persistent backup store with approval-bound capture, original-target restore, explicit GC, and offline diagnosis;
+- one process-wide tool/root policy shared by stdio and Streamable HTTP;
+- authenticated Streamable HTTP with stateless MCP `2026-07-28` requests beside retained stateful legacy sessions under one security pipeline;
+- disabled-by-default execution tools with a second HTTP execution gate;
+- one authoritative tool catalog feeding runtime registration, documentation checks, GoReleaser packaging, and MCP Registry projection.
 
-See [CHANGELOG.md](CHANGELOG.md) for the maintained list of fork-specific changes.
-
-`server.template.json` contains only the fork-owned MCP Registry identity and release-neutral placeholders. On a fork release, the registry workflow downloads the published `checksums.txt`, generates a temporary `server.json` with the exact release URLs and SHA-256 values, and publishes only after every expected binary is represented.
+See [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md) for scope, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for the HTTP trust model, and [CHANGELOG.md](CHANGELOG.md) for detailed change history.
 
 ## Installation
 
@@ -196,20 +153,11 @@ go build -o scripthold_windows_amd64.exe ./cmd/scripthold
 
 The Go module is `github.com/zoster81/scripthold`, and all internal imports resolve through the fork namespace. Build from source for development commits; use only fork-owned release tags with matching assets for packaged installations.
 
-Until the first Scripthold-named release is tagged, `go install github.com/zoster81/scripthold/cmd/scripthold@main` installs the current rebranded command. Do not use `@latest` yet: Go resolves it to a historical pre-rebrand tag.
+`go install github.com/zoster81/scripthold/cmd/scripthold@main` installs the current development source. For reproducible installations, prefer an explicit Scripthold semantic tag once published rather than relying on `@latest` across the historical repository rename.
 
 #### Download a fork release
 
-Published fork releases provide a directly downloadable Windows binary. The currently published 2.0.0 release retains the historical remote asset filename; the command below saves it locally with the Scripthold name:
-
-```powershell
-New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\scripthold" | Out-Null
-Invoke-WebRequest `
-    "https://github.com/zoster81/scripthold/releases/latest/download/mcp-file-tools_windows_amd64.exe" `
-    -OutFile "$env:LOCALAPPDATA\Programs\scripthold\scripthold_windows_amd64.exe"
-```
-
-For unreleased development commits, build from source as shown above.
+Release `2.0.0` predates the Scripthold asset rename and therefore keeps the historical `mcp-file-tools_*` filenames. Starting with the first Scripthold-named release, release assets use `scripthold_<os>_<arch>` names as defined by `.goreleaser.yml`. For unreleased development commits, build from source as shown above instead of relying on `releases/latest` asset names.
 
 #### OpenAI Tunnel quick start
 
@@ -292,7 +240,7 @@ The transport can be selected explicitly with `--transport=stdio` or `MCP_TRANSP
 
 ### Native Streamable HTTP
 
-The native HTTP transport is stateful, bearer-authenticated, and bound to loopback by default. Every session shares the directory arguments supplied when the process starts; HTTP clients cannot add or change roots. The tracked HTTP launcher is a standalone reference even when a private deployment launcher starts both transports.
+The native HTTP transport is bearer-authenticated and bound to loopback by default. Current source serves MCP `2026-07-28` stateless requests beside retained stateful legacy sessions on the same endpoint; every request shares the process-wide startup roots, and HTTP clients cannot add or change them. The tracked HTTP launcher is a standalone reference even when a private deployment launcher starts both transports.
 
 Create a private token file and start the endpoint from PowerShell:
 
@@ -350,20 +298,7 @@ The Dockerfile intentionally does not bake in a health check because stdio has n
 
 ### Updating the fork
 
-The update checker is notification-only and checks releases from `zoster81/scripthold`. It never downloads or replaces a binary.
-
-To update a manual Windows installation:
-
-1. stop the OpenAI tunnel or other MCP client using the binary;
-2. download the latest fork release;
-3. replace the executable;
-4. restart the tunnel and run its diagnostics.
-
-```powershell
-Invoke-WebRequest `
-    "https://github.com/zoster81/scripthold/releases/latest/download/mcp-file-tools_windows_amd64.exe" `
-    -OutFile "$env:LOCALAPPDATA\Programs\scripthold\scripthold_windows_amd64.exe"
-```
+The update checker is notification-only and never replaces binaries. For a manual installation, stop the client or service, install the verified asset for the desired release, restart it, and run the relevant transport smoke checks. Do not assume a historical asset filename: `2.0.0` uses the pre-rebrand name, while Scripthold-named releases use `scripthold_<os>_<arch>`.
 
 Set `MCP_NO_UPDATE_CHECK=1` before starting the server to disable release checks.
 

@@ -8,14 +8,14 @@ R12 defines the trust model, secure defaults, configuration contract, request pi
 
 R12 approved this design before implementation. R13 implements it with the pinned MCP Go SDK while preserving stdio.
 
-R20 extends this design through [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Phase 4 is complete in source: the same endpoint and outer security pipeline now route supported legacy versions to the verified stateful handler and exact `2026-07-28` to a stateless SDK handler. Host, Origin, authentication, proxy, rate, body, concurrency, timeout, logging, execution, readiness, and shutdown controls remain common; only legacy traffic enters session admission.
+R20 extends this design through [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). R20 is complete in source: the same endpoint and outer security pipeline route supported legacy versions to the verified stateful handler and exact `2026-07-28` to a stateless SDK handler. Host, Origin, authentication, proxy, rate, body, concurrency, timeout, logging, execution, readiness, and shutdown controls remain common; only legacy traffic enters session admission.
 
 ## Security objectives
 
 The HTTP transport must:
 
 - prevent unauthenticated access to configured filesystem roots and optional execution tools;
-- preserve the same 27-tool unreleased source catalog, allowed-directory checks, encoding behavior, limits, and error mapping as stdio;
+- preserve the same authoritative 27-tool source catalog, allowed-directory checks, encoding behavior, limits, and error mapping as stdio;
 - prevent browser-origin attacks, DNS rebinding, token leakage, session hijacking, and untrusted proxy spoofing;
 - bound request bodies, headers, concurrent requests, sessions, idle lifetime, and shutdown time;
 - keep credentials, session identifiers, tool arguments, file contents, and sensitive paths out of HTTP logs;
@@ -241,7 +241,7 @@ Failures are rejected at the earliest safe stage and must not initialize an MCP 
 - Any `Mcp-Session-Id` header on exact `2026-07-28` is rejected rather than ignored.
 - `Last-Event-ID` remains rejected for both generations because no event store is configured.
 - A missing required legacy session identifier returns `400`; an unknown, expired, or terminated legacy session returns `404`; a session bound to another principal returns `403`.
-- Malformed, repeated, empty, contradictory, comma-joined, or unsupported protocol-version values fail before SDK dispatch.
+- Malformed, repeated, empty, comma-joined, or whitespace-variant protocol-version values fail before SDK dispatch. Any other exact unsupported singleton bypasses legacy session admission and reaches only the stateless SDK error path so the SDK can return `UnsupportedProtocolVersionError` with HTTP `400`; it is never treated as an accepted protocol generation.
 - `Mcp-Method` and `Mcp-Name` are untrusted metadata; SDK header/body consistency validation remains authoritative after routing.
 - Malformed JSON, invalid batches, content-type errors, and protocol validation failures produce deterministic client errors without stack traces.
 
@@ -315,7 +315,7 @@ HTTP execution requires both:
 
 Therefore enabling an execution tool for stdio does not automatically expose it over HTTP. R13 must make the transport-specific decision explicit in server policy rather than infer it from client input.
 
-`run_script` retains path validation, script snapshot verification, timeout, output bounds, and process-tree cancellation. `shell` remains unrestricted after working-directory validation and is suitable only for a trusted deployment.
+`run_script` retains path validation, script snapshot verification, timeout, output bounds, and process-tree cancellation. External-process cleanup is bounded even when a descendant retains inherited output handles, and the Windows tree-termination helper has its own bounded timeout. `shell` remains unrestricted after working-directory validation and is suitable only for a trusted deployment.
 
 ## Health and readiness
 
@@ -420,7 +420,7 @@ No SDK fork or new dependency is planned unless R13 proves that these requiremen
 
 - exact `2026-07-28` negotiates stateless HTTP, emits no session identifier, and leaves legacy session counts unchanged even when legacy capacity is full;
 - absent-version legacy initialization and all four exact supported legacy versions route to the stateful handler;
-- empty, duplicate, contradictory, comma-joined, malformed, and unsupported protocol-version values fail before SDK dispatch;
+- empty, duplicate, comma-joined, and whitespace-variant protocol-version values fail before SDK dispatch, while a well-formed unsupported singleton returns the SDK's structured unsupported-version error without entering legacy session admission;
 - modern `GET`, `DELETE`, `Last-Event-ID`, and any session header are rejected;
 - a contradictory standard method header and JSON-RPC method is rejected by SDK validation;
 - session IDs are non-empty, globally unique in the legacy test population, and valid visible ASCII;

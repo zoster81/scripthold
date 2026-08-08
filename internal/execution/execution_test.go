@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -156,6 +158,46 @@ func TestRunHonorsParentCancellation(t *testing.T) {
 	}
 }
 
+func TestRunBoundsInheritedOutputPipeLeak(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "output-holder.pid")
+	plan, err := Prepare(Request{
+		Program:          os.Args[0],
+		Args:             []string{"-test.run=TestExecutionHelperProcess", "--", "spawn-output-holder", pidFile},
+		WorkingDirectory: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	_, err = plan.Run(context.Background(), nil)
+	elapsed := time.Since(started)
+	killRecordedProcess(t, pidFile)
+
+	if elapsed > 5*time.Second {
+		t.Fatalf("Run() took %v after the direct child exited while a descendant held output open; want <= 5s", elapsed)
+	}
+	if !errors.Is(err, exec.ErrWaitDelay) {
+		t.Fatalf("Run() error = %v, want errors.Is(exec.ErrWaitDelay)", err)
+	}
+}
+
+func killRecordedProcess(t *testing.T, path string) {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(payload)))
+	if err != nil || pid <= 0 {
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err == nil {
+		_ = process.Kill()
+	}
+}
+
 func TestExecutionHelperProcess(t *testing.T) {
 	separator := -1
 	for i, arg := range os.Args {
@@ -182,6 +224,21 @@ func TestExecutionHelperProcess(t *testing.T) {
 		os.Exit(7)
 	case "sleep":
 		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "spawn-output-holder":
+		cmd := exec.Command(os.Args[0], "-test.run=TestExecutionHelperProcess", "--", "hold-output")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			os.Exit(3)
+		}
+		if err := os.WriteFile(os.Args[separator+2], []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
+			_ = cmd.Process.Kill()
+			os.Exit(4)
+		}
+		os.Exit(0)
+	case "hold-output":
+		time.Sleep(8 * time.Second)
 		os.Exit(0)
 	case "environment":
 		_, _ = os.Stdout.WriteString(os.Getenv("VERIFY_ENV"))

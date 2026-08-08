@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is published and deployed through both supported transports. The live stdio connector and an authenticated stateful Streamable HTTP session have each verified the complete 23-tool catalog from the published binary. R14 is complete after the controlled active rollback and final restoration of the published runtime. R15, R16, R18, and R19 are complete in source and remain unreleased. R17 is complete after approval of the ten persistent-backup lifecycle decisions. R18 implements that contract through a disabled-by-default store foundation, internal capture/recovery/indexing/quota primitives, bounded review/audit, approval-bound edit/package capture, one-shot original-target restore, and explicit generation-bound GC with no background deletion. R19 adds mutation-free offline diagnosis for an existing store without creating, rebuilding, repairing, cleaning, renaming, or deleting store state. R20 is active as the staged MCP `2026-07-28` adoption milestone through stable official Go SDK `v1.7.0`, with stdio version gating and same-endpoint dual-generation HTTP now complete in source while legacy compatibility is preserved.
+Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete in source and define the planned `2.1.0` feature scope: 27 tools, 3 guided prompts, verified change workflows, persistent backup/restore/GC, offline backup diagnostics, and MCP `2026-07-28` support through official stable Go SDK `v1.7.0`. R21 is the only active milestone and is limited to consolidating, verifying, packaging, publishing, and deploying that already-completed scope; it adds no new feature family.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -35,7 +35,39 @@ Product identity and the fork's independent relationship to upstream are defined
 | R17 | COMPLETE | Approved the bounded persistent-backup lifecycle, security boundary, quotas, restore safety, explicit GC, and non-rollback decisions. |
 | R18 | COMPLETE | Implemented and verified the approved persistent-backup subsystem in phased, failure-injected, cross-platform increments. |
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
-| R20 | ACTIVE | Stable SDK `v1.7.0`, stdio version gating, and same-endpoint dual-generation HTTP are complete in source; compatibility and conformance is next. |
+| R20 | COMPLETE | Stable SDK `v1.7.0`, stdio version gating, same-endpoint dual-generation HTTP, structured unsupported-version handling, and the full compatibility/conformance gate are verified in source. |
+| R21 | ACTIVE | Consolidate the completed R15–R20 scope into the first Scripthold-named 2.1.0 release and controlled local deployment. |
+
+---
+
+# R21 — Scripthold 2.1.0 release consolidation
+
+## Goal
+
+Publish and deploy the already-completed R15–R20 source as `2.1.0` without introducing a new feature family or weakening any existing compatibility, security, backup, transport, or release invariant.
+
+## Remaining gate
+
+- [x] Complete and verify R15–R20 source implementation.
+- [x] Confirm `v2.1.0` is unused locally and on `origin`.
+- [x] Align current documentation around the 27-tool/3-prompt source, Scripthold asset names, dual-generation HTTP, and the new Registry identity without duplicating historical milestone detail.
+- [ ] Consolidate the final R20 and release-preparation work on a clean commit; no internal deployment build is accepted from an uncommitted worktree.
+- [ ] Run the complete release verification checklist from [PUBLISHING.md](PUBLISHING.md) on that exact commit, including full Go/race/static/vulnerability checks, workflow checks, six-target builds, reproducible GoReleaser snapshots, Registry validation, documentation/link checks, and secret scans.
+- [ ] Build a commit-derived Windows amd64 internal binary with an unambiguous version, record its SHA-256, preserve the known-good rollback binary, update the private launcher, and verify live stdio plus HTTP legacy/modern behavior before any public tag.
+- [ ] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
+- [ ] Push `main` and require the applicable GitHub Actions checks to pass.
+- [ ] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, release metadata, and the first published `io.github.zoster81/scripthold` Registry record.
+- [ ] Deploy the published `2.1.0` Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check, then restore and reverify `2.1.0`.
+
+## Non-goals
+
+- No new MCP tool, prompt, backup action, protocol extension, transport, authentication mode, or repair capability belongs in R21.
+- No cleanup may rename persistent `mcp-file-tools:*` domain-separation constants or rewrite historical `2.0.0` asset/Registry evidence.
+- No public release or Registry publication occurs from a dirty worktree or an unpublished commit.
+
+## Completion gate
+
+R21 is complete only when `v2.1.0` is published from the exact verified commit, the Scripthold-named Registry record and assets are verified, the local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
 
 ---
 
@@ -629,7 +661,7 @@ Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod 
 
 ## Status
 
-Active adoption milestone since 2026-08-06. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Phases 1-3 established the compatibility contract, qualified SDK `v1.7.0`, and implemented stdio gating. Phase 4 now routes exact `2026-07-28` HTTP traffic to a stateless SDK handler and supported legacy traffic to the existing stateful handler behind the same hardened endpoint. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. The 27 tools, three prompts, process roots, backup store, and security policies remain shared. No launcher or deployed runtime changed. Phase 5 compatibility and conformance is next.
+Completed in source on 2026-08-08. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Stable SDK `v1.7.0` now provides modern stdio discovery where roots policy permits it and same-endpoint stateless `2026-07-28` HTTP beside the retained stateful legacy handler. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. Unsupported singleton versions return the protocol-defined structured error without entering legacy session admission. The 27 tools, three prompts, process roots, backup store, and security policies remain shared. Compatibility, conformance, independent-client, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The R20 source remains unreleased and is not present in the deployed `2.0.0` binary.
 
 ## Goal
 
@@ -644,7 +676,7 @@ Adopt final MCP protocol version `2026-07-28` through an official stable Go SDK 
 - Authentication, Host, Origin, proxy trust, rate, body budgets, concurrency, timeouts, logging, execution gates, readiness, and shutdown stay common across versions.
 - Stateless requests create no session, emit no session ID, use no event store, and consume no legacy session capacity.
 - `Mcp-Method` and `Mcp-Name` remain untrusted routing hints and never become authorization inputs.
-- R20 adds no Apps, Tasks, MRTR workflow, OAuth server, cache hint, tracing export, tool, prompt, resource, or schema.
+- R20 adds no Apps, Tasks, MRTR workflow, OAuth server, application-selected positive cache lifetime, tracing export, tool, prompt, resource, or schema.
 - Push, release, deployment, launcher changes, and runtime restart remain separately authorized operations.
 
 ## Implementation phases
@@ -653,9 +685,13 @@ Adopt final MCP protocol version `2026-07-28` through an official stable Go SDK 
 - [x] Phase 2 — Qualified official stable Go SDK `v1.7.0` through a reversible temporary module change, completed API/security review, and recorded the required stdio middleware-gate design correction.
 - [x] Phase 3 — Updated to stable SDK `v1.7.0`; enabled modern stdio discovery for configured-root and roots-disabled sessions; retained deterministic legacy initialization and roots notifications through a pre-discovery middleware gate when startup directories are absent.
 - [x] Phase 4 — Implemented same-endpoint dual-generation HTTP behind the existing hardened middleware, with exact version routing, stateful legacy sessions, stateless `2026-07-28`, strict malformed-header rejection, cancellation propagation, and no stateless session admission.
-- [ ] Phase 5 — Complete conformance, downgrade, interoperability, security failure-injection, fuzz, native, and container gates while repeating race, static-analysis, vulnerability, and six-target verification.
-- [ ] Phase 6 — Align migration, security, publishing, and completion documentation without changing the published runtime unless separately authorized.
+- [x] Phase 5 — Completed conformance, downgrade, interoperability, security failure-injection, fuzz, native, and container gates while repeating race, static-analysis, vulnerability, and six-target verification.
+- [x] Phase 6 — Aligned protocol, security, public status, publishing, and completion documentation without changing the published runtime.
 
 ## Completion gate
 
 R20 is complete only when an official stable Go SDK supports final `2026-07-28`; stdio and HTTP accept the new version without relying on deprecated roots or protocol sessions; supported legacy clients retain current behavior; stateful and stateless HTTP share every security and resource-control boundary; tool catalogs, prompts, schemas, and representative results remain equivalent; malformed, unsupported, and downgrade cases fail deterministically; and the complete focused, regression, race, static, vulnerability, conformance, six-target, native, container, documentation, and security verification matrix passes.
+
+## Completion record
+
+Completed in source on 2026-08-08. Official conformance exposed one applicable unsupported-version routing defect, which was corrected by keeping malformed header shapes at the outer boundary while delegating unsupported singleton versions only to the stateless SDK error lane. Final conformance verifies the structured error and HTTP `400`; independent header validation passes 13/13, TypeScript SDK interoperability preserves legacy `2025-11-25`, the complete serial and race suites plus vet/Staticcheck/govulncheck pass, five HTTP/JSON-RPC fuzz targets pass, native and hardened-container smoke pass, and Windows/Linux/macOS amd64/arm64 command plus affected-test compilation succeeds. The source remains unreleased and undeployed, with no push, tag, release, launcher change, or runtime restart.

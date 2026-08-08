@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +20,8 @@ const (
 	MaximumTimeoutSeconds   = 600
 	DefaultOutputLimitBytes = 256 * 1024
 	DefaultTimeout          = DefaultTimeoutSeconds * time.Second
+	processWaitDelay        = 2 * time.Second
+	windowsTreeKillTimeout  = time.Second
 )
 
 // Request contains only process-level settings. Callers remain responsible for
@@ -161,6 +162,7 @@ func (plan Plan) Run(parent context.Context, revalidate func() error) (Result, e
 	cmd.Stdin = nil
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	cmd.WaitDelay = processWaitDelay
 
 	if err := cmd.Start(); err != nil {
 		return Result{}, fmt.Errorf("failed to start process: %w", err)
@@ -222,10 +224,10 @@ func terminateProcessTree(cmd *exec.Cmd) {
 		return
 	}
 	if runtime.GOOS == "windows" {
-		killer := exec.Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F")
-		killer.Stdout = io.Discard
-		killer.Stderr = io.Discard
+		ctx, cancel := context.WithTimeout(context.Background(), windowsTreeKillTimeout)
+		killer := exec.CommandContext(ctx, "taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F")
 		_ = killer.Run()
+		cancel()
 	}
 	_ = cmd.Process.Kill()
 }

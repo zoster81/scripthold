@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,8 +33,8 @@ func TestClassifyProtocolVersion(t *testing.T) {
 		{name: "repeated same", values: []string{protocolVersion20260728, protocolVersion20260728}, wantErr: true},
 		{name: "repeated contradictory", values: []string{protocolVersion20260728, protocolVersion20251125}, wantErr: true},
 		{name: "comma joined", values: []string{protocolVersion20260728 + ", " + protocolVersion20251125}, wantErr: true},
-		{name: "future unsupported", values: []string{"2027-01-01"}, wantErr: true},
-		{name: "malformed", values: []string{"latest"}, wantErr: true},
+		{name: "future unsupported", values: []string{"2027-01-01"}, want: protocolGenerationUnsupported},
+		{name: "unknown token", values: []string{"v999.0.0"}, want: protocolGenerationUnsupported},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -126,7 +127,6 @@ func TestHandlerRejectsInvalidProtocolRoutingBeforeSDK(t *testing.T) {
 		{name: "repeated", values: []string{protocolVersion20260728, protocolVersion20260728}},
 		{name: "contradictory", values: []string{protocolVersion20260728, protocolVersion20251125}},
 		{name: "comma joined", values: []string{protocolVersion20260728 + "," + protocolVersion20251125}},
-		{name: "unsupported", values: []string{"2027-01-01"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -146,6 +146,65 @@ func TestHandlerRejectsInvalidProtocolRoutingBeforeSDK(t *testing.T) {
 	}
 }
 
+func TestHandlerReturnsStructuredUnsupportedProtocolVersion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
+		Version:           "unsupported-version-test",
+		EnableClientRoots: false,
+		LifecycleContext:  ctx,
+	})
+	cfg := validTestConfig(2)
+	unstarted := httptest.NewUnstartedServer(nil)
+	cfg.AllowedHosts = map[string]struct{}{strings.ToLower(unstarted.Listener.Addr().String()): {}}
+	h := NewHandler(cfg, server, nil)
+	h.setReady(true)
+	unstarted.Config.Handler = h
+	unstarted.Start()
+	defer unstarted.Close()
+
+	const requested = "v999.0.0"
+	body := `{"jsonrpc":"2.0","id":301,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"` + requested + `","io.modelcontextprotocol/clientCapabilities":{}}}}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, unstarted.URL+cfg.Path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set(protocolVersionHeader, requested)
+	req.Header.Set("Mcp-Method", "server/discover")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("send unsupported version request: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body %q", response.StatusCode, readBody(t, response))
+	}
+	var payload struct {
+		ID    int `json:"id"`
+		Error struct {
+			Code int `json:"code"`
+			Data struct {
+				Supported []string `json:"supported"`
+				Requested string   `json:"requested"`
+			} `json:"data"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode unsupported-version response: %v", err)
+	}
+	if payload.ID != 301 || payload.Error.Code != mcp.CodeUnsupportedProtocolVersion {
+		t.Fatalf("response id/code = %d/%d, want 301/%d", payload.ID, payload.Error.Code, mcp.CodeUnsupportedProtocolVersion)
+	}
+	if payload.Error.Data.Requested != requested {
+		t.Fatalf("requested version = %q, want %q", payload.Error.Data.Requested, requested)
+	}
+	if len(payload.Error.Data.Supported) == 0 {
+		t.Fatal("unsupported-version response did not advertise supported versions")
+	}
+}
 func TestModernRoutingSharesOuterSecurityBoundary(t *testing.T) {
 	h := newTestHandler(t, 2)
 	h.setReady(true)
