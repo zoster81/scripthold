@@ -66,15 +66,16 @@ func catalogTool(name string) *mcp.Tool {
 // ServerOptions contains process-wide MCP server policy. Every connection to
 // the returned server shares the same configured directories and tool policy.
 type ServerOptions struct {
-	Version              string
-	AllowedDirectories   []string
-	ProtectedDirectories []string
-	BackupStore          handler.BackupStoreReader
-	Logger               *slog.Logger
-	Config               *config.Config
-	ExecutionPolicy      *handler.ExecutionPolicy
-	EnableClientRoots    bool
-	LifecycleContext     context.Context
+	Version                string
+	AllowedDirectories     []string
+	ProtectedDirectories   []string
+	BackupStore            handler.BackupStoreReader
+	Logger                 *slog.Logger
+	Config                 *config.Config
+	ExecutionPolicy        *handler.ExecutionPolicy
+	EnableClientRoots      bool
+	DisableModernDiscovery bool
+	LifecycleContext       context.Context
 }
 
 // BuildServer creates the shared MCP server without starting a transport.
@@ -117,7 +118,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	server := mcp.NewServer(impl, serverOpts)
 	registerProjectPrompts(server)
 
-	server.AddReceivingMiddleware(createDiscoveryMiddleware(h, options.EnableClientRoots))
+	server.AddReceivingMiddleware(createDiscoveryMiddleware(h, options.EnableClientRoots, options.DisableModernDiscovery))
 	// Repair array/object args some MCP clients send as JSON-encoded strings.
 	server.AddReceivingMiddleware(handler.RepairStringifiedArrayArgs)
 

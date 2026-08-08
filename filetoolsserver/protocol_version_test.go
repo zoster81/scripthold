@@ -45,6 +45,35 @@ func TestBuildServerNegotiatesModernProtocolWithConfiguredDirectories(t *testing
 	}
 }
 
+func TestBuildServerCanForceLegacyHandshakeWithConfiguredDirectories(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	server := BuildServer(ServerOptions{
+		Version:                "legacy-stdio-compat-test",
+		AllowedDirectories:     []string{root},
+		Config:                 config.Load(),
+		EnableClientRoots:      true,
+		DisableModernDiscovery: true,
+		LifecycleContext:       ctx,
+	})
+
+	_, session := connectProtocolTestClient(t, ctx, server, "legacy-stdio-compat")
+	initialization := session.InitializeResult()
+	if got := initialization.ProtocolVersion; got != legacyProtocolVersion {
+		t.Fatalf("protocol version = %q, want %q", got, legacyProtocolVersion)
+	}
+	//lint:ignore SA1019 compatibility mode intentionally retains legacy protocol logging.
+	if initialization.Capabilities == nil || initialization.Capabilities.Logging == nil {
+		t.Fatalf("legacy capabilities lost protocol logging compatibility: %#v", initialization.Capabilities)
+	}
+	assertProtocolCatalog(t, ctx, session)
+	if got := allowedDirectories(t, ctx, session); len(got) != 1 || !samePath(got[0], root) {
+		t.Fatalf("allowed directories = %v, want [%q]", got, root)
+	}
+}
+
 func TestBuildServerAllowsModernProtocolWhenClientRootsAreDisabled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

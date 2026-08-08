@@ -236,7 +236,7 @@ The same binary can be used directly by clients that launch local stdio MCP serv
 }
 ```
 
-The transport can be selected explicitly with `--transport=stdio` or `MCP_TRANSPORT=stdio`. A roots-capable stdio client may provide workspace directories dynamically only when the process starts without directory arguments. Once directories are configured at startup, they remain the authoritative process-wide set.
+The transport can be selected explicitly with `--transport=stdio` or `MCP_TRANSPORT=stdio`. A roots-capable stdio client may provide workspace directories dynamically only when the process starts without directory arguments. Once directories are configured at startup, they remain the authoritative process-wide set. Stdio bridges that probe `server/discover` but still require legacy initialization may set `MCP_STDIO_LEGACY_HANDSHAKE=1`; this compatibility override rejects discovery before SDK session state changes so the client can fall back cleanly to legacy initialization. Leave it unset for normal modern stdio discovery; Streamable HTTP ignores it.
 
 ### Native Streamable HTTP
 
@@ -336,6 +336,7 @@ The server can be configured via environment variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MCP_TRANSPORT` | Process transport selection: `stdio` or `streamable-http`. The CLI `--transport` option takes precedence. | `stdio` |
+| `MCP_STDIO_LEGACY_HANDSHAKE` | Stdio-only compatibility override for bridges that probe `server/discover` but then require legacy `initialize`; rejects discovery before SDK session state changes. HTTP ignores this setting. | disabled |
 | `MCP_HTTP_ADDR` | Native HTTP listen address. Only `localhost` or an IP literal is accepted; non-loopback requires explicit opt-in. | `127.0.0.1:8765` |
 | `MCP_HTTP_PATH` | Clean absolute MCP endpoint path, distinct from `/healthz` and `/readyz`. | `/mcp` |
 | `MCP_HTTP_TOKEN` | Bearer token supplied through the environment. Exactly one token source is required for HTTP. | unset |

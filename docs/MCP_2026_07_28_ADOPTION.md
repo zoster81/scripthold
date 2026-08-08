@@ -237,7 +237,7 @@ When no startup allowed directories are configured:
 - legacy initialization and roots notifications continue to populate the process-wide root set according to the existing rules;
 - startup does not silently broaden access and does not substitute the current working directory.
 
-Phase 3 implements the reviewed receiving middleware gate. It rejects `server/discover` before SDK dispatch only when client roots are enabled and startup directories are absent. Configured-root and roots-disabled sessions use normal modern discovery. The implementation does not fork the SDK, duplicate the server, or broaden filesystem authority.
+Phase 3 implements the reviewed receiving middleware gate. By default it rejects `server/discover` before SDK dispatch only when client roots are enabled and startup directories are absent; configured-root and roots-disabled sessions use normal modern discovery. R21 deployment validation adds the stdio-only `MCP_STDIO_LEGACY_HANDSHAKE=1` compatibility override for intermediaries that probe discovery but then send legacy `initialize` on the same persistent connection. The override rejects discovery before the SDK can populate initialization state, allowing deterministic legacy fallback without making duplicate initialization valid. Streamable HTTP ignores this setting. The implementation does not fork the SDK, duplicate the server, or broaden filesystem authority.
 
 ### Streamable HTTP
 
@@ -357,9 +357,9 @@ Roots remain a legacy stdio compatibility feature only.
 
 ## Configuration impact
 
-R20 should not introduce a protocol-mode environment variable unless stable-SDK qualification proves same-endpoint dual routing impossible or unsafe.
+R20 did not require a protocol-mode setting for normal SDK clients or HTTP dual routing. R21 deployment validation later exposed a distinct stdio-intermediary compatibility case: an intermediary may probe `server/discover` and then still send legacy `initialize` on the same connection, which SDK `v1.7.0` correctly rejects after discovery has populated initialization state. `MCP_STDIO_LEGACY_HANDSHAKE=1` is therefore a narrow stdio-only compatibility override; it defaults off, does not change HTTP routing, and rejects discovery before SDK state mutation rather than accepting duplicate initialization.
 
-The preferred outcome is automatic backward-compatible routing:
+The preferred outcome remains automatic backward-compatible routing:
 
 - existing operators retain stateful clients without changing configuration;
 - new clients can use stateless `2026-07-28` on the same authenticated endpoint;
@@ -381,7 +381,8 @@ Any required new setting must have a secure default, hard bounds where applicabl
 
 ### Stdio compatibility
 
-- startup roots with a new client negotiate `2026-07-28`;
+- startup roots with a new client negotiate `2026-07-28` by default;
+- `MCP_STDIO_LEGACY_HANDSHAKE=1` forces a clean legacy fallback for stdio intermediaries that probe discovery but still issue legacy initialization;
 - startup roots with legacy clients negotiate supported legacy versions;
 - no startup roots cap negotiation to the legacy roots-compatible protocol;
 - roots notifications remain stdio-only and legacy-only;

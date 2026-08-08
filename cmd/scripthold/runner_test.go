@@ -19,7 +19,7 @@ func TestSelectRunnerPreservesStdioPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selectRunner() error = %v", err)
 	}
-	if !selection.enableClientRoots || selection.executionPolicy != nil {
+	if !selection.enableClientRoots || selection.executionPolicy != nil || selection.disableModernDiscovery {
 		t.Fatalf("stdio selection = %#v", selection)
 	}
 	if _, ok := selection.runner.(singleSessionRunner); !ok {
@@ -27,9 +27,26 @@ func TestSelectRunnerPreservesStdioPolicy(t *testing.T) {
 	}
 }
 
+func TestSelectRunnerCanForceLegacyStdioHandshake(t *testing.T) {
+	values := map[string]string{envStdioLegacyHandshake: "1"}
+	selection, err := selectRunner(transportStdio, func(name string) string { return values[name] }, 128)
+	if err != nil {
+		t.Fatalf("selectRunner() error = %v", err)
+	}
+	if !selection.disableModernDiscovery {
+		t.Fatalf("stdio selection = %#v, want modern discovery disabled", selection)
+	}
+
+	values[envStdioLegacyHandshake] = "invalid"
+	if _, err := selectRunner(transportStdio, func(name string) string { return values[name] }, 128); err == nil {
+		t.Fatal("selectRunner() accepted invalid stdio legacy-handshake value")
+	}
+}
+
 func TestSelectRunnerHTTPClearsCredentialEnvironment(t *testing.T) {
 	t.Setenv(httptransport.EnvToken, testHTTPToken())
 	t.Setenv(httptransport.EnvTokenFile, "")
+	t.Setenv(envStdioLegacyHandshake, "invalid-http-ignored")
 	if _, err := selectRunner(transportStreamableHTTP, os.Getenv, 7); err != nil {
 		t.Fatalf("selectRunner() error = %v", err)
 	}

@@ -102,6 +102,7 @@
         "CONTROL_PLANE_API_KEY",
         "CONTROL_PLANE_TUNNEL_ID",
         "MCP_COMMAND",
+        "MCP_STDIO_LEGACY_HANDSHAKE",
         "MCP_ENABLE_RUN_SCRIPT",
         "MCP_ENABLE_SHELL",
         "MCP_ENABLE_EXECUTION",
@@ -120,6 +121,7 @@
         [Environment]::SetEnvironmentVariable("CONTROL_PLANE_API_KEY", $RuntimeApiKey, "Process")
         [Environment]::SetEnvironmentVariable("CONTROL_PLANE_TUNNEL_ID", $TunnelId, "Process")
         [Environment]::SetEnvironmentVariable("MCP_COMMAND", $mcpCommand, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_STDIO_LEGACY_HANDSHAKE", "1", "Process")
         [Environment]::SetEnvironmentVariable("MCP_ENABLE_EXECUTION", $null, "Process")
         [Environment]::SetEnvironmentVariable("MCP_HTTP_TOKEN", $null, "Process")
         [Environment]::SetEnvironmentVariable("MCP_HTTP_TOKEN_FILE", $null, "Process")

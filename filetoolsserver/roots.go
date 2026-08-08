@@ -18,11 +18,17 @@ import (
 
 const methodDiscover = "server/discover"
 
-func createDiscoveryMiddleware(h *handler.Handler, enableClientRoots bool) mcp.Middleware {
+func createDiscoveryMiddleware(h *handler.Handler, enableClientRoots, disableModernDiscovery bool) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if method != methodDiscover {
 				return next(ctx, method, req)
+			}
+			if disableModernDiscovery {
+				return nil, &jsonrpc.Error{
+					Code:    jsonrpc.CodeMethodNotFound,
+					Message: "server discovery is disabled by server policy",
+				}
 			}
 			if enableClientRoots && !h.HasConfiguredDirectories() {
 				return nil, &jsonrpc.Error{

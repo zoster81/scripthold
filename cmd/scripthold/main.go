@@ -84,14 +84,15 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	}
 
 	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
-		Version:              version,
-		AllowedDirectories:   normalized,
-		ProtectedDirectories: protectedDirectories,
-		BackupStore:          store,
-		Config:               applicationConfig,
-		ExecutionPolicy:      selection.executionPolicy,
-		EnableClientRoots:    selection.enableClientRoots,
-		LifecycleContext:     ctx,
+		Version:                version,
+		AllowedDirectories:     normalized,
+		ProtectedDirectories:   protectedDirectories,
+		BackupStore:            store,
+		Config:                 applicationConfig,
+		ExecutionPolicy:        selection.executionPolicy,
+		EnableClientRoots:      selection.enableClientRoots,
+		DisableModernDiscovery: selection.disableModernDiscovery,
+		LifecycleContext:       ctx,
 	})
 
 	runErr := selection.runner.Run(ctx, server)
