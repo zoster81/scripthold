@@ -51,10 +51,12 @@ Publish and deploy the already-completed R15–R20 source as `2.1.0` without int
 - [x] Complete and verify R15–R20 source implementation.
 - [x] Confirm `v2.1.0` is unused locally and on `origin`.
 - [x] Align current documentation around the 27-tool/3-prompt source, Scripthold asset names, dual-generation HTTP, and the new Registry identity without duplicating historical milestone detail.
-- [ ] Consolidate the final R20 and release-preparation work on a clean commit; no internal deployment build is accepted from an uncommitted worktree.
+- [x] Consolidate the final R20 and release-preparation work on a clean commit; no internal deployment build is accepted from an uncommitted worktree.
 - [ ] Run the complete release verification checklist from [PUBLISHING.md](PUBLISHING.md) on that exact commit, including full Go/race/static/vulnerability checks, workflow checks, six-target builds, reproducible GoReleaser snapshots, Registry validation, documentation/link checks, and secret scans.
-- [ ] Build a commit-derived Windows amd64 internal binary with an unambiguous version, record its SHA-256, preserve the known-good rollback binary, update the private launcher, and verify live stdio plus HTTP legacy/modern behavior before any public tag.
-  - R21 internal deployment validation exposed an stdio intermediary that probes `server/discover` and then sends legacy `initialize` on the same persistent connection. The source now has an opt-in pre-discovery legacy-handshake gate; the release candidate must be rebuilt from a new clean verified commit and pass that live interoperability case before this gate is complete.
+- [ ] Build a commit-derived Windows amd64 internal binary with an unambiguous version, record its SHA-256, preserve the known-good rollback binary, and verify native stdio plus authenticated tunneled HTTP legacy/modern behavior before any public tag.
+  - Controlled pre-release deployment validation confirmed the OpenAI tunnel topology with Scripthold as an authenticated loopback Streamable HTTP service, a healthy enabled `main` channel probe, the complete 27-tool/3-prompt catalog, representative filesystem/execution calls, and automatic rollback behavior.
+  - `MCP_STDIO_LEGACY_HANDSHAKE=1` remains a narrow compatibility override for generic stdio intermediaries; it is not the public OpenAI tunnel quick-start path and does not make one persistent stdio child represent independent remote connector lifecycles.
+  - After the public launcher/documentation correction is committed, rebuild from that exact clean commit and repeat the final native-stdio and tunneled-HTTP smoke before this gate is complete.
 - [ ] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
 - [ ] Push `main` and require the applicable GitHub Actions checks to pass.
 - [ ] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, release metadata, and the first published `io.github.zoster81/scripthold` Registry record.

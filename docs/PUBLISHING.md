@@ -55,17 +55,21 @@ The tracked launchers are intentionally separate, single-transport reference exa
 
 A private combined launcher must normalize process identity across the object shapes it uses: `Start-Process -PassThru` exposes the process identifier as `Id`, while CIM process discovery exposes `ProcessId`. Persist PID files and compare ownership through one normalization helper rather than assuming either property exists universally. Shutdown cleanup must also be idempotent: a child that exits after its parent is stopped is already in the desired terminal state, not a cleanup failure. Validate the complete owned process topology before destructive actions and never broaden cleanup to unrelated process trees.
 
-`examples/start-openai-tunnel.ps1` is the public stdio-through-tunnel quick start. It must:
+`examples/start-openai-tunnel.ps1` is the public authenticated Streamable-HTTP-through-tunnel quick start. It must:
 
 - remain in English;
 - contain placeholders only;
-- never contain a real Runtime API key or Tunnel ID;
+- never contain a real Runtime API key, Tunnel ID, or bearer token;
 - require the exact `tunnel_` plus 32 lowercase hexadecimal identifier format;
-- select `--transport=stdio` explicitly;
-- keep `run_script` and `shell` disabled by default;
-- validate the tunnel client, MCP binary, and canonical allowed directory;
-- run `tunnel-client doctor --explain` before starting the daemon;
-- restore all managed process-level environment variables when it exits.
+- start Scripthold explicitly with `--transport=streamable-http` on loopback;
+- load the Scripthold bearer token from a regular private file rather than argv;
+- configure `MCP_SERVER_URL` plus runtime and discovery `Authorization` headers through an `env:` reference, never a literal token in argv;
+- keep `run_script` and `shell` disabled by default and require the additional HTTP execution gate when either is enabled;
+- validate the tunnel client, MCP binary, token file, and canonical allowed directory;
+- run `tunnel-client doctor --explain` before starting the daemon as a diagnostic preflight;
+- report runtime success only after tunnel `/readyz` succeeds and `/api/status` shows exactly one enabled `main` channel with `probe_status=ok`;
+- avoid `MCP_COMMAND` and the stdio legacy-handshake override in this OpenAI quick-start path;
+- stop only processes it started and restore all managed process-level environment variables when it exits.
 
 `examples/start-streamable-http.ps1` is the standalone native HTTP reference. It must:
 

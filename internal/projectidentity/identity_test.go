@@ -176,17 +176,26 @@ func TestGoReleaserArchiveMetadataIsDeterministic(t *testing.T) {
 
 func TestPublicLauncherExamplesRemainFailClosed(t *testing.T) {
 	root := repositoryRoot(t)
-	stdioExample := filepath.FromSlash("examples/start-openai-tunnel.ps1")
-	assertFileContains(t, root, stdioExample, `$RuntimeApiKey = "REPLACE_WITH_RUNTIME_API_KEY"`)
-	assertFileContains(t, root, stdioExample, `$TunnelId = "tunnel_REPLACE_WITH_ID"`)
-	assertFileContains(t, root, stdioExample, `$TunnelId -notmatch '^tunnel_[0-9a-f]{32}$'`)
-	assertFileContains(t, root, stdioExample, `$AllowedDirectory = $allowedItem.FullName`)
-	assertFileContains(t, root, stdioExample, `--transport=stdio`)
-	assertFileContains(t, root, stdioExample, `$EnableRunScript = $false`)
-	assertFileContains(t, root, stdioExample, `$EnableShell = $false`)
-	assertFileContains(t, root, stdioExample, `"MCP_HTTP_TOKEN"`)
-	assertFileContains(t, root, stdioExample, `"MCP_HTTP_TOKEN_FILE"`)
-	assertFileContains(t, root, stdioExample, `"MCP_HTTP_ENABLE_EXECUTION"`)
+	tunnelExample := filepath.FromSlash("examples/start-openai-tunnel.ps1")
+	assertFileContains(t, root, tunnelExample, `$RuntimeApiKey = "REPLACE_WITH_RUNTIME_API_KEY"`)
+	assertFileContains(t, root, tunnelExample, `$TunnelId = "tunnel_REPLACE_WITH_ID"`)
+	assertFileContains(t, root, tunnelExample, `$TunnelId -notmatch '^tunnel_[0-9a-f]{32}$'`)
+	assertFileContains(t, root, tunnelExample, `$AllowedDirectory = $allowedItem.FullName`)
+	assertFileContains(t, root, tunnelExample, `$TokenFile = "C:\Path\To\scripthold.token"`)
+	assertFileContains(t, root, tunnelExample, `$McpServerUrl = "http://127.0.0.1:8765/mcp"`)
+	assertFileContains(t, root, tunnelExample, `--transport=streamable-http`)
+	assertFileContains(t, root, tunnelExample, `"MCP_SERVER_URL"`)
+	assertFileContains(t, root, tunnelExample, `"MCP_EXTRA_HEADERS"`)
+	assertFileContains(t, root, tunnelExample, `"MCP_DISCOVERY_EXTRA_HEADERS"`)
+	assertFileContains(t, root, tunnelExample, `Authorization: env:MCP_TUNNEL_AUTHORIZATION`)
+	assertFileContains(t, root, tunnelExample, `/api/status`)
+	assertFileContains(t, root, tunnelExample, `probe_status`)
+	assertFileContains(t, root, tunnelExample, `$EnableRunScript = $false`)
+	assertFileContains(t, root, tunnelExample, `$EnableShell = $false`)
+	assertFileContains(t, root, tunnelExample, `"MCP_HTTP_TOKEN_FILE"`)
+	assertFileContains(t, root, tunnelExample, `"MCP_HTTP_ENABLE_EXECUTION"`)
+	assertFileNotContains(t, root, tunnelExample, `"MCP_COMMAND"`)
+	assertFileNotContains(t, root, tunnelExample, `MCP_STDIO_LEGACY_HANDSHAKE`)
 
 	httpExample := filepath.FromSlash("examples/start-streamable-http.ps1")
 	assertFileContains(t, root, httpExample, `$ListenAddress = "127.0.0.1:8765"`)
@@ -290,6 +299,17 @@ func assertFileContains(t *testing.T, root, relativePath, expected string) {
 	}
 	if !strings.Contains(string(data), expected) {
 		t.Errorf("%s must contain %q", relativePath, expected)
+	}
+}
+
+func assertFileNotContains(t *testing.T, root, relativePath, unexpected string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, relativePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), unexpected) {
+		t.Errorf("%s must not contain %q", relativePath, unexpected)
 	}
 }
 func TestRegistryTemplateTargetsFork(t *testing.T) {
