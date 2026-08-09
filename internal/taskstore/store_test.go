@@ -159,6 +159,62 @@ func TestWorkerRejectsTamperedPersistedRequest(t *testing.T) {
 	}
 }
 
+func TestWorkerHeartbeatContinuesWhileReconciliationIsBlocked(t *testing.T) {
+	store, public := newTestStoreWithPublic(t)
+	worker, err := NewWorker(store, os.Args[0], []string{public}, WorkerPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entered := make(chan struct{}, 1)
+	worker.reconcileCycle = func(ctx context.Context) error {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+	defer func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("worker shutdown: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("worker did not stop")
+		}
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not enter reconciliation")
+	}
+	heartbeat := filepath.Join(store.root, workerHeartbeatName)
+	initial, err := os.Stat(heartbeat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		current, statErr := os.Stat(heartbeat)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if current.ModTime().After(initial.ModTime()) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("worker heartbeat stopped during reconciliation")
+}
+
 func TestSubmitEnforcesQueueBound(t *testing.T) {
 	store := newTestStore(t)
 	store.limits.MaxQueued = 2

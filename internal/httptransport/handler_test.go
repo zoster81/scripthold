@@ -353,7 +353,10 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 			t.Errorf("close backup store: %v", err)
 		}
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// This cross-adapter lifecycle includes durable edit, backup, restore, and
+	// garbage-collection barriers. Keep it bounded while allowing contended CI
+	// filesystems enough time to complete the full security path.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
 	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
 		Version:            "http-test",

@@ -42,6 +42,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Changed
 
+- Kept the durable worker liveness heartbeat independent from queue reconciliation, preventing slow store scans or heavy filesystem contention from falsely reporting an offline worker.
 - Simplified current-facing release documentation around the planned `2.1.0` scope, removed the stale pre-rebrand `releases/latest` asset command, and clarified stateless MCP `2026-07-28` HTTP beside retained stateful legacy sessions.
 - Renamed the product and GitHub repository to **Scripthold**, adopted **Code from the web. Work locally. Recover safely.** as its tagline, and retained permanent attribution to **Dimitar Grigorov** and the original project. The Go module, internal imports, command directory, executable, container paths, updater, workflow guards, release configuration, Registry template, examples, and public documentation now use the Scripthold identity; existing published `2.0.0` assets and Registry records remain historical.
 - Fixed MCP compatibility argument repair so JSON-looking string fields such as `write_file.content` remain strings, while only the exact declared top-level array/object fields for each tool are decoded from stringified JSON.

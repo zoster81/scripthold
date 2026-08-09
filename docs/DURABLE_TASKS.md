@@ -13,7 +13,7 @@ HTTP frontend -----/                              `-- task-worker
                                                        `-- one detached _task-exec per running task
 ```
 
-`task-supervisor` is the launcher-facing process. It keeps one `task-worker` available and restarts it after failure. The worker schedules queued work but does not own running processes. Each `_task-exec` helper writes its own heartbeat, bounded logs, and terminal state directly to the store, so a worker or connector failure does not kill an already-started task.
+`task-supervisor` is the launcher-facing process. It keeps one `task-worker` available and restarts it after failure. The worker schedules queued work but does not own running processes, and its liveness heartbeat runs independently from queue reconciliation so a slow store scan cannot falsely report it offline. Each `_task-exec` helper writes its own heartbeat, bounded logs, and terminal state directly to the store, so a worker or connector failure does not kill an already-started task.
 
 After a machine reboot, queued tasks remain queued. A task that crossed the durable started marker but lost its executor heartbeat becomes `interrupted`; Scripthold never automatically repeats arbitrary potentially non-idempotent work. Submit an explicit new task when retry is appropriate.
 

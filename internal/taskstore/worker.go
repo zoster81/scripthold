@@ -21,6 +21,7 @@ import (
 
 const (
 	workerPollInterval        = 250 * time.Millisecond
+	workerHeartbeatInterval   = time.Second
 	executorHeartbeatInterval = time.Second
 	executorStaleAfter        = 15 * time.Second
 	recoveryGrace             = 20 * time.Second
@@ -40,6 +41,7 @@ type Worker struct {
 	logger           *slog.Logger
 	startedAt        time.Time
 	suspectSince     map[string]time.Time
+	reconcileCycle   func(context.Context) error
 }
 
 func NewWorker(store *Store, executable string, allowedDirectories []string, policy WorkerPolicy, logger *slog.Logger) (*Worker, error) {
@@ -59,7 +61,9 @@ func NewWorker(store *Store, executable string, allowedDirectories []string, pol
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Worker{store: store, executable: executable, allowedRequested: set.Requested, allowedResolved: set.Resolved, policy: policy, logger: logger, startedAt: time.Now(), suspectSince: make(map[string]time.Time)}, nil
+	worker := &Worker{store: store, executable: executable, allowedRequested: set.Requested, allowedResolved: set.Resolved, policy: policy, logger: logger, startedAt: time.Now(), suspectSince: make(map[string]time.Time)}
+	worker.reconcileCycle = worker.reconcile
+	return worker, nil
 }
 
 func (worker *Worker) Run(ctx context.Context) error {
@@ -68,22 +72,43 @@ func (worker *Worker) Run(ctx context.Context) error {
 		return err
 	}
 	defer lock.close()
+	heartbeatPath := filepath.Join(worker.store.root, workerHeartbeatName)
+	if err := touch(heartbeatPath); err != nil {
+		return fmt.Errorf("update worker heartbeat: %w", err)
+	}
+	heartbeatContext, stopHeartbeat := context.WithCancel(ctx)
+	heartbeatErrors := make(chan error, 1)
+	defer stopHeartbeat()
+	go func() {
+		ticker := time.NewTicker(workerHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatContext.Done():
+				return
+			case <-ticker.C:
+				if err := touch(heartbeatPath); err != nil {
+					heartbeatErrors <- err
+					return
+				}
+			}
+		}
+	}()
 	worker.logger.Info("task worker started", "maxConcurrency", worker.store.limits.MaxConcurrency, "maxQueued", worker.store.limits.MaxQueued)
 	ticker := time.NewTicker(workerPollInterval)
 	defer ticker.Stop()
 	retentionTicker := time.NewTicker(time.Minute)
 	defer retentionTicker.Stop()
 	for {
-		if err := touch(filepath.Join(worker.store.root, workerHeartbeatName)); err != nil {
-			return fmt.Errorf("update worker heartbeat: %w", err)
-		}
-		if err := worker.reconcile(ctx); err != nil {
+		if err := worker.reconcileCycle(ctx); err != nil {
 			worker.logger.Error("task worker reconciliation failed", "error", err)
 		}
 		select {
 		case <-ctx.Done():
 			worker.logger.Info("task worker stopped")
 			return nil
+		case err := <-heartbeatErrors:
+			return fmt.Errorf("update worker heartbeat: %w", err)
 		case <-retentionTicker.C:
 			if err := worker.store.Purge(); err != nil {
 				worker.logger.Error("task retention failed", "error", err)
