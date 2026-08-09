@@ -65,6 +65,17 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 		if !reflect.DeepEqual(tool.Annotations, wantAnnotations) {
 			t.Errorf("tool %q annotations = %#v, want %#v", definition.Name, tool.Annotations, wantAnnotations)
 		}
+		inputSchema, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatalf("marshal %s input schema: %v", definition.Name, err)
+		}
+		var inputObject map[string]any
+		if err := json.Unmarshal(inputSchema, &inputObject); err != nil {
+			t.Fatalf("decode %s input schema: %v", definition.Name, err)
+		}
+		if _, ok := inputObject["properties"].(map[string]any); !ok {
+			t.Errorf("tool %q input schema must contain an object properties map: %s", definition.Name, inputSchema)
+		}
 	}
 
 	editTool := byName["edit_file"]

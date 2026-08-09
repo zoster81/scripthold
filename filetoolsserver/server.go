@@ -64,6 +64,19 @@ func catalogTool(name string) *mcp.Tool {
 	}
 }
 
+// emptyInputCatalogTool supplies an explicit properties object for no-argument
+// tools. Some MCP-to-function-schema bridges require it even though JSON Schema
+// permits an object schema without properties.
+func emptyInputCatalogTool(name string) *mcp.Tool {
+	tool := catalogTool(name)
+	tool.InputSchema = map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": false,
+	}
+	return tool
+}
+
 // ServerOptions contains process-wide MCP server policy. Every connection to
 // the returned server shares the same configured directories and tool policy.
 type ServerOptions struct {
@@ -135,13 +148,13 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	mcp.AddTool(server, catalogTool("list_directory"), handler.Wrap(logger, "list_directory", h.HandleListDirectory))
 
-	mcp.AddTool(server, catalogTool("list_encodings"), handler.Wrap(logger, "list_encodings", h.HandleListEncodings))
+	mcp.AddTool(server, emptyInputCatalogTool("list_encodings"), handler.Wrap(logger, "list_encodings", h.HandleListEncodings))
 
 	mcp.AddTool(server, catalogTool("detect_encoding"), handler.Wrap(logger, "detect_encoding", h.HandleDetectEncoding))
 
 	mcp.AddTool(server, catalogTool("grep_text_files"), handler.Wrap(logger, "grep_text_files", h.HandleGrep))
 
-	mcp.AddTool(server, catalogTool("list_allowed_directories"), handler.Wrap(logger, "list_allowed_directories", h.HandleListAllowedDirectories))
+	mcp.AddTool(server, emptyInputCatalogTool("list_allowed_directories"), handler.Wrap(logger, "list_allowed_directories", h.HandleListAllowedDirectories))
 
 	mcp.AddTool(server, catalogTool("get_file_info"), handler.Wrap(logger, "get_file_info", h.HandleGetFileInfo))
 
