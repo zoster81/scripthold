@@ -30,8 +30,16 @@ func check(name string, ok bool) {
 }
 
 func main() {
-	baseDir, _ := os.MkdirTemp("", "mcp-test-*")
-	defer os.RemoveAll(baseDir)
+	requestedBaseDir, err := os.MkdirTemp("", "mcp-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(requestedBaseDir)
+	baseDir, err := filepath.EvalSymlinks(requestedBaseDir)
+	if err != nil {
+		panic(err)
+	}
+	baseDir = filepath.Clean(baseDir)
 	tempDir := filepath.Join(baseDir, "public")
 	if err := os.Mkdir(tempDir, 0o700); err != nil {
 		panic(err)
