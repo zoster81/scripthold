@@ -174,7 +174,7 @@ func (worker *Worker) reconcile(ctx context.Context) error {
 			}
 			if !started && state.Status == StatusStarting {
 				now := time.Now().UTC()
-				_ = worker.store.appendStateUnlocked(entry.Name(), stateRecord{Status: StatusQueued, Revision: state.Revision + 1, UpdatedAt: now})
+				_ = worker.store.appendState(entry.Name(), stateRecord{Status: StatusQueued, Revision: state.Revision + 1, UpdatedAt: now})
 				delete(worker.suspectSince, entry.Name())
 				continue
 			}
@@ -268,7 +268,7 @@ func (worker *Worker) start(request persistedRequest, current stateRecord) error
 	command.Env = replaceEnvironmentValue(os.Environ(), "MCP_TASK_EXECUTOR_TOKEN", launch.ExecutorToken)
 	configureDetachedHelper(command)
 	if err := command.Start(); err != nil {
-		finishErr := worker.finishWithoutExecution(request, state, StatusFailed, "TASK_START_FAILED", "task executor process could not be started")
+		finishErr := worker.finishWithoutExecutionUnlocked(request, state, StatusFailed, "TASK_START_FAILED", "task executor process could not be started")
 		return fmt.Errorf("%w: %v", errTaskStartFinalized, errors.Join(err, finishErr))
 	}
 	if command.Process != nil {
@@ -400,9 +400,17 @@ func (worker *Worker) snapshotScript(taskID, sourcePath string, expectedSize int
 }
 
 func (worker *Worker) finishWithoutExecution(request persistedRequest, current stateRecord, status Status, code, message string) error {
+	return worker.store.appendState(request.TaskID, terminalStateWithoutExecution(current, status, code, message))
+}
+
+func (worker *Worker) finishWithoutExecutionUnlocked(request persistedRequest, current stateRecord, status Status, code, message string) error {
+	return worker.store.appendStateUnlocked(request.TaskID, terminalStateWithoutExecution(current, status, code, message))
+}
+
+func terminalStateWithoutExecution(current stateRecord, status Status, code, message string) stateRecord {
 	now := time.Now().UTC()
 	started := current.StartedAt
-	return worker.store.appendStateUnlocked(request.TaskID, stateRecord{Status: status, Revision: current.Revision + 1, UpdatedAt: now, StartedAt: started, FinishedAt: &now, Result: &Result{ExitCode: -1, ErrorCode: code, Message: message}})
+	return stateRecord{Status: status, Revision: current.Revision + 1, UpdatedAt: now, StartedAt: started, FinishedAt: &now, Result: &Result{ExitCode: -1, ErrorCode: code, Message: message}}
 }
 
 func (worker *Worker) executorFresh(taskID string) bool {

@@ -780,6 +780,18 @@ func (store *Store) appendStateUnlocked(taskID string, state stateRecord) error 
 	return writeJSONExclusive(filepath.Join(store.taskDir(taskID), statesDirectoryName, name), state)
 }
 
+// appendState serializes state transitions across frontends, the worker, and
+// detached executors. Callers that already hold control.lock must use
+// appendStateUnlocked to avoid self-deadlock.
+func (store *Store) appendState(taskID string, state stateRecord) (err error) {
+	lock, err := acquireControlLock(filepath.Join(store.root, controlLockName))
+	if err != nil {
+		return fmt.Errorf("lock task state transition: %w", err)
+	}
+	defer func() { err = errors.Join(err, lock.close()) }()
+	return store.appendStateUnlocked(taskID, state)
+}
+
 func validStateTransition(from, to Status) bool {
 	switch from {
 	case StatusQueued:

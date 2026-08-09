@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -81,6 +82,50 @@ func TestSubmitIsIdempotentAndRejectsConflictingReuse(t *testing.T) {
 	changed.Command = "echo different"
 	if _, err := store.Submit(context.Background(), changed); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting key error = %v", err)
+	}
+}
+
+func TestConcurrentStateTransitionsHaveExactlyOneWinner(t *testing.T) {
+	store := newTestStore(t)
+	admitted, err := store.Submit(context.Background(), shellRequest("concurrent-transition"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	states := []stateRecord{
+		{Status: StatusStarting, Revision: 2, UpdatedAt: now, ExecutorToken: testRandomHex(t, 32)},
+		{Status: StatusCancelled, Revision: 2, UpdatedAt: now, FinishedAt: &now, Result: &Result{ExitCode: -1, ErrorCode: "TASK_CANCELLED"}},
+	}
+	start := make(chan struct{})
+	errorsByTransition := make(chan error, len(states))
+	var workers sync.WaitGroup
+	for _, state := range states {
+		state := state
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			errorsByTransition <- store.appendState(admitted.Task.ID, state)
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(errorsByTransition)
+	winners := 0
+	for transitionErr := range errorsByTransition {
+		if transitionErr == nil {
+			winners++
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("concurrent transition winners = %d, want exactly 1", winners)
+	}
+	history, err := store.stateHistory(admitted.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 || history[1].Revision != 2 {
+		t.Fatalf("unexpected durable history: %#v", history)
 	}
 }
 

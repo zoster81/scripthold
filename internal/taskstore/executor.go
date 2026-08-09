@@ -57,7 +57,7 @@ func RunExecutor(ctx context.Context, store *Store, taskID, token string) error 
 		return err
 	}
 	running := stateRecord{Status: StatusRunning, Revision: current.Revision + 1, UpdatedAt: now, StartedAt: &now, ExecutorPID: os.Getpid(), ExecutorToken: token}
-	if err := store.appendStateUnlocked(taskID, running); err != nil {
+	if err := store.appendState(taskID, running); err != nil {
 		return err
 	}
 
@@ -136,7 +136,7 @@ func RunExecutor(ctx context.Context, store *Store, taskID, token string) error 
 	terminal := stateRecord{Status: status, Revision: running.Revision + 1, UpdatedAt: finished, StartedAt: running.StartedAt, FinishedAt: &finished, ExecutorPID: os.Getpid(), ExecutorToken: token, Result: result}
 	_ = stdout.Snapshot()
 	_ = stderr.Snapshot()
-	if err := store.appendStateUnlocked(taskID, terminal); err != nil {
+	if err := store.appendState(taskID, terminal); err != nil {
 		return err
 	}
 	return nil
@@ -145,5 +145,5 @@ func RunExecutor(ctx context.Context, store *Store, taskID, token string) error 
 func finishExecutor(store *Store, taskID string, current stateRecord, status Status, exitCode int, code, message string, started time.Time) error {
 	finished := time.Now().UTC()
 	result := &Result{ExitCode: exitCode, DurationMillis: time.Since(started).Milliseconds(), ErrorCode: code, Message: message}
-	return store.appendStateUnlocked(taskID, stateRecord{Status: status, Revision: current.Revision + 1, UpdatedAt: finished, StartedAt: current.StartedAt, FinishedAt: &finished, ExecutorPID: os.Getpid(), ExecutorToken: current.ExecutorToken, Result: result})
+	return store.appendState(taskID, stateRecord{Status: status, Revision: current.Revision + 1, UpdatedAt: finished, StartedAt: current.StartedAt, FinishedAt: &finished, ExecutorPID: os.Getpid(), ExecutorToken: current.ExecutorToken, Result: result})
 }

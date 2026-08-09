@@ -32,11 +32,11 @@ Use this flow for `2.1.0` and later fork-owned semantic releases. Development co
 6. Create and push the release tag:
 
    ```bash
-   git tag vX.Y.Z
+   git tag -a vX.Y.Z -m "Scripthold X.Y.Z"
    git push origin vX.Y.Z
    ```
 
-7. `.github/workflows/release.yml` revalidates the tag/metadata match, then runs tests and GoReleaser.
+7. `.github/workflows/release.yml` revalidates the tag/metadata match, then reruns the cross-platform race, HTTP, catalog/documentation identity, native task lifecycle, manual server, static, vulnerability, fuzz, workflow, and release-script gates before GoReleaser. The release job alone receives `contents: write`; test jobs remain read-only.
 8. `.goreleaser.yml` publishes the release to `zoster81/scripthold` with:
    - reproducible `-trimpath` builds timestamped from the source commit;
    - archive binary and documentation entries with commit-derived timestamps plus fixed owner, group, and modes;
@@ -49,8 +49,8 @@ Use this flow for `2.1.0` and later fork-owned semantic releases. Development co
    - `examples/start-openai-tunnel-http-plus-local-stdio.ps1`;
    - `examples/start-local-stdio.ps1`;
    - `examples/start-local-http.ps1`.
-9. Verify the release asset names and SHA-256 values before announcing it.
-10. `.github/workflows/release.yml` invokes the reusable `.github/workflows/publish-registry.yml`, which generates and publishes the fork-owned `server.json` from those verified assets.
+9. `.github/workflows/release.yml` invokes the reusable `.github/workflows/publish-registry.yml`, which checks out the exact fully qualified release tag, verifies its commit and metadata, requires the exact six raw binaries plus six platform archives, downloads all 12 assets, and verifies every SHA-256 value against `checksums.txt` before generating and publishing the fork-owned `server.json`. Manual Registry retries use the same tag-bound path and cannot silently read scripts from the current default branch.
+10. Independently verify the published asset names and SHA-256 values before announcing the release.
 
 ## Public launcher examples
 
@@ -96,7 +96,7 @@ Real credentials belong in private copies outside the Git checkout.
 
 `server.template.json` is a release-neutral template owned by `zoster81/scripthold`. It contains the fork namespace, repository, homepage, package filenames, zeroed checksum placeholders, and an intentionally empty `tools` array; it is not published directly. The authoritative tool names, descriptions, titles, and annotations live in `internal/toolcatalog/catalog.json`, which is embedded by the Go runtime.
 
-`.github/workflows/publish-registry.yml` runs only in `zoster81/scripthold`. After a fork release is published, it downloads that release's `checksums.txt`; `scripts/generate-server-json.js` injects the catalog's Registry-facing name/description projection, exact version, fork download URLs, and SHA-256 values into a temporary `server.json`. The generator rejects a duplicated template catalog, invalid or duplicate catalog tools, and missing or unexpected MCP binaries before GitHub OIDC authentication.
+`.github/workflows/publish-registry.yml` runs only in `zoster81/scripthold`. It checks out `refs/tags/<version>` with full history, verifies that checkout against the semantic version and dated changelog, then requires and downloads the exact six raw binaries plus six platform archives and verifies all 12 against that release's `checksums.txt`; `scripts/generate-server-json.js` injects the catalog's Registry-facing name/description projection, exact version, fork download URLs, and SHA-256 values into a temporary `server.json`. The generator rejects a duplicated template catalog, invalid or duplicate catalog tools, and missing or unexpected MCP binaries before GitHub OIDC authentication.
 
 The source and next-release Registry identity is `io.github.zoster81/scripthold`. The already-published `2.0.0` record remains under the historical `io.github.zoster81/mcp-file-tools` identity and is not rewritten by the repository rename. The final Scripthold template and generator must be revalidated with six packages and the authoritative 30-tool source projection before publication; no Scripthold Registry publication has occurred yet.
 
@@ -110,10 +110,10 @@ The repository pins the release-validation toolchain instead of resolving
 floating `latest` versions during CI:
 
 - actionlint 1.7.12 and ShellCheck 0.11.0 for GitHub Actions workflows;
-- actions/checkout 6.0.2, actions/setup-go 7, and actions/upload-artifact 7.0.1;
-- Staticcheck v0.7.0 and govulncheck v1.1.4 for Go analysis;
-- GoReleaser action 7.2.1 with GoReleaser v2.17.0 for release generation;
-- MCP Publisher v1.7.9 for registry validation and publication.
+- actions/checkout 7.0.1, actions/setup-go 7.0.0, and actions/upload-artifact 7.0.1;
+- Staticcheck v0.7.0 and govulncheck v1.6.0 for Go analysis;
+- GoReleaser action 7.2.3 with GoReleaser v2.17.1 for release generation;
+- MCP Publisher v1.8.1 for registry validation and publication.
 
 The workflow-linter archives and MCP Publisher archive are verified against
 fixed SHA-256 values before extraction. Local release preparation should also

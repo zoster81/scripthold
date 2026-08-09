@@ -6,9 +6,11 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write  # Required for MCP Registry OIDC auth
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -20,10 +22,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -33,7 +35,9 @@ jobs:
 
       - name: Verify dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: go mod tidy && git diff --exit-code go.mod go.sum
+        run: |
+          go mod tidy -diff
+          go mod verify
 
       - name: Verify HTTP transport integration
         run: go test ./internal/httptransport ./cmd/scripthold -count=1
@@ -44,13 +48,33 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      - name: Verify catalog and documentation identity
+        run: go test ./internal/projectidentity ./internal/toolcatalog -count=1
+
       - name: Run staticcheck
         if: matrix.os == 'ubuntu-latest'
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 
       - name: Run govulncheck
         if: matrix.os == 'ubuntu-latest'
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+      - name: Run bounded fuzz smoke tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go test ./internal/encoding -run '^$' -fuzz '^FuzzDetectUTF16Validation$' -fuzztime=5s
+          go test ./internal/encoding -run '^$' -fuzz '^FuzzDecoderReaderChunkInvariance$' -fuzztime=5s
+          go test ./internal/textstream -run '^$' -fuzz '^FuzzScanLinesRoundTrip$' -fuzztime=5s
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeHostValue$' -fuzztime=5s
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeOrigin$' -fuzztime=5s
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzTrustedProxyClientAddress$' -fuzztime=5s
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzJSONRPCMessageRoundTrip$' -fuzztime=5s
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeDescriptor$' -fuzztime=5s
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeManifest$' -fuzztime=5s
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeIndex$' -fuzztime=5s
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeListCursor$' -fuzztime=5s
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzValidateGCPlan$' -fuzztime=5s
+          go test ./cmd/scripthold -run '^$' -fuzz '^FuzzParseBackupDiagnosticCommand$' -fuzztime=5s
 
       - name: Lint GitHub Actions workflows
         if: matrix.os == 'ubuntu-latest'
@@ -78,27 +102,32 @@ jobs:
           export MCP_EXTERNAL_SMOKE_EXPECTED_ROOT='{TEMP_ROOT}'
           go test ./cmd/scripthold -run '^TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)$' -count=1 -v
 
+      - name: Test all server operations
+        run: go run test_server.go
+
   release:
     needs: test
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7.2.1
+        uses: goreleaser/goreleaser-action@v7.2.3
         with:
           distribution: goreleaser
-          version: 'v2.17.0'
+          version: 'v2.17.1'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

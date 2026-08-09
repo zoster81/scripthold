@@ -1033,7 +1033,7 @@ Checks the latest GitHub release of the `zoster81/scripthold` fork and returns t
 |-----------|------|----------|-------------|
 | `force` | boolean | no | When `true`, bypasses the cached result and performs a fresh request |
 
-Without `force`, the result is cached for 30 minutes to avoid repeated GitHub API calls. The cache records the configured release source, so cache data from the upstream repository is ignored. A background update check also runs once when the MCP server initializes.
+Without `force`, successful results and offline failures are cached for 30 minutes to avoid repeated GitHub API calls. Cache reads are bounded and replacement uses a temporary file plus atomic rename; newly created Unix directories and files request `0700` and `0600` modes. Oversized, malformed, future-dated, or foreign-source entries are ignored. Semantic-version comparison honors prerelease precedence, so a stable release supersedes an equal-numbered `-internal-*` build. A background update check also runs once when the MCP server initializes.
 
 The checker is notification-only: it never downloads, replaces, installs, or restarts the MCP server. It requires at least one published GitHub Release in the fork; if the fork has no release, the GitHub endpoint returns no latest version and the checker remains silent.
 

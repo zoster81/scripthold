@@ -319,14 +319,16 @@ func TestValidationToolVersionsArePinned(t *testing.T) {
 	root := repositoryRoot(t)
 	assertFileContains(t, root, filepath.FromSlash("scripts/validate-workflows.sh"), "ACTIONLINT_VERSION=1.7.12")
 	assertFileContains(t, root, filepath.FromSlash("scripts/validate-workflows.sh"), "SHELLCHECK_VERSION=0.11.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/checkout@v6.0.2")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/setup-go@v7")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/checkout@v7.0.1")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/setup-go@v7.0.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/build.yml"), "actions/upload-artifact@v7.0.1")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "staticcheck@v0.7.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "govulncheck@v1.1.4")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "goreleaser/goreleaser-action@v7.2.1")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "version: 'v2.17.0'")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "MCP_PUBLISHER_VERSION: 1.7.9")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "govulncheck@v1.6.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "goreleaser/goreleaser-action@v7.2.3")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "version: 'v2.17.1'")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "MCP_PUBLISHER_VERSION: 1.8.1")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "MCP_PUBLISHER_LINUX_AMD64_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "./mcp-publisher validate")
 }
 
 func TestBackupStoreFuzzTargetsRunInCI(t *testing.T) {

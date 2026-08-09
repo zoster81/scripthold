@@ -47,7 +47,7 @@ queued -> starting -> running -> succeeded
                            `--> interrupted
 ```
 
-Cancellation of `queued` work prevents launch. Cancellation of `running` work is polled by the executor and terminates the complete child process tree. Every state transition is an immutable bounded lifecycle event containing only status, revision, timestamp, and an optional stable error code. Commands, arguments, paths, environment values, and output are excluded from lifecycle history.
+Cancellation of `queued` work prevents launch. Cancellation of `running` work is polled by the executor and terminates the complete child process tree. Every state transition is serialized through the cross-process control lock before it becomes an immutable bounded lifecycle event containing only status, revision, timestamp, and an optional stable error code. A stale concurrent transition fails instead of creating two events with the same revision. Commands, arguments, paths, environment values, and output are excluded from lifecycle history.
 
 The worker writes a started marker before process creation. Recovery may safely requeue a stale `starting` task only when that marker does not exist. Once the marker exists, recovery is at-most-once: loss of the executor produces `interrupted`, never an implicit rerun.
 

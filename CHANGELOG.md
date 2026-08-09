@@ -42,6 +42,8 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Changed
 
+- Hardened GitHub Actions release publication: tag pushes no longer duplicate the ordinary Test workflow, Dependabot pull requests no longer duplicate Test runs, Release reruns every release-critical test gate with least-privilege job permissions, dependency checks are non-mutating, and Registry publication is bound to the exact requested tag, verifies the complete 12-asset checksum set, and validates the generated manifest before authentication instead of reading the default branch or trusting a partial release.
+- Updated the pinned release toolchain and dependencies to actions/checkout 7.0.1, actions/setup-go 7.0.0, GoReleaser action 7.2.3, GoReleaser 2.17.1, MCP Publisher 1.8.1, govulncheck 1.6.0, and golang.org/x/sys 0.47.0.
 - Made the GitHub README identify Scripthold immediately as a Model Context Protocol server and state its clients, workspace boundary, and supported transports before the detailed feature overview.
 - Kept the durable worker liveness heartbeat independent from queue reconciliation, preventing slow store scans or heavy filesystem contention from falsely reporting an offline worker.
 - Simplified current-facing release documentation around the planned `2.1.0` scope, removed the stale pre-rebrand `releases/latest` asset command, and clarified stateless MCP `2026-07-28` HTTP beside retained stateful legacy sessions.
@@ -73,6 +75,8 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Fixed
 
+- Serialized durable task-state transitions across frontends, the worker, and detached executors so cancellation, recovery, and completion cannot persist competing events with the same revision.
+- Fixed update checks so cached offline failures actually suppress repeated requests, future or malformed cache entries fail safely, bounded cache writes are atomic, remote responses are size-limited, and a stable release correctly supersedes an equal-numbered internal prerelease build.
 - Made Windows owner-only task-store ACL application set the process user as the explicit owner as well as the sole DACL principal, matching the backup-store policy under elevated and CI runner tokens.
 - Made restore authorization recognize physically equivalent canonical path spellings, including Windows 8.3 aliases and macOS resolved path aliases, without relaxing containment or link checks.
 - Made Windows owner-only backup-store ACL application set the process user as the explicit owner as well as the sole DACL principal, preserving the fail-closed store policy under elevated or runner tokens whose default owner differs from the token user.

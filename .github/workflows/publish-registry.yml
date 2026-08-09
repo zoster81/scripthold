@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Fork release tag to publish (for example, v2.0.0)'
+        description: 'Fork release tag to publish (for example, v2.1.0)'
         required: true
         type: string
 
@@ -25,17 +25,60 @@ jobs:
     timeout-minutes: 15
     env:
       VERSION_TAG: ${{ inputs.version }}
-      MCP_PUBLISHER_VERSION: 1.7.9
-      MCP_PUBLISHER_LINUX_AMD64_SHA256: ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac
+      MCP_PUBLISHER_VERSION: 1.8.1
+      MCP_PUBLISHER_LINUX_AMD64_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.version }}
+          fetch-depth: 0
 
-      - name: Download fork release checksums
+      - name: Verify checked-out release tag and metadata
         run: |
           set -euo pipefail
-          curl -fSL "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/checksums.txt" -o checksums.txt
+          node scripts/verify-release-version.js "${VERSION_TAG}"
+          tag_commit="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
+          test "$(git rev-parse HEAD)" = "${tag_commit}"
+
+      - name: Download and verify fork release assets
+        run: |
+          set -euo pipefail
+          curl -fSL --retry 3 --retry-all-errors \
+            "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/checksums.txt" \
+            -o checksums.txt
           cat checksums.txt
+
+          artifacts=(
+            scripthold_darwin_amd64
+            scripthold_darwin_amd64.tar.gz
+            scripthold_darwin_arm64
+            scripthold_darwin_arm64.tar.gz
+            scripthold_linux_amd64
+            scripthold_linux_amd64.tar.gz
+            scripthold_linux_arm64
+            scripthold_linux_arm64.tar.gz
+            scripthold_windows_amd64.exe
+            scripthold_windows_amd64.zip
+            scripthold_windows_arm64.exe
+            scripthold_windows_arm64.zip
+          )
+          expected_artifacts="$(printf '%s\n' "${artifacts[@]}" | LC_ALL=C sort)"
+          actual_artifacts="$(awk '{ name=$2; sub(/^\*/, "", name); print name }' checksums.txt | LC_ALL=C sort)"
+          if [[ "${actual_artifacts}" != "${expected_artifacts}" ]]; then
+            echo 'release checksum manifest does not contain the exact expected 12 assets' >&2
+            diff -u \
+              <(printf '%s\n' "${expected_artifacts}") \
+              <(printf '%s\n' "${actual_artifacts}") || true
+            exit 1
+          fi
+
+          for artifact in "${artifacts[@]}"; do
+            curl -fSL --retry 3 --retry-all-errors \
+              "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${artifact}" \
+              -o "${artifact}"
+          done
+          sha256sum --check checksums.txt
 
       - name: Generate verified fork registry manifest
         run: |
@@ -53,6 +96,9 @@ jobs:
           printf '%s  %s\n' "${MCP_PUBLISHER_LINUX_AMD64_SHA256}" "${archive}" | sha256sum -c -
           tar -xzf "${archive}"
           chmod +x mcp-publisher
+
+      - name: Validate MCP Registry manifest
+        run: ./mcp-publisher validate
 
       - name: Publish to MCP Registry
         run: |
