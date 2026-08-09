@@ -23,7 +23,7 @@ func TestExternalDurableTaskLifecycle(t *testing.T) {
 	if executable == "" {
 		t.Skipf("%s is not configured", externalSmokeExecutableEnv)
 	}
-	base := t.TempDir()
+	base := canonicalExternalTaskTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	storeRoot := filepath.Join(base, "private", "tasks")
 	if err := os.MkdirAll(publicRoot, 0o755); err != nil {
@@ -111,7 +111,7 @@ func TestExternalTaskSupervisorRecovery(t *testing.T) {
 	if executable == "" {
 		t.Skipf("%s is not configured", externalSmokeExecutableEnv)
 	}
-	base := t.TempDir()
+	base := canonicalExternalTaskTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	storeRoot := filepath.Join(base, "private", "tasks")
 	if err := os.MkdirAll(publicRoot, 0o755); err != nil {
@@ -168,6 +168,16 @@ func TestExternalTaskSupervisorRecovery(t *testing.T) {
 type externalTaskState struct {
 	Status                string
 	StartedAt, FinishedAt *time.Time
+}
+
+func canonicalExternalTaskTestDir(t *testing.T) string {
+	t.Helper()
+	base := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatalf("resolve external task test directory %q: %v", base, err)
+	}
+	return filepath.Clean(resolved)
 }
 
 func startExternalTaskWorker(t *testing.T, ctx context.Context, executable, root string, environment []string, storeRoot string) *exec.Cmd {
