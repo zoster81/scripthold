@@ -1,5 +1,5 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
-# Scripthold: encoding-aware local workspace MCP server with 27 tools,
+# Scripthold: encoding-aware local workspace MCP server with 30 tools,
 # secure traversal, durable mutations, typed errors, and 24 encodings.
 
 runtime: container

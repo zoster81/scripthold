@@ -62,7 +62,8 @@ Use focused TDD when practical: reproduce, confirm the expected failure, impleme
 - Missing paths must be validated through their nearest existing ancestor.
 - Mutations must preserve the durable staging, snapshot, no-replace, rollback, cleanup, and platform-sync guarantees in `internal/filesystem`.
 - Public error schemas and tool metadata remain stable unless a roadmap milestone explicitly changes them.
-- `run_script` and `shell` remain disabled by default. Do not weaken their distinct authorization boundaries.
+- `task_run` is the only public execution tool; the synchronous `run_script` and `shell` tools are removed. Its `kind=script` and `kind=shell` requests remain disabled by default and retain distinct authorization gates.
+- Durable execution state belongs to the private task store and independent supervisor/worker/executor topology. Do not make task lifetime depend on an MCP frontend, transport connection, or request context.
 - Allowed directories are process-wide policy shared by every connection; do not introduce per-session filesystem ACLs or let future HTTP sessions mutate startup roots without an explicit roadmap decision.
 - Dynamic MCP client roots are a stdio-only compatibility path when no startup directories are configured.
 - Native HTTP must follow `docs/HTTP_SECURITY.md`; do not weaken authentication, Host/Origin checks, session limits, logging redaction, or the dual execution opt-in.

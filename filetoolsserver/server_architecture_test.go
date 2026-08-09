@@ -84,7 +84,10 @@ func TestBuildServerPreservesJSONTextInStringArguments(t *testing.T) {
 }
 
 func TestBuildServerWiresAndProtectsConfiguredBackupStore(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	// This integration test performs several complete MCP preview/apply and
+	// backup/restore cycles. Keep it bounded, but allow for package-level CPU
+	// and filesystem contention in shared CI runners.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	base := t.TempDir()
