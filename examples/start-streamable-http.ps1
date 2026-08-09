@@ -17,6 +17,7 @@
     $McpServer = Join-Path $PSScriptRoot "scripthold_windows_amd64.exe"
     $AllowedDirectory = "C:\Path\To\AllowedProject"
     $TokenFile = "C:\Path\To\scripthold.token"
+    $BackupStore = ""
 
     # --------------------------------------------------------------------------
     # Listener policy
@@ -113,6 +114,11 @@
     $managedVariables = @(
         "CONTROL_PLANE_API_KEY",
         "CONTROL_PLANE_TUNNEL_ID",
+        "MCP_SERVER_URL",
+        "MCP_COMMAND",
+        "MCP_EXTRA_HEADERS",
+        "MCP_DISCOVERY_EXTRA_HEADERS",
+        "MCP_TUNNEL_AUTHORIZATION",
         "MCP_TRANSPORT",
         "MCP_HTTP_ADDR",
         "MCP_HTTP_PATH",
@@ -125,6 +131,8 @@
         "MCP_HTTP_TLS_CERT_FILE",
         "MCP_HTTP_TLS_KEY_FILE",
         "MCP_HTTP_ENABLE_EXECUTION",
+        "MCP_BACKUP_STORE_DIR",
+        "MCP_STDIO_LEGACY_HANDSHAKE",
         "MCP_ENABLE_RUN_SCRIPT",
         "MCP_ENABLE_SHELL",
         "MCP_ENABLE_EXECUTION"
@@ -137,6 +145,11 @@
     try {
         [Environment]::SetEnvironmentVariable("CONTROL_PLANE_API_KEY", $null, "Process")
         [Environment]::SetEnvironmentVariable("CONTROL_PLANE_TUNNEL_ID", $null, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_SERVER_URL", $null, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_COMMAND", $null, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_EXTRA_HEADERS", $null, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DISCOVERY_EXTRA_HEADERS", $null, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TUNNEL_AUTHORIZATION", $null, "Process")
         [Environment]::SetEnvironmentVariable("MCP_TRANSPORT", "streamable-http", "Process")
         [Environment]::SetEnvironmentVariable("MCP_HTTP_ADDR", $ListenAddress, "Process")
         [Environment]::SetEnvironmentVariable("MCP_HTTP_PATH", $EndpointPath, "Process")
@@ -147,6 +160,8 @@
         [Environment]::SetEnvironmentVariable("MCP_HTTP_TRUSTED_PROXY_CIDRS", $TrustedProxyCidrs, "Process")
         [Environment]::SetEnvironmentVariable("MCP_HTTP_TLS_CERT_FILE", $TlsCertificateFile, "Process")
         [Environment]::SetEnvironmentVariable("MCP_HTTP_TLS_KEY_FILE", $TlsKeyFile, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_BACKUP_STORE_DIR", $BackupStore, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_STDIO_LEGACY_HANDSHAKE", $null, "Process")
         [Environment]::SetEnvironmentVariable("MCP_ENABLE_EXECUTION", $null, "Process")
         Set-BooleanEnvironmentFlag -Name "MCP_HTTP_ALLOW_NON_LOOPBACK" -Enabled $AllowNonLoopback
         Set-BooleanEnvironmentFlag -Name "MCP_HTTP_ENABLE_EXECUTION" -Enabled $EnableHttpExecution

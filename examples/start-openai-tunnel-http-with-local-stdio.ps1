@@ -1,11 +1,12 @@
 & {
-    # OpenAI Secure MCP Tunnel quick start for Windows PowerShell 5.1.
+    # Reverse dual-transport example for Windows PowerShell 5.1.
     #
     # Topology:
-    #   OpenAI tunnel-client -> one tunnel-owned Scripthold stdio child
-    #   local clients        -> an independent loopback Streamable HTTP process
+    #   OpenAI tunnel-client -> authenticated loopback Streamable HTTP
+    #   local MCP client     -> an independent foreground Scripthold stdio child
     #
-    # Copy this file outside the repository before inserting credentials.
+    # When an MCP client launches this script, stdout is reserved for the local
+    # stdio child. HTTP and tunnel logs are redirected to private local files.
 
     Set-StrictMode -Version 3.0
     $ErrorActionPreference = "Stop"
@@ -14,24 +15,22 @@
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
     $OutputEncoding = [Console]::OutputEncoding
 
-    # --------------------------------------------------------------------------
-    # Configuration
-    # --------------------------------------------------------------------------
     $RuntimeApiKey = "REPLACE_WITH_RUNTIME_API_KEY"
     $TunnelId = "tunnel_REPLACE_WITH_ID"
     $AllowedDirectory = "C:\Path\To\AllowedProject"
     $TokenFile = "C:\Path\To\scripthold.token"
-    $StdioBackupStore = "C:\Path\To\PrivateState\stdio"
     $HttpBackupStore = "C:\Path\To\PrivateState\http"
+    $StdioBackupStore = "C:\Path\To\PrivateState\stdio"
 
-    $HttpListenAddress = "127.0.0.1:8765"
-    $HttpEndpointPath = "/mcp"
+    $McpServerUrl = "http://127.0.0.1:8765/mcp"
+    $McpListenAddress = "127.0.0.1:8765"
+    $McpEndpointPath = "/mcp"
     $TunnelHealthBaseUrl = "http://127.0.0.1:8080"
+    $LogDirectory = Join-Path $PSScriptRoot "logs"
 
     $EnableRunScript = $false
     $EnableShell = $false
 
-    # Place both executables next to this script, or change these paths.
     $TunnelClient = Join-Path $PSScriptRoot "tunnel-client.exe"
     $McpServer = Join-Path $PSScriptRoot "scripthold_windows_amd64.exe"
 
@@ -65,8 +64,7 @@
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
             throw "$Description was not found: $Path"
         }
-        $item = Get-Item -LiteralPath $Path -Force
-        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        if (((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "$Description must not be a symbolic link or reparse point: $Path"
         }
     }
@@ -111,86 +109,51 @@
                 $Process.Kill()
                 [void]$Process.WaitForExit(5000)
             }
-        } catch {
-            Write-Warning "Could not stop owned process $($Process.Id): $($_.Exception.Message)"
-        }
+        } catch {}
     }
 
-    function Wait-HttpReady {
+    function Wait-Ready {
         param(
             [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
             [Parameter(Mandatory = $true)][string]$Url
         )
 
         for ($attempt = 0; $attempt -lt 80; $attempt++) {
-            if ($Process.HasExited) { throw "Scripthold HTTP exited before becoming ready." }
+            if ($Process.HasExited) { throw "A required background process exited during startup." }
             try {
                 $response = Invoke-WebRequest -UseBasicParsing -Uri $Url -Method Get -TimeoutSec 2
                 if ($response.StatusCode -eq 200) { return }
             } catch {}
             Start-Sleep -Milliseconds 250
         }
-        throw "Scripthold HTTP did not become ready at $Url."
+        throw "Readiness timed out at $Url."
     }
 
-    function Wait-StdioChild {
-        param([Parameter(Mandatory = $true)][System.Diagnostics.Process]$TunnelProcess)
-
-        $expectedPath = [IO.Path]::GetFullPath($McpServer)
-        $expectedName = [IO.Path]::GetFileName($expectedPath).Replace("'", "''")
-        for ($attempt = 0; $attempt -lt 150; $attempt++) {
-            if ($TunnelProcess.HasExited) {
-                throw "tunnel-client exited before creating its stdio MCP child."
-            }
-            $children = @(Get-CimInstance Win32_Process -Filter ("Name = '{0}' AND ParentProcessId = {1}" -f $expectedName, $TunnelProcess.Id) -ErrorAction SilentlyContinue | Where-Object {
-                $_.ExecutablePath -and
-                [string]::Equals($_.ExecutablePath, $expectedPath, [StringComparison]::OrdinalIgnoreCase) -and
-                $_.CommandLine -notmatch '(?i)--transport=streamable-http'
-            })
-            if ($children.Count -gt 1) {
-                throw "tunnel-client created multiple stdio MCP children."
-            }
-            if ($children.Count -eq 1) {
-                return Get-Process -Id ([int]$children[0].ProcessId) -ErrorAction Stop
-            }
-            Start-Sleep -Milliseconds 100
-        }
-        throw "Timed out waiting for the tunnel-owned stdio MCP child."
-    }
-
-    function Get-VerifiedTunnelStatus {
-        $status = Invoke-RestMethod -UseBasicParsing -Uri "$TunnelHealthBaseUrl/api/status" -Method Get -TimeoutSec 2
-        $mainChannels = @($status.channels | Where-Object { $_.name -eq "main" })
-        if ($mainChannels.Count -ne 1) { return $false }
-        return ($mainChannels[0].enabled -eq $true -and $mainChannels[0].probe_status -ceq "ok")
-    }
-
-    function Wait-TunnelReady {
+    function Wait-TunnelProbe {
         param([Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process)
 
         for ($attempt = 0; $attempt -lt 120; $attempt++) {
-            if ($Process.HasExited) { throw "tunnel-client exited before becoming ready." }
+            if ($Process.HasExited) { throw "tunnel-client exited during startup." }
             try {
-                $response = Invoke-WebRequest -UseBasicParsing -Uri "$TunnelHealthBaseUrl/readyz" -Method Get -TimeoutSec 2
-                if ($response.StatusCode -eq 200 -and (Get-VerifiedTunnelStatus)) { return }
+                $status = Invoke-RestMethod -UseBasicParsing -Uri "$TunnelHealthBaseUrl/api/status" -Method Get -TimeoutSec 2
+                $main = @($status.channels | Where-Object { $_.name -eq "main" })
+                if ($main.Count -eq 1 -and $main[0].enabled -eq $true -and $main[0].probe_status -ceq "ok") { return }
             } catch {}
             Start-Sleep -Milliseconds 250
         }
-        throw "tunnel-client did not reach a ready main channel with probe_status=ok."
+        throw "The tunnel main channel did not reach probe_status=ok."
     }
 
-    function Convert-ToMcpCommandToken {
+    function Convert-ToProcessArgumentToken {
         param([Parameter(Mandatory = $true)][string]$Value)
 
-        if ($Value -match '[\r\n"]') { throw "MCP command paths must not contain quotes or line breaks." }
+        if ($Value -match '[\r\n"]') { throw "Process arguments must not contain quotes or line breaks." }
         $portable = $Value.Replace('\', '/')
         if ($portable -match '\s') { return '"' + $portable + '"' }
         return $portable
     }
 
-    if ($PSVersionTable.PSVersion.Major -lt 5) {
-        throw "Windows PowerShell 5.1 or later is required."
-    }
+    if ($PSVersionTable.PSVersion.Major -lt 5) { throw "Windows PowerShell 5.1 or later is required." }
     if ($RuntimeApiKey -eq "REPLACE_WITH_RUNTIME_API_KEY" -or [string]::IsNullOrWhiteSpace($RuntimeApiKey)) {
         throw "Replace the Runtime API key placeholder before running this script."
     }
@@ -215,23 +178,18 @@
     if ($token.Length -lt 32 -or $token.IndexOf([char]0) -ge 0 -or $token -match '[\r\n]') {
         throw "The bearer-token file must contain one token of at least 32 characters."
     }
-    $token = $null
     if ([string]::Equals([IO.Path]::GetFullPath($StdioBackupStore), [IO.Path]::GetFullPath($HttpBackupStore), [StringComparison]::OrdinalIgnoreCase)) {
         throw "The stdio and HTTP processes require different backup stores."
     }
-
-    $mcpCommand = @(
-        (Convert-ToMcpCommandToken $McpServer),
-        "--transport=stdio",
-        "--",
-        (Convert-ToMcpCommandToken $AllowedDirectory)
-    ) -join " "
-    $httpArguments = "--transport=streamable-http -- " + (Convert-ToMcpCommandToken $AllowedDirectory)
+    if (-not (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
+        [void](New-Item -ItemType Directory -Path $LogDirectory)
+    }
+    $httpArguments = "--transport=streamable-http -- " + (Convert-ToProcessArgumentToken $AllowedDirectory)
 
     $httpEnvironment = @{
         "MCP_TRANSPORT" = "streamable-http"
-        "MCP_HTTP_ADDR" = $HttpListenAddress
-        "MCP_HTTP_PATH" = $HttpEndpointPath
+        "MCP_HTTP_ADDR" = $McpListenAddress
+        "MCP_HTTP_PATH" = $McpEndpointPath
         "MCP_HTTP_TOKEN_FILE" = $TokenFile
         "MCP_BACKUP_STORE_DIR" = $HttpBackupStore
     }
@@ -242,60 +200,52 @@
     $tunnelEnvironment = @{
         "CONTROL_PLANE_API_KEY" = $RuntimeApiKey
         "CONTROL_PLANE_TUNNEL_ID" = $TunnelId
-        "MCP_COMMAND" = $mcpCommand
-        "MCP_BACKUP_STORE_DIR" = $StdioBackupStore
-        "MCP_STDIO_LEGACY_HANDSHAKE" = "1"
+        "MCP_SERVER_URL" = $McpServerUrl
+        "MCP_TUNNEL_AUTHORIZATION" = "Bearer $token"
+        "MCP_EXTRA_HEADERS" = "Authorization: env:MCP_TUNNEL_AUTHORIZATION"
+        "MCP_DISCOVERY_EXTRA_HEADERS" = "Authorization: env:MCP_TUNNEL_AUTHORIZATION"
     }
-    Set-BooleanEnvironmentFlag -Values $tunnelEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
-    Set-BooleanEnvironmentFlag -Values $tunnelEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
+    $stdioEnvironment = @{
+        "MCP_TRANSPORT" = "stdio"
+        "MCP_BACKUP_STORE_DIR" = $StdioBackupStore
+    }
+    Set-BooleanEnvironmentFlag -Values $stdioEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
+    Set-BooleanEnvironmentFlag -Values $stdioEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
 
     $httpProcess = $null
     $tunnelProcess = $null
-    $stdioProcess = $null
-    $exitCode = 0
     try {
         $httpProcess = Invoke-WithEnvironment -Values $httpEnvironment -Action {
-            Start-Process -FilePath $McpServer -ArgumentList $httpArguments -NoNewWindow -PassThru
+            Start-Process -FilePath $McpServer -ArgumentList $httpArguments -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDirectory "http.stdout.log") -RedirectStandardError (Join-Path $LogDirectory "http.stderr.log") -PassThru
         }
-        Wait-HttpReady -Process $httpProcess -Url ("http://" + $HttpListenAddress + "/readyz")
+        Wait-Ready -Process $httpProcess -Url ("http://" + $McpListenAddress + "/readyz")
 
-        Write-Host "Checking the tunnel-to-stdio configuration..." -ForegroundColor Cyan
         $doctor = Invoke-WithEnvironment -Values $tunnelEnvironment -Action {
-            Start-Process -FilePath $TunnelClient -ArgumentList @("doctor", "--explain") -NoNewWindow -Wait -PassThru
+            Start-Process -FilePath $TunnelClient -ArgumentList @("doctor", "--explain") -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDirectory "doctor.stdout.log") -RedirectStandardError (Join-Path $LogDirectory "doctor.stderr.log") -Wait -PassThru
         }
         if ($doctor.ExitCode -ne 0) { throw "tunnel-client doctor failed with code $($doctor.ExitCode)." }
 
         $tunnelProcess = Invoke-WithEnvironment -Values $tunnelEnvironment -Action {
-            Start-Process -FilePath $TunnelClient -ArgumentList @("run", "--health.listen-addr=127.0.0.1:8080", "--open-web-ui", "--log.level=info", "--log.format=struct-text") -NoNewWindow -PassThru
+            Start-Process -FilePath $TunnelClient -ArgumentList @("run", "--health.listen-addr=127.0.0.1:8080", "--log.level=info", "--log.format=struct-text") -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDirectory "tunnel.stdout.log") -RedirectStandardError (Join-Path $LogDirectory "tunnel.stderr.log") -PassThru
         }
+        $tunnelEnvironment["MCP_TUNNEL_AUTHORIZATION"] = $null
         $RuntimeApiKey = $null
         $TunnelId = $null
-        $stdioProcess = Wait-StdioChild -TunnelProcess $tunnelProcess
-        Wait-TunnelReady -Process $tunnelProcess
+        $token = $null
+        Wait-Ready -Process $tunnelProcess -Url "$TunnelHealthBaseUrl/readyz"
+        Wait-TunnelProbe -Process $tunnelProcess
 
-        Write-Host "Ready: tunnel -> stdio PID $($stdioProcess.Id); local HTTP PID $($httpProcess.Id)." -ForegroundColor Green
-        Write-Host "Local HTTP: http://$HttpListenAddress$HttpEndpointPath" -ForegroundColor DarkGray
-        Write-Host "Tunnel UI: $TunnelHealthBaseUrl/ui" -ForegroundColor DarkGray
-        Write-Host "Press Ctrl+C to stop both branches." -ForegroundColor DarkGray
-
-        while (-not $tunnelProcess.WaitForExit(500)) {
-            if ($stdioProcess.HasExited) { throw "The tunnel-owned stdio process exited unexpectedly." }
-            if ($httpProcess.HasExited) { throw "The independent HTTP process exited unexpectedly." }
+        Invoke-WithEnvironment -Values $stdioEnvironment -Action {
+            & $McpServer --transport=stdio -- $AllowedDirectory
+            if ($LASTEXITCODE -ne 0) { throw "Local Scripthold stdio exited with code $LASTEXITCODE." }
         }
-        $exitCode = $tunnelProcess.ExitCode
-        if ($exitCode -ne 0) { throw "tunnel-client stopped with exit code $exitCode." }
-    } catch {
-        $exitCode = 1
-        Write-Error $_.Exception.Message -ErrorAction Continue
     } finally {
         Stop-OwnedProcess -Process $tunnelProcess
-        Stop-OwnedProcess -Process $stdioProcess
         Stop-OwnedProcess -Process $httpProcess
+        $tunnelEnvironment["MCP_TUNNEL_AUTHORIZATION"] = $null
         $RuntimeApiKey = $null
         $TunnelId = $null
-        $mcpCommand = $null
+        $token = $null
         $httpArguments = $null
     }
-
-    exit $exitCode
 }

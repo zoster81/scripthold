@@ -39,7 +39,7 @@ Scripthold began as a deployment-oriented fork for ChatGPT Web, but version 2.0 
 
 Both transports use the same `BuildServer` path and expose the same 27 tools, 3 prompts, encoding behavior, limits, typed errors, and execution policy. The HTTP trust model is defined in [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md); the fork's independent scope and relationship to upstream are defined in [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md).
 
-The OpenAI Secure MCP Tunnel remains one supported deployment option, not the identity or only use case of the project. The public OpenAI quick start uses Scripthold's authenticated loopback Streamable HTTP endpoint through `MCP_SERVER_URL`; stdio remains available for local clients and other bridges that intentionally own a child-process lifecycle. The fork does not require Claude Code, Codex, ChatGPT, or another specific MCP host. Version 2.0 removes the fork-owned Claude Code downloader plugin to avoid maintaining a second network installer and cache trust boundary; any compatible client can invoke the released binary directly or connect to its HTTP endpoint.
+The OpenAI Secure MCP Tunnel remains a supported stdio deployment option, not the identity or only use case of the project. The fork does not require Claude Code, Codex, ChatGPT, or another specific MCP host. Version 2.0 removes the fork-owned Claude Code downloader plugin to avoid maintaining a second network installer and cache trust boundary; any compatible client can invoke the released binary directly or connect to its HTTP endpoint.
 
 ### Process-wide directory and session model
 
@@ -125,9 +125,9 @@ See [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md) for scope, [docs/HTTP
 
 Choose **stdio** when the MCP client should own the child-process lifecycle or when a secure bridge expects a local command. Choose **Streamable HTTP** when the server should run as a persistent authenticated service, including localhost, containers, or a TLS/trusted-proxy deployment. The recipes below are deployment options, not a priority order; both transports expose the same tools and policy.
 
-### Streamable HTTP through the OpenAI Secure MCP Tunnel
+### Stdio through the OpenAI Secure MCP Tunnel
 
-The public Windows tunnel quick start runs Scripthold as an authenticated loopback Streamable HTTP service and configures the OpenAI tunnel client to use that endpoint. Keeping the MCP server as a persistent HTTP service gives each tunnel request the transport lifecycle defined by Streamable HTTP instead of coupling multiple remote connector lifecycles to one persistent stdio child.
+The default Windows tunnel example configures `tunnel-client` with `MCP_COMMAND`, so the tunnel owns one Scripthold stdio child. A second Scripthold process exposes authenticated Streamable HTTP only on loopback for independent local clients. The tunnel branch never connects to that HTTP endpoint, and the HTTP branch receives no OpenAI control-plane credentials.
 
 Requirements:
 
@@ -136,8 +136,9 @@ Requirements:
 - a Windows build of this fork;
 - an OpenAI Runtime API key with the tunnel permissions required by your OpenAI configuration;
 - a valid Tunnel ID;
-- one explicit local directory to expose to the MCP server;
-- one private bearer-token file containing at least 32 characters for the local Scripthold HTTP endpoint.
+- one explicit local directory to expose to both isolated Scripthold processes;
+- one private bearer-token file containing at least 32 characters for the local HTTP process;
+- separate backup-store directories when persistent backups are enabled for both processes.
 
 This project uses OpenAI's official Secure MCP Tunnel client, not a third-party tunnel implementation. See the [official OpenAI tunnel-client repository](https://github.com/openai/tunnel-client) and the [OpenAI Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) for tunnel installation, permissions, control-plane setup, and current product requirements.
 
@@ -162,7 +163,16 @@ Release `2.0.0` predates the Scripthold asset rename and therefore keeps the his
 
 #### OpenAI Tunnel quick start
 
-A sanitized English example is provided at [`examples/start-openai-tunnel.ps1`](examples/start-openai-tunnel.ps1). It starts one local authenticated Streamable HTTP Scripthold process, then starts `tunnel-client` with that endpoint as its `main` MCP binding. Machine-specific supervision, credentials, and rollback orchestration remain private deployment concerns outside the repository.
+Four fail-closed PowerShell examples cover the supported local and tunnel topologies:
+
+| Example | Topology |
+|---|---|
+| [`start-stdio.ps1`](examples/start-stdio.ps1) | One foreground local stdio server. |
+| [`start-streamable-http.ps1`](examples/start-streamable-http.ps1) | One authenticated HTTP server; loopback by default. |
+| [`start-openai-tunnel.ps1`](examples/start-openai-tunnel.ps1) | **Default:** tunnel to a dedicated stdio child, plus an independent local HTTP process. |
+| [`start-openai-tunnel-http-with-local-stdio.ps1`](examples/start-openai-tunnel-http-with-local-stdio.ps1) | Reverse example: tunnel to authenticated HTTP, plus an independent foreground local stdio child. |
+
+Use the default example when OpenAI should reach Scripthold through stdio while local clients use HTTP. The reverse example is deliberately separate so choosing it cannot silently change the default topology.
 
 Place these files in the same private working directory:
 
@@ -190,9 +200,11 @@ $RuntimeApiKey = "REPLACE_WITH_RUNTIME_API_KEY"
 $TunnelId = "tunnel_REPLACE_WITH_ID"
 $AllowedDirectory = "C:\Path\To\AllowedProject"
 $TokenFile = "C:\Path\To\scripthold.token"
+$StdioBackupStore = "C:\Path\To\PrivateState\stdio"
+$HttpBackupStore = "C:\Path\To\PrivateState\http"
 ```
 
-The tunnel identifier must be `tunnel_` followed by exactly 32 lowercase hexadecimal characters. Never commit the edited script or bearer token. The example binds Scripthold to `127.0.0.1:8765`, keeps `run_script` and `shell` disabled by default, and enables the additional HTTP execution gate only when one of those tool-specific flags is deliberately enabled.
+The tunnel identifier must be `tunnel_` followed by exactly 32 lowercase hexadecimal characters. Never commit the edited script, bearer token, or private state. The default example keeps `run_script` and `shell` disabled and uses different backup stores so the two Scripthold processes cannot contend for one writer lock. When execution is enabled, stdio uses the selected tool gate and HTTP additionally requires its transport gate.
 
 To enable script execution for supported files located inside an allowed directory, change:
 
@@ -220,7 +232,7 @@ From Command Prompt, use:
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\OpenAI-Mcp-Tunnel\start-openai-tunnel.ps1"
 ```
 
-The script validates paths, placeholders, and the private token file; starts Scripthold on authenticated loopback Streamable HTTP; configures `MCP_SERVER_URL`, `MCP_EXTRA_HEADERS`, and `MCP_DISCOVERY_EXTRA_HEADERS` with an environment-referenced bearer value; runs `tunnel-client doctor --explain` as a preflight diagnostic; then starts the tunnel. It reports success only after tunnel `/readyz` is healthy and `/api/status` shows exactly one enabled `main` channel with `probe_status=ok`. The local operator UI remains at `http://127.0.0.1:8080/ui`.
+The default script starts authenticated loopback HTTP as one process, runs `tunnel-client doctor --explain` with `MCP_COMMAND`, then starts the tunnel and verifies both its dedicated stdio child and the enabled `main` channel with `probe_status=ok`. Ambient HTTP URL/header variables are cleared from the tunnel branch; OpenAI control-plane variables are cleared from the HTTP branch. The local operator UI remains at `http://127.0.0.1:8080/ui`.
 
 ### Other stdio MCP clients
 
@@ -325,7 +337,7 @@ Once the connector is active, ask ChatGPT Web or the connected MCP client:
 - "Run the UTF-8 migration prompt for this project and preview every unsupported character before writing"
 
 **Security:** File tools access only explicitly allowed directories:
-- **OpenAI Tunnel quick start:** the directory passed when the launcher starts the local authenticated Streamable HTTP Scripthold process is the authoritative process-wide set;
+- **OpenAI Tunnel quick start:** the directory embedded in the tunnel's `MCP_COMMAND` is authoritative for its stdio child; the separately started HTTP process receives its own startup directory argument;
 - **roots-capable stdio clients:** client-provided roots are accepted only when the process starts without configured directories;
 - **multiple sessions:** every connection to one process shares the same allowed directories; prompt instructions may narrow an agent's intended write scope but are not server-enforced ACLs;
 - **execution tools:** `run_script` validates its script and working-directory paths, while `shell` validates only its working directory and is otherwise unrestricted;

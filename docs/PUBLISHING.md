@@ -45,31 +45,38 @@ Use this flow for `2.1.0` and later fork-owned semantic releases. Development co
    - `checksums.txt`;
    - `README.md`, `TOOLS.md`, `CHANGELOG.md`, `LICENSE`;
    - `examples/start-openai-tunnel.ps1`;
+   - `examples/start-openai-tunnel-http-with-local-stdio.ps1`;
+   - `examples/start-stdio.ps1`;
    - `examples/start-streamable-http.ps1`.
 9. Verify the release asset names and SHA-256 values before announcing it.
 10. `.github/workflows/release.yml` invokes the reusable `.github/workflows/publish-registry.yml`, which generates and publishes the fork-owned `server.json` from those verified assets.
 
 ## Public launcher examples
 
-The tracked launchers are intentionally separate, single-transport reference examples. Operators may combine them in a private deployment launcher, but private credentials and machine-specific orchestration must remain outside the repository.
+The tracked launchers cover standalone stdio, standalone HTTP, tunnel-owned stdio with independent local HTTP, and the reverse combined topology. Private credentials and machine-specific orchestration must remain outside the repository.
 
 A private combined launcher must normalize process identity across the object shapes it uses: `Start-Process -PassThru` exposes the process identifier as `Id`, while CIM process discovery exposes `ProcessId`. Persist PID files and compare ownership through one normalization helper rather than assuming either property exists universally. Shutdown cleanup must also be idempotent: a child that exits after its parent is stopped is already in the desired terminal state, not a cleanup failure. Validate the complete owned process topology before destructive actions and never broaden cleanup to unrelated process trees.
 
-`examples/start-openai-tunnel.ps1` is the public authenticated Streamable-HTTP-through-tunnel quick start. It must:
+`examples/start-openai-tunnel.ps1` is the default OpenAI quick start. It must:
 
 - remain in English;
 - contain placeholders only;
 - never contain a real Runtime API key, Tunnel ID, or bearer token;
 - require the exact `tunnel_` plus 32 lowercase hexadecimal identifier format;
-- start Scripthold explicitly with `--transport=streamable-http` on loopback;
-- load the Scripthold bearer token from a regular private file rather than argv;
-- configure `MCP_SERVER_URL` plus runtime and discovery `Authorization` headers through an `env:` reference, never a literal token in argv;
-- keep `run_script` and `shell` disabled by default and require the additional HTTP execution gate when either is enabled;
+- configure `MCP_COMMAND` for one tunnel-owned stdio child and clear tunnel-side URL/header bindings;
+- enable the stdio legacy-handshake compatibility flag without accepting duplicate initialization;
+- start a second, independent Scripthold process on authenticated loopback HTTP;
+- use distinct backup stores for the stdio and HTTP processes;
+- prevent the HTTP process from inheriting OpenAI control-plane credentials and prevent the tunnel process from inheriting the HTTP token;
+- keep `run_script` and `shell` disabled by default and require the additional HTTP gate only on the HTTP branch;
 - validate the tunnel client, MCP binary, token file, and canonical allowed directory;
-- run `tunnel-client doctor --explain` before starting the daemon as a diagnostic preflight;
+- run `tunnel-client doctor --explain` against the stdio command before starting the daemon;
 - report runtime success only after tunnel `/readyz` succeeds and `/api/status` shows exactly one enabled `main` channel with `probe_status=ok`;
-- avoid `MCP_COMMAND` and the stdio legacy-handshake override in this OpenAI quick-start path;
 - stop only processes it started and restore all managed process-level environment variables when it exits.
+
+`examples/start-openai-tunnel-http-with-local-stdio.ps1` is the explicit reverse topology. It must keep HTTP bearer values out of argv, redirect background logs away from local MCP stdout, and run the independent stdio process in the foreground.
+
+`examples/start-stdio.ps1` is the standalone local stdio reference. It must reserve stdout for MCP JSON-RPC, select `--transport=stdio` explicitly, clear unrelated tunnel/HTTP credentials, and keep execution disabled by default.
 
 `examples/start-streamable-http.ps1` is the standalone native HTTP reference. It must:
 

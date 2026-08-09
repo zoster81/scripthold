@@ -155,22 +155,24 @@ func TestGoReleaserArchiveMetadataIsDeterministic(t *testing.T) {
 	if !strings.Contains(content, "builds_info:") {
 		t.Error(".goreleaser.yml must define builds_info for archive binaries")
 	}
-	if got := strings.Count(content, "mtime: '{{ .CommitDate }}'"); got != 7 {
-		t.Errorf(".goreleaser.yml deterministic mtime count = %d, want 7", got)
+	if got := strings.Count(content, "mtime: '{{ .CommitDate }}'"); got != 9 {
+		t.Errorf(".goreleaser.yml deterministic mtime count = %d, want 9", got)
 	}
-	if got := strings.Count(content, "owner: root"); got != 7 {
-		t.Errorf(".goreleaser.yml deterministic owner count = %d, want 7", got)
+	if got := strings.Count(content, "owner: root"); got != 9 {
+		t.Errorf(".goreleaser.yml deterministic owner count = %d, want 9", got)
 	}
-	if got := strings.Count(content, "group: root"); got != 7 {
-		t.Errorf(".goreleaser.yml deterministic group count = %d, want 7", got)
+	if got := strings.Count(content, "group: root"); got != 9 {
+		t.Errorf(".goreleaser.yml deterministic group count = %d, want 9", got)
 	}
-	if got := strings.Count(content, "mode: 0644"); got != 6 {
-		t.Errorf(".goreleaser.yml document mode count = %d, want 6", got)
+	if got := strings.Count(content, "mode: 0644"); got != 8 {
+		t.Errorf(".goreleaser.yml document mode count = %d, want 8", got)
 	}
 	if got := strings.Count(content, "mode: 0755"); got != 1 {
 		t.Errorf(".goreleaser.yml binary mode count = %d, want 1", got)
 	}
 	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-openai-tunnel.ps1")
+	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-openai-tunnel-http-with-local-stdio.ps1")
+	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-stdio.ps1")
 	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-streamable-http.ps1")
 }
 
@@ -182,20 +184,35 @@ func TestPublicLauncherExamplesRemainFailClosed(t *testing.T) {
 	assertFileContains(t, root, tunnelExample, `$TunnelId -notmatch '^tunnel_[0-9a-f]{32}$'`)
 	assertFileContains(t, root, tunnelExample, `$AllowedDirectory = $allowedItem.FullName`)
 	assertFileContains(t, root, tunnelExample, `$TokenFile = "C:\Path\To\scripthold.token"`)
-	assertFileContains(t, root, tunnelExample, `$McpServerUrl = "http://127.0.0.1:8765/mcp"`)
+	assertFileContains(t, root, tunnelExample, `$StdioBackupStore = "C:\Path\To\PrivateState\stdio"`)
+	assertFileContains(t, root, tunnelExample, `$HttpBackupStore = "C:\Path\To\PrivateState\http"`)
+	assertFileContains(t, root, tunnelExample, `"MCP_COMMAND"`)
+	assertFileContains(t, root, tunnelExample, `"MCP_STDIO_LEGACY_HANDSHAKE"`)
+	assertFileContains(t, root, tunnelExample, `$tunnelEnvironment = @{`)
+	assertFileNotContains(t, root, tunnelExample, `$McpServerUrl`)
 	assertFileContains(t, root, tunnelExample, `--transport=streamable-http`)
-	assertFileContains(t, root, tunnelExample, `"MCP_SERVER_URL"`)
-	assertFileContains(t, root, tunnelExample, `"MCP_EXTRA_HEADERS"`)
-	assertFileContains(t, root, tunnelExample, `"MCP_DISCOVERY_EXTRA_HEADERS"`)
-	assertFileContains(t, root, tunnelExample, `Authorization: env:MCP_TUNNEL_AUTHORIZATION`)
 	assertFileContains(t, root, tunnelExample, `/api/status`)
 	assertFileContains(t, root, tunnelExample, `probe_status`)
 	assertFileContains(t, root, tunnelExample, `$EnableRunScript = $false`)
 	assertFileContains(t, root, tunnelExample, `$EnableShell = $false`)
 	assertFileContains(t, root, tunnelExample, `"MCP_HTTP_TOKEN_FILE"`)
 	assertFileContains(t, root, tunnelExample, `"MCP_HTTP_ENABLE_EXECUTION"`)
-	assertFileNotContains(t, root, tunnelExample, `"MCP_COMMAND"`)
-	assertFileNotContains(t, root, tunnelExample, `MCP_STDIO_LEGACY_HANDSHAKE`)
+	assertFileNotContains(t, root, tunnelExample, `Authorization: env:MCP_TUNNEL_AUTHORIZATION`)
+
+	reverseExample := filepath.FromSlash("examples/start-openai-tunnel-http-with-local-stdio.ps1")
+	assertFileContains(t, root, reverseExample, `$McpServerUrl = "http://127.0.0.1:8765/mcp"`)
+	assertFileContains(t, root, reverseExample, `Authorization: env:MCP_TUNNEL_AUTHORIZATION`)
+	assertFileContains(t, root, reverseExample, `--transport=stdio`)
+	assertFileContains(t, root, reverseExample, `"MCP_SERVER_URL"`)
+	assertFileContains(t, root, reverseExample, `"MCP_COMMAND"`)
+	assertFileNotContains(t, root, reverseExample, `"MCP_STDIO_LEGACY_HANDSHAKE" = "1"`)
+
+	stdioExample := filepath.FromSlash("examples/start-stdio.ps1")
+	assertFileContains(t, root, stdioExample, `--transport=stdio`)
+	assertFileContains(t, root, stdioExample, `$EnableRunScript = $false`)
+	assertFileContains(t, root, stdioExample, `$EnableShell = $false`)
+	assertFileContains(t, root, stdioExample, `"CONTROL_PLANE_API_KEY"`)
+	assertFileContains(t, root, stdioExample, `"MCP_HTTP_TOKEN"`)
 
 	httpExample := filepath.FromSlash("examples/start-streamable-http.ps1")
 	assertFileContains(t, root, httpExample, `$ListenAddress = "127.0.0.1:8765"`)

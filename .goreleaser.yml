@@ -72,6 +72,18 @@ archives:
           group: root
           mode: 0644
           mtime: '{{ .CommitDate }}'
+      - src: examples/start-openai-tunnel-http-with-local-stdio.ps1
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: '{{ .CommitDate }}'
+      - src: examples/start-stdio.ps1
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: '{{ .CommitDate }}'
       - src: examples/start-streamable-http.ps1
         info:
           owner: root
