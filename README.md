@@ -55,9 +55,9 @@ The fork-specific architecture includes authoritative process roots, Windows dri
 
 ## Release Status
 
-Version `2.1.0` is the Scripthold release line, with 30 tools and 3 guided prompts over stdio and Streamable HTTP. Version `2.0.0` remains the historical 23-tool rollback baseline and keeps its pre-rebrand assets and Registry identity.
+Version `2.1.0` is the current public Scripthold release, with 30 tools and 3 guided prompts over stdio and Streamable HTTP. Its GitHub Release includes the six raw binaries, six platform archives, six OS/architecture-specific MCPB bundles, and their checksum manifests; `io.github.zoster81/scripthold` version `2.1.0` is active in the MCP Registry. Version `2.0.0` remains the historical 23-tool rollback baseline and keeps its pre-rebrand assets and Registry identity.
 
-The `2.1.0` release line consolidates completed R15–R20 work with the R21 durable task subsystem, persistent backup/restore/GC, offline backup diagnostics, and MCP `2026-07-28` support through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. See [docs/ROADMAP.md](docs/ROADMAP.md) for publication and post-publication deployment gates.
+The `2.1.0` release consolidates completed R15–R20 work with the R21 durable task subsystem, persistent backup/restore/GC, offline backup diagnostics, and MCP `2026-07-28` support through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. Public publication is complete; see [docs/ROADMAP.md](docs/ROADMAP.md) for the remaining controlled local deployment and rollback gate.
 
 Encoding detection remains content-based and extension-independent. The semantic-tag workflow requires a dated changelog entry before generating release assets and Registry metadata.
 

@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the `2.1.0` release line. R21 is the only active milestone; its 30-tool/3-prompt durable-task source and release verification are complete, while public publication and controlled local deployment remain the final gates.
+Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the published `2.1.0` release. R21 is the only active milestone; its 30-tool/3-prompt source, GitHub Release, MCPB assets, and MCP Registry publication are complete, while controlled local deployment and rollback remain the only open gate.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -59,9 +59,15 @@ Publish and deploy `2.1.0` with the [durable task subsystem](DURABLE_TASKS.md) r
   - Validation must cover process isolation, distinct backup-store locks, the separate shared task store, supervisor/worker/helper recovery, tunnel `main` probe health, the 30-tool/3-prompt catalog, representative filesystem and task calls, and automatic rollback.
   - After the launcher and documentation correction is committed, rebuild from that exact clean commit and repeat the final native stdio, native HTTP, and tunneled stdio smoke before this gate is complete.
 - [x] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
-- [ ] Push `main` and require the applicable GitHub Actions checks to pass.
-- [ ] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, release metadata, and the first published `io.github.zoster81/scripthold` Registry record.
+- [x] Push `main` and require the applicable GitHub Actions checks to pass.
+- [x] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, six MCPB bundles plus `mcpb-checksums.txt`, release metadata, and the first active `io.github.zoster81/scripthold` Registry record.
 - [ ] Deploy the published `2.1.0` Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check, then restore and reverify `2.1.0`.
+
+## Publication record
+
+Published on 2026-08-09. Annotated tag `v2.1.0` resolves to `c00beb46f5b17aeeb0e2be4e2cd0060912b2f3fe`. The pre-tag Build and Test gates were green, and the tag workflow completed its cross-platform test matrix plus GoReleaser publication of six raw binaries, six platform archives, and `checksums.txt`. The initial Registry step then exposed a packaging-contract defect: raw executables had been declared as `registryType: mcpb` even though the Registry requires actual MCPB bundles.
+
+Post-release hotfix `9f7e1cca06dc5d8712c0a8cbb7ca713445d4676b` corrected that boundary without moving the tag or replacing the original release assets. Build run `31336757591` and Test run `31336757602` passed on the hotfix. MCPB repair run `31336981103` verified the immutable tag plus all 12 GoReleaser assets, then added six deterministic, MCPB-validated OS/architecture bundles and `mcpb-checksums.txt` to the same GitHub Release. Registry run `31337108493` consumed those published bundles read-only, passed manifest validation, and published `io.github.zoster81/scripthold` version `2.1.0` through GitHub OIDC. The production Registry reports that version as active and latest with six MCPB packages. Controlled local deployment and rollback are intentionally still pending.
 
 ## Non-goals
 

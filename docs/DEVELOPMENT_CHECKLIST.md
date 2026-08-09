@@ -162,7 +162,7 @@ Use this section only for an explicitly requested internal build.
 
 ## 10. Public release and deployment gate
 
-Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. The `2.0.0` publication and deployment status is recorded here; future releases should apply the same checks to their active roadmap scope.
+Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. The `2.0.0` publication and deployment status is recorded here. Public `2.1.0` publication is complete; its controlled local deployment and rollback remain tracked as the final open R21 gate in [ROADMAP.md](ROADMAP.md). Future releases should apply the same checks to their active roadmap scope.
 
 - [x] R7-R13, the 2.0 release scope, and the migration guide are complete;
 - [x] the HTTP security design and transport test suite pass;
