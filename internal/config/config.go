@@ -39,6 +39,15 @@ const (
 	EnvBackupRetentionDays        = "MCP_BACKUP_RETENTION_DAYS"
 	EnvBackupPlanTTLSeconds       = "MCP_BACKUP_PLAN_TTL_SECONDS"
 
+	EnvTaskStoreDir             = "MCP_TASK_STORE_DIR"
+	EnvTaskMaxConcurrency       = "MCP_TASK_MAX_CONCURRENCY"
+	EnvTaskMaxQueued            = "MCP_TASK_MAX_QUEUED"
+	EnvTaskMaxLogBytesPerStream = "MCP_TASK_MAX_LOG_BYTES_PER_STREAM"
+	EnvTaskMaxRuntimeSeconds    = "MCP_TASK_MAX_RUNTIME_SECONDS"
+	EnvTaskRetentionDays        = "MCP_TASK_RETENTION_DAYS"
+	EnvTaskMaxTerminal          = "MCP_TASK_MAX_TERMINAL"
+	EnvTaskMaxTotalBytes        = "MCP_TASK_MAX_TOTAL_BYTES"
+
 	DefaultEncoding                      = "utf-8"
 	DefaultMaxFileBytes                  = int64(64 * 1024 * 1024)
 	DefaultMaxDecodedCharacters          = 16 * 1024 * 1024
@@ -73,6 +82,22 @@ const (
 	HardMaxBackupPinned            = 100_000
 	HardMaxBackupRetentionDays     = 3650
 	HardMaxBackupPlanTTLSeconds    = 24 * 60 * 60
+
+	DefaultTaskMaxConcurrency       = 2
+	DefaultTaskMaxQueued            = 64
+	DefaultTaskMaxLogBytesPerStream = int64(8 * 1024 * 1024)
+	DefaultTaskMaxRuntimeSeconds    = 0 // Unlimited unless the operator opts in.
+	DefaultTaskRetentionDays        = 7
+	DefaultTaskMaxTerminal          = 1000
+	DefaultTaskMaxTotalBytes        = int64(512 * 1024 * 1024)
+
+	HardMaxTaskConcurrency       = 32
+	HardMaxTaskQueued            = 10_000
+	HardMaxTaskLogBytesPerStream = int64(256 * 1024 * 1024)
+	HardMaxTaskRuntimeSeconds    = 365 * 24 * 60 * 60
+	HardMaxTaskRetentionDays     = 3650
+	HardMaxTaskTerminal          = 1_000_000
+	HardMaxTaskTotalBytes        = int64(1 << 40)
 )
 
 // Limits contains server-wide hard limits. Request-level limits may be lower
@@ -115,6 +140,22 @@ type BackupConfig struct {
 	Limits   BackupLimits
 }
 
+// TaskConfig controls the durable asynchronous execution subsystem. The
+// store remains disabled until an operator explicitly supplies StoreDir.
+type TaskConfig struct {
+	StoreDir             string
+	MaxConcurrency       int
+	MaxQueued            int
+	MaxLogBytesPerStream int64
+	MaxRuntimeSeconds    int
+	RetentionDays        int
+	MaxTerminal          int
+	MaxTotalBytes        int64
+}
+
+// Enabled reports whether an operator explicitly configured a task store.
+func (cfg TaskConfig) Enabled() bool { return cfg.StoreDir != "" }
+
 // Enabled reports whether an operator explicitly configured a store directory.
 func (cfg BackupConfig) Enabled() bool {
 	return cfg.StoreDir != ""
@@ -126,6 +167,7 @@ type Config struct {
 	DefaultEncoding string
 	Limits          Limits
 	Backup          BackupConfig
+	Tasks           TaskConfig
 }
 
 // Load reads configuration from the process environment with conservative defaults.
@@ -172,6 +214,16 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 				PlanTTLSeconds:       DefaultBackupPlanTTLSeconds,
 			},
 		},
+		Tasks: TaskConfig{
+			StoreDir:             getenv(EnvTaskStoreDir),
+			MaxConcurrency:       DefaultTaskMaxConcurrency,
+			MaxQueued:            DefaultTaskMaxQueued,
+			MaxLogBytesPerStream: DefaultTaskMaxLogBytesPerStream,
+			MaxRuntimeSeconds:    DefaultTaskMaxRuntimeSeconds,
+			RetentionDays:        DefaultTaskRetentionDays,
+			MaxTerminal:          DefaultTaskMaxTerminal,
+			MaxTotalBytes:        DefaultTaskMaxTotalBytes,
+		},
 	}
 
 	if enc := getenv(EnvDefaultEncoding); enc != "" {
@@ -214,7 +266,27 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Backup.Limits.MaxPinned = boundedIntEnvironment(getenv, EnvBackupMaxPinned, cfg.Backup.Limits.MaxPinned, HardMaxBackupPinned)
 	cfg.Backup.Limits.RetentionDays = boundedIntEnvironment(getenv, EnvBackupRetentionDays, cfg.Backup.Limits.RetentionDays, HardMaxBackupRetentionDays)
 	cfg.Backup.Limits.PlanTTLSeconds = boundedIntEnvironment(getenv, EnvBackupPlanTTLSeconds, cfg.Backup.Limits.PlanTTLSeconds, HardMaxBackupPlanTTLSeconds)
+	cfg.Tasks.MaxConcurrency = boundedIntEnvironment(getenv, EnvTaskMaxConcurrency, cfg.Tasks.MaxConcurrency, HardMaxTaskConcurrency)
+	cfg.Tasks.MaxQueued = boundedIntEnvironment(getenv, EnvTaskMaxQueued, cfg.Tasks.MaxQueued, HardMaxTaskQueued)
+	cfg.Tasks.MaxLogBytesPerStream = boundedInt64Environment(getenv, EnvTaskMaxLogBytesPerStream, cfg.Tasks.MaxLogBytesPerStream, HardMaxTaskLogBytesPerStream)
+	cfg.Tasks.MaxRuntimeSeconds = boundedNonNegativeIntEnvironment(getenv, EnvTaskMaxRuntimeSeconds, cfg.Tasks.MaxRuntimeSeconds, HardMaxTaskRuntimeSeconds)
+	cfg.Tasks.RetentionDays = boundedIntEnvironment(getenv, EnvTaskRetentionDays, cfg.Tasks.RetentionDays, HardMaxTaskRetentionDays)
+	cfg.Tasks.MaxTerminal = boundedIntEnvironment(getenv, EnvTaskMaxTerminal, cfg.Tasks.MaxTerminal, HardMaxTaskTerminal)
+	cfg.Tasks.MaxTotalBytes = boundedInt64Environment(getenv, EnvTaskMaxTotalBytes, cfg.Tasks.MaxTotalBytes, HardMaxTaskTotalBytes)
 	return cfg
+}
+
+func boundedNonNegativeIntEnvironment(getenv func(string) string, name string, fallback, maximum int) int {
+	value := getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 || int64(int(parsed)) != parsed || parsed > int64(maximum) {
+		slog.Warn("invalid bounded non-negative integer environment value, using fallback", "name", name, "value", value, "maximum", maximum, "fallback", fallback)
+		return fallback
+	}
+	return int(parsed)
 }
 
 func int64Environment(getenv func(string) string, name string, fallback int64) int64 {

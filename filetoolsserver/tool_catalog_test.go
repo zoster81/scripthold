@@ -127,4 +127,19 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 		backupTool.Annotations.DestructiveHint == nil || !*backupTool.Annotations.DestructiveHint {
 		t.Fatalf("backup_store annotations do not reflect restore/GC mutation: %#v", backupTool.Annotations)
 	}
+
+	for _, name := range []string{"task_run", "task_list", "task_get", "task_logs", "task_cancel"} {
+		if byName[name] == nil {
+			t.Fatalf("task catalog is missing %q", name)
+		}
+	}
+	taskRunSchema, err := json.Marshal(byName["task_run"].InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range [][]byte{[]byte(`"idempotencyKey"`), []byte(`"lockKeys"`), []byte(`"maxRuntimeSeconds"`)} {
+		if !bytes.Contains(taskRunSchema, field) {
+			t.Fatalf("task_run schema is missing %s: %s", field, taskRunSchema)
+		}
+	}
 }

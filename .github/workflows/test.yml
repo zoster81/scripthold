@@ -90,7 +90,7 @@ jobs:
           export MCP_EXTERNAL_SMOKE_ARGS_JSON='["--transport=stdio","{TEMP_ROOT}"]'
           export MCP_EXTERNAL_SMOKE_EXPECTED_VERSION="${version}"
           export MCP_EXTERNAL_SMOKE_EXPECTED_ROOT='{TEMP_ROOT}'
-          go test ./cmd/scripthold -run '^TestExternalStdioBinarySmoke$' -count=1 -v
+          go test ./cmd/scripthold -run '^TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)$' -count=1 -v
 
       - name: Test all server operations
         run: go run test_server.go

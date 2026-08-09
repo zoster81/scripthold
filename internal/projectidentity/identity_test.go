@@ -155,17 +155,17 @@ func TestGoReleaserArchiveMetadataIsDeterministic(t *testing.T) {
 	if !strings.Contains(content, "builds_info:") {
 		t.Error(".goreleaser.yml must define builds_info for archive binaries")
 	}
-	if got := strings.Count(content, "mtime: '{{ .CommitDate }}'"); got != 9 {
-		t.Errorf(".goreleaser.yml deterministic mtime count = %d, want 9", got)
+	if got := strings.Count(content, "mtime: '{{ .CommitDate }}'"); got != 10 {
+		t.Errorf(".goreleaser.yml deterministic mtime count = %d, want 10", got)
 	}
-	if got := strings.Count(content, "owner: root"); got != 9 {
-		t.Errorf(".goreleaser.yml deterministic owner count = %d, want 9", got)
+	if got := strings.Count(content, "owner: root"); got != 10 {
+		t.Errorf(".goreleaser.yml deterministic owner count = %d, want 10", got)
 	}
-	if got := strings.Count(content, "group: root"); got != 9 {
-		t.Errorf(".goreleaser.yml deterministic group count = %d, want 9", got)
+	if got := strings.Count(content, "group: root"); got != 10 {
+		t.Errorf(".goreleaser.yml deterministic group count = %d, want 10", got)
 	}
-	if got := strings.Count(content, "mode: 0644"); got != 8 {
-		t.Errorf(".goreleaser.yml document mode count = %d, want 8", got)
+	if got := strings.Count(content, "mode: 0644"); got != 9 {
+		t.Errorf(".goreleaser.yml document mode count = %d, want 9", got)
 	}
 	if got := strings.Count(content, "mode: 0755"); got != 1 {
 		t.Errorf(".goreleaser.yml binary mode count = %d, want 1", got)
@@ -225,6 +225,42 @@ func TestPublicLauncherExamplesRemainFailClosed(t *testing.T) {
 	assertFileContains(t, root, httpExample, `"CONTROL_PLANE_TUNNEL_ID"`)
 }
 
+func TestPublicLauncherExamplesExposeDurableTaskPolicy(t *testing.T) {
+	root := repositoryRoot(t)
+	examples := []string{
+		filepath.FromSlash("examples/start-local-stdio.ps1"),
+		filepath.FromSlash("examples/start-local-http.ps1"),
+		filepath.FromSlash("examples/start-openai-tunnel-stdio-plus-local-http.ps1"),
+		filepath.FromSlash("examples/start-openai-tunnel-http-plus-local-stdio.ps1"),
+	}
+	required := []string{
+		"MCP_TASK_STORE_DIR",
+		"MCP_TASK_MAX_CONCURRENCY",
+		"MCP_TASK_MAX_QUEUED",
+		"MCP_TASK_MAX_LOG_BYTES_PER_STREAM",
+		"MCP_TASK_MAX_RUNTIME_SECONDS",
+		"MCP_TASK_RETENTION_DAYS",
+		"MCP_TASK_MAX_TERMINAL",
+		"MCP_TASK_MAX_TOTAL_BYTES",
+		"function Ensure-TaskSupervisor",
+		`@("task-supervisor", "--",`,
+		"supervisor.heartbeat",
+		"worker.heartbeat",
+	}
+	for _, example := range examples {
+		for _, value := range required {
+			assertFileContains(t, root, example, value)
+		}
+		data, err := os.ReadFile(filepath.Join(root, example))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "function Start-TaskWorker") {
+			t.Errorf("%s exposes the obsolete Start-TaskWorker name", example)
+		}
+	}
+}
+
 func TestContainerAndSmitheryMetadataMatchTheRuntimeContract(t *testing.T) {
 	root := repositoryRoot(t)
 	assertFileContains(t, root, "Dockerfile", "FROM golang:1.26.5-alpine3.24 AS builder")
@@ -255,8 +291,8 @@ func TestForkOwnedDownloaderPluginIsRemoved(t *testing.T) {
 
 func TestReleaseWorkflowsRunNativeAndContainerSmokes(t *testing.T) {
 	root := repositoryRoot(t)
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "TestExternalStdioBinarySmoke")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "TestExternalStdioBinarySmoke")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)")
 
 	buildWorkflow := filepath.FromSlash(".github/workflows/build.yml")
 	assertFileContains(t, root, buildWorkflow, "container-smoke:")

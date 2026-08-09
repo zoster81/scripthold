@@ -234,7 +234,12 @@ func TestStringifiedJSONArgumentFieldAllowlist(t *testing.T) {
 		{toolName: "edit_file", field: "edits", wrapped: `[{"oldText":"x","newText":"y"}]`},
 		{toolName: "patch_package", field: "manifest", wrapped: `{"formatVersion":"patch-package-v1"}`},
 		{toolName: "convert_encoding", field: "paths", wrapped: `["a"]`},
-		{toolName: "run_script", field: "args", wrapped: `["--flag"]`},
+		{toolName: "task_run", field: "args", wrapped: `["--flag"]`},
+		{toolName: "task_run", field: "tags", wrapped: `["build"]`},
+		{toolName: "task_run", field: "lockKeys", wrapped: `["workspace"]`},
+		{toolName: "task_list", field: "statuses", wrapped: `["running"]`},
+		{toolName: "task_list", field: "kinds", wrapped: `["shell"]`},
+		{toolName: "task_list", field: "tags", wrapped: `["build"]`},
 	}
 
 	allowedCount := 0

@@ -21,6 +21,14 @@
     $TokenFile = "C:\Path\To\scripthold.token"
     $HttpBackupStore = "C:\Path\To\PrivateState\http"
     $StdioBackupStore = "C:\Path\To\PrivateState\stdio"
+    $TaskStore = "C:\Path\To\PrivateState\tasks"
+    $TaskMaxConcurrency = 2
+    $TaskMaxQueued = 64
+    $TaskMaxLogBytesPerStream = 8388608
+    $TaskMaxRuntimeSeconds = 0
+    $TaskRetentionDays = 7
+    $TaskMaxTerminal = 1000
+    $TaskMaxTotalBytes = 536870912
 
     $McpServerUrl = "http://127.0.0.1:8765/mcp"
     $McpListenAddress = "127.0.0.1:8765"
@@ -49,6 +57,14 @@
         "MCP_HTTP_TOKEN_FILE",
         "MCP_HTTP_ENABLE_EXECUTION",
         "MCP_BACKUP_STORE_DIR",
+        "MCP_TASK_STORE_DIR",
+        "MCP_TASK_MAX_CONCURRENCY",
+        "MCP_TASK_MAX_QUEUED",
+        "MCP_TASK_MAX_LOG_BYTES_PER_STREAM",
+        "MCP_TASK_MAX_RUNTIME_SECONDS",
+        "MCP_TASK_RETENTION_DAYS",
+        "MCP_TASK_MAX_TERMINAL",
+        "MCP_TASK_MAX_TOTAL_BYTES",
         "MCP_STDIO_LEGACY_HANDSHAKE",
         "MCP_ENABLE_RUN_SCRIPT",
         "MCP_ENABLE_SHELL",
@@ -98,6 +114,45 @@
                 [Environment]::SetEnvironmentVariable($name, $previous[$name], "Process")
             }
         }
+    }
+
+    function Add-TaskEnvironment {
+        param([Parameter(Mandatory = $true)][hashtable]$Values)
+        $Values["MCP_TASK_STORE_DIR"] = $TaskStore
+        $Values["MCP_TASK_MAX_CONCURRENCY"] = $TaskMaxConcurrency.ToString()
+        $Values["MCP_TASK_MAX_QUEUED"] = $TaskMaxQueued.ToString()
+        $Values["MCP_TASK_MAX_LOG_BYTES_PER_STREAM"] = $TaskMaxLogBytesPerStream.ToString()
+        $Values["MCP_TASK_MAX_RUNTIME_SECONDS"] = $TaskMaxRuntimeSeconds.ToString()
+        $Values["MCP_TASK_RETENTION_DAYS"] = $TaskRetentionDays.ToString()
+        $Values["MCP_TASK_MAX_TERMINAL"] = $TaskMaxTerminal.ToString()
+        $Values["MCP_TASK_MAX_TOTAL_BYTES"] = $TaskMaxTotalBytes.ToString()
+    }
+
+    function Ensure-TaskSupervisor {
+        param([Parameter(Mandatory = $true)][hashtable]$Values)
+        if ([string]::IsNullOrWhiteSpace($TaskStore)) { return }
+        $supervisorHeartbeat = Join-Path $TaskStore "supervisor.heartbeat"
+        $supervisorFresh = $false
+        if (Test-Path -LiteralPath $supervisorHeartbeat -PathType Leaf) {
+            $age = [DateTime]::UtcNow - (Get-Item -LiteralPath $supervisorHeartbeat -Force).LastWriteTimeUtc
+            $supervisorFresh = ($age.TotalSeconds -ge 0 -and $age.TotalSeconds -lt 5)
+        }
+        $process = $null
+        if (-not $supervisorFresh) {
+            $process = Invoke-WithEnvironment -Values $Values -Action {
+                Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput "NUL" -RedirectStandardError "NUL" -PassThru
+            }
+        }
+        $workerHeartbeat = Join-Path $TaskStore "worker.heartbeat"
+        for ($attempt = 0; $attempt -lt 100; $attempt++) {
+            if (Test-Path -LiteralPath $workerHeartbeat -PathType Leaf) {
+                $age = [DateTime]::UtcNow - (Get-Item -LiteralPath $workerHeartbeat -Force).LastWriteTimeUtc
+                if ($age.TotalSeconds -ge 0 -and $age.TotalSeconds -lt 5) { return }
+            }
+            if ($null -ne $process -and $process.HasExited) { throw "The durable task supervisor exited before worker readiness." }
+            Start-Sleep -Milliseconds 100
+        }
+        throw "The durable task worker did not become ready."
     }
 
     function Stop-OwnedProcess {
@@ -196,6 +251,7 @@
     Set-BooleanEnvironmentFlag -Values $httpEnvironment -Name "MCP_HTTP_ENABLE_EXECUTION" -Enabled ($EnableRunScript -or $EnableShell)
     Set-BooleanEnvironmentFlag -Values $httpEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
     Set-BooleanEnvironmentFlag -Values $httpEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
+    Add-TaskEnvironment -Values $httpEnvironment
 
     $tunnelEnvironment = @{
         "CONTROL_PLANE_API_KEY" = $RuntimeApiKey
@@ -211,10 +267,16 @@
     }
     Set-BooleanEnvironmentFlag -Values $stdioEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
     Set-BooleanEnvironmentFlag -Values $stdioEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
+    Add-TaskEnvironment -Values $stdioEnvironment
+    $taskEnvironment = @{}
+    Set-BooleanEnvironmentFlag -Values $taskEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
+    Set-BooleanEnvironmentFlag -Values $taskEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
+    Add-TaskEnvironment -Values $taskEnvironment
 
     $httpProcess = $null
     $tunnelProcess = $null
     try {
+        Ensure-TaskSupervisor -Values $taskEnvironment
         $httpProcess = Invoke-WithEnvironment -Values $httpEnvironment -Action {
             Start-Process -FilePath $McpServer -ArgumentList $httpArguments -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDirectory "http.stdout.log") -RedirectStandardError (Join-Path $LogDirectory "http.stderr.log") -PassThru
         }

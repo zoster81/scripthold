@@ -16,14 +16,14 @@ Scripthold is a secure local workspace runtime that lets web-based and local AI 
 
 Scripthold is a secure, encoding-aware MCP filesystem service for local, tunneled, containerized, and explicitly secured network deployments. Its supported scope includes:
 
-- the same authoritative 27-tool current source catalog over stdio and Streamable HTTP;
+- the same authoritative 30-tool current source catalog over stdio and Streamable HTTP;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, and missing-ancestor validation;
 - bounded-memory decoding, reading, grep, conversion, line-ending, and BOM operations across 24 registered encodings;
 - durable staged mutations with practical concurrent-change detection, no-replace creation, backup rollback, and platform-specific synchronization;
 - an optional dedicated persistent backup store with immutable content-addressed objects, checksummed manifests, bounded management/audit, approval-bound pre-state capture for prepared edits and patch packages, one-shot original-target restore, explicit generation-bound garbage collection, and a separate mutation-free offline diagnostic command for existing stores;
 - transport-independent error categories and tool metadata;
 - MCP `2026-07-28` support through official stable Go SDK `v1.7.0`, with modern stdio gating and stateless HTTP while preserving roots-dependent legacy stdio and stateful HTTP behind the same shared security boundary;
-- optional `run_script` and unrestricted `shell` tools, both disabled by default, with an additional execution gate for HTTP;
+- optional durable `task_run` shell/script execution with idempotent admission, a persistent bounded queue, supervisor/worker/helper isolation, parallelism, logical locks, cursor logs, cancellation, recovery, and retention; both kinds are disabled by default and HTTP retains its additional execution gate;
 - reproducible multi-platform releases, checksum-driven MCP Registry publication, and a non-root transport-neutral container.
 
 Binary or media interpretation remains outside the server's scope. Per-agent filesystem ACLs are also outside the current model: every connection to one process shares its startup roots and policy. Deploy separate processes when technical isolation is required.

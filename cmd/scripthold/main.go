@@ -8,13 +8,16 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/zoster81/scripthold/filetoolsserver"
+	"github.com/zoster81/scripthold/filetoolsserver/handler"
 	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/config"
 	"github.com/zoster81/scripthold/internal/security"
+	"github.com/zoster81/scripthold/internal/taskstore"
 )
 
 // version is set at build time via ldflags.
@@ -36,6 +39,15 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	if len(args) == 1 && (args[0] == "--version" || args[0] == "-v") {
 		fmt.Fprintln(stdout, version)
 		return 0
+	}
+	if len(args) > 0 && args[0] == "task-worker" {
+		return runTaskWorkerCommand(ctx, args[1:], stderr, getenv)
+	}
+	if len(args) > 0 && args[0] == "task-supervisor" {
+		return runTaskSupervisorCommand(ctx, args[1:], stderr, getenv)
+	}
+	if len(args) > 0 && args[0] == "_task-exec" {
+		return runTaskExecutorCommand(ctx, args[1:], stderr, getenv)
 	}
 
 	diagnosticOptions, diagnosticCommand, err := parseBackupDiagnosticCommand(args)
@@ -63,12 +75,17 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	}
 
 	applicationConfig := config.LoadFromEnvironment(getenv)
+	if err := validatePrivateStoreSeparation(applicationConfig); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
 	selection, err := selectRunner(options.transport, getenv, applicationConfig.Limits.MaxSessions)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
 	var store *backupstore.Store
+	var tasks *taskstore.Store
 	protectedDirectories := []string(nil)
 	if applicationConfig.Backup.Enabled() {
 		store, err = backupstore.Open(backupstore.Options{
@@ -82,12 +99,24 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		}
 		protectedDirectories = []string{store.Root()}
 	}
+	if applicationConfig.Tasks.Enabled() {
+		tasks, err = taskstore.Open(applicationConfig.Tasks.StoreDir, options.allowedDirectories, taskStoreLimits(applicationConfig.Tasks))
+		if err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			if store != nil {
+				_ = store.Close()
+			}
+			return 1
+		}
+		protectedDirectories = append(protectedDirectories, tasks.Root())
+	}
 
 	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
 		Version:                version,
 		AllowedDirectories:     normalized,
 		ProtectedDirectories:   protectedDirectories,
 		BackupStore:            store,
+		TaskStore:              tasks,
 		Config:                 applicationConfig,
 		ExecutionPolicy:        selection.executionPolicy,
 		EnableClientRoots:      selection.enableClientRoots,
@@ -109,6 +138,138 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	}
 	if closeErr != nil {
 		fmt.Fprintf(stderr, "Server error: backup store lock could not be released\n")
+		return 1
+	}
+	return 0
+}
+
+func taskStoreLimits(cfg config.TaskConfig) taskstore.Limits {
+	return taskstore.Limits{
+		MaxConcurrency: cfg.MaxConcurrency, MaxQueued: cfg.MaxQueued,
+		MaxLogBytesPerStream: cfg.MaxLogBytesPerStream, MaxRuntimeSeconds: cfg.MaxRuntimeSeconds,
+		RetentionDays: cfg.RetentionDays, MaxTerminal: cfg.MaxTerminal, MaxTotalBytes: cfg.MaxTotalBytes,
+	}
+}
+
+func validatePrivateStoreSeparation(cfg *config.Config) error {
+	if cfg == nil || !cfg.Tasks.Enabled() || !cfg.Backup.Enabled() {
+		return nil
+	}
+	taskRoot, taskErr := filepath.Abs(cfg.Tasks.StoreDir)
+	backupRoot, backupErr := filepath.Abs(cfg.Backup.StoreDir)
+	if taskErr != nil || backupErr != nil {
+		return errors.New("private store paths are invalid")
+	}
+	if security.PathsOverlap(taskRoot, backupRoot) {
+		return errors.New("task store and backup store must be separate non-overlapping directories")
+	}
+	return nil
+}
+
+func runTaskWorkerCommand(ctx context.Context, directories []string, stderr io.Writer, getenv func(string) string) int {
+	directories = trimInternalArgumentSeparator(directories)
+	cfg := config.LoadFromEnvironment(getenv)
+	if err := validatePrivateStoreSeparation(cfg); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	if !cfg.Tasks.Enabled() {
+		fmt.Fprintln(stderr, "Error: MCP_TASK_STORE_DIR is required for task-worker")
+		return 1
+	}
+	normalized, err := security.NormalizeAllowedDirs(directories)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	store, err := taskstore.Initialize(cfg.Tasks.StoreDir, normalized, taskStoreLimits(cfg.Tasks))
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	policy := handler.ExecutionPolicyFromEnvironment(getenv)
+	worker, err := taskstore.NewWorker(store, executable, normalized, taskstore.WorkerPolicy{AllowShell: policy.AllowShell, AllowRunScript: policy.AllowRunScript}, slog.Default())
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	if err := worker.Run(ctx); err != nil {
+		fmt.Fprintf(stderr, "Task worker error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runTaskSupervisorCommand(ctx context.Context, directories []string, stderr io.Writer, getenv func(string) string) int {
+	directories = trimInternalArgumentSeparator(directories)
+	cfg := config.LoadFromEnvironment(getenv)
+	if err := validatePrivateStoreSeparation(cfg); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	if !cfg.Tasks.Enabled() {
+		fmt.Fprintln(stderr, "Error: MCP_TASK_STORE_DIR is required for task-supervisor")
+		return 1
+	}
+	normalized, err := security.NormalizeAllowedDirs(directories)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	store, err := taskstore.Initialize(cfg.Tasks.StoreDir, normalized, taskStoreLimits(cfg.Tasks))
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	if err := taskstore.RunSupervisor(ctx, store, executable, normalized, slog.Default()); err != nil {
+		fmt.Fprintf(stderr, "Task supervisor error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func trimInternalArgumentSeparator(arguments []string) []string {
+	if len(arguments) > 0 && arguments[0] == "--" {
+		return arguments[1:]
+	}
+	return arguments
+}
+
+func runTaskExecutorCommand(ctx context.Context, args []string, stderr io.Writer, getenv func(string) string) int {
+	if len(args) != 2 {
+		fmt.Fprintln(stderr, "Error: invalid internal task executor invocation")
+		return 1
+	}
+	cfg := config.LoadFromEnvironment(getenv)
+	if err := validatePrivateStoreSeparation(cfg); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	configuredStore, pathErr := filepath.Abs(cfg.Tasks.StoreDir)
+	requestedStore, requestedErr := filepath.Abs(args[0])
+	if !cfg.Tasks.Enabled() || pathErr != nil || requestedErr != nil || !security.PathsEqual(configuredStore, requestedStore) {
+		fmt.Fprintln(stderr, "Error: task executor store mismatch")
+		return 1
+	}
+	store, err := taskstore.OpenExecutor(cfg.Tasks.StoreDir, taskStoreLimits(cfg.Tasks))
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	token := getenv("MCP_TASK_EXECUTOR_TOKEN")
+	_ = os.Unsetenv("MCP_TASK_EXECUTOR_TOKEN")
+	if err := taskstore.RunExecutor(ctx, store, args[1], token); err != nil {
+		fmt.Fprintf(stderr, "Task executor error: %v\n", err)
 		return 1
 	}
 	return 0

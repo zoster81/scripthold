@@ -28,6 +28,7 @@ PREFER THESE TOOLS over built-in Read/Write/Grep for file operations when encodi
 - fingerprint_paths: two-pass deterministic SHA-256 state fingerprints for explicit files and directory roots, with canonical relative paths, .git and in-root link exclusion, no link traversal, optional bounded entry details, and concurrent-change detection
 - verify_state: ordered read-only JSON, text-format, git diff --check, and fingerprint checks with typed inputs, bounded diagnostics, fixed direct Git invocation, no shell, and no execution feature flag
 - backup_store: optional persistent-store status/list/inspect/audit, original-target restorePreview/restoreApply, and explicit generation-bound gcDryRun/gcApply; GC preserves immutable pins and one version per target, removes manifests before fully verified unreferenced objects, and never runs in the background; no object bytes, target paths in GC plans, internal paths, or automatic rollback are exposed
+- task_run/task_list/task_get/task_logs/task_cancel: durable asynchronous shell/script execution through an independent worker; use idempotency keys, optional logical locks, cursor-based bounded logs, and explicit cancellation instead of holding an MCP request open
 - list_directory/search_files: optional deterministic name/mtime/size sorting with reverse order; metadata sorting never follows an entry outside allowed roots
 - convert_encoding: one path or a bounded paths batch; dryRun reports unsupported runes with positions before writes, and each changed item retains durable no-op, backup, and conflict guarantees
 - prompts: audit_encodings, fix_mojibake, and migrate_to_utf8 are transport-independent guided workflows
@@ -70,6 +71,7 @@ type ServerOptions struct {
 	AllowedDirectories     []string
 	ProtectedDirectories   []string
 	BackupStore            handler.BackupStoreReader
+	TaskStore              handler.TaskStore
 	Logger                 *slog.Logger
 	Config                 *config.Config
 	ExecutionPolicy        *handler.ExecutionPolicy
@@ -98,6 +100,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 		handler.WithConfig(cfg),
 		handler.WithProtectedDirectories(protectedDirectories),
 		handler.WithBackupStore(options.BackupStore),
+		handler.WithTaskStore(options.TaskStore),
 	}
 	if options.ExecutionPolicy != nil {
 		handlerOptions = append(handlerOptions, handler.WithExecutionPolicy(*options.ExecutionPolicy))
@@ -176,11 +179,13 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	mcp.AddTool(server, catalogTool("convert_encoding"), handler.Wrap(logger, "convert_encoding", h.HandleConvertEncoding))
 
-	// Execution tools. Paths and working directories are validated against the
-	// directories supplied when the MCP server starts.
-	mcp.AddTool(server, catalogTool("run_script"), handler.Wrap(logger, "run_script", h.HandleRunScript))
-
-	mcp.AddTool(server, catalogTool("shell"), handler.Wrap(logger, "shell", h.HandleShell))
+	// Durable asynchronous execution. The MCP call only admits, observes, or
+	// cancels work; a separate worker/helper topology owns process lifetime.
+	mcp.AddTool(server, catalogTool("task_run"), handler.Wrap(logger, "task_run", h.HandleTaskRun))
+	mcp.AddTool(server, catalogTool("task_list"), handler.Wrap(logger, "task_list", h.HandleTaskList))
+	mcp.AddTool(server, catalogTool("task_get"), handler.Wrap(logger, "task_get", h.HandleTaskGet))
+	mcp.AddTool(server, catalogTool("task_logs"), handler.Wrap(logger, "task_logs", h.HandleTaskLogs))
+	mcp.AddTool(server, catalogTool("task_cancel"), handler.Wrap(logger, "task_cancel", h.HandleTaskCancel))
 	mcp.AddTool(server, catalogTool("check_for_updates"), handler.Wrap(logger, "check_for_updates", handler.NewCheckUpdateHandler(version)))
 
 	return server

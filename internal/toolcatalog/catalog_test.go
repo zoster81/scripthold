@@ -11,7 +11,7 @@ import (
 
 func TestCatalogIsCompleteAndUnique(t *testing.T) {
 	definitions := All()
-	if got, want := len(definitions), 27; got != want {
+	if got, want := len(definitions), 30; got != want {
 		t.Fatalf("catalog contains %d tools, want %d", got, want)
 	}
 	if _, exists := Lookup("directory_tree"); exists {

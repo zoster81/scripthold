@@ -43,6 +43,17 @@ func TestSelectRunnerCanForceLegacyStdioHandshake(t *testing.T) {
 	}
 }
 
+func TestTrimInternalArgumentSeparator(t *testing.T) {
+	arguments := trimInternalArgumentSeparator([]string{"--", `C:\workspace`})
+	if len(arguments) != 1 || arguments[0] != `C:\workspace` {
+		t.Fatalf("trimmed arguments = %#v", arguments)
+	}
+	arguments = trimInternalArgumentSeparator([]string{`C:\workspace`})
+	if len(arguments) != 1 || arguments[0] != `C:\workspace` {
+		t.Fatalf("arguments without separator changed: %#v", arguments)
+	}
+}
+
 func TestSelectRunnerHTTPClearsCredentialEnvironment(t *testing.T) {
 	t.Setenv(httptransport.EnvToken, testHTTPToken())
 	t.Setenv(httptransport.EnvTokenFile, "")
@@ -124,8 +135,8 @@ func TestSingleSessionRunnerUsesSharedServerAndHonorsCancellation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 27 {
-		t.Fatalf("tool count = %d, want 27", len(tools.Tools))
+	if len(tools.Tools) != 30 {
+		t.Fatalf("tool count = %d, want 30", len(tools.Tools))
 	}
 
 	cancel()

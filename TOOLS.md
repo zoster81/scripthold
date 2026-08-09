@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-Scripthold's authoritative 27-tool catalog and 3 guided prompts are transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), and [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md).
+Scripthold's authoritative 30-tool catalog and 3 guided prompts are transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 
@@ -1037,110 +1037,60 @@ Without `force`, the result is cached for 30 minutes to avoid repeated GitHub AP
 
 The checker is notification-only: it never downloads, replaces, installs, or restarts the MCP server. It requires at least one published GitHub Release in the fork; if the fork has no release, the GitHub endpoint returns no latest version and the checker remains silent.
 
-## Execution Tools
+## Durable Task Execution
 
-The execution tools are fork-specific and disabled by default. Enable only the capability that is required:
+Scripthold 2.1.0 executes shell commands and supported scripts as persistent asynchronous tasks. The MCP request records work and returns immediately; an independent supervisor, worker, and per-task executor own the queue and process lifecycle. See [Durable task execution](docs/DURABLE_TASKS.md) for the persistence, recovery, security, and retention contract.
 
-| Variable | Effect |
-|----------|--------|
-| `MCP_ENABLE_RUN_SCRIPT=1` | Enables `run_script` only |
-| `MCP_ENABLE_SHELL=1` | Enables `shell` only |
-| `MCP_ENABLE_EXECUTION=1` | Enables both tools |
+Execution is disabled by default. `MCP_ENABLE_RUN_SCRIPT=1` authorizes `task_run` with `kind=script`, `MCP_ENABLE_SHELL=1` authorizes `kind=shell`, and `MCP_ENABLE_EXECUTION=1` authorizes both. Streamable HTTP additionally requires `MCP_HTTP_ENABLE_EXECUTION=1`.
 
-Accepted true values are `1`, `true`, `yes`, `on`, and `enabled`, matched case-insensitively.
+### task_run
 
-On native Streamable HTTP, the corresponding flag above is necessary but not sufficient: `MCP_HTTP_ENABLE_EXECUTION=1` is also required. This dual opt-in prevents execution enabled for a trusted stdio deployment from being exposed automatically on the network transport.
-
-Both tools use one internal process-preparation primitive for absolute working-directory validation, timeout bounds, closed standard input, bounded stdout/stderr capture, cancellation, and process-tree termination. The primitive does not authorize commands or paths: `run_script` and `shell` retain separate handler policies. Immediately before launch, both revalidate the working directory against the current allowed roots. `run_script` also verifies that the authorized script still matches its prepared metadata and SHA-256 snapshot. The default timeout is 60 seconds, the maximum is 600 seconds, and each output stream is limited to 256 KiB. On timeout or cancellation, Windows termination uses `taskkill /T /F` before the direct process kill.
-
-### run_script
-
-Executes a regular script or executable whose path is inside an allowed directory. The optional working directory is also validated. When `cwd` is omitted, the script's parent directory is used. Script arguments are passed directly to the selected interpreter or executable without shell interpolation. The path, working directory, metadata, and SHA-256 content snapshot are checked again immediately before launch.
-
-**Security boundary:** pre-launch path and digest revalidation reduces replacement races but cannot eliminate the final check-to-exec window without a handle-relative launch primitive. The script is not sandboxed: once launched, it runs with the operating-system permissions and normal environment of the MCP server process and may access resources that the operating system allows. In Streamable HTTP mode, the bearer-token environment variables are removed immediately after startup configuration is snapshotted, so child processes do not inherit those credentials.
-
-**Parameters:**
+Durably enqueue one task. `idempotencyKey` is mandatory; an identical retry returns the original task, while a different request using the same key fails.
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `path` | string | yes | Script or executable path inside an allowed directory |
-| `args` | string[] | no | Arguments passed without shell interpolation |
-| `cwd` | string | no | Working directory inside an allowed directory; defaults to the script directory |
-| `timeoutSeconds` | integer | no | Timeout from 1 to 600 seconds; defaults to 60 |
-
-**Supported file types and interpreter selection:**
-
-| Extension | Execution behavior |
-|-----------|--------------------|
-| `.ps1` | `pwsh` when available, otherwise Windows PowerShell; uses `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File` |
-| `.bat`, `.cmd` | `cmd.exe /d /s /c` on Windows |
-| `.py` | `py -3` when available, otherwise `python`/`python3` |
-| `.js`, `.mjs`, `.cjs` | `node` |
-| `.sh` | `bash` |
-| `.exe`, `.com` | Executed directly |
-
-**Example:**
+|---|---|---|---|
+| `kind` | `shell` or `script` | yes | Selects the distinct authorization and validation path. |
+| `idempotencyKey` | string | yes | Stable caller-generated key for retry safety. |
+| `name` | string | no | Human-readable task name; duplicates are allowed. |
+| `description` | string | no | Bounded operator-facing description. |
+| `tags` | string[] | no | Bounded exact metadata tags. |
+| `lockKeys` | string[] | no | Tasks sharing any key do not overlap. |
+| `cwd` | string | no | Allowed working directory; defaults to the script parent or first allowed root. |
+| `command` | string | shell only | Unrestricted command text. |
+| `shell` | string | no | Windows: `powershell`, `pwsh`, `cmd`; Unix: `sh`, `bash`, `pwsh`. |
+| `path` | string | script only | Allowed regular `.ps1`, `.bat`, `.cmd`, `.py`, `.js`, `.mjs`, `.cjs`, `.sh`, `.exe`, or `.com` file. |
+| `args` | string[] | no | Direct script arguments without concatenation. |
+| `maxRuntimeSeconds` | integer | no | Zero/omitted is unlimited unless an operator ceiling applies. Queue time is excluded. |
 
 ```json
 {
-  "path": "D:\\Dev\\project\\verify.ps1",
-  "args": ["-Mode", "Fast"],
+  "kind": "shell",
+  "idempotencyKey": "build-main-20260809-01",
+  "name": "Build main",
+  "description": "Release verification build",
+  "tags": ["build", "release"],
+  "lockKeys": ["workspace-main"],
   "cwd": "D:\\Dev\\project",
-  "timeoutSeconds": 120
+  "command": "go test ./...",
+  "maxRuntimeSeconds": 0
 }
 ```
 
-### shell
+### task_list
 
-Executes an arbitrary command through a selected shell.
+Returns newest-first bounded metadata with optional `statuses`, `kinds`, and `tags` filters plus `cursor`/`limit` paging. It never returns command text, arguments, paths, environment values, or output.
 
-**Critical security warning:** only `cwd` is checked against the allowed directories. The command text is intentionally unrestricted and can read, modify, execute, or access anything permitted to the MCP server's Windows or Unix identity, including paths outside the allowed directories and network resources. Do not enable this tool for untrusted clients or prompts. Streamable HTTP additionally requires `MCP_HTTP_ENABLE_EXECUTION=1`, and the HTTP bearer-token environment variables are removed before tool execution can start.
+### task_get
 
-**Parameters:**
+Accepts `taskId` and returns the latest state, timestamps, terminal result, worker liveness, and the bounded immutable lifecycle history. States are `queued`, `starting`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, and `interrupted`.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `command` | string | yes | Non-empty command interpreted by the selected shell |
-| `cwd` | string | no | Working directory inside an allowed directory; defaults to the first allowed directory |
-| `shell` | string | no | Shell selector described below |
-| `timeoutSeconds` | integer | no | Timeout from 1 to 600 seconds; defaults to 60 |
+### task_logs
 
-**Shell selectors:**
+Accepts `taskId`, independent `stdoutCursor` and `stderrCursor`, and optional `limitBytes`. Each stream returns data, the next absolute cursor, retained end offset, dropped byte count, and whether the requested cursor crossed an evicted middle region. Logs retain a fixed head and rolling tail.
 
-| Platform | Default | Accepted values |
-|----------|---------|-----------------|
-| Windows | Windows PowerShell | `powershell`, `windows-powershell`, `pwsh`, `powershell-core`, `cmd` |
-| Other platforms | `sh` | `sh`, `bash`, `pwsh`, `powershell` |
+### task_cancel
 
-**Example:**
-
-```json
-{
-  "command": "git status --short",
-  "cwd": "D:\\Dev\\project",
-  "shell": "powershell",
-  "timeoutSeconds": 60
-}
-```
-
-### Execution result
-
-Both tools return the same result shape:
-
-```json
-{
-  "workingDirectory": "D:\\Dev\\project",
-  "exitCode": 0,
-  "stdout": "...",
-  "stderr": "...",
-  "timedOut": false,
-  "outputTruncated": false,
-  "durationMillis": 125,
-  "executionCancelled": false
-}
-```
-
-A non-zero exit code, timeout, or cancellation marks the MCP tool result as an error while preserving the structured execution output.
+Accepts `taskId` and an optional bounded `reason`. Cancelling queued work prevents launch. Cancelling running work terminates its complete process tree. Repeated calls are idempotent and terminal tasks remain unchanged.
 
 ## Supported Encodings
 

@@ -60,6 +60,12 @@ archives:
           group: root
           mode: 0644
           mtime: '{{ .CommitDate }}'
+      - src: docs/DURABLE_TASKS.md
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: '{{ .CommitDate }}'
       - src: LICENSE
         info:
           owner: root

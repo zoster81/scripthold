@@ -90,7 +90,8 @@ var stringifiedJSONArgumentFields = map[string]map[string]struct{}{
 	"edit_file":         {"edits": {}},
 	"patch_package":     {"manifest": {}},
 	"convert_encoding":  {"paths": {}},
-	"run_script":        {"args": {}},
+	"task_run":          {"args": {}, "tags": {}, "lockKeys": {}},
+	"task_list":         {"statuses": {}, "kinds": {}, "tags": {}},
 }
 
 // unstringifyJSONArgs decodes only declared top-level array/object fields whose

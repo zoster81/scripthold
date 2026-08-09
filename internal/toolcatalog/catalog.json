@@ -235,9 +235,9 @@
       }
     },
     {
-      "name": "run_script",
-      "title": "Run Script",
-      "description": "Execute a script located inside an allowed directory. The script path and optional cwd are validated against the directories passed when the server starts and revalidated immediately before launch. Supported: .ps1, .bat, .cmd, .py, .js, .mjs, .cjs, .sh, .exe, .com. Parameters: path, args, cwd, timeoutSeconds (default 60, max 600). Requires MCP_ENABLE_RUN_SCRIPT=1 or MCP_ENABLE_EXECUTION=1; Streamable HTTP also requires MCP_HTTP_ENABLE_EXECUTION=1.",
+      "name": "task_run",
+      "title": "Run Durable Task",
+      "description": "Durably enqueue one asynchronous shell or script task and return immediately with its taskId. The independent task-worker and per-task executor keep the queue, process, status, and logs alive across MCP request expiry and stdio/HTTP frontend restarts. idempotencyKey is required: retrying the same payload returns the original task, while reuse with a different payload fails. Optional lockKeys serialize conflicting tasks; tasks without conflicts run up to MCP_TASK_MAX_CONCURRENCY. maxRuntimeSeconds=0 or omitted means no task deadline unless the operator configured MCP_TASK_MAX_RUNTIME_SECONDS. kind=script validates and fingerprints path at admission, then revalidates and copies the exact bytes to the private task store before launch; kind=shell validates cwd but the command itself remains unrestricted. Parameters: kind=shell|script, idempotencyKey, name, description, tags, lockKeys, cwd, command, shell, path, args, maxRuntimeSeconds. Requires the existing kind-specific execution gate; Streamable HTTP also requires MCP_HTTP_ENABLE_EXECUTION=1.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -245,13 +245,44 @@
       }
     },
     {
-      "name": "shell",
-      "title": "Shell Command",
-      "description": "Execute an arbitrary shell command. The optional cwd must be inside a directory passed when the server starts and is revalidated immediately before launch; if omitted, the first allowed directory is used. WARNING: the command itself is unrestricted and can access resources outside cwd. On Windows shell may be powershell (default), pwsh, or cmd. Parameters: command, cwd, shell, timeoutSeconds (default 60, max 600). Requires MCP_ENABLE_SHELL=1 or MCP_ENABLE_EXECUTION=1; Streamable HTTP also requires MCP_HTTP_ENABLE_EXECUTION=1.",
+      "name": "task_list",
+      "title": "List Durable Tasks",
+      "description": "List bounded task metadata newest-first with stable cursor paging and optional status, kind, and tag filters. Command text, arguments, private store paths, and environment values are never returned. Parameters: statuses, kinds, tags, cursor, limit.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "task_get",
+      "title": "Get Durable Task",
+      "description": "Get one task's durable lifecycle metadata, bounded immutable state history, and terminal result by taskId. Reports queued, starting, running, succeeded, failed, timed_out, cancelled, or interrupted without exposing the submitted command or arguments. Parameter: taskId.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "task_logs",
+      "title": "Read Durable Task Logs",
+      "description": "Read bounded incremental stdout and stderr using independent absolute cursors. The store retains an initial head plus a rolling tail per stream, reports droppedBytes and cursor truncation when intermediate output was evicted, and never grows logs without limit. Parameters: taskId, stdoutCursor, stderrCursor, limitBytes.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "task_cancel",
+      "title": "Cancel Durable Task",
+      "description": "Durably request cancellation of a queued or running task. Queued tasks become cancelled without launch; running executors terminate the complete child process tree and record the terminal result. Repeated cancellation is idempotent and terminal tasks remain unchanged. Parameters: taskId, reason.",
       "annotations": {
         "readOnlyHint": false,
+        "idempotentHint": true,
         "destructiveHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     },
     {

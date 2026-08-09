@@ -14,6 +14,7 @@ import (
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/security"
+	"github.com/zoster81/scripthold/internal/taskstore"
 )
 
 // BackupStoreReader is the read-only management contract exposed publicly.
@@ -52,6 +53,16 @@ type BackupStoreGarbageCollector interface {
 	GCPlanTTL() time.Duration
 }
 
+// TaskStore is the transport-independent durable task registry contract.
+type TaskStore interface {
+	Root() string
+	Submit(context.Context, taskstore.Request) (taskstore.SubmitResult, error)
+	List(context.Context, taskstore.ListOptions) (taskstore.ListResult, error)
+	Get(context.Context, string) (taskstore.Task, error)
+	Logs(context.Context, string, taskstore.LogOptions) (taskstore.LogsResult, error)
+	Cancel(context.Context, string, string) (taskstore.Task, error)
+}
+
 // Default permissions for new files and directories
 const (
 	DefaultFileMode os.FileMode = 0644
@@ -73,6 +84,7 @@ type Handler struct {
 	backupBatchCapture             BackupStoreBatchCapturer
 	backupRestore                  BackupStoreRestorer
 	backupGC                       BackupStoreGarbageCollector
+	taskStore                      TaskStore
 	editPreviews                   *editPreviewStore
 	restorePreviews                *restorePreviewStore
 	gcPreviews                     *gcPreviewStore
@@ -151,6 +163,36 @@ func WithBackupStore(store BackupStoreReader) Option {
 			h.protectedRequestedDirs = mergeUniqueDirectories(h.protectedRequestedDirs, requested)
 			h.protectedDirs = mergeUniqueDirectories(h.protectedDirs, resolved)
 		}
+	}
+}
+
+// WithTaskStore configures the durable asynchronous execution registry and
+// makes its private root inaccessible to ordinary filesystem tools.
+func WithTaskStore(store TaskStore) Option {
+	return func(h *Handler) {
+		h.taskStore = nil
+		if taskStoreIsNil(store) {
+			return
+		}
+		h.taskStore = store
+		if store.Root() != "" {
+			requested, resolved := normalizeAllowedDirectorySets([]string{store.Root()})
+			h.protectedRequestedDirs = mergeUniqueDirectories(h.protectedRequestedDirs, requested)
+			h.protectedDirs = mergeUniqueDirectories(h.protectedDirs, resolved)
+		}
+	}
+}
+
+func taskStoreIsNil(store TaskStore) bool {
+	if store == nil {
+		return true
+	}
+	value := reflect.ValueOf(store)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
 	}
 }
 

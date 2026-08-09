@@ -34,6 +34,7 @@ Apply only the checks relevant to the change, but record omissions explicitly.
 - [ ] Include encoding/BOM and LF/CRLF cases where relevant.
 - [ ] Include filesystem failure and concurrent-modification cases where relevant.
 - [ ] Include cancellation, timeout, saturation, deterministic ordering, and race cases where relevant.
+- [ ] For durable tasks, test idempotency conflict, queue and concurrency bounds, logical locks, frontend/worker/supervisor failure, reboot-style stale recovery, at-most-once behavior, process-tree cancellation, cursor gaps, retention, and store-policy mismatch.
 - [ ] Include platform-specific and cross-build coverage where relevant.
 - [ ] Include security-negative tests, not only successful paths.
 - [ ] For structured execution, verify fixed direct invocation, argument construction, working-directory confinement, environment filtering, timeout, and bounded diagnostics without a shell.
@@ -44,6 +45,7 @@ Apply only the checks relevant to the change, but record omissions explicitly.
 - [ ] Review allowed-root escape and path-based race windows.
 - [ ] Review data loss, non-atomic writes, rollback, cleanup, and recovery artifacts.
 - [ ] Review unbounded memory, output, lines, requests, sessions, worker queues, preview caches, manifests, and retained recovery artifacts.
+- [ ] Review persistent task state, immutable transition count, task directory scans, head/tail logs, terminal retention, heartbeat staleness, PID reuse, supervisor duplication, and orphan helper behavior.
 - [ ] Review nondeterministic ordering and cancellation behavior.
 - [ ] Review capability guessing, disclosure, replay, concurrent consumption, expiration, and cache-exhaustion risks.
 - [ ] Review multi-file partial commits, misleading atomicity claims, and recovery evidence after failure.
@@ -105,6 +107,7 @@ Run checks from focused to broad and record exact outcomes.
 - [ ] Linux amd64/arm64 cross-builds when platform or release behavior changes;
 - [ ] macOS amd64/arm64 cross-builds when platform or release behavior changes;
 - [ ] runtime execution on available platforms when behavior is platform-specific.
+- [ ] exact-binary durable-task smoke with frontend restart, worker kill, supervisor kill/restart/adoption, offline queue recovery, parallel tasks, shared lock keys, logs, and cancellation.
 
 ### Repository and documentation checks
 

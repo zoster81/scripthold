@@ -15,7 +15,7 @@ R20 extends this design through [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOP
 The HTTP transport must:
 
 - prevent unauthenticated access to configured filesystem roots and optional execution tools;
-- preserve the same authoritative 27-tool source catalog, allowed-directory checks, encoding behavior, limits, and error mapping as stdio;
+- preserve the same authoritative 30-tool source catalog, allowed-directory checks, encoding behavior, limits, and error mapping as stdio;
 - prevent browser-origin attacks, DNS rebinding, token leakage, session hijacking, and untrusted proxy spoofing;
 - bound request bodies, headers, concurrent requests, sessions, idle lifetime, and shutdown time;
 - keep credentials, session identifiers, tool arguments, file contents, and sensitive paths out of HTTP logs;
@@ -33,7 +33,7 @@ The first native HTTP implementation will not provide:
 - tokens in URLs or query parameters;
 - persistent sessions across process restarts;
 - event replay or durable SSE resumption;
-- network sandboxing for `run_script` or `shell`;
+- network or operating-system sandboxing for `task_run` shell/script processes;
 - tenant isolation inside one server process.
 
 ## Assets
@@ -42,7 +42,7 @@ The security design protects:
 
 - every file and directory reachable through the configured process roots;
 - the operating-system identity and permissions of the server process;
-- execution capability when `run_script` or `shell` is enabled;
+- execution capability when either `task_run` kind is enabled;
 - bearer credentials and TLS private keys;
 - session identifiers, one-shot edit and patch-package preview capabilities, and in-flight MCP messages;
 - server availability, memory, goroutines, file descriptors, and process slots;
@@ -67,7 +67,7 @@ MCP client
     -> bearer authentication
     -> rate, concurrency, body, and session admission
     -> MCP Streamable HTTP handler
-    -> shared MCP server and 27 tools
+    -> shared MCP server and 30 tools
     -> allowed-root and execution policy
     -> local filesystem and operating system
 ```
@@ -295,7 +295,7 @@ All clients sharing one static token share one authenticated principal. A truste
 
 - `ReadHeaderTimeout` is 5 seconds.
 - `IdleTimeout` is 2 minutes.
-- Normal POST handling is bounded to 11 minutes unless an earlier tool limit or client cancellation ends it. This remains longer than the public 10-minute execution maximum.
+- Normal POST handling is bounded to 11 minutes unless an earlier tool limit or client cancellation ends it. `task_run` only performs bounded durable admission and does not hold the POST open for process execution.
 - No short global `WriteTimeout` is applied to SSE streams.
 - SSE lifetime is bounded by session expiry, client disconnect, server shutdown, and authenticated keepalive activity; an open SSE stream alone does not pause the idle timer.
 - Shutdown first marks readiness false and rejects new sessions.
@@ -306,7 +306,7 @@ All clients sharing one static token share one authenticated principal. A truste
 
 ## Execution tools over HTTP
 
-`run_script` and `shell` remain disabled by default.
+Both `task_run` execution kinds remain disabled by default.
 
 HTTP execution requires both:
 
@@ -315,7 +315,7 @@ HTTP execution requires both:
 
 Therefore enabling an execution tool for stdio does not automatically expose it over HTTP. R13 must make the transport-specific decision explicit in server policy rather than infer it from client input.
 
-`run_script` retains path validation, script snapshot verification, timeout, output bounds, and process-tree cancellation. External-process cleanup is bounded even when a descendant retains inherited output handles, and the Windows tree-termination helper has its own bounded timeout. `shell` remains unrestricted after working-directory validation and is suitable only for a trusted deployment.
+`task_run` retains distinct script and shell authorization. Script admission validates and hashes the authorized regular file; the worker then revalidates its path and working directory and executes a SHA-256-matching owner-only private snapshot, closing the check-to-launch mutation window. Shell admission validates the working directory but the command remains unrestricted. The MCP request returns after durable admission; an owner-only task store, independent supervisor/worker, detached per-task executor, bounded logs, and process-tree cancellation own later lifecycle. An HTTP disconnect never becomes task cancellation; clients use `task_cancel` explicitly.
 
 ## Health and readiness
 
@@ -437,7 +437,7 @@ No SDK fork or new dependency is planned unless R13 proves that these requiremen
 - all HTTP sessions list the same startup roots;
 - HTTP roots notifications cannot mutate process roots;
 - representative read, write, encoding, error, and cancellation results match stdio;
-- `run_script` and `shell` remain denied unless both authorization layers are enabled;
+- both `task_run` kinds remain denied unless their kind-specific authorization and the HTTP authorization layer are enabled;
 - enabling HTTP execution does not weaken path validation, timeout, output, or cancellation behavior.
 
 ### Lifecycle and observability
@@ -478,7 +478,7 @@ The following risks are explicit and accepted for the initial native HTTP profil
 - interrupted stream replay is unavailable without an event store;
 - direct TLS certificate lifecycle, bearer-token rotation, and reverse-proxy correctness remain operator responsibilities;
 - changing the static token requires a controlled process restart and invalidates the existing trust domain;
-- `shell`, when deliberately enabled through both gates, is not sandboxed.
+- `task_run` with `kind=shell`, when deliberately enabled through both gates, is not sandboxed.
 
 ## References
 

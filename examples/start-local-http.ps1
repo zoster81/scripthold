@@ -18,6 +18,14 @@
     $AllowedDirectory = "C:\Path\To\AllowedProject"
     $TokenFile = "C:\Path\To\scripthold.token"
     $BackupStore = ""
+    $TaskStore = "C:\Path\To\PrivateState\tasks"
+    $TaskMaxConcurrency = 2
+    $TaskMaxQueued = 64
+    $TaskMaxLogBytesPerStream = 8388608
+    $TaskMaxRuntimeSeconds = 0
+    $TaskRetentionDays = 7
+    $TaskMaxTerminal = 1000
+    $TaskMaxTotalBytes = 536870912
 
     # --------------------------------------------------------------------------
     # Listener policy
@@ -71,6 +79,30 @@
         } else {
             [Environment]::SetEnvironmentVariable($Name, $null, "Process")
         }
+    }
+
+    function Ensure-TaskSupervisor {
+        if ([string]::IsNullOrWhiteSpace($TaskStore)) { return }
+        $supervisorHeartbeat = Join-Path $TaskStore "supervisor.heartbeat"
+        $supervisorFresh = $false
+        if (Test-Path -LiteralPath $supervisorHeartbeat -PathType Leaf) {
+            $age = [DateTime]::UtcNow - (Get-Item -LiteralPath $supervisorHeartbeat -Force).LastWriteTimeUtc
+            $supervisorFresh = ($age.TotalSeconds -ge 0 -and $age.TotalSeconds -lt 5)
+        }
+        $supervisor = $null
+        if (-not $supervisorFresh) {
+            $supervisor = Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput "NUL" -RedirectStandardError "NUL" -PassThru
+        }
+        $heartbeat = Join-Path $TaskStore "worker.heartbeat"
+        for ($attempt = 0; $attempt -lt 100; $attempt++) {
+            if (Test-Path -LiteralPath $heartbeat -PathType Leaf) {
+                $age = [DateTime]::UtcNow - (Get-Item -LiteralPath $heartbeat -Force).LastWriteTimeUtc
+                if ($age.TotalSeconds -ge 0 -and $age.TotalSeconds -lt 5) { return }
+            }
+            if ($null -ne $supervisor -and $supervisor.HasExited) { throw "The durable task supervisor exited before worker readiness." }
+            Start-Sleep -Milliseconds 100
+        }
+        throw "The durable task worker did not become ready."
     }
 
     if ($PSVersionTable.PSVersion.Major -lt 5) {
@@ -132,6 +164,14 @@
         "MCP_HTTP_TLS_KEY_FILE",
         "MCP_HTTP_ENABLE_EXECUTION",
         "MCP_BACKUP_STORE_DIR",
+        "MCP_TASK_STORE_DIR",
+        "MCP_TASK_MAX_CONCURRENCY",
+        "MCP_TASK_MAX_QUEUED",
+        "MCP_TASK_MAX_LOG_BYTES_PER_STREAM",
+        "MCP_TASK_MAX_RUNTIME_SECONDS",
+        "MCP_TASK_RETENTION_DAYS",
+        "MCP_TASK_MAX_TERMINAL",
+        "MCP_TASK_MAX_TOTAL_BYTES",
         "MCP_STDIO_LEGACY_HANDSHAKE",
         "MCP_ENABLE_RUN_SCRIPT",
         "MCP_ENABLE_SHELL",
@@ -161,12 +201,21 @@
         [Environment]::SetEnvironmentVariable("MCP_HTTP_TLS_CERT_FILE", $TlsCertificateFile, "Process")
         [Environment]::SetEnvironmentVariable("MCP_HTTP_TLS_KEY_FILE", $TlsKeyFile, "Process")
         [Environment]::SetEnvironmentVariable("MCP_BACKUP_STORE_DIR", $BackupStore, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_STORE_DIR", $TaskStore, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_CONCURRENCY", $TaskMaxConcurrency.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_QUEUED", $TaskMaxQueued.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_LOG_BYTES_PER_STREAM", $TaskMaxLogBytesPerStream.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_RUNTIME_SECONDS", $TaskMaxRuntimeSeconds.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_RETENTION_DAYS", $TaskRetentionDays.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_TERMINAL", $TaskMaxTerminal.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_TOTAL_BYTES", $TaskMaxTotalBytes.ToString(), "Process")
         [Environment]::SetEnvironmentVariable("MCP_STDIO_LEGACY_HANDSHAKE", $null, "Process")
         [Environment]::SetEnvironmentVariable("MCP_ENABLE_EXECUTION", $null, "Process")
         Set-BooleanEnvironmentFlag -Name "MCP_HTTP_ALLOW_NON_LOOPBACK" -Enabled $AllowNonLoopback
         Set-BooleanEnvironmentFlag -Name "MCP_HTTP_ENABLE_EXECUTION" -Enabled $EnableHttpExecution
         Set-BooleanEnvironmentFlag -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
         Set-BooleanEnvironmentFlag -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
+        Ensure-TaskSupervisor
 
         $scheme = if ($TlsCertificateFile -ne "") { "https" } else { "http" }
         Write-Host "Starting MCP Streamable HTTP at $scheme`://$ListenAddress$EndpointPath"

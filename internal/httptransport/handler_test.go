@@ -397,7 +397,7 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s list tools: %v", name, err)
 		}
-		if len(tools.Tools) != 27 {
+		if len(tools.Tools) != 30 {
 			t.Fatalf("%s tool count = %d", name, len(tools.Tools))
 		}
 		serializedTools := marshalJSON(t, tools.Tools)
@@ -910,8 +910,8 @@ func TestHTTPExecutionRequiresExplicitServerPolicy(t *testing.T) {
 		policy   handler.ExecutionPolicy
 		wantText string
 	}{
-		{name: "transport gate closed", policy: handler.ExecutionPolicy{}, wantText: "shell is disabled"},
-		{name: "transport gate open", policy: handler.ExecutionPolicy{AllowShell: true}, wantText: "command is required"},
+		{name: "transport gate closed", policy: handler.ExecutionPolicy{}, wantText: "task_run kind=shell is disabled"},
+		{name: "transport gate open", policy: handler.ExecutionPolicy{AllowShell: true}, wantText: "task system is unavailable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
@@ -931,14 +931,16 @@ func TestHTTPExecutionRequiresExplicitServerPolicy(t *testing.T) {
 			session := connectHTTPClient(t, ctx, unstarted.URL+cfg.Path)
 			defer session.Close()
 			result, err := session.CallTool(ctx, &mcp.CallToolParams{
-				Name:      "shell",
-				Arguments: map[string]any{"command": ""},
+				Name: "task_run",
+				Arguments: map[string]any{
+					"kind": "shell", "idempotencyKey": "http-policy-test", "command": "echo ok",
+				},
 			})
 			if err != nil {
-				t.Fatalf("call shell: %v", err)
+				t.Fatalf("call task_run: %v", err)
 			}
 			if !result.IsError || !strings.Contains(firstTextContent(result), test.wantText) {
-				t.Fatalf("shell result = %#v, want text containing %q", result, test.wantText)
+				t.Fatalf("task_run result = %#v, want text containing %q", result, test.wantText)
 			}
 		})
 	}

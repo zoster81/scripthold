@@ -88,8 +88,8 @@ func TestHandlerRoutesModernProtocolToStatelessHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list modern tools: %v", err)
 	}
-	if len(tools.Tools) != 27 {
-		t.Fatalf("modern tool count = %d, want 27", len(tools.Tools))
+	if len(tools.Tools) != 30 {
+		t.Fatalf("modern tool count = %d, want 30", len(tools.Tools))
 	}
 	prompts, err := session.ListPrompts(ctx, nil)
 	if err != nil {

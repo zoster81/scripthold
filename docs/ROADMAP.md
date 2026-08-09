@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete in source and define the planned `2.1.0` feature scope: 27 tools, 3 guided prompts, verified change workflows, persistent backup/restore/GC, offline backup diagnostics, and MCP `2026-07-28` support through official stable Go SDK `v1.7.0`. R21 is the only active milestone and is limited to consolidating, verifying, packaging, publishing, and deploying that already-completed scope; it adds no new feature family.
+Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete in source. R21 is the only active milestone and makes the durable asynchronous task subsystem a release requirement for `2.1.0`, bringing the planned source catalog to 30 tools and 3 guided prompts before final consolidation, verification, packaging, publication, and deployment.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -14,7 +14,7 @@ Product identity and the fork's independent relationship to upstream are defined
 - Use content bytes and structural evidence for encoding detection. File extensions must not select or bias an encoding.
 - Treat domain-specific files, including MQL sources, as ordinary test fixtures rather than special encoding profiles.
 - Preserve stdio support while adding Streamable HTTP.
-- Keep `run_script` and `shell` disabled by default on every transport.
+- Keep both `task_run` execution kinds disabled by default on every transport.
 - Build internal commit binaries as needed; create later public releases only after their dated changelog, verification, asset, Registry, and deployment gates pass.
 - Every milestone must pass [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) before it is marked complete.
 
@@ -36,26 +36,27 @@ Product identity and the fork's independent relationship to upstream are defined
 | R18 | COMPLETE | Implemented and verified the approved persistent-backup subsystem in phased, failure-injected, cross-platform increments. |
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
 | R20 | COMPLETE | Stable SDK `v1.7.0`, stdio version gating, same-endpoint dual-generation HTTP, structured unsupported-version handling, and the full compatibility/conformance gate are verified in source. |
-| R21 | ACTIVE | Consolidate the completed R15–R20 scope into the first Scripthold-named 2.1.0 release and controlled local deployment. |
+| R21 | ACTIVE | Add and prove durable asynchronous task execution, then consolidate it with R15–R20 into the first Scripthold-named 2.1.0 release and controlled local deployment. |
 
 ---
 
-# R21 — Scripthold 2.1.0 release consolidation
+# R21 — Durable tasks and Scripthold 2.1.0 release consolidation
 
 ## Goal
 
-Publish and deploy the already-completed R15–R20 source as `2.1.0` without introducing a new feature family or weakening any existing compatibility, security, backup, transport, or release invariant.
+Publish and deploy `2.1.0` with the [durable task subsystem](DURABLE_TASKS.md) required for long-running shell/script work, without weakening existing compatibility, security, backup, transport, or release invariants.
 
 ## Remaining gate
 
 - [x] Complete and verify R15–R20 source implementation.
 - [x] Confirm `v2.1.0` is unused locally and on `origin`.
-- [x] Align current documentation around the 27-tool/3-prompt source, Scripthold asset names, dual-generation HTTP, and the new Registry identity without duplicating historical milestone detail.
+- [x] Complete the 30-tool durable-task source, examples, public contract, failure-injection tests, cross-platform build checks, and exact-binary crash/recovery gate.
+- [x] Align current documentation around the 30-tool/3-prompt source, Scripthold asset names, dual-generation HTTP, and the new Registry identity without duplicating historical milestone detail.
 - [x] Consolidate the final R20 and release-preparation work on a clean commit; no internal deployment build is accepted from an uncommitted worktree.
 - [ ] Run the complete release verification checklist from [PUBLISHING.md](PUBLISHING.md) on that exact commit, including full Go/race/static/vulnerability checks, workflow checks, six-target builds, reproducible GoReleaser snapshots, Registry validation, documentation/link checks, and secret scans.
 - [ ] Build a commit-derived Windows amd64 internal binary with an unambiguous version, record its SHA-256, preserve the known-good rollback binary, and verify all documented transport profiles before any public tag.
   - The default OpenAI profile is tunnel-owned stdio plus a separate authenticated loopback HTTP process; the reverse profile remains an explicit alternative example.
-  - Validation must cover process isolation, distinct backup-store locks, tunnel `main` probe health, the 27-tool/3-prompt catalog, representative filesystem and execution calls, and automatic rollback.
+  - Validation must cover process isolation, distinct backup-store locks, the separate shared task store, supervisor/worker/helper recovery, tunnel `main` probe health, the 30-tool/3-prompt catalog, representative filesystem and task calls, and automatic rollback.
   - After the launcher and documentation correction is committed, rebuild from that exact clean commit and repeat the final native stdio, native HTTP, and tunneled stdio smoke before this gate is complete.
 - [ ] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
 - [ ] Push `main` and require the applicable GitHub Actions checks to pass.
@@ -64,13 +65,13 @@ Publish and deploy the already-completed R15–R20 source as `2.1.0` without int
 
 ## Non-goals
 
-- No new MCP tool, prompt, backup action, protocol extension, transport, authentication mode, or repair capability belongs in R21.
+- Beyond the approved five-tool task family, no new MCP tool, prompt, backup action, protocol extension, transport, authentication mode, or repair capability belongs in R21.
 - No cleanup may rename persistent `mcp-file-tools:*` domain-separation constants or rewrite historical `2.0.0` asset/Registry evidence.
 - No public release or Registry publication occurs from a dirty worktree or an unpublished commit.
 
 ## Completion gate
 
-R21 is complete only when `v2.1.0` is published from the exact verified commit, the Scripthold-named Registry record and assets are verified, the local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
+R21 is complete only when the durable queue survives frontend and worker failure as specified, its bounded logs/recovery/parallelism/locks/cancellation and six target builds pass, `v2.1.0` is published from the exact verified commit, the Scripthold-named Registry record and assets are verified, the local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
 
 ---
 

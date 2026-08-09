@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/taskstore"
 
 	"github.com/zoster81/scripthold/internal/operation"
 )
@@ -31,7 +32,8 @@ func TestV2PublicJSONTagsUseCamelCase(t *testing.T) {
 		ConvertEncodingInput{}, ConvertEncodingOutput{}, GrepInput{}, GrepOutput{}, GrepMatch{},
 		DetectLineEndingsInput{}, DetectLineEndingsOutput{}, ChangeLineEndingsInput{}, ChangeLineEndingsOutput{},
 		ManageBomInput{}, ManageBomOutput{}, CheckUpdateInput{}, CheckUpdateOutput{},
-		RunScriptInput{}, ShellInput{}, ExecutionOutput{},
+		TaskRunInput{}, TaskListInput{}, TaskGetInput{}, TaskLogsInput{}, TaskCancelInput{},
+		taskstore.SubmitResult{}, taskstore.Task{}, taskstore.TaskEvent{}, taskstore.Result{}, taskstore.ListResult{}, taskstore.LogsResult{}, taskstore.LogChunk{},
 	}
 
 	for _, shape := range shapes {

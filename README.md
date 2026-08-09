@@ -19,12 +19,12 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 Scripthold detects text encodings from bytes rather than filenames, presents UTF-8 to the client, and preserves or deliberately converts encoding, BOM, and line endings through bounded-memory and durable filesystem operations.
 
-- **27 tools and 3 guided prompts over both transports** — one catalog, one process-wide root policy, one error model, and equivalent behavior through stdio and Streamable HTTP.
+- **30 tools and 3 guided prompts over both transports** — one catalog, one process-wide root policy, one error model, and equivalent behavior through stdio and Streamable HTTP.
 - **Agent-oriented repository workflows** — optional read line numbers, paged/multi-mode grep, `.gitignore` traversal, bounded sorting, batch conversion previews, approval-bound one-shot edits, strict patches, and ambiguity-safe fuzzy matching.
 - **24 registered encodings** — Cyrillic, Windows-125x, ISO-8859, KOI8, UTF-16 LE/BE, GBK/GB18030, and other legacy text formats.
 - **Fail-closed HTTP service** — bearer authentication on every MCP request, loopback defaults, exact Host/Origin checks, bounded sessions and request resources, no CORS, and explicit TLS/proxy requirements for non-loopback exposure.
 - **Secure filesystem and mutation model** — resolved-root containment, deterministic traversal, bounded streaming, staged writes, practical concurrent-change detection, operation-specific transactional `.bak` handling, and no-replace creation.
-- **Optional execution** — `run_script` and unrestricted `shell` are disabled by default; HTTP requires a second explicit execution opt-in.
+- **Durable asynchronous execution** — `task_run` admits shell/script work into an owner-only persistent queue; independent workers, bounded logs, recovery, parallelism, logical locks, and cancellation keep long builds alive across connector restarts.
 
 **Suitable for:** persistent local or containerized MCP services, desktop and CLI clients, secure tunnel bridges such as the OpenAI Secure MCP Tunnel, and legacy codebases whose text encoding cannot be inferred reliably from a filename or extension.
 
@@ -37,13 +37,13 @@ Scripthold began as a deployment-oriented fork for ChatGPT Web, but version 2.0 
 | stdio | Local MCP clients and secure tunnel bridges | Client configuration and operating-system process boundary | Startup directories are authoritative; dynamic roots are a compatibility fallback only when startup roots are empty |
 | stateful Streamable HTTP | Persistent localhost services, containers, trusted proxies, and explicitly secured remote services | Bearer token on every MCP request; loopback by default; TLS or a trusted proxy boundary for non-loopback listeners | Startup directories are immutable and shared by every session; HTTP client roots are disabled |
 
-Both transports use the same `BuildServer` path and expose the same 27 tools, 3 prompts, encoding behavior, limits, typed errors, and execution policy. The HTTP trust model is defined in [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md); the fork's independent scope and relationship to upstream are defined in [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md).
+Both transports use the same `BuildServer` path and expose the same 30 tools, 3 prompts, encoding behavior, limits, typed errors, and execution policy. The HTTP trust model is defined in [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md); the fork's independent scope and relationship to upstream are defined in [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md).
 
 The OpenAI Secure MCP Tunnel remains a supported stdio deployment option, not the identity or only use case of the project. The fork does not require Claude Code, Codex, ChatGPT, or another specific MCP host. Version 2.0 removes the fork-owned Claude Code downloader plugin to avoid maintaining a second network installer and cache trust boundary; any compatible client can invoke the released binary directly or connect to its HTTP endpoint.
 
 ### Process-wide directory and session model
 
-Allowed directories are a **process-wide authorization boundary**. Every MCP connection or future HTTP session attached to one server process sees the same configured directory set and the same 27 tools, limits, execution flags, and error behavior. A session represents an independent protocol connection with its own requests, cancellation, and lifecycle; it is not a per-agent filesystem role or sandbox.
+Allowed directories are a **process-wide authorization boundary**. Every MCP connection or future HTTP session attached to one server process sees the same configured directory set and the same 30 tools, limits, execution flags, and error behavior. A session represents an independent protocol connection with its own requests, cancellation, and lifecycle; it is not a per-agent filesystem role or sandbox.
 
 This deliberately supports deployments where several agents work on different projects under one allowed drive or workspace, read shared documentation or libraries, and follow prompt-level rules about where each agent may write. The server does not enforce those per-agent read/write conventions. When technical isolation is required, run separate server processes with narrower allowed directories and, for concurrent Git work, separate checkouts or worktrees.
 
@@ -55,13 +55,13 @@ The fork-specific architecture includes authoritative process roots, Windows dri
 
 Version `2.0.0` is the current public release. It exposes 23 tools over stdio and authenticated stateful Streamable HTTP and remains the deployed rollback baseline.
 
-The current source is the planned `2.1.0` scope: R15–R20 are complete, the catalog contains 27 tools plus 3 guided prompts, persistent backup/restore/GC and offline backup diagnostics are implemented, and MCP `2026-07-28` is supported through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. See [docs/ROADMAP.md](docs/ROADMAP.md) for the remaining 2.1.0 release gates.
+The current source is the planned `2.1.0` scope: R15–R20 are complete and R21 adds the release-required durable task subsystem; the catalog contains 30 tools plus 3 guided prompts, persistent backup/restore/GC and offline backup diagnostics are implemented, and MCP `2026-07-28` is supported through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. See [docs/ROADMAP.md](docs/ROADMAP.md) for the remaining 2.1.0 release gates.
 
 Encoding detection remains content-based and extension-independent. The semantic-tag workflow requires a dated changelog entry before generating release assets and Registry metadata.
 
 ## What It Does
 
-Provides 27 tools for file operations, encoding conversion, state verification, update checks, and optional local execution, plus 3 guided prompts:
+Provides 30 tools for file operations, encoding conversion, state verification, update checks, and durable local execution, plus 3 guided prompts:
 - [`read_text_file`](TOOLS.md#read_text_file) - Stream decoded text with bounded line/output memory and optional absolute line numbers
 - [`read_multiple_files`](TOOLS.md#read_multiple_files) - Read files in deterministic order under one aggregate decoded-output budget
 - [`write_file`](TOOLS.md#write_file) - Write through the shared encoder with explicit `auto`/`always`/`never`/`preserve` BOM policy
@@ -86,8 +86,11 @@ Provides 27 tools for file operations, encoding conversion, state verification, 
 - [`create_directory`](TOOLS.md#create_directory) - Create directories recursively (mkdir -p)
 - [`move_file`](TOOLS.md#move_file) - Move or rename files and directories
 - [`list_allowed_directories`](TOOLS.md#list_allowed_directories) - Show accessible directories
-- [`run_script`](TOOLS.md#run_script) - Execute a supported script or executable inside an allowed directory when explicitly enabled
-- [`shell`](TOOLS.md#shell) - Execute an unrestricted shell command when explicitly enabled
+- [`task_run`](TOOLS.md#task_run) - Durably enqueue an idempotent shell or script task without holding the MCP request open
+- [`task_list`](TOOLS.md#task_list) - Page and filter the persistent task registry
+- [`task_get`](TOOLS.md#task_get) - Read status, result, worker liveness, and bounded lifecycle history
+- [`task_logs`](TOOLS.md#task_logs) - Read bounded stdout/stderr incrementally with absolute cursors
+- [`task_cancel`](TOOLS.md#task_cancel) - Cancel queued work or terminate a running task process tree
 - [`check_for_updates`](TOOLS.md#check_for_updates) - Check the latest release of this fork with a cached GitHub request
 
 **Supported encodings (24 total):**
@@ -104,7 +107,7 @@ Provides 27 tools for file operations, encoding conversion, state verification, 
 
 See [TOOLS.md](TOOLS.md) for detailed parameters and examples.
 
-**Security:** File operations and `run_script` paths are restricted to allowed directories. Recursive filesystem tools resolve every visited entry through a shared secure walker and skip symlinks, Windows junctions, and other reparse points that resolve outside those directories. Mutation handlers revalidate paths before commit and use optimistic snapshots plus atomic or no-replace platform operations. Before `run_script` starts, its script and working directory are revalidated and the script's metadata plus SHA-256 snapshot must still match; this reduces but cannot eliminate the final path-based TOCTOU window without handle-relative execution. The optional `shell` tool revalidates only its working directory; the command itself remains unrestricted and runs with the operating-system permissions of the MCP server process.
+**Security:** File operations and `task_run` script paths are restricted to allowed directories. Recursive filesystem tools resolve every visited entry through a shared secure walker and skip symlinks, Windows junctions, and other reparse points that resolve outside those directories. Mutation handlers revalidate paths before commit and use optimistic snapshots plus atomic or no-replace platform operations. Before a script task starts, its script and working directory are revalidated and SHA-256-matching bytes are copied to an owner-only private snapshot used for execution. A shell task revalidates only its working directory; the command itself remains unrestricted and runs with the operating-system permissions of the executor identity. The private task store is owner-only, non-overlapping, and inaccessible to ordinary file tools.
 
 ## Architecture
 
@@ -114,6 +117,7 @@ The current design is organized around a few stable boundaries:
 - resolved-root filesystem confinement, secure recursive traversal, and durable staged mutations;
 - deterministic fingerprints, one-shot edit/package approval workflows, and structured verification;
 - an optional non-overlapping persistent backup store with approval-bound capture, original-target restore, explicit GC, and offline diagnosis;
+- an optional owner-only durable task store with idempotent admission, persistent queueing, detached executors, bounded cursor logs, recovery, retention, and a restart supervisor;
 - one process-wide tool/root policy shared by stdio and Streamable HTTP;
 - authenticated Streamable HTTP with stateless MCP `2026-07-28` requests beside retained stateful legacy sessions under one security pipeline;
 - disabled-by-default execution tools with a second HTTP execution gate;
@@ -202,9 +206,10 @@ $AllowedDirectory = "C:\Path\To\AllowedProject"
 $TokenFile = "C:\Path\To\scripthold.token"
 $StdioBackupStore = "C:\Path\To\PrivateState\stdio"
 $HttpBackupStore = "C:\Path\To\PrivateState\http"
+$TaskStore = "C:\Path\To\PrivateState\tasks"
 ```
 
-The tunnel identifier must be `tunnel_` followed by exactly 32 lowercase hexadecimal characters. Never commit the edited script, bearer token, or private state. The default example keeps `run_script` and `shell` disabled and uses different backup stores so the two Scripthold processes cannot contend for one writer lock. When execution is enabled, stdio uses the selected tool gate and HTTP additionally requires its transport gate.
+The tunnel identifier must be `tunnel_` followed by exactly 32 lowercase hexadecimal characters. Never commit the edited script, bearer token, or private state. The default example keeps both `task_run` kinds disabled, uses different backup stores for the two frontend processes, and shares one separate task store plus supervisor. When execution is enabled, stdio uses the selected kind gate and HTTP additionally requires its transport gate.
 
 To enable script execution for supported files located inside an allowed directory, change:
 
@@ -218,7 +223,7 @@ To enable unrestricted shell commands, change:
 $EnableShell = $true
 ```
 
-`run_script` validates the script path and working directory against the allowed roots, but the launched process is not sandboxed. `shell` validates only its working directory; the command itself can access anything permitted to the Windows identity running the tunnel. Enable these capabilities only for a trusted connector and after reviewing [TOOLS.md](TOOLS.md#execution-tools).
+`task_run` with `kind=script` validates and fingerprints the script plus working directory; `kind=shell` validates only its working directory and can access anything permitted to the Windows identity running the executor. Enable these capabilities only for a trusted connector and after reviewing [TOOLS.md](TOOLS.md#durable-task-execution) and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 Run the test from Windows PowerShell with the complete one-line command:
 
@@ -340,7 +345,7 @@ Once the connector is active, ask ChatGPT Web or the connected MCP client:
 - **OpenAI Tunnel quick start:** the directory embedded in the tunnel's `MCP_COMMAND` is authoritative for its stdio child; the separately started HTTP process receives its own startup directory argument;
 - **roots-capable stdio clients:** client-provided roots are accepted only when the process starts without configured directories;
 - **multiple sessions:** every connection to one process shares the same allowed directories; prompt instructions may narrow an agent's intended write scope but are not server-enforced ACLs;
-- **execution tools:** `run_script` validates its script and working-directory paths, while `shell` validates only its working directory and is otherwise unrestricted;
+- **durable execution:** `task_run` script tasks validate and fingerprint their script and working directory, while shell tasks validate only their working directory and are otherwise unrestricted; the owner-only task store is outside public roots;
 - **optional backup store:** `MCP_BACKUP_STORE_DIR` must be a separate canonical non-overlapping path and is denied to ordinary file tools; metadata actions never expose object bytes or internal paths, restore is restricted to a verified manifest's original authorized target, and GC is explicit, generation-bound, pin-aware, manifest-first, reference-counted, and never background-triggered.
 
 ## Configuration
@@ -365,7 +370,7 @@ The server can be configured via environment variables:
 | `MCP_HTTP_MAX_INFLIGHT_BODY_BYTES` | Aggregate reservation budget for concurrent HTTP POST bodies. | `67108864` |
 | `MCP_HTTP_MAX_CONCURRENT_REQUESTS` | Maximum simultaneous non-SSE HTTP handlers. SSE streams remain bounded by `MCP_MAX_SESSIONS`. | `64` |
 | `MCP_HTTP_SESSION_TIMEOUT` | Idle lifetime of a stateful HTTP session. | `15m` |
-| `MCP_HTTP_ENABLE_EXECUTION` | Additional HTTP-only gate required before `run_script` or `shell` can use their existing authorization flags. | disabled |
+| `MCP_HTTP_ENABLE_EXECUTION` | Additional HTTP-only gate required before either `task_run` execution kind can use its existing authorization flag. | disabled |
 | `MCP_DEFAULT_ENCODING` | Default encoding for newly created files when `write_file` is called without `encoding`. Existing files keep a confidently detected encoding. Legacy encodings such as `cp1251` remain available as explicit overrides. | `utf-8` |
 | `MCP_MAX_FILE_BYTES` | Hard source-size limit for full-document operations such as `edit_file`. | `67108864` |
 | `MCP_MAX_DECODED_CHARACTERS` | Maximum decoded characters returned by `read_text_file`. | `16777216` |
@@ -393,9 +398,17 @@ The server can be configured via environment variables:
 | `MCP_BACKUP_RETENTION_DAYS` | Age threshold used only by explicit `gcDryRun`; never an automatic deletion timer. Hard maximum: 3,650 days. | `30` |
 | `MCP_BACKUP_PLAN_TTL_SECONDS` | Restore and GC one-shot capability lifetime. Hard maximum: 86,400 seconds. | `900` |
 | `MCP_MEMORY_THRESHOLD` | Deprecated fallback for `MCP_MAX_FILE_BYTES` and `MCP_MAX_OUTPUT_BYTES`; specific variables take precedence. | unset |
-| `MCP_ENABLE_RUN_SCRIPT` | Enables only the `run_script` tool. Accepted true values: `1`, `true`, `yes`, `on`, `enabled`. | disabled |
-| `MCP_ENABLE_SHELL` | Enables only the unrestricted `shell` tool. Accepted true values: `1`, `true`, `yes`, `on`, `enabled`. | disabled |
-| `MCP_ENABLE_EXECUTION` | Enables both `run_script` and `shell`; use only in a trusted environment. | disabled |
+| `MCP_ENABLE_RUN_SCRIPT` | Enables `task_run` with `kind=script`. Accepted true values: `1`, `true`, `yes`, `on`, `enabled`. | disabled |
+| `MCP_ENABLE_SHELL` | Enables unrestricted `task_run` with `kind=shell`. Accepted true values: `1`, `true`, `yes`, `on`, `enabled`. | disabled |
+| `MCP_ENABLE_EXECUTION` | Enables both `task_run` execution kinds; use only in a trusted environment. | disabled |
+| `MCP_TASK_STORE_DIR` | Enables the owner-only durable task registry; requires fixed startup roots and must be link-free, outside public roots, and separate from `MCP_BACKUP_STORE_DIR`. | unset |
+| `MCP_TASK_MAX_CONCURRENCY` | Maximum simultaneous starting/running tasks. | `2` |
+| `MCP_TASK_MAX_QUEUED` | Maximum queued tasks. | `64` |
+| `MCP_TASK_MAX_LOG_BYTES_PER_STREAM` | Retained fixed head plus rolling tail for each stdout/stderr stream. | `8388608` |
+| `MCP_TASK_MAX_RUNTIME_SECONDS` | Operator runtime ceiling; `0` means unlimited. | `0` |
+| `MCP_TASK_RETENTION_DAYS` | Ordinary retention age for terminal tasks. | `7` |
+| `MCP_TASK_MAX_TERMINAL` | Maximum retained terminal tasks. | `1000` |
+| `MCP_TASK_MAX_TOTAL_BYTES` | Total task-registry retention target. | `536870912` |
 
 To override, set environment variables in the tunnel launcher or another stdio client configuration:
 ```json
