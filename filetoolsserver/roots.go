@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,11 +18,50 @@ import (
 	"github.com/zoster81/scripthold/internal/security"
 )
 
-const methodDiscover = "server/discover"
+const (
+	methodDiscover   = "server/discover"
+	methodInitialize = "initialize"
+)
 
 func createDiscoveryMiddleware(h *handler.Handler, enableClientRoots, disableModernDiscovery bool) mcp.Middleware {
+	type legacyInitialize struct {
+		params *mcp.InitializeParams
+		result *mcp.InitializeResult
+	}
+	var legacyMu sync.Mutex
+	legacyBySession := make(map[*mcp.ServerSession]legacyInitialize)
+
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if disableModernDiscovery && method == methodInitialize {
+				session, sessionOK := req.GetSession().(*mcp.ServerSession)
+				params, paramsOK := req.GetParams().(*mcp.InitializeParams)
+				if sessionOK && paramsOK {
+					legacyMu.Lock()
+					cached, repeated := legacyBySession[session]
+					if repeated && reflect.DeepEqual(cached.params, params) {
+						result := *cached.result
+						legacyMu.Unlock()
+						return &result, nil
+					}
+					legacyMu.Unlock()
+
+					result, err := next(ctx, method, req)
+					if err != nil || repeated {
+						return result, err
+					}
+					initialized, ok := result.(*mcp.InitializeResult)
+					if ok {
+						paramsCopy := *params
+						resultCopy := *initialized
+						legacyMu.Lock()
+						legacyBySession[session] = legacyInitialize{params: &paramsCopy, result: &resultCopy}
+						legacyMu.Unlock()
+					}
+					return result, nil
+				}
+			}
+
 			if method != methodDiscover {
 				return next(ctx, method, req)
 			}

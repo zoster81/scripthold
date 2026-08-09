@@ -46,6 +46,17 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 		}
 		byName[tool.Name] = tool
 	}
+	serializedCatalog, err := json.Marshal(result.Tools)
+	if err != nil {
+		t.Fatalf("marshal connector catalog: %v", err)
+	}
+	// The connector rejects oversized function catalogs. This byte ceiling is
+	// deliberately conservative and covers the exact runtime tools/list payload,
+	// including annotations and compact output schemas.
+	const maxConnectorCatalogBytes = 19_000
+	if got := len(serializedCatalog); got > maxConnectorCatalogBytes {
+		t.Fatalf("connector catalog = %d bytes, exceeds budget %d", got, maxConnectorCatalogBytes)
+	}
 
 	for _, definition := range definitions {
 		tool, ok := byName[definition.Name]
@@ -76,6 +87,13 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 		if _, ok := inputObject["properties"].(map[string]any); !ok {
 			t.Errorf("tool %q input schema must contain an object properties map: %s", definition.Name, inputSchema)
 		}
+		outputSchema, err := json.Marshal(tool.OutputSchema)
+		if err != nil {
+			t.Fatalf("marshal %s output schema: %v", definition.Name, err)
+		}
+		if string(outputSchema) != `{"type":"object"}` {
+			t.Errorf("tool %q output schema must remain connector-compatible: %s", definition.Name, outputSchema)
+		}
 	}
 
 	editTool := byName["edit_file"]
@@ -83,15 +101,8 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal edit_file input schema: %v", err)
 	}
-	outputSchema, err := json.Marshal(editTool.OutputSchema)
-	if err != nil {
-		t.Fatalf("marshal edit_file output schema: %v", err)
-	}
 	if !bytes.Contains(inputSchema, []byte(`"backupPolicy"`)) {
 		t.Fatalf("edit_file input schema does not expose backupPolicy: %s", inputSchema)
-	}
-	if !bytes.Contains(outputSchema, []byte(`"backupPolicy"`)) || !bytes.Contains(outputSchema, []byte(`"backupId"`)) {
-		t.Fatalf("edit_file output schema does not expose backup metadata: %s", outputSchema)
 	}
 
 	packageTool := byName["patch_package"]
@@ -99,17 +110,8 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal patch_package input schema: %v", err)
 	}
-	packageOutputSchema, err := json.Marshal(packageTool.OutputSchema)
-	if err != nil {
-		t.Fatalf("marshal patch_package output schema: %v", err)
-	}
 	if !bytes.Contains(packageInputSchema, []byte(`"backupPolicy"`)) {
 		t.Fatalf("patch_package input schema does not expose backupPolicy: %s", packageInputSchema)
-	}
-	for _, field := range [][]byte{[]byte(`"backupPolicy"`), []byte(`"backupCount"`), []byte(`"backupId"`)} {
-		if !bytes.Contains(packageOutputSchema, field) {
-			t.Fatalf("patch_package output schema does not expose %s: %s", field, packageOutputSchema)
-		}
 	}
 
 	backupTool := byName["backup_store"]
@@ -117,21 +119,9 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal backup_store input schema: %v", err)
 	}
-	backupOutputSchema, err := json.Marshal(backupTool.OutputSchema)
-	if err != nil {
-		t.Fatalf("marshal backup_store output schema: %v", err)
-	}
 	for _, field := range [][]byte{[]byte(`"backupId"`), []byte(`"previewId"`)} {
 		if !bytes.Contains(backupInputSchema, field) {
 			t.Fatalf("backup_store input schema does not expose %s: %s", field, backupInputSchema)
-		}
-	}
-	for _, field := range [][]byte{
-		[]byte(`"restore"`), []byte(`"safetyBackupId"`), []byte(`"actualFingerprint"`),
-		[]byte(`"gc"`), []byte(`"reclaimableBytes"`), []byte(`"trashEntriesRemaining"`),
-	} {
-		if !bytes.Contains(backupOutputSchema, field) {
-			t.Fatalf("backup_store output schema does not expose %s: %s", field, backupOutputSchema)
 		}
 	}
 	if backupTool.Annotations == nil || backupTool.Annotations.ReadOnlyHint ||

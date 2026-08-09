@@ -65,7 +65,7 @@ A private combined launcher must normalize process identity across the object sh
 - never contain a real Runtime API key, Tunnel ID, or bearer token;
 - require the exact `tunnel_` plus 32 lowercase hexadecimal identifier format;
 - configure `MCP_COMMAND` for one tunnel-owned stdio child and clear tunnel-side URL/header bindings;
-- enable the stdio legacy-handshake compatibility flag without accepting duplicate initialization;
+- enable the stdio legacy-handshake compatibility flag so an equivalent repeated initialize is idempotent while a different repeat remains rejected;
 - start a second, independent Scripthold process on authenticated loopback HTTP;
 - use distinct backup stores for the stdio and HTTP processes;
 - share one separate owner-only task store and keep its supervisor independent from both frontends;

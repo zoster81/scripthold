@@ -2,15 +2,87 @@ package filetoolsserver
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/config"
 )
+
+func TestLegacyHandshakeMakesEquivalentRepeatedInitializeIdempotent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	server := BuildServer(ServerOptions{
+		Version:                "legacy-repeated-initialize-test",
+		AllowedDirectories:     []string{t.TempDir()},
+		Config:                 config.Load(),
+		EnableClientRoots:      true,
+		DisableModernDiscovery: true,
+		LifecycleContext:       ctx,
+	})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = serverSession.Close() })
+	connection, err := clientTransport.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+
+	params := json.RawMessage(`{
+		"protocolVersion":"2025-11-25",
+		"capabilities":{},
+		"clientInfo":{"name":"openai-tunnel","version":"test"}
+	}`)
+	initialize := func(id int64, raw json.RawMessage) *jsonrpc.Response {
+		t.Helper()
+		request, err := jsonrpc.DecodeMessage([]byte(fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":%d,"method":"initialize","params":%s}`,
+			id, raw,
+		)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := connection.Write(ctx, request); err != nil {
+			t.Fatal(err)
+		}
+		message, err := connection.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, ok := message.(*jsonrpc.Response)
+		if !ok {
+			t.Fatalf("initialize response type = %T", message)
+		}
+		return response
+	}
+
+	if response := initialize(1, params); response.Error != nil {
+		t.Fatalf("first initialize failed: %v", response.Error)
+	}
+	if response := initialize(2, params); response.Error != nil {
+		t.Fatalf("equivalent repeated initialize failed: %v", response.Error)
+	}
+
+	different := json.RawMessage(`{
+		"protocolVersion":"2024-11-05",
+		"capabilities":{},
+		"clientInfo":{"name":"different-client","version":"test"}
+	}`)
+	if response := initialize(3, different); response.Error == nil {
+		t.Fatal("different repeated initialize unexpectedly succeeded")
+	}
+}
 
 const (
 	modernProtocolVersion = "2026-07-28"

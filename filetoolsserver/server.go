@@ -14,40 +14,13 @@ import (
 var Version = "dev"
 
 // Server instructions for AI assistants
-const serverInstructions = `MCP filesystem server with non-UTF-8 encoding support (24 encodings, including CP1251, KOI8-R/U, ISO-8859-x, UTF-16 LE/BE, GBK, and GB18030).
+const serverInstructions = `Scripthold provides secure, encoding-aware filesystem tools and durable asynchronous shell/script tasks.
 
-Encoding detection is content-based and never uses filenames or extensions. Unicode BOMs and valid UTF-8 are authoritative. Empty files are assumed UTF-8. Ambiguous non-empty input requires an explicit encoding; UTF-32 remains BOM-management only.
+Use these tools when encoding, BOM, line endings, bounded traversal, atomic mutation, backups, or persistent task execution matter. Filesystem access is limited to startup roots. Encoding detection uses BOM/content evidence, never filenames; ambiguous input requires an explicit encoding. Mutations revalidate paths and preserve encoding/BOM/line endings where documented.
 
-PREFER THESE TOOLS over built-in Read/Write/Grep for file operations when encoding matters:
-- read_text_file: incremental decoding to UTF-8 under MCP_MAX_LINE_BYTES, MCP_MAX_DECODED_CHARACTERS, and MCP_MAX_OUTPUT_BYTES; optional lineNumbers adds absolute 1-based prefixes; ambiguous non-empty input requires explicit encoding
-- write_file: encodes UTF-8 content through the shared document encoder; supports bom=auto|always|never|preserve (default: auto)
-- edit_file: backward-compatible direct editing plus bounded one-shot preview/apply; preview may bind backupPolicy=required so apply durably captures the exact pre-state before mutation; accepts exact/flexible edits, opt-in bounded unique fuzzy matching, or one strict single-file unified patch; preserves encoding, BOM, and consistent CRLF/LF style
-- patch_package: strict versioned multi-file inspect/dryRun/apply/verify with one-shot package capabilities; manifest backupPolicy=required preflights one conservative package reservation and durably captures every changed pre-state before the first deterministic commit; exact pre/post fingerprints and explicit partial/unknown classification remain without automatic rollback
-- grep_text_files: deterministic incremental regex search with bounded paging, pattern/filter arrays, content/files/count modes, and optional matches-only text; recursive inputs respect nested .gitignore files by default
-- tree/search_files: deterministic secure traversal that skips entries resolving outside allowed directories and respects nested .gitignore files by default; search sorting remains bounded by maxResults
-- fingerprint_paths: two-pass deterministic SHA-256 state fingerprints for explicit files and directory roots, with canonical relative paths, .git and in-root link exclusion, no link traversal, optional bounded entry details, and concurrent-change detection
-- verify_state: ordered read-only JSON, text-format, git diff --check, and fingerprint checks with typed inputs, bounded diagnostics, fixed direct Git invocation, no shell, and no execution feature flag
-- backup_store: optional persistent-store status/list/inspect/audit, original-target restorePreview/restoreApply, and explicit generation-bound gcDryRun/gcApply; GC preserves immutable pins and one version per target, removes manifests before fully verified unreferenced objects, and never runs in the background; no object bytes, target paths in GC plans, internal paths, or automatic rollback are exposed
-- task_run/task_list/task_get/task_logs/task_cancel: durable asynchronous shell/script execution through an independent worker; use idempotency keys, optional logical locks, cursor-based bounded logs, and explicit cancellation instead of holding an MCP request open
-- list_directory/search_files: optional deterministic name/mtime/size sorting with reverse order; metadata sorting never follows an entry outside allowed roots
-- convert_encoding: one path or a bounded paths batch; dryRun reports unsupported runes with positions before writes, and each changed item retains durable no-op, backup, and conflict guarantees
-- prompts: audit_encodings, fix_mojibake, and migrate_to_utf8 are transport-independent guided workflows
-- mutating file tools: synced same-directory staging, atomic/no-replace commits, path revalidation, practical conflict detection, and transactional conversion backups
-- ordered batch work: MCP_MAX_BATCH_FILES, MCP_MAX_MATCHES, and MCP_MAX_OUTPUT_BYTES bound aggregate work while preserving deterministic commits
-- operation errors: failed calls expose stable _meta.errorCode values; read_multiple_files uses the same vocabulary per item
-- detect_encoding: empty files return assumed UTF-8; ambiguous non-empty input is reported explicitly; UTF-32 remains BOM-management only
-- detect_line_endings: incremental one-pass detection for uniform files and digest-verified two-pass minority-line collection for mixed files
-- change_line_endings: stream LF/CRLF transformation to disk staging while preserving encoding, BOM, standalone CR, and unrelated bytes
+For long work use task_run, then task_get/task_logs/task_list; tasks survive MCP reconnects and support cancellation. Use preview/apply workflows for sensitive edits, patch packages, restores, and GC. Tool errors expose stable error codes.
 
-Workflow for non-UTF-8 files:
-1. detect_encoding - identify file encoding
-2. detect_line_endings - inspect line endings using the detected or explicit encoding
-3. read_text_file or edit_file - read/modify with correct encoding
-4. change_line_endings when needed, or write_file/convert_encoding with an explicit encoding and BOM policy
-
-If "no allowed directories configured" error: add directory paths as args in .mcp.json.
-
-IMPORTANT: Call check_for_updates once at the start of each session. If an update is available, inform the user before proceeding.`
+Call check_for_updates once at session start and report available updates.`
 
 func catalogTool(name string) *mcp.Tool {
 	definition := toolcatalog.Must(name)
@@ -75,6 +48,14 @@ func emptyInputCatalogTool(name string) *mcp.Tool {
 		"additionalProperties": false,
 	}
 	return tool
+}
+
+// addTool keeps typed validation and structured results while replacing large
+// inferred output schemas with a compact object schema. Detailed output
+// schemas are optional in MCP and can exceed connector definition budgets.
+func addTool[In, Out any](server *mcp.Server, tool *mcp.Tool, typedHandler mcp.ToolHandlerFor[In, Out]) {
+	tool.OutputSchema = map[string]any{"type": "object"}
+	mcp.AddTool(server, tool, typedHandler)
 }
 
 // ServerOptions contains process-wide MCP server policy. Every connection to
@@ -142,64 +123,64 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	// All handlers are wrapped with recovery middleware (and logging if logger is provided)
 
 	// Read-only tools
-	mcp.AddTool(server, catalogTool("read_text_file"), handler.Wrap(logger, "read_text_file", h.HandleReadTextFile))
+	addTool(server, catalogTool("read_text_file"), handler.Wrap(logger, "read_text_file", h.HandleReadTextFile))
 
-	mcp.AddTool(server, catalogTool("read_multiple_files"), handler.Wrap(logger, "read_multiple_files", h.HandleReadMultipleFiles))
+	addTool(server, catalogTool("read_multiple_files"), handler.Wrap(logger, "read_multiple_files", h.HandleReadMultipleFiles))
 
-	mcp.AddTool(server, catalogTool("list_directory"), handler.Wrap(logger, "list_directory", h.HandleListDirectory))
+	addTool(server, catalogTool("list_directory"), handler.Wrap(logger, "list_directory", h.HandleListDirectory))
 
-	mcp.AddTool(server, emptyInputCatalogTool("list_encodings"), handler.Wrap(logger, "list_encodings", h.HandleListEncodings))
+	addTool(server, emptyInputCatalogTool("list_encodings"), handler.Wrap(logger, "list_encodings", h.HandleListEncodings))
 
-	mcp.AddTool(server, catalogTool("detect_encoding"), handler.Wrap(logger, "detect_encoding", h.HandleDetectEncoding))
+	addTool(server, catalogTool("detect_encoding"), handler.Wrap(logger, "detect_encoding", h.HandleDetectEncoding))
 
-	mcp.AddTool(server, catalogTool("grep_text_files"), handler.Wrap(logger, "grep_text_files", h.HandleGrep))
+	addTool(server, catalogTool("grep_text_files"), handler.Wrap(logger, "grep_text_files", h.HandleGrep))
 
-	mcp.AddTool(server, emptyInputCatalogTool("list_allowed_directories"), handler.Wrap(logger, "list_allowed_directories", h.HandleListAllowedDirectories))
+	addTool(server, emptyInputCatalogTool("list_allowed_directories"), handler.Wrap(logger, "list_allowed_directories", h.HandleListAllowedDirectories))
 
-	mcp.AddTool(server, catalogTool("get_file_info"), handler.Wrap(logger, "get_file_info", h.HandleGetFileInfo))
+	addTool(server, catalogTool("get_file_info"), handler.Wrap(logger, "get_file_info", h.HandleGetFileInfo))
 
-	mcp.AddTool(server, catalogTool("tree"), handler.Wrap(logger, "tree", h.HandleTree))
+	addTool(server, catalogTool("tree"), handler.Wrap(logger, "tree", h.HandleTree))
 
-	mcp.AddTool(server, catalogTool("search_files"), handler.Wrap(logger, "search_files", h.HandleSearchFiles))
+	addTool(server, catalogTool("search_files"), handler.Wrap(logger, "search_files", h.HandleSearchFiles))
 
-	mcp.AddTool(server, catalogTool("fingerprint_paths"), handler.Wrap(logger, "fingerprint_paths", h.HandleFingerprintPaths))
+	addTool(server, catalogTool("fingerprint_paths"), handler.Wrap(logger, "fingerprint_paths", h.HandleFingerprintPaths))
 
-	mcp.AddTool(server, catalogTool("verify_state"), handler.Wrap(logger, "verify_state", h.HandleVerifyState))
+	addTool(server, catalogTool("verify_state"), handler.Wrap(logger, "verify_state", h.HandleVerifyState))
 
-	mcp.AddTool(server, catalogTool("backup_store"), handler.Wrap(logger, "backup_store", h.HandleBackupStore))
+	addTool(server, catalogTool("backup_store"), handler.Wrap(logger, "backup_store", h.HandleBackupStore))
 
-	mcp.AddTool(server, catalogTool("detect_line_endings"), handler.Wrap(logger, "detect_line_endings", h.HandleDetectLineEndings))
+	addTool(server, catalogTool("detect_line_endings"), handler.Wrap(logger, "detect_line_endings", h.HandleDetectLineEndings))
 
 	// Write tools
-	mcp.AddTool(server, catalogTool("manage_bom"), handler.Wrap(logger, "manage_bom", h.HandleManageBom))
+	addTool(server, catalogTool("manage_bom"), handler.Wrap(logger, "manage_bom", h.HandleManageBom))
 
-	mcp.AddTool(server, catalogTool("change_line_endings"), handler.Wrap(logger, "change_line_endings", h.HandleChangeLineEndings))
+	addTool(server, catalogTool("change_line_endings"), handler.Wrap(logger, "change_line_endings", h.HandleChangeLineEndings))
 
-	mcp.AddTool(server, catalogTool("create_directory"), handler.Wrap(logger, "create_directory", h.HandleCreateDirectory))
+	addTool(server, catalogTool("create_directory"), handler.Wrap(logger, "create_directory", h.HandleCreateDirectory))
 
-	mcp.AddTool(server, catalogTool("write_file"), handler.Wrap(logger, "write_file", h.HandleWriteFile))
+	addTool(server, catalogTool("write_file"), handler.Wrap(logger, "write_file", h.HandleWriteFile))
 
-	mcp.AddTool(server, catalogTool("move_file"), handler.Wrap(logger, "move_file", h.HandleMoveFile))
+	addTool(server, catalogTool("move_file"), handler.Wrap(logger, "move_file", h.HandleMoveFile))
 
-	mcp.AddTool(server, catalogTool("copy_file"), handler.Wrap(logger, "copy_file", h.HandleCopyFile))
+	addTool(server, catalogTool("copy_file"), handler.Wrap(logger, "copy_file", h.HandleCopyFile))
 
-	mcp.AddTool(server, catalogTool("delete_file"), handler.Wrap(logger, "delete_file", h.HandleDeleteFile))
+	addTool(server, catalogTool("delete_file"), handler.Wrap(logger, "delete_file", h.HandleDeleteFile))
 
 	// edit_file returns readable text plus structured preview/apply metadata.
-	mcp.AddTool(server, catalogTool("edit_file"), handler.Wrap(logger, "edit_file", h.HandleEditFile))
+	addTool(server, catalogTool("edit_file"), handler.Wrap(logger, "edit_file", h.HandleEditFile))
 
-	mcp.AddTool(server, catalogTool("patch_package"), handler.Wrap(logger, "patch_package", h.HandlePatchPackage))
+	addTool(server, catalogTool("patch_package"), handler.Wrap(logger, "patch_package", h.HandlePatchPackage))
 
-	mcp.AddTool(server, catalogTool("convert_encoding"), handler.Wrap(logger, "convert_encoding", h.HandleConvertEncoding))
+	addTool(server, catalogTool("convert_encoding"), handler.Wrap(logger, "convert_encoding", h.HandleConvertEncoding))
 
 	// Durable asynchronous execution. The MCP call only admits, observes, or
 	// cancels work; a separate worker/helper topology owns process lifetime.
-	mcp.AddTool(server, catalogTool("task_run"), handler.Wrap(logger, "task_run", h.HandleTaskRun))
-	mcp.AddTool(server, catalogTool("task_list"), handler.Wrap(logger, "task_list", h.HandleTaskList))
-	mcp.AddTool(server, catalogTool("task_get"), handler.Wrap(logger, "task_get", h.HandleTaskGet))
-	mcp.AddTool(server, catalogTool("task_logs"), handler.Wrap(logger, "task_logs", h.HandleTaskLogs))
-	mcp.AddTool(server, catalogTool("task_cancel"), handler.Wrap(logger, "task_cancel", h.HandleTaskCancel))
-	mcp.AddTool(server, catalogTool("check_for_updates"), handler.Wrap(logger, "check_for_updates", handler.NewCheckUpdateHandler(version)))
+	addTool(server, catalogTool("task_run"), handler.Wrap(logger, "task_run", h.HandleTaskRun))
+	addTool(server, catalogTool("task_list"), handler.Wrap(logger, "task_list", h.HandleTaskList))
+	addTool(server, catalogTool("task_get"), handler.Wrap(logger, "task_get", h.HandleTaskGet))
+	addTool(server, catalogTool("task_logs"), handler.Wrap(logger, "task_logs", h.HandleTaskLogs))
+	addTool(server, catalogTool("task_cancel"), handler.Wrap(logger, "task_cancel", h.HandleTaskCancel))
+	addTool(server, catalogTool("check_for_updates"), handler.Wrap(logger, "check_for_updates", handler.NewCheckUpdateHandler(version)))
 
 	return server
 }

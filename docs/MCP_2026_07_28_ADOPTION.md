@@ -114,7 +114,7 @@ Public API and protocol findings:
 Stdio design correction:
 
 - `ProtocolVersionSupporter` correctly removes `2026-07-28` from `server/discover`, but using that filter alone on one persistent stdio-like connection causes the client to attempt legacy `initialize` after discovery has already initialized SDK session state; the SDK then rejects the request as duplicate initialization.
-- A receiving middleware gate that rejects `server/discover` before the SDK discovery handler runs produces a clean fallback to legacy `initialize` and preserves the 27-tool, three-prompt catalog.
+- A receiving middleware gate rejects `server/discover` before SDK state changes. In the explicit tunnel compatibility mode, an equivalent repeated legacy `initialize` on the persistent child is idempotent; a repeat with different parameters remains rejected.
 - Phase 3 therefore must not rely on transport filtering alone when startup roots are absent. It must reject discovery before SDK state mutation and retain the existing legacy roots initialization path. When startup roots are present, normal stdio discovery may negotiate `2026-07-28`.
 
 Verification evidence:
@@ -237,7 +237,7 @@ When no startup allowed directories are configured:
 - legacy initialization and roots notifications continue to populate the process-wide root set according to the existing rules;
 - startup does not silently broaden access and does not substitute the current working directory.
 
-Phase 3 implements the reviewed receiving middleware gate. By default it rejects `server/discover` before SDK dispatch only when client roots are enabled and startup directories are absent; configured-root and roots-disabled sessions use normal modern discovery. R21 adds the stdio-only `MCP_STDIO_LEGACY_HANDSHAKE=1` compatibility override for intermediaries that probe discovery but then send legacy `initialize` on the same persistent connection. The override rejects discovery before the SDK can populate initialization state, allowing deterministic legacy fallback without making duplicate initialization valid. The OpenAI tunnel example opts into this compatibility mode for its dedicated `MCP_COMMAND` child. Streamable HTTP ignores the setting. The implementation does not fork the SDK, duplicate the server, or broaden filesystem authority.
+Phase 3 implements the reviewed receiving middleware gate. By default it rejects `server/discover` before SDK dispatch only when client roots are enabled and startup directories are absent; configured-root and roots-disabled sessions use normal modern discovery. R21 adds the stdio-only `MCP_STDIO_LEGACY_HANDSHAKE=1` compatibility override for intermediaries that probe discovery and may initialize the same persistent child twice. The override rejects discovery before SDK state changes, caches the first successful legacy initialization result, and reuses it only for an equivalent repeat on that session. Different parameters remain an error. The OpenAI tunnel example enables this mode only for its `MCP_COMMAND` child; Streamable HTTP is unchanged.
 
 ### Streamable HTTP
 
@@ -357,7 +357,7 @@ Roots remain a legacy stdio compatibility feature only.
 
 ## Configuration impact
 
-R20 did not require a protocol-mode setting for normal SDK clients or HTTP dual routing. R21 stdio compatibility testing exposed a distinct intermediary case: an intermediary may probe `server/discover` and then still send legacy `initialize` on the same connection, which SDK `v1.7.0` correctly rejects after discovery has populated initialization state. `MCP_STDIO_LEGACY_HANDSHAKE=1` is therefore a narrow stdio-only compatibility override; it defaults off, does not change HTTP routing, and rejects discovery before SDK state mutation rather than accepting duplicate initialization. The default OpenAI tunnel example enables it only for the tunnel-owned stdio process; the independent local HTTP process has separate transport state and ignores it.
+R20 did not require a protocol-mode setting for normal SDK clients or HTTP dual routing. R21 testing confirmed that the OpenAI tunnel probes `server/discover`, performs its own legacy initialization, and then forwards an equivalent initialization to the same persistent stdio child. `MCP_STDIO_LEGACY_HANDSHAKE=1` is therefore a narrow stdio-only compatibility override: it defaults off, rejects discovery before SDK state changes, makes only that equivalent repeated initialization idempotent, and rejects different parameters. The default OpenAI tunnel example enables it only for the tunnel-owned stdio process; the independent local HTTP process has separate transport state and ignores it.
 
 The preferred outcome remains automatic backward-compatible routing:
 
@@ -382,7 +382,7 @@ Any required new setting must have a secure default, hard bounds where applicabl
 ### Stdio compatibility
 
 - startup roots with a new client negotiate `2026-07-28` by default;
-- `MCP_STDIO_LEGACY_HANDSHAKE=1` forces a clean legacy fallback for stdio intermediaries that probe discovery but still issue legacy initialization;
+- `MCP_STDIO_LEGACY_HANDSHAKE=1` provides legacy fallback and idempotent equivalent repeated initialization for persistent stdio intermediaries;
 - startup roots with legacy clients negotiate supported legacy versions;
 - no startup roots cap negotiation to the legacy roots-compatible protocol;
 - roots notifications remain stdio-only and legacy-only;

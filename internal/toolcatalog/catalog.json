@@ -3,7 +3,7 @@
     {
       "name": "read_text_file",
       "title": "Read Text File",
-      "description": "Stream file content through the shared incremental decoder, convert it to UTF-8, strip a transport BOM, and report hasBOM/bomType metadata. Empty files are assumed UTF-8; ambiguous non-empty input requires an explicit encoding. Optional lineNumbers prefixes returned lines with absolute 1-based numbers. MCP_MAX_LINE_BYTES, MCP_MAX_DECODED_CHARACTERS, and MCP_MAX_OUTPUT_BYTES bound the result. Parameters: path, encoding, offset, limit, maxCharacters, lineNumbers.",
+      "description": "Read bounded text as UTF-8 with encoding/BOM detection and optional line numbers.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -12,7 +12,7 @@
     {
       "name": "read_multiple_files",
       "title": "Read Multiple Files",
-      "description": "Read multiple files through the same incremental encoding/BOM-aware pipeline as read_text_file. MCP_MAX_BATCH_FILES limits input count and MCP_MAX_OUTPUT_BYTES bounds aggregate decoded output. Input order and stable per-file errorCode values are preserved; individual failures do not stop the batch. Parameters: paths, encoding.",
+      "description": "Read a bounded file batch with encoding/BOM detection and per-file errors.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -21,7 +21,7 @@
     {
       "name": "list_directory",
       "title": "List Directory",
-      "description": "List files and directories with optional glob filtering and deterministic sorting by name, modification time, or size. Metadata sorting skips entries that resolve outside allowed directories. Parameters: path, pattern (default: *), sortBy=name|mtime|size, reverse.",
+      "description": "List filtered directory entries with deterministic sorting.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -30,7 +30,7 @@
     {
       "name": "list_encodings",
       "title": "List Encodings",
-      "description": "List all 24 supported encodings with name, aliases, and description. Use this to find the correct encoding name for read/write/convert operations.",
+      "description": "List supported encodings and aliases.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -39,7 +39,7 @@
     {
       "name": "detect_encoding",
       "title": "Detect Encoding",
-      "description": "Detect encoding from BOMs and content with confidence 0-100; filenames and extensions are never hints. Unicode BOMs and valid UTF-8 are authoritative. Empty files return assumed UTF-8 with confidence 0; non-empty input without sufficient text evidence returns ambiguous=true. UTF-32 signatures are detectable but remain BOM-management only. Parameters: path, mode=sample|chunked|full.",
+      "description": "Detect encoding from BOM/content evidence and report confidence or ambiguity.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -48,7 +48,7 @@
     {
       "name": "grep_text_files",
       "title": "Grep Text Files",
-      "description": "Incremental regex search through the shared decoder and deterministic secure walker. Accepts one pattern or a patterns array, plural include/exclude filters, result paging, matches-only text, and content/files_with_matches/count output modes. Recursive traversal respects nested .gitignore files by default and can opt out explicitly. MCP_MAX_LINE_BYTES, MCP_MAX_MATCHES, and MCP_MAX_OUTPUT_BYTES bound work and retained output. Parameters: pattern, patterns, paths, caseSensitive, contextBefore/After, maxMatches, include/exclude, includes/excludes, encoding, outputMode, matchesOnly, offset, respectGitignore.",
+      "description": "Search decoded text by regex with bounded paging, filters, and context.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -57,7 +57,7 @@
     {
       "name": "list_allowed_directories",
       "title": "List Allowed Directories",
-      "description": "Returns the list of directories this server is allowed to access. Subdirectories are also accessible. If empty, user needs to add directory paths as args in .mcp.json.",
+      "description": "List accessible filesystem roots.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -66,7 +66,7 @@
     {
       "name": "get_file_info",
       "title": "Get File Info",
-      "description": "Get file/directory metadata: size, timestamps, permissions, type. Use this to check file size before reading large files with read_text_file. Parameter: path (required).",
+      "description": "Get file or directory metadata.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -75,7 +75,7 @@
     {
       "name": "tree",
       "title": "Tree (Compact)",
-      "description": "Compact deterministic tree view through the shared secure walker. Skips symlinks, Windows junctions, and other reparse points resolving outside allowed directories, and respects nested .gitignore files by default. Set showEncoding=true to detect and display file encodings after immediate path revalidation. Parameters: path, maxDepth, maxFiles, dirsOnly, exclude, showEncoding, respectGitignore.",
+      "description": "Return a bounded secure tree with filters and optional encoding labels.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -84,7 +84,7 @@
     {
       "name": "search_files",
       "title": "Search Files",
-      "description": "Recursively search through the shared secure walker. Omitted sortBy preserves historical deterministic traversal order; explicit name, modification-time, or size sorting uses bounded globally correct top-K retention. Skips entries resolving outside allowed directories and respects nested .gitignore files by default, with explicit opt-out. Returns full paths matching a glob pattern. Parameters: path, pattern, excludePatterns, respectGitignore, maxResults, sortBy=name|mtime|size, reverse.",
+      "description": "Find paths recursively by glob with secure traversal, limits, and sorting.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -93,7 +93,7 @@
     {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
-      "description": "Stream deterministic SHA-256 content fingerprints for explicit regular files and directory roots through the secure walker. Canonical records use root indexes, Unicode-NFC slash-separated relative paths, entry type, byte length, and file-content SHA-256 while excluding unstable metadata, .git directories, and in-root link entries. Links are never followed and escaping links fail closed. Nested .gitignore files are respected by default with explicit opt-out. MCP_MAX_BATCH_FILES, MCP_MAX_FINGERPRINT_ENTRIES, MCP_MAX_FINGERPRINT_ENTRY_DETAILS, and MCP_MAX_OUTPUT_BYTES bound inputs and optional entry details. Parameters: paths, respectGitignore, includeEntries, maxEntryDetails.",
+      "description": "Compute deterministic SHA-256 fingerprints for files or directory trees.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -102,7 +102,7 @@
     {
       "name": "verify_state",
       "title": "Verify State",
-      "description": "Run one bounded ordered batch of read-only typed checks. Supported checks are JSON syntax for one explicit file, text-format expectations for encoding/BOM/line endings/trailing whitespace, fixed direct git diff --check for one validated repository root plus optional literal relative paths, and content-v1 fingerprint comparison through the shared secure fingerprint primitive. Check failures are returned as passed=false; operational failures use stable per-result errorCode values. Git is invoked without a shell, with fixed arguments, literal pathspecs, disabled external diff/textconv, filtered environment, bounded output, cancellation, and timeout. MCP_MAX_BATCH_FILES, MCP_MAX_FILE_BYTES, MCP_MAX_LINE_BYTES, MCP_MAX_FINGERPRINT_ENTRIES, and MCP_MAX_OUTPUT_BYTES bound work and results. Parameters: checks.",
+      "description": "Run bounded JSON, text-format, git-diff, and fingerprint checks.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -112,7 +112,7 @@
     {
       "name": "backup_store",
       "title": "Backup Store",
-      "description": "Manage the optional persistent backup store without returning object bytes or internal store paths. status, list, inspect, and audit remain bounded read-only metadata/integrity actions. restorePreview/restoreApply provide one-shot original-target restore with exact source revalidation and a mandatory durable safety backup for an existing target. gcDryRun computes one bounded deterministic generation-bound plan using immutable pins, the configured retention age, the per-target version limit, and a one-version floor without mutation or target-path disclosure. gcApply accepts only that one-shot previewId, reconstructs and compares the complete plan, rejects active capture reservations or restore references, moves selected manifests to typed trash before fully verified unreferenced objects, refreshes the derived index, and reports best-effort trash cleanup or partial progress without automatic rollback. Startup removes only recognized verified GC trash and preserves uncertain entries. The tool is always registered, but only status succeeds when MCP_BACKUP_STORE_DIR is unset. Parameters: action=status|list|inspect|audit|restorePreview|restoreApply|gcDryRun|gcApply, cursor, limit, targetPath, pinned, backupId, previewId, auditMode=quick|full, maxObjects, maxBytes.",
+      "description": "Inspect/audit backups or preview/apply safe restore and garbage collection.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -122,7 +122,7 @@
     {
       "name": "detect_line_endings",
       "title": "Detect Line Endings",
-      "description": "Incrementally detect line ending style (crlf/lf/mixed/none) after decoding any registered encoding. MCP_MAX_LINE_BYTES bounds lines and MCP_MAX_OUTPUT_BYTES bounds minority line numbers. Empty files are UTF-8; ambiguous non-empty input requires an explicit encoding. Parameters: path, encoding.",
+      "description": "Detect LF, CRLF, mixed, or absent line endings.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -131,7 +131,7 @@
     {
       "name": "manage_bom",
       "title": "Manage BOM",
-      "description": "Detect, strip, or add Unicode BOM (Byte Order Mark). Detection reads at most four prefix bytes; strip/add stream the unchanged body into synced same-directory staging, then revalidate the path and source snapshot before atomic replacement. Cancellation or detected concurrent changes leave the original unchanged. Parameters: path (required), action (required: \"detect\"|\"strip\"|\"add\"), encoding (required for \"add\": utf-8, utf-16-le, utf-16-be, utf-32-le, utf-32-be).",
+      "description": "Detect, strip, or atomically add a Unicode BOM.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -142,7 +142,7 @@
     {
       "name": "change_line_endings",
       "title": "Change Line Endings",
-      "description": "Stream line-ending conversion to LF or CRLF into synced same-directory staging while preserving encoding, BOM state, standalone CR, and every non-line-ending byte across chunk boundaries. Handles UTF-16 LE/BE code units separately, revalidates source state before atomic replacement, and skips byte-identical no-ops. Parameters: path (required), style (required: \"lf\" or \"crlf\"), encoding (optional, auto-detected if omitted).",
+      "description": "Atomically convert line endings while preserving encoding, BOM, and other bytes.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -153,7 +153,7 @@
     {
       "name": "create_directory",
       "title": "Create Directory",
-      "description": "Create a directory recursively (mkdir -p). Succeeds silently if already exists. Parameter: path (required).",
+      "description": "Create a directory recursively and idempotently.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -164,7 +164,7 @@
     {
       "name": "write_file",
       "title": "Write File",
-      "description": "Write UTF-8 content through the shared document encoder and durable mutation layer. Output is staged and synced before atomic commit; existing targets are checked for practical concurrent changes, and new targets use no-replace commit. The supplied line endings are written exactly. Parameters: path (required), content (required), encoding (new files default to UTF-8; existing files preserve a confidently detected encoding; legacy encodings remain explicit options), bom (optional: auto|always|never|preserve; default auto).",
+      "description": "Atomically write text with encoding and BOM control.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -175,7 +175,7 @@
     {
       "name": "move_file",
       "title": "Move File",
-      "description": "Move or rename files/directories with a platform-native no-replace operation. A destination created concurrently is not overwritten; namespace changes are synced where supported. Parameters: source (required), destination (required).",
+      "description": "Move or rename without replacing the destination.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -185,7 +185,7 @@
     {
       "name": "copy_file",
       "title": "Copy File",
-      "description": "Copy a regular file through synced same-directory staging, preserving source permissions and modification time where supported. Installs atomically without replacing an existing or concurrently created destination. Parameters: source (required), destination (required).",
+      "description": "Atomically copy a file without replacing the destination.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -196,7 +196,7 @@
     {
       "name": "delete_file",
       "title": "Delete File",
-      "description": "Delete a file after path revalidation and an optimistic metadata snapshot check, then sync the containing directory where supported. Does not delete directories. Parameter: path (required).",
+      "description": "Delete a revalidated file; directories are rejected.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -206,7 +206,7 @@
     {
       "name": "edit_file",
       "title": "Edit File",
-      "description": "Edit one existing text file through the shared encoding/BOM-aware preparation and durable replacement pipeline. Omitted action performs the backward-compatible direct edit; action=preview stores one exact prepared mutation in a bounded process-local expiring cache and returns an unguessable previewId plus pre/post fingerprints; action=apply accepts only that one-shot previewId. Preview may set backupPolicy=required when the persistent store is configured; the policy is retained in the capability and apply durably captures the exact approved pre-state before any target mutation, returning backupId after manifest commit. Omitted policy and logical no-ops create no persistent backup. Replay, stale content, path replacement, cancellation, and failed apply consume the capability. Accepts edits or one strict single-file unified patch, including opt-in bounded fuzzy matching. MCP_MAX_FILE_BYTES, MCP_MAX_EDIT_PREVIEWS, MCP_MAX_EDIT_PREVIEW_BYTES, MCP_EDIT_PREVIEW_TTL_SECONDS, MCP_MAX_OUTPUT_BYTES, and backup-store quotas bound work and retained state. Parameters: action=direct|preview|apply, previewId, path, edits, patch, dryRun, encoding, forceWritable, backupPolicy=required.",
+      "description": "Edit text directly or via one-shot preview/apply, preserving format with optional backup.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -216,7 +216,7 @@
     {
       "name": "patch_package",
       "title": "Patch Package",
-      "description": "Run a strict patch-package-v1 workflow for a bounded ordered set of existing regular files. inspect validates structure, algorithms, paths, aliases, limits, edit forms, and an optional exact backupPolicy=required without reading contents. dryRun verifies declared content-v1 preconditions, prepares exact encoding/BOM/line-ending-preserving bytes, preflights one conservative package-wide backup reservation when required without creating manifests, returns diffs and aggregate evidence, and stores one bounded expiring 256-bit package preview capability. apply accepts only that one-shot previewId, revalidates every target, stages all changed outputs, durably captures and verifies every changed pre-state before the first commit when required, then commits in manifest order and reports per-target backupId plus committed, unchanged, and unknown final states with PARTIAL_COMMIT when appropriate; no automatic rollback is claimed or attempted. verify compares current files with every expectedResultFingerprint. MCP_MAX_BATCH_FILES, MCP_MAX_FILE_BYTES, MCP_MAX_PATCH_PACKAGE_BYTES, MCP_MAX_PATCH_PACKAGE_PREPARED_BYTES, MCP_MAX_PATCH_PACKAGE_PREVIEWS, MCP_MAX_PATCH_PACKAGE_PREVIEW_BYTES, MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS, MCP_MAX_OUTPUT_BYTES, and backup-store quotas bound work and retained state. Parameters: action=inspect|dryRun|apply|verify, previewId, manifest with optional backupPolicy=required.",
+      "description": "Inspect, preview, apply, or verify a fingerprint-bound multi-file patch package.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -226,7 +226,7 @@
     {
       "name": "convert_encoding",
       "title": "Convert Encoding",
-      "description": "Convert one path or a bounded paths batch through the shared decoder and durable staging while preserving decoded text and line endings. dryRun previews changes and reports unrepresentable runes with line/column locations without writing. Batch results are per-file and may succeed partially; byte-identical outputs skip writes/backups. backup=true remains transactional per changed file. Parameters: path or paths, from, to, backup, bom=auto|always|never|preserve, dryRun.",
+      "description": "Convert one file or bounded batch between encodings with dry-run and backups.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -237,7 +237,7 @@
     {
       "name": "task_run",
       "title": "Run Durable Task",
-      "description": "Durably enqueue one asynchronous shell or script task and return immediately with its taskId. The independent task-worker and per-task executor keep the queue, process, status, and logs alive across MCP request expiry and stdio/HTTP frontend restarts. idempotencyKey is required: retrying the same payload returns the original task, while reuse with a different payload fails. Optional lockKeys serialize conflicting tasks; tasks without conflicts run up to MCP_TASK_MAX_CONCURRENCY. maxRuntimeSeconds=0 or omitted means no task deadline unless the operator configured MCP_TASK_MAX_RUNTIME_SECONDS. kind=script validates and fingerprints path at admission, then revalidates and copies the exact bytes to the private task store before launch; kind=shell validates cwd but the command itself remains unrestricted. Parameters: kind=shell|script, idempotencyKey, name, description, tags, lockKeys, cwd, command, shell, path, args, maxRuntimeSeconds. Requires the existing kind-specific execution gate; Streamable HTTP also requires MCP_HTTP_ENABLE_EXECUTION=1.",
+      "description": "Queue a durable asynchronous shell or script task with idempotency, locks, and optional deadline.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -247,7 +247,7 @@
     {
       "name": "task_list",
       "title": "List Durable Tasks",
-      "description": "List bounded task metadata newest-first with stable cursor paging and optional status, kind, and tag filters. Command text, arguments, private store paths, and environment values are never returned. Parameters: statuses, kinds, tags, cursor, limit.",
+      "description": "List bounded task metadata with paging and filters; commands remain private.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -257,7 +257,7 @@
     {
       "name": "task_get",
       "title": "Get Durable Task",
-      "description": "Get one task's durable lifecycle metadata, bounded immutable state history, and terminal result by taskId. Reports queued, starting, running, succeeded, failed, timed_out, cancelled, or interrupted without exposing the submitted command or arguments. Parameter: taskId.",
+      "description": "Get task lifecycle, bounded history, and terminal result without its command.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -267,7 +267,7 @@
     {
       "name": "task_logs",
       "title": "Read Durable Task Logs",
-      "description": "Read bounded incremental stdout and stderr using independent absolute cursors. The store retains an initial head plus a rolling tail per stream, reports droppedBytes and cursor truncation when intermediate output was evicted, and never grows logs without limit. Parameters: taskId, stdoutCursor, stderrCursor, limitBytes.",
+      "description": "Read bounded incremental task stdout/stderr with eviction-aware cursors.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -277,7 +277,7 @@
     {
       "name": "task_cancel",
       "title": "Cancel Durable Task",
-      "description": "Durably request cancellation of a queued or running task. Queued tasks become cancelled without launch; running executors terminate the complete child process tree and record the terminal result. Repeated cancellation is idempotent and terminal tasks remain unchanged. Parameters: taskId, reason.",
+      "description": "Durably and idempotently cancel a queued or running task tree.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -288,7 +288,7 @@
     {
       "name": "check_for_updates",
       "title": "Check for Updates",
-      "description": "Check if a newer version of scripthold is available. Returns current version, latest version, and update instructions if outdated. Uses cached result (max 1 GitHub API call per 30 minutes). Call once at the start of each session.",
+      "description": "Check for a newer Scripthold release; results are cached.",
       "annotations": {
         "readOnlyHint": true
       }
