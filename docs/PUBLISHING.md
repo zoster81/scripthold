@@ -44,10 +44,10 @@ Use this flow for `2.1.0` and later fork-owned semantic releases. Development co
    - raw binaries for all six supported OS/architecture targets;
    - `checksums.txt`;
    - `README.md`, `TOOLS.md`, `CHANGELOG.md`, `LICENSE`;
-   - `examples/start-openai-tunnel.ps1`;
-   - `examples/start-openai-tunnel-http-with-local-stdio.ps1`;
-   - `examples/start-stdio.ps1`;
-   - `examples/start-streamable-http.ps1`.
+   - `examples/start-openai-tunnel-stdio-plus-local-http.ps1`;
+   - `examples/start-openai-tunnel-http-plus-local-stdio.ps1`;
+   - `examples/start-local-stdio.ps1`;
+   - `examples/start-local-http.ps1`.
 9. Verify the release asset names and SHA-256 values before announcing it.
 10. `.github/workflows/release.yml` invokes the reusable `.github/workflows/publish-registry.yml`, which generates and publishes the fork-owned `server.json` from those verified assets.
 
@@ -57,7 +57,7 @@ The tracked launchers cover standalone stdio, standalone HTTP, tunnel-owned stdi
 
 A private combined launcher must normalize process identity across the object shapes it uses: `Start-Process -PassThru` exposes the process identifier as `Id`, while CIM process discovery exposes `ProcessId`. Persist PID files and compare ownership through one normalization helper rather than assuming either property exists universally. Shutdown cleanup must also be idempotent: a child that exits after its parent is stopped is already in the desired terminal state, not a cleanup failure. Validate the complete owned process topology before destructive actions and never broaden cleanup to unrelated process trees.
 
-`examples/start-openai-tunnel.ps1` is the default OpenAI quick start. It must:
+`examples/start-openai-tunnel-stdio-plus-local-http.ps1` is the default OpenAI quick start. It must:
 
 - remain in English;
 - contain placeholders only;
@@ -74,11 +74,11 @@ A private combined launcher must normalize process identity across the object sh
 - report runtime success only after tunnel `/readyz` succeeds and `/api/status` shows exactly one enabled `main` channel with `probe_status=ok`;
 - stop only processes it started and restore all managed process-level environment variables when it exits.
 
-`examples/start-openai-tunnel-http-with-local-stdio.ps1` is the explicit reverse topology. It must keep HTTP bearer values out of argv, redirect background logs away from local MCP stdout, and run the independent stdio process in the foreground.
+`examples/start-openai-tunnel-http-plus-local-stdio.ps1` is the explicit reverse topology. It must keep HTTP bearer values out of argv, redirect background logs away from local MCP stdout, and run the independent stdio process in the foreground.
 
-`examples/start-stdio.ps1` is the standalone local stdio reference. It must reserve stdout for MCP JSON-RPC, select `--transport=stdio` explicitly, clear unrelated tunnel/HTTP credentials, and keep execution disabled by default.
+`examples/start-local-stdio.ps1` is the standalone local stdio reference. It must reserve stdout for MCP JSON-RPC, select `--transport=stdio` explicitly, clear unrelated tunnel/HTTP credentials, and keep execution disabled by default.
 
-`examples/start-streamable-http.ps1` is the standalone native HTTP reference. It must:
+`examples/start-local-http.ps1` is the standalone native HTTP reference. It must:
 
 - bind to loopback by default and require explicit non-loopback opt-in;
 - require TLS or an explicitly trusted proxy CIDR for non-loopback use;

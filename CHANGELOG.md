@@ -137,7 +137,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Added
 
-- Added `examples/start-openai-tunnel.ps1`, a sanitized English Windows PowerShell 5.1 quick start for ChatGPT Web through the official OpenAI Secure MCP Tunnel.
+- Added the sanitized English Windows PowerShell 5.1 OpenAI Secure MCP Tunnel quick-start example, now named `examples/start-openai-tunnel-stdio-plus-local-http.ps1`.
 - Added real upstream encoding fixtures and byte-identical line-ending round-trip tests for all 24 registered encodings, including UTF-16 LE/BE and GBK/GB18030.
 - Added optional `hasBOM` and `bomType` metadata to single-file and batch read results.
 - Added transport-independent typed operation errors for validation, access control, encoding, decoding, output encoding, conflicts, cancellation, limits, permissions, and filesystem failures.

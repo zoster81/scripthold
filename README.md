@@ -167,10 +167,10 @@ Four fail-closed PowerShell examples cover the supported local and tunnel topolo
 
 | Example | Topology |
 |---|---|
-| [`start-stdio.ps1`](examples/start-stdio.ps1) | One foreground local stdio server. |
-| [`start-streamable-http.ps1`](examples/start-streamable-http.ps1) | One authenticated HTTP server; loopback by default. |
-| [`start-openai-tunnel.ps1`](examples/start-openai-tunnel.ps1) | **Default:** tunnel to a dedicated stdio child, plus an independent local HTTP process. |
-| [`start-openai-tunnel-http-with-local-stdio.ps1`](examples/start-openai-tunnel-http-with-local-stdio.ps1) | Reverse example: tunnel to authenticated HTTP, plus an independent foreground local stdio child. |
+| [`start-local-stdio.ps1`](examples/start-local-stdio.ps1) | One foreground local stdio server. |
+| [`start-local-http.ps1`](examples/start-local-http.ps1) | One authenticated HTTP server; loopback by default. |
+| [`start-openai-tunnel-stdio-plus-local-http.ps1`](examples/start-openai-tunnel-stdio-plus-local-http.ps1) | **Default:** tunnel to a dedicated stdio child, plus an independent local HTTP process. |
+| [`start-openai-tunnel-http-plus-local-stdio.ps1`](examples/start-openai-tunnel-http-plus-local-stdio.ps1) | Reverse example: tunnel to authenticated HTTP, plus an independent foreground local stdio child. |
 
 Use the default example when OpenAI should reach Scripthold through stdio while local clients use HTTP. The reverse example is deliberately separate so choosing it cannot silently change the default topology.
 
@@ -179,7 +179,7 @@ Place these files in the same private working directory:
 ```text
 tunnel-client.exe
 scripthold_windows_amd64.exe
-start-openai-tunnel.ps1
+start-openai-tunnel-stdio-plus-local-http.ps1
 ```
 
 Copy the example outside the Git checkout before entering credentials:
@@ -187,10 +187,10 @@ Copy the example outside the Git checkout before entering credentials:
 ```powershell
 $runDirectory = "$env:LOCALAPPDATA\OpenAI-Mcp-Tunnel"
 New-Item -ItemType Directory -Force $runDirectory | Out-Null
-Copy-Item .\examples\start-openai-tunnel.ps1 $runDirectory
+Copy-Item .\examples\start-openai-tunnel-stdio-plus-local-http.ps1 $runDirectory
 Copy-Item .\scripthold_windows_amd64.exe $runDirectory
 # Copy tunnel-client.exe from your OpenAI tunnel installation into the same directory.
-notepad "$runDirectory\start-openai-tunnel.ps1"
+notepad "$runDirectory\start-openai-tunnel-stdio-plus-local-http.ps1"
 ```
 
 Replace only the placeholders:
@@ -223,13 +223,13 @@ $EnableShell = $true
 Run the test from Windows PowerShell with the complete one-line command:
 
 ```powershell
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\OpenAI-Mcp-Tunnel\start-openai-tunnel.ps1"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\OpenAI-Mcp-Tunnel\start-openai-tunnel-stdio-plus-local-http.ps1"
 ```
 
 From Command Prompt, use:
 
 ```bat
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\OpenAI-Mcp-Tunnel\start-openai-tunnel.ps1"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\OpenAI-Mcp-Tunnel\start-openai-tunnel-stdio-plus-local-http.ps1"
 ```
 
 The default script starts authenticated loopback HTTP as one process, runs `tunnel-client doctor --explain` with `MCP_COMMAND`, then starts the tunnel and verifies both its dedicated stdio child and the enabled `main` channel with `probe_status=ok`. Ambient HTTP URL/header variables are cleared from the tunnel branch; OpenAI control-plane variables are cleared from the HTTP branch. The local operator UI remains at `http://127.0.0.1:8080/ui`.
@@ -274,7 +274,7 @@ $env:MCP_HTTP_ADDR = "127.0.0.1:8765"
 .\scripthold_windows_amd64.exe --transport=streamable-http D:\Projects
 ```
 
-The MCP endpoint is `http://127.0.0.1:8765/mcp`. Clients must send the token as `Authorization: Bearer <token>` on every MCP `POST`, `GET`, and `DELETE` request. `/healthz` and `/readyz` expose only minimal liveness/readiness status. A complete sanitized Windows launcher with loopback defaults, optional TLS/proxy settings, environment restoration, and both execution gates disabled is available at [`examples/start-streamable-http.ps1`](examples/start-streamable-http.ps1).
+The MCP endpoint is `http://127.0.0.1:8765/mcp`. Clients must send the token as `Authorization: Bearer <token>` on every MCP `POST`, `GET`, and `DELETE` request. `/healthz` and `/readyz` expose only minimal liveness/readiness status. A complete sanitized Windows launcher with loopback defaults, optional TLS/proxy settings, environment restoration, and both execution gates disabled is available at [`examples/start-local-http.ps1`](examples/start-local-http.ps1).
 
 `MCP_HTTP_TOKEN` and `MCP_HTTP_TOKEN_FILE` are cleared from the server process environment immediately after startup configuration is validated, preventing optional execution tools from inheriting the credential. The token itself remains fixed for the process lifetime; rotation requires a controlled restart.
 
