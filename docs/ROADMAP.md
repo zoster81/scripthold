@@ -53,12 +53,12 @@ Publish and deploy `2.1.0` with the [durable task subsystem](DURABLE_TASKS.md) r
 - [x] Complete the 30-tool durable-task source, examples, public contract, failure-injection tests, cross-platform build checks, and exact-binary crash/recovery gate.
 - [x] Align current documentation around the 30-tool/3-prompt source, Scripthold asset names, dual-generation HTTP, and the new Registry identity without duplicating historical milestone detail.
 - [x] Consolidate the final R20 and release-preparation work on a clean commit; no internal deployment build is accepted from an uncommitted worktree.
-- [ ] Run the complete release verification checklist from [PUBLISHING.md](PUBLISHING.md) on that exact commit, including full Go/race/static/vulnerability checks, workflow checks, six-target builds, reproducible GoReleaser snapshots, Registry validation, documentation/link checks, and secret scans.
-- [ ] Build a commit-derived Windows amd64 internal binary with an unambiguous version, record its SHA-256, preserve the known-good rollback binary, and verify all documented transport profiles before any public tag.
+- [x] Run the complete release verification checklist from [PUBLISHING.md](PUBLISHING.md) on that exact commit, including full Go/race/static/vulnerability checks, workflow checks, six-target builds, reproducible GoReleaser snapshots, Registry validation, documentation/link checks, and secret scans.
+- [x] Build a commit-derived Windows amd64 internal binary with an unambiguous version, record its SHA-256, preserve the known-good rollback binary, and verify all documented transport profiles before any public tag.
   - The default OpenAI profile is tunnel-owned stdio plus a separate authenticated loopback HTTP process; the reverse profile remains an explicit alternative example.
   - Validation must cover process isolation, distinct backup-store locks, the separate shared task store, supervisor/worker/helper recovery, tunnel `main` probe health, the 30-tool/3-prompt catalog, representative filesystem and task calls, and automatic rollback.
   - After the launcher and documentation correction is committed, rebuild from that exact clean commit and repeat the final native stdio, native HTTP, and tunneled stdio smoke before this gate is complete.
-- [ ] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
+- [x] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
 - [ ] Push `main` and require the applicable GitHub Actions checks to pass.
 - [ ] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, release metadata, and the first published `io.github.zoster81/scripthold` Registry record.
 - [ ] Deploy the published `2.1.0` Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check, then restore and reverify `2.1.0`.
