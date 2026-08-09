@@ -1,0 +1,166 @@
+name: Publish MCPB release assets
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release tag whose native binaries will be packaged as MCPB assets'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing release tag to repair or complete (for example, v2.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'zoster81/scripthold' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERSION_TAG: ${{ inputs.version }}
+      MCPB_VERSION: 2.1.2
+      MCPB_NPM_INTEGRITY: sha512-goRbBC8ySo7SWb7tRzr+tL6FxDc4JPTRCdgfD2omba7freofvjq5rom1lBnYHZHo6Mizs1jAHJeN53aZbDoy8A==
+    steps:
+      - name: Checkout packaging workflow source
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          path: publication-source
+
+      - name: Checkout immutable release tag
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.version }}
+          fetch-depth: 0
+          path: release-source
+
+      - name: Verify checked-out release tag and metadata
+        run: |
+          set -euo pipefail
+          cd release-source
+          node scripts/verify-release-version.js "${VERSION_TAG}"
+          tag_commit="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
+          test "$(git rev-parse HEAD)" = "${tag_commit}"
+
+      - name: Download and verify GoReleaser assets
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          cd release-assets
+          curl -fSL --retry 3 --retry-all-errors \
+            "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/checksums.txt" \
+            -o checksums.txt
+          artifacts=(
+            scripthold_darwin_amd64
+            scripthold_darwin_amd64.tar.gz
+            scripthold_darwin_arm64
+            scripthold_darwin_arm64.tar.gz
+            scripthold_linux_amd64
+            scripthold_linux_amd64.tar.gz
+            scripthold_linux_arm64
+            scripthold_linux_arm64.tar.gz
+            scripthold_windows_amd64.exe
+            scripthold_windows_amd64.zip
+            scripthold_windows_arm64.exe
+            scripthold_windows_arm64.zip
+          )
+          expected_artifacts="$(printf '%s\n' "${artifacts[@]}" | LC_ALL=C sort)"
+          actual_artifacts="$(awk '{ name=$2; sub(/^\*/, "", name); print name }' checksums.txt | LC_ALL=C sort)"
+          if [[ "${actual_artifacts}" != "${expected_artifacts}" ]]; then
+            echo 'release checksum manifest does not contain the exact expected 12 GoReleaser assets' >&2
+            diff -u \
+              <(printf '%s\n' "${expected_artifacts}") \
+              <(printf '%s\n' "${actual_artifacts}") || true
+            exit 1
+          fi
+          for artifact in "${artifacts[@]}"; do
+            curl -fSL --retry 3 --retry-all-errors \
+              "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${artifact}" \
+              -o "${artifact}"
+          done
+          sha256sum --check checksums.txt
+
+      - name: Verify pinned MCPB CLI metadata
+        run: |
+          set -euo pipefail
+          actual_integrity="$(npm view "@anthropic-ai/mcpb@${MCPB_VERSION}" dist.integrity)"
+          test "${actual_integrity}" = "${MCPB_NPM_INTEGRITY}"
+
+      - name: Build deterministic MCPB release assets
+        run: |
+          set -euo pipefail
+          node publication-source/scripts/prepare-mcpb-assets.js \
+            "${VERSION_TAG}" \
+            release-assets/checksums.txt \
+            release-assets \
+            mcpb-stage \
+            release-source
+
+          command -v zip >/dev/null
+          command -v unzip >/dev/null
+          commit_timestamp="$(git -C release-source show -s --format=%ct HEAD)"
+          mkdir mcpb-output mcpb-output-verify
+          bundles=(
+            scripthold_darwin_amd64.mcpb
+            scripthold_darwin_arm64.mcpb
+            scripthold_linux_amd64.mcpb
+            scripthold_linux_arm64.mcpb
+            scripthold_windows_amd64.mcpb
+            scripthold_windows_arm64.mcpb
+          )
+          for bundle in "${bundles[@]}"; do
+            stage="mcpb-stage/${bundle%.mcpb}"
+            binary='scripthold'
+            if [[ "${bundle}" == scripthold_windows_* ]]; then
+              binary='scripthold.exe'
+            fi
+            npx --yes "@anthropic-ai/mcpb@${MCPB_VERSION}" validate "${stage}"
+            find "${stage}" -exec touch -d "@${commit_timestamp}" {} +
+            chmod 0644 "${stage}/manifest.json" "${stage}/LICENSE"
+            chmod 0755 "${stage}/server/${binary}"
+            (
+              cd "${stage}"
+              zip -X -9 -q "../../mcpb-output/${bundle}" manifest.json LICENSE "server/${binary}"
+              zip -X -9 -q "../../mcpb-output-verify/${bundle}" manifest.json LICENSE "server/${binary}"
+            )
+            cmp -s "mcpb-output/${bundle}" "mcpb-output-verify/${bundle}"
+            unzip -t "mcpb-output/${bundle}"
+            npx --yes "@anthropic-ai/mcpb@${MCPB_VERSION}" info "mcpb-output/${bundle}" >/dev/null
+          done
+          (
+            cd mcpb-output
+            sha256sum ./*.mcpb | sed 's#  \./#  #' | LC_ALL=C sort -k2 > mcpb-checksums.txt
+          )
+          test "$(wc -l < mcpb-output/mcpb-checksums.txt)" -eq 6
+          cat mcpb-output/mcpb-checksums.txt
+
+      - name: Upload verified MCPB release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir existing-mcpb
+          assets=(mcpb-output/*.mcpb mcpb-output/mcpb-checksums.txt)
+          existing_names="$(gh release view "${VERSION_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+          for asset in "${assets[@]}"; do
+            name="$(basename "${asset}")"
+            if grep -Fxq "${name}" <<<"${existing_names}"; then
+              gh release download "${VERSION_TAG}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --pattern "${name}" \
+                --dir existing-mcpb
+              if ! cmp -s "${asset}" "existing-mcpb/${name}"; then
+                echo "existing release asset differs: ${name}" >&2
+                exit 1
+              fi
+              echo "verified existing release asset: ${name}"
+            else
+              gh release upload "${VERSION_TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}"
+            fi
+          done

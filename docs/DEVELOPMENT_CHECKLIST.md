@@ -126,7 +126,7 @@ Run checks from focused to broad and record exact outcomes.
 
 - [ ] Gitleaks for tracked content and history when available and relevant;
 - [ ] GoReleaser configuration checks when packaging changes;
-- [ ] non-published MCP Registry manifest validation when catalog or packaging changes;
+- [ ] deterministic MCPB bundle validation and non-published MCP Registry manifest validation when catalog or packaging changes;
 - [ ] no credentials, tokens, private keys, cookies, real tunnel identifiers, or workstation state added.
 
 ## 7. Documentation and metadata

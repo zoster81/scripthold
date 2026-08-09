@@ -98,7 +98,7 @@ archives:
           mtime: '{{ .CommitDate }}'
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
-# Also publish raw binaries for MCP registry (GoReleaser adds .exe automatically for Windows)
+# Also publish raw binaries used by the checksum-verified MCPB packaging step (GoReleaser adds .exe automatically for Windows)
   - id: binaries
     ids:
       - scripthold

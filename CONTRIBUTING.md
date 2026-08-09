@@ -44,7 +44,7 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
 # Integration and release-script tests
 go run test_server.go
-node --test scripts/generate-server-json.test.js scripts/verify-release-version.test.js
+node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/verify-release-version.test.js
 
 # Requires Bash and network access to download pinned tools
 bash scripts/validate-workflows.sh

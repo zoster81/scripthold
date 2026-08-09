@@ -49,7 +49,7 @@ Use this flow for `2.1.0` and later fork-owned semantic releases. Development co
    - `examples/start-openai-tunnel-http-plus-local-stdio.ps1`;
    - `examples/start-local-stdio.ps1`;
    - `examples/start-local-http.ps1`.
-9. `.github/workflows/release.yml` invokes the reusable `.github/workflows/publish-registry.yml`, which checks out the exact fully qualified release tag, verifies its commit and metadata, requires the exact six raw binaries plus six platform archives, downloads all 12 assets, and verifies every SHA-256 value against `checksums.txt` before generating and publishing the fork-owned `server.json`. Manual Registry retries use the same tag-bound path and cannot silently read scripts from the current default branch.
+9. After GoReleaser publishes the normal binaries and platform archives, `.github/workflows/release.yml` invokes `.github/workflows/publish-mcpb-assets.yml`. That workflow verifies the immutable release tag and all 12 GoReleaser checksums, validates and deterministically packages each raw binary as one OS/architecture-specific MCPB bundle, and uploads the six `.mcpb` assets plus `mcpb-checksums.txt` to the same GitHub Release. `.github/workflows/publish-registry.yml` runs only after those release assets exist: it downloads and verifies the six published MCPB bundles, projects their hashes plus the tagged catalog into `server.json`, validates the manifest, and publishes through GitHub OIDC. Manual repair of an existing tag runs the MCPB asset workflow first and the Registry workflow second, without rebuilding or replacing the original GoReleaser assets.
 10. Independently verify the published asset names and SHA-256 values before announcing the release.
 
 ## Public launcher examples
@@ -96,7 +96,7 @@ Real credentials belong in private copies outside the Git checkout.
 
 `server.template.json` is a release-neutral template owned by `zoster81/scripthold`. It contains the fork namespace, repository, homepage, package filenames, zeroed checksum placeholders, and an intentionally empty `tools` array; it is not published directly. The authoritative tool names, descriptions, titles, and annotations live in `internal/toolcatalog/catalog.json`, which is embedded by the Go runtime.
 
-`.github/workflows/publish-registry.yml` runs only in `zoster81/scripthold`. It checks out `refs/tags/<version>` with full history, verifies that checkout against the semantic version and dated changelog, then requires and downloads the exact six raw binaries plus six platform archives and verifies all 12 against that release's `checksums.txt`; `scripts/generate-server-json.js` injects the catalog's Registry-facing name/description projection, exact version, fork download URLs, and SHA-256 values into a temporary `server.json`. The generator rejects a duplicated template catalog, invalid or duplicate catalog tools, and missing or unexpected MCP binaries before GitHub OIDC authentication.
+`.github/workflows/publish-mcpb-assets.yml` owns MCPB release packaging. It verifies an immutable `refs/tags/<version>` source checkout, the exact six raw binaries plus six platform archives, and all 12 GoReleaser SHA-256 values before `scripts/prepare-mcpb-assets.js` stages six binary MCPB packages from the tagged catalog and license. MCPB 2.1.2 validates each staged package; normalized ZIP metadata and a second byte-identical pack check enforce deterministic output before the six bundles and `mcpb-checksums.txt` are uploaded idempotently to GitHub Release. `.github/workflows/publish-registry.yml` has read-only release-content permission: it downloads and verifies those already-published MCPB assets, then `scripts/generate-server-json.js` projects the tagged catalog, exact version, MCPB URLs, OS/architecture selectors, and hashes into temporary `server.json` before GitHub OIDC publication.
 
 The Scripthold Registry identity is `io.github.zoster81/scripthold`, and `2.1.0` is the first release line assigned to it. The already-published `2.0.0` record remains under the historical `io.github.zoster81/mcp-file-tools` identity and is not rewritten by the repository rename. The tag-bound release gate validates the final template and generator with six packages and the authoritative 30-tool projection before Registry publication.
 
@@ -113,7 +113,7 @@ floating `latest` versions during CI:
 - actions/checkout 7.0.1, actions/setup-go 7.0.0, and actions/upload-artifact 7.0.1;
 - Staticcheck v0.7.0 and govulncheck v1.6.0 for Go analysis;
 - GoReleaser action 7.2.3 with GoReleaser v2.17.1 for release generation;
-- MCP Publisher v1.8.1 for registry validation and publication.
+- MCP Publisher v1.8.1 for Registry validation/publication and MCPB 2.1.2 for native-bundle schema/format validation.
 
 The workflow-linter archives and MCP Publisher archive are verified against
 fixed SHA-256 values before extraction. Local release preparation should also
@@ -144,7 +144,7 @@ Run this checklist after the applicable release-scoped milestone and completion 
 - the container image is built from pinned bases, runs as UID/GID 10001, and passes stdio plus direct-TLS HTTP smoke tests with the documented mount, tmpfs, health, and shutdown model;
 - all six Windows/Linux/macOS amd64/arm64 builds are generated, and representative binaries are runtime-executed where infrastructure permits;
 - GoReleaser configuration targets `zoster81/scripthold`, passes `goreleaser check`, and produces identical checksums across two independent snapshots;
-- a generated manifest passes `mcp-publisher validate` without publication;
+- six OS/architecture-specific MCPB bundles validate against the pinned MCPB schema/format, have recorded SHA-256 values, and a generated six-package manifest passes `mcp-publisher validate` without publication;
 - `scripts/verify-release-version.js` confirms the release tag has a matching dated changelog entry before GoReleaser runs;
 - release tag, changelog release, embedded binary version, and generated Registry version match;
 - release assets and checksums are verified after publication;

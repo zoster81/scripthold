@@ -74,7 +74,7 @@ jobs:
         run: bash scripts/validate-workflows.sh
 
       - name: Test release scripts
-        run: node --test scripts/generate-server-json.test.js scripts/verify-release-version.test.js
+        run: node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/verify-release-version.test.js
 
       - name: Build and smoke-test native binary
         shell: bash

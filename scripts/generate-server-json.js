@@ -21,7 +21,8 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
 
 const root = path.resolve(__dirname, '..');
 const templatePath = path.join(root, 'server.template.json');
-const catalogPath = path.join(root, 'internal', 'toolcatalog', 'catalog.json');
+const releaseSourceRoot = path.resolve(process.cwd(), process.argv[5] || root);
+const catalogPath = path.join(releaseSourceRoot, 'internal', 'toolcatalog', 'catalog.json');
 const checksumsPath = path.resolve(process.cwd(), process.argv[3] || 'checksums.txt');
 const outputPath = path.resolve(process.cwd(), process.argv[4] || 'server.json');
 
@@ -95,10 +96,10 @@ for (const pkg of manifest.packages) {
   pkg.fileSha256 = checksum;
 }
 
-const rawBinaryPattern = /^scripthold_(?:windows|linux|darwin)_(?:amd64|arm64)(?:\.exe)?$/;
-const unexpected = [...checksums.keys()].filter((filename) => rawBinaryPattern.test(filename) && !seenPackages.has(filename));
+const mcpbPattern = /^scripthold_(?:windows|linux|darwin)_(?:amd64|arm64)\.mcpb$/;
+const unexpected = [...checksums.keys()].filter((filename) => mcpbPattern.test(filename) && !seenPackages.has(filename));
 if (unexpected.length > 0) {
-  fail(`release contains unrepresented MCP binaries: ${unexpected.join(', ')}`);
+  fail(`release contains unrepresented MCPB packages: ${unexpected.join(', ')}`);
 }
 
 const tempPath = `${outputPath}.${process.pid}.tmp`;

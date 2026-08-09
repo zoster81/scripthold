@@ -11,12 +11,20 @@ const repositoryRoot = path.resolve(__dirname, '..');
 const generator = path.join(repositoryRoot, 'scripts', 'generate-server-json.js');
 const toolCatalog = path.join(repositoryRoot, 'internal', 'toolcatalog', 'catalog.json');
 const expectedFiles = [
-  'scripthold_windows_amd64.exe',
-  'scripthold_windows_arm64.exe',
-  'scripthold_linux_amd64',
-  'scripthold_linux_arm64',
-  'scripthold_darwin_amd64',
-  'scripthold_darwin_arm64',
+  'scripthold_windows_amd64.mcpb',
+  'scripthold_windows_arm64.mcpb',
+  'scripthold_linux_amd64.mcpb',
+  'scripthold_linux_arm64.mcpb',
+  'scripthold_darwin_amd64.mcpb',
+  'scripthold_darwin_arm64.mcpb',
+];
+const expectedRuntimes = [
+  { os: ['windows'], arch: ['amd64'] },
+  { os: ['windows'], arch: ['arm64'] },
+  { os: ['linux'], arch: ['amd64'] },
+  { os: ['linux'], arch: ['arm64'] },
+  { os: ['darwin'], arch: ['amd64'] },
+  { os: ['darwin'], arch: ['arm64'] },
 ];
 
 function createWorkspace(t) {
@@ -37,7 +45,7 @@ test('generates a fork-owned manifest from release checksums', (t) => {
   lines.push(`${'f'.repeat(64)}  scripthold_windows_amd64.zip`);
   fs.writeFileSync(checksumsPath, `${lines.join('\n')}\n`, 'utf8');
 
-  const result = spawnSync(process.execPath, [generator, 'v2.3.4', checksumsPath, outputPath], {
+  const result = spawnSync(process.execPath, [generator, 'v2.3.4', checksumsPath, outputPath, repositoryRoot], {
     cwd: repositoryRoot,
     encoding: 'utf8',
   });
@@ -49,8 +57,10 @@ test('generates a fork-owned manifest from release checksums', (t) => {
   assert.equal(manifest.repository.url, 'https://github.com/zoster81/scripthold');
   assert.equal(manifest.packages.length, expectedFiles.length);
   manifest.packages.forEach((pkg, index) => {
+    assert.equal(pkg.registryType, 'mcpb');
     assert.equal(pkg.identifier, `https://github.com/zoster81/scripthold/releases/download/v2.3.4/${expectedFiles[index]}`);
     assert.equal(pkg.fileSha256, checksumFor(index));
+    assert.deepEqual(pkg.runtime, expectedRuntimes[index]);
   });
 
   const catalog = JSON.parse(fs.readFileSync(toolCatalog, 'utf8'));
@@ -60,7 +70,7 @@ test('generates a fork-owned manifest from release checksums', (t) => {
   );
 });
 
-test('fails when a release binary checksum is missing', (t) => {
+test('fails when an MCPB package checksum is missing', (t) => {
   const directory = createWorkspace(t);
   const checksumsPath = path.join(directory, 'checksums.txt');
   const outputPath = path.join(directory, 'server.json');
