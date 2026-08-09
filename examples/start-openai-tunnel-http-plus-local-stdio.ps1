@@ -139,8 +139,9 @@
         }
         $process = $null
         if (-not $supervisorFresh) {
+            $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
             $process = Invoke-WithEnvironment -Values $Values -Action {
-                Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput "NUL" -RedirectStandardError "NUL" -PassThru
+                Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDirectory "task-supervisor-$stamp.stdout.log") -RedirectStandardError (Join-Path $LogDirectory "task-supervisor-$stamp.stderr.log") -PassThru
             }
         }
         $workerHeartbeat = Join-Path $TaskStore "worker.heartbeat"

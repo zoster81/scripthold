@@ -22,6 +22,7 @@
     $TaskRetentionDays = 7
     $TaskMaxTerminal = 1000
     $TaskMaxTotalBytes = 536870912
+    $LogDirectory = Join-Path $PSScriptRoot "logs"
 
     # Execution tools remain disabled unless explicitly enabled here.
     $EnableRunScript = $false
@@ -50,7 +51,8 @@
         }
         $supervisor = $null
         if (-not $supervisorFresh) {
-            $supervisor = Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput "NUL" -RedirectStandardError "NUL" -PassThru
+            $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+            $supervisor = Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDirectory "task-supervisor-$stamp.stdout.log") -RedirectStandardError (Join-Path $LogDirectory "task-supervisor-$stamp.stderr.log") -PassThru
         }
         $heartbeat = Join-Path $TaskStore "worker.heartbeat"
         for ($attempt = 0; $attempt -lt 100; $attempt++) {
@@ -142,6 +144,7 @@
         [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_TOTAL_BYTES", $TaskMaxTotalBytes.ToString(), "Process")
         Set-BooleanEnvironmentFlag -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
         Set-BooleanEnvironmentFlag -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
+        [void](New-Item -ItemType Directory -Path $LogDirectory -Force)
         Ensure-TaskSupervisor
 
         & $McpServer --transport=stdio -- $AllowedDirectory

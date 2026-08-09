@@ -31,6 +31,7 @@
     $TaskRetentionDays = 7
     $TaskMaxTerminal = 1000
     $TaskMaxTotalBytes = 536870912
+    $LogDirectory = Join-Path $PSScriptRoot "logs"
 
     $HttpListenAddress = "127.0.0.1:8765"
     $HttpEndpointPath = "/mcp"
@@ -141,8 +142,9 @@
         }
         $process = $null
         if (-not $supervisorFresh) {
+            $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
             $process = Invoke-WithEnvironment -Values $Values -Action {
-                Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput "NUL" -RedirectStandardError "NUL" -PassThru
+                Start-Process -FilePath $McpServer -ArgumentList @("task-supervisor", "--", ('"{0}"' -f $AllowedDirectory)) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDirectory "task-supervisor-$stamp.stdout.log") -RedirectStandardError (Join-Path $LogDirectory "task-supervisor-$stamp.stderr.log") -PassThru
             }
         }
         $workerHeartbeat = Join-Path $TaskStore "worker.heartbeat"
@@ -315,6 +317,7 @@
     $stdioProcess = $null
     $exitCode = 0
     try {
+        [void](New-Item -ItemType Directory -Path $LogDirectory -Force)
         Ensure-TaskSupervisor -Values $taskEnvironment
         $httpProcess = Invoke-WithEnvironment -Values $httpEnvironment -Action {
             Start-Process -FilePath $McpServer -ArgumentList $httpArguments -NoNewWindow -PassThru
