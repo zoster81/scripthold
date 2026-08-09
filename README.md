@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/zoster81/scripthold)](https://goreportcard.com/report/github.com/zoster81/scripthold)
 [![Release](https://img.shields.io/github/v/release/zoster81/scripthold)](https://github.com/zoster81/scripthold/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/github/license/zoster81/scripthold)](LICENSE)
-[![MCP Registry](https://img.shields.io/badge/MCP_Registry-next_release-lightgrey)](https://registry.modelcontextprotocol.io/?search=io.github.zoster81%2Fscripthold)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-Scripthold-blue)](https://registry.modelcontextprotocol.io/?search=io.github.zoster81%2Fscripthold)
 
 **Code from the web. Work locally. Recover safely.**
 
@@ -55,9 +55,9 @@ The fork-specific architecture includes authoritative process roots, Windows dri
 
 ## Release Status
 
-Version `2.0.0` is the current public release. It exposes 23 tools over stdio and authenticated stateful Streamable HTTP and remains the deployed rollback baseline.
+Version `2.1.0` is the Scripthold release line, with 30 tools and 3 guided prompts over stdio and Streamable HTTP. Version `2.0.0` remains the historical 23-tool rollback baseline and keeps its pre-rebrand assets and Registry identity.
 
-The current source is the planned `2.1.0` scope: R15–R20 are complete and R21 adds the release-required durable task subsystem; the catalog contains 30 tools plus 3 guided prompts, persistent backup/restore/GC and offline backup diagnostics are implemented, and MCP `2026-07-28` is supported through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. See [docs/ROADMAP.md](docs/ROADMAP.md) for the remaining 2.1.0 release gates.
+The `2.1.0` release line consolidates completed R15–R20 work with the R21 durable task subsystem, persistent backup/restore/GC, offline backup diagnostics, and MCP `2026-07-28` support through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. See [docs/ROADMAP.md](docs/ROADMAP.md) for publication and post-publication deployment gates.
 
 Encoding detection remains content-based and extension-independent. The semantic-tag workflow requires a dated changelog entry before generating release assets and Registry metadata.
 
@@ -165,7 +165,7 @@ The Go module is `github.com/zoster81/scripthold`, and all internal imports reso
 
 #### Download a fork release
 
-Release `2.0.0` predates the Scripthold asset rename and therefore keeps the historical `mcp-file-tools_*` filenames. Starting with the first Scripthold-named release, release assets use `scripthold_<os>_<arch>` names as defined by `.goreleaser.yml`. For unreleased development commits, build from source as shown above instead of relying on `releases/latest` asset names.
+Release `2.0.0` predates the Scripthold asset rename and therefore keeps the historical `mcp-file-tools_*` filenames. Version `2.1.0` and later use `scripthold_<os>_<arch>` names as defined by `.goreleaser.yml`. For development commits that are not semantic releases, build from source as shown above instead of relying on `releases/latest` asset names.
 
 #### OpenAI Tunnel quick start
 
@@ -391,7 +391,7 @@ The server can be configured via environment variables:
 | `MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS` | Lifetime of one package preview before lazy expiration and identity cleanup. | `900` |
 | `MCP_MAX_OUTPUT_BYTES` | Aggregate read output, retained grep state, fingerprint details, edit/package/restore/GC responses, verification diagnostics, and inconsistent-line output budget. | `67108864` |
 | `MCP_MAX_SESSIONS` | Maximum live native Streamable HTTP sessions. | `128` |
-| `MCP_BACKUP_STORE_DIR` | Unreleased R18 dedicated internal store. Must be absolute, canonical, non-overlapping with public roots, owner-only, and exclusively lockable. Enables required edit/package capture, bounded review/audit, original-target restore, and explicit generation-bound GC. | unset |
+| `MCP_BACKUP_STORE_DIR` | Optional dedicated internal store. Must be absolute, canonical, non-overlapping with public roots, owner-only, and exclusively lockable. Enables required edit/package capture, bounded review/audit, original-target restore, and explicit generation-bound GC. | unset |
 | `MCP_BACKUP_MAX_TOTAL_BYTES` | Maximum unique object bytes admitted by the internal capture primitive, including durable orphans and live conservative reservations. Hard maximum: 1 TiB. | `1073741824` |
 | `MCP_BACKUP_MAX_OBJECT_BYTES` | Maximum bytes in one internally captured object. Hard maximum: 1 GiB. | `67108864` |
 | `MCP_BACKUP_MAX_MANIFESTS` | Maximum live internal manifests and bounded recovery/audit scale. Hard maximum: 1,000,000. | `10000` |

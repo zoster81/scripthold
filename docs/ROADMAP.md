@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete in source. R21 is the only active milestone and makes the durable asynchronous task subsystem a release requirement for `2.1.0`, bringing the planned source catalog to 30 tools and 3 guided prompts before final consolidation, verification, packaging, publication, and deployment.
+Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the `2.1.0` release line. R21 is the only active milestone; its 30-tool/3-prompt durable-task source and release verification are complete, while public publication and controlled local deployment remain the final gates.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -396,7 +396,7 @@ Operator deployment completed on 2026-08-02. The published Windows amd64 `2.0.0`
 
 ## Status
 
-Completed on 2026-08-03. The implementation remains unreleased.
+Completed on 2026-08-03. The implementation is carried into the `2.1.0` release line.
 
 ## Goal
 
@@ -445,7 +445,7 @@ Normal, compatibility, malformed-input, symlink/reparse, `.gitignore`, paging, s
 
 ## Status
 
-Completed on 2026-08-04. Deterministic fingerprints, bounded one-shot `edit_file` preview/apply, complete `patch-package-v1` inspect/dry-run/apply/verify, and typed `verify_state` checks are implemented and verified in source. The milestone remains unreleased and undeployed.
+Completed on 2026-08-04. Deterministic fingerprints, bounded one-shot `edit_file` preview/apply, complete `patch-package-v1` inspect/dry-run/apply/verify, and typed `verify_state` checks are implemented, verified, and carried into the `2.1.0` release line.
 
 ## Goal
 
@@ -541,7 +541,7 @@ Maintainers accepted all ten decisions on 2026-08-04: a dedicated non-overlappin
 
 ## Status
 
-Completed on 2026-08-05. The approved [persistent backup lifecycle](PERSISTENT_BACKUP_LIFECYCLE.md) is implemented and verified in source. The public source catalog remains 27 tools, while the published and deployed 2.0.0 baseline remains unchanged at 23 tools.
+Completed on 2026-08-05. The approved [persistent backup lifecycle](PERSISTENT_BACKUP_LIFECYCLE.md) is implemented and verified. R18 brought its source boundary to 27 tools; R21 later expands the complete `2.1.0` release line to 30 tools, while `2.0.0` remains the historical 23-tool rollback baseline.
 
 ## Goal
 
@@ -665,7 +665,7 @@ Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod 
 
 ## Status
 
-Completed in source on 2026-08-08. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Stable SDK `v1.7.0` now provides modern stdio discovery where roots policy permits it and same-endpoint stateless `2026-07-28` HTTP beside the retained stateful legacy handler. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. Unsupported singleton versions return the protocol-defined structured error without entering legacy session admission. The 27 tools, three prompts, process roots, backup store, and security policies remain shared. Compatibility, conformance, independent-client, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The R20 source remains unreleased and is not present in the deployed `2.0.0` binary.
+Completed in source on 2026-08-08. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Stable SDK `v1.7.0` provides modern stdio discovery where roots policy permits it and same-endpoint stateless `2026-07-28` HTTP beside the retained stateful legacy handler. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. Unsupported singleton versions return the protocol-defined structured error without entering legacy session admission. The R20 boundary exposed 27 tools plus three prompts with shared process roots, backup store, and security policies; R21 later expands the complete `2.1.0` release line to 30 tools. Compatibility, conformance, independent-client, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The verified R20 implementation is carried into `2.1.0` and remains absent from the `2.0.0` rollback binary.
 
 ## Goal
 
@@ -698,4 +698,4 @@ R20 is complete only when an official stable Go SDK supports final `2026-07-28`;
 
 ## Completion record
 
-Completed in source on 2026-08-08. Official conformance exposed one applicable unsupported-version routing defect, which was corrected by keeping malformed header shapes at the outer boundary while delegating unsupported singleton versions only to the stateless SDK error lane. Final conformance verifies the structured error and HTTP `400`; independent header validation passes 13/13, TypeScript SDK interoperability preserves legacy `2025-11-25`, the complete serial and race suites plus vet/Staticcheck/govulncheck pass, five HTTP/JSON-RPC fuzz targets pass, native and hardened-container smoke pass, and Windows/Linux/macOS amd64/arm64 command plus affected-test compilation succeeds. The source remains unreleased and undeployed, with no push, tag, release, launcher change, or runtime restart.
+Completed in source on 2026-08-08. Official conformance exposed one applicable unsupported-version routing defect, which was corrected by keeping malformed header shapes at the outer boundary while delegating unsupported singleton versions only to the stateless SDK error lane. Final conformance verifies the structured error and HTTP `400`; independent header validation passes 13/13, TypeScript SDK interoperability preserves legacy `2025-11-25`, the complete serial and race suites plus vet/Staticcheck/govulncheck pass, five HTTP/JSON-RPC fuzz targets pass, native and hardened-container smoke pass, and Windows/Linux/macOS amd64/arm64 command plus affected-test compilation succeeds. At the R20 completion checkpoint no push, tag, release, launcher change, or runtime restart had occurred; the verified R20 work is carried forward into the `2.1.0` release line.
