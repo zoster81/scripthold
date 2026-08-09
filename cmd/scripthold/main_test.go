@@ -89,7 +89,7 @@ func TestBackupStoreLimitsPreserveConfiguredValues(t *testing.T) {
 }
 
 func TestRunCommandRejectsOverlappingBackupStoreBeforeStartup(t *testing.T) {
-	publicRoot := t.TempDir()
+	publicRoot := canonicalBackupTestTempDir(t)
 	storeDir := filepath.Join(publicRoot, "backups")
 	values := map[string]string{
 		"MCP_BACKUP_STORE_DIR": storeDir,

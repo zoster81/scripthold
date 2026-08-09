@@ -332,7 +332,7 @@ func TestHandlerRejectsAggregateBodySaturation(t *testing.T) {
 }
 
 func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalHTTPTempDir(t)
 	publicRoot := filepath.Join(base, "public")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -1139,6 +1139,16 @@ func TestSessionLimitReleasesAfterDelete(t *testing.T) {
 	secondSessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
 	deleted = legacyRequest(t, ctx, http.MethodDelete, unstarted.URL+cfg.Path, "", secondSessionID)
 	_ = deleted.Body.Close()
+}
+
+func canonicalHTTPTempDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatalf("resolve temporary directory: %v", err)
+	}
+	return filepath.Clean(resolved)
 }
 
 func newTestHandler(t *testing.T, maxSessions int) *Handler {

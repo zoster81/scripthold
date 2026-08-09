@@ -202,6 +202,9 @@ func TestVerifyStateGitRejectsEscapingSymlinkAlias(t *testing.T) {
 	}
 	root := t.TempDir()
 	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "file.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(root, "escape")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlink unavailable: %v", err)

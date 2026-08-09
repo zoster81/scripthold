@@ -50,6 +50,19 @@ func restrictPathPermissions(path string, directory bool) error {
 	if err != nil {
 		return err
 	}
+	err = windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION,
+		user.User.Sid,
+		nil,
+		nil,
+		nil,
+	)
+	runtime.KeepAlive(user)
+	if err != nil {
+		return err
+	}
 	return validatePathPermissions(path, directory)
 }
 
@@ -69,6 +82,19 @@ func restrictHandlePermissions(handle windows.Handle, directory bool) error {
 	)
 	runtime.KeepAlive(user)
 	runtime.KeepAlive(acl)
+	if err != nil {
+		return err
+	}
+	err = windows.SetSecurityInfo(
+		handle,
+		windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION,
+		user.User.Sid,
+		nil,
+		nil,
+		nil,
+	)
+	runtime.KeepAlive(user)
 	if err != nil {
 		return err
 	}

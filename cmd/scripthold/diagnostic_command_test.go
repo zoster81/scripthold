@@ -103,7 +103,7 @@ func FuzzParseBackupDiagnosticCommand(f *testing.F) {
 }
 
 func TestRunCommandBackupStoreDiagnoseHealthyAndMaintenanceReports(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "backup-store")
+	root := filepath.Join(canonicalBackupTestTempDir(t), "backup-store")
 	store, err := backupstore.Open(backupstore.Options{Directory: root})
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +176,7 @@ func TestRunCommandBackupStoreDiagnoseErrorsArePathFreeAndNonMutating(t *testing
 		t.Fatalf("diagnostic command created missing store: %v", err)
 	}
 
-	activeRoot := filepath.Join(t.TempDir(), "active-store")
+	activeRoot := filepath.Join(canonicalBackupTestTempDir(t), "active-store")
 	active, err := backupstore.Open(backupstore.Options{Directory: activeRoot})
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +194,7 @@ func TestRunCommandBackupStoreDiagnoseErrorsArePathFreeAndNonMutating(t *testing
 }
 
 func TestRunCommandBackupStoreDiagnoseHonorsOutputLimit(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "backup-store")
+	root := filepath.Join(canonicalBackupTestTempDir(t), "backup-store")
 	store, err := backupstore.Open(backupstore.Options{Directory: root})
 	if err != nil {
 		t.Fatal(err)
@@ -213,4 +213,14 @@ func TestRunCommandBackupStoreDiagnoseHonorsOutputLimit(t *testing.T) {
 	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "output") {
 		t.Fatalf("output-limited diagnosis code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+}
+
+func canonicalBackupTestTempDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatalf("resolve temporary directory: %v", err)
+	}
+	return filepath.Clean(resolved)
 }

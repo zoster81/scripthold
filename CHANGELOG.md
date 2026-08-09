@@ -69,6 +69,10 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 - Added fail-closed PowerShell examples for standalone stdio, standalone authenticated HTTP, tunnel-owned stdio with independent local HTTP, and the reverse topology. The default OpenAI quick start uses `MCP_COMMAND` for the tunnel and keeps HTTP on a separate loopback-only Scripthold process with distinct credentials and backup storage.
 - Completed the R20 compatibility gate with official protocol conformance, an independent TypeScript legacy client, bounded HTTP/JSON-RPC fuzzing, native and hardened-container smoke, full race/static/vulnerability checks, and command plus affected-test compilation on Windows, Linux, and macOS for amd64 and arm64. The published and deployed `2.0.0` runtime remains unchanged.
 
+### Fixed
+
+- Made Windows owner-only backup-store ACL application set the process user as the explicit owner as well as the sole DACL principal, preserving the fail-closed store policy under elevated or runner tokens whose default owner differs from the token user.
+
 ## 2.0.0 - 2026-08-02
 
 ### Added

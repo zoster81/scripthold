@@ -32,7 +32,7 @@ func openStoreLock(path string, create bool) (*storeLock, error) {
 
 	creationDisposition := uint32(windows.OPEN_EXISTING)
 	if create {
-		access |= windows.WRITE_DAC
+		access |= windows.WRITE_DAC | windows.WRITE_OWNER
 		creationDisposition = windows.CREATE_NEW
 	}
 	handle, err := windows.CreateFile(
