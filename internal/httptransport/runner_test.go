@@ -104,7 +104,7 @@ func TestRunnerServesHTTPAndEnforcesHeaderLimit(t *testing.T) {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run() error = %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownTimeout + 5*time.Second):
 		t.Fatal("runner did not stop")
 	}
 }
