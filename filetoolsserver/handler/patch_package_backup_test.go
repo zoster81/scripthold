@@ -305,7 +305,7 @@ func (store *patchPackageBackupStoreWrapper) PreflightCaptureBatch(ctx context.C
 
 func newPatchPackageBackupFixture(t *testing.T, limits backupstore.Limits, fixtures []patchPackageApplyFixture) (*Handler, *backupstore.Store, []string, PatchPackageManifest) {
 	t.Helper()
-	base := t.TempDir()
+	base := canonicalHandlerTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {
 		t.Fatal(err)

@@ -13,7 +13,7 @@ import (
 
 func TestPersistentBackupLifecycleCaptureRestoreGCAndReopen(t *testing.T) {
 	ctx := context.Background()
-	base := t.TempDir()
+	base := canonicalHandlerTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	storeRoot := filepath.Join(base, "backup-store")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {

@@ -145,7 +145,7 @@ type backupGCHandlerFixture struct {
 
 func newBackupGCHandlerFixture(t *testing.T) backupGCHandlerFixture {
 	t.Helper()
-	base := t.TempDir()
+	base := canonicalHandlerTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	storeRoot := filepath.Join(base, "store")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {

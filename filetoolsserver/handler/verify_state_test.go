@@ -14,6 +14,7 @@ import (
 	internalexecution "github.com/zoster81/scripthold/internal/execution"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
+	"github.com/zoster81/scripthold/internal/security"
 )
 
 func TestVerifyStateJSONTextAndFingerprint(t *testing.T) {
@@ -315,7 +316,7 @@ func TestVerifyStateFingerprintUsesSharedPrimitive(t *testing.T) {
 		t.Fatal(err)
 	}
 	shared, err := filesystem.FingerprintPaths(context.Background(), []string{path}, filesystem.FingerprintOptions{
-		ResolvedAllowedDirs: []string{root}, RespectGitignore: true, MaxEntries: config.DefaultMaxFingerprintEntries,
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}), RespectGitignore: true, MaxEntries: config.DefaultMaxFingerprintEntries,
 	})
 	if err != nil {
 		t.Fatal(err)

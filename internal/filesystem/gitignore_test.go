@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/zoster81/scripthold/internal/security"
 )
 
 func TestWalkRespectGitignoreNestedNegation(t *testing.T) {
@@ -37,7 +39,7 @@ func TestWalkRespectGitignoreNestedNegation(t *testing.T) {
 
 	var got []string
 	err := Walk(context.Background(), root, WalkOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 	}, func(entry Entry) (WalkAction, error) {
 		if !entry.DirEntry.IsDir() {
@@ -64,7 +66,7 @@ func TestWalkRespectGitignoreFalsePreservesTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	err := Walk(context.Background(), root, WalkOptions{ResolvedAllowedDirs: []string{root}}, func(entry Entry) (WalkAction, error) {
+	err := Walk(context.Background(), root, WalkOptions{ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root})}, func(entry Entry) (WalkAction, error) {
 		found = found || entry.Name == "visible.tmp"
 		return WalkContinue, nil
 	})
@@ -103,7 +105,7 @@ func TestWalkRejectsMalformedGitignore(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := Walk(context.Background(), root, WalkOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 	}, func(entry Entry) (WalkAction, error) {
 		return WalkContinue, nil
@@ -140,7 +142,7 @@ func TestWalkRejectsLinkedGitignore(t *testing.T) {
 	}
 
 	err := Walk(context.Background(), root, WalkOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 	}, func(entry Entry) (WalkAction, error) {
 		return WalkContinue, nil

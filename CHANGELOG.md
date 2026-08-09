@@ -42,6 +42,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Changed
 
+- Made the GitHub README identify Scripthold immediately as a Model Context Protocol server and state its clients, workspace boundary, and supported transports before the detailed feature overview.
 - Kept the durable worker liveness heartbeat independent from queue reconciliation, preventing slow store scans or heavy filesystem contention from falsely reporting an offline worker.
 - Simplified current-facing release documentation around the planned `2.1.0` scope, removed the stale pre-rebrand `releases/latest` asset command, and clarified stateless MCP `2026-07-28` HTTP beside retained stateful legacy sessions.
 - Renamed the product and GitHub repository to **Scripthold**, adopted **Code from the web. Work locally. Recover safely.** as its tagline, and retained permanent attribution to **Dimitar Grigorov** and the original project. The Go module, internal imports, command directory, executable, container paths, updater, workflow guards, release configuration, Registry template, examples, and public documentation now use the Scripthold identity; existing published `2.0.0` assets and Registry records remain historical.
@@ -72,6 +73,8 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Fixed
 
+- Made Windows owner-only task-store ACL application set the process user as the explicit owner as well as the sole DACL principal, matching the backup-store policy under elevated and CI runner tokens.
+- Made restore authorization recognize physically equivalent canonical path spellings, including Windows 8.3 aliases and macOS resolved path aliases, without relaxing containment or link checks.
 - Made Windows owner-only backup-store ACL application set the process user as the explicit owner as well as the sole DACL principal, preserving the fail-closed store policy under elevated or runner tokens whose default owner differs from the token user.
 
 ## 2.0.0 - 2026-08-02

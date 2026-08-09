@@ -17,7 +17,7 @@ import (
 func TestBackupStoreRestorePreservesSafetyEvidenceThroughMCPError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	base := t.TempDir()
+	base := canonicalHandlerTestDir(t)
 	root := filepath.Join(base, "public")
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)

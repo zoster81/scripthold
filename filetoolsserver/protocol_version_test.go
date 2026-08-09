@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/security"
 )
 
 func TestLegacyHandshakeMakesEquivalentRepeatedInitializeIdempotent(t *testing.T) {
@@ -270,21 +270,30 @@ func samePaths(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
 	}
-	gotClean := make([]string, len(got))
-	wantClean := make([]string, len(want))
-	for i := range got {
-		gotClean[i] = filepath.Clean(got[i])
+	matched := make([]bool, len(want))
+	for _, actual := range got {
+		found := false
+		for index, expected := range want {
+			if !matched[index] && samePath(actual, expected) {
+				matched[index] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
 	}
-	for i := range want {
-		wantClean[i] = filepath.Clean(want[i])
-	}
-	sort.Strings(gotClean)
-	sort.Strings(wantClean)
-	return reflect.DeepEqual(gotClean, wantClean)
+	return true
 }
 
 func samePath(a, b string) bool {
-	return filepath.Clean(a) == filepath.Clean(b)
+	if security.PathsEqual(a, b) {
+		return true
+	}
+	first, firstErr := os.Stat(a)
+	second, secondErr := os.Stat(b)
+	return firstErr == nil && secondErr == nil && os.SameFile(first, second)
 }
 
 func fileURIForTest(path string) string {

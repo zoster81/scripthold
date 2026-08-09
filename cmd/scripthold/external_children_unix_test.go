@@ -1,26 +1,42 @@
-//go:build linux || darwin
+//go:build linux
 
 package main
 
 import (
-	"os/exec"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 func externalChildProcessIDs(parentPID int) ([]int, error) {
-	output, err := exec.Command("ps", "-o", "pid=", "-P", strconv.Itoa(parentPID)).Output()
-	if err != nil && len(output) == 0 {
+	paths, err := filepath.Glob(fmt.Sprintf("/proc/%d/task/*/children", parentPID))
+	if err != nil {
 		return nil, err
 	}
-	fields := strings.Fields(string(output))
-	ids := make([]int, 0, len(fields))
-	for _, field := range fields {
-		id, parseErr := strconv.Atoi(field)
-		if parseErr != nil {
-			return nil, parseErr
+	if len(paths) == 0 {
+		return nil, os.ErrNotExist
+	}
+	unique := make(map[int]struct{})
+	for _, path := range paths {
+		output, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil, readErr
 		}
+		for _, field := range strings.Fields(string(output)) {
+			id, parseErr := strconv.Atoi(field)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			unique[id] = struct{}{}
+		}
+	}
+	ids := make([]int, 0, len(unique))
+	for id := range unique {
 		ids = append(ids, id)
 	}
+	sort.Ints(ids)
 	return ids, nil
 }

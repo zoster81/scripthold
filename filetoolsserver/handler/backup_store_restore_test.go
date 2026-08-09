@@ -504,7 +504,7 @@ type backupRestoreFixture struct {
 
 func newBackupRestoreFixture(t *testing.T, limits backupstore.Limits) backupRestoreFixture {
 	t.Helper()
-	base := t.TempDir()
+	base := canonicalHandlerTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {
 		t.Fatal(err)

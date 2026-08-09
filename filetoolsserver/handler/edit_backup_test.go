@@ -87,7 +87,7 @@ func TestEditPreviewRequiredBackupRejectsUnavailableStoreAndStrictUnion(t *testi
 }
 
 func TestEditRequiredBackupNeedsCaptureAuthorityNotOnlyReadAccess(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalHandlerTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -468,7 +468,7 @@ func (store *editBackupStoreWrapper) Capture(ctx context.Context, request backup
 
 func newEditBackupFixture(t *testing.T, limits backupstore.Limits) (*Handler, *backupstore.Store, string) {
 	t.Helper()
-	base := t.TempDir()
+	base := canonicalHandlerTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	storeRoot := filepath.Join(base, "backup-store")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {

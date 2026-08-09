@@ -48,6 +48,12 @@ func securePath(path string, directory bool) error {
 	if err != nil {
 		return err
 	}
+	err = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION, user.User.Sid, nil, nil, nil)
+	runtime.KeepAlive(user)
+	if err != nil {
+		return err
+	}
 	return validateSecurePath(path, directory)
 }
 

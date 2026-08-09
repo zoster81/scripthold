@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/zoster81/scripthold/internal/operation"
+	"github.com/zoster81/scripthold/internal/security"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -84,7 +85,7 @@ func TestFingerprintPathsStableAcrossRootsAndMetadata(t *testing.T) {
 	}
 
 	options := FingerprintOptions{
-		ResolvedAllowedDirs: []string{parent},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{parent}),
 		RespectGitignore:    true,
 		IncludeEntries:      true,
 		MaxEntries:          100,
@@ -151,7 +152,7 @@ func TestFingerprintPathsDistinguishesOrderedRootsWithSharedRelativePaths(t *tes
 	writeFingerprintFixture(t, filepath.Join(first, "same.txt"), "first")
 	writeFingerprintFixture(t, filepath.Join(second, "same.txt"), "second")
 	options := FingerprintOptions{
-		ResolvedAllowedDirs: []string{parent},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{parent}),
 		RespectGitignore:    true,
 		IncludeEntries:      true,
 		MaxEntries:          100,
@@ -183,7 +184,7 @@ func TestFingerprintPathsNormalizesUnicodePathsAndRejectsCanonicalCollisions(t *
 	writeFingerprintFixture(t, filepath.Join(first, nfcName), "content")
 	writeFingerprintFixture(t, filepath.Join(second, nfdName), "content")
 	options := FingerprintOptions{
-		ResolvedAllowedDirs: []string{parent},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{parent}),
 		RespectGitignore:    true,
 		IncludeEntries:      true,
 		MaxEntries:          100,
@@ -231,7 +232,7 @@ func TestFingerprintPathsExcludesSafeLinksWithoutFollowingThem(t *testing.T) {
 	target := filepath.Join(root, "target.txt")
 	writeFingerprintFixture(t, target, "content")
 	options := FingerprintOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 		IncludeEntries:      true,
 		MaxEntries:          100,
@@ -270,7 +271,7 @@ func TestFingerprintPathsRespectsGitignoreAndAlwaysExcludesGitDirectory(t *testi
 	writeFingerprintFixture(t, filepath.Join(root, ".git", "config"), "secret")
 
 	options := FingerprintOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 		IncludeEntries:      true,
 		MaxEntries:          100,
@@ -309,7 +310,7 @@ func TestFingerprintPathsLimitsCancellationAndUnsafeLinks(t *testing.T) {
 	writeFingerprintFixture(t, filepath.Join(root, "b.txt"), "b")
 
 	_, err := FingerprintPaths(context.Background(), []string{root}, FingerprintOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 		MaxEntries:          2,
 	})
@@ -320,7 +321,7 @@ func TestFingerprintPathsLimitsCancellationAndUnsafeLinks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err = FingerprintPaths(ctx, []string{root}, FingerprintOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 		MaxEntries:          100,
 	})
@@ -338,7 +339,7 @@ func TestFingerprintPathsLimitsCancellationAndUnsafeLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = FingerprintPaths(context.Background(), []string{root}, FingerprintOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 		MaxEntries:          100,
 	})
@@ -360,7 +361,7 @@ func TestFingerprintPathsDetectsChangesBetweenPasses(t *testing.T) {
 		}
 
 		_, err = fingerprintPathsWithHook(context.Background(), []string{path}, FingerprintOptions{
-			ResolvedAllowedDirs: []string{root},
+			ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 			RespectGitignore:    true,
 			MaxEntries:          100,
 		}, func() error {
@@ -378,7 +379,7 @@ func TestFingerprintPathsDetectsChangesBetweenPasses(t *testing.T) {
 		root := t.TempDir()
 		writeFingerprintFixture(t, filepath.Join(root, "first.txt"), "first")
 		_, err := fingerprintPathsWithHook(context.Background(), []string{root}, FingerprintOptions{
-			ResolvedAllowedDirs: []string{root},
+			ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 			RespectGitignore:    true,
 			MaxEntries:          100,
 		}, func() error {
@@ -394,7 +395,7 @@ func TestFingerprintPathsDetectsChangesBetweenPasses(t *testing.T) {
 		path := filepath.Join(root, "required.txt")
 		writeFingerprintFixture(t, path, "required")
 		_, err := fingerprintPathsWithHook(context.Background(), []string{path}, FingerprintOptions{
-			ResolvedAllowedDirs: []string{root},
+			ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 			RespectGitignore:    true,
 			MaxEntries:          100,
 		}, func() error {
@@ -420,7 +421,7 @@ func TestFingerprintPathsRejectsExplicitEscapingRoot(t *testing.T) {
 	}
 
 	_, err := FingerprintPaths(context.Background(), []string{link}, FingerprintOptions{
-		ResolvedAllowedDirs: []string{allowed},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{allowed}),
 		RespectGitignore:    true,
 		MaxEntries:          100,
 	})
@@ -435,7 +436,7 @@ func TestFingerprintPathsBoundsEntryDetailsWithoutTruncatingAggregate(t *testing
 	writeFingerprintFixture(t, filepath.Join(root, "b.txt"), "b")
 
 	limited, err := FingerprintPaths(context.Background(), []string{root}, FingerprintOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 		IncludeEntries:      true,
 		MaxEntries:          100,
@@ -449,7 +450,7 @@ func TestFingerprintPathsBoundsEntryDetailsWithoutTruncatingAggregate(t *testing
 	}
 
 	full, err := FingerprintPaths(context.Background(), []string{root}, FingerprintOptions{
-		ResolvedAllowedDirs: []string{root},
+		ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 		RespectGitignore:    true,
 		IncludeEntries:      false,
 		MaxEntries:          100,

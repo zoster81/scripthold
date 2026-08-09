@@ -90,7 +90,7 @@ func TestBuildServerWiresAndProtectsConfiguredBackupStore(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	base := t.TempDir()
+	base := canonicalServerTestDir(t)
 	publicRoot := filepath.Join(base, "public")
 	storeRoot := filepath.Join(base, "backup-store")
 	if err := os.Mkdir(publicRoot, 0o700); err != nil {

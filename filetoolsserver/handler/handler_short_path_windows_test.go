@@ -88,6 +88,28 @@ func TestHandlerCanonicalizesShortAllowedDirectory(t *testing.T) {
 	}
 }
 
+func TestRestoreTargetComparisonAcceptsEquivalentShortPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "restore target with a long component")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shortRoot := windowsShortPathForTest(t, root)
+	if strings.EqualFold(filepath.Clean(shortRoot), filepath.Clean(root)) {
+		t.Skip("8.3 short names are unavailable on this filesystem")
+	}
+
+	longExisting := filepath.Join(root, "existing.txt")
+	if err := os.WriteFile(longExisting, []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !sameResolvedRestoreTarget(filepath.Join(shortRoot, "existing.txt"), longExisting) {
+		t.Fatal("existing short and canonical restore targets were not treated as equivalent")
+	}
+	if !sameResolvedRestoreTarget(filepath.Join(shortRoot, "missing.txt"), filepath.Join(root, "missing.txt")) {
+		t.Fatal("missing short and canonical restore targets were not treated as equivalent")
+	}
+}
+
 func windowsShortPathForTest(t *testing.T, path string) string {
 	t.Helper()
 	pathPtr, err := windows.UTF16PtrFromString(path)

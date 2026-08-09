@@ -1,4 +1,4 @@
-# Scripthold
+# Scripthold — Secure MCP Server for Local Workspaces
 
 <!-- mcp-name: io.github.zoster81/scripthold -->
 
@@ -9,7 +9,9 @@
 
 **Code from the web. Work locally. Recover safely.**
 
-Scripthold is a secure, encoding-aware local workspace runtime for AI agents. It lets web-based and local LLM clients read, edit, convert, execute, test, back up, and restore work inside explicitly authorized directories through stdio, authenticated Streamable HTTP, or a secure tunnel.
+**Scripthold is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server.** It gives ChatGPT and other MCP-compatible web, desktop, and CLI clients controlled access to explicitly authorized local workspaces.
+
+The server exposes secure, encoding-aware tools to read, edit, convert, execute, test, back up, and restore local work. Clients can connect through **stdio**, authenticated **Streamable HTTP**, or a secure tunnel that bridges to either transport.
 
 **Scripthold was built with Scripthold.** The project has been developed and verified through the same web-to-local workflow it provides to its users.
 

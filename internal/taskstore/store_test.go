@@ -29,7 +29,7 @@ func newTestStore(t *testing.T) *Store {
 
 func newTestStoreWithPublic(t *testing.T) (*Store, string) {
 	t.Helper()
-	base := t.TempDir()
+	base := canonicalTaskStoreTestDir(t)
 	public := filepath.Join(base, "public")
 	if err := os.Mkdir(public, 0o700); err != nil {
 		t.Fatal(err)
@@ -39,6 +39,16 @@ func newTestStoreWithPublic(t *testing.T) (*Store, string) {
 		t.Fatal(err)
 	}
 	return store, public
+}
+
+func canonicalTaskStoreTestDir(t *testing.T) string {
+	t.Helper()
+	base := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatalf("resolve task-store test directory %q: %v", base, err)
+	}
+	return filepath.Clean(resolved)
 }
 
 func shellRequest(key string) Request {
@@ -244,7 +254,7 @@ func TestCancelFinalizesQueuedTaskWithoutWorker(t *testing.T) {
 }
 
 func TestStoreRejectsPublicOverlap(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTaskStoreTestDir(t)
 	_, err := Initialize(filepath.Join(root, "tasks"), []string{root}, testLimits())
 	if err == nil || !strings.Contains(err.Error(), "must not overlap") {
 		t.Fatalf("overlap error = %v", err)
@@ -271,7 +281,7 @@ func TestFrontendOpenRequiresExactAllowedRootPolicy(t *testing.T) {
 }
 
 func TestConcurrentInitializeConvergesOnOneDescriptor(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalTaskStoreTestDir(t)
 	public := filepath.Join(base, "public")
 	root := filepath.Join(base, "tasks")
 	if err := os.Mkdir(public, 0o700); err != nil {
@@ -308,7 +318,7 @@ func TestConcurrentInitializeConvergesOnOneDescriptor(t *testing.T) {
 }
 
 func TestLifetimeLockRejectsDuplicateWithoutBlocking(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "worker.lock")
+	path := filepath.Join(canonicalTaskStoreTestDir(t), "worker.lock")
 	first, err := tryAcquireWorkerLock(path)
 	if err != nil {
 		t.Fatal(err)

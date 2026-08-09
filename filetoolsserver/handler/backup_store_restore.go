@@ -17,6 +17,7 @@ import (
 	fileEncoding "github.com/zoster81/scripthold/internal/encoding"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
+	"github.com/zoster81/scripthold/internal/security"
 )
 
 const maxRestoreFailureMessageBytes = 1024
@@ -45,7 +46,7 @@ func (h *Handler) handleBackupStoreRestorePreview(ctx context.Context, backupID 
 	}()
 
 	manifest := source.Manifest()
-	if validatedTarget == "" || patchPackagePathKey(manifest.TargetPath) != patchPackagePathKey(validatedTarget) {
+	if validatedTarget == "" || !sameResolvedRestoreTarget(manifest.TargetPath, validatedTarget) {
 		return errorResultWithCode(ErrCodeConflict, "restore is restricted to the manifest's original target"), BackupStoreOutput{}, nil
 	}
 	objectLimit := h.backupRestore.RestoreObjectLimit()
@@ -267,10 +268,20 @@ func (h *Handler) revalidateRestoreAuthorization(prepared *preparedRestore) erro
 	if err != nil {
 		return err
 	}
-	if patchPackagePathKey(validated) != patchPackagePathKey(prepared.resolvedPath) {
+	if !sameResolvedRestoreTarget(validated, prepared.resolvedPath) {
 		return operation.New(operation.KindConflict, "restore target authorization or resolution changed after preview")
 	}
 	return nil
+}
+
+func sameResolvedRestoreTarget(first, second string) bool {
+	if security.PathsEqual(first, second) {
+		return true
+	}
+	firstResolved := security.ResolveAllowedDirs([]string{first})
+	secondResolved := security.ResolveAllowedDirs([]string{second})
+	return len(firstResolved) == 1 && len(secondResolved) == 1 &&
+		security.PathsEqual(firstResolved[0], secondResolved[0])
 }
 
 func (h *Handler) revalidatePreparedRestoreTarget(ctx context.Context, prepared *preparedRestore) (filesystem.FileSnapshot, error) {
