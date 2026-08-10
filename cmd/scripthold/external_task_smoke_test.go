@@ -302,9 +302,22 @@ func waitExternalTaskStatus(t *testing.T, ctx context.Context, session *mcp.Clie
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	var last externalTaskState
+	var lastErr error
 	for time.Now().Before(deadline) {
-		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "task_get", Arguments: map[string]any{"taskId": id}})
-		if err == nil && !result.IsError {
+		remaining := time.Until(deadline)
+		callTimeout := 2 * time.Second
+		if remaining < callTimeout {
+			callTimeout = remaining
+		}
+		callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+		result, err := session.CallTool(callCtx, &mcp.CallToolParams{Name: "task_get", Arguments: map[string]any{"taskId": id}})
+		cancel()
+		if err != nil {
+			lastErr = err
+		} else if result.IsError {
+			lastErr = fmt.Errorf("task_get returned an MCP error")
+		} else {
+			lastErr = nil
 			content, _ := result.StructuredContent.(map[string]any)
 			last.Status, _ = content["status"].(string)
 			last.StartedAt = parseExternalTime(content["startedAt"])
@@ -317,6 +330,12 @@ func waitExternalTaskStatus(t *testing.T, ctx context.Context, session *mcp.Clie
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("task %s status=%s, want %s; parent context ended: %v", id, last.Status, wanted, err)
+	}
+	if lastErr != nil {
+		t.Fatalf("task %s status=%s, want %s; last task_get error: %v", id, last.Status, wanted, lastErr)
 	}
 	t.Fatalf("task %s status=%s, want %s", id, last.Status, wanted)
 	return last
