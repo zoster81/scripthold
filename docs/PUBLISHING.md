@@ -4,20 +4,21 @@ This document is the maintainer procedure for publishing Scripthold from `zoster
 
 ## Current state
 
-- Current public release: `2.1.0`, the first Scripthold-named semantic release and the first release assigned to the fork-owned Scripthold Registry identity.
+- Current public release: `2.1.1`, with 30 tools and 3 guided prompts.
 - Rollback baseline: `2.0.0`, published before the Scripthold repository/asset/Registry rename and retained with its historical asset and Registry identity.
 - Source catalog: 30 tools and 3 guided prompts over stdio and Streamable HTTP.
 - Protocols: MCP `2026-07-28` where roots policy permits it, with retained legacy compatibility; HTTP uses stateless modern requests beside stateful legacy sessions behind one security pipeline.
-- Registry: `io.github.zoster81/scripthold` version `2.1.0` is published and active; `2.0.0` remains under the historical `io.github.zoster81/mcp-file-tools` identity.
+- Registry: `io.github.zoster81/scripthold` version `2.1.1` is published and active; `2.0.0` remains under the historical `io.github.zoster81/mcp-file-tools` identity.
+- Deployment: the published Windows amd64 `2.1.1` runtime is active and verified over tunnel-owned stdio plus authenticated legacy and stateless modern HTTP; active rollback to `2.0.0` and restoration to `2.1.1` are verified.
 - Assets: Scripthold-named releases use `scripthold_<os>_<arch>` GoReleaser names and publish matching OS/architecture-specific `.mcpb` bundles plus a separate MCPB checksum manifest.
 - Module: `github.com/zoster81/scripthold`.
 - Release tags must match a dated `CHANGELOG.md` entry and the generated Registry version.
 
-See [ROADMAP.md](ROADMAP.md) for the remaining 2.1.0 deployment/rollback gate, [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) for reusable engineering checks, [HTTP_SECURITY.md](HTTP_SECURITY.md) for transport security, and [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) for lineage and maintenance policy.
+See [ROADMAP.md](ROADMAP.md) for current milestone status, [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) for reusable engineering checks, [HTTP_SECURITY.md](HTTP_SECURITY.md) for transport security, and [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) for lineage and maintenance policy.
 
 ## Fork release flow
 
-Use this flow for `2.1.0` and later fork-owned semantic releases. Development commits may be tested or deployed internally, but public tags require a dated changelog entry and the full applicable release gate.
+Use this flow for fork-owned semantic releases. Development commits may be tested or deployed internally, but public tags require a dated changelog entry and the full applicable release gate.
 
 1. Ensure the release-scoped roadmap work is complete and the local release-candidate worktree is clean and ready for verification.
 2. Choose a semantic version that has not already become a consumable fork release. A failed tag may be retired and reused only if maintainers first verify that no GitHub Release, release asset, MCPB bundle, or Registry version was published from it; published versions are immutable and must advance to a new semantic version.
@@ -98,7 +99,7 @@ Real credentials belong in private copies outside the Git checkout.
 
 `.github/workflows/publish-mcpb-assets.yml` owns MCPB release packaging. It verifies an immutable `refs/tags/<version>` source checkout, the exact six raw binaries plus six platform archives, and all 12 GoReleaser SHA-256 values before `scripts/prepare-mcpb-assets.js` stages six binary MCPB packages from the tagged catalog and license. MCPB 2.1.2 validates each staged package; normalized ZIP metadata and a second byte-identical pack check enforce deterministic output before the six bundles and `mcpb-checksums.txt` are uploaded idempotently to GitHub Release. `.github/workflows/publish-registry.yml` has read-only release-content permission: it downloads and verifies those already-published MCPB assets, then `scripts/generate-server-json.js` projects the tagged catalog, exact version, MCPB URLs, OS/architecture selectors, and hashes into temporary `server.json` before GitHub OIDC publication.
 
-The Scripthold Registry identity is `io.github.zoster81/scripthold`, and published version `2.1.0` is its first active release. The already-published `2.0.0` record remains under the historical `io.github.zoster81/mcp-file-tools` identity and is not rewritten by the repository rename. The production Registry reports `2.1.0` as active/latest with six MCPB packages; the publication manifest is generated from the authoritative 30-tool catalog.
+The Scripthold Registry identity is `io.github.zoster81/scripthold`. The already-published `2.0.0` record remains under the historical `io.github.zoster81/mcp-file-tools` identity and is not rewritten by the repository rename. The production Registry reports `2.1.1` as the current active release with six MCPB packages; the publication manifest is generated from the authoritative 30-tool catalog.
 
 ## Project lineage
 

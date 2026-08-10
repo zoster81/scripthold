@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the published `2.1.0` release. R21 is the only active milestone. The first `v2.1.1` attempt stopped before GoReleaser after exposing a macOS concurrent task-store initialization path-resolution race; that unpublished tag was retired after confirming that no Release assets, MCPB bundles, or Registry record existed. The resolver fix and consolidated exact-commit CI/release pipeline are now verified, and recreated `v2.1.1` is published with checksum-verified GitHub assets, GitHub-produced MCPB bundles, and Registry version `2.1.1`. Controlled local deployment and rollback remain open.
+Version `2.1.1` is the current public Scripthold release with 30 tools and 3 guided prompts. It is published on GitHub and in the MCP Registry, deployed on Windows amd64, and verified through an active rollback to `2.0.0` followed by restoration to `2.1.1`. Version `2.0.0` remains the historical 23-tool rollback baseline. R21 is complete; no milestone is currently `ACTIVE`.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -36,7 +36,7 @@ Product identity and the fork's independent relationship to upstream are defined
 | R18 | COMPLETE | Implemented and verified the approved persistent-backup subsystem in phased, failure-injected, cross-platform increments. |
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
 | R20 | COMPLETE | Stable SDK `v1.7.0`, stdio version gating, same-endpoint dual-generation HTTP, structured unsupported-version handling, and the full compatibility/conformance gate are verified in source. |
-| R21 | ACTIVE | Ship durable asynchronous task execution in the 2.1.x line, close the blocked unpublished `v2.1.1` attempt forward, consolidate exact-commit release gating, then publish, deploy, and rollback-test the recreated `v2.1.1`. |
+| R21 | COMPLETE | Delivered durable asynchronous task execution, exact-commit release gating, and the published, deployed, rollback-verified `2.1.1` release. |
 
 ---
 
@@ -44,40 +44,21 @@ Product identity and the fork's independent relationship to upstream are defined
 
 ## Goal
 
-Maintain and deploy the `2.1.x` line with the [durable task subsystem](DURABLE_TASKS.md) required for long-running shell/script work, without weakening existing compatibility, security, backup, transport, or release invariants. Important post-`2.1.0` fixes must move forward on new immutable patch tags whenever a release gate exposes a blocker after a tag has already been created.
+Maintain the `2.1.x` line with the [durable task subsystem](DURABLE_TASKS.md) required for long-running shell/script work, without weakening existing compatibility, security, backup, transport, or release invariants. Releases must be built from an exact verified commit and published through the immutable release procedure in [PUBLISHING.md](PUBLISHING.md).
 
-## Remaining gate
+## Completion record
 
-- [x] Complete and verify R15–R20 source implementation.
-- [x] Confirm `v2.1.0` is unused locally and on `origin`.
-- [x] Complete the 30-tool durable-task source, examples, public contract, failure-injection tests, cross-platform build checks, and exact-binary crash/recovery gate.
-- [x] Align current documentation around the 30-tool/3-prompt source, Scripthold asset names, dual-generation HTTP, and the new Registry identity without duplicating historical milestone detail.
-- [x] Consolidate the final R20 and release-preparation work on a clean commit; no internal deployment build is accepted from an uncommitted worktree.
-- [x] Run the complete release verification checklist from [PUBLISHING.md](PUBLISHING.md) on that exact commit, including full Go/race/static/vulnerability checks, workflow checks, six-target builds, reproducible GoReleaser snapshots, Registry validation, documentation/link checks, and secret scans.
-- [x] Build a commit-derived Windows amd64 internal binary with an unambiguous version, record its SHA-256, preserve the known-good rollback binary, and verify all documented transport profiles before any public tag.
-  - The default OpenAI profile is tunnel-owned stdio plus a separate authenticated loopback HTTP process; the reverse profile remains an explicit alternative example.
-  - Validation must cover process isolation, distinct backup-store locks, the separate shared task store, supervisor/worker/helper recovery, tunnel `main` probe health, the 30-tool/3-prompt catalog, representative filesystem and task calls, and automatic rollback.
-  - After the launcher and documentation correction is committed, rebuild from that exact clean commit and repeat the final native stdio, native HTTP, and tunneled stdio smoke before this gate is complete.
-- [x] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
-- [x] Push `main` and require the applicable GitHub Actions checks to pass.
-- [x] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, six MCPB bundles plus `mcpb-checksums.txt`, release metadata, and the first active `io.github.zoster81/scripthold` Registry record.
-- [x] Deploy and live-verify the post-`2.1.0` hotfix source internally, including the durable-task root-policy correction and the explicit `write_whole_file` tool surface.
-- [x] Create the first annotated `v2.1.1` attempt only after green pre-tag Build/Test checks. Its Release workflow stopped before GoReleaser when macOS exposed a concurrent task-store initialization path-resolution race; no `2.1.1` GitHub Release, release asset, MCPB bundle, or Registry record was created. After that absence was reverified, the unpublished local and remote tag were retired before reuse.
-- [x] Fix the missing-path appearance race forward by re-resolving once when an entry appears between resolve and metadata checks while preserving fail-closed broken-link behavior; pass focused security/taskstore tests, 100 concurrent-initialize race repetitions, the complete local Go/race/static/vulnerability gate, deterministic fuzzing, and six-target builds.
-- [x] Consolidate Build/Test into one exact-commit `CI` release-candidate gate and make the tag Release verify that successful `main` push run instead of rerunning the same race/static/vulnerability/fuzz/build coverage; retain GoReleaser once, GitHub-only MCPB packaging, and Registry publication only after verified MCPB assets.
-- [x] Push the final resolver/workflow commit and require the `CI` `Release candidate` job, including real macOS race coverage, to pass on that exact SHA. CI run `31378163095` passed on `18983e5ff51b6be953e51a438bd97ea49587cefc`.
-- [x] Recreate annotated `v2.1.1` on that exact verified commit and complete Release in order: tag/commit provenance, GoReleaser, 12 raw/archive checksum verification, GitHub-produced six MCPB bundles plus `mcpb-checksums.txt`, then the `io.github.zoster81/scripthold` Registry record. Release run `31378424320` passed end-to-end.
-- [ ] Deploy the published `2.1.1` Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check against the retained published baseline, then restore and reverify `2.1.1`.
+- [x] Complete and verify R15–R20 source implementation and the 30-tool/3-prompt durable-task surface.
+- [x] Verify the complete release candidate across race tests, static/vulnerability analysis, deterministic fuzzing, six cross-builds, native/container smoke tests, release metadata, documentation, and secret checks.
+- [x] Consolidate Build/Test into one exact-commit `CI` release-candidate gate and make tag publication attest that successful commit instead of rerunning the same expensive checks.
+- [x] Publish `v2.1.1` with six raw binaries, six platform archives, six GitHub-produced MCPB bundles, and both checksum manifests; publish `io.github.zoster81/scripthold` version `2.1.1` to the MCP Registry.
+- [x] Deploy the published Windows amd64 `2.1.1` binary, verify tunnel-owned stdio plus authenticated legacy and stateless modern HTTP, perform an active rollback to the published `2.0.0` baseline, then restore and reverify `2.1.1`.
 
 ## Publication record
 
-Published on 2026-08-09. Annotated tag `v2.1.0` resolves to `c00beb46f5b17aeeb0e2be4e2cd0060912b2f3fe`. The pre-tag Build and Test gates were green, and the tag workflow completed its cross-platform test matrix plus GoReleaser publication of six raw binaries, six platform archives, and `checksums.txt`. The initial Registry step then exposed a packaging-contract defect: raw executables had been declared as `registryType: mcpb` even though the Registry requires actual MCPB bundles.
+Release `2.1.1` was published on 2026-08-10 and is the current Scripthold release. The GitHub Release contains six raw binaries, six platform archives, six OS/architecture-specific MCPB bundles, `checksums.txt`, and `mcpb-checksums.txt`. All GoReleaser and MCPB SHA-256 entries were independently verified, and `io.github.zoster81/scripthold` version `2.1.1` is active in the MCP Registry. The published Windows amd64 runtime has been deployed and verified across tunnel-owned stdio, authenticated legacy HTTP, stateless MCP `2026-07-28` HTTP, active rollback to `2.0.0`, and restoration to `2.1.1`.
 
-Post-release hotfix `9f7e1cca06dc5d8712c0a8cbb7ca713445d4676b` corrected that boundary without moving the tag or replacing the original release assets. Build run `31336757591` and Test run `31336757602` passed on the hotfix. MCPB repair run `31336981103` verified the immutable tag plus all 12 GoReleaser assets, then added six deterministic, MCPB-validated OS/architecture bundles and `mcpb-checksums.txt` to the same GitHub Release. Registry run `31337108493` consumed those published bundles read-only, passed manifest validation, and published `io.github.zoster81/scripthold` version `2.1.0` through GitHub OIDC. The production Registry reports that version as active and latest with six MCPB packages.
-
-On 2026-08-10, pre-tag Build `31372170443` and Test `31372170448` passed for the `2.1.1` hotfix source, and the first annotated `v2.1.1` attempt was created on that exact commit. Release run `31372492731` then exposed an intermittent macOS path-resolution race in concurrent durable-task store initialization and stopped in the test matrix before GoReleaser. Reverification confirmed that no `2.1.1` GitHub Release, raw/archive asset, MCPB bundle, or Registry publication existed, so the unpublished local and remote tag were retired before publication.
-
-The corrected resolver plus macOS canonical-path regression assertion and CI/release redesign were then pushed through commit `18983e5ff51b6be953e51a438bd97ea49587cefc`. Consolidated CI run `31378163095` passed the exact commit, including real macOS race coverage, all six cross-builds, deterministic fuzzing, static/vulnerability analysis, native/container smoke tests, and the final `Release candidate` gate. Recreated annotated `v2.1.1` resolves to that commit. Release run `31378424320` verified the exact pre-tag CI provenance in seconds, ran GoReleaser once, produced six MCPB bundles only on GitHub from checksum-verified GoReleaser assets, and published Registry version `io.github.zoster81/scripthold@2.1.1`. The final GitHub Release contains 20 uploaded assets; an independent post-publication download verified all 12 GoReleaser SHA-256 entries and all six MCPB SHA-256 entries.
+Version `2.0.0` remains the historical 23-tool rollback baseline. Detailed release changes belong in [CHANGELOG.md](../CHANGELOG.md), while this roadmap records product status and completion gates rather than operational incident chronology.
 
 ## Non-goals
 
@@ -85,9 +66,9 @@ The corrected resolver plus macOS canonical-path regression assertion and CI/rel
 - No cleanup may rename persistent `mcp-file-tools:*` domain-separation constants or rewrite historical `2.0.0` asset/Registry evidence.
 - No public release or Registry publication occurs from a dirty worktree or an unpublished commit.
 
-## Completion gate
+## Completion status
 
-R21 is complete only when the durable queue survives frontend and worker failure as specified, its bounded logs/recovery/parallelism/locks/cancellation and six target builds pass, the final `v2.1.1` is recreated only on the exact successful consolidated `CI` release-candidate commit, its GitHub Release/MCPB/Registry publication is verified, its local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
+R21 is `COMPLETE`. Future `2.1.x` maintenance uses the same exact-commit release-candidate gate, immutable publication procedure, artifact verification, and controlled deployment/rollback discipline.
 
 ---
 
@@ -412,7 +393,7 @@ Operator deployment completed on 2026-08-02. The published Windows amd64 `2.0.0`
 
 ## Status
 
-Completed on 2026-08-03. The implementation is carried into the `2.1.0` release line.
+Completed on 2026-08-03. The implementation is included in the current `2.1.1` release.
 
 ## Goal
 
@@ -461,7 +442,7 @@ Normal, compatibility, malformed-input, symlink/reparse, `.gitignore`, paging, s
 
 ## Status
 
-Completed on 2026-08-04. Deterministic fingerprints, bounded one-shot `edit_file` preview/apply, complete `patch-package-v1` inspect/dry-run/apply/verify, and typed `verify_state` checks are implemented, verified, and carried into the `2.1.0` release line.
+Completed on 2026-08-04. Deterministic fingerprints, bounded one-shot `edit_file` preview/apply, complete `patch-package-v1` inspect/dry-run/apply/verify, and typed `verify_state` checks are implemented, verified, and included in the current `2.1.1` release.
 
 ## Goal
 
@@ -557,7 +538,7 @@ Maintainers accepted all ten decisions on 2026-08-04: a dedicated non-overlappin
 
 ## Status
 
-Completed on 2026-08-05. The approved [persistent backup lifecycle](PERSISTENT_BACKUP_LIFECYCLE.md) is implemented and verified. R18 brought its source boundary to 27 tools; R21 later expands the complete `2.1.0` release line to 30 tools, while `2.0.0` remains the historical 23-tool rollback baseline.
+Completed on 2026-08-05. The approved [persistent backup lifecycle](PERSISTENT_BACKUP_LIFECYCLE.md) is implemented and verified. R18 brought its source boundary to 27 tools; R21 expands the current `2.1.1` release to 30 tools, while `2.0.0` remains the historical 23-tool rollback baseline.
 
 ## Goal
 
@@ -681,7 +662,7 @@ Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod 
 
 ## Status
 
-Completed in source on 2026-08-08. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Stable SDK `v1.7.0` provides modern stdio discovery where roots policy permits it and same-endpoint stateless `2026-07-28` HTTP beside the retained stateful legacy handler. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. Unsupported singleton versions return the protocol-defined structured error without entering legacy session admission. The R20 boundary exposed 27 tools plus three prompts with shared process roots, backup store, and security policies; R21 later expands the complete `2.1.0` release line to 30 tools. Compatibility, conformance, independent-client, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The verified R20 implementation is carried into `2.1.0` and remains absent from the `2.0.0` rollback binary.
+Completed in source on 2026-08-08. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Stable SDK `v1.7.0` provides modern stdio discovery where roots policy permits it and same-endpoint stateless `2026-07-28` HTTP beside the retained stateful legacy handler. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. Unsupported singleton versions return the protocol-defined structured error without entering legacy session admission. The R20 boundary exposed 27 tools plus three prompts with shared process roots, backup store, and security policies; R21 expands the current `2.1.1` release to 30 tools. Compatibility, conformance, independent-client, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The verified R20 implementation is included in `2.1.1` and remains absent from the `2.0.0` rollback binary.
 
 ## Goal
 
@@ -714,4 +695,4 @@ R20 is complete only when an official stable Go SDK supports final `2026-07-28`;
 
 ## Completion record
 
-Completed in source on 2026-08-08. Official conformance exposed one applicable unsupported-version routing defect, which was corrected by keeping malformed header shapes at the outer boundary while delegating unsupported singleton versions only to the stateless SDK error lane. Final conformance verifies the structured error and HTTP `400`; independent header validation passes 13/13, TypeScript SDK interoperability preserves legacy `2025-11-25`, the complete serial and race suites plus vet/Staticcheck/govulncheck pass, five HTTP/JSON-RPC fuzz targets pass, native and hardened-container smoke pass, and Windows/Linux/macOS amd64/arm64 command plus affected-test compilation succeeds. At the R20 completion checkpoint no push, tag, release, launcher change, or runtime restart had occurred; the verified R20 work is carried forward into the `2.1.0` release line.
+Completed in source on 2026-08-08. Official conformance verifies the structured unsupported-version path and HTTP `400`; independent header validation passes 13/13, TypeScript SDK interoperability preserves legacy `2025-11-25`, the complete serial and race suites plus vet/Staticcheck/govulncheck pass, five HTTP/JSON-RPC fuzz targets pass, native and hardened-container smoke pass, and Windows/Linux/macOS amd64/arm64 command plus affected-test compilation succeeds. The verified R20 work is included in the current `2.1.1` release.

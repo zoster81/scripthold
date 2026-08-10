@@ -6,6 +6,10 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ## Unreleased
 
+### Changed
+
+- Aligned current-facing documentation to `2.1.1` as the published, deployed, rollback-verified release and simplified R21 reporting to durable-task, release, and deployment outcomes instead of operational incident chronology.
+
 ## 2.1.1 - 2026-08-10
 
 ### Changed

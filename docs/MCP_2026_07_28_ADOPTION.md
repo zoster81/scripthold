@@ -2,7 +2,7 @@
 
 ## Status
 
-**R20 is complete in source. Stdio and same-endpoint Streamable HTTP support `2026-07-28` without depending on deprecated client roots or protocol sessions, supported legacy HTTP remains stateful, and legacy stdio roots still fall back deterministically to `2025-11-25`. Compatibility, conformance, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The verified R20 implementation is carried into the `2.1.0` release line and remains absent from the `2.0.0` rollback binary.**
+**R20 is complete in source. Stdio and same-endpoint Streamable HTTP support `2026-07-28` without depending on deprecated client roots or protocol sessions, supported legacy HTTP remains stateful, and legacy stdio roots still fall back deterministically to `2025-11-25`. Compatibility, conformance, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The verified R20 implementation is part of the `2.1.x` line, including the current `2.1.1` release, and remains absent from the `2.0.0` rollback binary.**
 
 This document defines the compatibility boundary, transport architecture, security invariants, implementation phases, and verification gate for adopting Model Context Protocol version `2026-07-28` while retaining the existing `2025-11-25` behavior.
 
@@ -470,6 +470,6 @@ R20 is complete only when an official stable Go SDK supports final protocol `202
 
 ## Completion record
 
-The gate completed in source on 2026-08-08. Stable Go SDK `v1.7.0` is the only production MCP SDK dependency; modern stdio and stateless HTTP are verified beside retained legacy behavior; official conformance drove and then verified the structured unsupported-version path; independent legacy interoperability, fuzzing, native and hardened-container smoke, complete Go/race/static/vulnerability checks, and all six supported build targets passed. The R20 boundary exposes 27 tools with three prompts; R21 later expands the complete `2.1.0` release line to 30 tools. The verified R20 implementation is carried by `2.1.0` and remains absent from the `2.0.0` rollback binary.
+The gate completed in source on 2026-08-08. Stable Go SDK `v1.7.0` is the only production MCP SDK dependency; modern stdio and stateless HTTP are verified beside retained legacy behavior; official conformance drove and then verified the structured unsupported-version path; independent legacy interoperability, fuzzing, native and hardened-container smoke, complete Go/race/static/vulnerability checks, and all six supported build targets passed. The R20 boundary exposes 27 tools with three prompts; R21 expands the current `2.1.1` release to 30 tools. The verified R20 implementation is included in `2.1.1` and remains absent from the `2.0.0` rollback binary.
 
 No push, tag, release, deployment, launcher change, or runtime restart is part of the milestone without separate explicit authorization.

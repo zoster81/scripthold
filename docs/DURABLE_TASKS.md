@@ -1,6 +1,6 @@
 # Durable task execution
 
-Scripthold 2.1.0 replaces the request-bound `run_script` and `shell` tools with a durable asynchronous task subsystem. A call to `task_run` validates and records work, then returns a `taskId`; it never waits for the command to finish. This prevents an MCP request timeout, tunnel TTL, stdio EOF, HTTP disconnect, or frontend restart from terminating a long build.
+Scripthold's 2.1.x task subsystem replaces the request-bound `run_script` and `shell` tools with durable asynchronous execution. A call to `task_run` validates and records work, then returns a `taskId`; it never waits for the command to finish. This prevents an MCP request timeout, tunnel TTL, stdio EOF, HTTP disconnect, or frontend restart from terminating a long build.
 
 ## Process topology
 
@@ -88,4 +88,4 @@ The four tracked PowerShell examples expose every task limit and start or reuse 
 
 ## Compatibility
 
-The synchronous public `run_script` and `shell` tools are removed from the 2.1.0 catalog. Their authorization flags keep their meaning and now authorize the corresponding `task_run` kind. Clients should submit work with `task_run`, poll `task_get` or `task_list`, page output with `task_logs`, and call `task_cancel` when necessary.
+The synchronous public `run_script` and `shell` tools are not part of the 2.1.x catalog. Their authorization flags keep their meaning and authorize the corresponding `task_run` kind. Clients should submit work with `task_run`, poll `task_get` or `task_list`, page output with `task_logs`, and call `task_cancel` when necessary.

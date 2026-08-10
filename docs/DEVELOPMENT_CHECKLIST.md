@@ -162,7 +162,7 @@ Use this section only for an explicitly requested internal build.
 
 ## 10. Public release and deployment gate
 
-Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. The `2.0.0` publication and deployment status is recorded here. Public `2.1.0` publication is complete; its controlled local deployment and rollback remain tracked as the final open R21 gate in [ROADMAP.md](ROADMAP.md). Future releases should apply the same checks to their active roadmap scope.
+Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. Release `2.1.1` is the current published, deployed, and rollback-verified Scripthold release; `2.0.0` remains the historical rollback baseline. Future releases should apply the same checks to their active roadmap scope.
 
 - [x] R7-R13, the 2.0 release scope, and the migration guide are complete;
 - [x] the HTTP security design and transport test suite pass;
@@ -170,4 +170,6 @@ Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. The `2.0.0` p
 - [x] release tag, dated changelog entry, embedded binary version, and Registry version match;
 - [x] all supported platform assets and checksums are verified;
 - [x] release, Registry publication, and live stdio plus authenticated Streamable HTTP smoke tests succeed;
-- [x] the controlled active rollback succeeds and the published runtime is restored before R14 is closed.
+- [x] the controlled active rollback succeeds and the published runtime is restored before R14 is closed;
+- [x] the `2.1.1` GitHub Release, checksum manifests, six MCPB bundles, and `io.github.zoster81/scripthold` Registry publication are independently verified;
+- [x] the published `2.1.1` Windows runtime passes tunnel-owned stdio plus authenticated legacy/modern HTTP smoke tests, the active `2.0.0` rollback check succeeds, and `2.1.1` is restored and reverified.
