@@ -446,8 +446,12 @@ func TestResolvePathAllowMissingRetriesPathThatAppearsBetweenChecks(t *testing.T
 	if err != nil {
 		t.Fatalf("path that appeared during resolution was rejected: %v", err)
 	}
-	if !exists || !PathsEqual(resolved, path) {
-		t.Fatalf("resolved path = %q, exists = %v; want %q, true", resolved, exists, path)
+	expectedResolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || !PathsEqual(resolved, expectedResolved) {
+		t.Fatalf("resolved path = %q, exists = %v; want %q, true", resolved, exists, expectedResolved)
 	}
 	if resolveCalls != 2 {
 		t.Fatalf("resolve calls = %d, want exactly 2", resolveCalls)
