@@ -423,6 +423,51 @@ func TestValidatePathWithAllowedDirectoriesPreservesConfiguredAliasBoundary(t *t
 	}
 }
 
+func TestResolvePathAllowMissingRetriesPathThatAppearsBetweenChecks(t *testing.T) {
+	parent := t.TempDir()
+	path := filepath.Join(parent, "appearing")
+	resolveCalls := 0
+	resolved, exists, err := resolvePathAllowMissingWith(
+		path,
+		func(candidate string) (string, error) {
+			resolveCalls++
+			if resolveCalls == 1 {
+				return "", &os.PathError{Op: "resolve", Path: candidate, Err: os.ErrNotExist}
+			}
+			return resolveExistingPath(candidate)
+		},
+		func(candidate string) (os.FileInfo, error) {
+			if err := os.Mkdir(candidate, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+				return nil, err
+			}
+			return os.Lstat(candidate)
+		},
+	)
+	if err != nil {
+		t.Fatalf("path that appeared during resolution was rejected: %v", err)
+	}
+	if !exists || !PathsEqual(resolved, path) {
+		t.Fatalf("resolved path = %q, exists = %v; want %q, true", resolved, exists, path)
+	}
+	if resolveCalls != 2 {
+		t.Fatalf("resolve calls = %d, want exactly 2", resolveCalls)
+	}
+}
+
+func TestResolvePathAllowMissingRejectsBrokenSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("broken symlink creation may require elevated privileges on Windows")
+	}
+	parent := t.TempDir()
+	link := filepath.Join(parent, "broken-link")
+	if err := os.Symlink(filepath.Join(parent, "missing-target"), link); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	if _, _, err := resolvePathAllowMissing(link); err == nil {
+		t.Fatal("broken symlink was treated as a safely missing path")
+	}
+}
+
 func TestValidatePath_PathTraversal(t *testing.T) {
 	tempDir := t.TempDir()
 	allowedDir := filepath.Join(tempDir, "allowed")

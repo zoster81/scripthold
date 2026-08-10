@@ -150,24 +150,49 @@ func ValidatePathWithAllowedDirectories(requestedPath string, requestedAllowedDi
 // any missing suffix onto that resolved path. Existing but unresolvable links
 // fail closed instead of being treated as missing paths.
 func resolvePathAllowMissing(path string) (resolved string, exists bool, err error) {
+	return resolvePathAllowMissingWith(path, resolveExistingPath, os.Lstat)
+}
+
+func resolvePathAllowMissingWith(
+	path string,
+	resolve func(string) (string, error),
+	lstat func(string) (os.FileInfo, error),
+) (resolved string, exists bool, err error) {
 	current := filepath.Clean(path)
 	missingParts := make([]string, 0, 4)
+	projectResolved := func(resolvedCurrent string) (string, bool, error) {
+		resolvedCurrent = filepath.Clean(resolvedCurrent)
+		for i := len(missingParts) - 1; i >= 0; i-- {
+			resolvedCurrent = filepath.Join(resolvedCurrent, missingParts[i])
+		}
+		return filepath.Clean(resolvedCurrent), len(missingParts) == 0, nil
+	}
 
 	for {
-		resolvedCurrent, resolveErr := resolveExistingPath(current)
+		resolvedCurrent, resolveErr := resolve(current)
 		if resolveErr == nil {
-			resolvedCurrent = filepath.Clean(resolvedCurrent)
-			for i := len(missingParts) - 1; i >= 0; i-- {
-				resolvedCurrent = filepath.Join(resolvedCurrent, missingParts[i])
-			}
-			return filepath.Clean(resolvedCurrent), len(missingParts) == 0, nil
+			return projectResolved(resolvedCurrent)
 		}
 		if !os.IsNotExist(resolveErr) {
 			return "", false, resolveErr
 		}
 
-		if _, lstatErr := os.Lstat(current); lstatErr == nil {
-			return "", false, fmt.Errorf("existing path cannot be resolved: %s: %w", current, resolveErr)
+		if _, lstatErr := lstat(current); lstatErr == nil {
+			// The path can legitimately appear between the failed resolve above and
+			// this metadata check. Re-resolve it once before classifying an existing
+			// entry as an unresolvable link/reparse point.
+			resolvedCurrent, retryErr := resolve(current)
+			if retryErr == nil {
+				return projectResolved(resolvedCurrent)
+			}
+			if !os.IsNotExist(retryErr) {
+				return "", false, retryErr
+			}
+			if _, retryLstatErr := lstat(current); retryLstatErr == nil {
+				return "", false, fmt.Errorf("existing path cannot be resolved: %s: %w", current, retryErr)
+			} else if !os.IsNotExist(retryLstatErr) {
+				return "", false, retryLstatErr
+			}
 		} else if !os.IsNotExist(lstatErr) {
 			return "", false, lstatErr
 		}

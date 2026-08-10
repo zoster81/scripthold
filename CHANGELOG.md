@@ -4,6 +4,12 @@ This file records changes maintained in the `zoster81/scripthold` fork relative 
 
 The upstream baseline for the first fork-specific changes is commit `52665aa080b24f6427e3fc485df76cc0a8ce1238`.
 
+## Unreleased
+
+### Fixed
+
+- Closed a missing-path resolution TOCTOU window exposed by concurrent durable-task store initialization: when a path appears between an initial failed resolve and the following metadata check, Scripthold now re-resolves it once before classifying it as an unresolvable link or reparse point, while still failing closed for broken or persistently unresolvable links.
+
 ## 2.1.1 - 2026-08-10
 
 ### Changed
