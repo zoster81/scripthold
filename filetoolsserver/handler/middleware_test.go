@@ -194,7 +194,7 @@ func TestUnstringifyJSONArgs(t *testing.T) {
 		},
 		{
 			name:     "plain string field left unchanged",
-			toolName: "write_file",
+			toolName: "write_whole_file",
 			in:       `{"path":"C:/dir/file.txt"}`,
 			want:     `{"path":"C:/dir/file.txt"}`,
 		},
@@ -286,7 +286,7 @@ func TestRepairStringifiedArrayArgs(t *testing.T) {
 		},
 		{
 			name:     "preserves JSON document string content",
-			toolName: "write_file",
+			toolName: "write_whole_file",
 			input:    `{"path":"state.json","content":"{\"ok\":true}","encoding":"utf-8"}`,
 			want:     `{"path":"state.json","content":"{\"ok\":true}","encoding":"utf-8"}`,
 		},

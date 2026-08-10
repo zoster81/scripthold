@@ -104,9 +104,11 @@ Read multiple files through the same incremental encoding/BOM-aware pipeline use
 }
 ```
 
-### write_file
+### write_whole_file
 
-Write UTF-8 input text using the selected target encoding through the shared document encoder. The supplied line endings are written exactly as provided. Encoding failures and invalid BOM policies are rejected before filesystem mutation. The result is staged and synced before an atomic commit; existing targets are checked for concurrent changes, and new targets use a no-replace commit so a concurrently created file is not overwritten.
+Replace the complete target file contents with the supplied UTF-8 `content`, using the selected target encoding through the shared document encoder. The explicit `write_whole_file` name is intentional: the historical `write_file` name could be mistaken for an incremental edit or append operation, while this tool discards any existing text not present in `content`. Use `edit_file` when only part of an existing document should change.
+
+The supplied line endings are written exactly as provided. Encoding failures and invalid BOM policies are rejected before filesystem mutation. The result is staged and synced before an atomic commit; existing targets are checked for concurrent changes, and new targets use a no-replace commit so a concurrently created file is not overwritten.
 
 **Parameters:**
 - `path` (required): Path to the file
@@ -133,7 +135,7 @@ Write UTF-8 input text using the selected target encoding through the shared doc
 **Response:**
 ```json
 {
-  "message": "Successfully wrote 36 bytes to /path/to/multilingual.data (encoding: utf-16-le, BOM: auto)",
+  "message": "Successfully replaced complete file contents at /path/to/multilingual.data with 36 bytes (encoding: utf-16-le, BOM: auto)",
   "encoding": "utf-16-le",
   "bomPolicy": "auto",
   "hasBOM": true,

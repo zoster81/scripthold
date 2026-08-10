@@ -66,7 +66,7 @@ func TestBuildServerPreservesJSONTextInStringArguments(t *testing.T) {
 
 	content := "{\"ok\":true}\n"
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "write_file",
+		Name: "write_whole_file",
 		Arguments: map[string]any{
 			"path": path, "content": content, "encoding": "utf-8",
 		},
@@ -307,17 +307,17 @@ func TestBuildServerUsesProvidedConfiguration(t *testing.T) {
 
 	path := filepath.Join(root, "configured-default.txt")
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "write_file",
+		Name: "write_whole_file",
 		Arguments: map[string]any{
 			"path":    path,
 			"content": "Привет",
 		},
 	})
 	if err != nil {
-		t.Fatalf("call write_file: %v", err)
+		t.Fatalf("call write_whole_file: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("write_file returned an error: %#v", result.Content)
+		t.Fatalf("write_whole_file returned an error: %#v", result.Content)
 	}
 
 	data, err := os.ReadFile(path)

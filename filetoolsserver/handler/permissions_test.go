@@ -15,7 +15,7 @@ func skipOnWindows(t *testing.T) {
 	}
 }
 
-func TestWriteFile_PreservesPermissions(t *testing.T) {
+func TestWriteWholeFile_PreservesPermissions(t *testing.T) {
 	skipOnWindows(t)
 
 	tempDir := t.TempDir()
@@ -35,13 +35,13 @@ func TestWriteFile_PreservesPermissions(t *testing.T) {
 	}
 
 	// Write new content using handler
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:     testFile,
 		Content:  "modified",
 		Encoding: "utf-8",
 	}
 
-	result, _, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestWriteFile_PreservesPermissions(t *testing.T) {
 	}
 }
 
-func TestWriteFile_NewFileUsesDefaultPermissions(t *testing.T) {
+func TestWriteWholeFile_NewFileUsesDefaultPermissions(t *testing.T) {
 	skipOnWindows(t)
 
 	tempDir := t.TempDir()
@@ -65,13 +65,13 @@ func TestWriteFile_NewFileUsesDefaultPermissions(t *testing.T) {
 	testFile := filepath.Join(tempDir, "newfile.txt")
 
 	// Write to new file
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:     testFile,
 		Content:  "new content",
 		Encoding: "utf-8",
 	}
 
-	result, _, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}

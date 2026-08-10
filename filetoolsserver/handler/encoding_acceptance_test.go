@@ -215,7 +215,7 @@ func TestEncodingFixturesSharedTextDocumentAcceptance(t *testing.T) {
 			if fixture.HasBOM {
 				bomPolicy = "auto"
 			}
-			writeResult, _, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+			writeResult, _, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 				Path:     writePath,
 				Content:  expectedText,
 				Encoding: fixture.Encoding,
@@ -225,14 +225,14 @@ func TestEncodingFixturesSharedTextDocumentAcceptance(t *testing.T) {
 				t.Fatal(err)
 			}
 			if writeResult.IsError {
-				t.Fatal("write_file failed")
+				t.Fatal("write_whole_file failed")
 			}
 			written, err := os.ReadFile(writePath)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(written, original) {
-				t.Fatal("write_file did not reproduce fixture bytes")
+				t.Fatal("write_whole_file did not reproduce fixture bytes")
 			}
 
 			convertNoOpPath := filepath.Join(tempDir, "convert_noop_"+fixture.File)

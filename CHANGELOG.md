@@ -6,6 +6,10 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ## Unreleased
 
+### Changed
+
+- Renamed the whole-document replacement tool from `write_file` to `write_whole_file` with no compatibility alias. The old name was too easy to misread as an incremental edit or append operation; the new name makes it explicit that the supplied `content` replaces the complete target contents and omitted text is discarded. Use `edit_file` for partial-document changes.
+
 ### Fixed
 
 - Corrected MCP Registry publication for native releases by making six verified OS/architecture MCPB bundles first-class GitHub Release assets instead of labeling raw executables as `mcpb`; Registry publication now consumes those immutable, checksum-verified bundles read-only, and repair runs remain bound to the original semantic tag.

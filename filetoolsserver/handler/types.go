@@ -29,17 +29,18 @@ type ReadTextFileOutput struct {
 	BOMType            string `json:"bomType,omitempty"`
 }
 
-// WriteFileInput defaults new files to UTF-8 when encoding is omitted and no
-// existing encoding can be preserved. Legacy encodings remain explicit options.
-// BOM accepts "auto" (default), "always", "never", or "preserve".
-type WriteFileInput struct {
+// WriteWholeFileInput replaces the complete target contents. New files default
+// to UTF-8 when encoding is omitted and no existing encoding can be preserved.
+// Legacy encodings remain explicit options. BOM accepts "auto" (default),
+// "always", "never", or "preserve".
+type WriteWholeFileInput struct {
 	Path     string `json:"path"`
 	Content  string `json:"content"`
 	Encoding string `json:"encoding,omitempty"`
 	BOM      string `json:"bom,omitempty"`
 }
 
-type WriteFileOutput struct {
+type WriteWholeFileOutput struct {
 	Message   string `json:"message"`
 	Encoding  string `json:"encoding"`
 	BOMPolicy string `json:"bomPolicy"`

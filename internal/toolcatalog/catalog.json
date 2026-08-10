@@ -162,9 +162,9 @@
       }
     },
     {
-      "name": "write_file",
-      "title": "Write File",
-      "description": "Atomically write text with encoding and BOM control.",
+      "name": "write_whole_file",
+      "title": "Write Whole File",
+      "description": "Atomically replace the complete file contents with supplied text; omitted content is discarded, with encoding and BOM control.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,

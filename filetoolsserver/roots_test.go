@@ -160,7 +160,7 @@ func TestUpdateAllowedDirectoriesFromRootsPreservesDirectoryAlias(t *testing.T) 
 		rootURI = "file:///" + filepath.ToSlash(alias)
 	}
 	updateAllowedDirectoriesFromRoots(h, []*mcp.Root{{URI: rootURI}})
-	result, _, err := h.HandleWriteFile(context.Background(), nil, handler.WriteFileInput{
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, handler.WriteWholeFileInput{
 		Path:    filepath.Join(alias, "dynamic-root.txt"),
 		Content: "dynamic",
 	})

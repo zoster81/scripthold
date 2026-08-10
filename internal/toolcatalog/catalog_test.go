@@ -17,6 +17,14 @@ func TestCatalogIsCompleteAndUnique(t *testing.T) {
 	if _, exists := Lookup("directory_tree"); exists {
 		t.Fatal("deprecated directory_tree tool must not be exposed in 2.0")
 	}
+	if _, exists := Lookup("write_file"); exists {
+		t.Fatal("ambiguous write_file tool name must not be exposed")
+	}
+	if definition, exists := Lookup("write_whole_file"); !exists {
+		t.Fatal("write_whole_file tool must be exposed")
+	} else if !strings.Contains(definition.Description, "complete file contents") {
+		t.Fatalf("write_whole_file description does not make replacement semantics explicit: %q", definition.Description)
+	}
 
 	seen := make(map[string]struct{}, len(definitions))
 	for i, definition := range definitions {

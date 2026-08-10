@@ -58,6 +58,13 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 		t.Fatalf("connector catalog = %d bytes, exceeds budget %d", got, maxConnectorCatalogBytes)
 	}
 
+	if byName["write_file"] != nil {
+		t.Fatal("runtime must not expose the ambiguous write_file compatibility alias")
+	}
+	if byName["write_whole_file"] == nil {
+		t.Fatal("runtime must expose write_whole_file")
+	}
+
 	for _, definition := range definitions {
 		tool, ok := byName[definition.Name]
 		if !ok {

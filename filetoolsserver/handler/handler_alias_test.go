@@ -21,7 +21,7 @@ func TestHandlerAllowsConfiguredDirectoryAliasButRejectsExternalAlias(t *testing
 
 	h := NewHandler([]string{configuredAlias})
 	allowedPath := filepath.Join(configuredAlias, "allowed.txt")
-	result, _, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path:    allowedPath,
 		Content: "allowed",
 	})
@@ -37,7 +37,7 @@ func TestHandlerAllowsConfiguredDirectoryAliasButRejectsExternalAlias(t *testing
 		t.Fatalf("allowed directories = %v, want one resolved root", allowedDirs)
 	}
 	canonicalPath := filepath.Join(allowedDirs[0], "canonical.txt")
-	result, _, err = h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, _, err = h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path:    canonicalPath,
 		Content: "canonical",
 	})
@@ -49,7 +49,7 @@ func TestHandlerAllowsConfiguredDirectoryAliasButRejectsExternalAlias(t *testing
 	}
 
 	deniedPath := filepath.Join(externalAlias, "denied.txt")
-	result, _, err = h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, _, err = h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path:    deniedPath,
 		Content: "denied",
 	})

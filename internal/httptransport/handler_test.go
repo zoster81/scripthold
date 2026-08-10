@@ -478,7 +478,7 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 
 	path := filepath.Join(root, "shared-cp1251.txt")
 	writeResult, err := direct.CallTool(ctx, &mcp.CallToolParams{
-		Name: "write_file",
+		Name: "write_whole_file",
 		Arguments: map[string]any{
 			"path":     path,
 			"content":  "Привет",

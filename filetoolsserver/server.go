@@ -158,7 +158,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	addTool(server, catalogTool("create_directory"), handler.Wrap(logger, "create_directory", h.HandleCreateDirectory))
 
-	addTool(server, catalogTool("write_file"), handler.Wrap(logger, "write_file", h.HandleWriteFile))
+	addTool(server, catalogTool("write_whole_file"), handler.Wrap(logger, "write_whole_file", h.HandleWriteWholeFile))
 
 	addTool(server, catalogTool("move_file"), handler.Wrap(logger, "move_file", h.HandleMoveFile))
 

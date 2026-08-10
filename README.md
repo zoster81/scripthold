@@ -66,7 +66,7 @@ Encoding detection remains content-based and extension-independent. The semantic
 Provides 30 tools for file operations, encoding conversion, state verification, update checks, and durable local execution, plus 3 guided prompts:
 - [`read_text_file`](TOOLS.md#read_text_file) - Stream decoded text with bounded line/output memory and optional absolute line numbers
 - [`read_multiple_files`](TOOLS.md#read_multiple_files) - Read files in deterministic order under one aggregate decoded-output budget
-- [`write_file`](TOOLS.md#write_file) - Write through the shared encoder with explicit `auto`/`always`/`never`/`preserve` BOM policy
+- [`write_whole_file`](TOOLS.md#write_whole_file) - Replace the complete file contents through the shared encoder with explicit `auto`/`always`/`never`/`preserve` BOM policy
 - [`edit_file`](TOOLS.md#edit_file) - Direct edits or bounded one-shot preview/apply, including optional required pre-state backup, exact/flexible/fuzzy operations, and strict unified patches
 - [`patch_package`](TOOLS.md#patch_package) - Inspect, preview, apply, and verify bounded declared multi-file edits, with optional all-target required backups and explicit partial-state evidence
 - [`copy_file`](TOOLS.md#copy_file) - Copy a file to a new location
@@ -108,6 +108,8 @@ Provides 30 tools for file operations, encoding conversion, state verification, 
 `manage_bom` additionally recognizes UTF-32 LE/BE BOM signatures, but UTF-32 is not one of the 24 registered read/write encodings.
 
 See [TOOLS.md](TOOLS.md) for detailed parameters and examples.
+
+The whole-document replacement tool is deliberately named `write_whole_file` rather than the shorter historical `write_file`. The operation replaces the complete target contents with the supplied `content`; text omitted from the request is discarded. Making that destructive scope explicit in the tool name reduces the risk of an agent mistaking it for an incremental edit or append operation. Use `edit_file` when only part of an existing document should change.
 
 **Security:** File operations and `task_run` script paths are restricted to allowed directories. Recursive filesystem tools resolve every visited entry through a shared secure walker and skip symlinks, Windows junctions, and other reparse points that resolve outside those directories. Mutation handlers revalidate paths before commit and use optimistic snapshots plus atomic or no-replace platform operations. Before a script task starts, its script and working directory are revalidated and SHA-256-matching bytes are copied to an owner-only private snapshot used for execution. A shell task revalidates only its working directory; the command itself remains unrestricted and runs with the operating-system permissions of the executor identity. The private task store is owner-only, non-overlapping, and inaccessible to ordinary file tools.
 
@@ -373,7 +375,7 @@ The server can be configured via environment variables:
 | `MCP_HTTP_MAX_CONCURRENT_REQUESTS` | Maximum simultaneous non-SSE HTTP handlers. SSE streams remain bounded by `MCP_MAX_SESSIONS`. | `64` |
 | `MCP_HTTP_SESSION_TIMEOUT` | Idle lifetime of a stateful HTTP session. | `15m` |
 | `MCP_HTTP_ENABLE_EXECUTION` | Additional HTTP-only gate required before either `task_run` execution kind can use its existing authorization flag. | disabled |
-| `MCP_DEFAULT_ENCODING` | Default encoding for newly created files when `write_file` is called without `encoding`. Existing files keep a confidently detected encoding. Legacy encodings such as `cp1251` remain available as explicit overrides. | `utf-8` |
+| `MCP_DEFAULT_ENCODING` | Default encoding for newly created files when `write_whole_file` is called without `encoding`. Existing files keep a confidently detected encoding. Legacy encodings such as `cp1251` remain available as explicit overrides. | `utf-8` |
 | `MCP_MAX_FILE_BYTES` | Hard source-size limit for full-document operations such as `edit_file`. | `67108864` |
 | `MCP_MAX_DECODED_CHARACTERS` | Maximum decoded characters returned by `read_text_file`. | `16777216` |
 | `MCP_MAX_LINE_BYTES` | Maximum bytes in one decoded UTF-8 line. | `16777216` |
@@ -442,7 +444,7 @@ Many legacy projects use non-UTF-8 encodings that AI assistants can't handle nat
 **How it works:**
 ```
 User: Read config.ini and change the title to "Настройки"
-Assistant: [read_text_file with cp1251] → [modify UTF-8] → [write_file with cp1251]
+Assistant: [read_text_file with cp1251] → [modify UTF-8] → [write_whole_file with cp1251]
 ```
 
 The original encoding can be preserved while the public `bom` policy controls BOM output explicitly. The default `auto` policy writes UTF-8 and legacy encodings without BOM and UTF-16 LE/BE with their canonical BOM; use `preserve` when BOM presence must match an existing file.

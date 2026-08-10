@@ -23,19 +23,19 @@ func extractTextFromResultWrite(content []mcp.Content) string {
 	return ""
 }
 
-func TestHandleWriteFile_UTF8(t *testing.T) {
+func TestHandleWriteWholeFile_UTF8(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "output.txt")
 	content := "Hello, World!"
 
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:     testFile,
 		Content:  content,
 		Encoding: "utf-8",
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,19 +59,19 @@ func TestHandleWriteFile_UTF8(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_CP1251(t *testing.T) {
+func TestHandleWriteWholeFile_CP1251(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "output.txt")
 	content := "Привет" // Russian "Hello"
 
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:     testFile,
 		Content:  content,
 		Encoding: "cp1251",
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,18 +97,18 @@ func TestHandleWriteFile_CP1251(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_InvalidEncoding(t *testing.T) {
+func TestHandleWriteWholeFile_InvalidEncoding(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "output.txt")
 
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:     testFile,
 		Content:  "test",
 		Encoding: "invalid-encoding",
 	}
 
-	result, _, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,16 +123,16 @@ func TestHandleWriteFile_InvalidEncoding(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_EmptyPath(t *testing.T) {
+func TestHandleWriteWholeFile_EmptyPath(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:    "",
 		Content: "test",
 	}
 
-	result, _, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,19 +147,19 @@ func TestHandleWriteFile_EmptyPath(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_DefaultEncoding_NewFile(t *testing.T) {
+func TestHandleWriteWholeFile_DefaultEncoding_NewFile(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "new_file.txt")
 	content := "Città Привет 中文 🌍"
 
 	// A new file without an explicit encoding must use the modern UTF-8 default.
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:    testFile,
 		Content: content,
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestHandleWriteFile_DefaultEncoding_NewFile(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_ConfiguredLegacyDefault_NewFile(t *testing.T) {
+func TestHandleWriteWholeFile_ConfiguredLegacyDefault_NewFile(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir}, WithConfig(&config.Config{
 		DefaultEncoding: "cp1251",
@@ -192,7 +192,7 @@ func TestHandleWriteFile_ConfiguredLegacyDefault_NewFile(t *testing.T) {
 	testFile := filepath.Join(tempDir, "legacy-new-file.txt")
 	content := "Тест"
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path:    testFile,
 		Content: content,
 	})
@@ -216,7 +216,7 @@ func TestHandleWriteFile_ConfiguredLegacyDefault_NewFile(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_PreservesExistingEncoding(t *testing.T) {
+func TestHandleWriteWholeFile_PreservesExistingEncoding(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "existing.txt")
@@ -229,12 +229,12 @@ func TestHandleWriteFile_PreservesExistingEncoding(t *testing.T) {
 
 	// Write new content WITHOUT specifying encoding - should preserve UTF-8
 	newContent := "Goodbye, мир!"
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:    testFile,
 		Content: newContent,
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestHandleWriteFile_PreservesExistingEncoding(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_PreservesExistingCP1251(t *testing.T) {
+func TestHandleWriteWholeFile_PreservesExistingCP1251(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "cyrillic.txt")
@@ -274,12 +274,12 @@ func TestHandleWriteFile_PreservesExistingCP1251(t *testing.T) {
 
 	// Write new content WITHOUT specifying encoding - should preserve CP1251
 	newContent := "Пока" // "Bye" in Russian
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:    testFile,
 		Content: newContent,
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestHandleWriteFile_PreservesExistingCP1251(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_ExplicitEncodingOverridesExisting(t *testing.T) {
+func TestHandleWriteWholeFile_ExplicitEncodingOverridesExisting(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "override.txt")
@@ -319,13 +319,13 @@ func TestHandleWriteFile_ExplicitEncodingOverridesExisting(t *testing.T) {
 
 	// Write new content WITH explicit CP1251 encoding - should use CP1251, not UTF-8
 	newContent := "Тест" // Russian "Test"
-	input := WriteFileInput{
+	input := WriteWholeFileInput{
 		Path:     testFile,
 		Content:  newContent,
 		Encoding: "cp1251", // Explicit override
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, input)
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,13 +372,13 @@ func decodeWrittenText(t *testing.T, encodingName string, data []byte) string {
 	return string(decoded)
 }
 
-func TestHandleWriteFile_UTF16LEAutoAddsSingleBOM(t *testing.T) {
+func TestHandleWriteWholeFile_UTF16LEAutoAddsSingleBOM(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "multilingual.data")
 	content := "title = encoding acceptance\r\n// Città Привет 中文\r\n"
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: content, Encoding: "utf-16-le",
 	})
 	if err != nil {
@@ -407,12 +407,12 @@ func TestHandleWriteFile_UTF16LEAutoAddsSingleBOM(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_BOMNeverWritesBOMlessUTF16(t *testing.T) {
+func TestHandleWriteWholeFile_BOMNeverWritesBOMlessUTF16(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "bomless.data")
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: "value = 1\r\n", Encoding: "utf-16-le", BOM: "never",
 	})
 	if err != nil {
@@ -433,7 +433,7 @@ func TestHandleWriteFile_BOMNeverWritesBOMlessUTF16(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_BOMPreserveKeepsUTF8BOM(t *testing.T) {
+func TestHandleWriteWholeFile_BOMPreserveKeepsUTF8BOM(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "preserve.txt")
@@ -442,7 +442,7 @@ func TestHandleWriteFile_BOMPreserveKeepsUTF8BOM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: "new", Encoding: "utf-8", BOM: "preserve",
 	})
 	if err != nil {
@@ -463,7 +463,7 @@ func TestHandleWriteFile_BOMPreserveKeepsUTF8BOM(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_InvalidBOMPolicyDoesNotMutate(t *testing.T) {
+func TestHandleWriteWholeFile_InvalidBOMPolicyDoesNotMutate(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "unchanged.txt")
@@ -472,7 +472,7 @@ func TestHandleWriteFile_InvalidBOMPolicyDoesNotMutate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: "replacement", Encoding: "utf-8", BOM: "sometimes",
 	})
 	if err != nil {
@@ -490,12 +490,12 @@ func TestHandleWriteFile_InvalidBOMPolicyDoesNotMutate(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_BOMAlwaysRejectsLegacyEncoding(t *testing.T) {
+func TestHandleWriteWholeFile_BOMAlwaysRejectsLegacyEncoding(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "legacy.txt")
 
-	result, _, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: "Привет", Encoding: "cp1251", BOM: "always",
 	})
 	if err != nil {
@@ -509,12 +509,12 @@ func TestHandleWriteFile_BOMAlwaysRejectsLegacyEncoding(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_BOMAlwaysAddsUTF8BOM(t *testing.T) {
+func TestHandleWriteWholeFile_BOMAlwaysAddsUTF8BOM(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "utf8-bom.txt")
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: "hello", Encoding: "utf-8", BOM: "always",
 	})
 	if err != nil {
@@ -535,7 +535,7 @@ func TestHandleWriteFile_BOMAlwaysAddsUTF8BOM(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_UnrepresentableContentDoesNotMutate(t *testing.T) {
+func TestHandleWriteWholeFile_UnrepresentableContentDoesNotMutate(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "legacy.txt")
@@ -544,7 +544,7 @@ func TestHandleWriteFile_UnrepresentableContentDoesNotMutate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: "earth 🌍", Encoding: "cp1251", BOM: "never",
 	})
 	if err != nil {
@@ -562,7 +562,7 @@ func TestHandleWriteFile_UnrepresentableContentDoesNotMutate(t *testing.T) {
 	}
 }
 
-func TestHandleWriteFile_BOMPreserveTreatsEmptyFileAsBOMless(t *testing.T) {
+func TestHandleWriteWholeFile_BOMPreserveTreatsEmptyFileAsBOMless(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "empty.txt")
@@ -570,7 +570,7 @@ func TestHandleWriteFile_BOMPreserveTreatsEmptyFileAsBOMless(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, output, err := h.HandleWriteFile(context.Background(), nil, WriteFileInput{
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path: path, Content: "hello", Encoding: "utf-8", BOM: "preserve",
 	})
 	if err != nil {

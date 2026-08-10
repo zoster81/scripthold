@@ -17,7 +17,7 @@ import (
 
 func TestV2PublicJSONTagsUseCamelCase(t *testing.T) {
 	shapes := []any{
-		ReadTextFileInput{}, ReadTextFileOutput{}, WriteFileInput{}, WriteFileOutput{},
+		ReadTextFileInput{}, ReadTextFileOutput{}, WriteWholeFileInput{}, WriteWholeFileOutput{},
 		ListDirectoryInput{}, ListDirectoryOutput{}, ListEncodingsInput{}, ListEncodingsOutput{},
 		DetectEncodingInput{}, DetectEncodingOutput{}, ListAllowedDirectoriesInput{}, ListAllowedDirectoriesOutput{},
 		GetFileInfoInput{}, GetFileInfoOutput{}, CreateDirectoryInput{}, CreateDirectoryOutput{},

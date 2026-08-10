@@ -67,16 +67,16 @@ func main() {
 
 	// Write/Read UTF-8
 	testFile := filepath.Join(tempDir, "test.txt")
-	r3, _, _ := h.HandleWriteFile(ctx, nil, handler.WriteFileInput{Path: testFile, Content: "Hello!", Encoding: "utf-8"})
-	check("write_file (UTF-8)", !r3.IsError)
+	r3, _, _ := h.HandleWriteWholeFile(ctx, nil, handler.WriteWholeFileInput{Path: testFile, Content: "Hello!", Encoding: "utf-8"})
+	check("write_whole_file (UTF-8)", !r3.IsError)
 
 	r4, o4, _ := h.HandleReadTextFile(ctx, nil, handler.ReadTextFileInput{Path: testFile})
 	check("read_text_file (UTF-8)", !r4.IsError && o4.Content == "Hello!")
 
 	// Write/Read CP1251
 	cyrillicFile := filepath.Join(tempDir, "cyrillic.txt")
-	r5, _, _ := h.HandleWriteFile(ctx, nil, handler.WriteFileInput{Path: cyrillicFile, Content: "Здравей!", Encoding: "cp1251"})
-	check("write_file (CP1251)", !r5.IsError)
+	r5, _, _ := h.HandleWriteWholeFile(ctx, nil, handler.WriteWholeFileInput{Path: cyrillicFile, Content: "Здравей!", Encoding: "cp1251"})
+	check("write_whole_file (CP1251)", !r5.IsError)
 
 	r6, o6, _ := h.HandleReadTextFile(ctx, nil, handler.ReadTextFileInput{Path: cyrillicFile, Encoding: "cp1251"})
 	check("read_text_file (CP1251)", !r6.IsError && o6.Content == "Здравей!")
