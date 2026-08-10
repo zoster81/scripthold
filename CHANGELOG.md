@@ -14,6 +14,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 - Corrected MCP Registry publication for native releases by making six verified OS/architecture MCPB bundles first-class GitHub Release assets instead of labeling raw executables as `mcpb`; Registry publication now consumes those immutable, checksum-verified bundles read-only, and repair runs remain bound to the original semantic tag.
 - Restored configurable allowed-directory behavior for durable tasks: task-store descriptors no longer persist the root set, and admitted task paths remain authorized across later startup-root changes while retaining exact-path and script-digest revalidation.
+- Made CI and release fuzz smoke gates deterministic by using fixed execution counts instead of wall-clock fuzz deadlines, preventing successful bounded fuzz targets from intermittently failing while the Go fuzz engine shuts down at the time limit.
 
 ## 2.1.0 - 2026-08-09
 

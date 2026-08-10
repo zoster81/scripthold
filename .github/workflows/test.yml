@@ -55,19 +55,19 @@ jobs:
       - name: Run bounded fuzz smoke tests
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go test ./internal/encoding -run '^$' -fuzz '^FuzzDetectUTF16Validation$' -fuzztime=5s
-          go test ./internal/encoding -run '^$' -fuzz '^FuzzDecoderReaderChunkInvariance$' -fuzztime=5s
-          go test ./internal/textstream -run '^$' -fuzz '^FuzzScanLinesRoundTrip$' -fuzztime=5s
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeHostValue$' -fuzztime=5s
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeOrigin$' -fuzztime=5s
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzTrustedProxyClientAddress$' -fuzztime=5s
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzJSONRPCMessageRoundTrip$' -fuzztime=5s
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeDescriptor$' -fuzztime=5s
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeManifest$' -fuzztime=5s
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeIndex$' -fuzztime=5s
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeListCursor$' -fuzztime=5s
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzValidateGCPlan$' -fuzztime=5s
-          go test ./cmd/scripthold -run '^$' -fuzz '^FuzzParseBackupDiagnosticCommand$' -fuzztime=5s
+          go test ./internal/encoding -run '^$' -fuzz '^FuzzDetectUTF16Validation$' -fuzztime=10000x
+          go test ./internal/encoding -run '^$' -fuzz '^FuzzDecoderReaderChunkInvariance$' -fuzztime=10000x
+          go test ./internal/textstream -run '^$' -fuzz '^FuzzScanLinesRoundTrip$' -fuzztime=10000x
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeHostValue$' -fuzztime=10000x
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeOrigin$' -fuzztime=10000x
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzTrustedProxyClientAddress$' -fuzztime=10000x
+          go test ./internal/httptransport -run '^$' -fuzz '^FuzzJSONRPCMessageRoundTrip$' -fuzztime=10000x
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeDescriptor$' -fuzztime=10000x
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeManifest$' -fuzztime=10000x
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeIndex$' -fuzztime=10000x
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeListCursor$' -fuzztime=10000x
+          go test ./internal/backupstore -run '^$' -fuzz '^FuzzValidateGCPlan$' -fuzztime=10000x
+          go test ./cmd/scripthold -run '^$' -fuzz '^FuzzParseBackupDiagnosticCommand$' -fuzztime=10000x
 
       - name: Lint GitHub Actions workflows
         if: matrix.os == 'ubuntu-latest'
