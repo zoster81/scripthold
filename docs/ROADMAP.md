@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the published `2.1.0` release. R21 is the only active milestone; its 30-tool/3-prompt source, GitHub Release, MCPB assets, and MCP Registry publication are complete, while controlled local deployment and rollback remain the only open gate.
+Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the published `2.1.0` release. R21 is the only active milestone; `2.1.0` is published, and the verified `2.1.1` hotfix target carries the important durable-task root-policy correction plus the explicit `write_whole_file` safety rename. Public `2.1.1` publication, deployment, rollback, and restoration are the remaining gates.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -36,15 +36,15 @@ Product identity and the fork's independent relationship to upstream are defined
 | R18 | COMPLETE | Implemented and verified the approved persistent-backup subsystem in phased, failure-injected, cross-platform increments. |
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
 | R20 | COMPLETE | Stable SDK `v1.7.0`, stdio version gating, same-endpoint dual-generation HTTP, structured unsupported-version handling, and the full compatibility/conformance gate are verified in source. |
-| R21 | ACTIVE | Add and prove durable asynchronous task execution, then consolidate it with R15–R20 into the first Scripthold-named 2.1.0 release and controlled local deployment. |
+| R21 | ACTIVE | Ship durable asynchronous task execution in the 2.1.x line, including the important 2.1.1 root-policy and whole-file-write safety fixes, then complete controlled deployment and rollback. |
 
 ---
 
-# R21 — Durable tasks and Scripthold 2.1.0 release consolidation
+# R21 — Durable tasks and Scripthold 2.1.x release consolidation
 
 ## Goal
 
-Publish and deploy `2.1.0` with the [durable task subsystem](DURABLE_TASKS.md) required for long-running shell/script work, without weakening existing compatibility, security, backup, transport, or release invariants.
+Maintain and deploy the `2.1.x` line with the [durable task subsystem](DURABLE_TASKS.md) required for long-running shell/script work, without weakening existing compatibility, security, backup, transport, or release invariants. The `2.1.1` patch release is the immediate hotfix target for important post-`2.1.0` correctness and safety fixes.
 
 ## Remaining gate
 
@@ -61,7 +61,9 @@ Publish and deploy `2.1.0` with the [durable task subsystem](DURABLE_TASKS.md) r
 - [x] Promote `CHANGELOG.md` from `Unreleased` to `2.1.0 - YYYY-MM-DD` only after the release commit is final, then run `node scripts/verify-release-version.js v2.1.0`.
 - [x] Push `main` and require the applicable GitHub Actions checks to pass.
 - [x] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, six MCPB bundles plus `mcpb-checksums.txt`, release metadata, and the first active `io.github.zoster81/scripthold` Registry record.
-- [ ] Deploy the published `2.1.0` Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check, then restore and reverify `2.1.0`.
+- [x] Deploy and live-verify the post-`2.1.0` hotfix source internally, including the durable-task root-policy correction and the explicit `write_whole_file` tool surface.
+- [ ] Publish `v2.1.1` from a dated release commit after the complete release verification gate passes; verify all six raw binaries, six archives, `checksums.txt`, six MCPB bundles plus `mcpb-checksums.txt`, and the `io.github.zoster81/scripthold` Registry record.
+- [ ] Deploy the published `2.1.1` Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check against the retained published baseline, then restore and reverify `2.1.1`.
 
 ## Publication record
 
@@ -77,7 +79,7 @@ Post-release hotfix `9f7e1cca06dc5d8712c0a8cbb7ca713445d4676b` corrected that bo
 
 ## Completion gate
 
-R21 is complete only when the durable queue survives frontend and worker failure as specified, its bounded logs/recovery/parallelism/locks/cancellation and six target builds pass, `v2.1.0` is published from the exact verified commit, the Scripthold-named Registry record and assets are verified, the local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
+R21 is complete only when the durable queue survives frontend and worker failure as specified, its bounded logs/recovery/parallelism/locks/cancellation and six target builds pass, the `2.1.x` release line includes the verified `v2.1.1` hotfix with its Registry record and assets, the published `2.1.1` local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
 
 ---
 
