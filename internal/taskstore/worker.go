@@ -33,15 +33,13 @@ var (
 )
 
 type Worker struct {
-	store            *Store
-	executable       string
-	allowedRequested []string
-	allowedResolved  []string
-	policy           WorkerPolicy
-	logger           *slog.Logger
-	startedAt        time.Time
-	suspectSince     map[string]time.Time
-	reconcileCycle   func(context.Context) error
+	store          *Store
+	executable     string
+	policy         WorkerPolicy
+	logger         *slog.Logger
+	startedAt      time.Time
+	suspectSince   map[string]time.Time
+	reconcileCycle func(context.Context) error
 }
 
 func NewWorker(store *Store, executable string, allowedDirectories []string, policy WorkerPolicy, logger *slog.Logger) (*Worker, error) {
@@ -61,7 +59,7 @@ func NewWorker(store *Store, executable string, allowedDirectories []string, pol
 	if logger == nil {
 		logger = slog.Default()
 	}
-	worker := &Worker{store: store, executable: executable, allowedRequested: set.Requested, allowedResolved: set.Resolved, policy: policy, logger: logger, startedAt: time.Now(), suspectSince: make(map[string]time.Time)}
+	worker := &Worker{store: store, executable: executable, policy: policy, logger: logger, startedAt: time.Now(), suspectSince: make(map[string]time.Time)}
 	worker.reconcileCycle = worker.reconcile
 	return worker, nil
 }
@@ -297,7 +295,7 @@ func (worker *Worker) prepareLaunch(taskID string, request Request) (launchRecor
 	if request.Kind == KindScript && !worker.policy.AllowRunScript {
 		return launchRecord{}, errors.New("script task execution is disabled in the worker")
 	}
-	cwd, err := security.ValidatePathWithAllowedDirectories(request.WorkingDirectory, worker.allowedRequested, worker.allowedResolved)
+	cwd, err := validateAdmittedTaskPath(request.WorkingDirectory)
 	if err != nil {
 		return launchRecord{}, err
 	}
@@ -313,7 +311,7 @@ func (worker *Worker) prepareLaunch(taskID string, request Request) (launchRecor
 	if request.Kind == KindShell {
 		program, args, err = execution.BuildShellCommand(request.Shell, request.Command)
 	} else {
-		path, pathErr := security.ValidatePathWithAllowedDirectories(request.ScriptPath, worker.allowedRequested, worker.allowedResolved)
+		path, pathErr := validateAdmittedTaskPath(request.ScriptPath)
 		if pathErr != nil {
 			return launchRecord{}, pathErr
 		}
@@ -327,6 +325,14 @@ func (worker *Worker) prepareLaunch(taskID string, request Request) (launchRecor
 		return launchRecord{}, err
 	}
 	return launchRecord{Program: program, Args: args, WorkingDirectory: cwd, MaxRuntimeSeconds: maximum}, nil
+}
+
+// validateAdmittedTaskPath revalidates the exact canonical path captured at
+// admission without consulting the process's current allowed-root set. This
+// keeps durable task authority stable across root configuration changes while
+// still rejecting later symlink, junction, or reparse-point redirection.
+func validateAdmittedTaskPath(path string) (string, error) {
+	return security.ValidatePathWithAllowedDirectories(path, []string{path}, []string{path})
 }
 
 func (worker *Worker) snapshotScript(taskID, sourcePath string, expectedSize int64, expectedDigest string) (destination string, err error) {

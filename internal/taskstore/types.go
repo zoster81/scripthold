@@ -166,11 +166,10 @@ type WorkerPolicy struct {
 }
 
 type descriptor struct {
-	Format           string    `json:"format"`
-	Salt             string    `json:"salt"`
-	CreatedAt        time.Time `json:"createdAt"`
-	Limits           Limits    `json:"limits"`
-	AllowedRootsHash string    `json:"allowedRootsHash"`
+	Format    string    `json:"format"`
+	Salt      string    `json:"salt"`
+	CreatedAt time.Time `json:"createdAt"`
+	Limits    Limits    `json:"limits"`
 }
 
 type stateRecord struct {

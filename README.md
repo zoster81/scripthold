@@ -403,7 +403,7 @@ The server can be configured via environment variables:
 | `MCP_ENABLE_RUN_SCRIPT` | Enables `task_run` with `kind=script`. Accepted true values: `1`, `true`, `yes`, `on`, `enabled`. | disabled |
 | `MCP_ENABLE_SHELL` | Enables unrestricted `task_run` with `kind=shell`. Accepted true values: `1`, `true`, `yes`, `on`, `enabled`. | disabled |
 | `MCP_ENABLE_EXECUTION` | Enables both `task_run` execution kinds; use only in a trusted environment. | disabled |
-| `MCP_TASK_STORE_DIR` | Enables the owner-only durable task registry; requires fixed startup roots and must be link-free, outside public roots, and separate from `MCP_BACKUP_STORE_DIR`. | unset |
+| `MCP_TASK_STORE_DIR` | Enables the owner-only durable task registry; the store must be link-free, outside public roots, and separate from `MCP_BACKUP_STORE_DIR`. Allowed directories may change between restarts without recreating the task store. | unset |
 | `MCP_TASK_MAX_CONCURRENCY` | Maximum simultaneous starting/running tasks. | `2` |
 | `MCP_TASK_MAX_QUEUED` | Maximum queued tasks. | `64` |
 | `MCP_TASK_MAX_LOG_BYTES_PER_STREAM` | Retained fixed head plus rolling tail for each stdout/stderr stream. | `8388608` |

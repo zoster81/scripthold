@@ -34,7 +34,7 @@ Apply only the checks relevant to the change, but record omissions explicitly.
 - [ ] Include encoding/BOM and LF/CRLF cases where relevant.
 - [ ] Include filesystem failure and concurrent-modification cases where relevant.
 - [ ] Include cancellation, timeout, saturation, deterministic ordering, and race cases where relevant.
-- [ ] For durable tasks, test idempotency conflict, queue and concurrency bounds, logical locks, frontend/worker/supervisor failure, reboot-style stale recovery, at-most-once behavior, process-tree cancellation, cursor gaps, retention, and store-policy mismatch.
+- [ ] For durable tasks, test idempotency conflict, queue and concurrency bounds, logical locks, frontend/worker/supervisor failure, reboot-style stale recovery, at-most-once behavior, process-tree cancellation, cursor gaps, retention, durability-limit mismatch, and allowed-directory changes between restarts.
 - [ ] Include platform-specific and cross-build coverage where relevant.
 - [ ] Include security-negative tests, not only successful paths.
 - [ ] For structured execution, verify fixed direct invocation, argument construction, working-directory confinement, environment filtering, timeout, and bounded diagnostics without a shell.

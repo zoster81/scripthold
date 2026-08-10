@@ -4,7 +4,7 @@ Scripthold 2.1.0 replaces the request-bound `run_script` and `shell` tools with 
 
 ## Process topology
 
-One private task store is shared by every authorized stdio and HTTP frontend that uses the same allowed-directory policy:
+One private task store is shared by authorized stdio and HTTP frontends independently of later allowed-directory configuration changes:
 
 ```text
 stdio frontend ----\
@@ -70,7 +70,7 @@ Retention runs only in the worker and never deletes `queued`, `starting`, or `ru
 | `MCP_TASK_MAX_TERMINAL` | `1000` | Maximum retained terminal tasks. |
 | `MCP_TASK_MAX_TOTAL_BYTES` | `536870912` | Total task-registry retention target. |
 
-The descriptor permanently binds one store to its exact limits and normalized allowed-directory policy. Durable tasks therefore require at least one fixed startup allowed directory; client-supplied dynamic roots cannot redefine worker authority. Frontends, supervisor, worker, and executors fail closed on a mismatch. The descriptor and every store entry are owner-only; Windows uses a protected owner-only DACL and Unix uses owner/mode validation. Store roots, task commands, and task logs are never accessible through ordinary filesystem tools merely because a broader public root was configured.
+The descriptor permanently binds one store to its durability limits, but allowed directories are runtime configuration rather than persistent store identity. Operators may add or remove startup directories between restarts without recreating the task store. `task_run` validates and canonicalizes the working directory and script path at admission; the worker later revalidates those exact admitted paths as durable task authority rather than comparing them with the process's current root set. Script execution still requires the admitted size and SHA-256 digest to match before the worker creates its private snapshot. The descriptor and every store entry are owner-only; Windows uses a protected owner-only DACL and Unix uses owner/mode validation. Store roots, task commands, and task logs are never accessible through ordinary filesystem tools merely because a broader public root was configured.
 
 Execution remains disabled by default. `kind=script` requires `MCP_ENABLE_RUN_SCRIPT=1` or `MCP_ENABLE_EXECUTION=1`; `kind=shell` requires `MCP_ENABLE_SHELL=1` or the combined flag. An HTTP frontend additionally requires `MCP_HTTP_ENABLE_EXECUTION=1`. The worker snapshots the same kind-specific gates, so an injected queue record cannot bypass them.
 

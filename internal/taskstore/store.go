@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -58,9 +57,9 @@ type Store struct {
 
 func Initialize(root string, publicAllowedDirectories []string, limits Limits) (*Store, error) {
 	if len(publicAllowedDirectories) == 0 {
-		return nil, errors.New("task store initialization requires at least one fixed allowed directory")
+		return nil, errors.New("task store initialization requires at least one allowed directory")
 	}
-	store, err := openStore(root, publicAllowedDirectories, limits, true, false)
+	store, err := openStore(root, publicAllowedDirectories, limits, true)
 	if err != nil {
 		return nil, err
 	}
@@ -68,17 +67,17 @@ func Initialize(root string, publicAllowedDirectories []string, limits Limits) (
 }
 
 func Open(root string, publicAllowedDirectories []string, limits Limits) (*Store, error) {
-	return openStore(root, publicAllowedDirectories, limits, false, false)
+	return openStore(root, publicAllowedDirectories, limits, false)
 }
 
-// OpenExecutor opens an existing store without public-root comparison. It is
-// reserved for the per-task helper, which receives no path authority and can
-// execute only a token-bound launch record prepared by the policy-bound worker.
+// OpenExecutor opens an existing store for the per-task helper, which receives
+// no public filesystem authority and can execute only a token-bound launch
+// record prepared by the worker.
 func OpenExecutor(root string, limits Limits) (*Store, error) {
-	return openStore(root, nil, limits, false, true)
+	return openStore(root, nil, limits, false)
 }
 
-func openStore(root string, publicAllowedDirectories []string, limits Limits, create, executorOpen bool) (*Store, error) {
+func openStore(root string, publicAllowedDirectories []string, limits Limits, create bool) (*Store, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, ErrDisabled
@@ -100,11 +99,6 @@ func openStore(root string, publicAllowedDirectories []string, limits Limits, cr
 	if err := validateLimits(limits); err != nil {
 		return nil, err
 	}
-	allowedRootsHash, err := hashAllowedRoots(publicAllowedDirectories)
-	if err != nil {
-		return nil, err
-	}
-
 	if create {
 		_, statErr := os.Lstat(root)
 		if errors.Is(statErr, os.ErrNotExist) {
@@ -170,7 +164,7 @@ func openStore(root string, publicAllowedDirectories []string, limits Limits, cr
 			if err != nil {
 				return nil, fmt.Errorf("create task descriptor entropy: %w", err)
 			}
-			desc := descriptor{Format: FormatVersion, Salt: salt, CreatedAt: time.Now().UTC(), Limits: limits, AllowedRootsHash: allowedRootsHash}
+			desc := descriptor{Format: FormatVersion, Salt: salt, CreatedAt: time.Now().UTC(), Limits: limits}
 			if err := writeJSONExclusive(descriptorPath, desc); err != nil && !errors.Is(err, os.ErrExist) {
 				return nil, fmt.Errorf("create task descriptor: %w", err)
 			}
@@ -184,11 +178,8 @@ func openStore(root string, publicAllowedDirectories []string, limits Limits, cr
 		return nil, fmt.Errorf("read task descriptor: %w", err)
 	}
 	_, saltErr := hex.DecodeString(desc.Salt)
-	if desc.Format != FormatVersion || len(desc.Salt) != 64 || saltErr != nil || desc.Limits != limits || len(desc.AllowedRootsHash) != 64 {
+	if desc.Format != FormatVersion || len(desc.Salt) != 64 || saltErr != nil || desc.Limits != limits {
 		return nil, errors.New("unsupported or invalid task store descriptor")
-	}
-	if !executorOpen && desc.AllowedRootsHash != allowedRootsHash {
-		return nil, errors.New("task store allowed-directory policy does not match its descriptor")
 	}
 	return &Store{root: root, tasksRoot: tasksRoot, descriptor: desc, limits: limits}, nil
 }
@@ -207,25 +198,6 @@ func waitForSecurePath(path string, directory bool, timeout time.Duration) error
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-}
-
-func hashAllowedRoots(roots []string) (string, error) {
-	if len(roots) == 0 {
-		return "", nil
-	}
-	set, err := security.NormalizeAllowedDirectorySet(roots)
-	if err != nil {
-		return "", err
-	}
-	values := append([]string(nil), set.Resolved...)
-	for index := range values {
-		if runtime.GOOS == "windows" {
-			values[index] = strings.ToLower(values[index])
-		}
-	}
-	sort.Strings(values)
-	digest := sha256.Sum256([]byte(strings.Join(values, "\x00")))
-	return hex.EncodeToString(digest[:]), nil
 }
 
 func validateLimits(limits Limits) error {

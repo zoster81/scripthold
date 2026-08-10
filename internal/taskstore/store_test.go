@@ -1,6 +1,7 @@
 package taskstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -315,14 +316,106 @@ func TestOpenRejectsChangedDurabilityPolicy(t *testing.T) {
 	}
 }
 
-func TestFrontendOpenRequiresExactAllowedRootPolicy(t *testing.T) {
-	store, public := newTestStoreWithPublic(t)
-	if _, err := Open(store.root, []string{public}, store.limits); err != nil {
-		t.Fatalf("matching policy open: %v", err)
+func TestFrontendOpenAllowsAllowedRootPolicyChanges(t *testing.T) {
+	base := canonicalTaskStoreTestDir(t)
+	firstRoot := filepath.Join(base, "first")
+	secondRoot := filepath.Join(base, "second")
+	if err := os.Mkdir(firstRoot, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := Open(store.root, nil, store.limits); err == nil || !strings.Contains(err.Error(), "allowed-directory policy") {
-		t.Fatalf("missing policy error = %v", err)
+	if err := os.Mkdir(secondRoot, 0o700); err != nil {
+		t.Fatal(err)
 	}
+	store, err := Initialize(filepath.Join(base, "private-tasks"), []string{firstRoot}, testLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(store.root, []string{firstRoot, secondRoot}, store.limits); err != nil {
+		t.Fatalf("expanded policy open: %v", err)
+	}
+	if _, err := Open(store.root, []string{secondRoot}, store.limits); err != nil {
+		t.Fatalf("reduced policy open: %v", err)
+	}
+}
+
+func TestWorkerKeepsAdmittedPathsAuthorizedAfterAllowedRootChange(t *testing.T) {
+	base := canonicalTaskStoreTestDir(t)
+	activeRoot := filepath.Join(base, "active")
+	admittedRoot := filepath.Join(base, "admitted")
+	if err := os.Mkdir(activeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(admittedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Initialize(filepath.Join(base, "private-tasks"), []string{activeRoot, admittedRoot}, testLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker, err := NewWorker(store, os.Args[0], []string{activeRoot}, WorkerPolicy{AllowShell: true, AllowRunScript: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("shell", func(t *testing.T) {
+		request := shellRequest("persisted-shell-authority")
+		request.WorkingDirectory = admittedRoot
+		admitted, err := store.Submit(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		persisted, err := store.readPersistedRequest(admitted.Task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		launch, err := worker.prepareLaunch(admitted.Task.ID, persisted.Request)
+		if err != nil {
+			t.Fatalf("prepare admitted shell task after root change: %v", err)
+		}
+		if !security.PathsEqual(launch.WorkingDirectory, admittedRoot) {
+			t.Fatalf("working directory = %q, want %q", launch.WorkingDirectory, admittedRoot)
+		}
+	})
+
+	t.Run("script", func(t *testing.T) {
+		scriptPath := filepath.Join(admittedRoot, "job.ps1")
+		content := []byte("Write-Output 'authorized'\n")
+		if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(content)
+		request := Request{
+			Kind:             KindScript,
+			IdempotencyKey:   "persisted-script-authority",
+			WorkingDirectory: admittedRoot,
+			ScriptPath:       scriptPath,
+			ScriptDigest:     hex.EncodeToString(digest[:]),
+			ScriptSize:       int64(len(content)),
+		}
+		admitted, err := store.Submit(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		persisted, err := store.readPersistedRequest(admitted.Task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		launch, err := worker.prepareLaunch(admitted.Task.ID, persisted.Request)
+		if err != nil {
+			t.Fatalf("prepare admitted script task after root change: %v", err)
+		}
+		if !security.PathsEqual(launch.WorkingDirectory, admittedRoot) {
+			t.Fatalf("working directory = %q, want %q", launch.WorkingDirectory, admittedRoot)
+		}
+		snapshotPath := filepath.Join(store.taskDir(admitted.Task.ID), "script.snapshot.ps1")
+		actual, err := os.ReadFile(snapshotPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(actual, content) {
+			t.Fatalf("script snapshot = %q, want %q", actual, content)
+		}
+	})
 }
 
 func TestConcurrentInitializeConvergesOnOneDescriptor(t *testing.T) {
