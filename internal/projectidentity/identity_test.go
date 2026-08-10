@@ -289,29 +289,69 @@ func TestForkOwnedDownloaderPluginIsRemoved(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowsRunNativeAndContainerSmokes(t *testing.T) {
+func TestCIReleaseCandidateOwnsExpensiveValidationAndReleaseAttestsIt(t *testing.T) {
 	root := repositoryRoot(t)
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)")
+	ciWorkflow := filepath.FromSlash(".github/workflows/test.yml")
+	for _, required := range []string{
+		"name: CI",
+		"go test -race ./... -count=1",
+		"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)",
+		"staticcheck@v0.7.0",
+		"govulncheck@v1.6.0",
+		"-fuzztime=10000x",
+		"cross-build:",
+		"container-smoke:",
+		"MCP_EXTERNAL_SMOKE_EXECUTABLE=docker",
+		"--transport=streamable-http /data",
+		"release-candidate:",
+		"name: Release candidate",
+	} {
+		assertFileContains(t, root, ciWorkflow, required)
+	}
 
-	buildWorkflow := filepath.FromSlash(".github/workflows/build.yml")
-	assertFileContains(t, root, buildWorkflow, "container-smoke:")
-	assertFileContains(t, root, buildWorkflow, "MCP_EXTERNAL_SMOKE_EXECUTABLE=docker")
-	assertFileContains(t, root, buildWorkflow, "--transport=streamable-http /data")
-	assertFileContains(t, root, buildWorkflow, `token="$(sudo cat "${workdir}/secrets/token")"`)
-
-	data, err := os.ReadFile(filepath.Join(root, buildWorkflow))
+	ciData, err := os.ReadFile(filepath.Join(root, ciWorkflow))
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := string(data)
-	chmodIndex := strings.Index(content, `chmod 0600 "${workdir}/secrets/token" "${workdir}/secrets/key.pem"`)
-	chownIndex := strings.Index(content, `sudo chown -R 10001:10001 "${workdir}/data" "${workdir}/secrets"`)
+	ciContent := string(ciData)
+	chmodIndex := strings.Index(ciContent, `chmod 0600 "${workdir}/secrets/token" "${workdir}/secrets/key.pem"`)
+	chownIndex := strings.Index(ciContent, `sudo chown -R 10001:10001 "${workdir}/data" "${workdir}/secrets"`)
 	if chmodIndex < 0 || chownIndex < 0 {
 		t.Fatal("container workflow must set secret modes and mapped ownership explicitly")
 	}
 	if chmodIndex > chownIndex {
 		t.Error("container workflow must set secret modes before transferring ownership to UID 10001")
+	}
+
+	releaseWorkflow := filepath.FromSlash(".github/workflows/release.yml")
+	for _, required := range []string{
+		"actions: read",
+		`test "$(git cat-file -t "refs/tags/${VERSION_TAG}")" = 'tag'`,
+		`test "$(git rev-parse origin/main)" = "${tag_commit}"`,
+		`-f head_sha="${TAG_COMMIT}"`,
+		`.head_branch == "main"`,
+		`.event == "push"`,
+		`.path == ".github/workflows/test.yml"`,
+		`.name == "Release candidate" and .conclusion == "success"`,
+		"goreleaser/goreleaser-action@v7.2.3",
+	} {
+		assertFileContains(t, root, releaseWorkflow, required)
+	}
+	for _, duplicated := range []string{
+		"go test -race ./...",
+		"staticcheck@v0.7.0",
+		"govulncheck@v1.6.0",
+		"-fuzztime=10000x",
+		"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)",
+	} {
+		assertFileNotContains(t, root, releaseWorkflow, duplicated)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(".github/workflows/build.yml"))); !os.IsNotExist(err) {
+		if err == nil {
+			t.Fatal("standalone build workflow must be removed after CI consolidation")
+		}
+		t.Fatalf("inspect removed build workflow: %v", err)
 	}
 }
 
@@ -321,7 +361,7 @@ func TestValidationToolVersionsArePinned(t *testing.T) {
 	assertFileContains(t, root, filepath.FromSlash("scripts/validate-workflows.sh"), "SHELLCHECK_VERSION=0.11.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/checkout@v7.0.1")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/setup-go@v7.0.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/build.yml"), "actions/upload-artifact@v7.0.1")
+	assertFileNotContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/upload-artifact@")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "staticcheck@v0.7.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "govulncheck@v1.6.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "goreleaser/goreleaser-action@v7.2.3")

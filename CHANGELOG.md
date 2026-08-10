@@ -6,18 +6,16 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ## Unreleased
 
-### Fixed
-
-- Closed a missing-path resolution TOCTOU window exposed by concurrent durable-task store initialization: when a path appears between an initial failed resolve and the following metadata check, Scripthold now re-resolves it once before classifying it as an unresolvable link or reparse point, while still failing closed for broken or persistently unresolvable links.
-
 ## 2.1.1 - 2026-08-10
 
 ### Changed
 
+- Consolidated release validation into one exact-commit pre-tag `CI` gate. Tag-triggered Release now verifies the successful `main` push run and its `Release candidate` job for the exact tagged SHA instead of rerunning the same race, static, vulnerability, fuzz, cross-build, and smoke gates before GoReleaser; GoReleaser still runs once, MCPB assets remain GitHub-produced, and Registry publication remains downstream of verified MCPB bundles.
 - Renamed the whole-document replacement tool from `write_file` to `write_whole_file` with no compatibility alias. The old name was too easy to misread as an incremental edit or append operation; the new name makes it explicit that the supplied `content` replaces the complete target contents and omitted text is discarded. Use `edit_file` for partial-document changes.
 
 ### Fixed
 
+- Closed a missing-path resolution TOCTOU window exposed by concurrent durable-task store initialization: when a path appears between an initial failed resolve and the following metadata check, Scripthold now re-resolves it once before classifying it as an unresolvable link or reparse point, while still failing closed for broken or persistently unresolvable links.
 - Corrected MCP Registry publication for native releases by making six verified OS/architecture MCPB bundles first-class GitHub Release assets instead of labeling raw executables as `mcpb`; Registry publication now consumes those immutable, checksum-verified bundles read-only, and repair runs remain bound to the original semantic tag.
 - Restored configurable allowed-directory behavior for durable tasks: task-store descriptors no longer persist the root set, and admitted task paths remain authorized across later startup-root changes while retaining exact-path and script-digest revalidation.
 - Made CI and release fuzz smoke gates deterministic by using fixed execution counts instead of wall-clock fuzz deadlines, preventing successful bounded fuzz targets from intermittently failing while the Go fuzz engine shuts down at the time limit.

@@ -19,8 +19,8 @@ See [ROADMAP.md](ROADMAP.md) for the remaining 2.1.0 deployment/rollback gate, [
 
 Use this flow for `2.1.0` and later fork-owned semantic releases. Development commits may be tested or deployed internally, but public tags require a dated changelog entry and the full applicable release gate.
 
-1. Ensure the release-scoped roadmap work is complete and `main` is clean, tested, and pushed to `origin`.
-2. Choose a semantic version that has not been used by this fork.
+1. Ensure the release-scoped roadmap work is complete and the local release-candidate worktree is clean and ready for verification.
+2. Choose a semantic version that has not already become a consumable fork release. A failed tag may be retired and reused only if maintainers first verify that no GitHub Release, release asset, MCPB bundle, or Registry version was published from it; published versions are immutable and must advance to a new semantic version.
 3. Promote the `CHANGELOG.md` unreleased section to a dated `## X.Y.Z - YYYY-MM-DD` release heading.
 4. Verify that the semantic tag is represented by that exact changelog release:
 
@@ -28,7 +28,7 @@ Use this flow for `2.1.0` and later fork-owned semantic releases. Development co
    node scripts/verify-release-version.js vX.Y.Z
    ```
 
-5. Push `main` and wait for its GitHub Actions checks to pass.
+5. Push `main` and wait for the `CI` workflow's `Release candidate` job to pass on that exact commit. This is the single complete pre-tag gate: module integrity, cross-platform race tests and native smokes, Go vet, static and vulnerability analysis, deterministic fuzz smoke, release-script/workflow checks, six cross-builds, and container smoke all belong here.
 6. Create and push the release tag:
 
    ```bash
@@ -36,7 +36,7 @@ Use this flow for `2.1.0` and later fork-owned semantic releases. Development co
    git push origin vX.Y.Z
    ```
 
-7. `.github/workflows/release.yml` revalidates the tag/metadata match, then reruns the cross-platform race, HTTP, catalog/documentation identity, native task lifecycle, manual server, static, vulnerability, fuzz, workflow, and release-script gates before GoReleaser. Test jobs remain read-only; the GoReleaser release job and MCPB asset workflow receive `contents: write`, while Registry publication receives `contents: read` plus `id-token: write`.
+7. `.github/workflows/release.yml` verifies that the pushed tag is annotated, matches the changelog metadata, resolves to the exact current `origin/main` commit, and has a successful `push`-event `CI` run for that exact SHA with a successful `Release candidate` job. The verification job is read-only and receives only `contents: read` plus `actions: read`; it does not rerun the already-completed race, static, vulnerability, fuzz, cross-build, or smoke gates. GoReleaser then runs once with `contents: write`; the MCPB asset workflow receives `contents: write`, while Registry publication receives `contents: read` plus `id-token: write`.
 8. `.goreleaser.yml` publishes the release to `zoster81/scripthold` with:
    - reproducible `-trimpath` builds timestamped from the source commit;
    - archive binary and documentation entries with commit-derived timestamps plus fixed owner, group, and modes;
@@ -110,7 +110,7 @@ The repository pins the release-validation toolchain instead of resolving
 floating `latest` versions during CI:
 
 - actionlint 1.7.12 and ShellCheck 0.11.0 for GitHub Actions workflows;
-- actions/checkout 7.0.1, actions/setup-go 7.0.0, and actions/upload-artifact 7.0.1;
+- actions/checkout 7.0.1 and actions/setup-go 7.0.0;
 - Staticcheck v0.7.0 and govulncheck v1.6.0 for Go analysis;
 - GoReleaser action 7.2.3 with GoReleaser v2.17.1 for release generation;
 - MCP Publisher v1.8.1 for Registry validation/publication and MCPB 2.1.2 for native-bundle schema/format validation.
@@ -126,7 +126,7 @@ Run this checklist after the applicable release-scoped milestone and completion 
 
 - release-scoped roadmap work complete, with any intentionally post-publication deployment gate recorded explicitly;
 - working tree clean;
-- expected branch and HEAD verified;
+- expected branch and HEAD verified, and the exact pushed `main` commit has a successful `CI` `Release candidate` gate;
 - no credentials or real tunnel identifiers in tracked files or history;
 - `go test -count=1 ./...` succeeds;
 - `go vet ./...` succeeds;
@@ -145,7 +145,7 @@ Run this checklist after the applicable release-scoped milestone and completion 
 - all six Windows/Linux/macOS amd64/arm64 builds are generated, and representative binaries are runtime-executed where infrastructure permits;
 - GoReleaser configuration targets `zoster81/scripthold`, passes `goreleaser check`, and produces identical checksums across two independent snapshots;
 - six OS/architecture-specific MCPB bundles validate against the pinned MCPB schema/format, have recorded SHA-256 values, and a generated six-package manifest passes `mcp-publisher validate` without publication;
-- `scripts/verify-release-version.js` confirms the release tag has a matching dated changelog entry before GoReleaser runs;
+- `scripts/verify-release-version.js` confirms the release tag has a matching dated changelog entry before GoReleaser runs, and the Release workflow verifies that the annotated tag resolves to the exact CI-gated `main` commit;
 - release tag, changelog release, embedded binary version, and generated Registry version match;
 - release assets and checksums are verified after publication;
 - the known-good rollback binary and launcher reversal are verified offline before deployment, followed by an active rollback test during the controlled release cutover.

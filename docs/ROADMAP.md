@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the published `2.1.0` release. R21 is the only active milestone. The immutable `v2.1.1` tag was created from verified hotfix source, but its Release workflow stopped before GoReleaser after exposing a macOS concurrent task-store initialization path-resolution race; no `2.1.1` GitHub Release assets, MCPB bundles, or Registry record were published. The follow-up resolver fix is locally verified, and a successor patch publication plus controlled deployment/rollback remain open.
+Version `2.0.0` is the published rollback baseline with 23 tools. R15–R20 are complete and carried into the published `2.1.0` release. R21 is the only active milestone. The first `v2.1.1` attempt stopped before GoReleaser after exposing a macOS concurrent task-store initialization path-resolution race; no `2.1.1` GitHub Release assets, MCPB bundles, or Registry record were published, so that unpublished tag was retired after the absence was reverified. The resolver fix is locally verified; final exact-commit CI gating, recreated `v2.1.1` publication, and controlled deployment/rollback remain open.
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -36,7 +36,7 @@ Product identity and the fork's independent relationship to upstream are defined
 | R18 | COMPLETE | Implemented and verified the approved persistent-backup subsystem in phased, failure-injected, cross-platform increments. |
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
 | R20 | COMPLETE | Stable SDK `v1.7.0`, stdio version gating, same-endpoint dual-generation HTTP, structured unsupported-version handling, and the full compatibility/conformance gate are verified in source. |
-| R21 | ACTIVE | Ship durable asynchronous task execution in the 2.1.x line, preserve immutable failed-release evidence, close post-tag concurrency blockers forward, then complete controlled deployment and rollback on a successor patch. |
+| R21 | ACTIVE | Ship durable asynchronous task execution in the 2.1.x line, close the blocked unpublished `v2.1.1` attempt forward, consolidate exact-commit release gating, then publish, deploy, and rollback-test the recreated `v2.1.1`. |
 
 ---
 
@@ -62,11 +62,12 @@ Maintain and deploy the `2.1.x` line with the [durable task subsystem](DURABLE_T
 - [x] Push `main` and require the applicable GitHub Actions checks to pass.
 - [x] Create and push `v2.1.0`; verify all six raw binaries, six archives, `checksums.txt`, six MCPB bundles plus `mcpb-checksums.txt`, release metadata, and the first active `io.github.zoster81/scripthold` Registry record.
 - [x] Deploy and live-verify the post-`2.1.0` hotfix source internally, including the durable-task root-policy correction and the explicit `write_whole_file` tool surface.
-- [x] Create immutable `v2.1.1` only after green pre-tag Build/Test checks. Its Release workflow correctly stopped before GoReleaser when macOS exposed a concurrent task-store initialization path-resolution race; no `2.1.1` release assets, MCPB bundles, or Registry record were created, and the tag is not moved or rewritten.
+- [x] Create the first annotated `v2.1.1` attempt only after green pre-tag Build/Test checks. Its Release workflow stopped before GoReleaser when macOS exposed a concurrent task-store initialization path-resolution race; no `2.1.1` GitHub Release, release asset, MCPB bundle, or Registry record was created. After that absence was reverified, the unpublished local and remote tag were retired before reuse.
 - [x] Fix the missing-path appearance race forward by re-resolving once when an entry appears between resolve and metadata checks while preserving fail-closed broken-link behavior; pass focused security/taskstore tests, 100 concurrent-initialize race repetitions, the complete local Go/race/static/vulnerability gate, deterministic fuzzing, and six-target builds.
-- [ ] Push the verified resolver fix and require GitHub Build/Test, including macOS race coverage, to pass on the exact new commit.
-- [ ] Publish a successor patch release from a new immutable dated tag after the complete release gate passes; verify all six raw binaries, six archives, `checksums.txt`, GitHub-produced six MCPB bundles plus `mcpb-checksums.txt`, and the `io.github.zoster81/scripthold` Registry record.
-- [ ] Deploy that published successor Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check against the retained published baseline, then restore and reverify the successor patch.
+- [ ] Consolidate Build/Test into one exact-commit `CI` release-candidate gate and make the tag Release verify that successful `main` push run instead of rerunning the same race/static/vulnerability/fuzz/build coverage; retain GoReleaser once, GitHub-only MCPB packaging, and Registry publication only after verified MCPB assets.
+- [ ] Push the final resolver/workflow commit and require the `CI` `Release candidate` job, including real macOS race coverage, to pass on that exact SHA.
+- [ ] Recreate annotated `v2.1.1` on that exact verified commit and complete Release in order: tag/commit provenance, GoReleaser, 12 raw/archive checksum verification, GitHub-produced six MCPB bundles plus `mcpb-checksums.txt`, then the `io.github.zoster81/scripthold` Registry record.
+- [ ] Deploy the published `2.1.1` Windows binary through the private launcher, run live stdio and authenticated HTTP smoke tests, perform the controlled rollback check against the retained published baseline, then restore and reverify `2.1.1`.
 
 ## Publication record
 
@@ -74,7 +75,7 @@ Published on 2026-08-09. Annotated tag `v2.1.0` resolves to `c00beb46f5b17aeeb0e
 
 Post-release hotfix `9f7e1cca06dc5d8712c0a8cbb7ca713445d4676b` corrected that boundary without moving the tag or replacing the original release assets. Build run `31336757591` and Test run `31336757602` passed on the hotfix. MCPB repair run `31336981103` verified the immutable tag plus all 12 GoReleaser assets, then added six deterministic, MCPB-validated OS/architecture bundles and `mcpb-checksums.txt` to the same GitHub Release. Registry run `31337108493` consumed those published bundles read-only, passed manifest validation, and published `io.github.zoster81/scripthold` version `2.1.0` through GitHub OIDC. The production Registry reports that version as active and latest with six MCPB packages.
 
-On 2026-08-10, pre-tag Build `31372170443` and Test `31372170448` passed for the `2.1.1` hotfix source, and annotated `v2.1.1` was created on that exact commit. Release run `31372492731` then exposed an intermittent macOS path-resolution race in concurrent durable-task store initialization and stopped in the test matrix before GoReleaser. Consequently no `2.1.1` GitHub Release, raw/archive assets, MCPB bundles, or Registry publication exists. The tag remains immutable evidence of the blocked attempt; the resolver correction proceeds forward on `main` for a successor patch.
+On 2026-08-10, pre-tag Build `31372170443` and Test `31372170448` passed for the `2.1.1` hotfix source, and the first annotated `v2.1.1` attempt was created on that exact commit. Release run `31372492731` then exposed an intermittent macOS path-resolution race in concurrent durable-task store initialization and stopped in the test matrix before GoReleaser. Reverification confirmed that no `2.1.1` GitHub Release, raw/archive asset, MCPB bundle, or Registry publication existed, so the unpublished local and remote tag were retired before publication. The corrected source proceeds on `main`; `v2.1.1` will be recreated only after the final exact commit passes the consolidated pre-tag `CI` release-candidate gate.
 
 ## Non-goals
 
@@ -84,7 +85,7 @@ On 2026-08-10, pre-tag Build `31372170443` and Test `31372170448` passed for the
 
 ## Completion gate
 
-R21 is complete only when the durable queue survives frontend and worker failure as specified, its bounded logs/recovery/parallelism/locks/cancellation and six target builds pass, the `2.1.x` release line includes a verified successor patch after the blocked immutable `v2.1.1` attempt, that successor's Registry record and assets are verified, its local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
+R21 is complete only when the durable queue survives frontend and worker failure as specified, its bounded logs/recovery/parallelism/locks/cancellation and six target builds pass, the final `v2.1.1` is recreated only on the exact successful consolidated `CI` release-candidate commit, its GitHub Release/MCPB/Registry publication is verified, its local deployment and rollback smoke succeed, and the repository plus operator handoff accurately record the resulting state.
 
 ---
 
