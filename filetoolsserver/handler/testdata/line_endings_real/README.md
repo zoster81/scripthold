@@ -1,10 +1,12 @@
 # Real-world line-ending fixtures
 
-This directory contains unmodified upstream files used by the integration tests for `detect_line_endings` and `change_line_endings`.
+This directory contains pinned, unmodified upstream files used by integration tests for `detect_line_endings` and `change_line_endings`.
 
 ## Coverage
 
-The fixtures cover every canonical encoding registered by `scripthold`:
+This fixture set is the **24-encoding real-world baseline that predates the R22 registry expansion**. It is intentionally not the complete current encoding inventory.
+
+The baseline covers:
 
 - UTF-8, UTF-16 LE, and UTF-16 BE;
 - Windows-1250 through Windows-1258 and Windows-874;
@@ -13,6 +15,8 @@ The fixtures cover every canonical encoding registered by `scripthold`:
 - GBK and GB18030.
 
 The source documents contain real non-ASCII text in the relevant languages. The pinned upstream files use LF line endings and are never modified in place by the test suite. Write tests copy each fixture to `t.TempDir()`, convert the real document to CRLF, verify it, convert it back to LF, and require a byte-identical round trip.
+
+The complete current registry is verified separately by registry-driven operation matrices and generated/oracle-backed tests; see [`docs/GLOBAL_ENCODING_COVERAGE.md`](../../../../docs/GLOBAL_ENCODING_COVERAGE.md). `list_encodings` remains authoritative for the runtime inventory.
 
 ## Provenance and integrity
 
@@ -26,7 +30,7 @@ The source documents contain real non-ASCII text in the relevant languages. The 
 - BOM state;
 - original line-ending style and counts.
 
-The tests validate the manifest, hashes, decoding, encoding coverage, line-ending detection, conversion, and byte-identical round trips.
+The integration tests validate the manifest, hashes, decoding, baseline encoding coverage, line-ending detection, conversion, and byte-identical round trips.
 
 ## Sources
 

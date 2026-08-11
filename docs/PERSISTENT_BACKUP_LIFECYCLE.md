@@ -2,11 +2,11 @@
 
 ## Status
 
-**Approved R17 design and completed R18 implementation. The ten lifecycle decisions were accepted on 2026-08-04; all seven implementation phases and the full-subsystem verification gate completed on 2026-08-05.**
+**COMPLETE.** The R17 lifecycle design was approved on 2026-08-04 and implemented/verified in R18 on 2026-08-05. This document is the authoritative current contract for the persistent backup subsystem.
 
-This document is the authoritative security boundary, storage format, lifecycle, restore contract, garbage-collection model, limits, failure semantics, and verification gate for the persistent backup subsystem. Implementation must remain phased so each durability and recovery boundary can be reviewed and verified independently.
+This document defines the security boundary, storage format, capture transaction, public management surface, restore contract, garbage-collection model, limits, failure semantics, crash invariants, and verification requirements. Future changes must preserve or explicitly revise these guarantees through a reviewed design; milestone chronology belongs in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
-R18 phases 1–7 are implemented and verified in source. Phase 1 provides disabled-by-default configuration, strict non-overlapping store-path validation, owner-only permissions, a platform-native lifetime writer lock, an immutable versioned descriptor, and denial of the internal root to ordinary filesystem tools. Phase 2 adds internal exact-byte object capture, strict checksummed manifests, conservative quota reservations, a rebuildable derived index, bounded startup recovery, and quick/full read-only audit primitives. Phase 3 exposes the bounded read-only `backup_store` status/list/inspect/audit surface. Phase 4 binds preview-only `backupPolicy: "required"` into `edit_file`. Phase 5 adds exact manifest-level package policy, side-effect-free aggregate preflight, atomic conservative all-target reservation, and durable capture of every changed package pre-state before the first commit. Phase 6 adds one-shot original-target restore with exact source verification, stale-state rejection, mandatory safety backup for an existing target, and no-replace creation for a missing target. Phase 7 adds explicit generation-bound GC with immutable pins, a one-version target floor, retention/version-limit reasons, active-reference exclusion, manifest-first removal, fully verified zero-reference object removal, typed trash, and bounded startup cleanup. Alternate restore destinations, mutable pinning, automatic rollback, background GC, and secure-deletion guarantees remain unavailable.
+The implemented subsystem is disabled by default, uses a dedicated non-overlapping owner-only store with a lifetime writer lock, stores exact bytes as verified immutable content-addressed objects plus checksummed immutable manifests, treats its index as derived/rebuildable state, integrates persistent capture only through explicit approval-bound mutation policy, supports one-shot original-target restore with mandatory safety backup for existing targets, and performs garbage collection only through an explicit generation-bound dry-run/apply plan. Alternate restore destinations, mutable pinning, automatic rollback, background GC, and secure-deletion guarantees remain unavailable.
 
 The existing transactional `.bak` behavior of `convert_encoding` remains unchanged. `edit_file` and `patch_package` create persistent backups only when their approved preview/manifest explicitly binds `backupPolicy: "required"`; omitted policy, direct editing, and logical no-ops continue to create none.
 
@@ -27,7 +27,7 @@ The persistent backup subsystem is designed to:
 
 ## Non-goals
 
-The initial implementation must not provide:
+The subsystem does not provide:
 
 - transparent backup of every write or mutation;
 - automatic rollback of a partially committed multi-file package;
@@ -57,7 +57,7 @@ The approved store is an explicit process-wide operator authority separate from 
 - The store path is never returned in MCP results or written to ordinary logs.
 - If a configured store cannot be validated or exclusively locked, startup fails rather than silently disabling required backup policy.
 
-This deliberate internal filesystem authority was approved as a security-boundary change. R18 phase 1 enforces the path-separation, protected-root, permission, descriptor, and lifetime-lock requirements before later data operations are added.
+This deliberate internal filesystem authority is a security boundary. Path separation, protected-root denial, owner-only permissions, immutable descriptor validation, and the lifetime lock are prerequisites for every store operation.
 
 ### Permissions and local trust
 
@@ -174,11 +174,11 @@ The approved defaults are:
 
 All values must be positive and overflow-safe. Configuration loading enforces hard maxima of 1 TiB total bytes, 1 GiB per object, 1,000,000 manifests, 10,000 versions per target, 100,000 pinned manifests, 3,650 retention days, and 86,400 seconds for plan lifetime; environment values above those maxima fall back to the documented defaults, while invalid direct internal store options fail closed. `MCP_MAX_OUTPUT_BYTES` bounds management, restore, GC, and mutation output, while `MCP_MAX_BATCH_FILES` bounds targets in one backup-integrated package operation.
 
-Phase 2 consumes total-byte, object-size, manifest-count, per-target-version, and immutable-pin limits through conservative process-local reservations. Configuration alone does not create backups; capture occurs only through approved required edit/package capabilities or the mandatory safety step of an approved restore. `MCP_BACKUP_RETENTION_DAYS` and the unpinned per-target version limit are evaluated only by explicit `gcDryRun`; `MCP_BACKUP_PLAN_TTL_SECONDS` bounds both restore and GC capabilities. No quota failure triggers implicit garbage collection.
+Total-byte, object-size, manifest-count, per-target-version, and immutable-pin limits are enforced through conservative process-local reservations. Configuration alone does not create backups; capture occurs only through approved required edit/package capabilities or the mandatory safety step of an approved restore. `MCP_BACKUP_RETENTION_DAYS` and the unpinned per-target version limit are evaluated only by explicit `gcDryRun`; `MCP_BACKUP_PLAN_TTL_SECONDS` bounds both restore and GC capabilities. No quota failure triggers implicit garbage collection.
 
 ## Capture transaction
 
-The internal phase-2 capture primitive implements the durable portion of this transaction. Phase 4 connects it only to approval-bound `edit_file` apply; the caller supplies an already normalized and authorized target path, and the backup is committed before the associated target mutation begins.
+The internal capture primitive implements the durable portion of this transaction. Approval-bound `edit_file` and `patch_package` integrations supply already normalized and authorized targets, and every required backup manifest is committed before the associated target mutation begins.
 
 1. Validate the requested target through current allowed-root policy.
 2. Capture a bounded digest-bearing snapshot and stable identity.
@@ -209,7 +209,7 @@ Persistent backup behavior must be explicit and approval-bound.
 
 ### Edit preview/apply
 
-R18 phase 4 implements the additive preview field `backupPolicy: "required"`. The value is accepted only in that exact form and retained inside the one-shot preview capability; apply accepts only `previewId` and therefore cannot weaken, remove, or replace it.
+`edit_file` preview accepts the additive policy `backupPolicy: "required"` only in that exact form. The value is retained inside the one-shot preview capability; apply accepts only `previewId` and therefore cannot weaken, remove, or replace the approved policy.
 
 - Omitted policy preserves the no-persistent-backup behavior.
 - Required policy is valid only for preview and requires a configured store.
@@ -222,7 +222,7 @@ R18 phase 4 implements the additive preview field `backupPolicy: "required"`. Th
 
 ### Patch packages
 
-R18 phase 5 implements exact manifest-level `backupPolicy: "required"` for patch packages.
+`patch-package-v1` supports the same exact manifest-level `backupPolicy: "required"` policy.
 
 - Inspect validates the exact policy value without requiring a configured store.
 - Dry run requires package capture authority, prepares the exact changed set, and performs a side-effect-free conservative aggregate quota preflight without creating objects or manifests.
@@ -241,7 +241,7 @@ R18 phase 5 implements exact manifest-level `backupPolicy: "required"` for patch
 
 ## Public management surface
 
-R18 phase 3 introduced one always-registered `backup_store` tool, bringing the unreleased source catalog to 27 tools. Phases 6–7 extend its strict action union while preserving the original read-only actions:
+The always-registered `backup_store` tool exposes a strict action union:
 
 - `status`: no additional fields; when disabled it returns `enabled: false`, and when configured it returns redacted version, health, generation, quota, counts, residue, and bounded path-free issues;
 - `list`: optional `cursor`, `limit`, `targetPath`, and `pinned`; pages are newest-first, limited to 100 records, filtered through current root authorization, and use an authenticated keyset cursor bound to filters, the allowed/protected-root policy snapshot, and store generation; target visibility is revalidated on every page;
@@ -271,7 +271,7 @@ Restore is one-shot and state-bound, following the R16 capability model.
 
 ### Restore preview
 
-R18 phase 6 implements `restorePreview` as follows:
+`restorePreview` performs the following steps:
 
 1. claim no mutation authority yet;
 2. validate the backup ID and manifest;
@@ -286,7 +286,7 @@ The initial restore destination is the manifest's original target only. Alternat
 
 ### Restore apply
 
-R18 phase 6 implements `restoreApply`, which accepts only the preview ID.
+`restoreApply` accepts only the preview ID.
 
 - The preview is atomically consumed before validation; every outcome is terminal.
 - The object, manifest, target path, target identity, and current fingerprint are revalidated.
@@ -301,7 +301,7 @@ A restore never deletes or consumes the source backup.
 
 ## Garbage collection
 
-R18 phase 7 implements garbage collection as an always-explicit dry-run/apply workflow. It never runs because quota is exhausted, on a timer, or in the background.
+Garbage collection is an always-explicit dry-run/apply workflow. It never runs because quota is exhausted, on a timer, or in the background.
 
 ### Policy
 
@@ -374,11 +374,11 @@ The internal audit primitive has two implemented modes:
 - `quick`: validate structure, manifest checksums, object presence, size, index consistency, references, staging, trash, and orphan counts;
 - `full`: additionally stream and hash every referenced object under explicit object, byte, time, and output limits.
 
-Audit is read-only. It never repairs, deletes, or quarantines data. Phase 3 exposes the same bounded results through `backup_store.audit` without store paths or bytes.
+Audit is read-only. It never repairs, deletes, or quarantines data. `backup_store.audit` exposes the same bounded results without store paths or bytes.
 
 ## Failure and error semantics
 
-The implementation should reuse the existing stable error vocabulary unless a later reviewed phase proves that a new public code is essential.
+The subsystem uses the existing stable error vocabulary; any new public error code requires explicit compatibility review.
 
 - malformed schemas or unsupported versions: `INVALID_INPUT`;
 - path overlap or invalid store/target paths: `INVALID_PATH`, `ACCESS_DENIED`, or `SYMLINK_ESCAPE`;
@@ -479,7 +479,7 @@ No API may retain all file contents, all diffs, or an unbounded manifest set in 
 
 ### Risk: the store becomes a hidden root escape
 
-A store under or adjacent to a public workspace could be read, overwritten, fingerprinted, or deleted through existing tools. The approved mitigation is a non-overlapping internal root configured only at startup, denied to ordinary tools, and resolved with the same or stricter path-security primitives. R18 phase 1 implements and tests this boundary; later phases must preserve it.
+A store under or adjacent to a public workspace could be read, overwritten, fingerprinted, or deleted through existing tools. The mitigation is a non-overlapping internal root configured only at startup, denied to ordinary tools, and resolved with the same or stricter path-security primitives. Future changes must preserve this boundary.
 
 ### Risk: backup creation causes the mutation it is meant to protect to fail
 
@@ -524,4 +524,4 @@ Maintainers explicitly accepted all ten decisions on 2026-08-04:
 9. existing adjacent `.bak` conversion behavior remains separate;
 10. no automatic patch-package rollback is introduced.
 
-Approval authorized phased implementation rather than a single monolithic change. Every R18 phase preserved the complete boundary above, added focused failure-injection coverage, passed its applicable regression and cross-platform gates, and avoided exposing a partially implemented public promise. Phases 1 and 2 added no public backup tool or automatic backup behavior. Phase 3 added the bounded read-only management surface. Phase 4 connected capture solely to approval-bound `edit_file`. Phase 5 connected package capture solely to a strict `patch-package-v1` manifest carrying `backupPolicy: "required"`; omitted-policy mutation paths retain their prior behavior. Phase 6 added one-shot original-target restore with mandatory safety capture for an existing target. Phase 7 added explicit generation-bound GC with immutable pin state, manifest-first removal, reference-counted verified object deletion, typed-trash recovery, and no background deletion. The full lifecycle and release-adjacent verification matrix completed on 2026-08-05.
+The approved design was implemented incrementally so each durability and recovery boundary could be failure-tested before the next public capability was enabled. The completed implementation preserves all ten decisions above; its full lifecycle and release-adjacent verification matrix completed on 2026-08-05.

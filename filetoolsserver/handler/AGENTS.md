@@ -22,7 +22,7 @@ Preserve the flow:
 - Keep streaming text operations on the shared decoded-stream and `internal/textstream` primitives; reserve `textDocument` for explicitly bounded full-document operations such as editing.
 - Preserve encoding, BOM, and line-ending semantics promised by each tool.
 - Do not add filename- or extension-based encoding behavior.
-- Keep `run_script` and `shell` authorization separate even when they share process mechanics.
+- `task_run` is the only public execution entry point. Keep `kind=script` and `kind=shell` authorization distinct even though they share durable task infrastructure; both remain disabled by default.
 - Bound decoded lines, batches, matches, paging, sorting retention, fuzzy comparison work, patch input/hunks, context, output, worker coordination, and full-document memory through the specific `MCP_MAX_*` limits or explicit fixed safety caps; retain `MCP_MEMORY_THRESHOLD` only as the documented migration fallback.
 - Keep fuzzy edits opt-in and ambiguity-safe; keep unified patches single-file, exact-context, ordered, and non-overlapping.
 - Batch mutations must preserve input order and expose partial success explicitly; dry runs must not create backups or alter source bytes.

@@ -9,7 +9,8 @@ Do not copy private workstation state, local process details, credentials, or op
 ## Sources of truth
 
 - Product identity, fork scope, transports, and upstream relationship: [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md)
-- Product status and milestone gates: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- Current/future milestone state and gates: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- Completed milestone history: [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md)
 - Reusable engineering checks: [`docs/DEVELOPMENT_CHECKLIST.md`](docs/DEVELOPMENT_CHECKLIST.md)
 - Contributor workflow: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Tool behavior and examples: [`TOOLS.md`](TOOLS.md)
@@ -19,7 +20,7 @@ Do not copy private workstation state, local process details, credentials, or op
 - Approved R17 persistent-backup lifecycle design and R18 implementation contract: [`docs/PERSISTENT_BACKUP_LIFECYCLE.md`](docs/PERSISTENT_BACKUP_LIFECYCLE.md)
 - R19 offline backup-store diagnostics design: [`docs/OFFLINE_BACKUP_DIAGNOSTICS.md`](docs/OFFLINE_BACKUP_DIAGNOSTICS.md)
 - R20 MCP `2026-07-28` adoption design: [`docs/MCP_2026_07_28_ADOPTION.md`](docs/MCP_2026_07_28_ADOPTION.md)
-- R22 global encoding coverage and Scripthold 2.2.0 implementation/test contract: [`docs/GLOBAL_ENCODING_COVERAGE.md`](docs/GLOBAL_ENCODING_COVERAGE.md)
+- Completed R22 global encoding coverage and Scripthold 2.2.0 contract: [`docs/GLOBAL_ENCODING_COVERAGE.md`](docs/GLOBAL_ENCODING_COVERAGE.md)
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
 Link to these documents instead of duplicating their detailed content.

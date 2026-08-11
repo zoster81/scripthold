@@ -1,6 +1,6 @@
 # Migration from 1.8 to 2.0
 
-This guide records the intentional public API and deployment changes in `scripthold` `v2.0.0`.
+This is a **historical migration snapshot** for the intentional public API and deployment changes from Scripthold 1.8 to `v2.0.0`. It describes the 2.0 boundary, not the current 2.2 surface. For current behavior use the root [README.md](../README.md), [TOOLS.md](../TOOLS.md), and subsystem documentation.
 
 ## Breaking-change table
 
@@ -29,14 +29,13 @@ Single-tool errors expose the code at `_meta.errorCode`. `read_multiple_files.re
 - `ENCODING`
 - `ENCODING_AMBIGUOUS`
 - `CONFLICT`
-- `PARTIAL_COMMIT` (unreleased R16 package-apply extension after the published 2.0.0 baseline)
 - `CANCELLED`
 - `LIMIT`
 - `IO_ERROR`
 - `INTERNAL_ERROR`
 - `OPERATION_FAILED`
 
-`PARTIAL_COMMIT` means a `patch_package` apply stopped with at least one target proven committed or left unclassifiable; inspect the structured per-target states before taking further action. `OPERATION_FAILED` is the fallback for errors that do not yet have a more specific domain category. Successful results do not include an error code.
+`OPERATION_FAILED` is the 2.0 fallback for errors that do not have a more specific domain category. Successful results do not include an error code. Later 2.x releases added additional tool-specific behavior and error refinements; consult current [TOOLS.md](../TOOLS.md) rather than extending this historical list.
 
 ## Configurable limits
 
@@ -66,11 +65,11 @@ MCP_TRANSPORT=streamable-http
 
 The CLI option takes precedence over the environment default. Streamable HTTP fails startup unless exactly one bearer-token source is configured through `MCP_HTTP_TOKEN` or the preferred `MCP_HTTP_TOKEN_FILE`. It binds to `127.0.0.1:8765` by default and uses `/mcp`; non-loopback exposure requires the additional controls in [`HTTP_SECURITY.md`](HTTP_SECURITY.md).
 
-Allowed directories are process-wide policy. Every connection or HTTP session attached to one server process shares the same configured roots, 23-tool catalog, limits, execution flags, and error behavior. Sessions separate protocol lifecycle, cancellation, and concurrent requests; they do not create per-agent filesystem ACLs. Prompt instructions may narrow an agent's intended write scope, but technical isolation requires separate processes and, for concurrent Git changes, separate checkouts or worktrees.
+At the 2.0 boundary, allowed directories are process-wide policy. Every connection or HTTP session attached to one server process shares the same configured roots, then-current 23-tool catalog, limits, execution flags, and error behavior. Sessions separate protocol lifecycle, cancellation, and concurrent requests; they do not create per-agent filesystem ACLs. Prompt instructions may narrow an agent's intended write scope, but technical isolation requires separate processes and, for concurrent Git changes, separate checkouts or worktrees.
 
 Startup directories remain authoritative and immutable for the process. A roots-capable stdio client may provide dynamic MCP roots only when the process starts without directory arguments. HTTP disables client roots and cannot mutate the process-wide set.
 
-Native HTTP reauthenticates every MCP request, validates exact Host and Origin values, emits no CORS allow headers, bounds per-request and aggregate body memory, limits sessions and concurrent handlers, and disables event replay. `run_script` and `shell` require `MCP_HTTP_ENABLE_EXECUTION=1` in addition to their existing tool-specific or combined authorization flag. After HTTP startup configuration is validated, the token and token-file environment variables are removed so optional child processes cannot inherit them.
+At the 2.0 boundary, native HTTP reauthenticates every MCP request, validates exact Host and Origin values, emits no CORS allow headers, bounds per-request and aggregate body memory, limits sessions and concurrent handlers, and disables event replay. The then-public synchronous `run_script` and `shell` tools require `MCP_HTTP_ENABLE_EXECUTION=1` in addition to their tool-specific or combined authorization flag. Later releases replaced those public tools with durable `task_run`; see [DURABLE_TASKS.md](DURABLE_TASKS.md). After HTTP startup configuration is validated, token source variables are removed so optional child processes cannot inherit them.
 
 ### HTTP configuration migration
 
@@ -115,7 +114,7 @@ The mounted directory must be accessible to UID/GID `10001`. HTTP deployments sh
 
 ## Release and installation migration
 
-The release tag is now checked against a dated `CHANGELOG.md` heading instead of duplicated plugin and marketplace versions. Release binaries, archives, `checksums.txt`, the generated Registry manifest, Smithery metadata, and the container definition remain the supported distribution surfaces.
+For the 2.0 transition, release tags became tied to dated `CHANGELOG.md` headings instead of duplicated plugin/marketplace versions. Distribution and Registry procedures have evolved since then; [PUBLISHING.md](PUBLISHING.md) is authoritative for current releases.
 
 Existing Claude Code users should replace the removed marketplace plugin with an ordinary stdio server entry that invokes the downloaded 2.0 binary and supplies allowed directories directly or through supported client roots.
 
@@ -131,7 +130,7 @@ Existing Claude Code users should replace the removed marketplace plugin with an
 8. Require both authorization layers before exposing execution tools over HTTP.
 9. Update container paths, ownership, mounts, health probes, and stop behavior.
 10. Replace the removed Claude Code downloader plugin with direct binary configuration.
-11. Run the 23-tool catalog and representative read/write/error smoke tests before cutover.
+11. Run the complete 2.0 23-tool catalog and representative read/write/error smoke tests before cutover.
 
 ## Schema review
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Completed R19 diagnostic-only contract. Existing-only lock acquisition, bounded fail-soft scanning, the offline JSON CLI, and the full cross-platform verification gate are implemented in source. No repair, quarantine, deletion, migration, salvage, clone, or reconstruction capability is implemented or authorized.**
+**COMPLETE.** This document is the authoritative R19 diagnostic-only contract. Existing-only lock acquisition, bounded fail-soft scanning, the offline JSON CLI, and the cross-platform verification gate are implemented. No repair, quarantine, deletion, migration, salvage, clone, or reconstruction capability is authorized.
 
 This document defines the security boundary, command contract, data flow, limits, output schema, failure semantics, and verification gate for diagnosing an existing persistent backup store when normal server startup cannot open it safely.
 
@@ -10,9 +10,9 @@ The completed R18 subsystem remains authoritative for the store format, locking,
 
 ## Problem statement
 
-A configured backup store intentionally fails closed when its descriptor, layout, manifests, referenced objects, permissions, links, or other structural evidence is unsafe. This protects ordinary mutations, but the current operator experience is limited to a sanitized startup error. The normal `backupstore.Open` path may also create an empty store, rebuild a derived index, and finish recognized GC-trash cleanup, so it is not an appropriate primitive for forensic diagnosis of a store whose exact on-disk state must remain untouched.
+A configured backup store intentionally fails closed when its descriptor, layout, manifests, referenced objects, permissions, links, or other structural evidence is unsafe. Normal startup returns only sanitized failure information. The diagnostic command provides bounded offline evidence without using the normal `backupstore.Open` path, because normal open may create an empty store, rebuild a derived index, or finish recognized GC-trash cleanup.
 
-R19 must provide a bounded offline diagnostic path that:
+The offline diagnostic path:
 
 - opens only an already existing store;
 - acquires the same exclusive process lock without creating a missing lock file;
@@ -24,7 +24,7 @@ R19 must provide a bounded offline diagnostic path that:
 
 ## Goals
 
-The initial implementation is designed to:
+The diagnostic command:
 
 - distinguish descriptor, layout, permission, link, manifest, object, index, staging, trash, and limit failures;
 - support quick metadata diagnosis and optional bounded full object hashing;
@@ -37,7 +37,7 @@ The initial implementation is designed to:
 
 ## Non-goals
 
-R19 phase 1 must not:
+Diagnostics never:
 
 - repair or rewrite `store.json`;
 - create a missing store, lock file, directory, descriptor, index, manifest, object, staging entry, or trash entry;
@@ -52,7 +52,7 @@ R19 phase 1 must not:
 - weaken normal startup validation or convert structural errors into warnings;
 - claim that a healthy diagnostic result protects against a malicious actor with the same operating-system identity.
 
-A future repair or salvage workflow requires a separate approved design after diagnostic evidence and operator needs are understood. It must not be inferred from this milestone.
+Any future repair or salvage workflow requires a separate approved design with its own failure/data-loss model. It must not be inferred from diagnostic evidence alone.
 
 ## Command boundary
 
@@ -116,7 +116,7 @@ Descriptor failure does not authorize guessing format values or parsing manifest
 
 The versioned output format is `backup-diagnostic-v1`.
 
-Proposed top-level fields:
+Top-level fields include:
 
 ```json
 {
@@ -188,7 +188,7 @@ Quick mode complexity is `O(manifests + objects + residual entries)` metadata wo
 
 The JSON report is the authoritative diagnostic result when argument parsing, root access, and lock acquisition succeed.
 
-Proposed exit codes:
+Exit codes:
 
 - `0`: report emitted and `safeForNormalOpen` is true;
 - `2`: report emitted, diagnosis completed, and one or more issues make normal open unsafe or maintenance is required;
@@ -272,20 +272,17 @@ For every diagnosis class, snapshot the complete store namespace, file bytes, mo
 - native external CLI smoke on available platforms;
 - complete tests, vet, Staticcheck, govulncheck, workflow checks, Gitleaks, documentation links, and diff review.
 
-## Implementation phases
+## Implementation boundary
 
-1. **Design and contract — implemented.** Approve this document, roadmap scope, CLI compatibility, output schema, limits, and non-goals.
-2. **Existing read-only opener — implemented.** `OpenExistingForDiagnosis` requires an existing owner-only root and single-link lock, acquires the lock without create flags, retains root/lock identity, rejects active writers, and exposes no capture, restore, GC, index, or initialization methods. Mutation-negative tests preserve incomplete layout, missing descriptor/index, staging, trash, bytes, modes, timestamps, and namespace.
-3. **Diagnostic scanner — implemented.** The scanner validates root/lock identity, snapshots the descriptor, checks required layout without creation, and reuses the bounded read-only store scan only after descriptor and layout trust are established. It emits deterministic path-free checks/issues, distinguishes quick and full integrity modes, treats index rebuild as maintenance rather than structural unsafety, and revalidates descriptor/layout evidence before returning.
-4. **CLI integration — implemented.** Strict `backup-store diagnose` parsing accepts only the documented options, never consults `MCP_BACKUP_STORE_DIR`, emits one compact or pretty bounded JSON document, preserves server-command compatibility, and returns exit code `0`, `2`, or `1` according to the report/error contract.
-5. **Cross-platform completion gate — implemented.** Failure injection, complete tests and race detector, static/vulnerability analysis, six fuzz targets, six-target command/test compilation, native Windows CLI smoke, server compatibility, workflow/release checks, documentation integrity, and secret scans passed.
-6. **Separate follow-on decision — completed.** Current diagnostic evidence does not justify a recovery-plan, quarantine, clone, repair, salvage, or migration capability. Any future mutation work requires concrete operator evidence, a separate milestone, and a newly approved failure/data-loss model.
+`OpenExistingForDiagnosis` requires an existing owner-only root and existing single-link lock, acquires that lock without create flags, retains root/lock identity, and exposes no capture, restore, GC, index-persistence, or normal initialization methods. The scanner reuses only bounded read-only format primitives after descriptor/layout trust is established; the CLI uses strict explicit arguments and never consults `MCP_BACKUP_STORE_DIR`.
+
+Current evidence does not justify recovery-plan, quarantine, clone, repair, salvage, or migration capabilities. Any future mutation capability requires concrete operator evidence and a separately approved failure/data-loss model.
 
 ## Devil's advocate findings
 
 ### Risk: diagnostics accidentally repair the store
 
-Reusing `backupstore.Open` would create missing state, rebuild the index, and clean recognized GC trash. R19 requires a separate existing-only opener and mutation-negative namespace snapshots. Any helper capable of writing is excluded from the diagnostic dependency graph.
+Reusing `backupstore.Open` could create missing state, rebuild the index, and clean recognized GC trash. Diagnostics therefore use a separate existing-only opener plus mutation-negative namespace snapshots. Helpers capable of writing are excluded from the diagnostic dependency graph.
 
 ### Risk: the command races a running server
 

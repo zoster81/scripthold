@@ -5,9 +5,9 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 ## Document responsibilities
 
 - `PROJECT_DIRECTION.md`: stable product identity, transport scope, independent-fork boundary, and upstream relationship.
-- `ROADMAP.md`: authoritative current milestones, design requirements, and completion gates.
+- `ROADMAP.md`: authoritative current/future milestone state, operating rules, and completion gates.
 - `DEVELOPMENT_CHECKLIST.md`: reusable, portable engineering and verification checks.
-- `ROADMAP_HISTORY.md`: concise public engineering history, not an operator session log.
+- `ROADMAP_HISTORY.md`: concise completed milestone history for R1 onward, not an operator session log.
 - `PUBLISHING.md`: maintainer release and distribution procedure.
 - `MIGRATION_2.0.md`: authoritative intentional breaking changes and migration actions for 1.8 to 2.0.
 - `HTTP_SECURITY.md`: approved Streamable HTTP threat model, secure defaults, implementation constraints, test matrix, and release blockers.
@@ -15,7 +15,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `PERSISTENT_BACKUP_LIFECYCLE.md`: approved R17 design and R18 implementation contract for the internal store boundary, content-addressed objects, manifests, quotas, restore, garbage collection, and crash recovery.
 - `OFFLINE_BACKUP_DIAGNOSTICS.md`: R19 diagnostic-only design for inspecting an existing store without creation, repair, cleanup, or other filesystem mutation.
 - `MCP_2026_07_28_ADOPTION.md`: R20 compatibility and security design for adopting MCP `2026-07-28` without losing legacy stdio or stateful HTTP behavior.
-- `GLOBAL_ENCODING_COVERAGE.md`: authoritative R22 / 2.2.0 implementation and verification contract for global portable encoding coverage, full UTF-32 text support, detector hardening, corpus provenance, and release gates.
+- `GLOBAL_ENCODING_COVERAGE.md`: completed R22 / 2.2.0 implementation and verification contract for global portable encoding coverage, full UTF-32 text support, detector hardening, corpus provenance, and release gates.
 
 Keep operational details in their proper source instead of duplicating them across documents.
 
@@ -38,7 +38,7 @@ Historical documents should record architectural outcomes, compatibility decisio
 ## Consistency
 
 - Keep project direction, roadmap status, README, tool reference, and publishing notes consistent.
-- Keep current limitations explicit and distinguish implemented behavior from planned work.
+- Keep current limitations explicit and distinguish current behavior, completed history, and planned work.
 - Keep Streamable HTTP implementation aligned with `HTTP_SECURITY.md`; changes to its trust model or accepted risks require explicit review.
 - Do not imply that filename extensions influence encoding detection.
 - Do not claim streaming, atomicity, sandboxing, or platform support beyond what tests and implementation establish.

@@ -1,12 +1,12 @@
 # Streamable HTTP Security Design
 
-This document is the approved R12 security design for native MCP Streamable HTTP in `scripthold`. R13 must implement these requirements without weakening the process-wide filesystem policy established in R11.
+This document is the authoritative security contract for native MCP Streamable HTTP in `scripthold`. It originated as the approved R12 design, was implemented in R13, and remains binding on the current transport without weakening the process-wide filesystem policy established in R11.
 
 ## Scope
 
 R12 defines the trust model, secure defaults, configuration contract, request pipeline, session policy, resource limits, logging rules, negative tests, and release blockers for Streamable HTTP.
 
-R12 approved this design before implementation. R13 implements it with the pinned MCP Go SDK while preserving stdio.
+R12 approved the design before implementation; R13 implemented it with the pinned MCP Go SDK while preserving stdio.
 
 R20 extends this design through [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). R20 is complete in source: the same endpoint and outer security pipeline route supported legacy versions to the verified stateful handler and exact `2026-07-28` to a stateless SDK handler. Host, Origin, authentication, proxy, rate, body, concurrency, timeout, logging, execution, readiness, and shutdown controls remain common; only legacy traffic enters session admission.
 
@@ -23,7 +23,7 @@ The HTTP transport must:
 
 ## Non-goals
 
-The first native HTTP implementation will not provide:
+The native HTTP profile does not provide:
 
 - per-session or per-agent filesystem ACLs;
 - a browser application or permissive CORS endpoint;
@@ -113,7 +113,7 @@ Allowed directories are immutable process-wide policy:
 
 ## Configuration contract
 
-R13 must use the following contract. Unknown, contradictory, malformed, or insecure combinations fail startup rather than falling back silently.
+The current implementation uses the following contract. Unknown, contradictory, malformed, or insecure combinations fail startup rather than falling back silently.
 
 | Setting | Default | Requirement |
 |---|---|---|
@@ -247,7 +247,7 @@ Failures are rejected at the earliest safe stage and must not initialize an MCP 
 
 ## Session policy
 
-R13 uses stateful sessions with these rules. They remain authoritative for legacy protocol requests after R20. Exact `2026-07-28` requests now bypass session admission entirely and do not emulate a hidden protocol session.
+Stateful sessions use the following rules for supported legacy protocol requests. Exact `2026-07-28` requests bypass session admission entirely and do not emulate a hidden protocol session.
 
 - session identifiers use the pinned SDK default `crypto/rand.Text` generator and are not replaced by predictable application IDs;
 - a session identifier is routing state, not authentication;
@@ -268,7 +268,7 @@ All clients sharing one static token share one authenticated principal. A truste
 
 ## Event streams and resumption
 
-- The first R13 implementation keeps `EventStore` unset.
+- `EventStore` remains unset.
 - Normal stateful SSE is supported, but interrupted streams are not durably replayed.
 - `Last-Event-ID` resumption requiring an event store is rejected deterministically.
 - This avoids storing MCP messages, tool results, paths, or file content outside the active process.
@@ -313,7 +313,7 @@ HTTP execution requires both:
 1. the existing tool-specific or combined execution flag; and
 2. `MCP_HTTP_ENABLE_EXECUTION=1`.
 
-Therefore enabling an execution tool for stdio does not automatically expose it over HTTP. R13 must make the transport-specific decision explicit in server policy rather than infer it from client input.
+Therefore enabling execution for stdio does not automatically expose it over HTTP. The transport-specific decision is explicit server policy and is never inferred from client input.
 
 `task_run` retains distinct script and shell authorization. Script admission validates and hashes the authorized regular file; the worker then revalidates its path and working directory and executes a SHA-256-matching owner-only private snapshot, closing the check-to-launch mutation window. Shell admission validates the working directory but the command remains unrestricted. The MCP request returns after durable admission; an owner-only task store, independent supervisor/worker, detached per-task executor, bounded logs, and process-tree cancellation own later lifecycle. An HTTP disconnect never becomes task cancellation; clients use `task_cancel` explicitly.
 
@@ -354,11 +354,11 @@ Logs must not contain:
 
 Session identifiers may be represented only by a short one-way fingerprint when correlation is necessary. Error logging must use stable categories and redact path-bearing details at the HTTP access layer.
 
-The existing tool middleware can log human-readable failure messages that may include filesystem paths. Therefore R13 must either keep the handler `Logger` nil for HTTP or first introduce category-only redacted tool logging. The HTTP access logger and SDK logger must be separate from any verbose local diagnostic logger.
+The existing tool middleware can log human-readable failure messages that may include filesystem paths. The HTTP path therefore keeps the handler `Logger` nil unless category-only path-redacted tool logging is used. The HTTP access logger and SDK logger remain separate from any verbose local diagnostic logger.
 
 ## SDK integration constraints
 
-R13 introduced the pinned `github.com/modelcontextprotocol/go-sdk` stateful Streamable HTTP handler, and R20 Phase 4 adds a second stateless handler behind the same explicit outer controls:
+The pinned `github.com/modelcontextprotocol/go-sdk` provides a stateful Streamable HTTP handler for supported legacy traffic and a stateless handler for `2026-07-28`, both behind the same explicit outer controls:
 
 - return the same R11-built `*mcp.Server` for every legacy session and every stateless request;
 - keep SDK localhost protection enabled;
@@ -373,7 +373,7 @@ R13 introduced the pinned `github.com/modelcontextprotocol/go-sdk` stateful Stre
 - keep the R11 handler logger disabled for HTTP until category-only path-redacted logging exists;
 - coordinate HTTP shutdown without relying on the SDK's unexported test-only close-all helper.
 
-No SDK fork or new dependency is planned unless R13 proves that these requirements cannot be met safely through public APIs and small local middleware.
+No SDK fork is required. Any future dependency or SDK-architecture change must preserve these requirements through explicit review and verification.
 
 ## Required security tests
 
@@ -450,7 +450,7 @@ No SDK fork or new dependency is planned unless R13 proves that these requiremen
 
 ## Release-blocking findings
 
-R13 cannot be completed or released with any of the following:
+The following conditions are release-blocking regressions:
 
 - authentication bypass on any MCP method;
 - token acceptance from a URL or cookie;
@@ -468,7 +468,7 @@ R13 cannot be completed or released with any of the following:
 
 ## Accepted risks
 
-The following risks are explicit and accepted for the initial native HTTP profile:
+The following risks are explicit and accepted for the native HTTP profile:
 
 - every authenticated session has the complete process-wide filesystem authority configured at startup;
 - one static bearer token represents one trust domain rather than distinct users;
