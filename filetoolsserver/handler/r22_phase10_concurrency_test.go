@@ -13,7 +13,7 @@ func TestR22Phase10ConcurrentBatchAndGrepRemainDeterministicAcrossEncodingClasse
 	for _, testCase := range phase10EncodingClasses {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalHandlerTestDir(t)
 			h := NewHandler([]string{root})
 			const fileCount = 12
 			paths := make([]string, 0, fileCount)
