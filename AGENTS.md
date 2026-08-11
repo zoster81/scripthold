@@ -99,6 +99,7 @@ Always run `gofmt` on changed Go files and `git diff --check`. Review final `git
 - Treat paths, file contents, environment variables, process output, and network data as untrusted.
 - Never add credentials, real tunnel identifiers, workstation paths, PIDs, private binary hashes, or operator handoff state to tracked files.
 - Do not manually edit generated release output such as `server.json`; update its source template/catalog or generator instead.
+- MCPB release artifacts are GitHub-only outputs. Never create, pack, repack, simulate, dry-run, checksum, or validate real `.mcpb` bundles locally, and never generate the final MCPB-backed Registry manifest locally. If the GitHub MCPB/Registry workflow fails, diagnose logs and source/configuration, fix the repository, and rerun the workflow on GitHub.
 - When tool metadata changes, update the catalog, runtime behavior, README links, TOOLS reference, tests, and release projection together.
 - Do not change dependencies, public schemas, release versions, workflows, or packaging incidentally.
 

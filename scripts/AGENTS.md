@@ -15,6 +15,7 @@ Scripts validate workflows, release versions, checksums, and the generated MCP R
 - Keep fork repository and Registry identities consistent with project-identity tests.
 - `internal/toolcatalog/catalog.json` is the authoritative tool metadata source.
 - `server.template.json` remains release-neutral; generated `server.json` is disposable output and must not be hand-edited or committed.
+- MCPB release artifacts are produced only by GitHub workflows. Local script development and tests may verify source logic, staging metadata, templates, and workflow contracts only when they do not create `.mcpb` bundles. Never run local MCPB packing, repacking, simulation, dry-run packaging, real-bundle validation/checksumming, or final MCPB-backed Registry generation. GitHub workflow failures are diagnosed from logs and source/configuration, then fixed and rerun on GitHub.
 - Write generated files through a temporary file followed by replacement; remove temporary artifacts on failure.
 - Tests must not publish releases, mutate Git history, require credentials, or depend on live release state.
 

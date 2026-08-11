@@ -126,7 +126,7 @@ Run checks from focused to broad and record exact outcomes.
 
 - [ ] Gitleaks for tracked content and history when available and relevant;
 - [ ] GoReleaser configuration checks when packaging changes;
-- [ ] deterministic MCPB bundle validation and non-published MCP Registry manifest validation when catalog or packaging changes;
+- [ ] GitHub MCPB/Registry workflow definitions, packaging-script unit tests, templates, and metadata validation when catalog or packaging changes; never create, pack, simulate, dry-run, checksum, or validate real `.mcpb` bundles locally, and never generate the final MCPB-backed Registry manifest locally;
 - [ ] no credentials, tokens, private keys, cookies, real tunnel identifiers, or workstation state added.
 
 ## 7. Documentation and metadata
@@ -162,7 +162,7 @@ Use this section only for an explicitly requested internal build.
 
 ## 10. Public release and deployment gate
 
-Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. Release `2.1.1` is the current published, deployed, and rollback-verified Scripthold release; `2.0.0` remains the historical rollback baseline. Future releases should apply the same checks to their active roadmap scope.
+Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. Release `2.1.1` is the current published, deployed, and rollback-verified Scripthold release; `2.0.0` remains the historical rollback baseline. Future releases should apply the same checks to their active roadmap scope. MCPB artifacts are a GitHub-only release output: local release preparation must never produce or simulate `.mcpb` bundles. If the GitHub MCPB/Registry workflow fails, diagnose its logs and source/configuration, fix the repository, and rerun the workflow on GitHub.
 
 - [x] R7-R13, the 2.0 release scope, and the migration guide are complete;
 - [x] the HTTP security design and transport test suite pass;
