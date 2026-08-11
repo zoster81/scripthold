@@ -141,9 +141,11 @@ func TestDetectFromFile_CP1251(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should detect some Cyrillic encoding
-	if result.Charset == "" {
-		t.Error("expected non-empty charset for Cyrillic content")
+	// Windows-1251 and Macintosh Cyrillic can both explain short Cyrillic byte
+	// sequences plausibly. Phase 7 requires explicit selection instead of
+	// trusting a probabilistic single-byte guess.
+	if result.Charset != "" || result.Confidence >= MinConfidenceThreshold {
+		t.Fatalf("result = %+v, want explicit ambiguity for short Cyrillic content", result)
 	}
 }
 

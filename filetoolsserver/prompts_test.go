@@ -36,18 +36,43 @@ func TestR15ProjectPromptsAvailableOnSharedServer(t *testing.T) {
 			t.Fatalf("prompt %q missing from %#v", name, seen)
 		}
 	}
-	result, err := clientSession.GetPrompt(ctx, &mcp.GetPromptParams{
-		Name:      "migrate_to_utf8",
-		Arguments: map[string]string{"path": "/project", "pattern": "*.txt"},
-	})
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name      string
+		arguments map[string]string
+		contains  []string
+	}{
+		{
+			name:      "audit_encodings",
+			arguments: map[string]string{"path": "/project"},
+			contains:  []string{"read-only", "detect_encoding", "detect_line_endings", "Do not modify any file"},
+		},
+		{
+			name:      "fix_mojibake",
+			arguments: map[string]string{"path": "/project/legacy.data"},
+			contains:  []string{"Detect the encoding", "explicit likely legacy encodings", "approval", "backup=true", "read the file again"},
+		},
+		{
+			name:      "migrate_to_utf8",
+			arguments: map[string]string{"path": "/project", "pattern": "*.txt"},
+			contains:  []string{"convert_encoding", "dryRun=true", "approval", "backup=true", "final dry run", "*.txt"},
+		},
 	}
-	if len(result.Messages) != 1 {
-		t.Fatalf("messages = %d", len(result.Messages))
-	}
-	text, ok := result.Messages[0].Content.(*mcp.TextContent)
-	if !ok || !strings.Contains(text.Text, "dryRun=true") || !strings.Contains(text.Text, "*.txt") {
-		t.Fatalf("unexpected prompt content: %#v", result.Messages[0].Content)
+	for _, test := range tests {
+		result, err := clientSession.GetPrompt(ctx, &mcp.GetPromptParams{Name: test.name, Arguments: test.arguments})
+		if err != nil {
+			t.Fatalf("GetPrompt(%s): %v", test.name, err)
+		}
+		if len(result.Messages) != 1 {
+			t.Fatalf("%s messages = %d", test.name, len(result.Messages))
+		}
+		text, ok := result.Messages[0].Content.(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("%s unexpected prompt content: %#v", test.name, result.Messages[0].Content)
+		}
+		for _, expected := range test.contains {
+			if !strings.Contains(text.Text, expected) {
+				t.Fatalf("%s prompt missing %q: %s", test.name, expected, text.Text)
+			}
+		}
 	}
 }

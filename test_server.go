@@ -174,9 +174,11 @@ func main() {
 	r13, o13, _ := h.HandleReadTextFile(ctx, nil, handler.ReadTextFileInput{Path: multiFile, Offset: &offset, Limit: &limit})
 	check("read_text_file (offset=3, limit=2)", !r13.IsError && o13.Content == "c\nd")
 
-	// Auto-detect and encoding registry
-	r14, o14, _ := h.HandleReadTextFile(ctx, nil, handler.ReadTextFileInput{Path: cyrillicFile})
-	check("read_text_file (auto-detect)", !r14.IsError && o14.DetectedEncoding != "")
+	// Auto-detect uses an unambiguous UTF-8 fixture. CP1251 is intentionally
+	// exercised explicitly above because phase-7 conservative detection rejects
+	// plausible single-byte confusion instead of forcing a legacy guess.
+	r14, o14, _ := h.HandleReadTextFile(ctx, nil, handler.ReadTextFileInput{Path: testFile})
+	check("read_text_file (auto-detect)", !r14.IsError && o14.DetectedEncoding == "utf-8" && o14.Content == "Hello!")
 
 	enc, ok := encoding.Get("cp1251")
 	check("encoding registry", ok && enc != nil)

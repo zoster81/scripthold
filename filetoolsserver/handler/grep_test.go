@@ -242,10 +242,13 @@ func TestHandleGrep_CP1251Encoding(t *testing.T) {
 	cp1251Bytes := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}
 	os.WriteFile(testFile, cp1251Bytes, 0644)
 
-	// Search for Cyrillic pattern (will be auto-detected)
+	// CP1251 is intentionally ambiguous under conservative phase-7 detection;
+	// explicit codec selection remains fully supported. Phase 8 will make
+	// auto-detection skips visible in directory/batch grep reporting.
 	result, output, err := h.HandleGrep(context.Background(), nil, GrepInput{
-		Pattern: "Привет",
-		Paths:   []string{testFile},
+		Pattern:  "Привет",
+		Paths:    []string{testFile},
+		Encoding: "cp1251",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +257,166 @@ func TestHandleGrep_CP1251Encoding(t *testing.T) {
 		t.Errorf("expected success, got error")
 	}
 	if output.TotalMatches != 1 {
-		t.Errorf("expected 1 match with encoding detection, got %d", output.TotalMatches)
+		t.Errorf("expected 1 explicit CP1251 match, got %d", output.TotalMatches)
+	}
+}
+
+func TestHandleGrep_Phase8ReportsBoundedEncodingSkips(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir})
+
+	goodPath := filepath.Join(tempDir, "00-good.txt")
+	if err := os.WriteFile(goodPath, []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 70; index++ {
+		path := filepath.Join(tempDir, fmt.Sprintf("%02d-ambiguous.data", index+1))
+		if err := os.WriteFile(path, []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, output, err := h.HandleGrep(context.Background(), nil, GrepInput{
+		Pattern:    "needle",
+		Paths:      []string{tempDir},
+		MaxMatches: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("expected partial success, got %v", result.Content)
+	}
+	if output.TotalMatches != 1 || len(output.Matches) != 1 || !sameExistingTestFile(t, output.Matches[0].Path, goodPath) {
+		t.Fatalf("valid grep result was not preserved: %+v", output)
+	}
+	if output.CoverageComplete {
+		t.Fatal("coverageComplete = true with skipped encoding failures")
+	}
+	if output.FilesScanned != 1 || output.FilesSkipped != 70 {
+		t.Fatalf("filesScanned/filesSkipped = %d/%d, want 1/70", output.FilesScanned, output.FilesSkipped)
+	}
+	if len(output.SkippedFiles) != maxPartialFailureDetails {
+		t.Fatalf("retained skipped files = %d, want %d", len(output.SkippedFiles), maxPartialFailureDetails)
+	}
+	if !output.SkippedFilesTruncated || output.SkippedFilesOmitted != 70-maxPartialFailureDetails {
+		t.Fatalf("skip truncation metadata = truncated:%v omitted:%d", output.SkippedFilesTruncated, output.SkippedFilesOmitted)
+	}
+	for index, skipped := range output.SkippedFiles {
+		if skipped.ErrorCode != ErrCodeEncodingAmbiguous || skipped.EncodingErrorCode != EncodingErrorAmbiguous {
+			t.Fatalf("skip[%d] = %+v, want ambiguous encoding codes", index, skipped)
+		}
+		wantBase := fmt.Sprintf("%02d-ambiguous.data", index+1)
+		if filepath.Base(skipped.Path) != wantBase {
+			t.Fatalf("skip[%d].path = %q, want deterministic %q", index, skipped.Path, wantBase)
+		}
+	}
+}
+
+func TestHandleGrep_Phase8MalformedExplicitEncodingIsVisible(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir})
+	goodPath := filepath.Join(tempDir, "a-good.txt")
+	badPath := filepath.Join(tempDir, "b-malformed.txt")
+	if err := os.WriteFile(goodPath, []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(badPath, []byte{0xC3, 0x28}, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, output, err := h.HandleGrep(context.Background(), nil, GrepInput{
+		Pattern: "needle", Paths: []string{tempDir}, Encoding: "utf-8",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("expected partial success, got %v", result.Content)
+	}
+	if output.TotalMatches != 1 || output.FilesSkipped != 1 || len(output.SkippedFiles) != 1 {
+		t.Fatalf("unexpected partial grep output: %+v", output)
+	}
+	skipped := output.SkippedFiles[0]
+	if !sameExistingTestFile(t, skipped.Path, badPath) || skipped.ErrorCode != ErrCodeEncoding || skipped.EncodingErrorCode != EncodingErrorMalformed {
+		t.Fatalf("malformed skip = %+v", skipped)
+	}
+}
+
+func TestHandleGrep_Phase8EncodingSkipsVisibleInAllOutputModes(t *testing.T) {
+	for _, mode := range []string{"content", "files_with_matches", "count"} {
+		t.Run(mode, func(t *testing.T) {
+			tempDir := t.TempDir()
+			h := NewHandler([]string{tempDir})
+			if err := os.WriteFile(filepath.Join(tempDir, "a-good.txt"), []byte("needle\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(tempDir, "b-ambiguous.data"), []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}, 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			result, output, err := h.HandleGrep(context.Background(), nil, GrepInput{
+				Pattern: "needle", Paths: []string{tempDir}, OutputMode: mode, MaxMatches: 10,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.IsError || output.FilesSkipped != 1 || output.CoverageComplete {
+				t.Fatalf("mode %s hid partial coverage: result=%+v output=%+v", mode, result, output)
+			}
+			if len(output.SkippedFiles) != 1 || output.SkippedFiles[0].ErrorCode != ErrCodeEncodingAmbiguous {
+				t.Fatalf("mode %s skipped files = %+v", mode, output.SkippedFiles)
+			}
+		})
+	}
+}
+
+func TestHandleGrep_Phase8DiagnosticsYieldToMatchOutputBudget(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir}, WithConfig(&config.Config{
+		DefaultEncoding: "utf-8",
+		Limits:          config.Limits{MaxOutputBytes: 4096},
+	}))
+	goodPath := filepath.Join(tempDir, "a-good.txt")
+	badPath := filepath.Join(tempDir, "b-ambiguous.data")
+	line := "needle" + strings.Repeat("x", 3550) + "\n"
+	if err := os.WriteFile(goodPath, []byte(line), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(badPath, []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, output, err := h.HandleGrep(context.Background(), nil, GrepInput{
+		Pattern: "needle", Paths: []string{tempDir}, Encoding: "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || len(output.Matches) != 1 || output.FilesSkipped != 1 {
+		t.Fatalf("unexpected result=%+v output=%+v", result, output)
+	}
+	if len(output.SkippedFiles) != 0 || !output.SkippedFilesTruncated || output.SkippedFilesOmitted != 1 {
+		t.Fatalf("diagnostics should yield to match budget: %+v", output)
+	}
+}
+
+func TestHandleGrep_Phase8CancellationIsTerminal(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir})
+	path := filepath.Join(tempDir, "cancel.txt")
+	if err := os.WriteFile(path, []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, _, err := h.HandleGrep(ctx, nil, GrepInput{Pattern: "needle", Paths: []string{path}, Encoding: "utf-8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeCancelled {
+		t.Fatalf("cancelled grep result = %+v, want %s", result, ErrCodeCancelled)
 	}
 }
 

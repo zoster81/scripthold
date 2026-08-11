@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.1.1` is the current public Scripthold release with 30 tools and 3 guided prompts. It is published on GitHub and in the MCP Registry, deployed on Windows amd64, and verified through an active rollback to `2.0.0` followed by restoration to `2.1.1`. Version `2.0.0` remains the historical 23-tool rollback baseline. R21 is complete; no milestone is currently `ACTIVE`.
+Version `2.1.1` is the current public Scripthold release with 30 tools and 3 guided prompts. It is published on GitHub and in the MCP Registry, deployed on Windows amd64, and verified through an active rollback to `2.0.0` followed by restoration to `2.1.1`. Version `2.0.0` remains the historical 23-tool rollback baseline. R21 is complete. **R22 is `ACTIVE` and targets Scripthold `2.2.0` with global portable encoding coverage, full UTF-32 text support, conservative detection hardening, and corpus-backed verification.**
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -37,6 +37,44 @@ Product identity and the fork's independent relationship to upstream are defined
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
 | R20 | COMPLETE | Stable SDK `v1.7.0`, stdio version gating, same-endpoint dual-generation HTTP, structured unsupported-version handling, and the full compatibility/conformance gate are verified in source. |
 | R21 | COMPLETE | Delivered durable asynchronous task execution, exact-commit release gating, and the published, deployed, rollback-verified `2.1.1` release. |
+| R22 | ACTIVE | Expand to global portable encoding coverage, promote UTF-32 to the full text pipeline, harden ambiguity/detection semantics, and complete the `2.2.0` release gate. |
+
+---
+
+# R22 — Global encoding coverage and Scripthold 2.2.0
+
+## Goal
+
+Deliver the broadest practical cross-platform text-encoding support that can be implemented and verified without weakening Scripthold's content-based detection, bounded-memory streaming, durable mutation, filesystem confinement, transport equivalence, or typed-error guarantees. The authoritative implementation and test contract is [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md).
+
+## Approved scope
+
+- [x] Normalize the real-world encoding corpus with immutable provenance, byte sizes, SHA-256 values, and UTF-8 oracles where practical; pinned fixtures may be sourced from `arthenica/libiconv` and `oe-mirrors/uchardet`.
+- [x] Replace the current minimal registry with one authoritative capability registry covering canonical names, aliases, detector labels, decoder/encoder support, BOM behavior, validation, and auto-detection eligibility.
+- [x] Expose every applicable portable encoding already implemented by the repository-pinned `golang.org/x/text` before adding custom codec code.
+- [x] Promote UTF-32 LE/BE from BOM-management-only handling to the complete text-operation pipeline with strict scalar validation and code-unit-aware line-ending support.
+- [x] Add additional portable single-byte mappings from pinned libiconv-compatible sources using deterministic pure-Go tables and exhaustive byte-level tests.
+- [x] Add missing multibyte/stateful families one at a time under focused TDD, streaming state machines, differential oracles, malformed-input tests, and chunk-boundary coverage. Phase 6 adds 21 explicit-only codecs and raises the verified source registry from 147 to 168.
+- [x] Harden detection with detector-to-registry closure, short-input evidence floors, confusion matrices, binary rejection, malformed-input rejection, and deterministic `sample`/`chunked`/`full` semantics. Phase 7 adds strict/text-quality trust gates, stateful HZ/ISO-2022 signatures, GB18030 revision-safe ambiguity, and fail-closed existing-file writes without changing the 168-codec registry count.
+- [x] Make grep and batch partial encoding failures bounded and visible rather than implying complete coverage when files were skipped. Phase 8 adds deterministic grep coverage metadata, bounded skipped/error summaries with explicit omitted counts, additive encoding subcodes, strict streaming UTF-8 validation, and terminal grep cancellation while preserving valid partial results.
+- [x] Exercise every supported encoding through the applicable read, batch, grep, write, edit, patch, convert, BOM, line-ending, verification, and prompt workflows. Phase 9 adds a registry-driven all-168-codec public-operation matrix, byte-identical edit no-op verification, applicable JSON/BOM checks, complete trusted-corpus public detection, and explicit contracts for all three encoding workflow prompts.
+- [x] Complete Phase 10 adversarial, fuzz, resource, cancellation, concurrency, failure-injection, race, static-analysis, and vulnerability verification for the expanded encoding surface. Representative R22 classes now pass malformed/no-mutation, decoded-limit, cancellation, deterministic batch/grep concurrency, 225,000 fixed-count fuzz executions, and bounded 1/16/64 MiB allocation gates; GB18030:2022 no longer allocates per sequence.
+- [ ] Complete Phase 11 six-target build, native/container smoke, deterministic packaging, MCPB, Registry-manifest, and final release-candidate verification before release preparation. The source-only preflight is already green: `goreleaser check`, all four public PowerShell launcher parses, actionlint 1.7.12, ShellCheck 0.11.0, and the suspicious-untracked-residue audit pass without producing release artifacts.
+- [ ] Prepare and publish `2.2.0` only from the exact clean commit that satisfies the completed R22 and normal publishing gates.
+
+## Design decisions
+
+- The production runtime remains pure Go. libiconv and uchardet are approved pinned corpus/oracle/reference sources, not runtime DLL/shared-library/subprocess dependencies.
+- Explicit codec support may be broader than automatic detection. Ambiguous encodings remain explicit-only where reliable content-based discrimination cannot be justified.
+- Malformed input must fail deterministically; silent replacement characters or lossy transliteration are not acceptable default decoding behavior.
+- Unicode UTF-8, UTF-16, and UTF-32 are the supported Unicode transformation-format families. R22 does not invent a proprietary UTF-64 format or expose machine-dependent internal character representations as portable file encodings.
+- The final supported-encoding count is derived from the verified authoritative registry after implementation; aliases do not count as separate encodings and planning documentation must not promise an unverified total.
+
+## Completion gate
+
+R22 is complete only when the detailed gates in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md) pass, the final registry/documentation count is generated or verified without drift, every trusted detection result resolves to a supported codec, malformed and ambiguous data fail safely, UTF-32 passes the full public operation matrix, grep exposes skipped encoding failures, the corpus is reproducible from pinned provenance, and the complete repository plus release-candidate verification matrix is green.
+
+Publication, Registry upload, deployment, active rollback, and restoration remain separately governed final release operations under [PUBLISHING.md](PUBLISHING.md).
 
 ---
 
@@ -335,7 +373,7 @@ All 23 retained tools operate through native Streamable HTTP and stdio with equi
 
 Completed on 2026-07-27. The executable now selects `stdio` or stateful `streamable-http` while constructing the 23 tools once through `BuildServer`. Native HTTP is loopback-bound and bearer-authenticated by default, validates exact Host and all-method Origin values, emits no CORS allow headers, disables HTTP client roots and event replay, supports optional TLS and bounded trusted-proxy handling, exposes minimal health/readiness routes, and coordinates graceful shutdown. Per-request and aggregate body budgets, non-SSE concurrency, live sessions, bounded per-peer rate state, idle cleanup, header limits, and cancellation are enforced before or around the pinned SDK handler. HTTP execution requires its own opt-in in addition to the existing tool authorization, and token-source variables are removed from the process environment after startup snapshotting.
 
-Tests verified multiple simultaneous HTTP clients, unique sessions, DELETE and idle cleanup, SDK-aligned POST-paused and SSE-only expiry, cancellation propagation, authentication on every method, Host/Origin and proxy rejection, known-length and chunked `413` behavior, aggregate/concurrency `429` behavior, oversized-header `431`, log and TLS-path redaction, immutable process roots after an HTTP roots notification, and equivalence with the direct adapter for all tool metadata, CP1251 reads, allowed directories, and representative typed errors. Focused and complete Go tests, `go vet`, Staticcheck, govulncheck, the full race detector, the stdio manual harness, Node release tests, documentation/catalog checks, and Gitleaks history plus working-tree scans passed. No binary build, push, launcher change, service restart, or live deployment was performed.
+Tests verified multiple simultaneous HTTP clients, unique sessions, DELETE and idle cleanup, SDK-aligned POST-paused and SSE-only expiry, cancellation propagation, authentication on every method, Host/Origin and proxy rejection, known-length and chunked `413` behavior, aggregate/concurrency `429` behavior, oversized-header `431`, log and TLS-path redaction, immutable process roots after an HTTP roots notification, and equivalence with the direct adapter for all tool metadata, CP1251 reads, allowed directories, and representative typed errors. Focused and complete Go tests, `go vet`, Staticcheck, govulncheck, the full race detector, the stdio manual harness, Node release tests, documentation/catalog checks, and Gitleaks content/history scans passed.
 
 ---
 
@@ -611,7 +649,7 @@ R18 is complete only when every phase is implemented and reviewed, live manifest
 
 ## Completion record
 
-Completed on 2026-08-05. A full lifecycle regression verifies approval-bound edit capture, original-target restore with a durable safety backup, generation-bound GC, full audit, and repeated store reopen while public target bytes remain unchanged by GC. The complete package suite and race detector passed in deterministic shards where the remote tunnel timeout prevented one monolithic invocation; `go mod tidy -diff`, module verification, vet, Staticcheck, govulncheck, workflow linting, manual MCP checks, Node release tests, and all five persistent-format fuzz targets passed. Six Windows/Linux/macOS amd64/arm64 binaries and backup-store test executables compiled, the generated six-package Registry manifest passed MCP Publisher 1.7.9 validation, and native Windows stdio smoke exposed all 27 tools. A temporary Linux/amd64 container passed UID 10001, read-only-root, dropped-capability, `no-new-privileges`, bounded-tmpfs, stdio MCP, direct-TLS HTTP readiness, `401`/`403`/`405`, no-CORS, and clean shutdown checks. Temporary binaries, manifests, images, containers, volumes, certificates, and the OCI engine were removed or restored to their initial state. No push, tag, release, deployment, launcher change, or runtime restart occurred.
+Completed on 2026-08-05. A full lifecycle regression verifies approval-bound edit capture, original-target restore with a durable safety backup, generation-bound GC, full audit, and repeated store reopen while public target bytes remain unchanged by GC. The complete package suite and race detector passed in deterministic shards; `go mod tidy -diff`, module verification, vet, Staticcheck, govulncheck, workflow linting, manual MCP checks, Node release tests, and all five persistent-format fuzz targets passed. Six Windows/Linux/macOS amd64/arm64 binaries and backup-store test executables compiled, the generated six-package Registry manifest passed MCP Publisher 1.7.9 validation, and native Windows stdio smoke exposed all 27 tools. A temporary Linux/amd64 container passed UID 10001, read-only-root, dropped-capability, `no-new-privileges`, bounded-tmpfs, stdio MCP, direct-TLS HTTP readiness, `401`/`403`/`405`, no-CORS, and clean shutdown checks.
 
 ---
 
@@ -654,7 +692,7 @@ R19 is complete only when healthy and corrupt existing stores can be diagnosed o
 
 Completed on 2026-08-06. `backup-store diagnose` requires an explicit existing store, acquires the pre-existing owner-only single-link lock without create flags, validates root/lock/descriptor/layout identity, and emits one bounded deterministic `backup-diagnostic-v1` JSON document. Quick mode performs metadata validation; full mode additionally hashes referenced objects. Missing or stale derived index state is reported as maintenance without being rebuilt, while descriptor, layout, manifest, object, permission, link, limit, cancellation, and concurrent-change evidence fail closed. Mutation-negative tests prove that missing descriptor/index state, incomplete layout, staging, trash, orphan data, bytes, modes, modification times, and namespace remain unchanged.
 
-Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod verify`, the complete Go suite, complete race detector, vet, Staticcheck, govulncheck with no vulnerabilities, six bounded fuzz campaigns, Node release tests 7/7, manual 27-tool MCP harness, GoReleaser configuration, actionlint/ShellCheck workflow checks, Windows/Linux/macOS amd64/arm64 command and test compilation, and a native Windows CLI smoke proving exit `0` for a healthy store and exit `2` for a missing rebuildable index without recreating it. Project-identity/catalog tests, strict UTF-8/no-BOM/LF/trailing-whitespace checks, 126 local Markdown links, Gitleaks working-tree plus 336-commit history scans, and clean diff checks passed. No push, tag, release, deployment, launcher edit, runtime restart, repair, quarantine, salvage, clone, or migration occurred.
+Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod verify`, the complete Go suite, complete race detector, vet, Staticcheck, govulncheck with no vulnerabilities, six bounded fuzz campaigns, Node release tests 7/7, manual 27-tool MCP harness, GoReleaser configuration, actionlint/ShellCheck workflow checks, Windows/Linux/macOS amd64/arm64 command and test compilation, and a native Windows CLI smoke proving exit `0` for a healthy store and exit `2` for a missing rebuildable index without recreating it. Project-identity/catalog tests, strict UTF-8/no-BOM/LF/trailing-whitespace checks, Markdown links, Gitleaks content/history scans, and clean diff checks passed. No repair, quarantine, salvage, clone, or migration capability was added.
 
 ---
 
@@ -678,7 +716,7 @@ Adopt final MCP protocol version `2026-07-28` through an official stable Go SDK 
 - Stateless requests create no session, emit no session ID, use no event store, and consume no legacy session capacity.
 - `Mcp-Method` and `Mcp-Name` remain untrusted routing hints and never become authorization inputs.
 - R20 adds no Apps, Tasks, MRTR workflow, OAuth server, application-selected positive cache lifetime, tracing export, tool, prompt, resource, or schema.
-- Push, release, deployment, launcher changes, and runtime restart remain separately authorized operations.
+- Publication and deployment remain governed by the release gates in [PUBLISHING.md](PUBLISHING.md).
 
 ## Implementation phases
 

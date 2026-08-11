@@ -1,6 +1,6 @@
 # R1-R6 Engineering History
 
-This document summarizes the public engineering outcomes completed before the active roadmap in [ROADMAP.md](ROADMAP.md). It intentionally excludes workstation paths, private connector state, process identifiers, local binaries, and operator handoff details.
+This document summarizes the early public engineering outcomes that precede the current milestone record in [ROADMAP.md](ROADMAP.md). It intentionally excludes workstation paths, private connector state, process identifiers, local binaries, and operator handoff details.
 
 For current work, use [ROADMAP.md](ROADMAP.md), [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), and the repository's scoped [`AGENTS.md`](../AGENTS.md) files.
 
@@ -111,7 +111,7 @@ Share safe process preparation without merging authorization policies, and remov
 
 ### Remaining boundary
 
-`run_script` still uses a path-based process creation API, so the final validation-to-execution transition cannot be fully atomic. `shell` remains intentionally unrestricted after working-directory validation and is disabled by default.
+At the R6 boundary, `run_script` still used a path-based process creation API, so the final validation-to-execution transition could not be fully atomic; `shell` remained intentionally unrestricted after working-directory validation and disabled by default. Later milestones replaced these synchronous public execution tools with the durable `task_run` family.
 
 ## Cross-cutting verification established by R1-R6
 

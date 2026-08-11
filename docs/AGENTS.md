@@ -15,6 +15,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `PERSISTENT_BACKUP_LIFECYCLE.md`: approved R17 design and R18 implementation contract for the internal store boundary, content-addressed objects, manifests, quotas, restore, garbage collection, and crash recovery.
 - `OFFLINE_BACKUP_DIAGNOSTICS.md`: R19 diagnostic-only design for inspecting an existing store without creation, repair, cleanup, or other filesystem mutation.
 - `MCP_2026_07_28_ADOPTION.md`: R20 compatibility and security design for adopting MCP `2026-07-28` without losing legacy stdio or stateful HTTP behavior.
+- `GLOBAL_ENCODING_COVERAGE.md`: authoritative R22 / 2.2.0 implementation and verification contract for global portable encoding coverage, full UTF-32 text support, detector hardening, corpus provenance, and release gates.
 
 Keep operational details in their proper source instead of duplicating them across documents.
 

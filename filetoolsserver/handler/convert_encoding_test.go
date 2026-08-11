@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,8 +34,8 @@ func TestHandleConvertEncoding_UTF8ToCP1251(t *testing.T) {
 	if output.SourceEncoding != "utf-8" {
 		t.Errorf("expected source encoding utf-8, got %s", output.SourceEncoding)
 	}
-	if output.TargetEncoding != "cp1251" {
-		t.Errorf("expected target encoding cp1251, got %s", output.TargetEncoding)
+	if output.TargetEncoding != "windows-1251" {
+		t.Errorf("expected canonical target encoding windows-1251, got %s", output.TargetEncoding)
 	}
 
 	// Verify file was converted (CP1251 bytes are different from UTF-8)
@@ -107,6 +108,63 @@ func TestHandleConvertEncoding_WithBackup(t *testing.T) {
 	}
 	if string(backupContent) != string(originalContent) {
 		t.Fatalf("backup = %q, want original %q", backupContent, originalContent)
+	}
+}
+
+func TestHandleConvertEncoding_Phase8BatchEncodingStatusAndBoundedSummary(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir})
+	goodPath := filepath.Join(tempDir, "good.txt")
+	ambiguousPath := filepath.Join(tempDir, "ambiguous.data")
+	malformedPath := filepath.Join(tempDir, "malformed.txt")
+	if err := os.WriteFile(goodPath, []byte("plain text\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ambiguousPath, []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(malformedPath, []byte{0xC3, 0x28}, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, output, err := h.HandleConvertEncoding(context.Background(), nil, ConvertEncodingInput{
+		Paths: []string{goodPath, ambiguousPath}, To: "utf-8", DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.SuccessCount != 1 || output.ErrorCount != 1 || len(output.Results) != 2 {
+		t.Fatalf("partial conversion = %+v", output)
+	}
+	if output.Results[1].ErrorCode != ErrCodeEncodingAmbiguous || output.Results[1].EncodingErrorCode != EncodingErrorAmbiguous {
+		t.Fatalf("ambiguous conversion = %+v", output.Results[1])
+	}
+
+	_, malformed, err := h.HandleConvertEncoding(context.Background(), nil, ConvertEncodingInput{
+		Paths: []string{goodPath, malformedPath}, From: "utf-8", To: "utf-8", DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if malformed.SuccessCount != 1 || malformed.ErrorCount != 1 || malformed.Results[1].ErrorCode != ErrCodeEncoding || malformed.Results[1].EncodingErrorCode != EncodingErrorMalformed {
+		t.Fatalf("malformed conversion = %+v", malformed)
+	}
+
+	missing := make([]string, 70)
+	for index := range missing {
+		missing[index] = filepath.Join(tempDir, fmt.Sprintf("missing-%02d.txt", index))
+	}
+	_, bounded, err := h.HandleConvertEncoding(context.Background(), nil, ConvertEncodingInput{
+		Paths: missing, From: "utf-8", To: "utf-8", DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bounded.ErrorCount != 70 || len(bounded.Results) != 70 {
+		t.Fatalf("bounded conversion counts = errors:%d results:%d", bounded.ErrorCount, len(bounded.Results))
+	}
+	if len(bounded.Errors) != maxPartialFailureDetails || !bounded.ErrorsTruncated || bounded.ErrorsOmitted != 70-maxPartialFailureDetails {
+		t.Fatalf("bounded conversion summary = len:%d truncated:%v omitted:%d", len(bounded.Errors), bounded.ErrorsTruncated, bounded.ErrorsOmitted)
 	}
 }
 

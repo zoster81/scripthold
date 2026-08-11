@@ -29,7 +29,7 @@ func TestV2PublicJSONTagsUseCamelCase(t *testing.T) {
 		FingerprintVerificationCheck{}, VerificationDiagnostic{}, VerifyStateResult{}, VerifyStateOutput{},
 		ReadMultipleFilesInput{}, ReadMultipleFilesOutput{}, FileReadResult{},
 		TreeInput{}, TreeOutput{}, DeleteFileInput{}, DeleteFileOutput{}, CopyFileInput{}, CopyFileOutput{},
-		ConvertEncodingInput{}, ConvertEncodingOutput{}, GrepInput{}, GrepOutput{}, GrepMatch{},
+		ConvertEncodingInput{}, ConvertEncodingOutput{}, ConvertFileResult{}, GrepInput{}, GrepOutput{}, GrepMatch{}, GrepFileCount{}, PartialFileError{},
 		DetectLineEndingsInput{}, DetectLineEndingsOutput{}, ChangeLineEndingsInput{}, ChangeLineEndingsOutput{},
 		ManageBomInput{}, ManageBomOutput{}, CheckUpdateInput{}, CheckUpdateOutput{},
 		TaskRunInput{}, TaskListInput{}, TaskGetInput{}, TaskLogsInput{}, TaskCancelInput{},
@@ -124,9 +124,9 @@ func TestV2AmbiguousAndUTF32Policies(t *testing.T) {
 	if err != nil || detectResult.IsError || detected.Encoding != "utf-32-le" || detected.BOMType != "utf-32-le" {
 		t.Fatalf("UTF-32 detect result=%+v output=%+v err=%v", detectResult, detected, err)
 	}
-	readResult, _, err := h.HandleReadTextFile(context.Background(), nil, ReadTextFileInput{Path: utf32Path})
-	if err != nil || readResult.Meta[ErrorCodeMetaKey] != ErrCodeEncoding {
-		t.Fatalf("UTF-32 read result=%+v err=%v", readResult, err)
+	readResult, readOutput, err := h.HandleReadTextFile(context.Background(), nil, ReadTextFileInput{Path: utf32Path})
+	if err != nil || readResult.IsError || readOutput.Content != "A" || readOutput.DetectedEncoding != "utf-32-le" || !readOutput.HasBOM || readOutput.BOMType != "utf-32-le" {
+		t.Fatalf("UTF-32 read result=%+v output=%+v err=%v", readResult, readOutput, err)
 	}
 }
 

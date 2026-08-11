@@ -135,8 +135,8 @@ func (h *Handler) validateVerifyStateInput(input VerifyStateInput) error {
 			if strings.TrimSpace(check.Text.Path) == "" {
 				return operation.New(operation.KindInvalidInput, fmt.Sprintf("checks[%d].text.path is required", index))
 			}
-			if !verificationValueAllowed(check.Text.BOM, "any", "none", "present", "utf-8", "utf-16-le", "utf-16-be") {
-				return operation.New(operation.KindInvalidInput, fmt.Sprintf("checks[%d].text.bom must be any, none, present, utf-8, utf-16-le, or utf-16-be", index))
+			if !verificationValueAllowed(check.Text.BOM, "any", "none", "present", "utf-8", "utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be") {
+				return operation.New(operation.KindInvalidInput, fmt.Sprintf("checks[%d].text.bom must be any, none, present, utf-8, utf-16-le, utf-16-be, utf-32-le, or utf-32-be", index))
 			}
 			if !verificationValueAllowed(check.Text.LineEndings, "any", LineEndingLF, LineEndingCRLF, LineEndingMixed, LineEndingNone) {
 				return operation.New(operation.KindInvalidInput, fmt.Sprintf("checks[%d].text.lineEndings must be any, lf, crlf, mixed, or none", index))

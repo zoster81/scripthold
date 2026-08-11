@@ -1,0 +1,1878 @@
+{
+  "schema_version": 1,
+  "description": "Pinned offline regression corpus for R22 encoding detection and codec verification. Detection fixtures are unmodified uchardet samples; codec fixtures use libiconv snippets with upstream UTF-8 oracles where provided.",
+  "licenses": [
+    {
+      "file": "COPYING.LIB.libiconv",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "COPYING.LIB",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/COPYING.LIB",
+      "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95",
+      "byte_length": 26419
+    },
+    {
+      "file": "COPYING.libiconv",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "COPYING",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/COPYING",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "byte_length": 35147
+    },
+    {
+      "file": "COPYING.uchardet",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "COPYING",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/COPYING",
+      "sha256": "107a29ccdd2d778aa2df5462f85dddfa099059abd22e064e07ec2cc9bafc37cd",
+      "byte_length": 70517
+    }
+  ],
+  "fixtures": [
+    {
+      "encoding": "big5-hkscs-1999",
+      "file": "big5-hkscs-1999.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/BIG5-HKSCS-1999-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-1999-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "10b6e53140669f4c59f828366f6b6d60cc6b44cb9bb8fed1d2f28aa115b9257d",
+      "byte_length": 10994,
+      "non_ascii_bytes": 5640,
+      "oracle": {
+        "file": "big5-hkscs-1999.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/BIG5-HKSCS-1999-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-1999-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "2dbc49b55aca0abcebac510bb477a2f110069fdd568800128aa3f405241d47b2",
+        "byte_length": 15828
+      }
+    },
+    {
+      "encoding": "big5-hkscs-2001",
+      "file": "big5-hkscs-2001.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/BIG5-HKSCS-2001-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-2001-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "c8db30d367fcbb36d33622960f1b62c97495cc0da89efc7dd00c8b6d61479cc3",
+      "byte_length": 11366,
+      "non_ascii_bytes": 5810,
+      "oracle": {
+        "file": "big5-hkscs-2001.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/BIG5-HKSCS-2001-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-2001-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "998e2eabdebf1dc75f2ca22f2bcc7f77030562faf0a970c251cd57f57ea80141",
+        "byte_length": 16345
+      }
+    },
+    {
+      "encoding": "big5-hkscs-2004",
+      "file": "big5-hkscs-2004.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/BIG5-HKSCS-2004-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-2004-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "b0b8444bfd3be124f361d8db4143b32e42e4464ab7829c0a14be14205058fad4",
+      "byte_length": 11737,
+      "non_ascii_bytes": 5967,
+      "oracle": {
+        "file": "big5-hkscs-2004.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/BIG5-HKSCS-2004-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-2004-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "e1ea514cc5c53bd52e90aafc4f68045be9334023eaf87d3e389b8a77472d3045",
+        "byte_length": 16880
+      }
+    },
+    {
+      "encoding": "big5-hkscs-2008",
+      "file": "big5-hkscs-2008.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/BIG5-HKSCS-2008-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-2008-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "9108f02562cb24f582f533b4d40fc6d8716be8c722c2e49f39d15e263e2956f9",
+      "byte_length": 11944,
+      "non_ascii_bytes": 6098,
+      "oracle": {
+        "file": "big5-hkscs-2008.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/BIG5-HKSCS-2008-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/BIG5-HKSCS-2008-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "acfdace2c0c09aac8aa6a3690053e5397a4da94fcb1fe0857c392356ce8c263a",
+        "byte_length": 17175
+      }
+    },
+    {
+      "encoding": "big5",
+      "file": "big5.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/zh/big5.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/zh/big5.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "5f933aa163415647f010e28fe1ea536e7fcc3052786f9801f446a681dda407cc",
+      "byte_length": 136,
+      "non_ascii_bytes": 119
+    },
+    {
+      "encoding": "windows-1255",
+      "file": "cp1255-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/CP1255-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/CP1255-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "07356c583d8658a76341e1af333632690cd57da9508e5fb8b33b325c3b028f1f",
+      "byte_length": 2880,
+      "non_ascii_bytes": 2528,
+      "oracle": {
+        "file": "cp1255-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/CP1255-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/CP1255-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "7536e106f06d8a90dc3946cae173a4b7d3d815d7201d80854998c316d7c28a09",
+        "byte_length": 4928
+      }
+    },
+    {
+      "encoding": "windows-1258",
+      "file": "cp1258-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/CP1258-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/CP1258-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "f223073c81716b0a62c5fe52bd6228a4be1ee8678df8a8a1619545a3fe1acec8",
+      "byte_length": 4820,
+      "non_ascii_bytes": 768,
+      "oracle": {
+        "file": "cp1258-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/CP1258-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/CP1258-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "79844ed9592b6a87b19f959138bd936327ebb8687f133d15b1119e898977b00f",
+        "byte_length": 5332
+      }
+    },
+    {
+      "encoding": "ibm737",
+      "file": "cp737.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/el/cp737.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/el/cp737.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "22cedb5fdab1460007d8e323c2032ca65b64a7736a61dfddc607b70f117043c3",
+      "byte_length": 206,
+      "non_ascii_bytes": 164
+    },
+    {
+      "encoding": "euc-jp",
+      "file": "euc-jp.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ja/euc-jp.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ja/euc-jp.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "72927479a24d0762906c77ee0d57d8000a011823d01f2cff0664f3897fef01fb",
+      "byte_length": 262,
+      "non_ascii_bytes": 110
+    },
+    {
+      "encoding": "euc-tw",
+      "file": "euc-tw.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/zh/euc-tw.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/zh/euc-tw.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "a241a543a9d749a1f073ab974821c43cf33e047020bfca4c6b69ca54f6902d5f",
+      "byte_length": 100,
+      "non_ascii_bytes": 76
+    },
+    {
+      "encoding": "gb18030",
+      "file": "gb18030.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/zh/gb18030.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/zh/gb18030.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "6e23d610a690a2e1de161e0f52688496e4e766e7f929cc56599a9575cde86cde",
+      "byte_length": 88,
+      "non_ascii_bytes": 88
+    },
+    {
+      "encoding": "georgian-academy",
+      "file": "georgian-academy.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ka/georgian-academy.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ka/georgian-academy.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "ee3cef261b32752216a6a4cb69964ad33376afa066b07c60476fdf97471f6ffd",
+      "byte_length": 335,
+      "non_ascii_bytes": 279
+    },
+    {
+      "encoding": "georgian-ps",
+      "file": "georgian-ps.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ka/georgian-ps.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ka/georgian-ps.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "0cbea473b774dd48faa272aae09037ae4de87adbabf359af53d54defbd56e397",
+      "byte_length": 335,
+      "non_ascii_bytes": 279
+    },
+    {
+      "encoding": "hz-gb-2312",
+      "file": "hz-gb-2312.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/HZ-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/HZ-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "585c031ecdcdff8f5ca0aa6b016efa880b447cbe791fb0a70d06e0cf93902d2c",
+      "byte_length": 76,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "hz-gb-2312.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/HZ-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/HZ-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "ae6599c16a3ca646ad94a946c52f5443e734286606eb2ba5cd8b1c9c4cc286b7",
+        "byte_length": 65
+      }
+    },
+    {
+      "encoding": "ibm852",
+      "file": "ibm852.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/cs/ibm852.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/cs/ibm852.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "c18793b2f7622d0e3f7f5ba6bdb24b130438f1a4190b5d9685b907835c872262",
+      "byte_length": 301,
+      "non_ascii_bytes": 45
+    },
+    {
+      "encoding": "ibm855",
+      "file": "ibm855.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ru/ibm855.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ru/ibm855.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "57940946a9b80467b2398009d2d628698db81fb833295ac4011531cf80a7d5f6",
+      "byte_length": 338,
+      "non_ascii_bytes": 254
+    },
+    {
+      "encoding": "ibm862",
+      "file": "ibm862-logical.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/he/ibm862.logical.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/he/ibm862.logical.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "58c5ba5a2203a2076b45fcecf3579bdd15b854251345ef4ea54193281fd1633d",
+      "byte_length": 538,
+      "non_ascii_bytes": 401
+    },
+    {
+      "encoding": "ibm862",
+      "file": "ibm862-visual.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/he/ibm862.visual.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/he/ibm862.visual.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "130f596b87a5b35fba175bb0017c458001e281944f0d4f9ff5b56191ad703908",
+      "byte_length": 539,
+      "non_ascii_bytes": 401
+    },
+    {
+      "encoding": "ibm865",
+      "file": "ibm865.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/da/ibm865.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/da/ibm865.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "3ae6084374587e256da90d6deac1ba79af914d52d2f959efbedacbfe1311b6e3",
+      "byte_length": 874,
+      "non_ascii_bytes": 8
+    },
+    {
+      "encoding": "ibm866",
+      "file": "ibm866.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ru/ibm866.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ru/ibm866.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "e0a4aa5efc452a57c8b1f024ac805f2398b50a55ae23569386e043d7f27c1710",
+      "byte_length": 680,
+      "non_ascii_bytes": 553
+    },
+    {
+      "encoding": "iso-2022-cn-ext",
+      "file": "iso-2022-cn-ext.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-CN-EXT-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-CN-EXT-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "d05b0a7ac09d771a9140e9340e4cb67e92184c0546eb5e3845d718582584a137",
+      "byte_length": 97,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-cn-ext.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-CN-EXT-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-CN-EXT-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "dbc9b1c48218da4091bf20d5582848d6de8aca48e255f344149a8335e4cc6161",
+        "byte_length": 75
+      }
+    },
+    {
+      "encoding": "iso-2022-cn",
+      "file": "iso-2022-cn.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-CN-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-CN-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "a230b38769c36e9d777329efe6d61626add59c8749a00e6a807c4218ae0794e3",
+      "byte_length": 89,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-cn.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-CN-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-CN-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "461e5d6962c1b50604d45d38a7867f12440575f41e33f9f7ac8facd027de8b15",
+        "byte_length": 72
+      }
+    },
+    {
+      "encoding": "iso-2022-jp-1",
+      "file": "iso-2022-jp-1.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-JP-1-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-1-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "b578b0617a27041e31a10226b81d10a484703ed54ade4525a3d920a6556b6773",
+      "byte_length": 82,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-jp-1.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-JP-1-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-1-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "6ea0e7d9af8fe6369f215b8ec40120a488bfaa7c246c42b01b73051b6735eb70",
+        "byte_length": 74
+      }
+    },
+    {
+      "encoding": "iso-2022-jp-2",
+      "file": "iso-2022-jp-2.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-JP-2-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-2-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "d1a33ff874e7117f9d40b0401e60ec1a28cc871c0af65840d6f030d622486e0f",
+      "byte_length": 358,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-jp-2.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-JP-2-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-2-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "214ac365691b3a30c3b2a46d9d87dea7ef85d0f6d8aedf2ca97a9adfeed8013a",
+        "byte_length": 296
+      }
+    },
+    {
+      "encoding": "iso-2022-jp-3",
+      "file": "iso-2022-jp-3.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-JP-3-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-3-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "599a47535c8aacde74f22ce1d8abbf7376702a2615790bf0674885e1b6d53e68",
+      "byte_length": 106516,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-jp-3.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-JP-3-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-3-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "3beab7f7540c621c3736e524c9b0b9be4807946b4b6a2cc84510edf85142472d",
+        "byte_length": 45757
+      }
+    },
+    {
+      "encoding": "iso-2022-jp",
+      "file": "iso-2022-jp-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-JP-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "e729a5bb86050a19fbee58169a2e5965b67a6d0c4221c138d8519899d011b18b",
+      "byte_length": 74,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-jp-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-JP-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "01a109afd8a560147e5df88cb147568e0062226581ec8a148ad2ac5cc88bdb46",
+        "byte_length": 62
+      }
+    },
+    {
+      "encoding": "iso-2022-jp-ms",
+      "file": "iso-2022-jp-ms.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-JP-MS-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-MS-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "39f33622e10200c6c6f475e3a1005c950b2d0c10bbef84dcc084e02ee9dfdd94",
+      "byte_length": 143628,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-jp-ms.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-JP-MS-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-JP-MS-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "7efc8f717017feff642f870a74b646895b3263e7e8c3bc9397c74ab83be21a01",
+        "byte_length": 60570
+      }
+    },
+    {
+      "encoding": "iso-2022-jp",
+      "file": "iso-2022-jp.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ja/iso-2022-jp.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ja/iso-2022-jp.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "ec66484650415cfb4b8fb749000577cf8092c622e01634397ecf51b96ae31e8f",
+      "byte_length": 701,
+      "non_ascii_bytes": 0
+    },
+    {
+      "encoding": "iso-2022-kr",
+      "file": "iso-2022-kr-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/ISO-2022-KR-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-KR-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "d4cd7037dc167b1a29fe60d8d37f1277efada4b065dd1671c41c4bf069cd16e6",
+      "byte_length": 79,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "iso-2022-kr-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/ISO-2022-KR-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/ISO-2022-KR-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "e47768693255301d8458aac543cd9a4ab3552f74b02eaa2cc57583d2afde3d06",
+        "byte_length": 78
+      }
+    },
+    {
+      "encoding": "iso-2022-kr",
+      "file": "iso-2022-kr.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ko/iso-2022-kr.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ko/iso-2022-kr.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "1e59187d4ec60abc02ab36b762ec6e84f58efd6e3df665dd9a2d228a05729548",
+      "byte_length": 429,
+      "non_ascii_bytes": 0
+    },
+    {
+      "encoding": "iso-8859-1",
+      "file": "iso-8859-1.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/fr/iso-8859-1.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/fr/iso-8859-1.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "7e59973c8746a128e5a44524e24c497f52239ffa1af14a5fc2b9b6f2849cbfb7",
+      "byte_length": 1163,
+      "non_ascii_bytes": 24
+    },
+    {
+      "encoding": "iso-8859-10",
+      "file": "iso-8859-10.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/lt/iso-8859-10.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/lt/iso-8859-10.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "1d39e0651b368094842abd3c838aeee5d789686fc697e446b6a0fd03b5ff6539",
+      "byte_length": 194,
+      "non_ascii_bytes": 2
+    },
+    {
+      "encoding": "iso-8859-11",
+      "file": "iso-8859-11.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/th/iso-8859-11.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/th/iso-8859-11.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "8284be55f6eb1b1d3d084de15782e5781b67ba68ec2298af1ff04186c91a5969",
+      "byte_length": 400,
+      "non_ascii_bytes": 278
+    },
+    {
+      "encoding": "iso-8859-13",
+      "file": "iso-8859-13.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/et/iso-8859-13.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/et/iso-8859-13.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "07613793c8944eadd1ec541b871f9654de8094d7bcbac38ee61c691dc5ce7975",
+      "byte_length": 341,
+      "non_ascii_bytes": 13
+    },
+    {
+      "encoding": "iso-8859-15",
+      "file": "iso-8859-15.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/fr/iso-8859-15.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/fr/iso-8859-15.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "073f5487a2edc72193d941ac5058adecb895583836f3f5393a524eef9f5d6039",
+      "byte_length": 976,
+      "non_ascii_bytes": 34
+    },
+    {
+      "encoding": "iso-8859-16",
+      "file": "iso-8859-16.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/hr/iso-8859-16.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/hr/iso-8859-16.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "08a6f4f2ccfeaf8352b40eaabae424e69291c5e3a7d0c550fd34bd48691be43b",
+      "byte_length": 215,
+      "non_ascii_bytes": 3
+    },
+    {
+      "encoding": "iso-8859-2",
+      "file": "iso-8859-2.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/cs/iso-8859-2.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/cs/iso-8859-2.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "b2572f6d946d2a5f982cfb33f01c6c95278d2670ea7931ac40170453f11d9598",
+      "byte_length": 301,
+      "non_ascii_bytes": 45
+    },
+    {
+      "encoding": "iso-8859-3",
+      "file": "iso-8859-3.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/eo/iso-8859-3.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/eo/iso-8859-3.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "ef64ac9dfa13b5a1bb3e426bccdce26d476b35281a7d696f4e63dab6bbc47657",
+      "byte_length": 532,
+      "non_ascii_bytes": 7
+    },
+    {
+      "encoding": "iso-8859-4",
+      "file": "iso-8859-4.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/et/iso-8859-4.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/et/iso-8859-4.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "f930883ca8cc7d8458cb034f2823716d87664c4b5722c741c4fbb48f11a4cfb5",
+      "byte_length": 339,
+      "non_ascii_bytes": 11
+    },
+    {
+      "encoding": "iso-8859-5",
+      "file": "iso-8859-5.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ru/iso-8859-5.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ru/iso-8859-5.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "e3e6256458b9fe8e2c1f54970f3ec958bce3f2272b6e995721eb9a075548e57a",
+      "byte_length": 245,
+      "non_ascii_bytes": 177
+    },
+    {
+      "encoding": "iso-8859-6",
+      "file": "iso-8859-6.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ar/iso-8859-6.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ar/iso-8859-6.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "407e27088e383ba2cd0c11c79cbdf733593dc27083396d6e1c41d95234b12be6",
+      "byte_length": 214,
+      "non_ascii_bytes": 166
+    },
+    {
+      "encoding": "iso-8859-7",
+      "file": "iso-8859-7.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/el/iso-8859-7.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/el/iso-8859-7.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "e71f084b73ea71acf956ae0c5f8fd0b3d046f5506f12a9791504d045daff6a73",
+      "byte_length": 582,
+      "non_ascii_bytes": 447
+    },
+    {
+      "encoding": "iso-8859-8",
+      "file": "iso-8859-8.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/he/iso-8859-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/he/iso-8859-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "4fb04a43349d32591d2ae515df3080c24214a58504d4dc3bd824127e25411321",
+      "byte_length": 119,
+      "non_ascii_bytes": 77
+    },
+    {
+      "encoding": "iso-8859-9",
+      "file": "iso-8859-9.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/tr/iso-8859-9.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/tr/iso-8859-9.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "46528ac148e128b51cd33eb918e292ef36a9d6f052f4fb9932c1cd897ad8e8b8",
+      "byte_length": 958,
+      "non_ascii_bytes": 90
+    },
+    {
+      "encoding": "johab",
+      "file": "johab.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ko/johab.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ko/johab.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "b4c8e95d753762eaec70435c6fa4ad20269f0655b98ebaef8e5850993e4f335d",
+      "byte_length": 646,
+      "non_ascii_bytes": 414
+    },
+    {
+      "encoding": "koi8-r",
+      "file": "koi8-r.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ru/koi8-r.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ru/koi8-r.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "134549d4dcd25415ce6fb036837fdf8d795ae896cd6b0b3401de127dd5126256",
+      "byte_length": 352,
+      "non_ascii_bytes": 273
+    },
+    {
+      "encoding": "mac-central-europe",
+      "file": "mac-central-europe.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/cs/mac-centraleurope.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/cs/mac-centraleurope.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "aa83e1eba8b038b184429561f28f0e535d2306d1fa28b85fff573e956ce2183d",
+      "byte_length": 301,
+      "non_ascii_bytes": 45
+    },
+    {
+      "encoding": "mac-cyrillic",
+      "file": "mac-cyrillic.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ru/mac-cyrillic.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ru/mac-cyrillic.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "91e09f418ae364ee803cd84f8a61f15986e55c001c0b8908cd3c92e999166d21",
+      "byte_length": 491,
+      "non_ascii_bytes": 404
+    },
+    {
+      "encoding": "shift_jis",
+      "file": "shift-jis.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ja/shift_jis.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ja/shift_jis.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "d8db22c8e1ea1be442bcf0eaa452a5feffc04681737cca0a90cfe55a411f8bb8",
+      "byte_length": 115,
+      "non_ascii_bytes": 95
+    },
+    {
+      "encoding": "tcvn",
+      "file": "tcvn.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/TCVN-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/TCVN-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "8ba47a4e893035741d8d1747a00cf3730446d1ca94d4f39624da3866461d00fa",
+      "byte_length": 4436,
+      "non_ascii_bytes": 512,
+      "oracle": {
+        "file": "tcvn.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/TCVN-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/TCVN-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "79844ed9592b6a87b19f959138bd936327ebb8687f133d15b1119e898977b00f",
+        "byte_length": 5332
+      }
+    },
+    {
+      "encoding": "tis-620",
+      "file": "tis-620.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/th/tis-620.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/th/tis-620.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "9077740ff370aab928823c95f9f96bd76762a4b6d68afddacce035bec9460b26",
+      "byte_length": 399,
+      "non_ascii_bytes": 277
+    },
+    {
+      "encoding": "ucs-2-be",
+      "file": "ucs-2-be.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UCS-2BE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-2BE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "4359c91bb3c8cb55211e6879785f4cf1852b1caa3fe2b521db98c6c516febaca",
+      "byte_length": 2390,
+      "non_ascii_bytes": 130,
+      "oracle": {
+        "file": "ucs-2-be.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UCS-2BE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-2BE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "16600d180f87d1a4f55b3883f326da8f7bfeea7653256d37886909b34e80f31e",
+        "byte_length": 1527
+      }
+    },
+    {
+      "encoding": "ucs-2-le",
+      "file": "ucs-2-le.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UCS-2LE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-2LE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "a2884b5f68a85094ce06a4dbfa7606203aff6ddc31e7821466b8e380e7c89616",
+      "byte_length": 2390,
+      "non_ascii_bytes": 130,
+      "oracle": {
+        "file": "ucs-2-le.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UCS-2LE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-2LE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "16600d180f87d1a4f55b3883f326da8f7bfeea7653256d37886909b34e80f31e",
+        "byte_length": 1527
+      }
+    },
+    {
+      "encoding": "ucs-4-be",
+      "file": "ucs-4-be.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UCS-4BE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-4BE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "5934994f5e79b746fec627b7e8e3e5aacdec7834572f0bd58b05b1b859bfb43d",
+      "byte_length": 16,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "ucs-4-be.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UCS-4BE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-4BE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "3c195e51523f3a23da387426e7b0b92ef3ea375d3b21c5e196f64440c59ca509",
+        "byte_length": 7
+      }
+    },
+    {
+      "encoding": "ucs-4-le",
+      "file": "ucs-4-le.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UCS-4LE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-4LE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "91bca59f328ad191265ca4504f0b2e79e357dacababc60db44f0c1c84dc81f08",
+      "byte_length": 16,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "ucs-4-le.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UCS-4LE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UCS-4LE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "3c195e51523f3a23da387426e7b0b92ef3ea375d3b21c5e196f64440c59ca509",
+        "byte_length": 7
+      }
+    },
+    {
+      "encoding": "us-ascii",
+      "file": "us-ascii.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/en/ascii.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/en/ascii.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "714f772783cf331ab309f7912a000dd7595d9aed1eb51a5ce3736d01ea0ae65f",
+      "byte_length": 162,
+      "non_ascii_bytes": 0
+    },
+    {
+      "encoding": "utf-16-be",
+      "file": "utf-16-be-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UTF-16BE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-16BE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "ea082511cdbff9ba5bda1b0de70e2166720e0a0f37a21d6812a8f52c19b1611b",
+      "byte_length": 10,
+      "non_ascii_bytes": 2,
+      "oracle": {
+        "file": "utf-16-be-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UTF-16BE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-16BE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "3c195e51523f3a23da387426e7b0b92ef3ea375d3b21c5e196f64440c59ca509",
+        "byte_length": 7
+      }
+    },
+    {
+      "encoding": "utf-16-be",
+      "file": "utf-16-be.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ja/utf-16be.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ja/utf-16be.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "73df6f4ac1e8be28b71ba4fb37f689cbaa7e08f74cd8034120089122b1a3df01",
+      "byte_length": 1416,
+      "non_ascii_bytes": 131
+    },
+    {
+      "encoding": "utf-16-le",
+      "file": "utf-16-le-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UTF-16LE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-16LE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "36a71d4dd35fcfd1783b0c817b7a88ed844bf1dd80a52c61719771fd2f13eaa5",
+      "byte_length": 10,
+      "non_ascii_bytes": 2,
+      "oracle": {
+        "file": "utf-16-le-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UTF-16LE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-16LE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "3c195e51523f3a23da387426e7b0b92ef3ea375d3b21c5e196f64440c59ca509",
+        "byte_length": 7
+      }
+    },
+    {
+      "encoding": "utf-16-le",
+      "file": "utf-16-le.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ja/utf-16le.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ja/utf-16le.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "74e4dc7cb2cc04df9d1cdb3ee4ac33222f8e87a2a1d4605a60b6bdb6eb60a824",
+      "byte_length": 1416,
+      "non_ascii_bytes": 131
+    },
+    {
+      "encoding": "utf-16",
+      "file": "utf-16-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UTF-16-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-16-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "b1fa2eda69d00ea716a9c5d62746b1e05e20098ed4c31dffd5678a9480535dcf",
+      "byte_length": 12,
+      "non_ascii_bytes": 4,
+      "oracle": {
+        "file": "utf-16-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UTF-16-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-16-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "3c195e51523f3a23da387426e7b0b92ef3ea375d3b21c5e196f64440c59ca509",
+        "byte_length": 7
+      }
+    },
+    {
+      "encoding": "utf-32-be",
+      "file": "utf-32-be-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UTF-32BE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-32BE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "cbf32c7444ec3310880e50b4b49a53a847c057459dba1b52ecd8141c4514913c",
+      "byte_length": 1064,
+      "non_ascii_bytes": 50,
+      "oracle": {
+        "file": "utf-32-be-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UTF-32BE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-32BE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "19f04a7c52e3144cc9ecb59ef9e6bfae84abc17741a5222a6f85079f7d34f1af",
+        "byte_length": 513
+      }
+    },
+    {
+      "encoding": "utf-32-be",
+      "file": "utf-32-be.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ko/utf-32.be",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ko/utf-32.be",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "05ba733b15043fb0413c41f73cecd245d5c6599c76c12ad2b5c87c80c295e00f",
+      "byte_length": 752,
+      "non_ascii_bytes": 113
+    },
+    {
+      "encoding": "utf-32-le",
+      "file": "utf-32-le-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UTF-32LE-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-32LE-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "224b8f29e0f3191a91c822d7c79d6822bf27ec2ee5eccb0ad38b7113ce80bc51",
+      "byte_length": 1064,
+      "non_ascii_bytes": 50,
+      "oracle": {
+        "file": "utf-32-le-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UTF-32LE-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-32LE-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "19f04a7c52e3144cc9ecb59ef9e6bfae84abc17741a5222a6f85079f7d34f1af",
+        "byte_length": 513
+      }
+    },
+    {
+      "encoding": "utf-32-le",
+      "file": "utf-32-le.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/fr/utf-32.le",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/fr/utf-32.le",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "50f1de73fe945a243e5f730bcd48034ad82288ee92d2bb7419fed143023b4ab2",
+      "byte_length": 1356,
+      "non_ascii_bytes": 16
+    },
+    {
+      "encoding": "utf-32",
+      "file": "utf-32-libiconv.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UTF-32-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-32-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "06a608aee290c01909ec06450d22bf56a6b63cc1cf7e7f70535e7c82db5e88f7",
+      "byte_length": 1068,
+      "non_ascii_bytes": 52,
+      "oracle": {
+        "file": "utf-32-libiconv.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UTF-32-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-32-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "19f04a7c52e3144cc9ecb59ef9e6bfae84abc17741a5222a6f85079f7d34f1af",
+        "byte_length": 513
+      }
+    },
+    {
+      "encoding": "utf-7",
+      "file": "utf-7.fixture",
+      "role": "codec",
+      "source_project": "GNU libiconv",
+      "source_repository": "https://github.com/arthenica/libiconv",
+      "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+      "source_path": "tests/UTF-7-snippet",
+      "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-7-snippet",
+      "license_files": [
+        "COPYING.libiconv",
+        "COPYING.LIB.libiconv"
+      ],
+      "sha256": "0a846fe123d41c82afc3ff06cc52ec80e8c72c9e98ea3a382ffa6c2cdc745f1c",
+      "byte_length": 9,
+      "non_ascii_bytes": 0,
+      "oracle": {
+        "file": "utf-7.oracle.utf8",
+        "encoding": "utf-8",
+        "source_project": "GNU libiconv",
+        "source_repository": "https://github.com/arthenica/libiconv",
+        "source_revision": "9d19c66d0a1768cffcf497b2db70bf4018b578d7",
+        "source_path": "tests/UTF-7-snippet.UTF-8",
+        "source_url": "https://raw.githubusercontent.com/arthenica/libiconv/9d19c66d0a1768cffcf497b2db70bf4018b578d7/tests/UTF-7-snippet.UTF-8",
+        "license_files": [
+          "COPYING.libiconv",
+          "COPYING.LIB.libiconv"
+        ],
+        "sha256": "3e377db5e8252dd416747362408ab4762373155b25f8ac6cf29d39649786d30c",
+        "byte_length": 6
+      }
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-ar.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ar/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ar/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "1fc2c144e7be6320398be555333898ed30f81f9bd1cbc57147aeda54cee8633d",
+      "byte_length": 380,
+      "non_ascii_bytes": 332
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-cs.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/cs/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/cs/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "a7e846ca66b0ffd06e7a12306b889ae40f1e89ec164ea519735c204f44acb6c5",
+      "byte_length": 346,
+      "non_ascii_bytes": 90
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-fr.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/fr/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/fr/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "81f88f9a41468bc9f26518d42538665641b72979d9f008c8a22ac59cb1d1166a",
+      "byte_length": 1006,
+      "non_ascii_bytes": 81
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-he.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/he/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/he/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "d58a4f4b070f1de21be4103a1665c0bf505cc74572124a34c0edd9f5cf2b5386",
+      "byte_length": 951,
+      "non_ascii_bytes": 750
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-ja.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ja/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ja/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "c42f6562531212f9ef140d667d64b9a51847f8f1dda3b18b652f4f511e9cefcf",
+      "byte_length": 922,
+      "non_ascii_bytes": 723
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-ka.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ka/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ka/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "1e3c03efedd25388ce5a82e0382f13b6ca30290bb0c8579c5025851f122e4296",
+      "byte_length": 893,
+      "non_ascii_bytes": 837
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-ko.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ko/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ko/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "d87799f4cb4927f821e4288aeffd2ee7c5f294265352ccf138c86a39537ed1cb",
+      "byte_length": 1047,
+      "non_ascii_bytes": 819
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-ru.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ru/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ru/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "46f31f1a0cd9e281742b585001068697dc45cf6b2daf7f9dd99af22f39b2a44f",
+      "byte_length": 2555,
+      "non_ascii_bytes": 2307
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-th.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/th/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/th/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "a5f910772624e19a921c13387cb1b6e0eb46182b57dd848043dbe33679d5274f",
+      "byte_length": 1670,
+      "non_ascii_bytes": 1584
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-vi.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/vi/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/vi/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "0e668fc0e3549c595146ed57b6da7158c6abdc0bdff0b29110f6c02e1246ab8a",
+      "byte_length": 326,
+      "non_ascii_bytes": 137
+    },
+    {
+      "encoding": "utf-8",
+      "file": "utf-8-zh.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/zh/utf-8.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/zh/utf-8.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "00d054b04bfbf2f6bad521e8444c1d2ed527149d3066bb063ab07783c60fc000",
+      "byte_length": 34,
+      "non_ascii_bytes": 33
+    },
+    {
+      "encoding": "viscii",
+      "file": "viscii.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/vi/viscii.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/vi/viscii.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "758c28c406e273f0fe51d68c4c3b047529f0374b98e83c140e8fed05fd505109",
+      "byte_length": 240,
+      "non_ascii_bytes": 51
+    },
+    {
+      "encoding": "windows-1250",
+      "file": "windows-1250.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/cs/windows-1250.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/cs/windows-1250.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "cebef2a5f03f41c98e3f847deddf82fe5d1015ef00adc47ac865252dffd91e91",
+      "byte_length": 301,
+      "non_ascii_bytes": 45
+    },
+    {
+      "encoding": "windows-1251",
+      "file": "windows-1251.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ru/windows-1251.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ru/windows-1251.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "b4fc6bd35cea7ee8ed90595d0d6dd5b473b5bb4bb6fadf0650414d70f9aed7e7",
+      "byte_length": 879,
+      "non_ascii_bytes": 663
+    },
+    {
+      "encoding": "windows-1252",
+      "file": "windows-1252.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/fr/windows-1252.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/fr/windows-1252.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "568ef85d2614c53a775a4cff9845ffd1f02c48f1154ee4d6ed0e9fa930a10ec1",
+      "byte_length": 163,
+      "non_ascii_bytes": 3
+    },
+    {
+      "encoding": "windows-1253",
+      "file": "windows-1253.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/el/windows-1253.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/el/windows-1253.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "7044395aceaf7bc23be8b9f413952adc09382945bb324688b28ab51501802429",
+      "byte_length": 467,
+      "non_ascii_bytes": 351
+    },
+    {
+      "encoding": "windows-1255",
+      "file": "windows-1255.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/he/windows-1255.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/he/windows-1255.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "c625d423cba920db10a02f42903533cecada71de42b29ddbff955511e61a8adb",
+      "byte_length": 152,
+      "non_ascii_bytes": 123
+    },
+    {
+      "encoding": "windows-1256",
+      "file": "windows-1256.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ar/windows-1256.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ar/windows-1256.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "19f66ab72b5d02550bf7ecd9f1646c5243bc46f33085680a22d987c7f7fd7118",
+      "byte_length": 214,
+      "non_ascii_bytes": 166
+    },
+    {
+      "encoding": "windows-1257",
+      "file": "windows-1257.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/et/windows-1257.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/et/windows-1257.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "e0337fe18af510a2d5037b4bf57813fdddce71cb05f10819a4e6ffd5f0b9dd92",
+      "byte_length": 339,
+      "non_ascii_bytes": 11
+    },
+    {
+      "encoding": "windows-1258",
+      "file": "windows-1258.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/vi/windows-1258.txt",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/vi/windows-1258.txt",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "0f2c97b5c48c7f3db6d98f6f51a9acacd82da537bb65e9b6ea17378610442f3c",
+      "byte_length": 276,
+      "non_ascii_bytes": 77
+    },
+    {
+      "encoding": "windows-949",
+      "file": "windows-949.fixture",
+      "role": "detection",
+      "source_project": "uchardet",
+      "source_repository": "https://github.com/oe-mirrors/uchardet",
+      "source_revision": "ab1d2f1120297af6537f2a0d09dca589d4c3ea3b",
+      "source_path": "test/ko/uhc.smi",
+      "source_url": "https://raw.githubusercontent.com/oe-mirrors/uchardet/ab1d2f1120297af6537f2a0d09dca589d4c3ea3b/test/ko/uhc.smi",
+      "license_files": [
+        "COPYING.uchardet"
+      ],
+      "sha256": "48b5c474ad4cd9424418b795426d7f02eb7b35ee67357e171162ed8a7bd4ad79",
+      "byte_length": 943,
+      "non_ascii_bytes": 462
+    }
+  ]
+}

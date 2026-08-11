@@ -185,33 +185,51 @@ func (h *Handler) readTextFileStream(ctx context.Context, path string, input Rea
 	return output, nil
 }
 
-// resolveWriteEncoding returns encoding for writes: explicit > existing file > config default.
+// resolveWriteEncoding returns encoding for writes: explicit > trusted existing
+// file encoding > configured default for new or empty files. A non-empty
+// existing file with ambiguous encoding must fail closed rather than silently
+// changing its byte representation through the configured default.
 func (h *Handler) resolveWriteEncoding(inputEncoding string, filePath string) (string, error) {
-	// 1. Explicit encoding always wins
+	// 1. Explicit encoding always wins.
 	if inputEncoding != "" {
-		encodingName := strings.ToLower(inputEncoding)
-		if _, ok := encoding.Get(encodingName); !ok {
-			return "", fmt.Errorf("%w: %s. Use list_encodings to see available encodings", ErrEncodingUnsupported, encodingName)
+		canonical, ok := encoding.CanonicalName(inputEncoding)
+		if !ok {
+			return "", fmt.Errorf("%w: %s. Use list_encodings to see available encodings", ErrEncodingUnsupported, strings.ToLower(strings.TrimSpace(inputEncoding)))
 		}
-		return encodingName, nil
+		return canonical, nil
 	}
 
-	// 2. If file exists, detect and preserve its encoding
-	if _, err := os.Stat(filePath); err == nil {
+	// 2. Preserve a non-empty existing file only when detection is trusted.
+	info, statErr := os.Stat(filePath)
+	switch {
+	case statErr == nil && info.Size() > 0:
 		detected, err := encoding.DetectFromFile(filePath, "sample")
-		if err == nil && detected.Confidence >= encoding.MinConfidenceThreshold {
-			// Validate the detected encoding is supported
-			if _, ok := encoding.Get(detected.Charset); ok {
-				slog.Debug("preserving existing file encoding", "path", filePath, "encoding", detected.Charset, "confidence", detected.Confidence)
-				return detected.Charset, nil
-			}
+		if err != nil {
+			return "", fmt.Errorf("failed to detect existing file encoding: %w", err)
 		}
-		// Detection failed or low confidence - fall through to default
-		slog.Debug("encoding detection inconclusive, using default", "path", filePath, "detected", detected.Charset, "confidence", detected.Confidence)
+		if detected.Charset == "" || detected.Confidence < encoding.MinConfidenceThreshold {
+			return "", fmt.Errorf("%w (detected %q with confidence %d); specify encoding explicitly", ErrEncodingAmbiguous, detected.Charset, detected.Confidence)
+		}
+		if _, ok := encoding.Get(detected.Charset); !ok {
+			return "", fmt.Errorf("%w: detected %s is not a registered read/write encoding", ErrEncodingUnsupported, detected.Charset)
+		}
+		slog.Debug("preserving existing file encoding", "path", filePath, "encoding", detected.Charset, "confidence", detected.Confidence)
+		return detected.Charset, nil
+	case statErr == nil:
+		// Empty files carry no encoding evidence; use the configured creation default.
+	case os.IsNotExist(statErr):
+		// New file: use the configured creation default.
+	case statErr != nil:
+		return "", fmt.Errorf("failed to inspect existing file encoding: %w", statErr)
 	}
 
-	// 3. New file or detection failed - use configured default
-	return h.config.DefaultEncoding, nil
+	// 3. New or empty file: use the configured default, normalized through the
+	// same registry as explicit request values.
+	canonical, ok := encoding.CanonicalName(h.config.DefaultEncoding)
+	if !ok {
+		return "", fmt.Errorf("%w: configured default encoding %s is not registered", ErrEncodingUnsupported, h.config.DefaultEncoding)
+	}
+	return canonical, nil
 }
 
 // decodeContent decodes the file data to UTF-8 using the resolved encoding

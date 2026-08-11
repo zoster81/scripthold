@@ -26,7 +26,7 @@ type encodingOutputReader struct {
 
 func (reader *encodingOutputReader) Read(buffer []byte) (int, error) {
 	read, err := reader.reader.Read(buffer)
-	if err != nil && err != io.EOF {
+	if err != nil && err != io.EOF && operation.KindOf(err) != operation.KindCancelled {
 		err = operation.Wrap(
 			operation.KindEncodingOutput,
 			"encode_stream",
@@ -73,7 +73,7 @@ func (h *Handler) HandleConvertEncoding(ctx context.Context, req *mcp.CallToolRe
 		if result.UnsupportedCount > 0 {
 			return errorResultWithCode(ErrCodeEncoding, formatUnsupportedError(result)), ConvertEncodingOutput{}, nil
 		}
-		return &mcp.CallToolResult{}, flattenConvertResult(result, strings.ToLower(input.To), input.DryRun), nil
+		return &mcp.CallToolResult{}, flattenConvertResult(result, targetEncoding, input.DryRun), nil
 	}
 
 	output := ConvertEncodingOutput{
@@ -82,24 +82,34 @@ func (h *Handler) HandleConvertEncoding(ctx context.Context, req *mcp.CallToolRe
 		DryRun:         input.DryRun,
 		Results:        make([]ConvertFileResult, 0, len(input.Paths)),
 	}
+	errorSummary := newBoundedErrorSummary(h.maxOutputBytes())
 	for _, path := range input.Paths {
 		result, convertErr := h.convertEncodingPath(ctx, path, input, targetEncoding, policy)
 		if convertErr != nil {
 			mapped := mapOperationError(convertErr, path)
-			result = ConvertFileResult{Path: path, Error: mapped.Message, ErrorCode: mapped.BatchCode}
+			result = ConvertFileResult{
+				Path:              path,
+				Error:             mapped.Message,
+				ErrorCode:         mapped.BatchCode,
+				EncodingErrorCode: encodingErrorCode(convertErr),
+			}
 		}
 		if result.UnsupportedCount > 0 && result.Error == "" {
 			result.Error = formatUnsupportedError(result)
 			result.ErrorCode = ErrCodeEncoding
+			result.EncodingErrorCode = EncodingErrorUnrepresentable
 		}
 		if result.Error != "" {
 			output.ErrorCount++
-			output.Errors = append(output.Errors, fmt.Sprintf("%s: %s", path, result.Error))
+			errorSummary.Add(fmt.Sprintf("%s: %s", path, result.Error))
 		} else {
 			output.SuccessCount++
 		}
 		output.Results = append(output.Results, result)
 	}
+	output.Errors = errorSummary.Items()
+	output.ErrorsOmitted = errorSummary.Omitted()
+	output.ErrorsTruncated = output.ErrorsOmitted > 0
 	return &mcp.CallToolResult{}, output, nil
 }
 
@@ -299,6 +309,9 @@ func (h *Handler) previewEncodingChange(ctx context.Context, path, sourceEncodin
 	}
 	written, err := io.Copy(hasher, encoded)
 	if err != nil {
+		if operation.KindOf(err) == operation.KindCancelled {
+			return false, err
+		}
 		return false, operation.Wrap(operation.KindEncodingOutput, "preview_encoding", path, err)
 	}
 	current, err := stream.Finish()

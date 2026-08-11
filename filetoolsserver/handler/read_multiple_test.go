@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,6 +84,85 @@ func TestHandleReadMultipleFiles_PartialFailure(t *testing.T) {
 	}
 	if output.SuccessCount != 1 || output.ErrorCount != 1 {
 		t.Errorf("expected 1 success, 1 error, got %d/%d", output.SuccessCount, output.ErrorCount)
+	}
+}
+
+func TestHandleReadMultipleFiles_Phase8EncodingStatusAndBoundedSummary(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir})
+	goodPath := filepath.Join(tempDir, "good.txt")
+	ambiguousPath := filepath.Join(tempDir, "ambiguous.data")
+	malformedPath := filepath.Join(tempDir, "malformed.txt")
+	if err := os.WriteFile(goodPath, []byte("content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ambiguousPath, []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(malformedPath, []byte{0xC3, 0x28}, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, output, err := h.HandleReadMultipleFiles(context.Background(), nil, ReadMultipleFilesInput{Paths: []string{goodPath, ambiguousPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.SuccessCount != 1 || output.ErrorCount != 1 || output.Results[0].Content != "content\n" {
+		t.Fatalf("partial batch = %+v", output)
+	}
+	if output.Results[1].ErrorCode != ErrCodeEncodingAmbiguous || output.Results[1].EncodingErrorCode != EncodingErrorAmbiguous {
+		t.Fatalf("ambiguous result = %+v", output.Results[1])
+	}
+
+	_, malformed, err := h.HandleReadMultipleFiles(context.Background(), nil, ReadMultipleFilesInput{
+		Paths: []string{goodPath, malformedPath}, Encoding: "utf-8",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if malformed.SuccessCount != 1 || malformed.ErrorCount != 1 || malformed.Results[1].ErrorCode != ErrCodeEncoding || malformed.Results[1].EncodingErrorCode != EncodingErrorMalformed {
+		t.Fatalf("malformed batch = %+v", malformed)
+	}
+
+	missing := make([]string, 70)
+	for index := range missing {
+		missing[index] = filepath.Join(tempDir, fmt.Sprintf("missing-%02d.txt", index))
+	}
+	_, bounded, err := h.HandleReadMultipleFiles(context.Background(), nil, ReadMultipleFilesInput{Paths: missing, Encoding: "utf-8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bounded.ErrorCount != 70 || len(bounded.Results) != 70 {
+		t.Fatalf("bounded batch counts = errors:%d results:%d", bounded.ErrorCount, len(bounded.Results))
+	}
+	if len(bounded.Errors) != maxPartialFailureDetails || !bounded.ErrorsTruncated || bounded.ErrorsOmitted != 70-maxPartialFailureDetails {
+		t.Fatalf("bounded summary = len:%d truncated:%v omitted:%d", len(bounded.Errors), bounded.ErrorsTruncated, bounded.ErrorsOmitted)
+	}
+}
+
+func TestHandleReadMultipleFiles_Phase8ErrorSummaryYieldsToContentBudget(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir}, WithConfig(&config.Config{
+		DefaultEncoding: "utf-8",
+		Limits:          config.Limits{MaxOutputBytes: 4096},
+	}))
+	missingPath := filepath.Join(tempDir, "00-missing.txt")
+	goodPath := filepath.Join(tempDir, "01-good.txt")
+	if err := os.WriteFile(goodPath, []byte(strings.Repeat("x", 4096)), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, output, err := h.HandleReadMultipleFiles(context.Background(), nil, ReadMultipleFilesInput{
+		Paths: []string{missingPath, goodPath}, Encoding: "utf-8",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.SuccessCount != 1 || output.ErrorCount != 1 || len(output.Results) != 2 {
+		t.Fatalf("unexpected output: %+v", output)
+	}
+	if len(output.Errors) != 0 || !output.ErrorsTruncated || output.ErrorsOmitted != 1 {
+		t.Fatalf("error summary should yield to content budget: %+v", output)
 	}
 }
 
@@ -178,6 +258,9 @@ func TestHandleReadMultipleFiles_EncodingErrorUsesCentralMapping(t *testing.T) {
 	}
 	if got := output.Results[0].ErrorCode; got != ErrCodeEncoding {
 		t.Fatalf("error code = %q, want %q", got, ErrCodeEncoding)
+	}
+	if got := output.Results[0].EncodingErrorCode; got != EncodingErrorUnsupported {
+		t.Fatalf("encoding error code = %q, want %q", got, EncodingErrorUnsupported)
 	}
 	if !strings.Contains(output.Results[0].Error, "unsupported encoding") {
 		t.Fatalf("error = %q, want unsupported encoding message", output.Results[0].Error)

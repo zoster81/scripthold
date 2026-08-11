@@ -5,6 +5,7 @@ This document is the maintainer procedure for publishing Scripthold from `zoster
 ## Current state
 
 - Current public release: `2.1.1`, with 30 tools and 3 guided prompts.
+- Active release-scoped development: R22 targets `2.2.0` with global portable encoding coverage and full UTF-32 text support; no `2.2.0` publication step is authorized until the R22 contract and normal exact-commit release-candidate gates are complete.
 - Rollback baseline: `2.0.0`, published before the Scripthold repository/asset/Registry rename and retained with its historical asset and Registry identity.
 - Source catalog: 30 tools and 3 guided prompts over stdio and Streamable HTTP.
 - Protocols: MCP `2026-07-28` where roots policy permits it, with retained legacy compatibility; HTTP uses stateless modern requests beside stateful legacy sessions behind one security pipeline.
@@ -14,7 +15,7 @@ This document is the maintainer procedure for publishing Scripthold from `zoster
 - Module: `github.com/zoster81/scripthold`.
 - Release tags must match a dated `CHANGELOG.md` entry and the generated Registry version.
 
-See [ROADMAP.md](ROADMAP.md) for current milestone status, [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) for reusable engineering checks, [HTTP_SECURITY.md](HTTP_SECURITY.md) for transport security, and [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) for lineage and maintenance policy.
+See [ROADMAP.md](ROADMAP.md) for current milestone status, [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md) for the active R22/2.2.0 encoding implementation and verification contract, [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) for reusable engineering checks, [HTTP_SECURITY.md](HTTP_SECURITY.md) for transport security, and [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) for lineage and maintenance policy.
 
 ## Fork release flow
 

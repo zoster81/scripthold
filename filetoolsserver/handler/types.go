@@ -234,6 +234,7 @@ type FileReadResult struct {
 	Content            string `json:"content,omitempty"`
 	Error              string `json:"error,omitempty"`
 	ErrorCode          string `json:"errorCode,omitempty"` // Machine-readable error code
+	EncodingErrorCode  string `json:"encodingErrorCode,omitempty"`
 	DetectedEncoding   string `json:"detectedEncoding,omitempty"`
 	EncodingConfidence int    `json:"encodingConfidence,omitempty"`
 	HasBOM             bool   `json:"hasBOM,omitempty"`
@@ -241,10 +242,12 @@ type FileReadResult struct {
 }
 
 type ReadMultipleFilesOutput struct {
-	Results      []FileReadResult `json:"results"`
-	SuccessCount int              `json:"successCount"`
-	ErrorCount   int              `json:"errorCount"`
-	Errors       []string         `json:"errors,omitempty"` // Summary of all errors
+	Results         []FileReadResult `json:"results"`
+	SuccessCount    int              `json:"successCount"`
+	ErrorCount      int              `json:"errorCount"`
+	Errors          []string         `json:"errors,omitempty"`
+	ErrorsTruncated bool             `json:"errorsTruncated,omitempty"`
+	ErrorsOmitted   int              `json:"errorsOmitted,omitempty"`
 }
 
 // TreeInput for compact tree view. MaxFiles defaults to 1000.
@@ -302,34 +305,37 @@ type UnsupportedCharacter struct {
 }
 
 type ConvertFileResult struct {
-	Path             string                 `json:"path"`
-	SourceEncoding   string                 `json:"sourceEncoding,omitempty"`
-	Changed          bool                   `json:"changed"`
-	Message          string                 `json:"message,omitempty"`
-	Error            string                 `json:"error,omitempty"`
-	ErrorCode        string                 `json:"errorCode,omitempty"`
-	BackupPath       string                 `json:"backupPath,omitempty"`
-	BOMPolicy        string                 `json:"bomPolicy,omitempty"`
-	HasBOM           bool                   `json:"hasBOM,omitempty"`
-	BOMType          string                 `json:"bomType,omitempty"`
-	Unsupported      []UnsupportedCharacter `json:"unsupported,omitempty"`
-	UnsupportedCount int                    `json:"unsupportedCount,omitempty"`
+	Path              string                 `json:"path"`
+	SourceEncoding    string                 `json:"sourceEncoding,omitempty"`
+	Changed           bool                   `json:"changed"`
+	Message           string                 `json:"message,omitempty"`
+	Error             string                 `json:"error,omitempty"`
+	ErrorCode         string                 `json:"errorCode,omitempty"`
+	EncodingErrorCode string                 `json:"encodingErrorCode,omitempty"`
+	BackupPath        string                 `json:"backupPath,omitempty"`
+	BOMPolicy         string                 `json:"bomPolicy,omitempty"`
+	HasBOM            bool                   `json:"hasBOM,omitempty"`
+	BOMType           string                 `json:"bomType,omitempty"`
+	Unsupported       []UnsupportedCharacter `json:"unsupported,omitempty"`
+	UnsupportedCount  int                    `json:"unsupportedCount,omitempty"`
 }
 
 type ConvertEncodingOutput struct {
-	Message        string              `json:"message"`
-	SourceEncoding string              `json:"sourceEncoding"`
-	TargetEncoding string              `json:"targetEncoding"`
-	BackupPath     string              `json:"backupPath,omitempty"`
-	BOMPolicy      string              `json:"bomPolicy"`
-	HasBOM         bool                `json:"hasBOM"`
-	BOMType        string              `json:"bomType,omitempty"`
-	Changed        bool                `json:"changed"`
-	DryRun         bool                `json:"dryRun,omitempty"`
-	Results        []ConvertFileResult `json:"results,omitempty"`
-	SuccessCount   int                 `json:"successCount,omitempty"`
-	ErrorCount     int                 `json:"errorCount,omitempty"`
-	Errors         []string            `json:"errors,omitempty"`
+	Message         string              `json:"message"`
+	SourceEncoding  string              `json:"sourceEncoding"`
+	TargetEncoding  string              `json:"targetEncoding"`
+	BackupPath      string              `json:"backupPath,omitempty"`
+	BOMPolicy       string              `json:"bomPolicy"`
+	HasBOM          bool                `json:"hasBOM"`
+	BOMType         string              `json:"bomType,omitempty"`
+	Changed         bool                `json:"changed"`
+	DryRun          bool                `json:"dryRun,omitempty"`
+	Results         []ConvertFileResult `json:"results,omitempty"`
+	SuccessCount    int                 `json:"successCount,omitempty"`
+	ErrorCount      int                 `json:"errorCount,omitempty"`
+	Errors          []string            `json:"errors,omitempty"`
+	ErrorsTruncated bool                `json:"errorsTruncated,omitempty"`
+	ErrorsOmitted   int                 `json:"errorsOmitted,omitempty"`
 }
 
 // GrepInput for searching file contents with regex
@@ -367,15 +373,28 @@ type GrepFileCount struct {
 	Count int    `json:"count"`
 }
 
+type PartialFileError struct {
+	Path              string `json:"path"`
+	Error             string `json:"error"`
+	ErrorCode         string `json:"errorCode"`
+	EncodingErrorCode string `json:"encodingErrorCode,omitempty"`
+}
+
 type GrepOutput struct {
-	Matches       []GrepMatch     `json:"matches"`
-	Files         []string        `json:"files,omitempty"`
-	Counts        []GrepFileCount `json:"counts,omitempty"`
-	TotalMatches  int             `json:"totalMatches"`
-	FilesSearched int             `json:"filesSearched"`
-	FilesMatched  int             `json:"filesMatched"`
-	Truncated     bool            `json:"truncated,omitempty"`
-	NextOffset    int             `json:"nextOffset,omitempty"`
+	Matches               []GrepMatch        `json:"matches"`
+	Files                 []string           `json:"files,omitempty"`
+	Counts                []GrepFileCount    `json:"counts,omitempty"`
+	TotalMatches          int                `json:"totalMatches"`
+	FilesSearched         int                `json:"filesSearched"`
+	FilesScanned          int                `json:"filesScanned"`
+	FilesMatched          int                `json:"filesMatched"`
+	FilesSkipped          int                `json:"filesSkipped"`
+	SkippedFiles          []PartialFileError `json:"skippedFiles,omitempty"`
+	SkippedFilesTruncated bool               `json:"skippedFilesTruncated,omitempty"`
+	SkippedFilesOmitted   int                `json:"skippedFilesOmitted,omitempty"`
+	CoverageComplete      bool               `json:"coverageComplete"`
+	Truncated             bool               `json:"truncated,omitempty"`
+	NextOffset            int                `json:"nextOffset,omitempty"`
 }
 
 type DetectLineEndingsInput struct {

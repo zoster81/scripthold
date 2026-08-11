@@ -3,23 +3,16 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	fileEncoding "github.com/zoster81/scripthold/internal/encoding"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/textstream"
 )
-
-func isUTF16Encoding(name string) bool {
-	switch canonicalBOMEncoding(name) {
-	case "utf-16-le", "utf-16-be":
-		return true
-	default:
-		return false
-	}
-}
 
 // HandleChangeLineEndings converts line endings through a bounded raw-byte
 // pipeline while preserving encoding, BOM state, and every unrelated byte.
@@ -41,15 +34,30 @@ func (h *Handler) HandleChangeLineEndings(ctx context.Context, req *mcp.CallTool
 	defer stream.Close()
 
 	rawSource := textstream.WithContext(ctx, stream.session)
+	validatedSource, err := fileEncoding.NewValidatingReader(rawSource, stream.Charset)
+	if err != nil {
+		return errorResult(fmt.Sprintf("failed to initialize encoding validation for %s: %v", stream.Charset, err)), ChangeLineEndingsOutput{}, nil
+	}
+	profile, ok := fileEncoding.LineEndingProfileFor(stream.Charset)
+	if !ok {
+		return errorResult(fmt.Sprintf("line-ending semantics are unavailable for encoding %s", stream.Charset)), ChangeLineEndingsOutput{}, nil
+	}
+
 	var transformed *textstream.LineEndingReader
-	if isUTF16Encoding(stream.Charset) {
-		transformed, err = textstream.NewUTF16LineEndingReader(
-			rawSource,
-			style,
-			canonicalBOMEncoding(stream.Charset) == "utf-16-le",
-		)
-	} else {
-		transformed, err = textstream.NewByteLineEndingReader(rawSource, style)
+	switch profile.Kind {
+	case fileEncoding.LineEndingUTF16LE, fileEncoding.LineEndingUTF16BE:
+		transformed, err = textstream.NewUTF16LineEndingReader(validatedSource, style, profile.Kind == fileEncoding.LineEndingUTF16LE)
+	case fileEncoding.LineEndingUTF32LE, fileEncoding.LineEndingUTF32BE:
+		transformed, err = textstream.NewUTF32LineEndingReader(validatedSource, style, profile.Kind == fileEncoding.LineEndingUTF32LE)
+	case fileEncoding.LineEndingByte:
+		if len(profile.CarriageReturn) != 1 || len(profile.LineFeed) != 1 {
+			return errorResult(fmt.Sprintf("invalid single-byte line-ending profile for encoding %s", stream.Charset)), ChangeLineEndingsOutput{}, nil
+		}
+		transformed, err = textstream.NewSingleByteLineEndingReader(validatedSource, style, profile.CarriageReturn[0], profile.LineFeed[0])
+	case fileEncoding.LineEndingHZ:
+		transformed, err = textstream.NewHZLineEndingReader(validatedSource, style)
+	default:
+		return errorResult(fmt.Sprintf("unsupported line-ending profile %q for encoding %s", profile.Kind, stream.Charset)), ChangeLineEndingsOutput{}, nil
 	}
 	if err != nil {
 		return errorResult(err.Error()), ChangeLineEndingsOutput{}, nil
@@ -58,6 +66,9 @@ func (h *Handler) HandleChangeLineEndings(ctx context.Context, req *mcp.CallTool
 	outputReader := io.MultiReader(bytes.NewReader(stream.BOM.Bytes), transformed)
 	staged, err := filesystem.StageReplacement(validated.Path, outputReader, stream.Mode.Perm(), nil)
 	if err != nil {
+		if errors.Is(err, fileEncoding.ErrInvalidEncodedSequence) {
+			return errorResultFromError(fmt.Errorf("%w: invalid %s source bytes: %v", ErrEncodingDecode, stream.Charset, err)), ChangeLineEndingsOutput{}, nil
+		}
 		return errorResult(fmt.Sprintf("failed to prepare line-ending conversion: %v", err)), ChangeLineEndingsOutput{}, nil
 	}
 	defer staged.Cleanup()

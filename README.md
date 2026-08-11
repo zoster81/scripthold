@@ -23,7 +23,7 @@ Scripthold detects text encodings from bytes rather than filenames, presents UTF
 
 - **30 tools and 3 guided prompts over both transports** — one catalog, one process-wide root policy, one error model, and equivalent behavior through stdio and Streamable HTTP.
 - **Agent-oriented repository workflows** — optional read line numbers, paged/multi-mode grep, `.gitignore` traversal, bounded sorting, batch conversion previews, approval-bound one-shot edits, strict patches, and ambiguity-safe fuzzy matching.
-- **24 registered encodings** — Cyrillic, Windows-125x, ISO-8859, KOI8, UTF-16 LE/BE, GBK/GB18030, and other legacy text formats.
+- **168 registered encodings** — Unicode UTF-8/UTF-16/UTF-32, the complete applicable `x/text` surface, 88 deterministic pure-Go phase-5 single-byte mappings, and 21 phase-6 multibyte/stateful or residual exact codecs derived and verified against pinned GNU libiconv.
 - **Fail-closed HTTP service** — bearer authentication on every MCP request, loopback defaults, exact Host/Origin checks, bounded sessions and request resources, no CORS, and explicit TLS/proxy requirements for non-loopback exposure.
 - **Secure filesystem and mutation model** — resolved-root containment, deterministic traversal, bounded streaming, staged writes, practical concurrent-change detection, operation-specific transactional `.bak` handling, and no-replace creation.
 - **Durable asynchronous execution** — `task_run` admits shell/script work into an owner-only persistent queue; independent workers, bounded logs, recovery, parallelism, logical locks, and cancellation keep long builds alive across connector restarts.
@@ -57,7 +57,9 @@ The fork-specific architecture includes authoritative process roots, Windows dri
 
 Version `2.1.1` is the current public Scripthold release, with 30 tools and 3 guided prompts over stdio and Streamable HTTP. Its GitHub Release includes six raw binaries, six platform archives, six OS/architecture-specific MCPB bundles, and their checksum manifests; `io.github.zoster81/scripthold` version `2.1.1` is active in the MCP Registry. Version `2.0.0` remains the historical 23-tool rollback baseline and keeps its pre-rebrand assets and Registry identity.
 
-The `2.1.x` line consolidates completed R15–R21 work with durable asynchronous tasks, persistent backup/restore/GC, offline backup diagnostics, and MCP `2026-07-28` support through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. Release `2.1.1` is published, deployed, and rollback-verified; see [docs/ROADMAP.md](docs/ROADMAP.md) for current milestone status.
+The `2.1.x` line consolidates completed R15–R21 work with durable asynchronous tasks, persistent backup/restore/GC, offline backup diagnostics, and MCP `2026-07-28` support through official Go SDK `v1.7.0`. HTTP serves stateless `2026-07-28` requests beside retained stateful legacy sessions behind the same security boundary. Release `2.1.1` is published, deployed, and rollback-verified.
+
+**Active development:** R22 targets Scripthold `2.2.0` with global portable encoding coverage, full UTF-32 text support, conservative detector hardening, real-world pinned corpus/oracle verification, and complete cross-platform release gates. Phases 1–10 are implemented in the current source tree: the pinned corpus/provenance gate, authoritative capability registry, complete applicable `golang.org/x/text v0.40.0` codec surface, full UTF-32 LE/BE text pipeline, 88 deterministic pure-Go phase-5 single-byte mappings, 21 phase-6 multibyte/stateful or residual exact codecs derived and verified against pinned GNU libiconv, conservative detector trust gating, bounded partial-coverage reporting, the registry-driven all-168-codec public-operation matrix, and adversarial/resource verification. Phase 10 preserves cancellation as `CANCELLED` through conversion streams, proves representative R22 families fail closed on malformed input and decoded limits, verifies deterministic concurrent batch/grep behavior, completes 225,000 fixed-count encoding/text fuzz executions, and keeps 1/16/64 MiB bounded-output reads near 150–155 KiB/op across all representative classes after removing per-sequence GB18030:2022 heap allocation. HZ-GB-2312, ISO-2022-JP, and ISO-2022-KR remain auto-detectable only through verified stateful evidence; confusing single-byte families remain explicit when evidence is insufficient. Phase 11 remains open for artifact-producing cross-platform/container/packaging gates, while its source-only preflight (`goreleaser check`, public PowerShell parsing, actionlint, ShellCheck, and residue audit) is already green. The published `2.1.1` runtime remains the earlier release surface until a later verified release step. See [docs/GLOBAL_ENCODING_COVERAGE.md](docs/GLOBAL_ENCODING_COVERAGE.md) and [docs/ROADMAP.md](docs/ROADMAP.md) for the approved contract and current milestone state.
 
 Encoding detection remains content-based and extension-independent. The semantic-tag workflow requires a dated changelog entry before generating release assets and Registry metadata.
 
@@ -65,7 +67,7 @@ Encoding detection remains content-based and extension-independent. The semantic
 
 Provides 30 tools for file operations, encoding conversion, state verification, update checks, and durable local execution, plus 3 guided prompts:
 - [`read_text_file`](TOOLS.md#read_text_file) - Stream decoded text with bounded line/output memory and optional absolute line numbers
-- [`read_multiple_files`](TOOLS.md#read_multiple_files) - Read files in deterministic order under one aggregate decoded-output budget
+- [`read_multiple_files`](TOOLS.md#read_multiple_files) - Read files in deterministic order with per-file status and bounded partial-error summaries under one aggregate decoded-output budget
 - [`write_whole_file`](TOOLS.md#write_whole_file) - Replace the complete file contents through the shared encoder with explicit `auto`/`always`/`never`/`preserve` BOM policy
 - [`edit_file`](TOOLS.md#edit_file) - Direct edits or bounded one-shot preview/apply, including optional required pre-state backup, exact/flexible/fuzzy operations, and strict unified patches
 - [`patch_package`](TOOLS.md#patch_package) - Inspect, preview, apply, and verify bounded declared multi-file edits, with optional all-target required backups and explicit partial-state evidence
@@ -77,9 +79,9 @@ Provides 30 tools for file operations, encoding conversion, state verification, 
 - [`fingerprint_paths`](TOOLS.md#fingerprint_paths) - Stream deterministic SHA-256 state fingerprints with optional bounded entry details
 - [`verify_state`](TOOLS.md#verify_state) - Run bounded typed JSON, text-format, fixed Git diff, and fingerprint checks without arbitrary shell execution
 - [`backup_store`](TOOLS.md#backup_store) - Review, restore, and explicitly garbage-collect the optional persistent store through bounded one-shot workflows
-- [`grep_text_files`](TOOLS.md#grep_text_files) - Paged regex search with pattern/filter arrays and content/path/count modes
-- [`detect_encoding`](TOOLS.md#detect_encoding) - Auto-detect file encoding with confidence score
-- [`convert_encoding`](TOOLS.md#convert_encoding) - Single/batch conversion, dry-run previews, unsupported-rune locations, and durable writes
+- [`grep_text_files`](TOOLS.md#grep_text_files) - Paged regex search with pattern/filter arrays, content/path/count modes, and explicit bounded skipped-file coverage
+- [`detect_encoding`](TOOLS.md#detect_encoding) - Conservatively auto-detect file encoding with confidence or explicit ambiguity
+- [`convert_encoding`](TOOLS.md#convert_encoding) - Single/batch conversion with ordered partial status, bounded error summaries, dry-run previews, unsupported-rune locations, and durable writes
 - [`detect_line_endings`](TOOLS.md#detect_line_endings) - Stream CRLF/LF/mixed detection with bounded inconsistent-line output
 - [`change_line_endings`](TOOLS.md#change_line_endings) - Stream LF/CRLF conversion while preserving encoding, BOM, and unrelated bytes
 - [`manage_bom`](TOOLS.md#manage_bom) - Inspect a bounded prefix or stream BOM add/strip through durable staging
@@ -95,17 +97,16 @@ Provides 30 tools for file operations, encoding conversion, state verification, 
 - [`task_cancel`](TOOLS.md#task_cancel) - Cancel queued work or terminate a running task process tree
 - [`check_for_updates`](TOOLS.md#check_for_updates) - Check the latest release of this fork with a cached GitHub request
 
-**Supported encodings (24 total):**
-- **Unicode:** UTF-8, UTF-16 LE, UTF-16 BE
-- **Cyrillic:** Windows-1251, KOI8-R, KOI8-U, CP866, ISO-8859-5
-- **Western European:** Windows-1252, ISO-8859-1, ISO-8859-15
-- **Central European:** Windows-1250, ISO-8859-2
-- **Greek:** Windows-1253, ISO-8859-7
-- **Turkish:** Windows-1254, ISO-8859-9
-- **Chinese:** GBK, GB18030
-- **Other:** Hebrew (Windows-1255), Arabic (Windows-1256), Baltic (Windows-1257), Vietnamese (Windows-1258), Thai (Windows-874)
+**Supported encodings (168 total in the current source tree):**
+- **Unicode:** UTF-8, UTF-16 LE, UTF-16 BE, UTF-32 LE, UTF-32 BE
+- **Existing IBM/DOS/EBCDIC (`x/text`):** IBM037, IBM437, IBM850, IBM852, IBM855, IBM858, IBM860, IBM862, IBM863, IBM865, IBM866, IBM1047, IBM1140
+- **Additional IBM/DOS/EBCDIC (generated from pinned libiconv):** IBM1025, IBM1026, IBM1046, IBM1097, IBM1112, IBM1122, IBM1123, IBM1124, IBM1125, IBM1129, IBM1130, IBM1131, IBM1132, IBM1133, IBM1137, IBM1141–IBM1149, IBM1153–IBM1158, IBM1162–IBM1166, IBM12712, IBM16804, IBM273, IBM277, IBM278, IBM280, IBM282, IBM284, IBM285, IBM297, IBM423, IBM424, IBM425, IBM4971, IBM500, IBM737, IBM775, IBM853, IBM856, IBM857, IBM861, IBM864, IBM869, IBM870, IBM871, IBM875, IBM880, IBM905, IBM922, IBM924
+- **ISO-8859:** 1, 2, 3, 4, 5, 6, 6-E, 6-I, 7, 8, 8-E, 8-I, 9, 10, 13, 14, 15, 16
+- **Windows:** Windows-874 and Windows-1250 through Windows-1258
+- **Mac/KOI8/other single-byte:** Macintosh, x-mac-cyrillic, KOI8-R, KOI8-U, x-user-defined, Atari ST, GB-1988-80, Georgian-Academy, Georgian-PS, HP-Roman8, JIS C 6220-1969 RO, JIS X0201, KOI8-T, Mac Arabic, Mac Central Europe, Mac Croatian, Mac Greek, Mac Hebrew, Mac Icelandic, Mac Romanian, Mac Thai, Mac Turkish, Mac Ukraine, MuleLao-1, NEXTSTEP, PT154, RISCOS-Latin1, RK1048, TDS565, VISCII
+- **East Asian and stateful multibyte:** GBK, GB18030, GB18030:2022, HZ-GB-2312, Big5, Big5-2003, Big5-HKSCS:1999/:2001/:2004/:2008, EUC-CN, EUC-JP, EUC-JISX0213, EUC-TW, ISO-2022-JP/-JP-1/-JP-2/-JP-3/-JP-MS, ISO-2022-CN/-CN-EXT, ISO-2022-KR, Shift_JIS, SHIFT_JISX0213, EUC-KR, Johab, and TCVN
 
-`manage_bom` additionally recognizes UTF-32 LE/BE BOM signatures, but UTF-32 is not one of the 24 registered read/write encodings.
+`list_encodings` is authoritative for canonical names, declared compatibility aliases, and capability metadata; additional pinned IANA/WHATWG labels may resolve only when they map back to an already registered codec. Phase 7 keeps the 88 phase-5 additions and the phase-6 additions explicit-only except for ISO-2022-KR, whose independent stateful evidence justifies automatic selection; HZ-GB-2312 and ISO-2022-JP from the earlier x/text surface are promoted under the same strict signature policy. The phase-6 runtime remains pure Go: generated direct tables, bounded ISO-2022/TCVN state machines, and an exhaustive GB18030:2022 differential wrapper require no libiconv/GCC at runtime. UTF-32 LE/BE are full read/write encodings with strict scalar validation, authoritative BOM handling, conservative BOMless detection, and code-unit-aware line-ending conversion; generic `utf-32` remains rejected because it does not specify deterministic byte order.
 
 See [TOOLS.md](TOOLS.md) for detailed parameters and examples.
 
@@ -117,7 +118,7 @@ The whole-document replacement tool is deliberately named `write_whole_file` rat
 
 The current design is organized around a few stable boundaries:
 
-- content-based encoding detection and bounded streaming across 24 registered encodings;
+- content-based encoding handling and bounded streaming across 168 registered encodings, with automatic detection intentionally narrower than explicit codec support;
 - resolved-root filesystem confinement, secure recursive traversal, and durable staged mutations;
 - deterministic fingerprints, one-shot edit/package approval workflows, and structured verification;
 - an optional non-overlapping persistent backup store with approval-bound capture, original-target restore, explicit GC, and offline diagnosis;

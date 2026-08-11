@@ -227,8 +227,8 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	}
 
 	if enc := getenv(EnvDefaultEncoding); enc != "" {
-		if _, ok := encoding.Get(enc); ok {
-			cfg.DefaultEncoding = enc
+		if canonical, ok := encoding.CanonicalName(enc); ok {
+			cfg.DefaultEncoding = canonical
 		} else {
 			slog.Warn("invalid MCP_DEFAULT_ENCODING, using default", "value", enc, "fallback", DefaultEncoding)
 		}

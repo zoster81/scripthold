@@ -3,3 +3,4 @@
 
 # Preserve real-world encoded fixtures byte-for-byte.
 filetoolsserver/handler/testdata/line_endings_real/*.fixture -text whitespace=-trailing-space
+filetoolsserver/handler/testdata/internet-corpus/*.fixture -text -diff

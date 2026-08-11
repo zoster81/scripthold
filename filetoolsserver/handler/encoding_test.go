@@ -65,7 +65,7 @@ func TestHandleListEncodings(t *testing.T) {
 		t.Error("expected windows-1250/cp1250 in encodings list")
 	}
 
-	// Check encoding structure
+	// Check encoding structure and explicit capability metadata.
 	for _, enc := range output.Encodings {
 		if enc.Name == "" {
 			t.Error("encoding name should not be empty")
@@ -75,6 +75,12 @@ func TestHandleListEncodings(t *testing.T) {
 		}
 		if enc.Description == "" {
 			t.Error("encoding description should not be empty")
+		}
+		if !enc.Readable || !enc.Writable {
+			t.Errorf("supported encoding %q lacks read/write capability", enc.Name)
+		}
+		if enc.AutoDetectable == enc.ExplicitOnly {
+			t.Errorf("encoding %q must be exactly auto-detectable or explicit-only", enc.Name)
 		}
 	}
 }

@@ -13,8 +13,16 @@ func TestLoad_DefaultEncoding(t *testing.T) {
 func TestLoad_CustomEncoding(t *testing.T) {
 	t.Setenv(EnvDefaultEncoding, "cp1251")
 	cfg := Load()
-	if cfg.DefaultEncoding != "cp1251" {
-		t.Fatalf("encoding = %q, want cp1251", cfg.DefaultEncoding)
+	if cfg.DefaultEncoding != "windows-1251" {
+		t.Fatalf("encoding = %q, want canonical windows-1251", cfg.DefaultEncoding)
+	}
+}
+
+func TestLoad_UTF32Encoding(t *testing.T) {
+	t.Setenv(EnvDefaultEncoding, "utf32le")
+	cfg := Load()
+	if cfg.DefaultEncoding != "utf-32-le" {
+		t.Fatalf("encoding = %q, want canonical utf-32-le", cfg.DefaultEncoding)
 	}
 }
 

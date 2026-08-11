@@ -60,16 +60,13 @@ func parseBOMPolicy(value string, defaultPolicy bomPolicy) (bomPolicy, error) {
 }
 
 func canonicalBOMEncoding(name string) string {
-	switch strings.ToLower(name) {
-	case "utf-8", "utf8", "ascii":
-		return "utf-8"
-	case "utf-16-le", "utf16le", "utf-16le":
-		return "utf-16-le"
-	case "utf-16-be", "utf16be", "utf-16be":
-		return "utf-16-be"
-	default:
-		return strings.ToLower(name)
+	if canonical, ok := fileEncoding.CanonicalBOMName(name); ok {
+		return canonical
 	}
+	if canonical, ok := fileEncoding.CanonicalName(name); ok {
+		return canonical
+	}
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 func splitTransportBOM(data []byte, encodingName string) ([]byte, bomInfo, error) {
@@ -94,12 +91,12 @@ func (h *Handler) resolveEncodingFromDataDetailed(inputEncoding string, data []b
 	result := encodingResult{}
 
 	if inputEncoding != "" {
-		result.name = strings.ToLower(inputEncoding)
-		enc, ok := fileEncoding.Get(result.name)
+		canonical, ok := fileEncoding.CanonicalName(inputEncoding)
 		if !ok {
-			return result, fmt.Errorf("%w: %s. Use list_encodings to see available encodings", ErrEncodingUnsupported, result.name)
+			return result, fmt.Errorf("%w: %s. Use list_encodings to see available encodings", ErrEncodingUnsupported, strings.ToLower(strings.TrimSpace(inputEncoding)))
 		}
-		result.encoder = enc
+		result.name = canonical
+		result.encoder, _ = fileEncoding.Get(canonical)
 		return result, nil
 	}
 
@@ -190,12 +187,11 @@ func documentBOMBytes(document textDocument, policy bomPolicy) ([]byte, error) {
 	case bomNever:
 		return nil, nil
 	case bomAuto:
-		switch charset {
-		case "utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be":
+		descriptor, ok := fileEncoding.LookupDescriptor(charset)
+		if ok && descriptor.AutoBOM {
 			return requiredBOMBytes(charset, policy)
-		default:
-			return nil, nil
 		}
+		return nil, nil
 	case bomAlways:
 		return requiredBOMBytes(charset, policy)
 	case bomPreserve:

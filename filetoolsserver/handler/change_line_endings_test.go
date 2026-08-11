@@ -3,12 +3,14 @@ package handler
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	fileEncoding "github.com/zoster81/scripthold/internal/encoding"
+	"github.com/zoster81/scripthold/internal/textstream"
 )
 
 func TestHandleChangeLineEndings_CRLFtoLF(t *testing.T) {
@@ -138,39 +140,65 @@ func TestHandleChangeLineEndings_AlreadyCorrect(t *testing.T) {
 func representativeTextForEncoding(t *testing.T, encodingName string) string {
 	t.Helper()
 
-	switch encodingName {
-	case "utf-8", "utf-16-le", "utf-16-be":
+	if fileEncoding.IsUTF8(encodingName) {
 		return "Text © 中文 Привет"
-	case "windows-1251", "koi8-r", "ibm866", "iso-8859-5":
-		return "Привет"
-	case "koi8-u":
-		return "Привіт"
-	case "windows-1252", "iso-8859-1":
-		return "café"
-	case "iso-8859-15":
-		return "café €"
-	case "windows-1250", "iso-8859-2":
-		return "Český"
-	case "windows-1253", "iso-8859-7":
-		return "Ελλάδα"
-	case "windows-1254", "iso-8859-9":
-		return "Türkçe"
-	case "windows-1255":
-		return "שלום"
-	case "windows-1256":
-		return "مرحبا"
-	case "windows-1257":
-		return "Āžuolas"
-	case "windows-1258":
-		return "Viêt Nam"
-	case "windows-874":
-		return "ไทย"
-	case "gbk", "gb18030":
-		return "中文"
-	default:
-		t.Fatalf("missing representative text for encoding %q", encodingName)
-		return ""
 	}
+	registered, ok := fileEncoding.Get(encodingName)
+	if !ok {
+		t.Fatalf("encoding %q is not registered", encodingName)
+	}
+
+	// Keep this helper registry-scalable: choose the first non-ASCII sample the
+	// actual encoder can represent instead of maintaining a second charset list.
+	candidates := []string{
+		"日本語", "한국어", "中文", "Привет", "Привіт", "Ελλάδα", "שלום", "مرحبا", "ไทย",
+		"Český", "Āžuolas", "Türkçe", "Viêt Nam", "café €", "café", "\uf780", "Text",
+	}
+	for _, candidate := range candidates {
+		if _, err := registered.NewEncoder().Bytes([]byte(candidate)); err == nil {
+			return candidate
+		}
+	}
+	t.Fatalf("encoding %q cannot represent any test sample", encodingName)
+	return ""
+}
+
+func transformLineEndingFixture(t *testing.T, encodingName string, data []byte, target string) ([]byte, textstream.LineEndingStats) {
+	t.Helper()
+
+	validated, err := fileEncoding.NewValidatingReader(bytes.NewReader(data), encodingName)
+	if err != nil {
+		t.Fatalf("initialize %s validation: %v", encodingName, err)
+	}
+	profile, ok := fileEncoding.LineEndingProfileFor(encodingName)
+	if !ok {
+		t.Fatalf("line-ending profile unavailable for %s", encodingName)
+	}
+
+	var transformed *textstream.LineEndingReader
+	switch profile.Kind {
+	case fileEncoding.LineEndingUTF16LE, fileEncoding.LineEndingUTF16BE:
+		transformed, err = textstream.NewUTF16LineEndingReader(validated, target, profile.Kind == fileEncoding.LineEndingUTF16LE)
+	case fileEncoding.LineEndingUTF32LE, fileEncoding.LineEndingUTF32BE:
+		transformed, err = textstream.NewUTF32LineEndingReader(validated, target, profile.Kind == fileEncoding.LineEndingUTF32LE)
+	case fileEncoding.LineEndingByte:
+		if len(profile.CarriageReturn) != 1 || len(profile.LineFeed) != 1 {
+			t.Fatalf("invalid single-byte line-ending profile for %s", encodingName)
+		}
+		transformed, err = textstream.NewSingleByteLineEndingReader(validated, target, profile.CarriageReturn[0], profile.LineFeed[0])
+	case fileEncoding.LineEndingHZ:
+		transformed, err = textstream.NewHZLineEndingReader(validated, target)
+	default:
+		t.Fatalf("unsupported line-ending profile %q for %s", profile.Kind, encodingName)
+	}
+	if err != nil {
+		t.Fatalf("initialize line-ending transformer for %s: %v", encodingName, err)
+	}
+	output, err := io.ReadAll(transformed)
+	if err != nil {
+		t.Fatalf("transform line endings for %s: %v", encodingName, err)
+	}
+	return output, transformed.Stats()
 }
 
 func decodeLineEndingFixture(t *testing.T, encodingName string, data []byte) string {
@@ -197,10 +225,7 @@ func decodeLineEndingFixture(t *testing.T, encodingName string, data []byte) str
 	return string(decoded)
 }
 
-func TestHandleChangeLineEndings_AllSupportedEncodings(t *testing.T) {
-	tempDir := t.TempDir()
-	h := NewHandler([]string{tempDir})
-
+func TestLineEndingPipeline_AllSupportedEncodings(t *testing.T) {
 	tests := []struct {
 		name         string
 		input        func(string) string
@@ -250,37 +275,18 @@ func TestHandleChangeLineEndings_AllSupportedEncodings(t *testing.T) {
 			for _, testCase := range tests {
 				testCase := testCase
 				t.Run(testCase.name, func(t *testing.T) {
-					testFile := filepath.Join(tempDir, encodingInfo.Name+"_"+testCase.name+".txt")
 					inputText := testCase.input(representative)
 					data := encodeLineEndingFixture(t, encodingInfo.Name, inputText, false)
-					if err := os.WriteFile(testFile, data, 0644); err != nil {
-						t.Fatal(err)
+					converted, stats := transformLineEndingFixture(t, encodingInfo.Name, data, testCase.target)
+					if got := determineStyle(stats.CRLFCount, stats.LFCount); got != testCase.wantOriginal {
+						t.Errorf("OriginalStyle = %q, want %q", got, testCase.wantOriginal)
 					}
-
-					result, output, err := h.HandleChangeLineEndings(context.Background(), nil, ChangeLineEndingsInput{
-						Path:     testFile,
-						Style:    testCase.target,
-						Encoding: encodingInfo.Name,
-					})
-					if err != nil {
-						t.Fatal(err)
+					linesChanged := stats.LFCount
+					if testCase.target == LineEndingLF {
+						linesChanged = stats.CRLFCount
 					}
-					if result.IsError {
-						t.Fatalf("expected success for %s", encodingInfo.Name)
-					}
-					if output.OriginalStyle != testCase.wantOriginal {
-						t.Errorf("OriginalStyle = %q, want %q", output.OriginalStyle, testCase.wantOriginal)
-					}
-					if output.NewStyle != testCase.target {
-						t.Errorf("NewStyle = %q, want %q", output.NewStyle, testCase.target)
-					}
-					if output.LinesChanged != testCase.wantChanged {
-						t.Errorf("LinesChanged = %d, want %d", output.LinesChanged, testCase.wantChanged)
-					}
-
-					converted, err := os.ReadFile(testFile)
-					if err != nil {
-						t.Fatal(err)
+					if linesChanged != testCase.wantChanged {
+						t.Errorf("LinesChanged = %d, want %d", linesChanged, testCase.wantChanged)
 					}
 					if got, want := decodeLineEndingFixture(t, encodingInfo.Name, converted), testCase.want(representative); got != want {
 						t.Errorf("decoded content = %q, want %q", got, want)
@@ -291,41 +297,18 @@ func TestHandleChangeLineEndings_AllSupportedEncodings(t *testing.T) {
 	}
 }
 
-func TestHandleChangeLineEndings_AllSupportedEncodingsNoOpIsByteIdentical(t *testing.T) {
-	tempDir := t.TempDir()
-	h := NewHandler([]string{tempDir})
-
+func TestLineEndingPipeline_AllSupportedEncodingsNoOpIsByteIdentical(t *testing.T) {
 	for _, encodingInfo := range fileEncoding.ListEncodings() {
 		encodingInfo := encodingInfo
 		t.Run(encodingInfo.Name, func(t *testing.T) {
-			testFile := filepath.Join(tempDir, encodingInfo.Name+"_noop.txt")
 			representative := representativeTextForEncoding(t, encodingInfo.Name)
 			original := encodeLineEndingFixture(t, encodingInfo.Name, representative+"\r\n", false)
-			if err := os.WriteFile(testFile, original, 0644); err != nil {
-				t.Fatal(err)
+			actual, stats := transformLineEndingFixture(t, encodingInfo.Name, original, LineEndingCRLF)
+			if stats.CRLFCount != 1 || stats.LFCount != 0 {
+				t.Fatalf("no-op stats = %+v, want one CRLF", stats)
 			}
-
-			result, output, err := h.HandleChangeLineEndings(context.Background(), nil, ChangeLineEndingsInput{
-				Path:     testFile,
-				Style:    LineEndingCRLF,
-				Encoding: encodingInfo.Name,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.IsError {
-				t.Fatal("expected success")
-			}
-			if output.LinesChanged != 0 {
-				t.Errorf("LinesChanged = %d, want 0", output.LinesChanged)
-			}
-
-			actual, err := os.ReadFile(testFile)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(actual) != string(original) {
-				t.Fatal("no-op changed file bytes")
+			if !bytes.Equal(actual, original) {
+				t.Fatal("no-op changed encoded bytes")
 			}
 		})
 	}
@@ -464,7 +447,7 @@ func TestHandleChangeLineEndings_PreservesUnicodeBOM(t *testing.T) {
 	}
 }
 
-func TestHandleChangeLineEndings_PreservesUnmappedLegacyBytes(t *testing.T) {
+func TestHandleChangeLineEndings_RejectsUnmappedLegacyBytesWithoutMutation(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "unmapped-cp1252.txt")
@@ -481,17 +464,19 @@ func TestHandleChangeLineEndings_PreservesUnmappedLegacyBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsError {
-		t.Fatal("expected success")
+	if !result.IsError {
+		t.Fatal("expected strict decoding failure")
+	}
+	if result.Meta[ErrorCodeMetaKey] != ErrCodeEncoding {
+		t.Fatalf("error code = %v, want %s", result.Meta[ErrorCodeMetaKey], ErrCodeEncoding)
 	}
 
 	actual, err := os.ReadFile(testFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{0x81, '\n', 0x8D, '\n'}
-	if string(actual) != string(want) {
-		t.Fatalf("bytes = %x, want %x", actual, want)
+	if !bytes.Equal(actual, original) {
+		t.Fatalf("strict decoding failure mutated bytes: got %x want %x", actual, original)
 	}
 }
 

@@ -81,19 +81,26 @@ func (h *Handler) HandleGrep(ctx context.Context, req *mcp.CallToolRequest, inpu
 	}
 	files, collectErr := h.collectFiles(ctx, input.Paths, includes, excludes, shouldRespectGitignore(input.RespectGitignore))
 	if collectErr != nil {
+		if operation.KindOf(collectErr) == operation.KindCancelled {
+			return errorResultFromError(collectErr), GrepOutput{}, nil
+		}
 		return errorResult("grep traversal failed: " + collectErr.Error()), GrepOutput{}, nil
 	}
 	if len(files) == 0 {
-		return &mcp.CallToolResult{}, GrepOutput{Matches: []GrepMatch{}, FilesSearched: 0}, nil
+		return &mcp.CallToolResult{}, GrepOutput{Matches: []GrepMatch{}, FilesSearched: 0, CoverageComplete: true}, nil
 	}
 
 	output := GrepOutput{Matches: []GrepMatch{}, FilesSearched: len(files)}
+	failures := newPartialFileErrorCollector(h.maxOutputBytes())
 	if outputMode == "files_with_matches" || outputMode == "count" {
 		needed := input.Offset + maxMatches + 1
-		summaries, summaryTruncated, summaryErr := h.searchFileSummaries(ctx, files, re, input, needed)
+		summaries, summaryTruncated, filesScanned, summaryErr := h.searchFileSummaries(ctx, files, re, input, needed, failures)
 		if summaryErr != nil {
 			return errorResultFromError(summaryErr), GrepOutput{}, nil
 		}
+		output.FilesScanned = filesScanned
+		output.FilesSkipped = failures.Total()
+		output.CoverageComplete = output.FilesSkipped == 0 && !summaryTruncated && output.FilesScanned == len(files)
 		output.FilesMatched = len(summaries)
 		start, end := pageBounds(len(summaries), input.Offset, maxMatches)
 		selected := summaries[start:end]
@@ -113,14 +120,18 @@ func (h *Handler) HandleGrep(ctx context.Context, req *mcp.CallToolRequest, inpu
 		if output.Truncated {
 			output.NextOffset = end
 		}
+		applyGrepFailures(&output, failures, remainingGrepDiagnosticBudget(h.maxOutputBytes(), grepSummaryRetainedBytes(output)))
 		return &mcp.CallToolResult{}, output, nil
 	}
 
 	scanLimit := input.Offset + maxMatches + 1
-	matches, filesMatched, scanTruncated, err := h.searchFiles(ctx, files, re, input, scanLimit)
+	matches, filesMatched, filesScanned, scanComplete, scanTruncated, err := h.searchFiles(ctx, files, re, input, scanLimit, failures)
 	if err != nil {
 		return errorResultFromError(err), GrepOutput{}, nil
 	}
+	output.FilesScanned = filesScanned
+	output.FilesSkipped = failures.Total()
+	output.CoverageComplete = output.FilesSkipped == 0 && scanComplete && output.FilesScanned == len(files)
 	output.FilesMatched = filesMatched
 	start, end := pageBounds(len(matches), input.Offset, maxMatches)
 	output.Matches = append([]GrepMatch(nil), matches[start:end]...)
@@ -134,7 +145,36 @@ func (h *Handler) HandleGrep(ctx context.Context, req *mcp.CallToolRequest, inpu
 	if output.Truncated {
 		output.NextOffset = end
 	}
+	applyGrepFailures(&output, failures, remainingGrepDiagnosticBudget(h.maxOutputBytes(), grepMatchesRetainedBytes(output.Matches)))
 	return &mcp.CallToolResult{}, output, nil
+}
+
+func applyGrepFailures(output *GrepOutput, failures *partialFileErrorCollector, detailBudget int64) {
+	if output == nil || failures == nil {
+		return
+	}
+	output.FilesSkipped = failures.Total()
+	output.SkippedFiles = failures.DetailsWithinBudget(detailBudget)
+	output.SkippedFilesOmitted = failures.Total() - len(output.SkippedFiles)
+	output.SkippedFilesTruncated = output.SkippedFilesOmitted > 0
+}
+
+func remainingGrepDiagnosticBudget(maxOutputBytes, retainedResultBytes int64) int64 {
+	if maxOutputBytes <= retainedResultBytes {
+		return 0
+	}
+	return maxOutputBytes - retainedResultBytes
+}
+
+func grepSummaryRetainedBytes(output GrepOutput) int64 {
+	var total int64
+	for _, path := range output.Files {
+		total = saturatingAdd(total, int64(grepMatchOverhead+len(path)))
+	}
+	for _, count := range output.Counts {
+		total = saturatingAdd(total, int64(grepMatchOverhead+len(count.Path)+32))
+	}
+	return total
 }
 
 func pageBounds(length, offset, limit int) (int, int) {
@@ -229,26 +269,36 @@ func shouldIncludeFile(filePath string, includes, excludes []string) bool {
 	return len(includes) == 0 || matchesAny(includes)
 }
 
-func (h *Handler) searchFileSummaries(ctx context.Context, files []string, re *regexp.Regexp, input GrepInput, limit int) ([]GrepFileCount, bool, error) {
+func (h *Handler) searchFileSummaries(ctx context.Context, files []string, re *regexp.Regexp, input GrepInput, limit int, failures *partialFileErrorCollector) ([]GrepFileCount, bool, int, error) {
 	summaries := make([]GrepFileCount, 0, min(limit, len(files)))
+	filesScanned := 0
 	for index, path := range files {
 		count, err := h.countMatchingLines(ctx, path, re, input.Encoding)
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil, false, ctx.Err()
+			kind := operation.KindOf(err)
+			if ctx.Err() != nil || kind == operation.KindCancelled {
+				if ctx.Err() != nil {
+					return nil, false, filesScanned, ctx.Err()
+				}
+				return nil, false, filesScanned, err
 			}
+			if kind == operation.KindLimit {
+				return nil, false, filesScanned, err
+			}
+			failures.Add(path, err)
 			slog.Debug("skipping file due to grep summary error", "path", path, "error", err)
 			continue
 		}
+		filesScanned++
 		if count == 0 {
 			continue
 		}
 		summaries = append(summaries, GrepFileCount{Path: path, Count: count})
 		if len(summaries) >= limit {
-			return summaries, index < len(files)-1, nil
+			return summaries, index < len(files)-1, filesScanned, nil
 		}
 	}
-	return summaries, false, nil
+	return summaries, false, filesScanned, nil
 }
 
 func (h *Handler) countMatchingLines(ctx context.Context, path string, re *regexp.Regexp, requestedEncoding string) (int, error) {
@@ -305,7 +355,7 @@ type grepPlan struct {
 // searchFiles keeps deterministic file order while bounding both match count
 // and retained output/context memory. Parallelism is used only when the
 // aggregate decoded worst case fits the configured budget.
-func (h *Handler) searchFiles(ctx context.Context, files []string, re *regexp.Regexp, input GrepInput, maxMatches int) ([]GrepMatch, int, bool, error) {
+func (h *Handler) searchFiles(ctx context.Context, files []string, re *regexp.Regexp, input GrepInput, maxMatches int, failures *partialFileErrorCollector) ([]GrepMatch, int, int, bool, bool, error) {
 	budget := h.maxOutputBytes()
 	plans, worstTotal := h.planGrep(files, input, maxMatches)
 	maxWorkers := 0
@@ -320,10 +370,11 @@ func (h *Handler) searchFiles(ctx context.Context, files []string, re *regexp.Re
 	remainingOutput.Store(budget)
 	allMatches := make([]GrepMatch, 0, min(maxMatches, 64))
 	matchedFiles := make(map[string]struct{})
+	filesScanned := 0
 	truncated := false
 	var terminalErr error
 
-	concurrency.ProcessOrdered(ctx, plans, concurrency.Options{MaxWorkers: maxWorkers}, func(ctx context.Context, _ int, plan grepPlan) grepFileResult {
+	stats := concurrency.ProcessOrdered(ctx, plans, concurrency.Options{MaxWorkers: maxWorkers}, func(ctx context.Context, _ int, plan grepPlan) grepFileResult {
 		limit := int(remainingMatches.Load())
 		if limit <= 0 {
 			limit = 1
@@ -336,14 +387,21 @@ func (h *Handler) searchFiles(ctx context.Context, files []string, re *regexp.Re
 			return grepFileResult{err: grepBudgetError(plan.path, 0)}
 		}
 		return h.searchSingleFileWithBudget(ctx, plan.path, re, input, limit, fileBudget)
-	}, func(_ int, current grepFileResult) bool {
+	}, func(index int, current grepFileResult) bool {
 		if current.err != nil {
-			if operation.KindOf(current.err) == operation.KindLimit {
+			kind := operation.KindOf(current.err)
+			if kind == operation.KindLimit || kind == operation.KindCancelled {
 				terminalErr = current.err
 				return false
 			}
-			return ctx.Err() == nil
+			if ctx.Err() != nil {
+				terminalErr = ctx.Err()
+				return false
+			}
+			failures.Add(plans[index].path, current.err)
+			return true
 		}
+		filesScanned++
 		if len(current.matches) > 0 {
 			take := min(remaining, len(current.matches))
 			selected := current.matches[:take]
@@ -364,8 +422,12 @@ func (h *Handler) searchFiles(ctx context.Context, files []string, re *regexp.Re
 		}
 		return ctx.Err() == nil
 	})
+	if terminalErr == nil && ctx.Err() != nil {
+		terminalErr = ctx.Err()
+	}
+	scanComplete := terminalErr == nil && stats.Committed == len(plans) && !truncated
 
-	return allMatches, len(matchedFiles), truncated, terminalErr
+	return allMatches, len(matchedFiles), filesScanned, scanComplete, truncated, terminalErr
 }
 
 func (h *Handler) planGrep(files []string, input GrepInput, maxMatches int) ([]grepPlan, int64) {

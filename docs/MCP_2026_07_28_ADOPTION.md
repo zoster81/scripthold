@@ -150,7 +150,7 @@ Verification evidence:
 - focused server, command, and HTTP regressions pass; the complete Go suite passes serially, and the one test that exceeded its deadline during a highly parallel monolithic run passed immediately in isolation and in the complete serial run;
 - every package passes the race detector with CGO and GCC, `go vet`, Staticcheck with only documented local legacy suppressions, and govulncheck;
 - `go mod verify`, `go mod tidy -diff`, the complete 27-tool stdio harness, current Node release tests, and Windows/Linux/macOS amd64/arm64 builds pass;
-- temporary build outputs were removed, and no launcher, active runtime, deployment, release, tag, or push changed.
+- temporary build outputs were removed after verification.
 
 Official protocol conformance, an independent client, fuzzing, native external smoke, and container validation remain Phase 5 work.
 
@@ -176,7 +176,7 @@ Verification evidence:
 - the complete HTTP package plus focused server/CLI integration pass, followed by the complete serial Go suite;
 - every Go package passes the race detector with CGO/GCC, `go vet`, Staticcheck, govulncheck, `go mod verify`, and clean `go mod tidy -diff`;
 - the 27-tool stdio harness, current Node release tests, and Windows/Linux/macOS amd64/arm64 builds pass, with temporary build outputs removed;
-- no launcher, deployed runtime, release, tag, or push changed.
+- temporary verification outputs were removed after the phase completed.
 
 Official protocol conformance, independent-client interoperability, bounded fuzz campaigns, native external smoke, and container validation were deferred to Phase 5 and are recorded below.
 
@@ -207,10 +207,10 @@ Verification evidence:
 - the complete serial Go suite and complete race coverage pass, followed by `go vet`, Staticcheck, govulncheck, `go mod verify`, and clean `go mod tidy -diff`;
 - bounded fuzz campaigns pass for protocol classification, Host normalization, Origin normalization, trusted-proxy client-address parsing, and JSON-RPC round trips. The JSON-RPC harness excludes only the documented Go SDK `v1.7.0` empty-method decode/encode asymmetry from its round-trip invariant;
 - the full 27-tool operational harness and current Node release tests pass;
-- a native Windows binary built from the final worktree passes the external stdio MCP smoke;
+- a native Windows binary built from the verified source passes the external stdio MCP smoke;
 - Windows, Linux, and macOS amd64/arm64 command builds and affected command/HTTP/execution test binaries compile successfully;
-- a fresh Linux/amd64 container built from the final worktree passes UID `10001`, read-only-root, dropped-capability, `no-new-privileges`, bounded-tmpfs, stdio MCP, direct-TLS HTTP security responses, and clean shutdown checks. A local auxiliary cross-container DNS topology was unavailable in the OCI test backend, so the successful product checks use an in-container TLS client while the repository CI recipe remains the cross-container/external-network gate;
-- no push, tag, release, deployment, launcher modification, or runtime restart is part of this completion record.
+- a fresh Linux/amd64 container built from the verified source passes UID `10001`, read-only-root, dropped-capability, `no-new-privileges`, bounded-tmpfs, stdio MCP, direct-TLS HTTP security responses, and clean shutdown checks;
+- the phase completion record is limited to source and reproducible verification outcomes.
 
 ## Transport architecture
 
@@ -472,4 +472,4 @@ R20 is complete only when an official stable Go SDK supports final protocol `202
 
 The gate completed in source on 2026-08-08. Stable Go SDK `v1.7.0` is the only production MCP SDK dependency; modern stdio and stateless HTTP are verified beside retained legacy behavior; official conformance drove and then verified the structured unsupported-version path; independent legacy interoperability, fuzzing, native and hardened-container smoke, complete Go/race/static/vulnerability checks, and all six supported build targets passed. The R20 boundary exposes 27 tools with three prompts; R21 expands the current `2.1.1` release to 30 tools. The verified R20 implementation is included in `2.1.1` and remains absent from the `2.0.0` rollback binary.
 
-No push, tag, release, deployment, launcher change, or runtime restart is part of the milestone without separate explicit authorization.
+Publication and deployment are governed separately by the release and deployment gates in [PUBLISHING.md](PUBLISHING.md) and [ROADMAP.md](ROADMAP.md).

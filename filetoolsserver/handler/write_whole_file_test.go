@@ -202,8 +202,8 @@ func TestHandleWriteWholeFile_ConfiguredLegacyDefault_NewFile(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("expected success, got %q", extractTextFromResultWrite(result.Content))
 	}
-	if output.Encoding != "cp1251" {
-		t.Errorf("configured encoding = %q, want cp1251", output.Encoding)
+	if output.Encoding != "windows-1251" {
+		t.Errorf("configured encoding = %q, want canonical windows-1251", output.Encoding)
 	}
 
 	written, err := os.ReadFile(testFile)
@@ -260,50 +260,36 @@ func TestHandleWriteWholeFile_PreservesExistingEncoding(t *testing.T) {
 	}
 }
 
-func TestHandleWriteWholeFile_PreservesExistingCP1251(t *testing.T) {
+func TestHandleWriteWholeFile_RejectsAmbiguousExistingEncodingWithoutMutation(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	testFile := filepath.Join(tempDir, "cyrillic.txt")
 
-	// Create an existing file with CP1251 content (Russian text)
-	// "Привет мир" in CP1251
-	cp1251Content := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2, 0x20, 0xEC, 0xE8, 0xF0}
-	if err := os.WriteFile(testFile, cp1251Content, 0644); err != nil {
+	// This CP1251 byte sequence is also plausible under other Cyrillic single-byte
+	// encodings. Omitting encoding must therefore fail closed instead of silently
+	// replacing the existing file with the configured UTF-8 default.
+	original := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2, 0x20, 0xEC, 0xE8, 0xF0}
+	if err := os.WriteFile(testFile, original, 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Write new content WITHOUT specifying encoding - should preserve CP1251
-	newContent := "Пока" // "Bye" in Russian
-	input := WriteWholeFileInput{
+	result, _, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
 		Path:    testFile,
-		Content: newContent,
-	}
-
-	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, input)
+		Content: "Пока",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if result.IsError {
-		text := extractTextFromResultWrite(result.Content)
-		t.Errorf("expected success, got error: %s", text)
+	if !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeEncodingAmbiguous {
+		t.Fatalf("result = %+v, want %s", result, ErrCodeEncodingAmbiguous)
 	}
 
-	// Should preserve CP1251 encoding (may be detected as "windows-1251" alias)
-	if !strings.Contains(output.Message, "cp1251") && !strings.Contains(output.Message, "windows-1251") {
-		t.Errorf("expected preserved CP1251/windows-1251 encoding in message, got %q", output.Message)
-	}
-
-	// Verify CP1251 bytes were written
 	written, err := os.ReadFile(testFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Expected CP1251 bytes for "Пока"
-	expectedCP1251 := []byte{0xCF, 0xEE, 0xEA, 0xE0}
-	if !bytes.Equal(written, expectedCP1251) {
-		t.Errorf("expected CP1251 bytes %v, got %v", expectedCP1251, written)
+	if !bytes.Equal(written, original) {
+		t.Fatalf("ambiguous write mutated bytes: got % X want % X", written, original)
 	}
 }
 
@@ -335,9 +321,9 @@ func TestHandleWriteWholeFile_ExplicitEncodingOverridesExisting(t *testing.T) {
 		t.Errorf("expected success, got error: %s", text)
 	}
 
-	// Should use explicit CP1251
-	if !strings.Contains(output.Message, "cp1251") {
-		t.Errorf("expected explicit CP1251 encoding in message, got %q", output.Message)
+	// The alias remains accepted, but public output uses the canonical name.
+	if !strings.Contains(output.Message, "windows-1251") {
+		t.Errorf("expected canonical Windows-1251 encoding in message, got %q", output.Message)
 	}
 
 	// Verify CP1251 bytes were written

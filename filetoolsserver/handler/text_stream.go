@@ -7,13 +7,25 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 
 	fileEncoding "github.com/zoster81/scripthold/internal/encoding"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/textstream"
 )
+
+type decodingErrorReader struct {
+	source io.Reader
+	path   string
+}
+
+func (reader *decodingErrorReader) Read(buffer []byte) (int, error) {
+	read, err := reader.source.Read(buffer)
+	if err != nil && err != io.EOF && operation.KindOf(err) != operation.KindCancelled {
+		err = operation.Wrap(operation.KindDecoding, "decode_text_stream", reader.path, err)
+	}
+	return read, err
+}
 
 type decodedTextStream struct {
 	Reader             io.Reader
@@ -77,7 +89,7 @@ func (h *Handler) openDecodedTextStream(ctx context.Context, path, requestedEnco
 	}
 
 	stream = &decodedTextStream{
-		Reader:             decoded,
+		Reader:             &decodingErrorReader{source: decoded, path: path},
 		Charset:            resolved.name,
 		DetectedEncoding:   resolved.detectedEncoding,
 		EncodingConfidence: resolved.encodingConfidence,
@@ -94,12 +106,12 @@ func (h *Handler) openDecodedTextStream(ctx context.Context, path, requestedEnco
 func (h *Handler) resolveStreamEncoding(requestedEncoding string, session *filesystem.ReadSession) (encodingResult, error) {
 	result := encodingResult{}
 	if requestedEncoding != "" {
-		result.name = strings.ToLower(requestedEncoding)
-		registered, ok := fileEncoding.Get(result.name)
+		canonical, ok := fileEncoding.CanonicalName(requestedEncoding)
 		if !ok {
-			return result, fmt.Errorf("%w: %s. Use list_encodings to see available encodings", ErrEncodingUnsupported, result.name)
+			return result, fmt.Errorf("%w: %s. Use list_encodings to see available encodings", ErrEncodingUnsupported, requestedEncoding)
 		}
-		result.encoder = registered
+		result.name = canonical
+		result.encoder, _ = fileEncoding.Get(canonical)
 		return result, nil
 	}
 

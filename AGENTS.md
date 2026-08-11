@@ -19,6 +19,7 @@ Do not copy private workstation state, local process details, credentials, or op
 - Approved R17 persistent-backup lifecycle design and R18 implementation contract: [`docs/PERSISTENT_BACKUP_LIFECYCLE.md`](docs/PERSISTENT_BACKUP_LIFECYCLE.md)
 - R19 offline backup-store diagnostics design: [`docs/OFFLINE_BACKUP_DIAGNOSTICS.md`](docs/OFFLINE_BACKUP_DIAGNOSTICS.md)
 - R20 MCP `2026-07-28` adoption design: [`docs/MCP_2026_07_28_ADOPTION.md`](docs/MCP_2026_07_28_ADOPTION.md)
+- R22 global encoding coverage and Scripthold 2.2.0 implementation/test contract: [`docs/GLOBAL_ENCODING_COVERAGE.md`](docs/GLOBAL_ENCODING_COVERAGE.md)
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
 Link to these documents instead of duplicating their detailed content.

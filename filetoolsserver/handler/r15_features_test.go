@@ -451,7 +451,7 @@ func TestR15ConvertEncodingBatchPartialCommitIsExplicit(t *testing.T) {
 	if output.SuccessCount != 1 || output.ErrorCount != 1 || len(output.Results) != 2 {
 		t.Fatalf("batch output = %+v", output)
 	}
-	if output.Results[0].BackupPath == "" || output.Results[1].ErrorCode != ErrCodeEncoding {
+	if output.Results[0].BackupPath == "" || output.Results[1].ErrorCode != ErrCodeEncoding || output.Results[1].EncodingErrorCode != EncodingErrorUnrepresentable {
 		t.Fatalf("batch results = %+v", output.Results)
 	}
 	if _, err := os.Stat(convertible + ".bak"); err != nil {

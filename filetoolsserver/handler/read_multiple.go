@@ -71,21 +71,24 @@ func (h *Handler) HandleReadMultipleFiles(ctx context.Context, req *mcp.CallTool
 	})
 
 	var successCount, errorCount int
-	var errorSummary []string
+	errorSummary := newBoundedErrorSummaryWithin(budget, remaining.Load())
 	for _, r := range results {
 		if r.Error != "" {
 			errorCount++
-			errorSummary = append(errorSummary, fmt.Sprintf("%s: %s", r.Path, r.Error))
+			errorSummary.Add(fmt.Sprintf("%s: %s", r.Path, r.Error))
 		} else {
 			successCount++
 		}
 	}
+	omitted := errorSummary.Omitted()
 
 	return &mcp.CallToolResult{}, ReadMultipleFilesOutput{
-		Results:      results,
-		SuccessCount: successCount,
-		ErrorCount:   errorCount,
-		Errors:       errorSummary,
+		Results:         results,
+		SuccessCount:    successCount,
+		ErrorCount:      errorCount,
+		Errors:          errorSummary.Items(),
+		ErrorsTruncated: omitted > 0,
+		ErrorsOmitted:   omitted,
 	}, nil
 }
 
@@ -146,6 +149,7 @@ func (h *Handler) readSingleFile(ctx context.Context, path, requestedEncoding st
 		mapped := mapOperationError(v.Err, path)
 		result.Error = mapped.Message
 		result.ErrorCode = mapped.BatchCode
+		result.EncodingErrorCode = encodingErrorCode(v.Err)
 		return result
 	}
 
@@ -158,6 +162,7 @@ func (h *Handler) readSingleFile(ctx context.Context, path, requestedEncoding st
 		mapped := mapOperationError(err, v.Path)
 		result.Error = mapped.Message
 		result.ErrorCode = mapped.BatchCode
+		result.EncodingErrorCode = encodingErrorCode(err)
 		return result
 	}
 

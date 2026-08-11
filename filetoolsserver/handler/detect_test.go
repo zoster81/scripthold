@@ -105,15 +105,10 @@ func TestHandleDetectEncoding_CP1251(t *testing.T) {
 	}
 
 	if result.IsError {
-		t.Errorf("expected success, got error: %v", result.Content)
+		t.Errorf("detect_encoding must report ambiguity as structured output: %v", result.Content)
 	}
-
-	encoding := strings.ToLower(output.Encoding)
-	// Chardet may detect as windows-1251, koi8-r, or iso-8859-5 for Cyrillic
-	if !strings.Contains(encoding, "1251") &&
-		!strings.Contains(encoding, "koi8") &&
-		!strings.Contains(encoding, "iso-8859") {
-		t.Errorf("expected Cyrillic encoding detection, got %q", output.Encoding)
+	if !output.Ambiguous || output.Encoding != "" || output.Assumed {
+		t.Fatalf("short CP1251 must remain explicitly ambiguous, got %+v", output)
 	}
 }
 

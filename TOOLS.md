@@ -12,7 +12,7 @@ These prompt concepts and the implementation approaches reviewed are credited to
 
 ## Error Handling
 
-Reusable domain failures carry transport-independent typed categories for invalid input or paths, access denial, symlink escapes, missing files, permissions, encoding, conflicts, cancellation, limits, and filesystem failures. Every failed MCP tool call preserves human-readable text and adds a stable machine-readable code at `_meta.errorCode`. `read_multiple_files.results[].errorCode` uses the same vocabulary.
+Reusable domain failures carry transport-independent typed categories for invalid input or paths, access denial, symlink escapes, missing files, permissions, encoding, conflicts, cancellation, limits, and filesystem failures. Every failed MCP tool call preserves human-readable text and adds a stable machine-readable code at `_meta.errorCode`. Per-file failures from `read_multiple_files`, batch `convert_encoding`, and `grep_text_files.skippedFiles` use the same `errorCode` vocabulary. Encoding-related per-file failures may additionally expose `encodingErrorCode` as an additive refinement: `ENCODING_AMBIGUOUS`, `ENCODING_MALFORMED`, `ENCODING_UNSUPPORTED`, `ENCODING_BOM_CONFLICT`, `ENCODING_UNREPRESENTABLE`, or `ENCODING_OTHER`. This refinement does not replace or reinterpret the stable top-level code.
 
 Stable codes are `INVALID_INPUT`, `INVALID_PATH`, `ACCESS_DENIED`, `SYMLINK_ESCAPE`, `NOT_FOUND`, `PERMISSION`, `ENCODING`, `ENCODING_AMBIGUOUS`, `CONFLICT`, `PARTIAL_COMMIT`, `CANCELLED`, `LIMIT`, `IO_ERROR`, `INTERNAL_ERROR`, and the fallback `OPERATION_FAILED`. `PARTIAL_COMMIT` is reserved for a package apply whose final state includes at least one committed or unclassifiable target. Successful results omit error codes. See [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md).
 
@@ -59,7 +59,7 @@ Read file contents through the shared incremental decoder with automatic encodin
 
 ### read_multiple_files
 
-Read multiple files through the same incremental encoding/BOM-aware pipeline used by `read_text_file`. `MCP_MAX_BATCH_FILES` limits input count and `MCP_MAX_OUTPUT_BYTES` bounds aggregate decoded output. The ordered coordinator preserves input order, using parallelism only when the aggregate worst-case output fits the budget. Individual file failures do not stop the operation, and cancellation still produces one stable result for every requested path.
+Read multiple files through the same incremental encoding/BOM-aware pipeline used by `read_text_file`. `MCP_MAX_BATCH_FILES` limits input count and `MCP_MAX_OUTPUT_BYTES` bounds aggregate decoded output. The ordered coordinator preserves input order, using parallelism only when the aggregate worst-case output fits the budget. Individual file failures do not stop the operation, and cancellation still produces one stable result for every requested path. `errorCount` counts every failed item; each failed result retains its stable `errorCode` and optional `encodingErrorCode`. The compatibility `errors` summary keeps only a deterministic bounded prefix (at most 64 entries and subject to a fixed byte budget derived from the output limit); successful decoded content has priority over this duplicate summary, so retained error summaries also yield to the remaining aggregate output budget. `errorsTruncated` and `errorsOmitted` state explicitly when further summaries were omitted.
 
 **Parameters:**
 - `paths` (required): Array of file paths to read
@@ -172,7 +172,7 @@ The preview cache is bounded independently by `MCP_MAX_EDIT_PREVIEWS` (default `
 - exact, whitespace-flexible, or opt-in bounded fuzzy matching with one unique best candidate;
 - strict single-file unified-patch parsing and exact context validation;
 - preservation of original encoding, BOM state, and consistent CRLF/LF style;
-- byte-identical logical no-ops across all 24 encodings;
+- byte-identical logical no-ops across all 168 registered encodings;
 - rejection of unrepresentable output before mutation;
 - one exact prepared byte sequence shared by preview and apply;
 - target and result SHA-256 `content-v1` fingerprints;
@@ -589,7 +589,7 @@ Run an ordered batch of read-only verification checks through one strict schema.
 Each item in `checks` must contain `type` plus exactly one matching object:
 
 - `json`: validates the syntax of one decoded JSON file. `path` is required and `encoding` is optional. The raw and decoded document are bounded by `MCP_MAX_FILE_BYTES`.
-- `text`: validates one decoded text file. `path` is required; optional expectations are `encoding`, `bom=any|none|present|utf-8|utf-16-le|utf-16-be`, `lineEndings=any|lf|crlf|mixed|none`, and `trailingWhitespace=any|none|present`. Trailing-space diagnostics are capped at 1000 records.
+- `text`: validates one decoded text file. `path` is required; optional expectations are `encoding`, `bom=any|none|present|utf-8|utf-16-le|utf-16-be|utf-32-le|utf-32-be`, `lineEndings=any|lf|crlf|mixed|none`, and `trailingWhitespace=any|none|present`. Trailing-space diagnostics are capped at 1000 records.
 - `gitDiff`: runs a fixed direct `git diff --check` invocation in `repositoryRoot`, with literal pathspecs, fsmonitor disabled, no external diff/textconv helpers, and optional `paths` placed after `--`. Absolute or escaping paths are rejected. `timeoutSeconds` defaults to 30 and cannot exceed 60.
 - `fingerprint`: compares the shared `content-v1` aggregate for ordered `paths` with `expectedFingerprint`; optional `respectGitignore` has the same default-on behavior as `fingerprint_paths`.
 
@@ -765,7 +765,9 @@ A successful apply returns `state: "applied"` or `"no_op"`, the previous and res
 
 ### grep_text_files
 
-Search decoded text incrementally using one regex `pattern` or a `patterns` array combined with OR semantics. UTF-8 and structurally clear UTF-16 LE/BE are auto-detected; ambiguous non-empty input requires an explicit `encoding`. Directory inputs use the `.gitignore`-aware secure walker. Content mode preserves deterministic traversal order and bounded context queues; path/count modes scan each selected file without letting an early high-match file hide later files. `offset + maxMatches` is bounded by `MCP_MAX_MATCHES`, and retained output remains within `MCP_MAX_OUTPUT_BYTES`.
+Search decoded text incrementally using one regex `pattern` or a `patterns` array combined with OR semantics. Automatic detection uses the conservative registry-aware trust policy; ambiguous non-empty input requires an explicit `encoding`, so callers can still search explicit-only or otherwise ambiguous files by naming their codec. Directory inputs use the `.gitignore`-aware secure walker. Content mode preserves deterministic traversal order and bounded context queues; path/count modes scan each selected file without letting an early high-match file hide later files. `offset + maxMatches` is bounded by `MCP_MAX_MATCHES`, and retained match output remains within `MCP_MAX_OUTPUT_BYTES`.
+
+Partial coverage is explicit in every output mode. `filesSearched` remains the deterministic count of candidate files selected for the request, `filesScanned` counts candidates processed without a per-file failure before the scan stopped, and `filesSkipped` counts encountered per-file failures. `coverageComplete` is false whenever any file was skipped or the scan stopped before all candidates were processed, including result truncation. `skippedFiles` retains a deterministic bounded prefix of per-file `path`, `error`, stable `errorCode`, and optional `encodingErrorCode`; at most 64 details are retained, a separate byte cap is derived from the output budget, and retained match/path/count results take priority when only residual output budget remains. `skippedFilesTruncated` and `skippedFilesOmitted` make additional failures explicit. Encoding/I/O skips preserve valid results from other files; cancellation and output-limit failures remain terminal.
 
 **Parameters:**
 - `pattern` (conditionally required): One regular expression
@@ -811,7 +813,10 @@ Search decoded text incrementally using one regex `pattern` or a `patterns` arra
   ],
   "totalMatches": 1,
   "filesSearched": 5,
+  "filesScanned": 5,
   "filesMatched": 1,
+  "filesSkipped": 0,
+  "coverageComplete": true,
   "truncated": false
 }
 ```
@@ -820,7 +825,7 @@ Search decoded text incrementally using one regex `pattern` or a `patterns` arra
 
 ### detect_encoding
 
-Detect the encoding of a file with confidence percentage. Detection is based on BOMs and content, never on filename or extension. Unicode BOMs and valid UTF-8 are authoritative. Empty files return assumed UTF-8 with confidence 0 and `assumed: true`. Non-empty input without sufficient text evidence returns `ambiguous: true` instead of a forced encoding. UTF-32 BOM signatures may be reported, but UTF-32 remains BOM-management only.
+Detect the encoding of a file with confidence percentage. Detection is based on BOMs and content, never on filename or extension. Unicode BOMs remain authoritative; BOMless Unicode candidates require strict structural evidence, and control-heavy syntactically valid UTF-8 is rejected as binary rather than trusted as text. Empty files return assumed UTF-8 with confidence 0 and `assumed: true`. Non-empty legacy input must pass an evidence floor, registry closure, strict decoding, decoded-text quality, and known-confusion checks; otherwise the tool returns `ambiguous: true` instead of a forced encoding. HZ-GB-2312, ISO-2022-JP, and ISO-2022-KR require verified stateful syntax plus detector agreement and non-ASCII decoded evidence. GB18030 four-byte syntax excludes GBK but does not guess between generic GB18030 and the exact GB18030:2022 revision. `sample`, `chunked`, and `full` share the same trust semantics, including state that crosses chunk boundaries.
 
 **Parameters:**
 - `path` (required): Path to the file
@@ -848,7 +853,7 @@ Detect the encoding of a file with confidence percentage. Detection is based on 
 
 ### convert_encoding
 
-Convert one file or a bounded batch through the selected decoder and target encoder. `dryRun` performs a complete preflight without writing and reports unrepresentable runes with Unicode code point plus 1-based line/column locations. Batch results preserve input order, report per-file success or stable error codes, and may succeed partially. Actual changed output uses synced same-directory staging, byte-identical no-op suppression, optional transactional backup, path revalidation, and concurrent-source-change rejection.
+Convert one file or a bounded batch through the selected decoder and target encoder. `dryRun` performs a complete preflight without writing and reports unrepresentable runes with Unicode code point plus 1-based line/column locations. Single-file failures remain explicit MCP errors. Batch results preserve input order, report per-file success or stable `errorCode` plus optional `encodingErrorCode`, and may succeed partially. `errorCount` counts all failed files while the compatibility `errors` summary retains only a deterministic bounded prefix of at most 64 entries under its byte budget; `errorsTruncated` and `errorsOmitted` expose any omitted summaries. Actual changed output uses synced same-directory staging, byte-identical no-op suppression, optional transactional backup, path revalidation, and concurrent-source-change rejection.
 
 **Parameters:**
 - `path` (conditionally required): One file to convert
@@ -891,7 +896,7 @@ Convert one file or a bounded batch through the selected decoder and target enco
 
 ### detect_line_endings
 
-Detect line ending style (CRLF/LF/mixed) through the shared incremental decoder, and find lines with inconsistent endings. This works across all 24 registered encodings. Uniform files require one pass; mixed files use a second digest-verified pass that retains only minority line numbers. `MCP_MAX_LINE_BYTES` bounds each decoded line and `MCP_MAX_OUTPUT_BYTES` bounds the returned list. Ambiguous non-empty input requires an explicit encoding.
+Detect line ending style (CRLF/LF/mixed) through the shared incremental decoder, and find lines with inconsistent endings. This works across all 168 registered encodings. Uniform files require one pass; mixed files use a second digest-verified pass that retains only minority line numbers. `MCP_MAX_LINE_BYTES` bounds each decoded line and `MCP_MAX_OUTPUT_BYTES` bounds the returned list. Ambiguous non-empty input requires an explicit encoding.
 
 **Parameters:**
 - `path` (required): Path to the file to analyze
@@ -1019,7 +1024,7 @@ Detect, strip, or add Unicode BOM (Byte Order Mark). Detection reads at most fou
 
 ### list_encodings
 
-Returns all 24 supported encodings with name, aliases, and description.
+Returns all 168 currently supported encodings with a stable canonical name, aliases, description, read/write capability, automatic-detection eligibility, explicit-only status, Unicode classification, BOM capability, and whether the `auto` BOM policy emits a BOM. Direct compatibility aliases plus applicable pinned IANA/WHATWG aliases are normalized to the canonical name only when they resolve to an already registered codec. After phase-7 detector hardening, the 88 phase-5 mappings and phase-6 additions remain `explicitOnly: true` except for ISO-2022-KR, whose stateful signature provides independent evidence; HZ-GB-2312 and ISO-2022-JP from the earlier x/text surface are likewise auto-detectable only through the hardened stateful trust path.
 
 ### list_allowed_directories
 
@@ -1096,27 +1101,19 @@ Accepts `taskId` and an optional bounded `reason`. Cancelling queued work preven
 
 ## Supported Encodings
 
-| Name | Aliases | Description |
-|------|---------|-------------|
-| utf-8 | utf8, ascii | Unicode, no conversion |
-| utf-16-le | utf16le, utf-16le | Unicode UTF-16 Little Endian |
-| utf-16-be | utf16be, utf-16be | Unicode UTF-16 Big Endian |
-| windows-1251 | cp1251 | Windows Cyrillic |
-| koi8-r | koi8r | Russian Cyrillic (Unix/Linux) |
-| koi8-u | koi8u | Ukrainian Cyrillic (Unix/Linux) |
-| ibm866 | cp866, dos-866 | DOS Cyrillic |
-| iso-8859-5 | iso88595, cyrillic | ISO Cyrillic |
-| windows-1252 | cp1252 | Windows Western European |
-| iso-8859-1 | iso88591, latin1 | Latin-1 Western European |
-| iso-8859-15 | iso885915, latin9 | Latin-9 Western European (Euro) |
-| windows-1250 | cp1250 | Windows Central European |
-| iso-8859-2 | iso88592, latin2 | Latin-2 Central European |
-| windows-1253 | cp1253 | Windows Greek |
-| iso-8859-7 | iso88597, greek | ISO Greek |
-| windows-1254 | cp1254 | Windows Turkish |
-| iso-8859-9 | iso88599, latin5 | Latin-5 Turkish |
-| windows-1255 | cp1255 | Windows Hebrew |
-| windows-1256 | cp1256 | Windows Arabic |
-| windows-1257 | cp1257 | Windows Baltic |
-| windows-1258 | cp1258 | Windows Vietnamese |
-| windows-874 | cp874, tis-620 | Windows Thai |
+The current R22 source tree exposes **168 read/write encodings**: the complete applicable repository-pinned `golang.org/x/text v0.40.0` surface, 88 deterministic pure-Go phase-5 single-byte mappings, and 21 phase-6 multibyte/stateful or residual exact additions derived and verified from GNU libiconv revision `9d19c66d0a1768cffcf497b2db70bf4018b578d7`. `list_encodings` is the authoritative runtime inventory for canonical names, declared compatibility aliases, and capability metadata. The generated/runtime implementations are independent of libiconv/GCC during ordinary builds and execution. Phase 7 keeps explicit codec support deliberately broader than automatic detection: the phase-5 mappings and phase-6 additions remain explicit-only except where independent stateful evidence promotes ISO-2022-KR; HZ-GB-2312 and ISO-2022-JP are likewise promoted from the earlier x/text surface only after signature hardening. UTF-32 uses strict scalar validation, authoritative BOM handling, conservative BOMless detection, and 32-bit code-unit-aware line-ending conversion. Generic `utf-32` is intentionally rejected because it does not provide deterministic byte order.
+
+- **Unicode:** `utf-8`, `utf-16-le`, `utf-16-be`, `utf-32-le`, `utf-32-be`
+- **Existing IBM/DOS/EBCDIC (`x/text`):** `ibm037`, `ibm437`, `ibm850`, `ibm852`, `ibm855`, `ibm858`, `ibm860`, `ibm862`, `ibm863`, `ibm865`, `ibm866`, `ibm1047`, `ibm1140`
+- **Additional IBM/DOS/EBCDIC (generated):** `ibm1025`, `ibm1026`, `ibm1046`, `ibm1097`, `ibm1112`, `ibm1122`, `ibm1123`, `ibm1124`, `ibm1125`, `ibm1129`, `ibm1130`, `ibm1131`, `ibm1132`, `ibm1133`, `ibm1137`, `ibm1141`, `ibm1142`, `ibm1143`, `ibm1144`, `ibm1145`, `ibm1146`, `ibm1147`, `ibm1148`, `ibm1149`, `ibm1153`, `ibm1154`, `ibm1155`, `ibm1156`, `ibm1157`, `ibm1158`, `ibm1162`, `ibm1163`, `ibm1164`, `ibm1165`, `ibm1166`, `ibm12712`, `ibm16804`, `ibm273`, `ibm277`, `ibm278`, `ibm280`, `ibm282`, `ibm284`, `ibm285`, `ibm297`, `ibm423`, `ibm424`, `ibm425`, `ibm4971`, `ibm500`, `ibm737`, `ibm775`, `ibm853`, `ibm856`, `ibm857`, `ibm861`, `ibm864`, `ibm869`, `ibm870`, `ibm871`, `ibm875`, `ibm880`, `ibm905`, `ibm922`, `ibm924`
+- **ISO-8859:** `iso-8859-1`, `iso-8859-2`, `iso-8859-3`, `iso-8859-4`, `iso-8859-5`, `iso-8859-6`, `iso-8859-6-e`, `iso-8859-6-i`, `iso-8859-7`, `iso-8859-8`, `iso-8859-8-e`, `iso-8859-8-i`, `iso-8859-9`, `iso-8859-10`, `iso-8859-13`, `iso-8859-14`, `iso-8859-15`, `iso-8859-16`
+- **Windows:** `windows-874`, `windows-1250`, `windows-1251`, `windows-1252`, `windows-1253`, `windows-1254`, `windows-1255`, `windows-1256`, `windows-1257`, `windows-1258`
+- **Existing Mac/KOI8/other single-byte (`x/text`):** `macintosh`, `x-mac-cyrillic`, `koi8-r`, `koi8-u`, `x-user-defined`
+- **Additional regional/platform single-byte (generated):** `atarist`, `gb-1988-80`, `georgian-academy`, `georgian-ps`, `hp-roman8`, `jis-c6220-1969-ro`, `jis-x0201`, `koi8-t`, `mac-arabic`, `mac-central-europe`, `mac-croatian`, `mac-greek`, `mac-hebrew`, `mac-iceland`, `mac-romania`, `mac-thai`, `mac-turkish`, `mac-ukraine`, `mulelao-1`, `nextstep`, `pt154`, `riscos-latin1`, `rk1048`, `tds565`, `viscii`
+- **East Asian and stateful multibyte:** `gbk`, `gb18030`, `gb18030-2022`, `hz-gb-2312`, `big5`, `big5-2003`, `big5-hkscs-1999`, `big5-hkscs-2001`, `big5-hkscs-2004`, `big5-hkscs-2008`, `euc-cn`, `euc-jp`, `euc-jisx0213`, `euc-tw`, `iso-2022-jp`, `iso-2022-jp-1`, `iso-2022-jp-2`, `iso-2022-jp-3`, `iso-2022-jp-ms`, `iso-2022-cn`, `iso-2022-cn-ext`, `iso-2022-kr`, `shift_jis`, `shift_jisx0213`, `euc-kr`, `johab`, `tcvn`
+
+The phase-5 generator validates the pinned libiconv revision, compiles only maintainer-time converter probes, requires every selected mapping to consume exactly one byte, and requires every defined byte to encode back to the identical byte. The checked-in generated Go tables include source-definition and header SHA-256 provenance; ordinary builds and tests do not need libiconv, GCC, or network access.
+
+Phase 6 extends the same pinned-oracle model without adding a native runtime dependency. Direct multibyte codecs use compact generated prefix tables with canonical reverse mappings; ISO-2022 variants use bounded pure-Go state machines over generated raw character-set tables; TCVN keeps bounded one-byte composition lookahead; and `gb18030-2022` applies 2,087 generated decode overrides and 2,087 encode overrides obtained by exhaustively comparing every grammatical two/four-byte sequence and every non-surrogate Unicode scalar against the pinned libiconv converter and `x/text v0.40.0`. Compatibility aliases that already belonged to `x/text` semantics remain mapped to their existing canonical codecs.
+
+The registry normalizes direct compatibility aliases first, then may consult the pinned IANA and WHATWG indexes for an otherwise unknown label. An index alias is accepted only if it maps back to a codec already present in the authoritative registry, so alias resolution cannot expose an unregistered encoding. Phase 7 adds a separate trust gate on top of raw detector labels: minimum evidence, strict decode, text-quality checks, known-confusion comparisons, binary rejection, and deterministic stateful signatures must all agree before a candidate becomes trusted. Automatic detection therefore remains intentionally narrower than explicit codec support; `list_encodings` reports `autoDetectable` versus `explicitOnly` for each canonical encoding. `write_whole_file` also fails with `ENCODING_AMBIGUOUS` and leaves bytes unchanged when encoding is omitted for a non-empty existing file whose encoding cannot be trusted, instead of silently falling back to the configured creation default.

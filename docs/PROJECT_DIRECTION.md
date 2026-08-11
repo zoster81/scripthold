@@ -18,7 +18,7 @@ Scripthold is a secure, encoding-aware MCP filesystem service for local, tunnele
 
 - the same authoritative 30-tool current source catalog over stdio and Streamable HTTP;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, and missing-ancestor validation;
-- bounded-memory decoding, reading, grep, conversion, line-ending, and BOM operations across 24 registered encodings;
+- bounded-memory decoding, reading, grep, conversion, line-ending, and BOM operations across 168 registered encodings in the current R22 source tree, with automatic detection intentionally narrower than explicit codec support;
 - durable staged mutations with practical concurrent-change detection, no-replace creation, backup rollback, and platform-specific synchronization;
 - an optional dedicated persistent backup store with immutable content-addressed objects, checksummed manifests, bounded management/audit, approval-bound pre-state capture for prepared edits and patch packages, one-shot original-target restore, explicit generation-bound garbage collection, and a separate mutation-free offline diagnostic command for existing stores;
 - transport-independent error categories and tool metadata;
@@ -27,6 +27,12 @@ Scripthold is a secure, encoding-aware MCP filesystem service for local, tunnele
 - reproducible multi-platform releases, checksum-driven MCP Registry publication, and a non-root transport-neutral container.
 
 Binary or media interpretation remains outside the server's scope. Per-agent filesystem ACLs are also outside the current model: every connection to one process shares its startup roots and policy. Deploy separate processes when technical isolation is required.
+
+## Active development direction
+
+R22 is the active release-scoped milestone for Scripthold `2.2.0`. Phases 1–10 are implemented in the current source tree: corpus/provenance normalization, the authoritative capability registry, the complete applicable repository-pinned `golang.org/x/text v0.40.0` surface, full UTF-32 LE/BE text support, 88 deterministic pure-Go phase-5 single-byte mappings, 21 phase-6 multibyte/stateful or residual exact codecs derived and verified from pinned GNU libiconv, conservative detector trust gating, bounded partial-coverage reporting, the registry-driven all-168-codec public-operation matrix, and adversarial/resource verification. Phase 10 verifies representative UTF-32, generated single-byte, direct multibyte, ISO-2022, TCVN, and GB18030:2022 paths under malformed input, cancellation, decoded limits, concurrency, large inputs, and fuzzing; it also preserves cancellation typing through conversion and eliminates GB18030:2022 per-sequence heap allocation so bounded-output reads remain approximately constant-memory from 1 to 64 MiB. The remaining milestone work is the separately gated artifact-producing cross-platform/release-candidate verification sequence; its source-only GoReleaser/workflow/launcher preflight is already green. The production runtime remains independent of libiconv/uchardet native libraries; those projects are approved pinned sources for charset definitions, fixtures, detector nomenclature, and differential oracles. See [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md) and [ROADMAP.md](ROADMAP.md).
+
+The final 2.2.0 encoding count is intentionally not fixed during planning. Aliases do not count as separate encodings, explicit codec support may be broader than safe automatic detection, and ambiguous content must continue to fail explicitly rather than using a permissive fallback. UTF-64 is not introduced as a proprietary format; R22 covers standardized Unicode transformation formats through UTF-32 and excludes machine-dependent internal character representations.
 
 ## Supported transports
 

@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"unicode/utf8"
 
-	"github.com/wlynxg/chardet"
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
@@ -37,61 +35,15 @@ type DetectionResult struct {
 	HasBOM     bool
 }
 
-// DetectBOM checks for Unicode BOMs and returns a result if found.
-// Order matters: UTF-32 BOMs must be checked before UTF-16 since they share prefixes.
+// DetectBOM checks the registry's BOM-capable descriptors. The registry keeps
+// longer signatures first so UTF-32 LE wins over its UTF-16 LE prefix.
 func DetectBOM(data []byte) (DetectionResult, bool) {
-	if len(data) >= 4 {
-		// UTF-32 BE: 00 00 FE FF
-		if data[0] == 0x00 && data[1] == 0x00 && data[2] == 0xFE && data[3] == 0xFF {
-			return DetectionResult{Charset: "utf-32-be", Confidence: 100, HasBOM: true}, true
-		}
-		// UTF-32 LE: FF FE 00 00
-		if data[0] == 0xFF && data[1] == 0xFE && data[2] == 0x00 && data[3] == 0x00 {
-			return DetectionResult{Charset: "utf-32-le", Confidence: 100, HasBOM: true}, true
-		}
-	}
-	if len(data) >= 3 {
-		// UTF-8 BOM: EF BB BF
-		if data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
-			return DetectionResult{Charset: "utf-8", Confidence: 100, HasBOM: true}, true
-		}
-	}
-	if len(data) >= 2 {
-		// UTF-16 BE: FE FF
-		if data[0] == 0xFE && data[1] == 0xFF {
-			return DetectionResult{Charset: "utf-16-be", Confidence: 100, HasBOM: true}, true
-		}
-		// UTF-16 LE: FF FE
-		if data[0] == 0xFF && data[1] == 0xFE {
-			return DetectionResult{Charset: "utf-16-le", Confidence: 100, HasBOM: true}, true
+	for _, descriptor := range bomDescriptors {
+		if len(data) >= len(descriptor.BOM) && bytes.Equal(data[:len(descriptor.BOM)], descriptor.BOM) {
+			return DetectionResult{Charset: descriptor.Name, Confidence: 100, HasBOM: true}, true
 		}
 	}
 	return DetectionResult{}, false
-}
-
-// BOMBytesFor returns the BOM byte sequence for a given encoding name, or nil if unsupported.
-// Supported: utf-8, utf-16-le, utf-16-be, utf-32-le, utf-32-be.
-func BOMBytesFor(charset string) []byte {
-	switch strings.ToLower(charset) {
-	case "utf-8":
-		return []byte{0xEF, 0xBB, 0xBF}
-	case "utf-16-be":
-		return []byte{0xFE, 0xFF}
-	case "utf-16-le":
-		return []byte{0xFF, 0xFE}
-	case "utf-32-be":
-		return []byte{0x00, 0x00, 0xFE, 0xFF}
-	case "utf-32-le":
-		return []byte{0xFF, 0xFE, 0x00, 0x00}
-	default:
-		return nil
-	}
-}
-
-// BOMSize returns the byte length of a BOM for the given charset, or 0 if unknown.
-func BOMSize(charset string) int {
-	b := BOMBytesFor(charset)
-	return len(b)
 }
 
 // --- Primary API (file-based, streaming) ---
@@ -122,12 +74,21 @@ func Detect(data []byte) DetectionResult {
 	if result, ok := DetectBOM(data); ok {
 		return result
 	}
+	if mayContainUTF32(data) {
+		if result, handled := detectUTF32(data); handled {
+			return result
+		}
+	}
 	if mayContainUTF16(data) {
 		if result, handled := detectUTF16(data); handled {
 			return result
 		}
 	}
 	return detectLegacy(data)
+}
+
+func mayContainUTF32(data []byte) bool {
+	return len(data) >= 16 && bytes.IndexByte(data, 0) >= 0
 }
 
 func mayContainUTF16(data []byte) bool {
@@ -138,40 +99,16 @@ func detectLegacy(data []byte) DetectionResult {
 	if len(data) == 0 {
 		return DetectionResult{Charset: "utf-8", Confidence: 100}
 	}
-	if utf8.Valid(data) && bytes.IndexByte(data, 0) < 0 {
-		return DetectionResult{Charset: "utf-8", Confidence: 100}
+	if result, handled := detectStructuredLegacy(data); handled {
+		return result
 	}
 	if isLikelyBinaryBytes(data) {
 		return DetectionResult{}
 	}
-
-	detected := chardet.Detect(data)
-	if detected.Encoding == "" {
-		if utf8.Valid(data) {
-			return DetectionResult{Charset: "utf-8", Confidence: 80}
-		}
-		return DetectionResult{}
+	if utf8.Valid(data) && bytes.IndexByte(data, 0) < 0 {
+		return DetectionResult{Charset: "utf-8", Confidence: 100}
 	}
-
-	charset := canonicalDetectedCharset(detected.Encoding)
-	confidence := int(detected.Confidence * 100)
-
-	// BOMless UTF-16 is accepted only by the structural classifier above.
-	if charset == "utf-16-le" || charset == "utf-16-be" {
-		return DetectionResult{}
-	}
-
-	switch charset {
-	case "gb2312", "hz-gb-2312":
-		charset = "gbk" // GBK is the superset real-world files use
-	case "iso-8859-1", "latin-1", "latin1", "windows-1252", "cp1252":
-		// chardet often mislabels GBK as single-byte Latin; correct it.
-		if looksLikeGBK(data) {
-			return DetectionResult{Charset: "gbk", Confidence: min(confidence, gbkConfidenceCap)}
-		}
-	}
-
-	return DetectionResult{Charset: charset, Confidence: confidence}
+	return detectLegacyCandidates(data)
 }
 
 func isLikelyBinaryBytes(data []byte) bool {
@@ -185,17 +122,6 @@ func isLikelyBinaryBytes(data []byte) bool {
 		}
 	}
 	return len(data) >= 8 && controls*10 >= len(data)
-}
-
-func canonicalDetectedCharset(charset string) string {
-	switch strings.ToLower(charset) {
-	case "utf-16le", "utf16le":
-		return "utf-16-le"
-	case "utf-16be", "utf16be":
-		return "utf-16-be"
-	default:
-		return strings.ToLower(charset)
-	}
 }
 
 // looksLikeGBK reports whether data holds enough valid GBK two-byte sequences,
@@ -235,15 +161,14 @@ func detectSample(data []byte) (DetectionResult, bool) {
 	}
 
 	samples := detectionSamplesFromData(data)
+	if result, handled := detectUTF32Samples(samples, int64(size)); handled {
+		return result, result.Confidence >= MinConfidenceThreshold
+	}
 	if result, handled := detectUTF16Samples(samples, int64(size)); handled {
 		return result, result.Confidence >= MinConfidenceThreshold
 	}
 
-	result := detectLegacy(samples[0].data)
-	if result.Confidence >= HighConfidenceThreshold {
-		return result, true
-	}
-	result = detectLegacy(joinDetectionSamples(samples))
+	result := detectLegacySamples(samples)
 	return result, result.Confidence >= MinConfidenceThreshold
 }
 
@@ -253,12 +178,12 @@ func detectionSamplesFromData(data []byte) []byteSample {
 
 	if size > ChunkSize*2 {
 		middle := (size - ChunkSize) / 2
-		middle -= middle % 2
+		middle -= middle % 4
 		samples = append(samples, byteSample{data: data[middle : middle+ChunkSize], offset: int64(middle)})
 	}
 	if size > ChunkSize {
 		end := size - ChunkSize
-		end -= end % 2
+		end -= end % 4
 		samples = append(samples, byteSample{data: data[end:], offset: int64(end)})
 	}
 	return samples
@@ -319,27 +244,26 @@ func detectSampleFromReader(r io.ReaderAt, size int64) (DetectionResult, error) 
 	if result, ok := DetectBOM(samples[0].data); ok {
 		return result, nil
 	}
+	if result, handled := detectUTF32Samples(samples, size); handled {
+		return result, nil
+	}
 	if result, handled := detectUTF16Samples(samples, size); handled {
 		return result, nil
 	}
 
-	result := detectLegacy(samples[0].data)
-	if result.Confidence >= HighConfidenceThreshold {
-		return result, nil
-	}
-	return detectLegacy(joinDetectionSamples(samples)), nil
+	return detectLegacySamples(samples), nil
 }
 
 func readDetectionSamples(r io.ReaderAt, size int64) ([]byteSample, error) {
 	offsets := []int64{0}
 	if size > int64(ChunkSize*2) {
 		middle := (size - int64(ChunkSize)) / 2
-		middle -= middle % 2
+		middle -= middle % 4
 		offsets = append(offsets, middle)
 	}
 	if size > int64(ChunkSize) {
 		end := size - int64(ChunkSize)
-		end -= end % 2
+		end -= end % 4
 		offsets = append(offsets, end)
 	}
 
@@ -381,8 +305,11 @@ func detectChunkedFromReader(r io.ReaderAt, size int64) (DetectionResult, error)
 		weight     int
 	}
 
+	utf32LEAnalyzer := newUTF32Analyzer(utf32LESpec)
+	utf32BEAnalyzer := newUTF32Analyzer(utf32BESpec)
 	leAnalyzer := newUTF16Analyzer(utf16LESpec)
 	beAnalyzer := newUTF16Analyzer(utf16BESpec)
+	var legacyStructure legacyStructureScanner
 	var results []chunkResult
 	chunk := make([]byte, ChunkSize)
 
@@ -396,8 +323,11 @@ func detectChunkedFromReader(r io.ReaderAt, size int64) (DetectionResult, error)
 		}
 
 		data := chunk[:n]
+		utf32LEAnalyzer.Write(data)
+		utf32BEAnalyzer.Write(data)
 		leAnalyzer.Write(data)
 		beAnalyzer.Write(data)
+		legacyStructure.Feed(data)
 		detected := detectLegacy(data)
 		if detected.Charset != "" {
 			results = append(results, chunkResult{
@@ -409,7 +339,13 @@ func detectChunkedFromReader(r io.ReaderAt, size int64) (DetectionResult, error)
 		offset += int64(n)
 	}
 
+	if result, handled := decideUTF32(utf32LEAnalyzer.Finish(), utf32BEAnalyzer.Finish()); handled {
+		return result, nil
+	}
 	if result, handled := decideUTF16(leAnalyzer.Finish(), beAnalyzer.Finish()); handled {
+		return result, nil
+	}
+	if result, handled := legacyStructure.Decide(func() io.Reader { return io.NewSectionReader(r, 0, size) }); handled {
 		return result, nil
 	}
 	if len(results) == 0 {
