@@ -4,18 +4,18 @@ This document is the maintainer procedure for publishing Scripthold from `zoster
 
 ## Current state
 
-- Current public release: `2.1.1`, with 30 tools and 3 guided prompts.
-- Active release-scoped development: R22 targets `2.2.0` with global portable encoding coverage and full UTF-32 text support; no `2.2.0` publication step is authorized until the R22 contract and normal exact-commit release-candidate gates are complete.
+- Current public release: `2.2.0`, with 30 tools, 3 guided prompts, and 168 registered text encodings.
+- Latest completed release-scoped development: R22 delivered `2.2.0` with global portable encoding coverage, full UTF-32 text support, conservative detector hardening, and the completed exact-commit release gate. No later release-scoped milestone is currently active.
 - Rollback baseline: `2.0.0`, published before the Scripthold repository/asset/Registry rename and retained with its historical asset and Registry identity.
 - Source catalog: 30 tools and 3 guided prompts over stdio and Streamable HTTP.
 - Protocols: MCP `2026-07-28` where roots policy permits it, with retained legacy compatibility; HTTP uses stateless modern requests beside stateful legacy sessions behind one security pipeline.
-- Registry: `io.github.zoster81/scripthold` version `2.1.1` is published and active; `2.0.0` remains under the historical `io.github.zoster81/mcp-file-tools` identity.
-- Deployment: the published Windows amd64 `2.1.1` runtime is active and verified over tunnel-owned stdio plus authenticated legacy and stateless modern HTTP; active rollback to `2.0.0` and restoration to `2.1.1` are verified.
+- Registry: `io.github.zoster81/scripthold` version `2.2.0` is published and active; `2.0.0` remains under the historical `io.github.zoster81/mcp-file-tools` identity.
+- Deployment: the active Windows amd64 runtime remains `2.1.1` and is verified over tunnel-owned stdio plus authenticated legacy and stateless modern HTTP; active rollback to `2.0.0` and restoration to `2.1.1` are verified. Published `2.2.0` has not yet undergone the separately authorized deployment/active-rollback cycle.
 - Assets: Scripthold-named releases use `scripthold_<os>_<arch>` GoReleaser names and publish matching OS/architecture-specific `.mcpb` bundles plus a separate MCPB checksum manifest.
 - Module: `github.com/zoster81/scripthold`.
 - Release tags must match a dated `CHANGELOG.md` entry and the generated Registry version.
 
-See [ROADMAP.md](ROADMAP.md) for current milestone status, [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md) for the active R22/2.2.0 encoding implementation and verification contract, [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) for reusable engineering checks, [HTTP_SECURITY.md](HTTP_SECURITY.md) for transport security, and [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) for lineage and maintenance policy.
+See [ROADMAP.md](ROADMAP.md) for current milestone status, [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md) for the completed R22/2.2.0 encoding implementation and verification contract, [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md) for reusable engineering checks, [HTTP_SECURITY.md](HTTP_SECURITY.md) for transport security, and [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) for lineage and maintenance policy.
 
 ## Fork release flow
 
@@ -108,7 +108,7 @@ Real credentials belong in private copies outside the Git checkout.
 
 `.github/workflows/publish-mcpb-assets.yml` exclusively owns MCPB release packaging. It verifies an immutable `refs/tags/<version>` source checkout, the exact six raw binaries plus six platform archives, and all 12 GoReleaser SHA-256 values before `scripts/prepare-mcpb-assets.js` stages the GitHub workflow inputs. MCPB 2.1.2 validation and deterministic packing run only inside that GitHub workflow before the six bundles and `mcpb-checksums.txt` are uploaded idempotently to GitHub Release. `.github/workflows/publish-registry.yml` then downloads and verifies those already-published GitHub MCPB assets, projects the tagged catalog, exact version, MCPB URLs, OS/architecture selectors, and hashes into temporary `server.json`, validates it, and publishes through GitHub OIDC. These artifact-producing steps must not be reproduced locally.
 
-The Scripthold Registry identity is `io.github.zoster81/scripthold`. The already-published `2.0.0` record remains under the historical `io.github.zoster81/mcp-file-tools` identity and is not rewritten by the repository rename. The production Registry reports `2.1.1` as the current active release with six MCPB packages; the publication manifest is generated from the authoritative 30-tool catalog.
+The Scripthold Registry identity is `io.github.zoster81/scripthold`. The already-published `2.0.0` record remains under the historical `io.github.zoster81/mcp-file-tools` identity and is not rewritten by the repository rename. The production Registry reports `2.2.0` as the current active release with six MCPB packages; the publication manifest is generated from the authoritative 30-tool catalog.
 
 ## Project lineage
 

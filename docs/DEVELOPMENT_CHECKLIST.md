@@ -162,7 +162,7 @@ Use this section only for an explicitly requested internal build.
 
 ## 10. Public release and deployment gate
 
-Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. Release `2.1.1` is the current published, deployed, and rollback-verified Scripthold release; `2.0.0` remains the historical rollback baseline. Future releases should apply the same checks to their active roadmap scope. MCPB artifacts are a GitHub-only release output: local release preparation must never produce or simulate `.mcpb` bundles. If the GitHub MCPB/Registry workflow fails, diagnose its logs and source/configuration, fix the repository, and rerun the workflow on GitHub.
+Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. Release `2.2.0` is the current published GitHub/MCP Registry release; the deployed and rollback-verified Windows runtime remains `2.1.1`, and `2.0.0` remains the historical rollback baseline. Future releases should apply the same checks to their active roadmap scope. MCPB artifacts are a GitHub-only release output: local release preparation must never produce or simulate `.mcpb` bundles. If the GitHub MCPB/Registry workflow fails, diagnose its logs and source/configuration, fix the repository, and rerun the workflow on GitHub.
 
 - [x] R7-R13, the 2.0 release scope, and the migration guide are complete;
 - [x] the HTTP security design and transport test suite pass;
@@ -173,3 +173,6 @@ Use [PUBLISHING.md](PUBLISHING.md) for the full release procedure. Release `2.1.
 - [x] the controlled active rollback succeeds and the published runtime is restored before R14 is closed;
 - [x] the `2.1.1` GitHub Release, checksum manifests, six MCPB bundles, and `io.github.zoster81/scripthold` Registry publication are independently verified;
 - [x] the published `2.1.1` Windows runtime passes tunnel-owned stdio plus authenticated legacy/modern HTTP smoke tests, the active `2.0.0` rollback check succeeds, and `2.1.1` is restored and reverified.
+- [x] the exact CI-gated `v2.2.0` release, six raw binaries, six platform archives, `checksums.txt`, six GitHub-produced MCPB bundles, `mcpb-checksums.txt`, and `io.github.zoster81/scripthold` Registry publication succeed;
+- [x] all 12 normal `v2.2.0` GoReleaser assets are independently verified against the published SHA-256 manifest and the published Windows amd64 binary reports `2.2.0`;
+- [ ] deploy `2.2.0`, execute the controlled active rollback, restore `2.2.0`, and record runtime verification only after that separately authorized deployment cycle is completed.

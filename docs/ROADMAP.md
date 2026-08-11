@@ -2,7 +2,7 @@
 
 This is the authoritative product roadmap for Scripthold, currently maintained in `zoster81/scripthold`.
 
-Version `2.1.1` is the current public Scripthold release with 30 tools and 3 guided prompts. It is published on GitHub and in the MCP Registry, deployed on Windows amd64, and verified through an active rollback to `2.0.0` followed by restoration to `2.1.1`. Version `2.0.0` remains the historical 23-tool rollback baseline. R21 is complete. **R22 is `ACTIVE` and targets Scripthold `2.2.0` with global portable encoding coverage, full UTF-32 text support, conservative detection hardening, and corpus-backed verification.**
+Version `2.2.0` is the current public Scripthold release with 30 tools, 3 guided prompts, and 168 registered text encodings. It is published on GitHub and active in the MCP Registry. The deployed Windows amd64 runtime remains `2.1.1`, verified through an active rollback to `2.0.0` followed by restoration to `2.1.1`; `2.0.0` remains the historical 23-tool rollback baseline. R21 is complete. **R22 is `COMPLETE`: Scripthold `2.2.0` delivers global portable encoding coverage, full UTF-32 text support, conservative detection hardening, corpus-backed verification, and the completed exact-commit release gate.**
 
 Product identity and the fork's independent relationship to upstream are defined in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md). Current milestone status and completion gates live in this document. Reusable engineering checks live in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md), contributor workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md), scoped agent guidance in [`AGENTS.md`](../AGENTS.md), and completed R1-R6 engineering outcomes in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
@@ -37,7 +37,7 @@ Product identity and the fork's independent relationship to upstream are defined
 | R19 | COMPLETE | Added bounded deterministic mutation-free offline diagnostics for an existing persistent backup store. |
 | R20 | COMPLETE | Stable SDK `v1.7.0`, stdio version gating, same-endpoint dual-generation HTTP, structured unsupported-version handling, and the full compatibility/conformance gate are verified in source. |
 | R21 | COMPLETE | Delivered durable asynchronous task execution, exact-commit release gating, and the published, deployed, rollback-verified `2.1.1` release. |
-| R22 | ACTIVE | Expand to global portable encoding coverage, promote UTF-32 to the full text pipeline, harden ambiguity/detection semantics, and complete the `2.2.0` release gate. |
+| R22 | COMPLETE | Delivered global portable encoding coverage, full UTF-32 text support, hardened ambiguity/detection semantics, and the published verified `2.2.0` release. |
 
 ---
 
@@ -59,8 +59,8 @@ Deliver the broadest practical cross-platform text-encoding support that can be 
 - [x] Make grep and batch partial encoding failures bounded and visible rather than implying complete coverage when files were skipped. Phase 8 adds deterministic grep coverage metadata, bounded skipped/error summaries with explicit omitted counts, additive encoding subcodes, strict streaming UTF-8 validation, and terminal grep cancellation while preserving valid partial results.
 - [x] Exercise every supported encoding through the applicable read, batch, grep, write, edit, patch, convert, BOM, line-ending, verification, and prompt workflows. Phase 9 adds a registry-driven all-168-codec public-operation matrix, byte-identical edit no-op verification, applicable JSON/BOM checks, complete trusted-corpus public detection, and explicit contracts for all three encoding workflow prompts.
 - [x] Complete Phase 10 adversarial, fuzz, resource, cancellation, concurrency, failure-injection, race, static-analysis, and vulnerability verification for the expanded encoding surface. Representative R22 classes now pass malformed/no-mutation, decoded-limit, cancellation, deterministic batch/grep concurrency, 225,000 fixed-count fuzz executions, and bounded 1/16/64 MiB allocation gates; GB18030:2022 no longer allocates per sequence.
-- [x] Complete Phase 11 six-target build, native/container smoke, deterministic GoReleaser packaging, and final local release-candidate verification before release preparation. **Completed locally on 2026-08-11:** all six Windows/Linux/macOS amd64/arm64 binaries and 114 cross-platform test binaries compile; Windows amd64 passes real native stdio/durable-task runtime smoke; the Linux amd64 container passes hardened stdio plus direct-TLS HTTP health/readiness, authentication, Host/Origin/method, no-CORS, and graceful-shutdown checks without relaxing UID/GID 10001, read-only rootfs, dropped capabilities, `no-new-privileges`, or bounded tmpfs. Two physically isolated GoReleaser snapshots from exact HEAD plus the six preserved documentation changes produce byte-identical six raw binaries, six platform archives, and `checksums.txt`, with commit-derived archive metadata and exact 12-artifact SHA-256 coverage. The complete Go/race/vet/Staticcheck/govulncheck suite, deterministic CI fuzz smoke, pinned workflow validators, release-metadata checks, Gitleaks, launcher parsing, and `git diff --check` are green. MCPB bundle creation, MCPB checksums, the final MCPB-backed Registry manifest, and Registry publication remain GitHub-only post-tag workflow responsibilities and are never produced or simulated locally.
-- [ ] Prepare and publish `2.2.0` only from the exact clean commit that satisfies the completed R22 and normal publishing gates.
+- [x] Complete Phase 11 six-target build, native/container smoke, deterministic GoReleaser packaging, and final local release-candidate verification before release preparation. **Completed on 2026-08-11:** all six Windows/Linux/macOS amd64/arm64 binaries and 114 cross-platform test binaries compile; Windows amd64 passes native stdio/durable-task runtime smoke; Linux amd64 passes the hardened stdio/direct-TLS HTTP container gate; the complete Go/race/vet/Staticcheck/govulncheck, deterministic fuzz, workflow, release-metadata, launcher, documentation, and Gitleaks gates are green; and two physically isolated GoReleaser snapshots of the final exact clean release commit produce byte-identical six raw binaries, six platform archives, and `checksums.txt` with clean VCS provenance and deterministic archive metadata. MCPB artifacts and the final Registry manifest were produced only by the later GitHub release workflows.**
+- [x] Prepare and publish `2.2.0` only from the exact clean commit that satisfies the completed R22 and normal publishing gates. **Completed on 2026-08-11:** annotated tag `v2.2.0` resolves to exact commit `f6ade5e3e47eff03a2d728c73a15409786765adb`; that commit passed the full push-event `CI` `Release candidate` gate before tagging; GoReleaser, GitHub-only MCPB packaging, and MCP Registry publication then completed successfully.**
 
 ## Design decisions
 
@@ -74,7 +74,11 @@ Deliver the broadest practical cross-platform text-encoding support that can be 
 
 R22 is complete only when the detailed gates in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md) pass, the final registry/documentation count is generated or verified without drift, every trusted detection result resolves to a supported codec, malformed and ambiguous data fail safely, UTF-32 passes the full public operation matrix, grep exposes skipped encoding failures, the corpus is reproducible from pinned provenance, and the complete repository plus release-candidate verification matrix is green.
 
-Publication, Registry upload, deployment, active rollback, and restoration remain separately governed final release operations under [PUBLISHING.md](PUBLISHING.md).
+GitHub Release and MCP Registry publication completed on 2026-08-11. Deployment, active rollback, and restoration remain separately governed operations under [PUBLISHING.md](PUBLISHING.md) and have not been performed for `2.2.0`.
+
+## Completion record
+
+R22 completed on 2026-08-11 and was published as `v2.2.0` from exact commit `f6ade5e3e47eff03a2d728c73a15409786765adb`. The exact pushed commit passed the complete cross-platform `CI` release-candidate gate before tagging. The Release workflow then published six raw binaries, six platform archives, and `checksums.txt`; the GitHub-only MCPB workflow added six OS/architecture-specific bundles plus `mcpb-checksums.txt`; and the Registry workflow validated the published bundle set and published `io.github.zoster81/scripthold` version `2.2.0` through GitHub OIDC. All 12 normal GoReleaser assets were independently rechecked against the published SHA-256 manifest, and the published Windows amd64 binary reports `2.2.0`. The deployed runtime remains `2.1.1` pending a separately authorized deployment/rollback cycle.
 
 ---
 
@@ -94,7 +98,7 @@ Maintain the `2.1.x` line with the [durable task subsystem](DURABLE_TASKS.md) re
 
 ## Publication record
 
-Release `2.1.1` was published on 2026-08-10 and is the current Scripthold release. The GitHub Release contains six raw binaries, six platform archives, six OS/architecture-specific MCPB bundles, `checksums.txt`, and `mcpb-checksums.txt`. All GoReleaser and MCPB SHA-256 entries were independently verified, and `io.github.zoster81/scripthold` version `2.1.1` is active in the MCP Registry. The published Windows amd64 runtime has been deployed and verified across tunnel-owned stdio, authenticated legacy HTTP, stateless MCP `2026-07-28` HTTP, active rollback to `2.0.0`, and restoration to `2.1.1`.
+Release `2.1.1` was published on 2026-08-10 and remained the current Scripthold release until `2.2.0` was published on 2026-08-11. The GitHub Release contains six raw binaries, six platform archives, six OS/architecture-specific MCPB bundles, `checksums.txt`, and `mcpb-checksums.txt`. All GoReleaser and MCPB SHA-256 entries were independently verified, and `io.github.zoster81/scripthold` version `2.1.1` was published to the MCP Registry. The published Windows amd64 runtime has been deployed and verified across tunnel-owned stdio, authenticated legacy HTTP, stateless MCP `2026-07-28` HTTP, active rollback to `2.0.0`, and restoration to `2.1.1`.
 
 Version `2.0.0` remains the historical 23-tool rollback baseline. Detailed release changes belong in [CHANGELOG.md](../CHANGELOG.md), while this roadmap records product status and completion gates rather than operational incident chronology.
 
@@ -431,7 +435,7 @@ Operator deployment completed on 2026-08-02. The published Windows amd64 `2.0.0`
 
 ## Status
 
-Completed on 2026-08-03. The implementation is included in the current `2.1.1` release.
+Completed on 2026-08-03. The implementation was first included in `2.1.1` and is retained in `2.2.0`.
 
 ## Goal
 
@@ -480,7 +484,7 @@ Normal, compatibility, malformed-input, symlink/reparse, `.gitignore`, paging, s
 
 ## Status
 
-Completed on 2026-08-04. Deterministic fingerprints, bounded one-shot `edit_file` preview/apply, complete `patch-package-v1` inspect/dry-run/apply/verify, and typed `verify_state` checks are implemented, verified, and included in the current `2.1.1` release.
+Completed on 2026-08-04. Deterministic fingerprints, bounded one-shot `edit_file` preview/apply, complete `patch-package-v1` inspect/dry-run/apply/verify, and typed `verify_state` checks are implemented, verified, were first included in `2.1.1`, and are retained in `2.2.0`.
 
 ## Goal
 
@@ -576,7 +580,7 @@ Maintainers accepted all ten decisions on 2026-08-04: a dedicated non-overlappin
 
 ## Status
 
-Completed on 2026-08-05. The approved [persistent backup lifecycle](PERSISTENT_BACKUP_LIFECYCLE.md) is implemented and verified. R18 brought its source boundary to 27 tools; R21 expands the current `2.1.1` release to 30 tools, while `2.0.0` remains the historical 23-tool rollback baseline.
+Completed on 2026-08-05. The approved [persistent backup lifecycle](PERSISTENT_BACKUP_LIFECYCLE.md) is implemented and verified. R18 brought its source boundary to 27 tools; R21 expanded the `2.1.1` line to 30 tools, and `2.2.0` retains that 30-tool surface while `2.0.0` remains the historical 23-tool rollback baseline.
 
 ## Goal
 
@@ -700,7 +704,7 @@ Verification passed on the definitive source tree: `go mod tidy -diff`, `go mod 
 
 ## Status
 
-Completed in source on 2026-08-08. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Stable SDK `v1.7.0` provides modern stdio discovery where roots policy permits it and same-endpoint stateless `2026-07-28` HTTP beside the retained stateful legacy handler. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. Unsupported singleton versions return the protocol-defined structured error without entering legacy session admission. The R20 boundary exposed 27 tools plus three prompts with shared process roots, backup store, and security policies; R21 expands the current `2.1.1` release to 30 tools. Compatibility, conformance, independent-client, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The verified R20 implementation is included in `2.1.1` and remains absent from the `2.0.0` rollback binary.
+Completed in source on 2026-08-08. The authoritative contract is [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). Stable SDK `v1.7.0` provides modern stdio discovery where roots policy permits it and same-endpoint stateless `2026-07-28` HTTP beside the retained stateful legacy handler. Stateless traffic emits no session ID and consumes no legacy session capacity; legacy initialization, SSE, expiry, and DELETE remain intact. Unsupported singleton versions return the protocol-defined structured error without entering legacy session admission. The R20 boundary exposed 27 tools plus three prompts with shared process roots, backup store, and security policies; R21 expanded the `2.1.1` line to 30 tools, and `2.2.0` retains that surface. Compatibility, conformance, independent-client, fuzz, native, container, race, static-analysis, vulnerability, and six-target gates are complete. The verified R20 implementation is included in `2.1.1` and remains absent from the `2.0.0` rollback binary.
 
 ## Goal
 
@@ -733,4 +737,4 @@ R20 is complete only when an official stable Go SDK supports final `2026-07-28`;
 
 ## Completion record
 
-Completed in source on 2026-08-08. Official conformance verifies the structured unsupported-version path and HTTP `400`; independent header validation passes 13/13, TypeScript SDK interoperability preserves legacy `2025-11-25`, the complete serial and race suites plus vet/Staticcheck/govulncheck pass, five HTTP/JSON-RPC fuzz targets pass, native and hardened-container smoke pass, and Windows/Linux/macOS amd64/arm64 command plus affected-test compilation succeeds. The verified R20 work is included in the current `2.1.1` release.
+Completed in source on 2026-08-08. Official conformance verifies the structured unsupported-version path and HTTP `400`; independent header validation passes 13/13, TypeScript SDK interoperability preserves legacy `2025-11-25`, the complete serial and race suites plus vet/Staticcheck/govulncheck pass, five HTTP/JSON-RPC fuzz targets pass, native and hardened-container smoke pass, and Windows/Linux/macOS amd64/arm64 command plus affected-test compilation succeeds. The verified R20 work was first included in `2.1.1` and is retained in `2.2.0`.
