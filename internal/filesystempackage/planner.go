@@ -293,7 +293,7 @@ func (planner *Planner) Plan(ctx context.Context, manifest Manifest) (PreparedPa
 			if err := registerTreeIdentities(tree, index); err != nil {
 				return PreparedPackage{}, annotatePlanError(index, err)
 			}
-			sourceParent, err := planner.captureExistingDirectoryIdentity(filepath.Dir(source.ResolvedPath))
+			sourceParent, err := planner.captureExistingDirectoryIdentity(filepath.Dir(source.RequestedPath))
 			if err != nil {
 				return PreparedPackage{}, annotatePlanError(index, err)
 			}
@@ -329,7 +329,7 @@ func (planner *Planner) Plan(ctx context.Context, manifest Manifest) (PreparedPa
 			if err := registerIdentity(sourceIdentity, index); err != nil {
 				return PreparedPackage{}, annotatePlanError(index, err)
 			}
-			sourceParent, err := planner.captureExistingDirectoryIdentity(filepath.Dir(source.ResolvedPath))
+			sourceParent, err := planner.captureExistingDirectoryIdentity(filepath.Dir(source.RequestedPath))
 			if err != nil {
 				return PreparedPackage{}, annotatePlanError(index, err)
 			}
@@ -401,7 +401,7 @@ func (planner *Planner) Plan(ctx context.Context, manifest Manifest) (PreparedPa
 			if err := registerTreeIdentities(tree, index); err != nil {
 				return PreparedPackage{}, annotatePlanError(index, err)
 			}
-			parentIdentity, err := planner.captureExistingDirectoryIdentity(filepath.Dir(target.ResolvedPath))
+			parentIdentity, err := planner.captureExistingDirectoryIdentity(filepath.Dir(target.RequestedPath))
 			if err != nil {
 				return PreparedPackage{}, annotatePlanError(index, err)
 			}
@@ -474,7 +474,7 @@ func (planner *Planner) prepareMissingTarget(path string, mkdirByPath map[string
 		}
 		return security.PathEvidence{}, "", -1, filesystem.ObjectIdentity{}, err
 	}
-	parentPath := filepath.Dir(target.ResolvedPath)
+	parentPath := filepath.Dir(target.RequestedPath)
 	parentEvidence, err := planner.authorize(parentPath)
 	if err != nil {
 		return security.PathEvidence{}, "", -1, filesystem.ObjectIdentity{}, err
@@ -523,7 +523,7 @@ func (planner *Planner) prepareRegularSource(ctx context.Context, path string) (
 	if err != nil {
 		return security.PathEvidence{}, filesystem.ObjectIdentity{}, filesystem.FileSnapshot{}, filesystem.ObjectIdentity{}, err
 	}
-	parentIdentity, err := planner.captureExistingDirectoryIdentity(filepath.Dir(evidence.ResolvedPath))
+	parentIdentity, err := planner.captureExistingDirectoryIdentity(filepath.Dir(evidence.RequestedPath))
 	if err != nil {
 		return security.PathEvidence{}, filesystem.ObjectIdentity{}, filesystem.FileSnapshot{}, filesystem.ObjectIdentity{}, err
 	}

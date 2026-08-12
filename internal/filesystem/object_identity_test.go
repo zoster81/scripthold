@@ -39,10 +39,14 @@ func TestObjectIdentityDetectsFileAndDirectoryReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	replacementDirectory := filepath.Join(root, "replacement-dir")
+	if err := os.Mkdir(replacementDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(directory); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(directory, 0o755); err != nil {
+	if err := os.Rename(replacementDirectory, directory); err != nil {
 		t.Fatal(err)
 	}
 	if matches, err := directoryIdentity.Matches(directory); err != nil || matches {

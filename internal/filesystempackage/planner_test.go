@@ -33,6 +33,34 @@ func TestPlannerAllowsOnlyEarlierMkdirParentDependency(t *testing.T) {
 	}
 }
 
+func TestPlannerReauthorizesDerivedParentThroughRequestedAlias(t *testing.T) {
+	parent := t.TempDir()
+	realRoot := filepath.Join(parent, "real")
+	if err := os.Mkdir(realRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasRoot := filepath.Join(parent, "alias")
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Skipf("symlink aliases unavailable: %v", err)
+	}
+	planner := newTestPlanner(t, aliasRoot)
+	target := filepath.Join(aliasRoot, "target.bin")
+	plan, err := planner.Plan(context.Background(), Manifest{FormatVersion: FormatV1, Operations: []Operation{{
+		Type: OperationCreateFile, Path: target, Content: []byte("x"),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(aliasRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Operations) != 1 || !security.PathsEqual(plan.Operations[0].Path.RequestedPath, target) ||
+		!security.PathsEqual(plan.Operations[0].Path.ResolvedPath, filepath.Join(resolvedRoot, "target.bin")) {
+		t.Fatalf("unexpected alias evidence: %#v", plan.Operations)
+	}
+}
+
 func TestPlannerRejectsMissingParentWithoutMkdirAndExistingDestination(t *testing.T) {
 	root := t.TempDir()
 	planner := newTestPlanner(t, root)
