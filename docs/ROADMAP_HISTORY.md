@@ -1,6 +1,6 @@
 # Scripthold Engineering Milestone History
 
-This document records concise public outcomes for completed milestones R1–R23. It is history, not the active planning surface: current and future milestone state belongs in [ROADMAP.md](ROADMAP.md), release-by-release user-visible changes in [CHANGELOG.md](../CHANGELOG.md), and detailed subsystem contracts in the linked design documents.
+This document records concise public outcomes for completed milestones R1–R24. It is history, not the active planning surface: current and future milestone state belongs in [ROADMAP.md](ROADMAP.md), release-by-release user-visible changes in [CHANGELOG.md](../CHANGELOG.md), and detailed subsystem contracts in the linked design documents.
 
 The record intentionally excludes private workstation paths, connector state, process identifiers, local binaries, and operator handoff details.
 
@@ -97,6 +97,12 @@ Scripthold `2.2.0` was published on 2026-08-11 from the exact commit that passed
 ## R23 — Truthful MCP mutation surface and backup UX
 
 Separated the five historical mixed preparation/review tools from six dedicated mutating apply tools, with every apply schema accepting only a one-shot `previewId`. Added exact-result binding for BOM and encoding conversion, operator-default persistent backup policy, backup history/comparison, and backup-before-staging ordering for package/restore safety paths. The source-side gate included a registry-driven mutation-integrity matrix across all 168 encodings, full normal/race/static/vulnerability checks, deterministic encoding fuzzing, and six-target compilation. Connector acceptance on 2026-08-12 confirmed the separated schemas and operationally verified side-effect-free edit preview, exact apply, replay rejection, and rejection of the removed direct-edit form. The completed contract remains in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the next-major caller migration is documented in [MIGRATION_3.0.md](MIGRATION_3.0.md).
+
+## R24 — Safe filesystem operations
+
+Replaced the four overlapping simple namespace mutation tools with read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`. The strict `filesystem-package-v1` surface coordinates no-replace directory/file creation, raw-byte file creation, file and exact recursive directory copy, native same-volume move, and backup-before-loss file/exact-directory deletion. Exact recursive scopes are deterministic and fail closed on links, special entries, nested volumes, limits, or post-preview drift; one-shot capabilities bind path/object/content/tree/parent evidence, and durable progress is reported through bounded `PARTIAL_COMMIT` evidence rather than false atomicity or automatic rollback claims.
+
+R24 completed on 2026-08-13 after focused/adversarial and full local verification, activated-candidate connector acceptance of the 34-tool surface, native Windows/Linux/macOS race/regression and binary/server smoke, deterministic fuzzing, static/vulnerability checks, container smoke, six-target compilation, and the aggregate push-event `Release candidate` gate. The completed contract and verification record remain in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md).
 
 ## Historical verification boundary
 

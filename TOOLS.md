@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-The active R24 Unreleased next-major source tree exposes an authoritative 34-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+The completed R24 Unreleased next-major source tree exposes an authoritative 34-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 

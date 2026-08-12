@@ -22,7 +22,7 @@ Do not copy private workstation state, local process details, credentials, or op
 - R20 MCP `2026-07-28` adoption design: [`docs/MCP_2026_07_28_ADOPTION.md`](docs/MCP_2026_07_28_ADOPTION.md)
 - Completed R22 global encoding coverage and Scripthold 2.2.0 contract: [`docs/GLOBAL_ENCODING_COVERAGE.md`](docs/GLOBAL_ENCODING_COVERAGE.md)
 - Completed R23 MCP mutation-surface and backup-UX contract: [`docs/MCP_MUTATION_SURFACE.md`](docs/MCP_MUTATION_SURFACE.md)
-- Active R24 safe-filesystem operations contract and implementation gate: [`docs/SAFE_FILESYSTEM_OPERATIONS.md`](docs/SAFE_FILESYSTEM_OPERATIONS.md)
+- Completed R24 safe-filesystem operations contract and verification record: [`docs/SAFE_FILESYSTEM_OPERATIONS.md`](docs/SAFE_FILESYSTEM_OPERATIONS.md)
 - Approved planned R25 source-intelligence foundation baseline: [`docs/SOURCE_INTELLIGENCE.md`](docs/SOURCE_INTELLIGENCE.md)
 - Approved planned R26 backup-recovery baseline: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
 - Approved planned R27 broad multi-language code-intelligence baseline: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
