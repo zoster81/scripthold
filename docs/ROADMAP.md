@@ -7,7 +7,7 @@ This document is the authoritative source for **current and future milestone sta
 - Current public release: **Scripthold `2.2.0`**.
 - Public surface: **30 tools**, **3 guided prompts**, and **168 registered text encodings** over stdio and Streamable HTTP.
 - R21-R23 are complete.
-- R24 is `ACTIVE`: the source changes are implemented and all available local gates pass, but required native Linux/macOS namespace tests and connector-level preview/apply acceptance against an activated R24 candidate remain pending. R25-R27 remain `PLANNED` and must not be implemented incidentally.
+- R24 is `ACTIVE`: the source changes are implemented, all available local gates pass, and connector-level preview/apply acceptance against the activated R24 candidate passes; only required native Linux/macOS namespace tests remain pending. R25-R27 remain `PLANNED` and must not be implemented incidentally.
 - The authoritative R24 contract and Phase 0–12 implementation/gate record are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md).
 - Publication does not imply deployment. Operator-specific deployment, rollback, and runtime state are governed separately by [PUBLISHING.md](PUBLISHING.md) and private operational procedures.
 
@@ -50,7 +50,7 @@ This document is the authoritative source for **current and future milestone sta
 | R21 | COMPLETE | Durable asynchronous task execution and exact-commit release gating in the `2.1.x` line. |
 | R22 | COMPLETE | Global portable encoding coverage, full UTF-32 support, detector hardening, and published `2.2.0`. |
 | R23 | COMPLETE | Separate read-only preparation from mutation, preserve capability-bound preview/apply, and improve persistent-backup history/usability. |
-| R24 | ACTIVE | Typed safe filesystem packages for coordinated create/copy/move/delete and directory operations without arbitrary shell fallback; final native Linux/macOS and activated-candidate connector verification pending. |
+| R24 | ACTIVE | Typed safe filesystem packages for coordinated create/copy/move/delete and directory operations without arbitrary shell fallback; activated-candidate connector verification passes and final native Linux/macOS verification remains pending. |
 | R25 | PLANNED | Language-neutral source-symbol architecture and initial production-quality parser providers, using native Go AST as the first reference implementation rather than the final language scope. |
 | R26 | PLANNED | Separately reviewed offline backup-store repair/salvage beyond the current diagnostic-only surface. |
 | R27 | PLANNED | Broad multi-language code intelligence with production-quality symbol providers plus references, implementations, dependency/call relationships, and incremental indexing. |
@@ -69,7 +69,7 @@ R24 implementation reached its final verification gate on 2026-08-12 under the c
 - deterministic manifest-order commits, native cross-volume rejection through `UNSUPPORTED`, and bounded `PARTIAL_COMMIT` evidence without shell fallback, copy-delete move emulation, or automatic rollback claims;
 - focused adversarial/failure-injection coverage, in-process MCP preview/apply smoke, Windows-native tests, full normal and race suites, static/vulnerability checks, source smoke, and six-target Windows/Linux/macOS compilation.
 
-The active R24 source tree exposes a 34-tool Unreleased next-major surface; Scripthold `2.2.0` remains the current public release. R24 is not `COMPLETE` until the required actual namespace suite also passes natively on Linux and macOS and connector-level preview/apply acceptance passes against an activated R24 candidate; cross-compilation and in-process MCP tests do not substitute for those gates. Publication, tagging, deployment, and runtime changes remain separate governed actions. R25-R27 remain `PLANNED`.
+The active R24 source tree exposes a 34-tool Unreleased next-major surface; Scripthold `2.2.0` remains the current public release. Connector-level preview/apply acceptance passes against the activated R24 candidate, including exact 34-tool discovery, one-shot apply behavior, and backup-before-loss destructive cleanup. R24 is not `COMPLETE` until the required actual namespace suite also passes natively on Linux and macOS; cross-compilation does not substitute for that native evidence. Publication, tagging, deployment, and runtime changes remain separate governed actions. R25-R27 remain `PLANNED`.
 
 ## Approved future milestones
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-This guide documents the intentional breaking MCP API transition implemented by completed R23 and the active R24 Unreleased source candidate. R24 source changes are implemented and all available local gates pass, while required native Linux/macOS namespace verification and connector-level preview/apply acceptance against an activated R24 candidate remain pending. It is migration guidance for the next major release line; it does **not** state that Scripthold `3.0.0` has been released, tagged, or published. Scripthold `2.2.0` remains the current public release until a later release is explicitly authorized and published.
+This guide documents the intentional breaking MCP API transition implemented by completed R23 and the active R24 Unreleased source candidate. R24 source changes are implemented, all available local gates pass, and connector-level preview/apply acceptance against the activated R24 candidate passes; only required native Linux/macOS namespace verification remains pending. It is migration guidance for the next major release line; it does **not** state that Scripthold `3.0.0` has been released, tagged, or published. Scripthold `2.2.0` remains the current public release until a later release is explicitly authorized and published.
 
 The authoritative R23 design and completion gate are in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md). The authoritative R24 filesystem-package contract is in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md). Tool schemas and examples are in [`TOOLS.md`](../TOOLS.md).
 
