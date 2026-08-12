@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/zoster81/scripthold/internal/encoding"
 )
@@ -28,9 +29,13 @@ const (
 	EnvMaxPatchPackagePreviews       = "MCP_MAX_PATCH_PACKAGE_PREVIEWS"
 	EnvMaxPatchPackagePreviewBytes   = "MCP_MAX_PATCH_PACKAGE_PREVIEW_BYTES"
 	EnvPatchPackagePreviewTTLSeconds = "MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS"
+	EnvMaxByteMutationPreviews       = "MCP_MAX_BYTE_MUTATION_PREVIEWS"
+	EnvMaxByteMutationPreviewBytes   = "MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES"
+	EnvByteMutationPreviewTTLSeconds = "MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS"
 	EnvMaxSessions                   = "MCP_MAX_SESSIONS" // Maximum live native Streamable HTTP sessions.
 
 	EnvBackupStoreDir             = "MCP_BACKUP_STORE_DIR"
+	EnvBackupDefaultPolicy        = "MCP_BACKUP_DEFAULT_POLICY"
 	EnvBackupMaxTotalBytes        = "MCP_BACKUP_MAX_TOTAL_BYTES"
 	EnvBackupMaxObjectBytes       = "MCP_BACKUP_MAX_OBJECT_BYTES"
 	EnvBackupMaxManifests         = "MCP_BACKUP_MAX_MANIFESTS"
@@ -65,8 +70,15 @@ const (
 	DefaultMaxPatchPackagePreviews       = 16
 	DefaultMaxPatchPackagePreviewBytes   = int64(128 * 1024 * 1024)
 	DefaultPatchPackagePreviewTTLSeconds = 15 * 60
+	DefaultMaxByteMutationPreviews       = 32
+	DefaultMaxByteMutationPreviewBytes   = int64(256 * 1024 * 1024)
+	DefaultByteMutationPreviewTTLSeconds = 15 * 60
 	DefaultMaxSessions                   = 128
 
+	BackupPolicyDisabled = "disabled"
+	BackupPolicyRequired = "required"
+
+	DefaultBackupPolicy               = BackupPolicyDisabled
 	DefaultBackupMaxTotalBytes        = int64(1024 * 1024 * 1024)
 	DefaultBackupMaxObjectBytes       = int64(64 * 1024 * 1024)
 	DefaultBackupMaxManifests         = 10_000
@@ -119,6 +131,9 @@ type Limits struct {
 	MaxPatchPackagePreviews       int
 	MaxPatchPackagePreviewBytes   int64
 	PatchPackagePreviewTTLSeconds int
+	MaxByteMutationPreviews       int
+	MaxByteMutationPreviewBytes   int64
+	ByteMutationPreviewTTLSeconds int
 	MaxSessions                   int
 }
 
@@ -136,8 +151,9 @@ type BackupLimits struct {
 
 // BackupConfig contains the disabled-by-default persistent store configuration.
 type BackupConfig struct {
-	StoreDir string
-	Limits   BackupLimits
+	StoreDir      string
+	DefaultPolicy string
+	Limits        BackupLimits
 }
 
 // TaskConfig controls the durable asynchronous execution subsystem. The
@@ -200,10 +216,14 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 			MaxPatchPackagePreviews:       DefaultMaxPatchPackagePreviews,
 			MaxPatchPackagePreviewBytes:   DefaultMaxPatchPackagePreviewBytes,
 			PatchPackagePreviewTTLSeconds: DefaultPatchPackagePreviewTTLSeconds,
+			MaxByteMutationPreviews:       DefaultMaxByteMutationPreviews,
+			MaxByteMutationPreviewBytes:   DefaultMaxByteMutationPreviewBytes,
+			ByteMutationPreviewTTLSeconds: DefaultByteMutationPreviewTTLSeconds,
 			MaxSessions:                   DefaultMaxSessions,
 		},
 		Backup: BackupConfig{
-			StoreDir: getenv(EnvBackupStoreDir),
+			StoreDir:      getenv(EnvBackupStoreDir),
+			DefaultPolicy: backupDefaultPolicyEnvironment(getenv),
 			Limits: BackupLimits{
 				MaxTotalBytes:        DefaultBackupMaxTotalBytes,
 				MaxObjectBytes:       DefaultBackupMaxObjectBytes,
@@ -257,6 +277,9 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Limits.MaxPatchPackagePreviews = intEnvironment(getenv, EnvMaxPatchPackagePreviews, cfg.Limits.MaxPatchPackagePreviews)
 	cfg.Limits.MaxPatchPackagePreviewBytes = int64Environment(getenv, EnvMaxPatchPackagePreviewBytes, cfg.Limits.MaxPatchPackagePreviewBytes)
 	cfg.Limits.PatchPackagePreviewTTLSeconds = intEnvironment(getenv, EnvPatchPackagePreviewTTLSeconds, cfg.Limits.PatchPackagePreviewTTLSeconds)
+	cfg.Limits.MaxByteMutationPreviews = intEnvironment(getenv, EnvMaxByteMutationPreviews, cfg.Limits.MaxByteMutationPreviews)
+	cfg.Limits.MaxByteMutationPreviewBytes = int64Environment(getenv, EnvMaxByteMutationPreviewBytes, cfg.Limits.MaxByteMutationPreviewBytes)
+	cfg.Limits.ByteMutationPreviewTTLSeconds = intEnvironment(getenv, EnvByteMutationPreviewTTLSeconds, cfg.Limits.ByteMutationPreviewTTLSeconds)
 	cfg.Limits.MaxSessions = intEnvironment(getenv, EnvMaxSessions, cfg.Limits.MaxSessions)
 
 	cfg.Backup.Limits.MaxTotalBytes = boundedInt64Environment(getenv, EnvBackupMaxTotalBytes, cfg.Backup.Limits.MaxTotalBytes, HardMaxBackupTotalBytes)
@@ -274,6 +297,18 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Tasks.MaxTerminal = boundedIntEnvironment(getenv, EnvTaskMaxTerminal, cfg.Tasks.MaxTerminal, HardMaxTaskTerminal)
 	cfg.Tasks.MaxTotalBytes = boundedInt64Environment(getenv, EnvTaskMaxTotalBytes, cfg.Tasks.MaxTotalBytes, HardMaxTaskTotalBytes)
 	return cfg
+}
+
+func backupDefaultPolicyEnvironment(getenv func(string) string) string {
+	value := strings.TrimSpace(getenv(EnvBackupDefaultPolicy))
+	if value == "" {
+		return DefaultBackupPolicy
+	}
+	if value == BackupPolicyDisabled || value == BackupPolicyRequired {
+		return value
+	}
+	slog.Warn("invalid backup default policy, using fallback", "name", EnvBackupDefaultPolicy, "value", value, "fallback", DefaultBackupPolicy)
+	return DefaultBackupPolicy
 }
 
 func boundedNonNegativeIntEnvironment(getenv func(string) string, name string, fallback, maximum int) int {

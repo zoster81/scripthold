@@ -10,7 +10,9 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
-// HandleEditFile applies direct edits or manages one-shot preview/apply actions.
+// HandleEditFile is retained only as a package-level compatibility bridge for
+// pre-R23 regression coverage. It is not registered as an MCP tool.
+// Deprecated: MCP callers use HandleEditFilePreview and HandleEditFileApply.
 func (h *Handler) HandleEditFile(ctx context.Context, _ *mcp.CallToolRequest, input EditFileInput) (*mcp.CallToolResult, EditFileOutput, error) {
 	action, err := validateEditActionInput(input)
 	if err != nil {

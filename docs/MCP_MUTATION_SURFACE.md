@@ -2,9 +2,9 @@
 
 ## Status
 
-**APPROVED — R23 ACTIVE DESIGN BASELINE.** This document records the approved direction for separating read-only preparation from filesystem mutation, reducing avoidable MCP-client blocking, and making persistent backup history easier to use. Implementation has not started; the current `2.2.0` tool surface remains authoritative in [`TOOLS.md`](../TOOLS.md).
+**COMPLETE — R23.** The compatibility decision is fixed and the current source tree implements the split described here. On 2026-08-12 the source-side verification gate and connector-level acceptance both completed successfully. Connector discovery exposed the historical preparation/review tools separately from six `previewId`-only apply tools, and operational smoke confirmed side-effect-free edit preview, exact prepared apply, replay rejection, and rejection of the removed direct-edit form. [`TOOLS.md`](../TOOLS.md) documents the Unreleased next-major surface; `2.2.0` remains the current public release.
 
-R23 may intentionally change public tool schemas or names. Any compatibility transition must be specified and tested before implementation; this document does not silently redefine the current API.
+R23 intentionally changes the public MCP surface according to the compatibility decision below. The source-tree contract is documented and tested as an Unreleased next-major candidate; release publication and operator deployment remain separate explicitly governed actions.
 
 ## Problem
 
@@ -112,7 +112,7 @@ The implementation must not solve connector blocking by lying in metadata.
 
 ## Surface restructuring
 
-Exact final names are an implementation-time compatibility decision, but the public capability boundaries are approved:
+The capability boundaries were approved before implementation; the final names and compatibility decision are recorded below:
 
 - edit preparation and edit apply become distinct MCP tools;
 - patch-package inspection/preview/verification are separated from package apply;
@@ -120,7 +120,27 @@ Exact final names are an implementation-time compatibility decision, but the pub
 - BOM detection is separated from BOM mutation;
 - encoding-conversion dry-run/preparation is separated from conversion apply where the same static-annotation problem exists.
 
-The current direct-edit path is a compatibility liability because it bypasses approval-bound preview/apply. R23 must explicitly decide whether to remove it or retain it only through a clearly documented migration path; it must not remain accidentally privileged.
+The former direct-edit path was identified as a compatibility liability because it bypassed approval-bound preview/apply. The final decision below removes direct edit from the MCP surface rather than retaining an accidentally privileged alias.
+
+## Final R23 public-surface and compatibility decision
+
+R23 uses an intentional breaking transition rather than a legacy mixed wrapper. The five historical mixed tool names remain registered only for read-only preparation/review behavior that can be annotated truthfully; their mutating forms are removed and rejected rather than silently reinterpreted. Mutation moves to dedicated apply tools whose complete public input is exactly `{ "previewId": "..." }`.
+
+The final public split is:
+
+| Read-only tool | R23 read-only contract | Mutating apply tool |
+| --- | --- | --- |
+| `edit_file` | `action="preview"` only; prepares exact edit result. Historical omitted-action/direct and in-tool apply forms are removed. | `edit_file_apply` |
+| `patch_package` | `inspect`, `dryRun`, and `verify` only. `dryRun` remains the compatibility spelling for capability-producing package preview. | `patch_package_apply` |
+| `backup_store` | `status`, `list`, `history`, `inspect`, `compare`, `audit`, `restorePreview`, and `gcDryRun` only. `history` requires an authorized target; `compare` is bounded backup/current or same-target backup/backup review. | `backup_restore_apply` and `backup_gc_apply` |
+| `manage_bom` | Existing `detect` remains read-only; mutation preparation uses explicit `addPreview` or `stripPreview` so an old `add`/`strip` request cannot silently become a no-op preview. | `manage_bom_apply` |
+| `convert_encoding` | Requires `dryRun=true`, prepares and retains exact converted bytes, and returns a capability. Historical `dryRun=false`/omitted mutation is removed. | `convert_encoding_apply` |
+
+Every apply schema contains only required `previewId`; unknown fields are rejected. There is no `edit_file` direct-mutation compatibility alias. Existing callers that already use `edit_file action=preview`, `patch_package dryRun`, `backup_store restorePreview`/`gcDryRun`, `manage_bom detect`, or `convert_encoding dryRun=true` keep the read-only preparation entry point; callers of the former mutating forms must migrate to the returned capability plus the corresponding apply tool.
+
+R23 also finalizes the operator default as `MCP_BACKUP_DEFAULT_POLICY=disabled|required`, defaulting to `disabled` for compatibility. Eligible approval-bound content mutations are edit, patch package, BOM change, and encoding conversion. A request may explicitly bind `backupPolicy="required"`; omission inherits the operator default. No request value can weaken an operator default of `required`. Restore keeps its independent mandatory safety-backup rule for an existing target, while GC has no content-backup policy. `convert_encoding.backup=true` remains the separate adjacent `.bak` request and is retained inside the preview capability; it is not reinterpreted as the persistent-store policy.
+
+Because R23 removes previously public mutating request forms, it is a semantic-versioning breaking change. It must ship on the next major release line (from the current `2.2.0`, `3.0.0` or later). The concrete caller migration is documented in [MIGRATION_3.0.md](MIGRATION_3.0.md) and the user-visible changes are recorded in the Unreleased changelog; completing R23 does not itself create, tag, or publish that release.
 
 ## Persistent backup UX
 
@@ -134,23 +154,22 @@ R23 improves usability without exposing raw object bytes or internal store paths
 - allow an operator-configurable default persistent-backup policy for eligible approved mutations so callers do not have to remember `backupPolicy: "required"` on every operation;
 - preview remains side-effect-free and logical no-ops create no backup;
 - required-backup admission failure prevents the target mutation;
-- exact configuration names, migration behavior, and default value must be finalized before code changes and must remain disabled or compatibility-safe unless the milestone explicitly approves a breaking default.
+- configuration names, migration behavior, and the compatibility-safe default are finalized above and must remain synchronized with implementation and migration tests.
 
 History and comparison are review capabilities, not automatic rollback. Multi-file undo requires explicit operation-level recovery semantics and is not implied by the presence of backups.
 
 ## Compatibility strategy
 
-R23 changes a public MCP surface and therefore requires an explicit migration decision before implementation. At minimum the design review must resolve:
+The migration decision was resolved before implementation and is now binding:
 
-- final tool names and schemas;
-- whether legacy mixed tools are removed in one breaking release or retained temporarily;
-- how retained legacy tools are annotated without recreating the original preview-blocking problem;
-- whether direct edit is removed, deprecated, or isolated;
-- how guided prompts migrate to the separated tools;
-- release-version implications and changelog/migration documentation.
+- the five historical mixed names remain only for their read-only preparation/review contracts;
+- the former mutating forms are removed rather than wrapped behind destructive mixed definitions;
+- direct `edit_file` mutation is removed from the MCP surface;
+- six dedicated apply tools accept only `previewId` and reject unknown override fields;
+- guided prompts and public documentation use the separated preparation/apply flow;
+- the change is intentionally breaking and therefore targets the next major release line rather than a silent `2.x` compatibility change.
 
-A compatibility wrapper that still combines read-only and mutating actions under one destructive annotation does not satisfy the primary R23 goal.
-
+The legacy mixed Go handler entry points retained for package-internal regression coverage are not registered as MCP tools and are not part of the R23 public surface. A compatibility wrapper that combines read-only and mutating actions under one static tool definition does not satisfy R23 and must not be reintroduced.
 ## Required tests
 
 R23 implementation must include focused and regression coverage for:
@@ -183,6 +202,11 @@ R23 is complete only when:
 7. connector smoke testing confirms that read-only preview operations are no longer classified as destructive merely because their corresponding apply capability exists;
 8. any intentional public API break has migration and changelog documentation before release.
 
+## Source-side verification record
+
+The 2026-08-12 non-runtime gate completed successfully with the compatibility split, backup UX, catalog/runtime/schema/documentation synchronization, the 168-encoding R23 mutation-integrity matrix, complete normal and race test suites, Go vet, Staticcheck, govulncheck, deterministic encoding fuzz checks, six-target temporary cross-builds, source-based MCP smoke, local-link/control-character/catalog checks, Gitleaks, and diff validation. Temporary cross-build outputs were removed after compilation. No release, tag, deployment, launcher, or active runtime was changed.
+
+Connector-level acceptance completed on 2026-08-12 against the candidate surface. Discovery showed the separated preparation/review and apply schemas, while operational smoke confirmed that edit preview remained side-effect-free, `edit_file_apply` consumed the prepared capability, replay failed, and the removed `edit_file` direct mutation form was rejected without changing the target. The R23 completion gate is therefore satisfied. Release publication, tagging, and operator deployment remain separate explicitly governed actions.
 ## Follow-on milestones
 
 R23 deliberately establishes the capability pattern reused by later work:

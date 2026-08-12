@@ -6,6 +6,19 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ## Unreleased
 
+### Added
+
+- Added R23 read-only backup history and verified backup/current or same-target backup/backup comparison, including bounded text diffs when safe and fingerprint-only evidence for binary or oversized content.
+- Added operator-configurable `MCP_BACKUP_DEFAULT_POLICY=disabled|required` plus bounded exact-byte BOM/encoding capability caches controlled by `MCP_MAX_BYTE_MUTATION_PREVIEWS`, `MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES`, and `MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS`.
+- Added registry-driven R23 mutation-surface integrity coverage across all 168 encodings, asserting preview/no-op byte identity, exact-result fingerprints, edit/package/conversion applies, BOM capability paths, CRLF conversion, UTF-8 round trips, and non-mutating unrepresentable-output failures.
+
+### Changed
+
+- Split the five mixed MCP mutation surfaces into truthful read-only preparation/review tools (`edit_file`, `patch_package`, `backup_store`, `manage_bom`, `convert_encoding`) and six dedicated mutating apply tools (`edit_file_apply`, `patch_package_apply`, `backup_restore_apply`, `backup_gc_apply`, `manage_bom_apply`, `convert_encoding_apply`). Every apply schema accepts only a one-shot `previewId`; the historical direct `edit_file`, in-tool package/restore/GC apply, direct BOM mutation, and `convert_encoding dryRun=false` request forms are intentionally removed.
+- Made edit/package/BOM/encoding required-backup policy monotonic: callers may inherit or strengthen the operator default but cannot weaken `required`; logical no-ops perform no backup or write, while changed previews fail before mutation when required backup admission is unavailable.
+- Made package and restore ordering fail closed by completing required durable backup capture and post-backup revalidation before any target-adjacent staging. Multi-file apply still reports explicit partial-commit evidence and does not claim automatic rollback.
+- Made BOM and encoding approval capabilities retain exact result bytes with stable identity/fingerprint binding, bounded lifetime/memory, cross-kind rejection, replay prevention, and final post-commit fingerprint verification. Adjacent conversion `.bak` remains separate from persistent-store backup policy.
+- Expanded the runtime catalog from 30 to 36 tools while keeping its serialized discovery payload within the existing conservative connector budget.
 ## 2.2.0 - 2026-08-11
 
 ### Added

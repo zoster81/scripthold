@@ -15,10 +15,10 @@ import (
 const maxGCFailureMessageBytes = 1024
 
 func (h *Handler) handleBackupStoreGCDryRun(ctx context.Context) (*mcp.CallToolResult, BackupStoreOutput, error) {
-	if h.backupGC == nil {
+	if h.backupGCPlanner == nil {
 		return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide garbage-collection authority")), BackupStoreOutput{}, nil
 	}
-	plan, err := h.backupGC.PlanGC(ctx, backupstore.GCOptions{Now: time.Now().UTC()})
+	plan, err := h.backupGCPlanner.PlanGC(ctx, backupstore.GCOptions{Now: time.Now().UTC()})
 	if err != nil {
 		return errorResultFromError(err), BackupStoreOutput{}, nil
 	}
@@ -41,7 +41,7 @@ func (h *Handler) handleBackupStoreGCDryRun(ctx context.Context) (*mcp.CallToolR
 }
 
 func (h *Handler) handleBackupStoreGCApply(ctx context.Context, previewID string) (*mcp.CallToolResult, BackupStoreOutput, error) {
-	if h.backupGC == nil {
+	if h.backupGCApplier == nil {
 		return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide garbage-collection authority")), BackupStoreOutput{}, nil
 	}
 	preview, err := h.gcPreviews.claim(previewID)
@@ -69,7 +69,7 @@ func (h *Handler) handleBackupStoreGCApply(ctx context.Context, previewID string
 		return errorResultFromError(err), BackupStoreOutput{}, nil
 	}
 
-	result, applyErr := h.backupGC.ApplyGC(ctx, preview.plan)
+	result, applyErr := h.backupGCApplier.ApplyGC(ctx, preview.plan)
 	applyGCResult(output.GC, result, applyErr)
 	if applyErr != nil {
 		mapping := mapOperationError(applyErr, "")

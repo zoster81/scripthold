@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-Scripthold's authoritative 30-tool catalog and 3 guided prompts are transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+The completed R23 source tree exposes an authoritative 36-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 
@@ -145,147 +145,65 @@ The supplied line endings are written exactly as provided. Encoding failures and
 
 ### edit_file
 
-Edit one existing text file through one shared encoding/BOM-aware preparation pipeline. Editing and diff generation require full-document state, so the source, prepared result, and any supplied patch are rejected when they exceed `MCP_MAX_FILE_BYTES`. Supply either `edits` or one strict single-file unified `patch`, never both.
+Prepare one exact edit of an existing text file **without persistent mutation**. `edit_file` is read-only in R23 and accepts only `action: "preview"`; the historical omitted-action/`direct` mutation and in-tool `apply` form are removed. Supply either `edits` or one strict single-file unified `patch`, never both.
 
-`action` selects one of three modes:
-
-- omitted or `direct`: preserve the historical behavior; prepare and optionally commit in one request;
-- `preview`: prepare the exact encoded result without changing the file, optionally bind `backupPolicy: "required"`, retain the policy and exact mutation in a bounded process-local cache, and return a 256-bit `previewId`, expiry, diff, encoding metadata, and target/result fingerprints;
-- `apply`: accept only `previewId`, atomically consume it, revalidate path, file identity, target fingerprint, and prepared-result fingerprint, durably capture the approved pre-state first when the retained policy is `required`, then commit the exact retained bytes through the durable mutation layer.
-
-Every apply attempt is terminal, including conflict, cancellation, encoding-independent write failure, or successful no-op. Unknown, expired, evicted, replayed, or restart-invalidated identifiers return `CONFLICT`. Preview identifiers are never listed or written to ordinary logs. They are process-wide capabilities because every connection already shares the same roots and authorization policy; possession authorizes only the exact prepared mutation.
-
-The preview cache is bounded independently by `MCP_MAX_EDIT_PREVIEWS` (default `128`), `MCP_MAX_EDIT_PREVIEW_BYTES` (default `67108864` dynamic retained bytes), and `MCP_EDIT_PREVIEW_TTL_SECONDS` (default `900`). Expired entries are removed before deterministic FIFO eviction. Cache removal closes retained file-identity handles, and process restart invalidates all previews. Omitted `backupPolicy` preserves the no-persistent-backup behavior. `backupPolicy: "required"` is accepted only by preview and requires a configured store; no backup is created until apply, and a logical no-op creates none.
+The preview uses the existing encoding/BOM/line-ending-aware edit pipeline, retains the exact prepared bytes plus stable file identity in a bounded process-local cache, and returns a 256-bit `previewId`, diff, target/result fingerprints, encoding metadata, effective backup policy, creation/expiry timestamps, and `changed`. Preparation performs no target write, permission change, persistent backup capture, adjacent temp creation, or `.bak` creation.
 
 **Parameters:**
-- `action` (optional): `direct` (default), `preview`, or `apply`
-- `previewId` (required only for `apply`): 64 hexadecimal characters; `apply` accepts no other fields
-- `path` (required for `direct` and `preview`): Existing target file
-- `edits` (conditionally required): Operations with `oldText`, `newText`, and optional `similarity` from `0.50` to `1.0`
-- `patch` (conditionally required): One strict unified diff for the target; multi-file patches, creation/deletion, unordered or overlapping hunks, and no-newline markers are rejected
-- `dryRun` (direct only): Return the prepared diff without writing
-- `encoding` (direct/preview only): File encoding, auto-detected when omitted
-- `forceWritable` (direct/preview only): Clear a read-only flag during commit when explicitly authorized
-- `backupPolicy` (preview only): Omit for no persistent backup, or set exactly `required`; apply cannot override or weaken the retained policy
+- `action` (required): exactly `preview`
+- `path` (required): existing regular target file
+- `edits` (conditionally required): operations with `oldText`, `newText`, and optional `similarity` from `0.50` to `1.0`
+- `patch` (conditionally required): one strict unified diff for the target
+- `encoding` (optional): explicit file encoding; otherwise conservative auto-detection applies
+- `forceWritable` (optional): approval-bound permission intent retained for apply; preview itself never changes permissions
+- `backupPolicy` (optional): omit to inherit `MCP_BACKUP_DEFAULT_POLICY`, or set exactly `required`; callers cannot weaken an operator default of `required`
 
-**Preparation and commit guarantees:**
-- exact, whitespace-flexible, or opt-in bounded fuzzy matching with one unique best candidate;
-- strict single-file unified-patch parsing and exact context validation;
-- preservation of original encoding, BOM state, and consistent CRLF/LF style;
-- byte-identical logical no-ops across all 168 registered encodings;
-- rejection of unrepresentable output before mutation;
-- one exact prepared byte sequence shared by preview and apply;
-- target and result SHA-256 `content-v1` fingerprints;
-- stable open-file identity retained through approval, including same-content path-replacement detection;
-- when required, exact-byte pre-state capture with a durable checksummed manifest before permission changes or target replacement;
-- failed capture prevents mutation; a backup committed before a later write failure remains valid and its `backupId` remains in structured output;
-- synced same-directory staging, atomic replacement, path revalidation, snapshot conflict detection, and post-commit fingerprint verification.
+A logical no-op still returns a capability so approval evidence is explicit, but it needs no backup store and later apply performs no backup or write. A changed preview whose effective backup policy is `required` fails before capability creation if the persistent backup store cannot admit the required pre-state.
 
-**Direct example:**
-```json
-{
-  "path": "/path/to/file.go",
-  "edits": [
-    {
-      "oldText": "func oldName()",
-      "newText": "func newName()"
-    }
-  ]
-}
-```
+The edit preview cache is bounded by `MCP_MAX_EDIT_PREVIEWS` (default `128`), `MCP_MAX_EDIT_PREVIEW_BYTES` (default `67108864`), and `MCP_EDIT_PREVIEW_TTL_SECONDS` (default `900`). Expiry, deterministic FIFO eviction, and process restart invalidate capabilities and close retained file identities.
 
-**Preview example:**
 ```json
 {
   "action": "preview",
-  "path": "/path/to/file.go",
-  "patch": "--- /path/to/file.go\n+++ /path/to/file.go\n@@ -1 +1 @@\n-old\n+new\n",
+  "path": "/project/file.go",
+  "edits": [
+    {"oldText": "func oldName()", "newText": "func newName()"}
+  ],
   "backupPolicy": "required"
 }
 ```
 
-**Preview response:**
-```json
-{
-  "action": "preview",
-  "diff": "--- /path/to/file.go\n+++ /path/to/file.go\n@@ -1 +1 @@\n-old\n+new\n",
-  "previewId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "createdAt": "2026-08-03T21:00:00Z",
-  "expiresAt": "2026-08-03T21:15:00Z",
-  "targetPath": "/path/to/file.go",
-  "targetFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "resultFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "encoding": "utf-8",
-  "lineEndingStyle": "lf",
-  "backupPolicy": "required",
-  "changed": true,
-  "applied": false
-}
-```
+### edit_file_apply
 
-**Apply example:**
+Apply one previously prepared `edit_file` capability. The **complete input schema is only** `previewId`; path, edits, patch, encoding, `forceWritable`, backup policy, content, and all other overrides are rejected as unknown fields.
+
+The capability is consumed before revalidation, so success, conflict, cancellation, write failure, and replay are terminal. Apply revalidates authorization, path, stable file identity, approved pre-state fingerprint, and retained result fingerprint. For a changed edit with effective policy `required`, the exact approved pre-state is durably captured and verified before permission changes or target replacement, then the target is revalidated again. The exact retained bytes are committed through synced same-directory replacement and verified by final fingerprint. A no-op returns `applied: false`, creates no backup, and leaves metadata/bytes unchanged. A durable backup remains valid if a later target write fails; no automatic rollback is promised.
+
 ```json
 {
-  "action": "apply",
   "previewId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 }
 ```
-
-A successful apply omits `previewId` so the consumed capability is not re-emitted. `applied: true` means the prepared action completed successfully; `changed` distinguishes a committed byte change from a successful logical no-op. `backupPolicy` repeats the retained policy and `backupId` appears only after a durable manifest commit. If target mutation then fails, the MCP call is an error but structured output still carries that `backupId` with `applied: false`. `readOnlyCleared` appears only when the approved commit cleared that flag.
-
 ### patch_package
 
-Run a strict versioned package of coordinated edits to existing regular files. The four actions are `inspect`, `dryRun`, `apply`, and `verify`. The workflow preserves the package's declared order and encoding/BOM/line-ending behavior, but it does **not** claim atomic multi-file commit or automatic rollback.
+Review or prepare a strict versioned package of coordinated edits to existing regular files **without persistent mutation**. R23 `patch_package` accepts only `inspect`, `dryRun`, and `verify`; package application moved to `patch_package_apply`.
 
-The input and every nested manifest object reject unknown JSON fields. `formatVersion` must be `patch-package-v1`, `fingerprintAlgorithm` must be `sha256`, and `fingerprintMode` must be `content-v1`. The manifest may omit `backupPolicy` or set it exactly to `required`. Targets must use unique normalized paths resolving to distinct filesystem objects; duplicate spellings, symlink aliases, junction aliases, and hard links are rejected. Creation, deletion, movement, renaming, and `/dev/null` patches are unsupported.
+The input and every nested manifest object reject unknown JSON fields. `formatVersion` must be `patch-package-v1`, `fingerprintAlgorithm` must be `sha256`, and `fingerprintMode` must be `content-v1`. Targets must resolve to distinct authorized filesystem objects; duplicate spellings, symlink/junction aliases, hard links, creation, deletion, movement, and `/dev/null` patches are rejected.
 
-Each target declares:
+**Read-only actions:**
+- `inspect`: validate package structure, bounds, authorization, aliases, edit/patch shapes, and declared algorithms without reading target contents.
+- `dryRun`: capture a coherent package pre-state, retain stable identities, prepare exact result bytes, verify the final unchanged source state, and return ordered diffs plus aggregate pre/post fingerprints and a one-shot 256-bit `previewId`. Omitted `manifest.backupPolicy` inherits `MCP_BACKUP_DEFAULT_POLICY`; `required` may be supplied explicitly but cannot be weakened by apply. If changed targets require persistent backups, dry-run performs read-only quota/admission preflight and fails before capability creation when admission is impossible. It creates no backup object, manifest, target-adjacent staging file, or target mutation.
+- `verify`: require `expectedResultFingerprint` for every target, read current fingerprints, and return ordered per-target and aggregate matches. A mismatch returns `CONFLICT`.
 
-- one existing regular-file `path` inside an allowed root;
-- the exact current `expectedFingerprint` from `fingerprint_paths` or another `content-v1` result;
-- optional `expectedResultFingerprint`; it is checked during `dryRun` when supplied and is required by `verify`;
-- exactly one of `edits` or one strict single-file unified `patch`;
-- optional `encoding` and `forceWritable`, with the same semantics as `edit_file`.
+Each target declares `path`, exact `expectedFingerprint`, optional/verify-required `expectedResultFingerprint`, exactly one of `edits` or `patch`, and optional `encoding`/`forceWritable` with the same preparation semantics as `edit_file`.
 
-**Actions:**
-
-- `inspect`: validates structure, limits, paths, file types, aliases, edit shapes, fuzzy thresholds, patch structure, and declared algorithms without reading target contents.
-- `dryRun`: obtains a coherent package-wide pre-state, retains one stable file identity per target, prepares the exact result bytes through the shared edit pipeline, verifies final unchanged source state, and returns diffs plus aggregate pre/post fingerprints. When `backupPolicy` is `required`, it also validates package capture authority and conservatively preflights the aggregate source bytes, manifest count, pin count, and per-target version quotas without creating persistent state. It stores the exact prepared package and policy in a bounded process-local cache and returns a 256-bit `previewId`.
-- `apply`: accepts only `previewId`. The capability is atomically consumed before validation, so replay, conflict, cancellation, staging failure, capture failure, commit failure, and success are all terminal. Every target is revalidated and every changed result is durably staged. When required, the store atomically reserves the complete conservative package budget, captures changed pre-states in manifest order, and the handler verifies every backup ID, path, source operation, and fingerprint. All targets are revalidated again after capture; only then can the first manifest-order commit begin. A failed capture creates no target mutation, although any already durable backup prefix remains valid and is returned. Final coherent fingerprint verification and existing `PARTIAL_COMMIT` semantics remain unchanged; no modified manifest is accepted and no automatic rollback is attempted.
-- `verify`: requires `expectedResultFingerprint` for every target, reads current fingerprints, and returns ordered per-target matches plus expected and actual aggregate fingerprints. A mismatch returns `CONFLICT` with structured results.
-
-Package preview identifiers are process-wide capabilities because every connection already shares the same roots and authorization policy. They are never listed or written to normal logs. Restart invalidates them. Expired entries are removed before deterministic FIFO eviction, and every removal closes retained file identities.
-
-**Partial-commit contract:**
-
-All changed outputs are staged before the first commit, but filesystem replacement remains per file. If a failure occurs after a target may have been replaced, the server stops and re-fingerprints every target with a bounded best-effort classification:
-
-- `committed`: current bytes match the prepared result;
-- `unchanged`: current bytes match the approved pre-state;
-- `unknown`: neither state can be proven or the target could not be inspected conclusively.
-
-When at least one target is committed or unknown, the MCP error code is `PARTIAL_COMMIT`. The structured response includes `failedIndex`, `failedPath`, the underlying `failureCode`, bounded `failureMessage`, counts, per-target states, actual fingerprints where available, and every durable per-target `backupId` produced by a required policy. Backups improve recovery evidence but do not make replacement transactional, trigger rollback, or change classification semantics.
-
-**Limits:**
-
-- `MCP_MAX_BATCH_FILES` bounds target count;
-- `MCP_MAX_FILE_BYTES` bounds every source, patch, prepared file, apply revalidation snapshot, and post-commit verification pass; each target accepts at most 1000 edit operations;
-- `MCP_MAX_PATCH_PACKAGE_BYTES` bounds semantic manifest JSON (default `16777216`);
-- `MCP_MAX_PATCH_PACKAGE_PREPARED_BYTES` bounds aggregate retained preparation state during one dry run (default `67108864`);
-- `MCP_MAX_PATCH_PACKAGE_PREVIEWS` bounds live package capabilities per process (default `16`);
-- `MCP_MAX_PATCH_PACKAGE_PREVIEW_BYTES` bounds bytes retained by all live package capabilities (default `134217728`);
-- `MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS` bounds capability lifetime (default `900`);
-- `MCP_MAX_OUTPUT_BYTES` bounds combined structured and text output, including worst-case partial-state diagnostics and backup identifiers;
-- configured backup-store total-byte, object-byte, manifest, per-target-version, and pinned limits bound required package admission. Dry run and apply charge every changed source at full size conservatively even when verified deduplication later lowers committed object bytes.
-
-**Dry-run example:**
+Package capability bounds remain `MCP_MAX_PATCH_PACKAGE_BYTES`, `MCP_MAX_PATCH_PACKAGE_PREPARED_BYTES`, `MCP_MAX_PATCH_PACKAGE_PREVIEWS`, `MCP_MAX_PATCH_PACKAGE_PREVIEW_BYTES`, and `MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS`; `MCP_MAX_BATCH_FILES`, `MCP_MAX_FILE_BYTES`, `MCP_MAX_OUTPUT_BYTES`, and backup-store quotas also apply.
 
 ```json
 {
   "action": "dryRun",
   "manifest": {
     "formatVersion": "patch-package-v1",
-    "label": "Rename two helpers",
     "fingerprintAlgorithm": "sha256",
     "fingerprintMode": "content-v1",
     "backupPolicy": "required",
@@ -293,94 +211,26 @@ When at least one target is committed or unknown, the MCP error code is `PARTIAL
       {
         "path": "/project/a.go",
         "expectedFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "edits": [
-          {
-            "oldText": "func oldA()",
-            "newText": "func newA()"
-          }
-        ]
-      },
-      {
-        "path": "/project/b.go",
-        "expectedFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "patch": "--- a/b.go\n+++ b/b.go\n@@ -1 +1 @@\n-old\n+new\n"
+        "edits": [{"oldText": "old", "newText": "new"}]
       }
     ]
   }
 }
 ```
 
-The successful dry-run response includes:
+### patch_package_apply
+
+Apply one prepared patch-package capability. The complete input is only `previewId`; manifest, paths, patches, content, encoding, permissions, and backup overrides are rejected.
+
+Apply atomically consumes the capability, revalidates every target identity/fingerprint, then—when the effective policy is `required`—durably captures and verifies all changed pre-states **before any target-adjacent staging is created**. Every target is revalidated after backup capture; only then are changed result bytes staged and manifest-order commits allowed to begin. No-op targets receive no backup and no write.
+
+Multi-file replacement is deliberately not transactional. If a later file fails, already committed files are not rolled back automatically. Structured `PARTIAL_COMMIT` evidence classifies targets as `committed`, `unchanged`, or `unknown`, reports the failed target and actual fingerprints when available, and retains every durable `backupId` to support explicit recovery.
 
 ```json
 {
-  "action": "dryRun",
-  "formatVersion": "patch-package-v1",
-  "aggregateMode": "patch-package-aggregate-v1",
-  "aggregateBeforeFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "aggregateAfterFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-  "previewId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "createdAt": "2026-08-04T00:00:00Z",
-  "expiresAt": "2026-08-04T00:15:00Z",
-  "targetCount": 2,
-  "changedCount": 2,
-  "backupPolicy": "required",
-  "backupCount": 0,
-  "results": [
-    {
-      "index": 0,
-      "path": "/project/a.go",
-      "state": "prepared",
-      "actualFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "resultFingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      "diff": "...",
-      "encoding": "utf-8",
-      "lineEndingStyle": "lf",
-      "changed": true
-    }
-  ]
-}
-```
-
-**Apply example:**
-
-```json
-{
-  "action": "apply",
   "previewId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 }
 ```
-
-A successful apply omits the consumed identifier and reports `applied: true`, `committedCount`, `unchangedCount`, `actualAggregateFingerprint`, and per-target `committed` or `unchanged` states. With required policy it also reports `backupPolicy: "required"`, `backupCount`, and one `backupId` for every changed target; logical no-ops receive none.
-
-**Verify example:**
-
-```json
-{
-  "action": "verify",
-  "manifest": {
-    "formatVersion": "patch-package-v1",
-    "fingerprintAlgorithm": "sha256",
-    "fingerprintMode": "content-v1",
-    "targets": [
-      {
-        "path": "/project/a.go",
-        "expectedFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "expectedResultFingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-        "edits": [
-          {
-            "oldText": "func oldA()",
-            "newText": "func newA()"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The aggregate fingerprint binds manifest order, Unicode-NFC slash-normalized declared paths, and ordered per-target `content-v1` fingerprints. It is reproducible package evidence, not a multi-file atomicity guarantee.
-
 ## Directory Operations
 
 The recursive tools `tree`, `search_files`, `grep_text_files`, and `fingerprint_paths` use one deterministic, cancellation-aware secure walker. Every traversed entry is resolved before it is exposed to the tool. `tree`, `search_files`, and `grep_text_files` skip links or reparse points that resolve outside allowed directories; `fingerprint_paths` fails closed because silently omitting a required entry would produce misleading state evidence. Directory links encountered below the requested root are not followed. Nested `.gitignore` files are respected by default; each must be a bounded regular file inside an allowed root, and callers may opt out explicitly with `respectGitignore: false`.
@@ -674,95 +524,47 @@ Git receives closed stdin, bounded stdout/stderr, cancellation and process-tree 
 
 ### backup_store
 
-Review, restore, and explicitly garbage-collect the optional persistent backup store without returning object bytes or internal store paths. `status`, `list`, `inspect`, and `audit` remain read-only. `restorePreview`/`restoreApply` are restricted to the selected manifest's original currently authorized target. `gcDryRun`/`gcApply` manage only internal backup records and never expose their target paths. The tool is always registered so stdio and Streamable HTTP expose the same schema. When `MCP_BACKUP_STORE_DIR` is unset, `action=status` returns `enabled: false`; the other actions fail with `INVALID_INPUT`.
+Read and review the optional persistent backup store, or prepare restore/GC capabilities, **without persistent mutation**. R23 `backup_store` is read-only; restore and GC application are separate tools. The tool remains registered when the store is disabled so operators can inspect policy state consistently.
 
-Actions form a strict union:
+**Actions:**
+- `status`: accepts only `action`; reports enabled/health/generation/counts/limits/issues plus the effective operator `defaultPolicy`. When `MCP_BACKUP_STORE_DIR` is unset it returns `enabled: false`; an operator default of `required` is still visible and changed mutation previews then fail closed until a store is configured.
+- `list`: newest-first authorized records with optional `cursor`, `limit`, `targetPath`, and `pinned`. Cursors remain authenticated, filter/policy/generation-bound, and visibility is revalidated on every page.
+- `history`: requires an authorized `targetPath` and accepts the same paging/filter fields as `list`; it returns only versions for that target.
+- `inspect`: requires `backupId`; authorizes the manifest target and fully verifies the immutable object before returning metadata. Object bytes and internal store paths are never exposed.
+- `compare`: requires `backupId` and optionally `otherBackupId`. Without the second ID it compares the verified backup with the current authorized target. With two IDs it requires versions of the same authorized target and verifies both objects. Fingerprints/equality are always returned; a unified diff is added only when both sides are within the bounded text-diff limit and safely decodable. Binary/oversized content still receives verified fingerprint evidence without a fabricated diff.
+- `audit`: `quick|full` bounded structural/object verification; never repairs or deletes data.
+- `restorePreview`: requires `backupId`; authorizes only the immutable manifest's original target, verifies the source object, binds current missing/existing identity and fingerprint, and read-only preflights the mandatory safety backup for an existing target. It returns a 256-bit expiring `previewId`, fingerprints, object size, verification state, and optional bounded diff. No staging file, backup object, manifest, permission change, or target mutation is created.
+- `gcDryRun`: creates a deterministic generation-bound, 256-bit expiring GC capability from an authoritative read-only plan. Pinned manifests, active restore sources, and referenced objects remain protected; no record/object is moved or deleted.
 
-- `status`: accepts only `action`. It runs a quick structural verification and returns redacted format versions, health, generation, aggregate counts, configured limits, and bounded path-free issues.
-- `list`: accepts `cursor`, `limit`, `targetPath`, and `pinned`. Results are newest-first and include only targets authorized by the current process roots. The opaque keyset cursor is authenticated and bound to the exact filters, current allowed/protected-root policy snapshot, and store generation; target visibility is revalidated on every page. Tampered or filter-swapped cursors fail with `INVALID_INPUT`, while a changed store generation fails with `CONFLICT`. `limit` defaults to 50 and cannot exceed 100.
-- `inspect`: requires `backupId` and accepts no other action fields. It validates the strict manifest, confirms that its target is currently authorized, and fully hashes the referenced object before returning metadata such as digest, byte count, pre-state fingerprint, mode, modification time, label, pinned state, and manifest checksum. Object bytes are never returned.
-- `audit`: accepts `auditMode=quick|full`, `maxObjects`, and `maxBytes`. Quick mode validates structure, references, object sizes, recovery residue, orphans, and index consistency. Full mode additionally hashes every referenced object under the requested limits, which cannot exceed the configured store limits. Audit reports issues but never repairs, quarantines, or deletes data.
-- `restorePreview`: requires `backupId` and accepts no other action fields. It authorizes only the immutable manifest's original target, fully verifies the manifest and object, captures the exact current regular-file fingerprint or missing state, and preflights quota for the mandatory safety backup when the target exists. It returns current/result fingerprints, exact object size, an optional bounded diff when both states are safely decodable, and a 256-bit expiring `previewId`. It creates no object, manifest, or target mutation.
-- `restoreApply`: accepts only `previewId`. The capability is atomically consumed before validation, so success, failure, cancellation, stale state, and replay are terminal. Apply revalidates current authorization, source manifest/object identity and digest, target identity/fingerprint or missing state, and the prepared result. Exact source bytes are durably staged. An existing target is then captured as a mandatory durable `sourceOperation=restore` safety backup before any permission change or replacement; a missing target receives no safety backup and is installed with no-replace. Final bytes are fingerprinted before success. Operational errors preserve `safetyBackupId` plus `restored`, `unchanged`, `missing`, or `unknown` evidence without automatic rollback.
-- `gcDryRun`: accepts only `action`. It performs an authoritative bounded scan and returns a deterministic generation-bound plan behind a 256-bit expiring `previewId`. Pinned manifests and active restore sources are never selected. For each target, at least one manifest is preserved; additional unpinned manifests become candidates when they are older than `MCP_BACKUP_RETENTION_DAYS` or exceed `MCP_BACKUP_MAX_VERSIONS_PER_TARGET`. Objects are selected only when all candidate manifests are removed and no live reference remains; pre-existing orphan objects are also eligible. Candidate backup IDs, object digests, reasons, counts, and reclaimable unique bytes are returned, but target paths are omitted. Active capture reservations reject planning.
-- `gcApply`: accepts only `previewId`, consumes it before validation, and reconstructs the complete plan at the original policy timestamp. Any generation, pin, manifest, object, active-restore, reservation, or reference-count change fails with `CONFLICT` before deletion. Apply moves selected manifests into typed trash first, rescans live references, fully verifies each now-unreferenced object, then moves those objects into trash. The derived index is refreshed after every durable partial outcome. Trash deletion is best effort; structured output preserves removed counts, reclaimed bytes, cleanup failures, remaining trash, and the resulting generation. Startup deletes only recognized valid GC trash and leaves unknown entries for review. There is no background GC, implicit quota-triggered GC, mutable pinning, automatic rollback, or secure-deletion guarantee.
+`MCP_BACKUP_DEFAULT_POLICY=disabled|required` controls the operator default for eligible approval-bound content mutations (`edit_file`, `patch_package`, `manage_bom`, and `convert_encoding`). The default is `disabled`. A request may explicitly strengthen the policy to `required`; it cannot weaken a configured `required`. No-op mutations create no persistent backup. Restore keeps its independent mandatory safety-backup rule for an existing target, and GC never captures public file content.
 
-Every result and retained restore/GC plan is bounded. `MCP_BACKUP_PLAN_TTL_SECONDS` controls both capability lifetimes; the process enforces separate fixed caps of 64 live restore capabilities and 64 live GC capabilities, with 16 MiB retained state for each cache. Restore also limits optional per-state diff input to 1 MiB. `MCP_MAX_OUTPUT_BYTES` bounds responses. Backup target paths are exposed only by authorized list/inspect/restore actions; GC plans never expose them. The store itself remains inaccessible through ordinary filesystem tools. Restore never deletes or consumes the source backup, and GC never mutates public target files.
+Restore/GC capabilities use `MCP_BACKUP_PLAN_TTL_SECONDS`; each cache has fixed bounded entry/state limits. `MCP_MAX_OUTPUT_BYTES` bounds responses. Backup target paths appear only where current-root authorization permits them; GC candidate output remains path-free.
 
-**Status example:**
 ```json
-{
-  "action": "status"
-}
+{"action":"history","targetPath":"/project/config.json","limit":25}
 ```
 
-**List example:**
 ```json
-{
-  "action": "list",
-  "limit": 25,
-  "targetPath": "/project/config.json",
-  "pinned": false
-}
+{"action":"compare","backupId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 ```
 
-**Inspect example:**
+### backup_restore_apply
+
+Apply one `restorePreview` capability. The complete input is only `previewId` and every apply attempt consumes it before revalidation. Apply revalidates current authorization, immutable source manifest/object identity and digest, target identity/fingerprint or missing state, and prepared result bytes.
+
+For an existing target, the mandatory `sourceOperation=restore` safety backup is durably captured and verified **before target-adjacent restore staging is created**; the target is revalidated again after capture. A missing target receives no safety backup and is installed with no-replace semantics. Final bytes are fingerprint-verified. Errors preserve `safetyBackupId` and bounded actual-state evidence; there is no automatic transactional rollback promise.
+
 ```json
-{
-  "action": "inspect",
-  "backupId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-}
+{"previewId":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}
 ```
 
-**Full audit example:**
+### backup_gc_apply
+
+Apply one `gcDryRun` capability. The complete input is only `previewId`; the token is consumed before revalidation. The store reconstructs the plan at the original policy timestamp and rejects any generation, pin, manifest, object, active-restore, reservation, or reference-count drift before deletion. Selected manifests are moved to typed trash before verified now-unreferenced objects. The derived index is refreshed after durable partial outcomes; trash cleanup is best effort and reported. GC never mutates public targets and does not claim secure deletion or automatic rollback.
+
 ```json
-{
-  "action": "audit",
-  "auditMode": "full",
-  "maxObjects": 1000,
-  "maxBytes": 1073741824
-}
+{"previewId":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}
 ```
-
-**Restore preview example:**
-```json
-{
-  "action": "restorePreview",
-  "backupId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-}
-```
-
-A successful preview returns a nested `restore` object with `previewId`, `targetPath`, `targetExisted`, `currentFingerprint` when present, `resultFingerprint`, `objectBytes`, `objectVerified: true`, optional `diff`, and `state: "prepared"`.
-
-**Restore apply example:**
-```json
-{
-  "action": "restoreApply",
-  "previewId": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-}
-```
-
-A successful existing-target apply returns `state: "restored"`, `applied: true`, `actualFingerprint`, and `safetyBackupId`. A successful missing-target restore omits `safetyBackupId`. Any later error retains the safety identifier and classified actual state in structured output.
-
-**GC dry-run example:**
-```json
-{
-  "action": "gcDryRun"
-}
-```
-
-A successful dry run returns a nested `gc` object with `previewId`, `plannedAt`, `generation`, policy values, manifest/object counts, reclaimable bytes, bounded candidate metadata, and `state: "prepared"`. It does not change manifests, objects, the derived index, or public targets.
-
-**GC apply example:**
-```json
-{
-  "action": "gcApply",
-  "previewId": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-}
-```
-
-A successful apply returns `state: "applied"` or `"no_op"`, the previous and resulting generations, removed counts, reclaimed bytes, and any trash residue. A partial operational error remains an MCP error while preserving durable progress in structured output.
-
 ### grep_text_files
 
 Search decoded text incrementally using one regex `pattern` or a `patterns` array combined with OR semantics. Automatic detection uses the conservative registry-aware trust policy; ambiguous non-empty input requires an explicit `encoding`, so callers can still search explicit-only or otherwise ambiguous files by naming their codec. Directory inputs use the `.gitignore`-aware secure walker. Content mode preserves deterministic traversal order and bounded context queues; path/count modes scan each selected file without letting an early high-match file hide later files. `offset + maxMatches` is bounded by `MCP_MAX_MATCHES`, and retained match output remains within `MCP_MAX_OUTPUT_BYTES`.
@@ -853,47 +655,44 @@ Detect the encoding of a file with confidence percentage. Detection is based on 
 
 ### convert_encoding
 
-Convert one file or a bounded batch through the selected decoder and target encoder. `dryRun` performs a complete preflight without writing and reports unrepresentable runes with Unicode code point plus 1-based line/column locations. Single-file failures remain explicit MCP errors. Batch results preserve input order, report per-file success or stable `errorCode` plus optional `encodingErrorCode`, and may succeed partially. `errorCount` counts all failed files while the compatibility `errors` summary retains only a deterministic bounded prefix of at most 64 entries under its byte budget; `errorsTruncated` and `errorsOmitted` expose any omitted summaries. Actual changed output uses synced same-directory staging, byte-identical no-op suppression, optional transactional backup, path revalidation, and concurrent-source-change rejection.
+Prepare exact encoding-conversion bytes for one file or a bounded batch **without persistent mutation**. R23 `convert_encoding` requires `dryRun: true`; the historical write form (`dryRun: false` or omitted) is removed. Every target must be fully representable and prepared successfully before a capability is returned.
 
 **Parameters:**
-- `path` (conditionally required): One file to convert
-- `paths` (conditionally required): Bounded array of files; mutually exclusive with `path`
-- `from` (optional): Source encoding (auto-detected if omitted)
-- `to` (required): Target encoding
-- `backup` (optional): Transactionally create or replace a `.bak` backup before committing the conversion (default: false). The backup is staged and synced first; if target commit fails, a previous backup is restored or a newly created backup is removed. If restoration itself fails, the previous backup remains in a recovery staging file whose path is included in the error.
-- `bom` (optional): BOM policy — `auto` (default), `always`, `never`, or `preserve`
-- `dryRun` (optional): Preview per-file changes and unsupported-character locations without mutation
+- `path` or `paths` (exactly one form): one file or a bounded ordered batch
+- `from` (optional): explicit source encoding; otherwise conservative detection applies
+- `to` (required): target encoding
+- `bom` (optional): `auto` (default), `always`, `never`, or `preserve`
+- `dryRun` (required): exactly `true`
+- `backup` (optional): bind creation/replacement of the adjacent `.bak` file to the later apply; preview itself never creates it
+- `backupPolicy` (optional): omit to inherit `MCP_BACKUP_DEFAULT_POLICY`, or set exactly `required` for persistent-store pre-state capture
 
-**BOM policy:**
-- `auto`: UTF-8 and legacy targets have no BOM; UTF-16 LE/BE targets receive their canonical BOM
-- `always`: Require the target encoding's canonical BOM; fails before mutation for encodings without BOM support
-- `never`: Write no BOM
-- `preserve`: Preserve source BOM presence using the canonical BOM of the target encoding
+Preview retains the **exact converted bytes** plus target identities/fingerprints in one global bounded capability cache shared with BOM mutations. The cache is controlled by `MCP_MAX_BYTE_MUTATION_PREVIEWS` (default `32`), `MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES` (default `268435456`), and `MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS` (default `900`). Capability kind is bound, so a BOM token cannot be used by encoding apply and vice versa. Expiry, eviction, restart, and replay invalidate the token.
 
-**Example:**
+A changed preview with effective persistent policy `required` performs only read-only backup admission preflight. A no-op requires no store. Unsupported characters, ambiguous/invalid input, oversized results, aliases, and batch conflicts fail before capability creation and before any `.bak`, temp file, backup manifest, or target write exists.
+
 ```json
 {
-  "path": "/path/to/multilingual.data",
-  "from": "utf-16-le",
-  "to": "utf-8",
+  "path": "/project/data.txt",
+  "from": "utf-8",
+  "to": "utf-16-le",
+  "bom": "auto",
   "backup": true,
-  "bom": "auto"
+  "dryRun": true,
+  "backupPolicy": "required"
 }
 ```
 
-**Response:**
+### convert_encoding_apply
+
+Apply one prepared conversion capability. The complete input is only `previewId`. Apply consumes it first, revalidates all target identities/fingerprints and retained result fingerprints, and—when required—durably captures/verifies every changed persistent pre-state before the first file write. Targets are revalidated after backup capture.
+
+Each changed file is then replaced with the exact retained bytes; `backup: true` creates/replaces that target's adjacent `.bak` through the existing transactional single-file backup path. A logical no-op creates neither persistent nor adjacent backup and performs no write. Every committed target is fingerprint-verified.
+
+Batch replacement remains sequential rather than transactionally atomic. If a later target fails, prior committed targets are not automatically rolled back; structured output reports `partialCommit`, `committedCount`, per-target errors/fingerprints, persistent `backupId`s, and adjacent backup paths where applicable.
+
 ```json
-{
-  "message": "Successfully converted /path/to/multilingual.data from utf-16-le to utf-8 (BOM: auto) (backup: /path/to/multilingual.data.bak)",
-  "sourceEncoding": "utf-16-le",
-  "targetEncoding": "utf-8",
-  "backupPath": "/path/to/multilingual.data.bak",
-  "bomPolicy": "auto",
-  "hasBOM": false,
-  "changed": true
-}
+{"previewId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 ```
-
 ### detect_line_endings
 
 Detect line ending style (CRLF/LF/mixed) through the shared incremental decoder, and find lines with inconsistent endings. This works across all 168 registered encodings. Uniform files require one pass; mixed files use a second digest-verified pass that retains only minority line numbers. `MCP_MAX_LINE_BYTES` bounds each decoded line and `MCP_MAX_OUTPUT_BYTES` bounds the returned list. Ambiguous non-empty input requires an explicit encoding.
@@ -957,71 +756,28 @@ Stream line-ending conversion to LF or CRLF while preserving the original encodi
 
 ### manage_bom
 
-Detect, strip, or add Unicode BOM (Byte Order Mark). Detection reads at most four prefix bytes. Strip and add stream the unchanged body into synced same-directory staging instead of loading the file. UTF-8 BOM breaks PHP/shell scripts. UTF-16 BOMs remain the authoritative and most interoperable encoding signal, although structurally clear BOMless UTF-16 may also be detected. Snapshot verification and path revalidation ensure cancellation or detected concurrent changes leave the original file unchanged.
+Detect BOM state or prepare an exact BOM mutation **without persistent mutation**. R23 removes direct `add`/`strip` writes from this tool.
 
-**Parameters:**
-- `path` (required): Path to the file
-- `action` (required): `"detect"`, `"strip"`, or `"add"`
-- `encoding` (required for "add"): BOM encoding — `utf-8`, `utf-16-le`, `utf-16-be`, `utf-32-le`, `utf-32-be`
+**Actions:**
+- `detect`: requires `path` and performs a bounded prefix read only.
+- `addPreview`: requires `path` and BOM-capable `encoding` (`utf-8`, UTF-16 LE/BE, or UTF-32 LE/BE); prepares exact bytes and returns a capability.
+- `stripPreview`: requires `path`; removes a detected BOM in the retained result. When no BOM exists it prepares an explicit no-op capability.
 
-**Example (detect):**
+`backupPolicy` may be omitted to inherit `MCP_BACKUP_DEFAULT_POLICY` or set to `required` for `addPreview`/`stripPreview`; `detect` accepts no mutation-policy fields. Preview retains exact bytes, stable identity, pre/result fingerprints, BOM metadata, and a 256-bit token in the shared byte-mutation cache described under `convert_encoding`. It creates no staging file, persistent backup, permission change, or target mutation. A required no-op needs no backup store.
+
 ```json
-{
-  "path": "/path/to/file.php",
-  "action": "detect"
-}
+{"path":"/project/file.php","action":"stripPreview"}
 ```
 
-**Response:**
-```json
-{
-  "message": "BOM detected: utf-8 (3 bytes)",
-  "hasBOM": true,
-  "bomType": "utf-8",
-  "bomBytes": 3,
-  "changed": false
-}
-```
+### manage_bom_apply
 
-**Example (strip):**
-```json
-{
-  "path": "/path/to/file.php",
-  "action": "strip"
-}
-```
+Apply one prepared BOM capability. The complete input is only `previewId`. The token is kind-bound and consumed before revalidation; stale identity, same-content path replacement, target fingerprint drift, expiry, replay, or a token from another mutation class returns `CONFLICT`.
 
-**Response:**
-```json
-{
-  "message": "Stripped utf-8 BOM (3 bytes) from /path/to/file.php",
-  "hasBOM": false,
-  "bomType": "utf-8",
-  "bomBytes": 3,
-  "changed": true
-}
-```
+For a changed result with effective policy `required`, the exact approved pre-state is durably captured and verified before replacement and the target is revalidated again. The exact retained bytes are then atomically replaced and final fingerprint is verified. A no-op reports `applied: false`, creates no backup, and performs no write. No automatic rollback is promised after a durable backup if a later write fails.
 
-**Example (add):**
 ```json
-{
-  "path": "/path/to/file.txt",
-  "action": "add",
-  "encoding": "utf-16-le"
-}
+{"previewId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 ```
-
-**Response:**
-```json
-{
-  "message": "Added utf-16-le BOM (2 bytes) to /path/to/file.txt",
-  "hasBOM": true,
-  "bomType": "utf-16-le",
-  "bomBytes": 2,
-  "changed": true
-}
-```
-
 ### list_encodings
 
 Returns all 168 currently supported encodings with a stable canonical name, aliases, description, read/write capability, automatic-detection eligibility, explicit-only status, Unicode classification, BOM capability, and whether the `auto` BOM policy emits a BOM. Direct compatibility aliases plus applicable pinned IANA/WHATWG aliases are normalized only when they resolve to an already registered codec. Explicit codec support is intentionally broader than automatic detection: ambiguous legacy families remain explicit-only unless independent structural evidence satisfies the hardened trust path; HZ-GB-2312, ISO-2022-JP, and ISO-2022-KR require verified stateful evidence.

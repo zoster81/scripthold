@@ -102,7 +102,7 @@ func main() {
 	check("fingerprint_paths", !r11.IsError && len(o11.Fingerprint) == 64 && o11.FileCount >= 3 && o11.DirectoryCount >= 2 && len(o11.Entries) > 0)
 
 	rPackageFingerprint, oPackageFingerprint, _ := h.HandleFingerprintPaths(ctx, nil, handler.FingerprintPathsInput{Paths: []string{testFile}})
-	rPackage, oPackage, _ := h.HandlePatchPackage(ctx, nil, handler.PatchPackageInput{
+	rPackage, oPackage, _ := h.HandlePatchPackageRead(ctx, nil, handler.PatchPackageReadInput{
 		Action: "dryRun",
 		Manifest: handler.PatchPackageManifest{
 			FormatVersion: handler.PatchPackageFormatV1, FingerprintAlgorithm: "sha256", FingerprintMode: "content-v1", BackupPolicy: "required",
@@ -114,9 +114,9 @@ func main() {
 	})
 	packageData, _ := os.ReadFile(testFile)
 	check("patch_package (required dryRun)", !rPackageFingerprint.IsError && !rPackage.IsError && len(oPackage.PreviewID) == 64 && oPackage.BackupPolicy == "required" && oPackage.BackupCount == 0 && oPackage.TargetCount == 1 && oPackage.ChangedCount == 1 && store.Index().ManifestCount == 0 && string(packageData) == "Hello!")
-	rPackageApply, oPackageApply, _ := h.HandlePatchPackage(ctx, nil, handler.PatchPackageInput{Action: "apply", PreviewID: oPackage.PreviewID})
+	rPackageApply, oPackageApply, _ := h.HandlePatchPackageApply(ctx, nil, handler.PreviewApplyInput{PreviewID: oPackage.PreviewID})
 	packageAppliedData, _ := os.ReadFile(testFile)
-	check("patch_package (required apply)", !rPackageApply.IsError && oPackageApply.Applied && oPackageApply.BackupCount == 1 && len(oPackageApply.Results[0].BackupID) == 64 && store.Index().ManifestCount == 1 && string(packageAppliedData) == "Hello package!")
+	check("patch_package_apply (required backup)", !rPackageApply.IsError && oPackageApply.Applied && oPackageApply.BackupCount == 1 && len(oPackageApply.Results[0].BackupID) == 64 && store.Index().ManifestCount == 1 && string(packageAppliedData) == "Hello package!")
 	packageManifest := handler.PatchPackageManifest{
 		FormatVersion: handler.PatchPackageFormatV1, FingerprintAlgorithm: "sha256", FingerprintMode: "content-v1",
 		Targets: []handler.PatchPackageTarget{{
@@ -125,7 +125,7 @@ func main() {
 			Edits:                     []handler.EditOperation{{OldText: "Hello!", NewText: "Hello package!"}},
 		}},
 	}
-	rPackageVerify, oPackageVerify, _ := h.HandlePatchPackage(ctx, nil, handler.PatchPackageInput{Action: "verify", Manifest: packageManifest})
+	rPackageVerify, oPackageVerify, _ := h.HandlePatchPackageRead(ctx, nil, handler.PatchPackageReadInput{Action: "verify", Manifest: packageManifest})
 	check("patch_package (verify)", !rPackageVerify.IsError && oPackageVerify.Verified)
 
 	verifyJSON := filepath.Join(tempDir, "verify.json")
@@ -137,32 +137,30 @@ func main() {
 	}})
 	check("verify_state", !rVerifyState.IsError && oVerifyState.Passed && oVerifyState.PassedCount == 3)
 
-	rBackupStatus, oBackupStatus, _ := h.HandleBackupStore(ctx, nil, handler.BackupStoreInput{Action: handler.BackupStoreActionStatus})
+	rBackupStatus, oBackupStatus, _ := h.HandleBackupStoreRead(ctx, nil, handler.BackupStoreReadInput{Action: handler.BackupStoreActionStatus})
 	check("backup_store (enabled status)", !rBackupStatus.IsError && oBackupStatus.Enabled && oBackupStatus.State == handler.BackupStoreStateReady)
 
-	rPreview, oPreview, _ := h.HandleEditFile(ctx, nil, handler.EditFileInput{
+	rPreview, oPreview, _ := h.HandleEditFilePreview(ctx, nil, handler.EditFilePreviewInput{
 		Action: "preview", Path: testFile, Edits: []handler.EditOperation{{OldText: "Hello package!", NewText: "Hello preview!"}}, BackupPolicy: "required",
 	})
 	previewData, _ := os.ReadFile(testFile)
 	check("edit_file (required preview)", !rPreview.IsError && len(oPreview.PreviewID) == 64 && oPreview.BackupPolicy == "required" && string(previewData) == "Hello package!")
-	rApply, oApply, _ := h.HandleEditFile(ctx, nil, handler.EditFileInput{Action: "apply", PreviewID: oPreview.PreviewID})
+	rApply, oApply, _ := h.HandleEditFileApply(ctx, nil, handler.PreviewApplyInput{PreviewID: oPreview.PreviewID})
 	appliedData, _ := os.ReadFile(testFile)
-	check("edit_file (required apply)", !rApply.IsError && oApply.Applied && len(oApply.BackupID) == 64 && store.Index().ManifestCount == 2 && string(appliedData) == "Hello preview!")
+	check("edit_file_apply (required backup)", !rApply.IsError && oApply.Applied && len(oApply.BackupID) == 64 && store.Index().ManifestCount == 2 && string(appliedData) == "Hello preview!")
 
-	rRestorePreview, oRestorePreview, _ := h.HandleBackupStore(ctx, nil, handler.BackupStoreInput{
+	rRestorePreview, oRestorePreview, _ := h.HandleBackupStoreRead(ctx, nil, handler.BackupStoreReadInput{
 		Action: handler.BackupStoreActionRestorePreview, BackupID: oPackageApply.Results[0].BackupID,
 	})
 	check("backup_store (restore preview)", !rRestorePreview.IsError && oRestorePreview.Restore != nil && len(oRestorePreview.Restore.PreviewID) == 64 && !oRestorePreview.Restore.Applied && store.Index().ManifestCount == 2)
-	rRestoreApply, oRestoreApply, _ := h.HandleBackupStore(ctx, nil, handler.BackupStoreInput{
-		Action: handler.BackupStoreActionRestoreApply, PreviewID: oRestorePreview.Restore.PreviewID,
-	})
+	rRestoreApply, oRestoreApply, _ := h.HandleBackupRestoreApply(ctx, nil, handler.PreviewApplyInput{PreviewID: oRestorePreview.Restore.PreviewID})
 	restoredData, _ := os.ReadFile(testFile)
-	check("backup_store (restore apply)", !rRestoreApply.IsError && oRestoreApply.Restore != nil && oRestoreApply.Restore.Applied && len(oRestoreApply.Restore.SafetyBackupID) == 64 && store.Index().ManifestCount == 3 && string(restoredData) == "Hello!")
+	check("backup_restore_apply", !rRestoreApply.IsError && oRestoreApply.Restore != nil && oRestoreApply.Restore.Applied && len(oRestoreApply.Restore.SafetyBackupID) == 64 && store.Index().ManifestCount == 3 && string(restoredData) == "Hello!")
 
-	rGCDryRun, oGCDryRun, _ := h.HandleBackupStore(ctx, nil, handler.BackupStoreInput{Action: handler.BackupStoreActionGCDryRun})
+	rGCDryRun, oGCDryRun, _ := h.HandleBackupStoreRead(ctx, nil, handler.BackupStoreReadInput{Action: handler.BackupStoreActionGCDryRun})
 	check("backup_store (GC dry run)", !rGCDryRun.IsError && oGCDryRun.GC != nil && len(oGCDryRun.GC.PreviewID) == 64 && oGCDryRun.GC.State == handler.BackupStoreGCStatePrepared)
-	rGCApply, oGCApply, _ := h.HandleBackupStore(ctx, nil, handler.BackupStoreInput{Action: handler.BackupStoreActionGCApply, PreviewID: oGCDryRun.GC.PreviewID})
-	check("backup_store (GC apply)", !rGCApply.IsError && oGCApply.GC != nil && (oGCApply.GC.State == handler.BackupStoreGCStateApplied || oGCApply.GC.State == handler.BackupStoreGCStateNoop))
+	rGCApply, oGCApply, _ := h.HandleBackupGCApply(ctx, nil, handler.PreviewApplyInput{PreviewID: oGCDryRun.GC.PreviewID})
+	check("backup_gc_apply", !rGCApply.IsError && oGCApply.GC != nil && (oGCApply.GC.State == handler.BackupStoreGCStateApplied || oGCApply.GC.State == handler.BackupStoreGCStateNoop))
 
 	// Offset/Limit pagination
 	multiFile := filepath.Join(tempDir, "multi.txt")

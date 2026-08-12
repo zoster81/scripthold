@@ -24,7 +24,7 @@ const (
 )
 
 type preparedRestore struct {
-	source            *backupstore.RestoreSource
+	source            *backupstore.ReadSource
 	backupID          string
 	requestedPath     string
 	resolvedPath      string

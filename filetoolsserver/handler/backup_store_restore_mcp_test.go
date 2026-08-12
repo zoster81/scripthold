@@ -52,7 +52,8 @@ func TestBackupStoreRestorePreservesSafetyEvidenceThroughMCPError(t *testing.T) 
 		return changed, errors.New("injected post-commit failure")
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "restore-error-test", Version: "test"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "backup_store"}, Wrap(nil, "backup_store", h.HandleBackupStore))
+	mcp.AddTool(server, &mcp.Tool{Name: "backup_store"}, Wrap(nil, "backup_store", h.HandleBackupStoreRead))
+	mcp.AddTool(server, &mcp.Tool{Name: "backup_restore_apply"}, Wrap(nil, "backup_restore_apply", h.HandleBackupRestoreApply))
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
 	if err != nil {
@@ -80,8 +81,8 @@ func TestBackupStoreRestorePreservesSafetyEvidenceThroughMCPError(t *testing.T) 
 	}
 
 	applyResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "backup_store",
-		Arguments: map[string]any{"action": BackupStoreActionRestoreApply, "previewId": preview.Restore.PreviewID},
+		Name:      "backup_restore_apply",
+		Arguments: map[string]any{"previewId": preview.Restore.PreviewID},
 	})
 	if err != nil || !applyResult.IsError {
 		t.Fatalf("apply result=%+v err=%v", applyResult, err)

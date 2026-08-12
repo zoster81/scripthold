@@ -111,8 +111,28 @@
     },
     {
       "name": "backup_store",
-      "title": "Backup Store",
-      "description": "Inspect/audit backups or preview/apply safe restore and garbage collection.",
+      "title": "Review Backups",
+      "description": "Review backups or prepare restore/GC.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "backup_restore_apply",
+      "title": "Apply Restore",
+      "description": "Apply a prepared restore.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "backup_gc_apply",
+      "title": "Apply Backup GC",
+      "description": "Apply prepared generation-bound backup GC.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -130,11 +150,20 @@
     },
     {
       "name": "manage_bom",
-      "title": "Manage BOM",
-      "description": "Detect, strip, or atomically add a Unicode BOM.",
+      "title": "Review BOM",
+      "description": "Detect BOM or prepare add/strip.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "manage_bom_apply",
+      "title": "Apply BOM",
+      "description": "Apply a prepared BOM change.",
       "annotations": {
         "readOnlyHint": false,
-        "idempotentHint": true,
         "destructiveHint": true,
         "openWorldHint": false
       }
@@ -205,8 +234,18 @@
     },
     {
       "name": "edit_file",
-      "title": "Edit File",
-      "description": "Edit text directly or via one-shot preview/apply, preserving format with optional backup.",
+      "title": "Preview Edit",
+      "description": "Prepare a fingerprint-bound file edit.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "edit_file_apply",
+      "title": "Apply Edit",
+      "description": "Apply a prepared file edit.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -215,8 +254,18 @@
     },
     {
       "name": "patch_package",
-      "title": "Patch Package",
-      "description": "Inspect, preview, apply, or verify a fingerprint-bound multi-file patch package.",
+      "title": "Review Patch",
+      "description": "Inspect/prepare/verify a fingerprint-bound patch.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "patch_package_apply",
+      "title": "Apply Patch",
+      "description": "Apply a prepared patch package.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -225,11 +274,20 @@
     },
     {
       "name": "convert_encoding",
-      "title": "Convert Encoding",
-      "description": "Convert one file or bounded batch between encodings with dry-run and backups.",
+      "title": "Preview Conversion",
+      "description": "Prepare exact conversion bytes for one file or batch.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "convert_encoding_apply",
+      "title": "Apply Conversion",
+      "description": "Apply a prepared encoding conversion.",
       "annotations": {
         "readOnlyHint": false,
-        "idempotentHint": true,
         "destructiveHint": true,
         "openWorldHint": false
       }

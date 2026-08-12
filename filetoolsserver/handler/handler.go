@@ -32,25 +32,40 @@ type BackupStoreCapturer interface {
 	Capture(context.Context, backupstore.CaptureRequest) (backupstore.CaptureResult, error)
 }
 
-// BackupStoreBatchCapturer is the package-wide admission and capture authority.
-type BackupStoreBatchCapturer interface {
+// BackupStoreCapturePreflighter is the read-only admission contract. It cannot
+// reserve quota, create objects, or commit manifests.
+type BackupStoreCapturePreflighter interface {
 	PreflightCaptureBatch(context.Context, []backupstore.CaptureRequest) error
+}
+
+// BackupStoreBatchCapturer is the package-wide persistent mutation authority.
+type BackupStoreBatchCapturer interface {
 	CaptureBatch(context.Context, []backupstore.CaptureRequest) ([]backupstore.CaptureResult, error)
 }
 
-// BackupStoreRestorer is the internal original-target restore authority detected
-// separately from the read-only management contract.
-type BackupStoreRestorer interface {
-	OpenRestoreSource(context.Context, string, backupstore.RestoreSourceOptions) (*backupstore.RestoreSource, error)
+// BackupStoreRestoreReader exposes only immutable verified source reads needed
+// by restore previews and backup comparisons.
+type BackupStoreRestoreReader interface {
+	OpenReadSource(context.Context, string, backupstore.RestoreSourceOptions) (*backupstore.ReadSource, error)
 	RestorePlanTTL() time.Duration
 	RestoreObjectLimit() int64
 }
 
-// BackupStoreGarbageCollector is the explicit generation-bound GC authority.
-type BackupStoreGarbageCollector interface {
+// BackupStoreRestoreStager is the target-adjacent staging authority used only
+// by restore apply after its one-shot capability has been consumed.
+type BackupStoreRestoreStager interface {
+	StageReadSource(context.Context, *backupstore.ReadSource, string, os.FileMode, *time.Time) (*filesystem.StagedReplacement, error)
+}
+
+// BackupStoreGCPlanner is the read-only generation-bound GC planning contract.
+type BackupStoreGCPlanner interface {
 	PlanGC(context.Context, backupstore.GCOptions) (backupstore.GCPlan, error)
-	ApplyGC(context.Context, backupstore.GCPlan) (backupstore.GCResult, error)
 	GCPlanTTL() time.Duration
+}
+
+// BackupStoreGCApplier owns destructive GC application only.
+type BackupStoreGCApplier interface {
+	ApplyGC(context.Context, backupstore.GCPlan) (backupstore.GCResult, error)
 }
 
 // TaskStore is the transport-independent durable task registry contract.
@@ -81,18 +96,22 @@ type Handler struct {
 	protectedDirs                  []string // resolved internal roots denied to public tools
 	backupStore                    BackupStoreReader
 	backupCapture                  BackupStoreCapturer
+	backupCapturePreflight         BackupStoreCapturePreflighter
 	backupBatchCapture             BackupStoreBatchCapturer
-	backupRestore                  BackupStoreRestorer
-	backupGC                       BackupStoreGarbageCollector
+	backupRestoreReader            BackupStoreRestoreReader
+	backupRestoreStager            BackupStoreRestoreStager
+	backupGCPlanner                BackupStoreGCPlanner
+	backupGCApplier                BackupStoreGCApplier
 	taskStore                      TaskStore
 	editPreviews                   *editPreviewStore
 	restorePreviews                *restorePreviewStore
 	gcPreviews                     *gcPreviewStore
 	patchPackagePreviews           *patchPackagePreviewStore
+	byteMutationPreviews           *byteMutationPreviewStore
 	patchPackageStageReplacement   func(context.Context, string, []byte, os.FileMode) (*filesystem.StagedReplacement, error)
 	patchPackageCommitReplacement  func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error)
 	patchPackageCleanupReplacement func(*filesystem.StagedReplacement) error
-	restoreStageReplacement        func(context.Context, *backupstore.RestoreSource, string, os.FileMode, *time.Time) (*filesystem.StagedReplacement, error)
+	restoreStageReplacement        func(context.Context, *backupstore.ReadSource, string, os.FileMode, *time.Time) (*filesystem.StagedReplacement, error)
 	restoreCommitReplacement       func(*filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error)
 	restoreCleanupReplacement      func(*filesystem.StagedReplacement) error
 	verifyGitExecutable            func() (string, error)
@@ -139,9 +158,12 @@ func WithBackupStore(store BackupStoreReader) Option {
 	return func(h *Handler) {
 		h.backupStore = nil
 		h.backupCapture = nil
+		h.backupCapturePreflight = nil
 		h.backupBatchCapture = nil
-		h.backupRestore = nil
-		h.backupGC = nil
+		h.backupRestoreReader = nil
+		h.backupRestoreStager = nil
+		h.backupGCPlanner = nil
+		h.backupGCApplier = nil
 		if backupStoreReaderIsNil(store) {
 			return
 		}
@@ -149,14 +171,23 @@ func WithBackupStore(store BackupStoreReader) Option {
 		if capturer, ok := store.(BackupStoreCapturer); ok {
 			h.backupCapture = capturer
 		}
+		if preflighter, ok := store.(BackupStoreCapturePreflighter); ok {
+			h.backupCapturePreflight = preflighter
+		}
 		if capturer, ok := store.(BackupStoreBatchCapturer); ok {
 			h.backupBatchCapture = capturer
 		}
-		if restorer, ok := store.(BackupStoreRestorer); ok {
-			h.backupRestore = restorer
+		if reader, ok := store.(BackupStoreRestoreReader); ok {
+			h.backupRestoreReader = reader
 		}
-		if collector, ok := store.(BackupStoreGarbageCollector); ok {
-			h.backupGC = collector
+		if stager, ok := store.(BackupStoreRestoreStager); ok {
+			h.backupRestoreStager = stager
+		}
+		if planner, ok := store.(BackupStoreGCPlanner); ok {
+			h.backupGCPlanner = planner
+		}
+		if applier, ok := store.(BackupStoreGCApplier); ok {
+			h.backupGCApplier = applier
 		}
 		if store != nil && store.Root() != "" {
 			requested, resolved := normalizeAllowedDirectorySets([]string{store.Root()})
@@ -235,13 +266,13 @@ func NewHandler(allowedDirs []string, opts ...Option) *Handler {
 		time.Duration(h.editPreviewTTLSeconds())*time.Second,
 	)
 	restoreTTL := 15 * time.Minute
-	if h.backupRestore != nil && h.backupRestore.RestorePlanTTL() > 0 {
-		restoreTTL = h.backupRestore.RestorePlanTTL()
+	if h.backupRestoreReader != nil && h.backupRestoreReader.RestorePlanTTL() > 0 {
+		restoreTTL = h.backupRestoreReader.RestorePlanTTL()
 	}
 	h.restorePreviews = newRestorePreviewStore(restorePreviewMaxEntries, restorePreviewMaxBytes, restoreTTL)
 	gcTTL := 15 * time.Minute
-	if h.backupGC != nil && h.backupGC.GCPlanTTL() > 0 {
-		gcTTL = h.backupGC.GCPlanTTL()
+	if h.backupGCPlanner != nil && h.backupGCPlanner.GCPlanTTL() > 0 {
+		gcTTL = h.backupGCPlanner.GCPlanTTL()
 	}
 	h.gcPreviews = newGCPreviewStore(gcPreviewMaxEntries, gcPreviewMaxBytes, gcTTL)
 	h.replaceFile = filesystem.ReplaceFile
@@ -250,11 +281,19 @@ func NewHandler(allowedDirs []string, opts ...Option) *Handler {
 		h.maxPatchPackagePreviewBytes(),
 		time.Duration(h.patchPackagePreviewTTLSeconds())*time.Second,
 	)
+	h.byteMutationPreviews = newByteMutationPreviewStore(
+		h.maxByteMutationPreviews(),
+		h.maxByteMutationPreviewBytes(),
+		time.Duration(h.byteMutationPreviewTTLSeconds())*time.Second,
+	)
 	h.patchPackageStageReplacement = stagePatchPackageReplacement
 	h.patchPackageCommitReplacement = commitPatchPackageReplacement
 	h.patchPackageCleanupReplacement = func(staged *filesystem.StagedReplacement) error { return staged.Cleanup() }
-	h.restoreStageReplacement = func(ctx context.Context, source *backupstore.RestoreSource, target string, mode os.FileMode, modTime *time.Time) (*filesystem.StagedReplacement, error) {
-		return source.Stage(ctx, target, mode, modTime)
+	h.restoreStageReplacement = func(ctx context.Context, source *backupstore.ReadSource, target string, mode os.FileMode, modTime *time.Time) (*filesystem.StagedReplacement, error) {
+		if h.backupRestoreStager == nil {
+			return nil, operation.New(operation.KindConflict, "backup restore staging authority is unavailable")
+		}
+		return h.backupRestoreStager.StageReadSource(ctx, source, target, mode, modTime)
 	}
 	h.restoreCommitReplacement = func(staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		return staged.Commit(options)

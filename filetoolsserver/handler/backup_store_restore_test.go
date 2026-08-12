@@ -227,6 +227,12 @@ func TestBackupStoreRestoreDetectsTargetChangeAfterSafetyBackup(t *testing.T) {
 		return os.WriteFile(fixture.target, []byte("external"), 0o600)
 	}
 	fixture.handler = NewHandler([]string{fixture.publicRoot}, WithBackupStore(wrapper))
+	stageCalled := false
+	originalStage := fixture.handler.restoreStageReplacement
+	fixture.handler.restoreStageReplacement = func(ctx context.Context, source *backupstore.ReadSource, target string, mode os.FileMode, modTime *time.Time) (*filesystem.StagedReplacement, error) {
+		stageCalled = true
+		return originalStage(ctx, source, target, mode, modTime)
+	}
 	_, preview, err := fixture.handler.HandleBackupStore(context.Background(), nil, BackupStoreInput{
 		Action:   BackupStoreActionRestorePreview,
 		BackupID: backupID,
@@ -238,8 +244,8 @@ func TestBackupStoreRestoreDetectsTargetChangeAfterSafetyBackup(t *testing.T) {
 		Action:    BackupStoreActionRestoreApply,
 		PreviewID: preview.Restore.PreviewID,
 	})
-	if err != nil || !result.IsError || output.Restore == nil || len(output.Restore.SafetyBackupID) != 64 || output.Restore.Applied {
-		t.Fatalf("post-safety change result=%+v output=%+v err=%v", result, output, err)
+	if err != nil || !result.IsError || output.Restore == nil || len(output.Restore.SafetyBackupID) != 64 || output.Restore.Applied || stageCalled {
+		t.Fatalf("post-safety change result=%+v output=%+v stageCalled=%t err=%v", result, output, stageCalled, err)
 	}
 	assertRestoreTargetBytes(t, fixture.target, "external")
 	if fixture.store.Index().ManifestCount != 2 {
@@ -261,7 +267,7 @@ func TestBackupStoreRestoreMissingTargetAppearanceFailsNoReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalStage := fixture.handler.restoreStageReplacement
-	fixture.handler.restoreStageReplacement = func(ctx context.Context, source *backupstore.RestoreSource, target string, mode os.FileMode, modTime *time.Time) (*filesystem.StagedReplacement, error) {
+	fixture.handler.restoreStageReplacement = func(ctx context.Context, source *backupstore.ReadSource, target string, mode os.FileMode, modTime *time.Time) (*filesystem.StagedReplacement, error) {
 		staged, stageErr := originalStage(ctx, source, target, mode, modTime)
 		if stageErr != nil {
 			return nil, stageErr

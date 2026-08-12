@@ -135,8 +135,8 @@ func TestSingleSessionRunnerUsesSharedServerAndHonorsCancellation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 30 {
-		t.Fatalf("tool count = %d, want 30", len(tools.Tools))
+	if len(tools.Tools) != 36 {
+		t.Fatalf("tool count = %d, want 36", len(tools.Tools))
 	}
 
 	cancel()

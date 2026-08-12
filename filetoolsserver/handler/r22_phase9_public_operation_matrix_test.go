@@ -92,7 +92,7 @@ func TestR22Phase9PublicOperationMatrix_AllSupportedEncodings(t *testing.T) {
 				t.Fatalf("edit no-op preview result=%+v output=%+v err=%v", noOpPreviewResult, noOpPreview, err)
 			}
 			noOpApplyResult, noOpApplied, err := h.HandleEditFile(ctx, nil, EditFileInput{Action: "apply", PreviewID: noOpPreview.PreviewID})
-			if err != nil || noOpApplyResult.IsError || !noOpApplied.Applied || noOpApplied.Changed {
+			if err != nil || noOpApplyResult.IsError || noOpApplied.Applied || noOpApplied.Changed {
 				t.Fatalf("edit no-op apply result=%+v output=%+v err=%v", noOpApplyResult, noOpApplied, err)
 			}
 			afterNoOp, err := os.ReadFile(path)

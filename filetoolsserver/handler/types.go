@@ -306,6 +306,10 @@ type UnsupportedCharacter struct {
 
 type ConvertFileResult struct {
 	Path              string                 `json:"path"`
+	TargetFingerprint string                 `json:"targetFingerprint,omitempty"`
+	ResultFingerprint string                 `json:"resultFingerprint,omitempty"`
+	BackupID          string                 `json:"backupId,omitempty"`
+	Applied           bool                   `json:"applied,omitempty"`
 	SourceEncoding    string                 `json:"sourceEncoding,omitempty"`
 	Changed           bool                   `json:"changed"`
 	Message           string                 `json:"message,omitempty"`
@@ -321,21 +325,31 @@ type ConvertFileResult struct {
 }
 
 type ConvertEncodingOutput struct {
-	Message         string              `json:"message"`
-	SourceEncoding  string              `json:"sourceEncoding"`
-	TargetEncoding  string              `json:"targetEncoding"`
-	BackupPath      string              `json:"backupPath,omitempty"`
-	BOMPolicy       string              `json:"bomPolicy"`
-	HasBOM          bool                `json:"hasBOM"`
-	BOMType         string              `json:"bomType,omitempty"`
-	Changed         bool                `json:"changed"`
-	DryRun          bool                `json:"dryRun,omitempty"`
-	Results         []ConvertFileResult `json:"results,omitempty"`
-	SuccessCount    int                 `json:"successCount,omitempty"`
-	ErrorCount      int                 `json:"errorCount,omitempty"`
-	Errors          []string            `json:"errors,omitempty"`
-	ErrorsTruncated bool                `json:"errorsTruncated,omitempty"`
-	ErrorsOmitted   int                 `json:"errorsOmitted,omitempty"`
+	Message           string              `json:"message"`
+	PreviewID         string              `json:"previewId,omitempty"`
+	CreatedAt         string              `json:"createdAt,omitempty"`
+	ExpiresAt         string              `json:"expiresAt,omitempty"`
+	BackupPolicy      string              `json:"backupPolicy,omitempty"`
+	TargetFingerprint string              `json:"targetFingerprint,omitempty"`
+	ResultFingerprint string              `json:"resultFingerprint,omitempty"`
+	BackupID          string              `json:"backupId,omitempty"`
+	Applied           bool                `json:"applied,omitempty"`
+	PartialCommit     bool                `json:"partialCommit,omitempty"`
+	CommittedCount    int                 `json:"committedCount,omitempty"`
+	SourceEncoding    string              `json:"sourceEncoding"`
+	TargetEncoding    string              `json:"targetEncoding"`
+	BackupPath        string              `json:"backupPath,omitempty"`
+	BOMPolicy         string              `json:"bomPolicy"`
+	HasBOM            bool                `json:"hasBOM"`
+	BOMType           string              `json:"bomType,omitempty"`
+	Changed           bool                `json:"changed"`
+	DryRun            bool                `json:"dryRun,omitempty"`
+	Results           []ConvertFileResult `json:"results,omitempty"`
+	SuccessCount      int                 `json:"successCount,omitempty"`
+	ErrorCount        int                 `json:"errorCount,omitempty"`
+	Errors            []string            `json:"errors,omitempty"`
+	ErrorsTruncated   bool                `json:"errorsTruncated,omitempty"`
+	ErrorsOmitted     int                 `json:"errorsOmitted,omitempty"`
 }
 
 // GrepInput for searching file contents with regex
@@ -427,11 +441,21 @@ type ManageBomInput struct {
 }
 
 type ManageBomOutput struct {
-	Message  string `json:"message"`
-	HasBOM   bool   `json:"hasBOM"`
-	BOMType  string `json:"bomType,omitempty"`  // e.g. "utf-8", "utf-16-le"
-	BOMBytes int    `json:"bomBytes,omitempty"` // size of BOM in bytes (2, 3, or 4)
-	Changed  bool   `json:"changed"`
+	Message           string `json:"message"`
+	Action            string `json:"action,omitempty"`
+	PreviewID         string `json:"previewId,omitempty"`
+	CreatedAt         string `json:"createdAt,omitempty"`
+	ExpiresAt         string `json:"expiresAt,omitempty"`
+	TargetPath        string `json:"targetPath,omitempty"`
+	TargetFingerprint string `json:"targetFingerprint,omitempty"`
+	ResultFingerprint string `json:"resultFingerprint,omitempty"`
+	BackupPolicy      string `json:"backupPolicy,omitempty"`
+	BackupID          string `json:"backupId,omitempty"`
+	Applied           bool   `json:"applied,omitempty"`
+	HasBOM            bool   `json:"hasBOM"`
+	BOMType           string `json:"bomType,omitempty"`  // e.g. "utf-8", "utf-16-le"
+	BOMBytes          int    `json:"bomBytes,omitempty"` // size of BOM in bytes (2, 3, or 4)
+	Changed           bool   `json:"changed"`
 }
 
 // DetectLineEndingsOutput - Style is "crlf", "lf", "mixed", or "none"

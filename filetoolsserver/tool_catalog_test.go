@@ -126,14 +126,17 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal backup_store input schema: %v", err)
 	}
-	for _, field := range [][]byte{[]byte(`"backupId"`), []byte(`"previewId"`)} {
+	for _, field := range [][]byte{[]byte(`"backupId"`), []byte(`"otherBackupId"`)} {
 		if !bytes.Contains(backupInputSchema, field) {
 			t.Fatalf("backup_store input schema does not expose %s: %s", field, backupInputSchema)
 		}
 	}
-	if backupTool.Annotations == nil || backupTool.Annotations.ReadOnlyHint ||
-		backupTool.Annotations.DestructiveHint == nil || !*backupTool.Annotations.DestructiveHint {
-		t.Fatalf("backup_store annotations do not reflect restore/GC mutation: %#v", backupTool.Annotations)
+	if bytes.Contains(backupInputSchema, []byte(`"previewId"`)) {
+		t.Fatalf("read-only backup_store schema unexpectedly exposes previewId: %s", backupInputSchema)
+	}
+	if backupTool.Annotations == nil || !backupTool.Annotations.ReadOnlyHint ||
+		(backupTool.Annotations.DestructiveHint != nil && *backupTool.Annotations.DestructiveHint) {
+		t.Fatalf("backup_store annotations are not read-only: %#v", backupTool.Annotations)
 	}
 
 	for _, name := range []string{"task_run", "task_list", "task_get", "task_logs", "task_cancel"} {

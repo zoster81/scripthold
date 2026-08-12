@@ -23,11 +23,11 @@ import (
 const maxRestoreFailureMessageBytes = 1024
 
 func (h *Handler) handleBackupStoreRestorePreview(ctx context.Context, backupID string, visibility backupVisibilitySnapshot) (*mcp.CallToolResult, BackupStoreOutput, error) {
-	if h.backupRestore == nil || h.backupCapture == nil || h.backupBatchCapture == nil {
-		return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide restore authority")), BackupStoreOutput{}, nil
+	if h.backupRestoreReader == nil || h.backupCapturePreflight == nil {
+		return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide restore preview authority")), BackupStoreOutput{}, nil
 	}
 	validatedTarget := ""
-	source, err := h.backupRestore.OpenRestoreSource(ctx, backupID, backupstore.RestoreSourceOptions{
+	source, err := h.backupRestoreReader.OpenReadSource(ctx, backupID, backupstore.RestoreSourceOptions{
 		AuthorizeTarget: func(path string) error {
 			var authorizationErr error
 			validatedTarget, authorizationErr = visibility.validate(path)
@@ -49,7 +49,7 @@ func (h *Handler) handleBackupStoreRestorePreview(ctx context.Context, backupID 
 	if validatedTarget == "" || !sameResolvedRestoreTarget(manifest.TargetPath, validatedTarget) {
 		return errorResultWithCode(ErrCodeConflict, "restore is restricted to the manifest's original target"), BackupStoreOutput{}, nil
 	}
-	objectLimit := h.backupRestore.RestoreObjectLimit()
+	objectLimit := h.backupRestoreReader.RestoreObjectLimit()
 	if objectLimit <= 0 || manifest.ObjectBytes < 0 || manifest.ObjectBytes > objectLimit {
 		return errorResultFromError(operation.New(operation.KindLimit, "restore object exceeds the configured object limit")), BackupStoreOutput{}, nil
 	}
@@ -94,7 +94,7 @@ func (h *Handler) handleBackupStoreRestorePreview(ctx context.Context, backupID 
 		if err != nil {
 			return errorResultFromError(err), BackupStoreOutput{}, nil
 		}
-		if err := h.backupBatchCapture.PreflightCaptureBatch(ctx, []backupstore.CaptureRequest{{
+		if err := h.backupCapturePreflight.PreflightCaptureBatch(ctx, []backupstore.CaptureRequest{{
 			TargetPath:      validatedTarget,
 			SourceOperation: backupstore.SourceOperationRestore,
 		}}); err != nil {
@@ -126,6 +126,9 @@ func (h *Handler) handleBackupStoreRestorePreview(ctx context.Context, backupID 
 }
 
 func (h *Handler) handleBackupStoreRestoreApply(ctx context.Context, previewID string) (*mcp.CallToolResult, BackupStoreOutput, error) {
+	if h.backupRestoreStager == nil || h.backupCapture == nil {
+		return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide restore apply authority")), BackupStoreOutput{}, nil
+	}
 	preview, err := h.restorePreviews.claim(previewID)
 	if err != nil {
 		return errorResultFromError(err), BackupStoreOutput{}, nil
@@ -171,18 +174,7 @@ func (h *Handler) handleBackupStoreRestoreApply(ctx context.Context, previewID s
 
 	mode := os.FileMode(prepared.restoreMode).Perm()
 	modTime := prepared.restoreModTime
-	staged, err := h.restoreStageReplacement(ctx, prepared.source, prepared.resolvedPath, mode, &modTime)
-	if err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
-	}
-	if err := prepared.source.Verify(ctx); err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
-	}
-	current, err = h.revalidatePreparedRestoreTarget(ctx, prepared)
-	if err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
-	}
-
+	var staged *filesystem.StagedReplacement
 	if prepared.targetExisted {
 		captured, captureErr := h.backupCapture.Capture(ctx, backupstore.CaptureRequest{
 			TargetPath:      prepared.resolvedPath,
@@ -214,6 +206,18 @@ func (h *Handler) handleBackupStoreRestoreApply(ctx context.Context, previewID s
 		}
 	}
 
+	staged, err = h.restoreStageReplacement(ctx, prepared.source, prepared.resolvedPath, mode, &modTime)
+	if err != nil {
+		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
+	}
+	if err := prepared.source.Verify(ctx); err != nil {
+		return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
+	}
+	current, err = h.revalidatePreparedRestoreTarget(ctx, prepared)
+	if err != nil {
+		return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
+	}
+
 	originalMode := current.Mode.Perm()
 	readOnlyCleared := false
 	if prepared.targetExisted && isReadOnly(originalMode) {
@@ -240,7 +244,7 @@ func (h *Handler) handleBackupStoreRestoreApply(ctx context.Context, previewID s
 	if commitErr != nil {
 		return h.restoreApplyFailure(ctx, prepared, output, commitErr, nil, readOnlyCleared, originalMode)
 	}
-	post, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestore.RestoreObjectLimit())
+	post, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestoreReader.RestoreObjectLimit())
 	if err != nil {
 		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
 	}
@@ -305,7 +309,7 @@ func (h *Handler) revalidatePreparedRestoreTarget(ctx context.Context, prepared 
 	if err != nil || !matches {
 		return filesystem.FileSnapshot{}, operation.New(operation.KindConflict, "restore target identity changed after preview")
 	}
-	current, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestore.RestoreObjectLimit())
+	current, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestoreReader.RestoreObjectLimit())
 	if err != nil {
 		return filesystem.FileSnapshot{}, operation.New(operation.KindConflict, "restore target is unavailable or changed after preview")
 	}
@@ -347,7 +351,7 @@ func (h *Handler) restoreReadOnlyIfUnchanged(prepared *preparedRestore, original
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), patchPackageClassificationTimeout)
 	defer cancel()
-	current, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestore.RestoreObjectLimit())
+	current, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestoreReader.RestoreObjectLimit())
 	if err != nil {
 		return nil
 	}
@@ -378,7 +382,7 @@ func (h *Handler) classifyRestoreTarget(prepared *preparedRestore) (string, stri
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return BackupStoreRestoreStateUnknown, "", false
 	}
-	snapshot, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestore.RestoreObjectLimit())
+	snapshot, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestoreReader.RestoreObjectLimit())
 	if err != nil {
 		return BackupStoreRestoreStateUnknown, "", false
 	}

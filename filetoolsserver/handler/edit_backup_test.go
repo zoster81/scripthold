@@ -150,7 +150,7 @@ func TestEditPreviewOmittedAndNoOpRequiredPoliciesCreateNoBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	noOpResult, noOpApplied, err := h.HandleEditFile(context.Background(), nil, EditFileInput{Action: editActionApply, PreviewID: noOp.PreviewID})
-	if err != nil || noOpResult.IsError || !noOpApplied.Applied || noOpApplied.Changed || noOpApplied.BackupID != "" {
+	if err != nil || noOpResult.IsError || noOpApplied.Applied || noOpApplied.Changed || noOpApplied.BackupID != "" {
 		t.Fatalf("no-op apply result=%+v output=%+v err=%v", noOpResult, noOpApplied, err)
 	}
 	if noOpApplied.BackupPolicy != editBackupPolicyRequired || store.Index().ManifestCount != 0 {
@@ -164,23 +164,15 @@ func TestEditRequiredBackupFailureAndOutputLimitPreventMutation(t *testing.T) {
 		if err := os.WriteFile(target, []byte("alpha"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, preview, err := h.HandleEditFile(context.Background(), nil, EditFileInput{
+		result, preview, err := h.HandleEditFile(context.Background(), nil, EditFileInput{
 			Action: editActionPreview, Path: target, Edits: []EditOperation{{OldText: "alpha", NewText: "omega"}}, BackupPolicy: editBackupPolicyRequired,
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		result, output, err := h.HandleEditFile(context.Background(), nil, EditFileInput{Action: editActionApply, PreviewID: preview.PreviewID})
-		if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeLimit || output.BackupID != "" {
-			t.Fatalf("limited result=%+v output=%+v err=%v", result, output, err)
+		if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeLimit || preview.PreviewID != "" || preview.BackupID != "" {
+			t.Fatalf("limited preview result=%+v output=%+v err=%v", result, preview, err)
 		}
 		assertEditBackupBytes(t, target, []byte("alpha"))
 		if store.Index().ManifestCount != 0 {
-			t.Fatal("failed capture committed a manifest")
-		}
-		terminal, _, _ := h.HandleEditFile(context.Background(), nil, EditFileInput{Action: editActionApply, PreviewID: preview.PreviewID})
-		if !terminal.IsError || terminal.Meta[ErrorCodeMetaKey] != ErrCodeConflict {
-			t.Fatalf("failed apply did not consume preview: %+v", terminal)
+			t.Fatal("failed backup admission committed a manifest")
 		}
 	})
 

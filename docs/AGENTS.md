@@ -10,13 +10,14 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `ROADMAP_HISTORY.md`: concise completed milestone history for R1 onward, not an operator session log.
 - `PUBLISHING.md`: maintainer release and distribution procedure.
 - `MIGRATION_2.0.md`: authoritative intentional breaking changes and migration actions for 1.8 to 2.0.
+- `MIGRATION_3.0.md`: Unreleased R23 next-major MCP-surface migration from mixed mutation actions to read-only preparation plus `previewId`-only apply tools.
 - `HTTP_SECURITY.md`: approved Streamable HTTP threat model, secure defaults, implementation constraints, test matrix, and release blockers.
 - `VERIFIED_CHANGE_WORKFLOWS.md`: approved R16 design baseline for fingerprints, preview/apply, patch packages, structured verification, and its relationship to the later backup subsystem.
 - `PERSISTENT_BACKUP_LIFECYCLE.md`: approved R17 design and R18 implementation contract for the internal store boundary, content-addressed objects, manifests, quotas, restore, garbage collection, and crash recovery.
 - `OFFLINE_BACKUP_DIAGNOSTICS.md`: R19 diagnostic-only design for inspecting an existing store without creation, repair, cleanup, or other filesystem mutation.
 - `MCP_2026_07_28_ADOPTION.md`: R20 compatibility and security design for adopting MCP `2026-07-28` without losing legacy stdio or stateful HTTP behavior.
 - `GLOBAL_ENCODING_COVERAGE.md`: completed R22 / 2.2.0 implementation and verification contract for global portable encoding coverage, full UTF-32 text support, detector hardening, corpus provenance, and release gates.
-- `MCP_MUTATION_SURFACE.md`: approved active R23 design for truthful read-only/mutation tool boundaries, capability-bound preview/apply, connector-blocking reduction, and backup-history/default-policy UX.
+- `MCP_MUTATION_SURFACE.md`: completed R23 contract for truthful read-only/mutation tool boundaries, capability-bound preview/apply, connector-blocking reduction, and backup-history/default-policy UX.
 - `SAFE_FILESYSTEM_OPERATIONS.md`: approved planned R24 baseline for typed preview/apply filesystem packages, recursive directory operations, backup-before-loss, and partial-state evidence.
 - `SOURCE_INTELLIGENCE.md`: approved planned R25 baseline for language-neutral structured symbol extraction/indexing and the initial Go AST reference provider.
 - `BACKUP_RECOVERY.md`: approved planned R26 baseline for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.

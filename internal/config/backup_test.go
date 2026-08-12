@@ -7,6 +7,9 @@ func TestLoadFromEnvironmentBackupDefaultsDisabled(t *testing.T) {
 	if cfg.Backup.Enabled() {
 		t.Fatal("backup store was enabled without an explicit directory")
 	}
+	if cfg.Backup.DefaultPolicy != BackupPolicyDisabled {
+		t.Fatalf("backup default policy = %q, want %q", cfg.Backup.DefaultPolicy, BackupPolicyDisabled)
+	}
 	if cfg.Backup.Limits.MaxTotalBytes != DefaultBackupMaxTotalBytes ||
 		cfg.Backup.Limits.MaxObjectBytes != DefaultBackupMaxObjectBytes ||
 		cfg.Backup.Limits.MaxManifests != DefaultBackupMaxManifests ||
@@ -21,6 +24,7 @@ func TestLoadFromEnvironmentBackupDefaultsDisabled(t *testing.T) {
 func TestLoadFromEnvironmentBackupOverrides(t *testing.T) {
 	values := map[string]string{
 		EnvBackupStoreDir:             "/var/lib/mcp-backups",
+		EnvBackupDefaultPolicy:        BackupPolicyRequired,
 		EnvBackupMaxTotalBytes:        "2000",
 		EnvBackupMaxObjectBytes:       "300",
 		EnvBackupMaxManifests:         "40",
@@ -30,7 +34,7 @@ func TestLoadFromEnvironmentBackupOverrides(t *testing.T) {
 		EnvBackupPlanTTLSeconds:       "8",
 	}
 	cfg := LoadFromEnvironment(func(name string) string { return values[name] })
-	if !cfg.Backup.Enabled() || cfg.Backup.StoreDir != values[EnvBackupStoreDir] {
+	if !cfg.Backup.Enabled() || cfg.Backup.StoreDir != values[EnvBackupStoreDir] || cfg.Backup.DefaultPolicy != BackupPolicyRequired {
 		t.Fatalf("backup store configuration = %#v", cfg.Backup)
 	}
 	if cfg.Backup.Limits.MaxTotalBytes != 2000 || cfg.Backup.Limits.MaxObjectBytes != 300 ||
@@ -38,6 +42,18 @@ func TestLoadFromEnvironmentBackupOverrides(t *testing.T) {
 		cfg.Backup.Limits.MaxPinned != 6 || cfg.Backup.Limits.RetentionDays != 7 ||
 		cfg.Backup.Limits.PlanTTLSeconds != 8 {
 		t.Fatalf("unexpected backup overrides: %#v", cfg.Backup.Limits)
+	}
+}
+
+func TestLoadFromEnvironmentBackupDefaultPolicyRejectsInvalidValue(t *testing.T) {
+	cfg := LoadFromEnvironment(func(name string) string {
+		if name == EnvBackupDefaultPolicy {
+			return "optional"
+		}
+		return ""
+	})
+	if cfg.Backup.DefaultPolicy != BackupPolicyDisabled {
+		t.Fatalf("invalid backup default policy produced %q", cfg.Backup.DefaultPolicy)
 	}
 }
 

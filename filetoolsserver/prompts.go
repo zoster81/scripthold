@@ -31,7 +31,7 @@ Use tree with showEncoding=true, then verify uncertain or important files with d
 	}, textPrompt(func(arguments map[string]string) string {
 		return fmt.Sprintf(`Diagnose the garbled text in %s without guessing.
 
-Detect the encoding in chunked mode, read using that result, and compare explicit likely legacy encodings only when the detected reading is still wrong. Distinguish a file-encoding problem from a consumer decoding problem. Obtain explicit user approval before conversion, use backup=true for the repair, and read the file again afterward to verify it.`, arguments["path"])
+Detect the encoding in chunked mode, read using that result, and compare explicit likely legacy encodings only when the detected reading is still wrong. Distinguish a file-encoding problem from a consumer decoding problem. Prepare the conversion with convert_encoding dryRun=true and backup=true, obtain explicit user approval for the returned fingerprints, apply only that previewId with convert_encoding_apply, and read the file again afterward to verify it.`, arguments["path"])
 	}))
 
 	server.AddPrompt(&mcp.Prompt{
@@ -49,7 +49,7 @@ Detect the encoding in chunked mode, read using that result, and compare explici
 		}
 		return fmt.Sprintf(`Prepare a controlled UTF-8 migration for files matching %q under %s.
 
-Build the file list with search_files, then call convert_encoding with paths=<list>, to="utf-8", and dryRun=true. Report files that would change, files already compatible, and any unsupported-character or decoding failures with locations. Request explicit approval before writing. After approval, rerun with dryRun=false and backup=true, then verify the result with a final dry run.`, pattern, arguments["path"])
+Build the file list with search_files, then call convert_encoding with paths=<list>, to="utf-8", backup=true, and dryRun=true. Report files that would change, files already compatible, and any unsupported-character or decoding failures with locations. Request explicit approval for the returned previewId and fingerprints before writing. After approval, call convert_encoding_apply with only that previewId, then verify the result with a final dry run.`, pattern, arguments["path"])
 	}))
 }
 

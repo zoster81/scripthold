@@ -138,13 +138,19 @@ func TestPatchPackageRequiredBackupFailureReturnsDurablePrefixWithoutCommit(t *t
 		t.Fatal(err)
 	}
 	var commits atomic.Int32
+	var staged atomic.Int32
+	originalStage := h.patchPackageStageReplacement
+	h.patchPackageStageReplacement = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+		staged.Add(1)
+		return originalStage(ctx, path, data, mode)
+	}
 	h.patchPackageCommitReplacement = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
 		commits.Add(1)
 		return false, errors.New("commit must not be reached")
 	}
 	result, output, err := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionApply, PreviewID: dryRun.PreviewID})
-	if err != nil || !result.IsError || output.Applied || output.PartialCommit || output.BackupCount != 1 || commits.Load() != 0 {
-		t.Fatalf("backup failure result=%+v output=%+v commits=%d err=%v", result, output, commits.Load(), err)
+	if err != nil || !result.IsError || output.Applied || output.PartialCommit || output.BackupCount != 1 || commits.Load() != 0 || staged.Load() != 0 {
+		t.Fatalf("backup failure result=%+v output=%+v commits=%d staged=%d err=%v", result, output, commits.Load(), staged.Load(), err)
 	}
 	if len(output.Results[0].BackupID) != 64 || output.Results[1].BackupID != "" || store.Index().ManifestCount != 1 {
 		t.Fatalf("durable prefix output=%+v index=%+v", output, store.Index())

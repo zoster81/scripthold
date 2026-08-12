@@ -400,7 +400,7 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s list tools: %v", name, err)
 		}
-		if len(tools.Tools) != 30 {
+		if len(tools.Tools) != 36 {
 			t.Fatalf("%s tool count = %d", name, len(tools.Tools))
 		}
 		serializedTools := marshalJSON(t, tools.Tools)
@@ -597,9 +597,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 	}
 
 	packageApply, err := direct.CallTool(ctx, &mcp.CallToolParams{
-		Name: "patch_package",
+		Name: "patch_package_apply",
 		Arguments: map[string]any{
-			"action":    "apply",
 			"previewId": packagePreview.PreviewID,
 		},
 	})
@@ -630,9 +629,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		t.Fatalf("HTTP package backup inspect result=%#v err=%v", packageBackupInspect, err)
 	}
 	packageReplay, err := second.CallTool(ctx, &mcp.CallToolParams{
-		Name: "patch_package",
+		Name: "patch_package_apply",
 		Arguments: map[string]any{
-			"action":    "apply",
 			"previewId": packagePreview.PreviewID,
 		},
 	})
@@ -737,9 +735,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 	}
 
 	applyResult, err := direct.CallTool(ctx, &mcp.CallToolParams{
-		Name: "edit_file",
+		Name: "edit_file_apply",
 		Arguments: map[string]any{
-			"action":    "apply",
 			"previewId": previewOutput.PreviewID,
 		},
 	})
@@ -769,9 +766,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		t.Fatalf("HTTP backup inspect result=%#v err=%v", inspectBackup, err)
 	}
 	replayResult, err := second.CallTool(ctx, &mcp.CallToolParams{
-		Name: "edit_file",
+		Name: "edit_file_apply",
 		Arguments: map[string]any{
-			"action":    "apply",
 			"previewId": previewOutput.PreviewID,
 		},
 	})
@@ -800,8 +796,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		t.Fatalf("unexpected restore preview output: %#v", restorePreviewOutput)
 	}
 	restoreApply, err := direct.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "backup_store",
-		Arguments: map[string]any{"action": "restoreApply", "previewId": restorePreviewOutput.Restore.PreviewID},
+		Name:      "backup_restore_apply",
+		Arguments: map[string]any{"previewId": restorePreviewOutput.Restore.PreviewID},
 	})
 	if err != nil || restoreApply.IsError {
 		t.Fatalf("direct restore apply result=%#v err=%v", restoreApply, err)
@@ -852,8 +848,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		t.Fatalf("unexpected GC preview: %#v", gcPreview)
 	}
 	gcApply, err := direct.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "backup_store",
-		Arguments: map[string]any{"action": "gcApply", "previewId": gcPreview.GC.PreviewID},
+		Name:      "backup_gc_apply",
+		Arguments: map[string]any{"previewId": gcPreview.GC.PreviewID},
 	})
 	if err != nil || gcApply.IsError {
 		t.Fatalf("direct GC apply result=%#v err=%v", gcApply, err)
@@ -871,8 +867,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		t.Fatalf("unexpected GC apply output: %#v", gcApplied)
 	}
 	gcReplay, err := second.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "backup_store",
-		Arguments: map[string]any{"action": "gcApply", "previewId": gcPreview.GC.PreviewID},
+		Name:      "backup_gc_apply",
+		Arguments: map[string]any{"previewId": gcPreview.GC.PreviewID},
 	})
 	if err != nil || !gcReplay.IsError || gcReplay.Meta[handler.ErrorCodeMetaKey] != handler.ErrCodeConflict {
 		t.Fatalf("HTTP GC replay result=%#v err=%v", gcReplay, err)

@@ -108,33 +108,6 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 	}
 
 	staged := make([]*filesystem.StagedReplacement, len(prepared.targets))
-	for index := range prepared.targets {
-		target := &prepared.targets[index]
-		if !target.prepared.changed {
-			continue
-		}
-		mode := preflight[index].mode
-		if isReadOnly(mode) {
-			mode |= 0200
-		}
-		replacement, stageErr := h.patchPackageStageReplacement(ctx, target.prepared.resolvedPath, target.prepared.data, mode)
-		if stageErr != nil {
-			if ctx.Err() != nil {
-				stageErr = operation.Wrap(operation.KindCancelled, "stage_patch_package", target.prepared.resolvedPath, ctx.Err())
-			}
-			stageErr = h.joinPatchPackageStagingCleanup(stageErr, staged)
-			return errorResultFromError(stageErr), PatchPackageOutput{}, nil
-		}
-		staged[index] = replacement
-	}
-	if h.patchPackageAfterStage != nil {
-		if err := h.patchPackageAfterStage(); err != nil {
-			failure := operation.WrapFilesystem("patch_package_after_stage", "", err)
-			failure = h.joinPatchPackageStagingCleanup(failure, staged)
-			return errorResultFromError(failure), PatchPackageOutput{}, nil
-		}
-	}
-
 	if prepared.backupPolicy == editBackupPolicyRequired {
 		if h.backupBatchCapture == nil {
 			failure := operation.New(operation.KindConflict, "required package backup authority is unavailable")
@@ -186,7 +159,8 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 			}
 		}
 		for index := range prepared.targets {
-			if _, failure := h.revalidatePreparedPatchPackageTarget(ctx, &prepared.targets[index], "after package backup"); failure != nil {
+			current, failure := h.revalidatePreparedPatchPackageTarget(ctx, &prepared.targets[index], "after package backup")
+			if failure != nil {
 				if ctx.Err() != nil {
 					cancelled := operation.Wrap(operation.KindCancelled, "verify_package_after_backup", prepared.targets[index].resolvedPath, ctx.Err())
 					return h.patchPackageApplyFailure(prepared, output, index, cancelled, staged)
@@ -194,6 +168,34 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 				conflict := operation.New(operation.KindConflict, extractPatchPackageFailureMessage(failure))
 				return h.patchPackageApplyFailure(prepared, output, index, conflict, staged)
 			}
+			preflight[index].mode = current.Mode.Perm()
+		}
+	}
+
+	for index := range prepared.targets {
+		target := &prepared.targets[index]
+		if !target.prepared.changed {
+			continue
+		}
+		mode := preflight[index].mode
+		if isReadOnly(mode) {
+			mode |= 0200
+		}
+		replacement, stageErr := h.patchPackageStageReplacement(ctx, target.prepared.resolvedPath, target.prepared.data, mode)
+		if stageErr != nil {
+			if ctx.Err() != nil {
+				stageErr = operation.Wrap(operation.KindCancelled, "stage_patch_package", target.prepared.resolvedPath, ctx.Err())
+			}
+			stageErr = h.joinPatchPackageStagingCleanup(stageErr, staged)
+			return errorResultFromError(stageErr), PatchPackageOutput{}, nil
+		}
+		staged[index] = replacement
+	}
+	if h.patchPackageAfterStage != nil {
+		if err := h.patchPackageAfterStage(); err != nil {
+			failure := operation.WrapFilesystem("patch_package_after_stage", "", err)
+			failure = h.joinPatchPackageStagingCleanup(failure, staged)
+			return errorResultFromError(failure), PatchPackageOutput{}, nil
 		}
 	}
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R25 PLANNED DESIGN BASELINE.** This document records the approved foundation for source-symbol extraction and indexing. R25 is not active while R23 remains active unless maintainers explicitly reprioritize the roadmap.
+**APPROVED — R25 PLANNED DESIGN BASELINE.** This document records the approved foundation for source-symbol extraction and indexing. R25 remains planned and is not activated automatically by completion of an earlier milestone; roadmap ordering or explicit maintainer reprioritization governs activation.
 
 R25 establishes a language-neutral public model and provider architecture. Native Go parsing is the first reference implementation because the repository is Go and the standard library provides a high-quality parser without a new dependency. **Go is not the final product scope.** Broad multi-language coverage is a mandatory R27 outcome defined separately in [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md).
 

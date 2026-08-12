@@ -351,7 +351,7 @@ func TestHandleEditFileNoOpPreviewApplyLeavesBytesAndMetadataUnchanged(t *testin
 		t.Fatalf("unexpected no-op preview: %+v", preview)
 	}
 	result, applied, err := h.HandleEditFile(context.Background(), nil, EditFileInput{Action: "apply", PreviewID: preview.PreviewID})
-	if err != nil || result.IsError || !applied.Applied || applied.Changed {
+	if err != nil || result.IsError || applied.Applied || applied.Changed {
 		t.Fatalf("no-op apply result=%+v output=%+v err=%v", result, applied, err)
 	}
 	after, err := os.Stat(path)

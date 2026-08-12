@@ -165,8 +165,8 @@ func TestBuildServerWiresAndProtectsConfiguredBackupStore(t *testing.T) {
 		t.Fatalf("edit preview output=%+v", previewOutput)
 	}
 	editApply, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "edit_file",
-		Arguments: map[string]any{"action": "apply", "previewId": previewOutput.PreviewID},
+		Name:      "edit_file_apply",
+		Arguments: map[string]any{"previewId": previewOutput.PreviewID},
 	})
 	if err != nil || editApply.IsError {
 		t.Fatalf("edit apply result=%#v err=%v", editApply, err)
@@ -210,8 +210,8 @@ func TestBuildServerWiresAndProtectsConfiguredBackupStore(t *testing.T) {
 		t.Fatalf("restore preview output=%+v", restorePrepared)
 	}
 	restoreApply, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "backup_store",
-		Arguments: map[string]any{"action": "restoreApply", "previewId": restorePrepared.Restore.PreviewID},
+		Name:      "backup_restore_apply",
+		Arguments: map[string]any{"previewId": restorePrepared.Restore.PreviewID},
 	})
 	if err != nil || restoreApply.IsError {
 		t.Fatalf("restore apply result=%#v err=%v", restoreApply, err)

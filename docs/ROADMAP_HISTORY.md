@@ -1,6 +1,6 @@
 # Scripthold Engineering Milestone History
 
-This document records concise public outcomes for completed milestones R1–R22. It is history, not the active planning surface: current and future milestone state belongs in [ROADMAP.md](ROADMAP.md), release-by-release user-visible changes in [CHANGELOG.md](../CHANGELOG.md), and detailed subsystem contracts in the linked design documents.
+This document records concise public outcomes for completed milestones R1–R23. It is history, not the active planning surface: current and future milestone state belongs in [ROADMAP.md](ROADMAP.md), release-by-release user-visible changes in [CHANGELOG.md](../CHANGELOG.md), and detailed subsystem contracts in the linked design documents.
 
 The record intentionally excludes private workstation paths, connector state, process identifiers, local binaries, and operator handoff details.
 
@@ -93,6 +93,10 @@ Replaced request-bound execution with the five-tool durable task family document
 Expanded the authoritative registry to 168 canonical read/write encodings, promoted UTF-32 LE/BE to the full text pipeline, added verified pure-Go single-byte and multibyte/stateful codecs from pinned GNU libiconv evidence, hardened conservative detection, made grep/batch partial encoding failures explicit, and added a registry-driven public-operation matrix. Representative codec classes passed malformed-input, cancellation, limit, concurrency, fuzz, resource, race, static/vulnerability, native, container, and six-target release gates.
 
 Scripthold `2.2.0` was published on 2026-08-11 from the exact commit that passed the complete push-event release-candidate gate. GoReleaser produced the normal binaries/archives/checksum manifest; MCPB bundles, their checksum manifest, the final MCPB-backed Registry manifest, and Registry publication were produced only by the GitHub release workflows. The detailed completed contract remains in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md).
+
+## R23 — Truthful MCP mutation surface and backup UX
+
+Separated the five historical mixed preparation/review tools from six dedicated mutating apply tools, with every apply schema accepting only a one-shot `previewId`. Added exact-result binding for BOM and encoding conversion, operator-default persistent backup policy, backup history/comparison, and backup-before-staging ordering for package/restore safety paths. The source-side gate included a registry-driven mutation-integrity matrix across all 168 encodings, full normal/race/static/vulnerability checks, deterministic encoding fuzzing, and six-target compilation. Connector acceptance on 2026-08-12 confirmed the separated schemas and operationally verified side-effect-free edit preview, exact apply, replay rejection, and rejection of the removed direct-edit form. The completed contract remains in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the next-major caller migration is documented in [MIGRATION_3.0.md](MIGRATION_3.0.md).
 
 ## Historical verification boundary
 

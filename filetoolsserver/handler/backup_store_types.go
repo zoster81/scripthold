@@ -10,7 +10,9 @@ import (
 const (
 	BackupStoreActionStatus         = "status"
 	BackupStoreActionList           = "list"
+	BackupStoreActionHistory        = "history"
 	BackupStoreActionInspect        = "inspect"
+	BackupStoreActionCompare        = "compare"
 	BackupStoreActionAudit          = "audit"
 	BackupStoreActionRestorePreview = "restorePreview"
 	BackupStoreActionRestoreApply   = "restoreApply"
@@ -35,16 +37,17 @@ const (
 
 // BackupStoreInput selects one strict backup management or restore action.
 type BackupStoreInput struct {
-	Action     string `json:"action"`
-	Cursor     string `json:"cursor,omitempty"`
-	Limit      int    `json:"limit,omitempty"`
-	TargetPath string `json:"targetPath,omitempty"`
-	Pinned     *bool  `json:"pinned,omitempty"`
-	BackupID   string `json:"backupId,omitempty"`
-	PreviewID  string `json:"previewId,omitempty"`
-	AuditMode  string `json:"auditMode,omitempty"`
-	MaxObjects int    `json:"maxObjects,omitempty"`
-	MaxBytes   int64  `json:"maxBytes,omitempty"`
+	Action        string `json:"action"`
+	Cursor        string `json:"cursor,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+	TargetPath    string `json:"targetPath,omitempty"`
+	Pinned        *bool  `json:"pinned,omitempty"`
+	BackupID      string `json:"backupId,omitempty"`
+	OtherBackupID string `json:"otherBackupId,omitempty"`
+	PreviewID     string `json:"previewId,omitempty"`
+	AuditMode     string `json:"auditMode,omitempty"`
+	MaxObjects    int    `json:"maxObjects,omitempty"`
+	MaxBytes      int64  `json:"maxBytes,omitempty"`
 }
 
 // UnmarshalJSON rejects unknown fields and trailing JSON values.
@@ -73,6 +76,7 @@ type BackupStoreOutput struct {
 	Generation string                    `json:"generation,omitempty"`
 	NextCursor string                    `json:"nextCursor,omitempty"`
 	Manifest   *BackupStoreInspectOutput `json:"manifest,omitempty"`
+	Compare    *BackupStoreCompareOutput `json:"compare,omitempty"`
 	Audit      *BackupStoreAuditOutput   `json:"audit,omitempty"`
 	Restore    *BackupStoreRestoreOutput `json:"restore,omitempty"`
 	GC         *BackupStoreGCOutput      `json:"gc,omitempty"`
@@ -90,6 +94,7 @@ type BackupStoreLimitsOutput struct {
 
 type BackupStoreStatusOutput struct {
 	FormatVersion     string                  `json:"formatVersion"`
+	DefaultPolicy     string                  `json:"defaultPolicy"`
 	ManifestVersion   string                  `json:"manifestVersion"`
 	IndexVersion      string                  `json:"indexVersion"`
 	ObjectAlgorithm   string                  `json:"objectAlgorithm"`
@@ -133,6 +138,21 @@ type BackupStoreInspectOutput struct {
 	Pinned             bool                        `json:"pinned"`
 	ManifestChecksum   string                      `json:"manifestChecksum"`
 	ObjectVerified     bool                        `json:"objectVerified"`
+}
+
+type BackupStoreCompareOutput struct {
+	BackupID             string `json:"backupId"`
+	OtherBackupID        string `json:"otherBackupId,omitempty"`
+	TargetPath           string `json:"targetPath"`
+	BackupFingerprint    string `json:"backupFingerprint"`
+	OtherFingerprint     string `json:"otherFingerprint,omitempty"`
+	OtherKind            string `json:"otherKind"`
+	OtherExists          bool   `json:"otherExists"`
+	Equal                bool   `json:"equal"`
+	BackupObjectVerified bool   `json:"backupObjectVerified"`
+	OtherObjectVerified  bool   `json:"otherObjectVerified,omitempty"`
+	Diff                 string `json:"diff,omitempty"`
+	DiffAvailable        bool   `json:"diffAvailable"`
 }
 
 type BackupStoreRestoreOutput struct {

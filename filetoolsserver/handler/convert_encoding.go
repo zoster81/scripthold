@@ -37,6 +37,9 @@ func (reader *encodingOutputReader) Read(buffer []byte) (int, error) {
 	return read, err
 }
 
+// HandleConvertEncoding is retained only as a package-level compatibility bridge
+// for pre-R23 regression coverage. It is not registered as an MCP tool.
+// Deprecated: MCP callers use HandleConvertEncodingPreview and HandleConvertEncodingApply.
 func (h *Handler) HandleConvertEncoding(ctx context.Context, req *mcp.CallToolRequest, input ConvertEncodingInput) (*mcp.CallToolResult, ConvertEncodingOutput, error) {
 	if strings.TrimSpace(input.To) == "" {
 		return errorResult("target encoding (to) is required"), ConvertEncodingOutput{}, nil

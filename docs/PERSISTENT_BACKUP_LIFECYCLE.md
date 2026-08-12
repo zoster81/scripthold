@@ -2,13 +2,13 @@
 
 ## Status
 
-**COMPLETE.** The R17 lifecycle design was approved on 2026-08-04 and implemented/verified in R18 on 2026-08-05. This document is the authoritative current contract for the persistent backup subsystem. The approved active R23 work in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md) may revise the public backup UX and default-policy mechanism while preserving or explicitly reviewing the durability, store-boundary, restore-safety, quota, and GC guarantees defined here; until R23 is implemented, this document describes the current `2.2.0` behavior.
+**COMPLETE for the persistent-store lifecycle.** The R17 design was approved on 2026-08-04 and implemented/verified in R18 on 2026-08-05. This revision is aligned with the completed R23 public mutation surface while preserving the established durability, store-boundary, restore-safety, quota, and GC guarantees. R23 completed its connector acceptance gate on 2026-08-12; see [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md).
 
 This document defines the security boundary, storage format, capture transaction, public management surface, restore contract, garbage-collection model, limits, failure semantics, crash invariants, and verification requirements. Future changes must preserve or explicitly revise these guarantees through a reviewed design; milestone chronology belongs in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
 The implemented subsystem is disabled by default, uses a dedicated non-overlapping owner-only store with a lifetime writer lock, stores exact bytes as verified immutable content-addressed objects plus checksummed immutable manifests, treats its index as derived/rebuildable state, integrates persistent capture only through explicit approval-bound mutation policy, supports one-shot original-target restore with mandatory safety backup for existing targets, and performs garbage collection only through an explicit generation-bound dry-run/apply plan. Alternate restore destinations, mutable pinning, automatic rollback, background GC, and secure-deletion guarantees remain unavailable.
 
-The existing transactional `.bak` behavior of `convert_encoding` remains unchanged. `edit_file` and `patch_package` create persistent backups only when their approved preview/manifest explicitly binds `backupPolicy: "required"`; omitted policy, direct editing, and logical no-ops continue to create none.
+The adjacent transactional `.bak` behavior of `convert_encoding` remains separate from the persistent store. R23 applies persistent pre-state policy to approval-bound `edit_file`, `patch_package`, `manage_bom`, and `convert_encoding` capabilities: omitted request policy inherits `MCP_BACKUP_DEFAULT_POLICY`, an explicit `required` may strengthen it, callers cannot weaken an operator default of `required`, and logical no-ops create neither persistent nor adjacent backups.
 
 ## Goals
 
@@ -133,7 +133,7 @@ A manifest is the immutable source of truth for one captured target state. The i
 - store format and manifest version;
 - UTC creation time;
 - normalized original absolute target path;
-- source operation category such as edit, patch package, or restore;
+- source operation category such as edit, patch package, BOM management, encoding conversion, or restore;
 - object algorithm, digest, and byte size;
 - original `content-v1` fingerprint;
 - original regular-file mode and modification time where meaningful;
@@ -164,6 +164,7 @@ The approved defaults are:
 | Setting | Default | Purpose |
 |---|---:|---|
 | `MCP_BACKUP_STORE_DIR` | unset | Enables the dedicated internal store. |
+| `MCP_BACKUP_DEFAULT_POLICY` | `disabled` | Default persistent pre-state policy for approval-bound edit/package/BOM/encoding mutations; allowed values are `disabled` and `required`. |
 | `MCP_BACKUP_MAX_TOTAL_BYTES` | `1073741824` | Maximum retained unique object bytes. |
 | `MCP_BACKUP_MAX_OBJECT_BYTES` | `67108864` | Maximum bytes in one object. |
 | `MCP_BACKUP_MAX_MANIFESTS` | `10000` | Maximum live manifests. |
@@ -174,11 +175,11 @@ The approved defaults are:
 
 All values must be positive and overflow-safe. Configuration loading enforces hard maxima of 1 TiB total bytes, 1 GiB per object, 1,000,000 manifests, 10,000 versions per target, 100,000 pinned manifests, 3,650 retention days, and 86,400 seconds for plan lifetime; environment values above those maxima fall back to the documented defaults, while invalid direct internal store options fail closed. `MCP_MAX_OUTPUT_BYTES` bounds management, restore, GC, and mutation output, while `MCP_MAX_BATCH_FILES` bounds targets in one backup-integrated package operation.
 
-Total-byte, object-size, manifest-count, per-target-version, and immutable-pin limits are enforced through conservative process-local reservations. Configuration alone does not create backups; capture occurs only through approved required edit/package capabilities or the mandatory safety step of an approved restore. `MCP_BACKUP_RETENTION_DAYS` and the unpinned per-target version limit are evaluated only by explicit `gcDryRun`; `MCP_BACKUP_PLAN_TTL_SECONDS` bounds both restore and GC capabilities. No quota failure triggers implicit garbage collection.
+Total-byte, object-size, manifest-count, per-target-version, and immutable-pin limits are enforced through conservative process-local reservations. Configuration alone does not create backups; capture occurs only for changed approved edit/package/BOM/encoding capabilities whose effective policy is `required`, or through the mandatory safety step of an approved restore. `MCP_BACKUP_RETENTION_DAYS` and the unpinned per-target version limit are evaluated only by explicit `gcDryRun`; `MCP_BACKUP_PLAN_TTL_SECONDS` bounds both restore and GC capabilities. No quota failure triggers implicit garbage collection.
 
 ## Capture transaction
 
-The internal capture primitive implements the durable portion of this transaction. Approval-bound `edit_file` and `patch_package` integrations supply already normalized and authorized targets, and every required backup manifest is committed before the associated target mutation begins.
+The internal capture primitive implements the durable portion of this transaction. Approval-bound edit, patch-package, BOM, and encoding integrations supply already normalized and authorized targets, and every required backup manifest is committed and verified before target-adjacent staging or other associated target mutation begins.
 
 1. Validate the requested target through current allowed-root policy.
 2. Capture a bounded digest-bearing snapshot and stable identity.
@@ -205,55 +206,42 @@ If object or manifest persistence fails, the target mutation does not begin. A c
 
 ## Mutation integration
 
-Persistent backup behavior must be explicit and approval-bound.
+Persistent backup behavior is approval-bound and monotonic. `MCP_BACKUP_DEFAULT_POLICY` is `disabled` unless the operator configures `required`. Eligible preparation requests may omit `backupPolicy` to inherit that default or set exactly `required`; there is no request value that disables an operator-required policy. The effective policy is retained inside the one-shot capability, and every apply tool accepts only `previewId`.
 
 ### Edit preview/apply
 
-`edit_file` preview accepts the additive policy `backupPolicy: "required"` only in that exact form. The value is retained inside the one-shot preview capability; apply accepts only `previewId` and therefore cannot weaken, remove, or replace the approved policy.
-
-- Omitted policy preserves the no-persistent-backup behavior.
-- Required policy is valid only for preview and requires a configured store.
-- Preview validates availability and returns the retained policy without creating a backup.
-- Apply consumes the capability, revalidates path, identity, and fingerprints, preflights worst-case response size, then captures the exact approved pre-state before permission changes or target replacement.
-- Apply returns `backupId` only after durable manifest commit. A later mutation failure remains an error but preserves that identifier in structured output.
-- Capture failure, quota exhaustion, cancellation before capture, or manifest mismatch prevents mutation.
-- Logical no-ops create no backup because no target mutation follows.
-- Direct editing remains unchanged and rejects `backupPolicy`.
+`edit_file` is read-only and accepts only `action=preview`; historical direct mutation and in-tool apply are removed from the MCP surface. Preview prepares exact bytes/fingerprints and, when a changed result has effective policy `required`, performs only read-only backup admission preflight. A no-op needs no store. `edit_file_apply` consumes the capability, revalidates identity/fingerprints, durably captures and verifies the exact approved pre-state before permission changes or target replacement, revalidates again, then commits the retained bytes. A durable `backupId` remains valid if a later mutation step fails; no automatic rollback is claimed.
 
 ### Patch packages
 
-`patch-package-v1` supports the same exact manifest-level `backupPolicy: "required"` policy.
+`patch_package` keeps read-only `inspect`, `dryRun`, and `verify`. `dryRun` binds the effective persistent policy and performs side-effect-free aggregate backup admission for changed targets. `patch_package_apply` accepts only `previewId`, revalidates all targets, durably captures/verifies all required changed pre-states, revalidates the package again, and **only then** creates target-adjacent staging. No target commit may begin until every required changed pre-state has a verified manifest. Incomplete capture produces no target staging/commit; any already durable backup prefix remains valid and is reported. Later per-file commit failure may still produce `PARTIAL_COMMIT`; backups do not make a package transactionally atomic.
 
-- Inspect validates the exact policy value without requiring a configured store.
-- Dry run requires package capture authority, prepares the exact changed set, and performs a side-effect-free conservative aggregate quota preflight without creating objects or manifests.
-- The retained one-shot capability binds the policy; apply still accepts only `previewId`.
-- Apply stages every changed output, atomically reserves the complete package backup budget, and captures changed pre-states in manifest order.
-- Every returned manifest is verified against its expected backup ID shape, normalized target path, `patch_package` source operation, and approved pre-state fingerprint.
-- All package targets are revalidated after capture. The first target commit cannot begin until every changed target has a verified durable manifest.
-- If capture is incomplete, no server target mutation begins. Any already durable prefix remains valid and its per-target `backupId` is returned.
-- A derived-index-only error does not invalidate complete authoritative manifests; apply may continue after all results are verified.
-- Package commit remains per-file and may still return `PARTIAL_COMMIT`; all durable IDs remain in structured output, but backups do not make multi-file replacement atomic.
-- Logical no-op targets receive no backup. Automatic rollback remains out of scope.
+### BOM and encoding mutations
 
-### Existing `.bak` conversion behavior
+`manage_bom` `addPreview`/`stripPreview` and `convert_encoding dryRun=true` retain exact result bytes, stable target identities, pre/result fingerprints, and the effective backup policy in a bounded one-shot capability. Changed previews with required policy perform read-only store admission; no-op previews require no store. `manage_bom_apply` and `convert_encoding_apply` capture required persistent pre-states before replacement and verify final fingerprints. Encoding batches capture all required persistent backups before the first file write, then commit sequentially with explicit partial-commit evidence rather than rollback claims.
 
-`convert_encoding.backup=true` continues to use its existing adjacent transactional `.bak` contract. It is not silently redirected into the persistent store. Any future migration must be a separate public API decision with compatibility tests.
+### Adjacent `.bak` conversion behavior
 
+`convert_encoding.backup=true` remains a separate adjacent `.bak` request bound inside the conversion capability. Preview creates no `.bak`; apply creates/replaces it only for a changed target through the existing single-file transactional backup path. Persistent-store policy is independent. A no-op creates neither backup form. Any future unification would require a separate reviewed API decision.
 ## Public management surface
 
-The always-registered `backup_store` tool exposes a strict action union:
+The always-registered `backup_store` tool is now strictly read-only and exposes:
 
-- `status`: no additional fields; when disabled it returns `enabled: false`, and when configured it returns redacted version, health, generation, quota, counts, residue, and bounded path-free issues;
-- `list`: optional `cursor`, `limit`, `targetPath`, and `pinned`; pages are newest-first, limited to 100 records, filtered through current root authorization, and use an authenticated keyset cursor bound to filters, the allowed/protected-root policy snapshot, and store generation; target visibility is revalidated on every page;
-- `inspect`: required `backupId`; it validates the manifest, verifies current target authorization, and fully hashes the referenced object before returning metadata without bytes;
-- `audit`: optional `auditMode=quick|full`, `maxObjects`, and `maxBytes`; requested bounds cannot exceed configured store limits, and the operation never repairs or deletes data;
-- `restorePreview`: required `backupId`; it verifies and retains one manifest/object identity, authorizes only the original target, captures current or missing target state, preflights the mandatory existing-target safety backup, and returns a bounded expiring capability without mutation;
-- `restoreApply`: required `previewId`; it consumes the capability, revalidates source and target state, stages exact object bytes, captures an existing target durably before any permission change or replacement, and commits with optimistic replace or missing-target no-replace;
-- `gcDryRun`: no additional fields; it performs an authoritative bounded scan, rejects active capture reservations, computes the exact generation-bound candidate plan at one fixed UTC policy time, stores it in a separate bounded one-shot capability cache, and returns candidate IDs/digests/reasons/counts without target paths or mutation;
-- `gcApply`: required `previewId`; it consumes the capability, blocks new capture reservations, reconstructs and compares the complete plan, removes manifests before fully verified zero-reference objects, refreshes the derived index after durable progress, and reports cleanup residue or partial state without rollback.
+- `status`: no additional fields; reports disabled/ready/degraded state, configured limits/counts/issues, and the operator `defaultPolicy` even when no store directory is configured;
+- `list`: optional authenticated pagination/filter fields with current-root visibility revalidation;
+- `history`: requires an authorized `targetPath` and returns only paged versions for that target;
+- `inspect`: requires `backupId`, authorizes the manifest target, and fully verifies the referenced object without returning object bytes;
+- `compare`: requires `backupId` and optionally `otherBackupId`; compares verified backup/current state or two versions of the same authorized target, always returning fingerprint/equality evidence and adding a bounded text diff only when safe;
+- `audit`: bounded `quick|full` verification only;
+- `restorePreview`: verifies and retains immutable source evidence, captures current/missing target state, and read-only preflights the mandatory existing-target safety backup without staging or mutation;
+- `gcDryRun`: computes and retains one deterministic generation-bound candidate plan without store mutation.
 
-The tool never accepts a store path, object path, executable, shell command, alternate restore destination, caller-selected restore bytes, mutable pin instruction, caller-selected GC policy, or raw deletion instruction. Unknown fields and cross-action parameters are rejected. Every response remains within `MCP_MAX_OUTPUT_BYTES`.
+Mutation is physically separate:
 
+- `backup_restore_apply` accepts only `previewId`. It consumes/revalidates the restore capability; for an existing target it durably captures/verifies the mandatory safety backup and revalidates the target **before restore staging is created**, then commits with optimistic replace. Missing targets use no-replace creation and no safety backup.
+- `backup_gc_apply` accepts only `previewId`. It consumes the plan, blocks capture reservations, reconstructs/compares complete generation/pin/reference evidence, then removes manifests before fully verified zero-reference objects and refreshes derived state after durable progress.
+
+No backup tool accepts a store path, object path, alternate restore destination, caller-selected restore bytes, mutable pin instruction, caller-selected GC policy, or raw deletion instruction. Apply tools accept no path/content/policy override. Every response remains within `MCP_MAX_OUTPUT_BYTES`.
 ## Listing and review
 
 - Results are ordered newest-first by creation time and backup ID.
@@ -286,11 +274,11 @@ The initial restore destination is the manifest's original target only. Alternat
 
 ### Restore apply
 
-`restoreApply` accepts only the preview ID.
+`backup_restore_apply` accepts only the preview ID.
 
 - The preview is atomically consumed before validation; every outcome is terminal.
 - The object, manifest, target path, target identity, and current fingerprint are revalidated.
-- If the target exists, its exact current state is captured as a new durable backup before replacement. This safety backup is mandatory and cannot be disabled initially.
+- If the target exists, its exact current state is captured and verified as a new durable backup before any target-adjacent restore staging. This safety backup is mandatory and cannot be disabled.
 - If that safety backup cannot be admitted or persisted, restore does not mutate the target.
 - Restored bytes are staged through the durable mutation layer.
 - Existing targets use optimistic replacement; missing targets use no-replace creation.
@@ -322,7 +310,7 @@ Objects become eligible only when their post-manifest reference count is zero. E
 
 ### GC apply
 
-`gcApply` consumes only the preview ID and revalidates the complete plan at its original policy timestamp.
+`backup_gc_apply` consumes only the preview ID and revalidates the complete plan at its original policy timestamp.
 
 - Apply holds the store transaction boundary and sets a GC-active gate that rejects new single and batch capture reservations.
 - Any active reservation, new active restore reference, changed generation, changed manifest, changed pin state, changed object evidence, or changed reference count fails before deletion with `CONFLICT` or a typed integrity error.

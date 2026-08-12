@@ -44,7 +44,7 @@ func validateCaptureRequest(request CaptureRequest) (CaptureRequest, error) {
 	}
 	request.TargetPath = clean
 	switch request.SourceOperation {
-	case SourceOperationEdit, SourceOperationPatchPackage, SourceOperationRestore:
+	case SourceOperationEdit, SourceOperationPatchPackage, SourceOperationRestore, SourceOperationManageBOM, SourceOperationConvertEncoding:
 	default:
 		return CaptureRequest{}, operation.New(operation.KindInvalidInput, "backup source operation is invalid")
 	}
@@ -78,7 +78,7 @@ func validateManifest(manifest Manifest, descriptor Descriptor) error {
 		return operation.New(operation.KindInvalidInput, "backup manifest target path is invalid")
 	}
 	switch manifest.SourceOperation {
-	case SourceOperationEdit, SourceOperationPatchPackage, SourceOperationRestore:
+	case SourceOperationEdit, SourceOperationPatchPackage, SourceOperationRestore, SourceOperationManageBOM, SourceOperationConvertEncoding:
 	default:
 		return operation.New(operation.KindInvalidInput, "backup manifest source operation is invalid")
 	}

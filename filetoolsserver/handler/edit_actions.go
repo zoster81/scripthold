@@ -28,6 +28,20 @@ func normalizeEditBackupPolicy(value string) (string, error) {
 	return "", operation.New(operation.KindInvalidInput, "backupPolicy must be exactly required when provided")
 }
 
+func (h *Handler) effectivePersistentBackupPolicy(requested string) (string, error) {
+	requested, err := normalizeEditBackupPolicy(requested)
+	if err != nil {
+		return "", err
+	}
+	if requested == editBackupPolicyRequired {
+		return editBackupPolicyRequired, nil
+	}
+	if h != nil && h.config != nil && h.config.Backup.DefaultPolicy == "required" {
+		return editBackupPolicyRequired, nil
+	}
+	return "", nil
+}
+
 func validateEditActionInput(input EditFileInput) (string, error) {
 	backupPolicy, err := normalizeEditBackupPolicy(input.BackupPolicy)
 	if err != nil {
@@ -67,7 +81,7 @@ func validateEditActionInput(input EditFileInput) (string, error) {
 }
 
 func (h *Handler) prepareEdit(ctx context.Context, input EditFileInput) (preparedEdit, *mcp.CallToolResult) {
-	backupPolicy, err := normalizeEditBackupPolicy(input.BackupPolicy)
+	backupPolicy, err := h.effectivePersistentBackupPolicy(input.BackupPolicy)
 	if err != nil {
 		return preparedEdit{}, errorResultFromError(err)
 	}
@@ -202,14 +216,32 @@ func (h *Handler) handleDirectEdit(ctx context.Context, input EditFileInput) (*m
 }
 
 func (h *Handler) handleEditPreview(ctx context.Context, input EditFileInput) (*mcp.CallToolResult, EditFileOutput, error) {
-	backupPolicy, _ := normalizeEditBackupPolicy(input.BackupPolicy)
-	if backupPolicy == editBackupPolicyRequired && h.backupCapture == nil {
-		err := operation.New(operation.KindInvalidInput, "backup store is not configured")
+	backupPolicy, err := h.effectivePersistentBackupPolicy(input.BackupPolicy)
+	if err != nil {
 		return errorResultFromError(err), EditFileOutput{}, nil
 	}
 	prepared, failure := h.prepareEdit(ctx, input)
 	if failure != nil {
 		return failure, EditFileOutput{}, nil
+	}
+	if prepared.changed && backupPolicy == editBackupPolicyRequired {
+		if h.backupCapturePreflight == nil {
+			if prepared.identityFile != nil {
+				_ = prepared.identityFile.Close()
+				prepared.identityFile = nil
+			}
+			return errorResultFromError(operation.New(operation.KindInvalidInput, "required backup preflight authority is unavailable")), EditFileOutput{}, nil
+		}
+		if err := h.backupCapturePreflight.PreflightCaptureBatch(ctx, []backupstore.CaptureRequest{{
+			TargetPath:      prepared.resolvedPath,
+			SourceOperation: backupstore.SourceOperationEdit,
+		}}); err != nil {
+			if prepared.identityFile != nil {
+				_ = prepared.identityFile.Close()
+				prepared.identityFile = nil
+			}
+			return errorResultFromError(err), EditFileOutput{}, nil
+		}
 	}
 	preview, err := h.editPreviews.put(prepared)
 	if err != nil {
@@ -346,7 +378,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	}
 	output.ReadOnlyCleared = readOnlyCleared
 	output.ResultFingerprint = actualFingerprint
-	output.Applied = true
+	output.Applied = prepared.changed
 	text := editApplyText(output)
 	if readOnlyCleared {
 		text += "\nRead-only flag was cleared."

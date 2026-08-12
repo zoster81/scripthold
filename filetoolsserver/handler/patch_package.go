@@ -38,8 +38,9 @@ type validatedPatchPackageTarget struct {
 	info                      os.FileInfo
 }
 
-// HandlePatchPackage validates, prepares, applies, or verifies a bounded
-// multi-file edit package.
+// HandlePatchPackage is retained only as a package-level compatibility bridge
+// for pre-R23 regression coverage. It is not registered as an MCP tool.
+// Deprecated: MCP callers use HandlePatchPackageRead and HandlePatchPackageApply.
 func (h *Handler) HandlePatchPackage(ctx context.Context, _ *mcp.CallToolRequest, input PatchPackageInput) (*mcp.CallToolResult, PatchPackageOutput, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -76,10 +77,11 @@ func (h *Handler) handlePatchPackageInspect(manifest PatchPackageManifest, targe
 }
 
 func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPackageManifest, targets []validatedPatchPackageTarget) (*mcp.CallToolResult, PatchPackageOutput, error) {
-	if manifest.BackupPolicy == editBackupPolicyRequired && h.backupBatchCapture == nil {
-		err := operation.New(operation.KindInvalidInput, "backup store does not provide package capture authority")
+	effectiveBackupPolicy, err := h.effectivePersistentBackupPolicy(manifest.BackupPolicy)
+	if err != nil {
 		return errorResultFromError(err), PatchPackageOutput{}, nil
 	}
+	manifest.BackupPolicy = effectiveBackupPolicy
 	identities, err := openPatchPackageIdentities(targets)
 	if err != nil {
 		return errorResultFromError(err), PatchPackageOutput{}, nil
@@ -176,7 +178,10 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 	if manifest.BackupPolicy == editBackupPolicyRequired {
 		requests := patchPackageCaptureRequests(manifest.Label, preparedTargets)
 		if len(requests) > 0 {
-			if err := h.backupBatchCapture.PreflightCaptureBatch(ctx, requests); err != nil {
+			if h.backupCapturePreflight == nil {
+				return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide package backup preflight authority")), PatchPackageOutput{}, nil
+			}
+			if err := h.backupCapturePreflight.PreflightCaptureBatch(ctx, requests); err != nil {
 				return errorResultFromError(err), PatchPackageOutput{}, nil
 			}
 		}

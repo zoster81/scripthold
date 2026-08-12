@@ -147,12 +147,12 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	addTool(server, catalogTool("verify_state"), handler.Wrap(logger, "verify_state", h.HandleVerifyState))
 
-	addTool(server, catalogTool("backup_store"), handler.Wrap(logger, "backup_store", h.HandleBackupStore))
+	addTool(server, catalogTool("backup_store"), handler.Wrap(logger, "backup_store", h.HandleBackupStoreRead))
 
 	addTool(server, catalogTool("detect_line_endings"), handler.Wrap(logger, "detect_line_endings", h.HandleDetectLineEndings))
 
 	// Write tools
-	addTool(server, catalogTool("manage_bom"), handler.Wrap(logger, "manage_bom", h.HandleManageBom))
+	addTool(server, catalogTool("manage_bom"), handler.Wrap(logger, "manage_bom", h.HandleManageBOMRead))
 
 	addTool(server, catalogTool("change_line_endings"), handler.Wrap(logger, "change_line_endings", h.HandleChangeLineEndings))
 
@@ -166,12 +166,19 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	addTool(server, catalogTool("delete_file"), handler.Wrap(logger, "delete_file", h.HandleDeleteFile))
 
-	// edit_file returns readable text plus structured preview/apply metadata.
-	addTool(server, catalogTool("edit_file"), handler.Wrap(logger, "edit_file", h.HandleEditFile))
+	addTool(server, catalogTool("edit_file"), handler.Wrap(logger, "edit_file", h.HandleEditFilePreview))
 
-	addTool(server, catalogTool("patch_package"), handler.Wrap(logger, "patch_package", h.HandlePatchPackage))
+	addTool(server, catalogTool("patch_package"), handler.Wrap(logger, "patch_package", h.HandlePatchPackageRead))
 
-	addTool(server, catalogTool("convert_encoding"), handler.Wrap(logger, "convert_encoding", h.HandleConvertEncoding))
+	addTool(server, catalogTool("convert_encoding"), handler.Wrap(logger, "convert_encoding", h.HandleConvertEncodingPreview))
+
+	// Approval-bound apply tools accept only previewId.
+	addTool(server, catalogTool("edit_file_apply"), handler.Wrap(logger, "edit_file_apply", h.HandleEditFileApply))
+	addTool(server, catalogTool("patch_package_apply"), handler.Wrap(logger, "patch_package_apply", h.HandlePatchPackageApply))
+	addTool(server, catalogTool("backup_restore_apply"), handler.Wrap(logger, "backup_restore_apply", h.HandleBackupRestoreApply))
+	addTool(server, catalogTool("backup_gc_apply"), handler.Wrap(logger, "backup_gc_apply", h.HandleBackupGCApply))
+	addTool(server, catalogTool("manage_bom_apply"), handler.Wrap(logger, "manage_bom_apply", h.HandleManageBOMApply))
+	addTool(server, catalogTool("convert_encoding_apply"), handler.Wrap(logger, "convert_encoding_apply", h.HandleConvertEncodingApply))
 
 	// Durable asynchronous execution. The MCP call only admits, observes, or
 	// cancels work; a separate worker/helper topology owns process lifetime.

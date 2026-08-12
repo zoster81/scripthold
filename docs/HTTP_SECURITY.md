@@ -67,7 +67,7 @@ MCP client
     -> bearer authentication
     -> rate, concurrency, body, and session admission
     -> MCP Streamable HTTP handler
-    -> shared MCP server and 30 tools
+    -> shared MCP server and authoritative tool catalog
     -> allowed-root and execution policy
     -> local filesystem and operating system
 ```

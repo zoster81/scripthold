@@ -23,7 +23,10 @@ type backupVisibilitySnapshot struct {
 	scope              string
 }
 
-// HandleBackupStore exposes bounded management actions and approval-bound restore.
+// HandleBackupStore is retained only as a package-level compatibility bridge
+// for pre-R23 management/restore/GC regression coverage. It is not registered
+// as an MCP tool.
+// Deprecated: MCP callers use HandleBackupStoreRead plus dedicated apply handlers.
 func (h *Handler) HandleBackupStore(ctx context.Context, _ *mcp.CallToolRequest, input BackupStoreInput) (*mcp.CallToolResult, BackupStoreOutput, error) {
 	if err := validateBackupStoreInput(input); err != nil {
 		return errorResultFromError(err), BackupStoreOutput{}, nil
@@ -52,11 +55,15 @@ func (h *Handler) HandleBackupStore(ctx context.Context, _ *mcp.CallToolRequest,
 		if !status.Healthy {
 			state = BackupStoreStateDegraded
 		}
+		mappedStatus := mapBackupStoreStatus(status)
+		if h.config != nil {
+			mappedStatus.DefaultPolicy = h.config.Backup.DefaultPolicy
+		}
 		output := BackupStoreOutput{
 			Action:  input.Action,
 			Enabled: true,
 			State:   state,
-			Status:  mapBackupStoreStatus(status),
+			Status:  mappedStatus,
 		}
 		return h.finishBackupStoreOutput(output, fmt.Sprintf("Backup store status: %s.", state))
 

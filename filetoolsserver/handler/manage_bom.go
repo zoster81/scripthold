@@ -43,8 +43,9 @@ func detectBOMPrefix(session *filesystem.ReadSession) (fileEncoding.DetectionRes
 	return result, found, nil
 }
 
-// HandleManageBom detects or mutates Unicode BOMs through bounded prefix and
-// staged-copy operations.
+// HandleManageBom is retained only as a package-level compatibility bridge for
+// pre-R23 regression coverage. It is not registered as an MCP tool.
+// Deprecated: MCP callers use HandleManageBOMRead and HandleManageBOMApply.
 func (h *Handler) HandleManageBom(ctx context.Context, req *mcp.CallToolRequest, input ManageBomInput) (*mcp.CallToolResult, ManageBomOutput, error) {
 	validated := h.ValidatePath(input.Path)
 	if !validated.Ok() {

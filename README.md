@@ -15,7 +15,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 Scripthold detects encodings from bytes and decoded-text evidence rather than filenames, presents text to the MCP client as UTF-8, and preserves or deliberately converts encoding, BOM, and line endings through bounded-memory and durable filesystem operations.
 
-- **30 tools and 3 guided prompts** over one authoritative catalog.
+- **36 tools and 3 guided prompts** over one authoritative catalog in the current source tree; the public `2.2.0` release exposes 30 tools.
 - **168 registered encodings**, including UTF-32 LE/BE and broad portable legacy coverage; automatic detection remains intentionally more conservative than explicit codec support.
 - **Secure filesystem boundaries** with resolved-root containment, deterministic traversal, Windows reparse/junction handling, staged mutation, conflict detection, and no-replace creation.
 - **Verified change workflows** with deterministic fingerprints, one-shot edit approval, strict patch packages, persistent backup integration, and typed verification.
@@ -30,7 +30,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 **Scripthold `2.2.0`** is the current public release. It exposes 30 tools, 3 guided prompts, and 168 registered encodings. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add the six MCPB bundles, `mcpb-checksums.txt`, and the MCP Registry publication for `io.github.zoster81/scripthold`.
 
-R22 completed the global encoding expansion and full UTF-32 pipeline. **R23 is the active development milestone**, redesigning mixed read/write MCP surfaces into truthful read-only preparation and mutation boundaries while preserving one-shot preview/apply and improving backup history/usability; current `2.2.0` tool behavior remains documented in [TOOLS.md](TOOLS.md). Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the approved R23 design in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
+R22 completed the global encoding expansion and full UTF-32 pipeline. **R23 completed on 2026-08-12**. The current source tree and [TOOLS.md](TOOLS.md) document the Unreleased next-major R23 surface with truthful read-only preparation/review tools and separate mutation applies; `2.2.0` remains the current public release until an explicitly authorized later release is published. R24-R27 remain planned and no later milestone becomes active automatically. Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the completed R23 contract in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
 
 ## Transport and authorization model
 
@@ -52,8 +52,10 @@ MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stat
 - [`read_text_file`](TOOLS.md#read_text_file) — stream decoded text with bounded output and optional line numbers.
 - [`read_multiple_files`](TOOLS.md#read_multiple_files) — deterministic bounded batch reads with per-file status.
 - [`write_whole_file`](TOOLS.md#write_whole_file) — replace complete file contents through the shared encoder.
-- [`edit_file`](TOOLS.md#edit_file) — direct edits or one-shot preview/apply with exact/flexible/fuzzy/patch modes.
-- [`patch_package`](TOOLS.md#patch_package) — inspect, dry-run, apply, and verify declared multi-file edits.
+- [`edit_file`](TOOLS.md#edit_file) — read-only exact edit preview with approval fingerprints and a one-shot capability.
+- [`edit_file_apply`](TOOLS.md#edit_file_apply) — apply only the exact prepared edit identified by `previewId`.
+- [`patch_package`](TOOLS.md#patch_package) — read-only inspect/dry-run/verify for declared multi-file edits.
+- [`patch_package_apply`](TOOLS.md#patch_package_apply) — apply only a prepared patch-package capability.
 - [`list_directory`](TOOLS.md#list_directory) — list directory entries with filtering and deterministic sorting.
 - [`tree`](TOOLS.md#tree) — compact `.gitignore`-aware deterministic tree output.
 - [`get_file_info`](TOOLS.md#get_file_info) — read file or directory metadata.
@@ -64,20 +66,22 @@ MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stat
 - [`search_files`](TOOLS.md#search_files) — bounded `.gitignore`-aware glob search.
 - [`fingerprint_paths`](TOOLS.md#fingerprint_paths) — deterministic SHA-256 state fingerprints.
 - [`verify_state`](TOOLS.md#verify_state) — bounded typed JSON/text/Git-diff/fingerprint checks.
-- [`backup_store`](TOOLS.md#backup_store) — status, review, audit, restore, and explicit garbage collection for the optional persistent store.
+- [`backup_store`](TOOLS.md#backup_store) — read-only status/history/compare/audit plus restore/GC preparation for the optional persistent store.
+- [`backup_restore_apply`](TOOLS.md#backup_restore_apply) — apply one prepared original-target restore.
+- [`backup_gc_apply`](TOOLS.md#backup_gc_apply) — apply one prepared generation-bound backup GC plan.
 - [`grep_text_files`](TOOLS.md#grep_text_files) — paged regex search with deterministic partial-coverage reporting.
-
 ### Encoding and service tools
 
 - [`detect_encoding`](TOOLS.md#detect_encoding) — conservative encoding detection with confidence or explicit ambiguity.
-- [`convert_encoding`](TOOLS.md#convert_encoding) — single/batch conversion with dry run and durable writes.
+- [`convert_encoding`](TOOLS.md#convert_encoding) — read-only exact single/batch conversion preview.
+- [`convert_encoding_apply`](TOOLS.md#convert_encoding_apply) — apply a prepared exact conversion by `previewId`.
 - [`detect_line_endings`](TOOLS.md#detect_line_endings) — bounded LF/CRLF/mixed analysis.
 - [`change_line_endings`](TOOLS.md#change_line_endings) — line-ending conversion while preserving encoding/BOM semantics.
-- [`manage_bom`](TOOLS.md#manage_bom) — inspect, add, or remove supported BOMs.
+- [`manage_bom`](TOOLS.md#manage_bom) — detect BOM state or prepare an exact add/strip change.
+- [`manage_bom_apply`](TOOLS.md#manage_bom_apply) — apply one prepared BOM mutation by `previewId`.
 - [`list_encodings`](TOOLS.md#list_encodings) — authoritative runtime encoding inventory.
 - [`list_allowed_directories`](TOOLS.md#list_allowed_directories) — report process-authorized roots.
 - [`check_for_updates`](TOOLS.md#check_for_updates) — notification-only fork release check.
-
 ### Durable task execution
 
 - [`task_run`](TOOLS.md#task_run) — durably enqueue idempotent shell or script work.
@@ -226,6 +230,7 @@ The most important process-wide variables are summarized below. Subsystem docume
 | `MCP_HTTP_SESSION_TIMEOUT` | Legacy stateful session idle timeout. | `15m` |
 | `MCP_HTTP_ENABLE_EXECUTION` | Additional HTTP-only execution gate. | disabled |
 | `MCP_BACKUP_STORE_DIR` | Enables the dedicated persistent backup store. | unset |
+| `MCP_BACKUP_DEFAULT_POLICY` | Default persistent pre-state policy for approval-bound edit/package/BOM/encoding mutations: `disabled` or `required`. | `disabled` |
 | `MCP_TASK_STORE_DIR` | Enables the owner-only durable task registry. | unset |
 | `MCP_ENABLE_RUN_SCRIPT` | Authorizes `task_run kind=script`. | disabled |
 | `MCP_ENABLE_SHELL` | Authorizes unrestricted `task_run kind=shell`. | disabled |
@@ -246,7 +251,7 @@ Example:
 
 ```text
 User: Read config.ini and change the title to "Настройки".
-Assistant: read_text_file (cp1251) -> edit_file/write_whole_file preserving cp1251
+Assistant: read_text_file (cp1251) -> edit_file preview preserving cp1251 -> explicit approval -> edit_file_apply(previewId)
 ```
 
 ## Development and contribution
@@ -260,7 +265,7 @@ go build -o scripthold ./cmd/scripthold
 
 Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents should read the root [AGENTS.md](AGENTS.md) and the nearest scoped guide. Reusable verification is in [docs/DEVELOPMENT_CHECKLIST.md](docs/DEVELOPMENT_CHECKLIST.md), current planning in [docs/ROADMAP.md](docs/ROADMAP.md), and publication in [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
-The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md).
+The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Unreleased R23 next-major MCP surface migration is documented separately in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md).
 
 ## License
 
