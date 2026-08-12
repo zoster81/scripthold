@@ -222,6 +222,7 @@ const (
 	ErrCodeEncodingAmbiguous = "ENCODING_AMBIGUOUS"
 	ErrCodeConflict          = "CONFLICT"
 	ErrCodePartialCommit     = "PARTIAL_COMMIT"
+	ErrCodeUnsupported       = "UNSUPPORTED"
 	ErrCodeCancelled         = "CANCELLED"
 	ErrCodeLimit             = "LIMIT"
 	ErrCodeIO                = "IO_ERROR"

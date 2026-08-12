@@ -8,17 +8,23 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Added
 
+- Added R24 read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`, with strict `filesystem-package-v1` support for `mkdir`, raw-byte `createFile`, `copyFile`, exact recursive `copyDirectory`, native same-volume `move`, `deleteFile`, and exact recursive `deleteDirectory`.
+- Added dedicated bounded R24 package, recursive-scope, staging, retained-preview, and lifetime limits plus stable `UNSUPPORTED` errors for filesystem behavior that cannot be implemented without weakening the v1 contract.
 - Added R23 read-only backup history and verified backup/current or same-target backup/backup comparison, including bounded text diffs when safe and fingerprint-only evidence for binary or oversized content.
 - Added operator-configurable `MCP_BACKUP_DEFAULT_POLICY=disabled|required` plus bounded exact-byte BOM/encoding capability caches controlled by `MCP_MAX_BYTE_MUTATION_PREVIEWS`, `MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES`, and `MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS`.
 - Added registry-driven R23 mutation-surface integrity coverage across all 168 encodings, asserting preview/no-op byte identity, exact-result fingerprints, edit/package/conversion applies, BOM capability paths, CRLF conversion, UTF-8 round trips, and non-mutating unrepresentable-output failures.
 
 ### Changed
 
+- Replaced the four overlapping public `create_directory`, `copy_file`, `move_file`, and `delete_file` tools with the two R24 package tools, reducing the Unreleased next-major catalog from 36 to 34 tools without compatibility aliases or duplicate namespace mutation models.
+- Made R24 namespace mutations no-replace and approval-bound: exact recursive scopes are fully retained/revalidated, destructive regular-file bytes require verified persistent backup before deletion, feasible creation/copy content is staged before the first target commit, cross-volume moves are not emulated, and failures after durable progress expose bounded `PARTIAL_COMMIT` state without automatic rollback claims.
+- Hardened R24 package admission and failure reporting by enforcing actual raw JSON manifest-byte limits, canonical standard Base64 for `createFile`, deterministic cleanup-residue ordering, and worst-case preview/apply response budgets before capability creation.
 - Split the five mixed MCP mutation surfaces into truthful read-only preparation/review tools (`edit_file`, `patch_package`, `backup_store`, `manage_bom`, `convert_encoding`) and six dedicated mutating apply tools (`edit_file_apply`, `patch_package_apply`, `backup_restore_apply`, `backup_gc_apply`, `manage_bom_apply`, `convert_encoding_apply`). Every apply schema accepts only a one-shot `previewId`; the historical direct `edit_file`, in-tool package/restore/GC apply, direct BOM mutation, and `convert_encoding dryRun=false` request forms are intentionally removed.
 - Made edit/package/BOM/encoding required-backup policy monotonic: callers may inherit or strengthen the operator default but cannot weaken `required`; logical no-ops perform no backup or write, while changed previews fail before mutation when required backup admission is unavailable.
 - Made package and restore ordering fail closed by completing required durable backup capture and post-backup revalidation before any target-adjacent staging. Multi-file apply still reports explicit partial-commit evidence and does not claim automatic rollback.
 - Made BOM and encoding approval capabilities retain exact result bytes with stable identity/fingerprint binding, bounded lifetime/memory, cross-kind rejection, replay prevention, and final post-commit fingerprint verification. Adjacent conversion `.bak` remains separate from persistent-store backup policy.
-- Expanded the runtime catalog from 30 to 36 tools while keeping its serialized discovery payload within the existing conservative connector budget.
+- Expanded the runtime catalog from 30 to 36 tools for R23 while keeping its serialized discovery payload within the existing conservative connector budget; R24 subsequently replaces four simple namespace mutation entries with two package entries for a 34-tool Unreleased source surface.
+
 ## 2.2.0 - 2026-08-11
 
 ### Added

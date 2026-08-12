@@ -12,6 +12,7 @@ import (
 	"github.com/zoster81/scripthold/internal/config"
 	"github.com/zoster81/scripthold/internal/execution"
 	"github.com/zoster81/scripthold/internal/filesystem"
+	"github.com/zoster81/scripthold/internal/filesystempackage"
 	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/security"
 	"github.com/zoster81/scripthold/internal/taskstore"
@@ -108,6 +109,8 @@ type Handler struct {
 	gcPreviews                     *gcPreviewStore
 	patchPackagePreviews           *patchPackagePreviewStore
 	byteMutationPreviews           *byteMutationPreviewStore
+	filesystemPackageEngine        *filesystempackage.Engine
+	filesystemPackageInitErr       error
 	patchPackageStageReplacement   func(context.Context, string, []byte, os.FileMode) (*filesystem.StagedReplacement, error)
 	patchPackageCommitReplacement  func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error)
 	patchPackageCleanupReplacement func(*filesystem.StagedReplacement) error
@@ -301,6 +304,7 @@ func NewHandler(allowedDirs []string, opts ...Option) *Handler {
 	h.restoreCleanupReplacement = func(staged *filesystem.StagedReplacement) error { return staged.Cleanup() }
 	h.verifyGitExecutable = findVerificationGit
 	h.verifyGitRun = h.runVerificationGit
+	h.filesystemPackageEngine, h.filesystemPackageInitErr = h.newFilesystemPackageEngine()
 
 	return h
 }

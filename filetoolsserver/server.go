@@ -149,6 +149,8 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	addTool(server, catalogTool("backup_store"), handler.Wrap(logger, "backup_store", h.HandleBackupStoreRead))
 
+	addTool(server, filesystemPackageCatalogTool(), handler.Wrap(logger, "filesystem_package", h.HandleFilesystemPackage))
+
 	addTool(server, catalogTool("detect_line_endings"), handler.Wrap(logger, "detect_line_endings", h.HandleDetectLineEndings))
 
 	// Write tools
@@ -156,15 +158,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	addTool(server, catalogTool("change_line_endings"), handler.Wrap(logger, "change_line_endings", h.HandleChangeLineEndings))
 
-	addTool(server, catalogTool("create_directory"), handler.Wrap(logger, "create_directory", h.HandleCreateDirectory))
-
 	addTool(server, catalogTool("write_whole_file"), handler.Wrap(logger, "write_whole_file", h.HandleWriteWholeFile))
-
-	addTool(server, catalogTool("move_file"), handler.Wrap(logger, "move_file", h.HandleMoveFile))
-
-	addTool(server, catalogTool("copy_file"), handler.Wrap(logger, "copy_file", h.HandleCopyFile))
-
-	addTool(server, catalogTool("delete_file"), handler.Wrap(logger, "delete_file", h.HandleDeleteFile))
 
 	addTool(server, catalogTool("edit_file"), handler.Wrap(logger, "edit_file", h.HandleEditFilePreview))
 
@@ -179,6 +173,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	addTool(server, catalogTool("backup_gc_apply"), handler.Wrap(logger, "backup_gc_apply", h.HandleBackupGCApply))
 	addTool(server, catalogTool("manage_bom_apply"), handler.Wrap(logger, "manage_bom_apply", h.HandleManageBOMApply))
 	addTool(server, catalogTool("convert_encoding_apply"), handler.Wrap(logger, "convert_encoding_apply", h.HandleConvertEncodingApply))
+	addTool(server, catalogTool("filesystem_package_apply"), handler.Wrap(logger, "filesystem_package_apply", h.HandleFilesystemPackageApply))
 
 	// Durable asynchronous execution. The MCP call only admits, observes, or
 	// cancels work; a separate worker/helper topology owns process lifetime.

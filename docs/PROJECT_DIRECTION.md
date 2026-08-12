@@ -16,7 +16,7 @@ Scripthold is a secure local-workspace MCP runtime for web, desktop, and CLI age
 
 The maintained product includes:
 
-- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the completed R23 source tree and 30 in the public `2.2.0` release, plus 3 guided prompts;
+- one authoritative tool catalog over stdio and Streamable HTTP: 34 tools in the active R24 Unreleased source tree and 30 in the public `2.2.0` release, plus 3 guided prompts;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, missing-ancestor, and Windows path-alias validation;
 - 168 registered text encodings with content-based detection intentionally narrower than explicit codec support;
 - bounded-memory text reading, grep, conversion, BOM, and line-ending operations, with explicit limits for full-document edits;
@@ -32,9 +32,9 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-Scripthold `2.2.0` is the current public release. R22 completed the 168-codec global encoding expansion and full UTF-32 LE/BE text support. **R23 completed on 2026-08-12**, delivering truthful separation of read-only preparation from mutation, capability-bound preview/apply, reduced unnecessary connector blocking, and improved persistent-backup history/usability. The 36-tool R23 source tree remains Unreleased until a separately authorized next-major publication; R24-R27 remain planned and no later milestone is active automatically.
+Scripthold `2.2.0` is the current public release. R22 completed the 168-codec global encoding expansion and full UTF-32 LE/BE text support. **R23 completed on 2026-08-12**, delivering truthful separation of read-only preparation from mutation. **R24 is active**: its 34-tool Unreleased source implementation now replaces overlapping simple namespace mutations with bounded `filesystem_package` preview/apply, exact recursive copy/delete, same-volume native move, and backup-before-loss deletion, and all available local gates pass; final native Linux/macOS namespace verification and connector-level preview/apply acceptance against an activated R24 candidate remain pending. R25-R27 remain planned and are not active.
 
-Current milestone state belongs in [ROADMAP.md](ROADMAP.md), the completed R23 contract in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md), completed milestone history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and the completed R22 encoding contract in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md). Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
+Current milestone state belongs in [ROADMAP.md](ROADMAP.md), the completed R23 contract in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md), the active R24 contract in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), completed milestone history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and the completed R22 encoding contract in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md). Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
 
 ## Supported transports
 

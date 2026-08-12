@@ -7,8 +7,8 @@ This document is the authoritative source for **current and future milestone sta
 - Current public release: **Scripthold `2.2.0`**.
 - Public surface: **30 tools**, **3 guided prompts**, and **168 registered text encodings** over stdio and Streamable HTTP.
 - R21-R23 are complete.
-- No release-scoped milestone is currently `ACTIVE`.
-- R24-R27 are approved future milestones and remain `PLANNED`; implementation begins only after explicit activation or reprioritization.
+- R24 is `ACTIVE`: the source changes are implemented and all available local gates pass, but required native Linux/macOS namespace tests and connector-level preview/apply acceptance against an activated R24 candidate remain pending. R25-R27 remain `PLANNED` and must not be implemented incidentally.
+- The authoritative R24 contract and Phase 0–12 implementation/gate record are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md).
 - Publication does not imply deployment. Operator-specific deployment, rollback, and runtime state are governed separately by [PUBLISHING.md](PUBLISHING.md) and private operational procedures.
 
 ## Operating rules
@@ -50,32 +50,28 @@ This document is the authoritative source for **current and future milestone sta
 | R21 | COMPLETE | Durable asynchronous task execution and exact-commit release gating in the `2.1.x` line. |
 | R22 | COMPLETE | Global portable encoding coverage, full UTF-32 support, detector hardening, and published `2.2.0`. |
 | R23 | COMPLETE | Separate read-only preparation from mutation, preserve capability-bound preview/apply, and improve persistent-backup history/usability. |
-| R24 | PLANNED | Typed safe filesystem packages for coordinated create/copy/move/delete and directory operations without arbitrary shell fallback. |
+| R24 | ACTIVE | Typed safe filesystem packages for coordinated create/copy/move/delete and directory operations without arbitrary shell fallback; final native Linux/macOS and activated-candidate connector verification pending. |
 | R25 | PLANNED | Language-neutral source-symbol architecture and initial production-quality parser providers, using native Go AST as the first reference implementation rather than the final language scope. |
 | R26 | PLANNED | Separately reviewed offline backup-store repair/salvage beyond the current diagnostic-only surface. |
 | R27 | PLANNED | Broad multi-language code intelligence with production-quality symbol providers plus references, implementations, dependency/call relationships, and incremental indexing. |
 
-Detailed outcomes for R1–R23 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); approved future design baselines are [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md) (R24), [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md) (R25), [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) (R26), and [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md) (R27).
+Detailed outcomes for R1–R23 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the active R24 contract is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md). Approved future design baselines are [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md) (R25), [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) (R26), and [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md) (R27).
 
-## Latest completed milestone — R23: MCP mutation surface and backup UX
+## Active milestone — R24: Safe filesystem operations
 
-R23 completed on 2026-08-12 under the contract in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md). It delivered:
+R24 implementation reached its final verification gate on 2026-08-12 under the contract in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md). The implemented source delivers:
 
-- truthful separation of the five historical mixed preparation/review names from six dedicated mutating apply tools;
-- one-shot `previewId`-only apply schemas that cannot resubmit path, content, encoding, permission, or backup-policy intent;
-- exact-result binding and revalidation across edit, patch-package, BOM, encoding conversion, restore, and backup GC flows;
-- persistent-backup history/comparison plus the operator default `MCP_BACKUP_DEFAULT_POLICY=disabled|required`;
-- backup-before-staging ordering for package/restore safety-sensitive paths and exact-byte BOM/encoding capabilities;
-- registry-driven mutation-integrity verification across all 168 encodings plus normal/race/static/vulnerability/cross-platform gates;
-- connector-level acceptance confirming the separated schemas and side-effect-free edit preview, exact apply, replay rejection, and rejection of the removed direct-edit form.
+- read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`, replacing the four overlapping public `create_directory`, `copy_file`, `move_file`, and `delete_file` tools without compatibility aliases;
+- strict `filesystem-package-v1` with `mkdir`, raw-byte `createFile`, `copyFile`, `copyDirectory`, native same-volume `move`, `deleteFile`, and exact-scope `deleteDirectory`, all no-replace;
+- bounded exact recursive enumeration that includes hidden names and `.git`, ignores `.gitignore`, rejects link-like/special/nested-volume entries, and fails rather than truncating mutation scope;
+- path, parent, object, content/tree, authorization, and missing-destination evidence retained in one-shot bounded capabilities and fully revalidated before mutation;
+- mandatory persistent backup admission and verified capture before irreversible deletion of existing regular-file bytes, with all feasible creation/copy staging completed before the first target commit;
+- deterministic manifest-order commits, native cross-volume rejection through `UNSUPPORTED`, and bounded `PARTIAL_COMMIT` evidence without shell fallback, copy-delete move emulation, or automatic rollback claims;
+- focused adversarial/failure-injection coverage, in-process MCP preview/apply smoke, Windows-native tests, full normal and race suites, static/vulnerability checks, source smoke, and six-target Windows/Linux/macOS compilation.
 
-The 36-tool R23 source tree remains an Unreleased next-major candidate; Scripthold `2.2.0` remains the current public release. Publication, tagging, and deployment are separate governed actions. R24-R27 remain `PLANNED`, and none becomes active automatically.
+The active R24 source tree exposes a 34-tool Unreleased next-major surface; Scripthold `2.2.0` remains the current public release. R24 is not `COMPLETE` until the required actual namespace suite also passes natively on Linux and macOS and connector-level preview/apply acceptance passes against an activated R24 candidate; cross-compilation and in-process MCP tests do not substitute for those gates. Publication, tagging, deployment, and runtime changes remain separate governed actions. R25-R27 remain `PLANNED`.
 
 ## Approved future milestones
-
-### R24 — Safe filesystem operations
-
-The approved baseline is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md). R24 must eliminate routine shell/script fallback for common workspace namespace changes through a strict typed preview/apply package. Its required scope includes coordinated create/copy/move/rename/delete operations, **recursive real-directory copy and delete**, deterministic destructive-scope enumeration, source/destination identity and fingerprint binding, required persistent backup before irreversible content loss, durable staging, deterministic commit ordering, and truthful partial-state evidence. It must never accept arbitrary command strings or claim unsupported whole-package atomicity/rollback.
 
 ### R25 — Source intelligence foundation
 
@@ -91,4 +87,4 @@ The approved baseline is [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE
 
 ## Reprioritization rule
 
-R24-R27 are approved roadmap items, not active implementation authorization. At most one release-scoped milestone remains `ACTIVE`; changing that order requires an explicit maintainer reprioritization and corresponding roadmap update.
+R24 is the only active milestone. R25-R27 are approved roadmap items, not active implementation authorization; activation or reprioritization requires an explicit maintainer decision and corresponding roadmap update.

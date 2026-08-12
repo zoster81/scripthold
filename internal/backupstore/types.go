@@ -52,11 +52,12 @@ func defaultStoreLimits() Limits {
 type SourceOperation string
 
 const (
-	SourceOperationEdit            SourceOperation = "edit"
-	SourceOperationPatchPackage    SourceOperation = "patch_package"
-	SourceOperationRestore         SourceOperation = "restore"
-	SourceOperationManageBOM       SourceOperation = "manage_bom"
-	SourceOperationConvertEncoding SourceOperation = "convert_encoding"
+	SourceOperationEdit              SourceOperation = "edit"
+	SourceOperationPatchPackage      SourceOperation = "patch_package"
+	SourceOperationFilesystemPackage SourceOperation = "filesystem_package"
+	SourceOperationRestore           SourceOperation = "restore"
+	SourceOperationManageBOM         SourceOperation = "manage_bom"
+	SourceOperationConvertEncoding   SourceOperation = "convert_encoding"
 )
 
 // CaptureRequest describes one exact pre-state capture. TargetPath must already

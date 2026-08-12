@@ -235,8 +235,8 @@ func assertProtocolCatalog(t *testing.T, ctx context.Context, session *mcp.Clien
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 36 {
-		t.Fatalf("tool count = %d, want 36", len(tools.Tools))
+	if len(tools.Tools) != 34 {
+		t.Fatalf("tool count = %d, want 34", len(tools.Tools))
 	}
 	prompts, err := session.ListPrompts(ctx, nil)
 	if err != nil {

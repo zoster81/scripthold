@@ -92,8 +92,8 @@ func TestRunnerServesHTTPAndEnforcesHeaderLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 36 {
-		t.Fatalf("tool count = %d, want 36", len(tools.Tools))
+	if len(tools.Tools) != 34 {
+		t.Fatalf("tool count = %d, want 34", len(tools.Tools))
 	}
 	_ = session.Close()
 	clientCancel()

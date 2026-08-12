@@ -180,17 +180,6 @@
       }
     },
     {
-      "name": "create_directory",
-      "title": "Create Directory",
-      "description": "Create a directory recursively and idempotently.",
-      "annotations": {
-        "readOnlyHint": false,
-        "idempotentHint": true,
-        "destructiveHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "write_whole_file",
       "title": "Write Whole File",
       "description": "Atomically replace the complete file contents with supplied text; omitted content is discarded, with encoding and BOM control.",
@@ -202,33 +191,12 @@
       }
     },
     {
-      "name": "move_file",
-      "title": "Move File",
-      "description": "Move or rename without replacing the destination.",
+      "name": "filesystem_package",
+      "title": "Preview Filesystem Package",
+      "description": "Prepare a bounded read-only filesystem package for coordinated no-replace create, copy, move, and delete operations.",
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "destructiveHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "copy_file",
-      "title": "Copy File",
-      "description": "Atomically copy a file without replacing the destination.",
-      "annotations": {
-        "readOnlyHint": false,
-        "idempotentHint": true,
-        "destructiveHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "delete_file",
-      "title": "Delete File",
-      "description": "Delete a revalidated file; directories are rejected.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
         "openWorldHint": false
       }
     },
@@ -266,6 +234,16 @@
       "name": "patch_package_apply",
       "title": "Apply Patch",
       "description": "Apply a prepared patch package.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "filesystem_package_apply",
+      "title": "Apply Filesystem Package",
+      "description": "Apply a prepared one-shot filesystem package capability.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,

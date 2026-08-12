@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-The completed R23 source tree exposes an authoritative 36-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+The active R24 Unreleased next-major source tree exposes an authoritative 34-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 
@@ -14,11 +14,11 @@ These prompt concepts and the implementation approaches reviewed are credited to
 
 Reusable domain failures carry transport-independent typed categories for invalid input or paths, access denial, symlink escapes, missing files, permissions, encoding, conflicts, cancellation, limits, and filesystem failures. Every failed MCP tool call preserves human-readable text and adds a stable machine-readable code at `_meta.errorCode`. Per-file failures from `read_multiple_files`, batch `convert_encoding`, and `grep_text_files.skippedFiles` use the same `errorCode` vocabulary. Encoding-related per-file failures may additionally expose `encodingErrorCode` as an additive refinement: `ENCODING_AMBIGUOUS`, `ENCODING_MALFORMED`, `ENCODING_UNSUPPORTED`, `ENCODING_BOM_CONFLICT`, `ENCODING_UNREPRESENTABLE`, or `ENCODING_OTHER`. This refinement does not replace or reinterpret the stable top-level code.
 
-Stable codes are `INVALID_INPUT`, `INVALID_PATH`, `ACCESS_DENIED`, `SYMLINK_ESCAPE`, `NOT_FOUND`, `PERMISSION`, `ENCODING`, `ENCODING_AMBIGUOUS`, `CONFLICT`, `PARTIAL_COMMIT`, `CANCELLED`, `LIMIT`, `IO_ERROR`, `INTERNAL_ERROR`, and the fallback `OPERATION_FAILED`. `PARTIAL_COMMIT` is reserved for a package apply whose final state includes at least one committed or unclassifiable target. Successful results omit error codes. See [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md).
+Stable codes are `INVALID_INPUT`, `INVALID_PATH`, `ACCESS_DENIED`, `SYMLINK_ESCAPE`, `NOT_FOUND`, `PERMISSION`, `ENCODING`, `ENCODING_AMBIGUOUS`, `CONFLICT`, `PARTIAL_COMMIT`, `UNSUPPORTED`, `CANCELLED`, `LIMIT`, `IO_ERROR`, `INTERNAL_ERROR`, and the fallback `OPERATION_FAILED`. `PARTIAL_COMMIT` is reserved for a package apply whose final state includes at least one committed or unclassifiable target. Successful results omit error codes. See [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md).
 
 ## File Operations
 
-Mutating file tools share a durable filesystem layer. Replacement data is staged in the destination directory, synced before commit, and installed with platform-specific atomic operations. Existing-file snapshots detect practical concurrent modifications; initially missing destinations use no-replace commits. On Unix, containing directories are synced after namespace changes; on Windows, replacement and no-replace moves use write-through flags. These protections reduce but do not eliminate every path-based TOCTOU window.
+Mutating file tools share a durable filesystem layer. Replacement data is staged in the destination directory, synced before commit, and installed with platform-specific atomic operations. Existing-file snapshots detect practical concurrent modifications; initially missing destinations use no-replace commits. R24 adds exact recursive scope evidence, stable object and volume identity, package-wide staging, mandatory persistent backup before irreversible regular-file deletion, and native same-volume no-replace move. On Unix, containing directories are synced after namespace changes; on Windows, replacement and no-replace moves use write-through flags. These protections reduce but do not eliminate every path-based TOCTOU window.
 
 ### read_text_file
 
@@ -318,35 +318,56 @@ Get metadata about a file or directory (size, timestamps, permissions).
 **Parameters:**
 - `path` (required): Path to file or directory
 
-### create_directory
+### filesystem_package
 
-Create a directory recursively (like `mkdir -p`). Succeeds if already exists.
+Prepare a bounded package of coordinated filesystem operations **without persistent mutation**. The complete top-level input is `formatVersion: "filesystem-package-v1"` plus a non-empty ordered `operations` array. Unknown top-level and operation-specific fields are rejected.
 
-**Parameters:**
-- `path` (required): Path to directory to create
+The v1 operation set is closed:
 
-### move_file
+- `mkdir`: `type`, `path`; creates exactly one missing directory during apply and never behaves like `mkdir -p`.
+- `createFile`: `type`, `path`, `contentBase64`; creates an exact raw-byte file from strict standard Base64. The bytes are not decoded as text and receive no encoding/BOM/line-ending transformation.
+- `copyFile`: `type`, `source`, `destination`; copies one existing real regular file.
+- `copyDirectory`: `type`, `source`, `destination`; copies one complete real directory tree, including hidden entries and `.git`, with no `.gitignore` filtering.
+- `move`: `type`, `source`, `destination`; moves one existing real file or directory only when source and destination are provably on the same filesystem volume and the platform provides native no-replace rename semantics.
+- `deleteFile`: `type`, `path`; deletes one existing real regular file only after its exact prepared pre-state has been durably captured in the persistent backup store.
+- `deleteDirectory`: `type`, `path`; deletes exactly the complete prepared real directory tree, children before parents. Every regular file in the tree must be durably captured first; a newly appeared descendant causes a conflict rather than being swept into the deletion.
 
-Move or rename files and directories with a platform-native no-replace operation. A destination created concurrently is not overwritten. Namespace changes are synced where the platform provides a directory-sync mechanism.
+All destinations must be missing at preview and remain no-replace. A later operation may use an earlier `mkdir` only as its immediate destination parent; no other operation may consume content or paths created, copied, moved, or deleted earlier in the same package. Duplicate canonical paths, hard-link aliases across operations, recursive overlaps, link/reparse entries, special files, nested foreign filesystems, and ambiguous dependency graphs fail closed.
 
-**Parameters:**
-- `source` (required): Path to move
-- `destination` (required): Destination path
+Preview canonicalizes and authorizes every operand against current allowed/protected roots, binds existing objects and parents to stable identity, records missing-destination ancestry, captures exact recursive scopes and content/state fingerprints, checks move volume identity, computes source/staging/output bounds, and performs side-effect-free persistent-backup admission preflight when deletion would lose regular-file bytes. It creates no destination, staging file, backup object, or backup manifest.
 
-### copy_file
+A successful preview returns a 256-bit process-local `previewId`, creation/expiry timestamps, ordered operation summaries, exact file/directory/byte counts, required backup count, and expected result fingerprints where applicable. The cache is bounded and one-shot; expiry, eviction, restart, replay, or an unowned token fails with `CONFLICT`.
 
-Copy a regular file through exclusive same-directory staging, preserving source permissions and modification time where the platform supports them. The staged data is synced and installed atomically without replacing an existing or concurrently created destination. Does not copy directories.
+```json
+{
+  "formatVersion": "filesystem-package-v1",
+  "operations": [
+    {"type": "mkdir", "path": "/project/generated"},
+    {"type": "createFile", "path": "/project/generated/header.bin", "contentBase64": "AAEC/w=="},
+    {"type": "copyFile", "source": "/project/a.txt", "destination": "/project/a.copy.txt"},
+    {"type": "copyDirectory", "source": "/project/assets", "destination": "/project/assets.copy"},
+    {"type": "move", "source": "/project/old.dat", "destination": "/project/new.dat"},
+    {"type": "deleteFile", "path": "/project/obsolete.txt"},
+    {"type": "deleteDirectory", "path": "/project/obsolete-tree"}
+  ]
+}
+```
 
-**Parameters:**
-- `source` (required): Source file path
-- `destination` (required): Destination path
+Dedicated bounds are `MCP_MAX_FILESYSTEM_PACKAGE_OPERATIONS`, `MCP_MAX_FILESYSTEM_PACKAGE_BYTES`, `MCP_MAX_FILESYSTEM_RECURSIVE_ENTRIES`, `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, `MCP_MAX_FILESYSTEM_STAGING_BYTES`, `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEWS`, `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES`, and `MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS`. Global `MCP_MAX_FILE_BYTES`, `MCP_MAX_FINGERPRINT_ENTRY_DETAILS`, and `MCP_MAX_OUTPUT_BYTES` also apply. Path strings have a fixed v1 structural bound of 32768 UTF-8 bytes.
 
-### delete_file
+### filesystem_package_apply
 
-Delete a file after path revalidation and an optimistic metadata snapshot check, then sync the containing directory where supported. Does not delete directories.
+Apply one prepared `filesystem_package` capability. The **complete input schema is only** `previewId`; the manifest and every operation field are rejected if resubmitted at apply time.
 
-**Parameters:**
-- `path` (required): Path to delete
+Apply consumes the capability before revalidation. It then revalidates authorization, canonical path evidence, source/object/parent identities, missing destinations, exact recursive scopes, fingerprints, and same-volume move evidence. Required destructive pre-states are captured as one persistent backup batch and verified before any target mutation, followed by another complete revalidation. All feasible `createFile`, `copyFile`, and `copyDirectory` content is staged and synced before the first target commit, then the package is revalidated again.
+
+Operations commit strictly in manifest order with no-replace semantics. `move` uses native same-volume no-replace rename only; cross-filesystem emulation is `UNSUPPORTED`. Deletes remove only the exact prepared entries and never broaden scope after preview. Each committed operation is verified before the next begins.
+
+The package is intentionally not transactionally rolled back. A failure before any target mutation returns the underlying stable error and current per-operation state. A failure after a target may have advanced returns `PARTIAL_COMMIT` with bounded structured evidence classifying operations as `committed`, `unchanged`, `partially_committed`, or `unknown`, plus the failed index, durable `backupIds`, and bounded cleanup-residue diagnostics where relevant.
+
+```json
+{"previewId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+```
 
 ### search_files
 

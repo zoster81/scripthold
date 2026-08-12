@@ -32,6 +32,7 @@ func TestMapOperationErrorToBatch(t *testing.T) {
 		{name: "deadline", err: context.DeadlineExceeded, wantMessage: "operation cancelled", wantCode: ErrCodeCancelled},
 		{name: "conflict", err: operation.New(operation.KindConflict, "target changed"), wantMessage: "target changed", wantCode: ErrCodeConflict},
 		{name: "partial commit", err: operation.New(operation.KindPartialCommit, "package partially committed"), wantMessage: "package partially committed", wantCode: ErrCodePartialCommit},
+		{name: "unsupported", err: operation.New(operation.KindUnsupported, "cross-filesystem move is unsupported"), wantMessage: "cross-filesystem move is unsupported", wantCode: ErrCodeUnsupported},
 		{name: "limit", err: operation.New(operation.KindLimit, "result limit exceeded"), wantMessage: "result limit exceeded", wantCode: ErrCodeLimit},
 		{name: "filesystem", err: operation.New(operation.KindFilesystem, "disk failure"), wantMessage: "disk failure", wantCode: ErrCodeIO},
 		{name: "unknown", err: errors.New("boom"), wantMessage: "boom", wantCode: ErrCodeIO},

@@ -11,28 +11,37 @@ import (
 )
 
 const (
-	EnvDefaultEncoding               = "MCP_DEFAULT_ENCODING"
-	EnvMemoryThreshold               = "MCP_MEMORY_THRESHOLD" // Deprecated 1.x fallback for file/output limits.
-	EnvMaxFileBytes                  = "MCP_MAX_FILE_BYTES"
-	EnvMaxDecodedCharacters          = "MCP_MAX_DECODED_CHARACTERS"
-	EnvMaxLineBytes                  = "MCP_MAX_LINE_BYTES"
-	EnvMaxBatchFiles                 = "MCP_MAX_BATCH_FILES"
-	EnvMaxMatches                    = "MCP_MAX_MATCHES"
-	EnvMaxOutputBytes                = "MCP_MAX_OUTPUT_BYTES"
-	EnvMaxFingerprintEntries         = "MCP_MAX_FINGERPRINT_ENTRIES"
-	EnvMaxFingerprintEntryDetails    = "MCP_MAX_FINGERPRINT_ENTRY_DETAILS"
-	EnvMaxEditPreviews               = "MCP_MAX_EDIT_PREVIEWS"
-	EnvMaxEditPreviewBytes           = "MCP_MAX_EDIT_PREVIEW_BYTES"
-	EnvEditPreviewTTLSeconds         = "MCP_EDIT_PREVIEW_TTL_SECONDS"
-	EnvMaxPatchPackageBytes          = "MCP_MAX_PATCH_PACKAGE_BYTES"
-	EnvMaxPatchPackagePreparedBytes  = "MCP_MAX_PATCH_PACKAGE_PREPARED_BYTES"
-	EnvMaxPatchPackagePreviews       = "MCP_MAX_PATCH_PACKAGE_PREVIEWS"
-	EnvMaxPatchPackagePreviewBytes   = "MCP_MAX_PATCH_PACKAGE_PREVIEW_BYTES"
-	EnvPatchPackagePreviewTTLSeconds = "MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS"
-	EnvMaxByteMutationPreviews       = "MCP_MAX_BYTE_MUTATION_PREVIEWS"
-	EnvMaxByteMutationPreviewBytes   = "MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES"
-	EnvByteMutationPreviewTTLSeconds = "MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS"
-	EnvMaxSessions                   = "MCP_MAX_SESSIONS" // Maximum live native Streamable HTTP sessions.
+	EnvDefaultEncoding                    = "MCP_DEFAULT_ENCODING"
+	EnvMemoryThreshold                    = "MCP_MEMORY_THRESHOLD" // Deprecated 1.x fallback for file/output limits.
+	EnvMaxFileBytes                       = "MCP_MAX_FILE_BYTES"
+	EnvMaxDecodedCharacters               = "MCP_MAX_DECODED_CHARACTERS"
+	EnvMaxLineBytes                       = "MCP_MAX_LINE_BYTES"
+	EnvMaxBatchFiles                      = "MCP_MAX_BATCH_FILES"
+	EnvMaxMatches                         = "MCP_MAX_MATCHES"
+	EnvMaxOutputBytes                     = "MCP_MAX_OUTPUT_BYTES"
+	EnvMaxFingerprintEntries              = "MCP_MAX_FINGERPRINT_ENTRIES"
+	EnvMaxFingerprintEntryDetails         = "MCP_MAX_FINGERPRINT_ENTRY_DETAILS"
+	EnvMaxEditPreviews                    = "MCP_MAX_EDIT_PREVIEWS"
+	EnvMaxEditPreviewBytes                = "MCP_MAX_EDIT_PREVIEW_BYTES"
+	EnvEditPreviewTTLSeconds              = "MCP_EDIT_PREVIEW_TTL_SECONDS"
+	EnvMaxPatchPackageBytes               = "MCP_MAX_PATCH_PACKAGE_BYTES"
+	EnvMaxPatchPackagePreparedBytes       = "MCP_MAX_PATCH_PACKAGE_PREPARED_BYTES"
+	EnvMaxPatchPackagePreviews            = "MCP_MAX_PATCH_PACKAGE_PREVIEWS"
+	EnvMaxPatchPackagePreviewBytes        = "MCP_MAX_PATCH_PACKAGE_PREVIEW_BYTES"
+	EnvPatchPackagePreviewTTLSeconds      = "MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS"
+	EnvMaxByteMutationPreviews            = "MCP_MAX_BYTE_MUTATION_PREVIEWS"
+	EnvMaxByteMutationPreviewBytes        = "MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES"
+	EnvByteMutationPreviewTTLSeconds      = "MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS"
+	EnvMaxFilesystemPackageOperations     = "MCP_MAX_FILESYSTEM_PACKAGE_OPERATIONS"
+	EnvMaxFilesystemPackageBytes          = "MCP_MAX_FILESYSTEM_PACKAGE_BYTES"
+	EnvMaxFilesystemRecursiveEntries      = "MCP_MAX_FILESYSTEM_RECURSIVE_ENTRIES"
+	EnvMaxFilesystemRecursiveDepth        = "MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH"
+	EnvMaxFilesystemAggregateBytes        = "MCP_MAX_FILESYSTEM_AGGREGATE_BYTES"
+	EnvMaxFilesystemStagingBytes          = "MCP_MAX_FILESYSTEM_STAGING_BYTES"
+	EnvMaxFilesystemPackagePreviews       = "MCP_MAX_FILESYSTEM_PACKAGE_PREVIEWS"
+	EnvMaxFilesystemPackagePreviewBytes   = "MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES"
+	EnvFilesystemPackagePreviewTTLSeconds = "MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS"
+	EnvMaxSessions                        = "MCP_MAX_SESSIONS" // Maximum live native Streamable HTTP sessions.
 
 	EnvBackupStoreDir             = "MCP_BACKUP_STORE_DIR"
 	EnvBackupDefaultPolicy        = "MCP_BACKUP_DEFAULT_POLICY"
@@ -53,27 +62,36 @@ const (
 	EnvTaskMaxTerminal          = "MCP_TASK_MAX_TERMINAL"
 	EnvTaskMaxTotalBytes        = "MCP_TASK_MAX_TOTAL_BYTES"
 
-	DefaultEncoding                      = "utf-8"
-	DefaultMaxFileBytes                  = int64(64 * 1024 * 1024)
-	DefaultMaxDecodedCharacters          = 16 * 1024 * 1024
-	DefaultMaxLineBytes                  = 16 * 1024 * 1024
-	DefaultMaxBatchFiles                 = 256
-	DefaultMaxMatches                    = 10_000
-	DefaultMaxOutputBytes                = int64(64 * 1024 * 1024)
-	DefaultMaxFingerprintEntries         = 100_000
-	DefaultMaxFingerprintEntryDetails    = 1_000
-	DefaultMaxEditPreviews               = 128
-	DefaultMaxEditPreviewBytes           = int64(64 * 1024 * 1024)
-	DefaultEditPreviewTTLSeconds         = 15 * 60
-	DefaultMaxPatchPackageBytes          = int64(16 * 1024 * 1024)
-	DefaultMaxPatchPackagePreparedBytes  = int64(64 * 1024 * 1024)
-	DefaultMaxPatchPackagePreviews       = 16
-	DefaultMaxPatchPackagePreviewBytes   = int64(128 * 1024 * 1024)
-	DefaultPatchPackagePreviewTTLSeconds = 15 * 60
-	DefaultMaxByteMutationPreviews       = 32
-	DefaultMaxByteMutationPreviewBytes   = int64(256 * 1024 * 1024)
-	DefaultByteMutationPreviewTTLSeconds = 15 * 60
-	DefaultMaxSessions                   = 128
+	DefaultEncoding                           = "utf-8"
+	DefaultMaxFileBytes                       = int64(64 * 1024 * 1024)
+	DefaultMaxDecodedCharacters               = 16 * 1024 * 1024
+	DefaultMaxLineBytes                       = 16 * 1024 * 1024
+	DefaultMaxBatchFiles                      = 256
+	DefaultMaxMatches                         = 10_000
+	DefaultMaxOutputBytes                     = int64(64 * 1024 * 1024)
+	DefaultMaxFingerprintEntries              = 100_000
+	DefaultMaxFingerprintEntryDetails         = 1_000
+	DefaultMaxEditPreviews                    = 128
+	DefaultMaxEditPreviewBytes                = int64(64 * 1024 * 1024)
+	DefaultEditPreviewTTLSeconds              = 15 * 60
+	DefaultMaxPatchPackageBytes               = int64(16 * 1024 * 1024)
+	DefaultMaxPatchPackagePreparedBytes       = int64(64 * 1024 * 1024)
+	DefaultMaxPatchPackagePreviews            = 16
+	DefaultMaxPatchPackagePreviewBytes        = int64(128 * 1024 * 1024)
+	DefaultPatchPackagePreviewTTLSeconds      = 15 * 60
+	DefaultMaxByteMutationPreviews            = 32
+	DefaultMaxByteMutationPreviewBytes        = int64(256 * 1024 * 1024)
+	DefaultByteMutationPreviewTTLSeconds      = 15 * 60
+	DefaultMaxFilesystemPackageOperations     = 256
+	DefaultMaxFilesystemPackageBytes          = int64(16 * 1024 * 1024)
+	DefaultMaxFilesystemRecursiveEntries      = 100_000
+	DefaultMaxFilesystemRecursiveDepth        = 128
+	DefaultMaxFilesystemAggregateBytes        = int64(1024 * 1024 * 1024)
+	DefaultMaxFilesystemStagingBytes          = int64(1024 * 1024 * 1024)
+	DefaultMaxFilesystemPackagePreviews       = 16
+	DefaultMaxFilesystemPackagePreviewBytes   = int64(128 * 1024 * 1024)
+	DefaultFilesystemPackagePreviewTTLSeconds = 15 * 60
+	DefaultMaxSessions                        = 128
 
 	BackupPolicyDisabled = "disabled"
 	BackupPolicyRequired = "required"
@@ -95,6 +113,16 @@ const (
 	HardMaxBackupRetentionDays     = 3650
 	HardMaxBackupPlanTTLSeconds    = 24 * 60 * 60
 
+	HardMaxFilesystemPackageOperations     = 4_096
+	HardMaxFilesystemPackageBytes          = int64(64 * 1024 * 1024)
+	HardMaxFilesystemRecursiveEntries      = 1_000_000
+	HardMaxFilesystemRecursiveDepth        = 1_024
+	HardMaxFilesystemAggregateBytes        = int64(1 << 40)
+	HardMaxFilesystemStagingBytes          = int64(1 << 40)
+	HardMaxFilesystemPackagePreviews       = 1_024
+	HardMaxFilesystemPackagePreviewBytes   = int64(1 << 30)
+	HardFilesystemPackagePreviewTTLSeconds = 24 * 60 * 60
+
 	DefaultTaskMaxConcurrency       = 2
 	DefaultTaskMaxQueued            = 64
 	DefaultTaskMaxLogBytesPerStream = int64(8 * 1024 * 1024)
@@ -115,26 +143,35 @@ const (
 // Limits contains server-wide hard limits. Request-level limits may be lower
 // but must never exceed these values.
 type Limits struct {
-	MaxFileBytes                  int64
-	MaxDecodedCharacters          int
-	MaxLineBytes                  int
-	MaxBatchFiles                 int
-	MaxMatches                    int
-	MaxOutputBytes                int64
-	MaxFingerprintEntries         int
-	MaxFingerprintEntryDetails    int
-	MaxEditPreviews               int
-	MaxEditPreviewBytes           int64
-	EditPreviewTTLSeconds         int
-	MaxPatchPackageBytes          int64
-	MaxPatchPackagePreparedBytes  int64
-	MaxPatchPackagePreviews       int
-	MaxPatchPackagePreviewBytes   int64
-	PatchPackagePreviewTTLSeconds int
-	MaxByteMutationPreviews       int
-	MaxByteMutationPreviewBytes   int64
-	ByteMutationPreviewTTLSeconds int
-	MaxSessions                   int
+	MaxFileBytes                       int64
+	MaxDecodedCharacters               int
+	MaxLineBytes                       int
+	MaxBatchFiles                      int
+	MaxMatches                         int
+	MaxOutputBytes                     int64
+	MaxFingerprintEntries              int
+	MaxFingerprintEntryDetails         int
+	MaxEditPreviews                    int
+	MaxEditPreviewBytes                int64
+	EditPreviewTTLSeconds              int
+	MaxPatchPackageBytes               int64
+	MaxPatchPackagePreparedBytes       int64
+	MaxPatchPackagePreviews            int
+	MaxPatchPackagePreviewBytes        int64
+	PatchPackagePreviewTTLSeconds      int
+	MaxByteMutationPreviews            int
+	MaxByteMutationPreviewBytes        int64
+	ByteMutationPreviewTTLSeconds      int
+	MaxFilesystemPackageOperations     int
+	MaxFilesystemPackageBytes          int64
+	MaxFilesystemRecursiveEntries      int
+	MaxFilesystemRecursiveDepth        int
+	MaxFilesystemAggregateBytes        int64
+	MaxFilesystemStagingBytes          int64
+	MaxFilesystemPackagePreviews       int
+	MaxFilesystemPackagePreviewBytes   int64
+	FilesystemPackagePreviewTTLSeconds int
+	MaxSessions                        int
 }
 
 // BackupLimits bounds the future persistent backup store independently from
@@ -200,26 +237,35 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg := &Config{
 		DefaultEncoding: DefaultEncoding,
 		Limits: Limits{
-			MaxFileBytes:                  DefaultMaxFileBytes,
-			MaxDecodedCharacters:          DefaultMaxDecodedCharacters,
-			MaxLineBytes:                  DefaultMaxLineBytes,
-			MaxBatchFiles:                 DefaultMaxBatchFiles,
-			MaxMatches:                    DefaultMaxMatches,
-			MaxOutputBytes:                DefaultMaxOutputBytes,
-			MaxFingerprintEntries:         DefaultMaxFingerprintEntries,
-			MaxFingerprintEntryDetails:    DefaultMaxFingerprintEntryDetails,
-			MaxEditPreviews:               DefaultMaxEditPreviews,
-			MaxEditPreviewBytes:           DefaultMaxEditPreviewBytes,
-			EditPreviewTTLSeconds:         DefaultEditPreviewTTLSeconds,
-			MaxPatchPackageBytes:          DefaultMaxPatchPackageBytes,
-			MaxPatchPackagePreparedBytes:  DefaultMaxPatchPackagePreparedBytes,
-			MaxPatchPackagePreviews:       DefaultMaxPatchPackagePreviews,
-			MaxPatchPackagePreviewBytes:   DefaultMaxPatchPackagePreviewBytes,
-			PatchPackagePreviewTTLSeconds: DefaultPatchPackagePreviewTTLSeconds,
-			MaxByteMutationPreviews:       DefaultMaxByteMutationPreviews,
-			MaxByteMutationPreviewBytes:   DefaultMaxByteMutationPreviewBytes,
-			ByteMutationPreviewTTLSeconds: DefaultByteMutationPreviewTTLSeconds,
-			MaxSessions:                   DefaultMaxSessions,
+			MaxFileBytes:                       DefaultMaxFileBytes,
+			MaxDecodedCharacters:               DefaultMaxDecodedCharacters,
+			MaxLineBytes:                       DefaultMaxLineBytes,
+			MaxBatchFiles:                      DefaultMaxBatchFiles,
+			MaxMatches:                         DefaultMaxMatches,
+			MaxOutputBytes:                     DefaultMaxOutputBytes,
+			MaxFingerprintEntries:              DefaultMaxFingerprintEntries,
+			MaxFingerprintEntryDetails:         DefaultMaxFingerprintEntryDetails,
+			MaxEditPreviews:                    DefaultMaxEditPreviews,
+			MaxEditPreviewBytes:                DefaultMaxEditPreviewBytes,
+			EditPreviewTTLSeconds:              DefaultEditPreviewTTLSeconds,
+			MaxPatchPackageBytes:               DefaultMaxPatchPackageBytes,
+			MaxPatchPackagePreparedBytes:       DefaultMaxPatchPackagePreparedBytes,
+			MaxPatchPackagePreviews:            DefaultMaxPatchPackagePreviews,
+			MaxPatchPackagePreviewBytes:        DefaultMaxPatchPackagePreviewBytes,
+			PatchPackagePreviewTTLSeconds:      DefaultPatchPackagePreviewTTLSeconds,
+			MaxByteMutationPreviews:            DefaultMaxByteMutationPreviews,
+			MaxByteMutationPreviewBytes:        DefaultMaxByteMutationPreviewBytes,
+			ByteMutationPreviewTTLSeconds:      DefaultByteMutationPreviewTTLSeconds,
+			MaxFilesystemPackageOperations:     DefaultMaxFilesystemPackageOperations,
+			MaxFilesystemPackageBytes:          DefaultMaxFilesystemPackageBytes,
+			MaxFilesystemRecursiveEntries:      DefaultMaxFilesystemRecursiveEntries,
+			MaxFilesystemRecursiveDepth:        DefaultMaxFilesystemRecursiveDepth,
+			MaxFilesystemAggregateBytes:        DefaultMaxFilesystemAggregateBytes,
+			MaxFilesystemStagingBytes:          DefaultMaxFilesystemStagingBytes,
+			MaxFilesystemPackagePreviews:       DefaultMaxFilesystemPackagePreviews,
+			MaxFilesystemPackagePreviewBytes:   DefaultMaxFilesystemPackagePreviewBytes,
+			FilesystemPackagePreviewTTLSeconds: DefaultFilesystemPackagePreviewTTLSeconds,
+			MaxSessions:                        DefaultMaxSessions,
 		},
 		Backup: BackupConfig{
 			StoreDir:      getenv(EnvBackupStoreDir),
@@ -280,6 +326,15 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Limits.MaxByteMutationPreviews = intEnvironment(getenv, EnvMaxByteMutationPreviews, cfg.Limits.MaxByteMutationPreviews)
 	cfg.Limits.MaxByteMutationPreviewBytes = int64Environment(getenv, EnvMaxByteMutationPreviewBytes, cfg.Limits.MaxByteMutationPreviewBytes)
 	cfg.Limits.ByteMutationPreviewTTLSeconds = intEnvironment(getenv, EnvByteMutationPreviewTTLSeconds, cfg.Limits.ByteMutationPreviewTTLSeconds)
+	cfg.Limits.MaxFilesystemPackageOperations = boundedIntEnvironment(getenv, EnvMaxFilesystemPackageOperations, cfg.Limits.MaxFilesystemPackageOperations, HardMaxFilesystemPackageOperations)
+	cfg.Limits.MaxFilesystemPackageBytes = boundedInt64Environment(getenv, EnvMaxFilesystemPackageBytes, cfg.Limits.MaxFilesystemPackageBytes, HardMaxFilesystemPackageBytes)
+	cfg.Limits.MaxFilesystemRecursiveEntries = boundedIntEnvironment(getenv, EnvMaxFilesystemRecursiveEntries, cfg.Limits.MaxFilesystemRecursiveEntries, HardMaxFilesystemRecursiveEntries)
+	cfg.Limits.MaxFilesystemRecursiveDepth = boundedIntEnvironment(getenv, EnvMaxFilesystemRecursiveDepth, cfg.Limits.MaxFilesystemRecursiveDepth, HardMaxFilesystemRecursiveDepth)
+	cfg.Limits.MaxFilesystemAggregateBytes = boundedInt64Environment(getenv, EnvMaxFilesystemAggregateBytes, cfg.Limits.MaxFilesystemAggregateBytes, HardMaxFilesystemAggregateBytes)
+	cfg.Limits.MaxFilesystemStagingBytes = boundedInt64Environment(getenv, EnvMaxFilesystemStagingBytes, cfg.Limits.MaxFilesystemStagingBytes, HardMaxFilesystemStagingBytes)
+	cfg.Limits.MaxFilesystemPackagePreviews = boundedIntEnvironment(getenv, EnvMaxFilesystemPackagePreviews, cfg.Limits.MaxFilesystemPackagePreviews, HardMaxFilesystemPackagePreviews)
+	cfg.Limits.MaxFilesystemPackagePreviewBytes = boundedInt64Environment(getenv, EnvMaxFilesystemPackagePreviewBytes, cfg.Limits.MaxFilesystemPackagePreviewBytes, HardMaxFilesystemPackagePreviewBytes)
+	cfg.Limits.FilesystemPackagePreviewTTLSeconds = boundedIntEnvironment(getenv, EnvFilesystemPackagePreviewTTLSeconds, cfg.Limits.FilesystemPackagePreviewTTLSeconds, HardFilesystemPackagePreviewTTLSeconds)
 	cfg.Limits.MaxSessions = intEnvironment(getenv, EnvMaxSessions, cfg.Limits.MaxSessions)
 
 	cfg.Backup.Limits.MaxTotalBytes = boundedInt64Environment(getenv, EnvBackupMaxTotalBytes, cfg.Backup.Limits.MaxTotalBytes, HardMaxBackupTotalBytes)

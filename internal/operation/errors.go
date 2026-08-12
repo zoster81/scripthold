@@ -25,6 +25,7 @@ const (
 	KindEncodingOutput
 	KindConflict
 	KindPartialCommit
+	KindUnsupported
 	KindCancelled
 	KindLimit
 	KindFilesystem
@@ -54,6 +55,8 @@ func (kind Kind) String() string {
 		return "conflict"
 	case KindPartialCommit:
 		return "partial_commit"
+	case KindUnsupported:
+		return "unsupported"
 	case KindCancelled:
 		return "cancelled"
 	case KindLimit:

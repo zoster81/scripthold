@@ -18,7 +18,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `MCP_2026_07_28_ADOPTION.md`: R20 compatibility and security design for adopting MCP `2026-07-28` without losing legacy stdio or stateful HTTP behavior.
 - `GLOBAL_ENCODING_COVERAGE.md`: completed R22 / 2.2.0 implementation and verification contract for global portable encoding coverage, full UTF-32 text support, detector hardening, corpus provenance, and release gates.
 - `MCP_MUTATION_SURFACE.md`: completed R23 contract for truthful read-only/mutation tool boundaries, capability-bound preview/apply, connector-blocking reduction, and backup-history/default-policy UX.
-- `SAFE_FILESYSTEM_OPERATIONS.md`: approved planned R24 baseline for typed preview/apply filesystem packages, recursive directory operations, backup-before-loss, and partial-state evidence.
+- `SAFE_FILESYSTEM_OPERATIONS.md`: active R24 contract, implementation record, and final external verification gates for typed preview/apply filesystem packages, recursive directory operations, backup-before-loss, and partial-state evidence.
 - `SOURCE_INTELLIGENCE.md`: approved planned R25 baseline for language-neutral structured symbol extraction/indexing and the initial Go AST reference provider.
 - `BACKUP_RECOVERY.md`: approved planned R26 baseline for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
 - `MULTILANGUAGE_CODE_INTELLIGENCE.md`: approved planned R27 baseline for broad mandatory multi-language source intelligence, semantic capability reporting, relationships, and incremental indexing.

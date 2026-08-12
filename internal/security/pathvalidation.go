@@ -19,6 +19,16 @@ type AllowedDirectorySet struct {
 	Resolved  []string
 }
 
+// PathEvidence records the normalized lexical request, the fully resolved or
+// projected operation path, and the nearest existing resolved object used to
+// bind creation beneath missing parents.
+type PathEvidence struct {
+	RequestedPath       string
+	ResolvedPath        string
+	Exists              bool
+	NearestExistingPath string
+}
+
 // PathsEqual reports whether two absolute paths are equal under platform path
 // normalization and case semantics.
 func PathsEqual(first, second string) bool {
@@ -93,6 +103,86 @@ func IsPathWithinAllowedDirectories(absolutePath string, allowedDirs []string) b
 // ValidatePath resolves a path and ensures it's within allowed directories.
 func ValidatePath(requestedPath string, allowedDirs []string) (string, error) {
 	return ValidatePathWithAllowedDirectories(requestedPath, allowedDirs, ResolveAllowedDirs(allowedDirs))
+}
+
+// ValidatePathEvidenceWithAllowedDirectories returns canonical evidence for an
+// existing or missing path while enforcing both lexical and resolved allowed
+// directory boundaries. Missing paths are projected from the nearest existing
+// resolved directory rather than from an unresolved lexical alias.
+func ValidatePathEvidenceWithAllowedDirectories(requestedPath string, requestedAllowedDirs, resolvedAllowedDirs []string) (evidence PathEvidence, err error) {
+	defer func() {
+		err = operation.WrapFilesystem("validate_path_evidence", requestedPath, err)
+	}()
+	if len(requestedAllowedDirs) == 0 {
+		return PathEvidence{}, ErrNoAllowedDirs
+	}
+	if requestedPath == "" || strings.Contains(requestedPath, "\x00") {
+		return PathEvidence{}, fmt.Errorf("%w: empty or invalid path", ErrPathDenied)
+	}
+
+	expanded := ExpandHome(requestedPath)
+	absolute, err := filepath.Abs(expanded)
+	if err != nil {
+		return PathEvidence{}, fmt.Errorf("failed to make path absolute: %w", err)
+	}
+	absolute = normalizePath(absolute)
+	if !IsPathWithinAllowedDirectories(absolute, requestedAllowedDirs) {
+		return PathEvidence{}, fmt.Errorf("%w: %s", ErrPathDenied, absolute)
+	}
+
+	resolved, exists, err := resolvePathAllowMissing(absolute)
+	if err != nil {
+		return PathEvidence{}, fmt.Errorf("failed to resolve path: %w", err)
+	}
+	resolved = normalizePath(resolved)
+	if !IsPathWithinAllowedDirectories(resolved, resolvedAllowedDirs) {
+		if exists {
+			return PathEvidence{}, fmt.Errorf("%w: %s", ErrSymlinkDenied, resolved)
+		}
+		return PathEvidence{}, fmt.Errorf("%w: %s", ErrParentDirDenied, filepath.Dir(resolved))
+	}
+
+	nearest := resolved
+	if !exists {
+		nearest, err = nearestExistingResolvedAncestor(absolute)
+		if err != nil {
+			return PathEvidence{}, err
+		}
+		if !IsPathWithinAllowedDirectories(nearest, resolvedAllowedDirs) {
+			return PathEvidence{}, fmt.Errorf("%w: %s", ErrParentDirDenied, nearest)
+		}
+		info, statErr := os.Stat(nearest)
+		if statErr != nil {
+			return PathEvidence{}, statErr
+		}
+		if !info.IsDir() {
+			return PathEvidence{}, fmt.Errorf("%w: %s", ErrNotDirectory, nearest)
+		}
+	}
+	return PathEvidence{
+		RequestedPath:       absolute,
+		ResolvedPath:        resolved,
+		Exists:              exists,
+		NearestExistingPath: normalizePath(nearest),
+	}, nil
+}
+
+func nearestExistingResolvedAncestor(path string) (string, error) {
+	current := filepath.Dir(filepath.Clean(path))
+	for {
+		resolved, err := resolveExistingPath(current)
+		if err == nil {
+			return normalizePath(resolved), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		current = parent
+	}
 }
 
 // ValidatePathWithAllowedDirectories validates the requested spelling against

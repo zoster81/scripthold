@@ -209,9 +209,9 @@ The 2026-08-12 non-runtime gate completed successfully with the compatibility sp
 Connector-level acceptance completed on 2026-08-12 against the candidate surface. Discovery showed the separated preparation/review and apply schemas, while operational smoke confirmed that edit preview remained side-effect-free, `edit_file_apply` consumed the prepared capability, replay failed, and the removed `edit_file` direct mutation form was rejected without changing the target. The R23 completion gate is therefore satisfied. Release publication, tagging, and operator deployment remain separate explicitly governed actions.
 ## Follow-on milestones
 
-R23 deliberately establishes the capability pattern reused by later work:
+R23 deliberately establishes the capability pattern reused by R24 and later work:
 
-- **R24 — Safe filesystem operations:** governed by [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), with typed preview/apply packages for coordinated create/copy/move/delete/directory operations without arbitrary shell commands;
+- **R24 — Safe filesystem operations (ACTIVE):** governed by [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), with typed preview/apply packages for coordinated create/copy/move/delete/directory operations without arbitrary shell commands; the source changes are implemented and available local gates pass, while required native Linux/macOS namespace verification and connector-level preview/apply acceptance against an activated R24 candidate remain pending;
 - **R25 — Source intelligence foundation:** governed by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), with language-neutral bounded symbol extraction/indexing and Go native AST only as the first reference provider;
 - **R26 — Backup recovery:** governed by [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md), with separately reviewed offline evidence-preserving repair/salvage beyond the current diagnostic-only command;
 - **R27 — Broad multi-language code intelligence:** governed by [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md), with mandatory broad language coverage plus references, implementations, dependency/call relationships, and incremental indexing after the common symbol model is stable.

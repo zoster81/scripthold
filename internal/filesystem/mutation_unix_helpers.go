@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/zoster81/scripthold/internal/operation"
 )
 
 func installRegularFileNoReplace(source, destination string) error {
@@ -27,5 +29,5 @@ func movePortableNoReplace(source, destination string) error {
 	if info.Mode().IsRegular() {
 		return installRegularFileNoReplace(source, destination)
 	}
-	return fmt.Errorf("atomic no-replace move is not supported for %s on this platform", source)
+	return operation.New(operation.KindUnsupported, fmt.Sprintf("atomic no-replace move is not supported for %s on this platform", source))
 }

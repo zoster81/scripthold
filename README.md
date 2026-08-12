@@ -15,7 +15,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 Scripthold detects encodings from bytes and decoded-text evidence rather than filenames, presents text to the MCP client as UTF-8, and preserves or deliberately converts encoding, BOM, and line endings through bounded-memory and durable filesystem operations.
 
-- **36 tools and 3 guided prompts** over one authoritative catalog in the current source tree; the public `2.2.0` release exposes 30 tools.
+- **34 tools and 3 guided prompts** over one authoritative catalog in the current next-major source tree; the public `2.2.0` release exposes 30 tools.
 - **168 registered encodings**, including UTF-32 LE/BE and broad portable legacy coverage; automatic detection remains intentionally more conservative than explicit codec support.
 - **Secure filesystem boundaries** with resolved-root containment, deterministic traversal, Windows reparse/junction handling, staged mutation, conflict detection, and no-replace creation.
 - **Verified change workflows** with deterministic fingerprints, one-shot edit approval, strict patch packages, persistent backup integration, and typed verification.
@@ -30,7 +30,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 **Scripthold `2.2.0`** is the current public release. It exposes 30 tools, 3 guided prompts, and 168 registered encodings. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add the six MCPB bundles, `mcpb-checksums.txt`, and the MCP Registry publication for `io.github.zoster81/scripthold`.
 
-R22 completed the global encoding expansion and full UTF-32 pipeline. **R23 completed on 2026-08-12**. The current source tree and [TOOLS.md](TOOLS.md) document the Unreleased next-major R23 surface with truthful read-only preparation/review tools and separate mutation applies; `2.2.0` remains the current public release until an explicitly authorized later release is published. R24-R27 remain planned and no later milestone becomes active automatically. Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the completed R23 contract in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
+R22 completed the global encoding expansion and full UTF-32 pipeline, and **R23 completed on 2026-08-12**. R24 is active with its 34-tool Unreleased next-major source implementation in place: the four overlapping simple filesystem mutation tools are replaced by read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`, including bounded exact recursive copy/delete, same-volume native move, and backup-before-loss deletion. All available local gates pass; required native Linux/macOS namespace verification and connector-level preview/apply acceptance against an activated R24 candidate remain pending. `2.2.0` remains the current public release until an explicitly authorized later release is published. R25-R27 remain planned. Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the completed R23 contract in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), the active R24 contract in [docs/SAFE_FILESYSTEM_OPERATIONS.md](docs/SAFE_FILESYSTEM_OPERATIONS.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
 
 ## Transport and authorization model
 
@@ -59,10 +59,8 @@ MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stat
 - [`list_directory`](TOOLS.md#list_directory) — list directory entries with filtering and deterministic sorting.
 - [`tree`](TOOLS.md#tree) — compact `.gitignore`-aware deterministic tree output.
 - [`get_file_info`](TOOLS.md#get_file_info) — read file or directory metadata.
-- [`create_directory`](TOOLS.md#create_directory) — recursively create directories.
-- [`move_file`](TOOLS.md#move_file) — move or rename files/directories.
-- [`copy_file`](TOOLS.md#copy_file) — copy a file through the durable filesystem layer.
-- [`delete_file`](TOOLS.md#delete_file) — delete a validated file.
+- [`filesystem_package`](TOOLS.md#filesystem_package) — read-only bounded preparation for coordinated no-replace create/copy/move/delete filesystem changes.
+- [`filesystem_package_apply`](TOOLS.md#filesystem_package_apply) — apply one prepared filesystem package by one-shot `previewId`.
 - [`search_files`](TOOLS.md#search_files) — bounded `.gitignore`-aware glob search.
 - [`fingerprint_paths`](TOOLS.md#fingerprint_paths) — deterministic SHA-256 state fingerprints.
 - [`verify_state`](TOOLS.md#verify_state) — bounded typed JSON/text/Git-diff/fingerprint checks.
@@ -199,7 +197,7 @@ The mounted directory must be accessible to UID/GID `10001`. HTTP containers sho
 - `task_run` is disabled by default. Script tasks validate/fingerprint the script and execute an owner-only matching snapshot; shell tasks confine only the working directory and otherwise run with the executor identity's operating-system permissions.
 - HTTP adds authentication, Host/Origin, proxy/TLS, resource, logging, and execution boundaries; it is not a replacement for operating-system isolation.
 
-Detailed contracts: [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), and [durable tasks](docs/DURABLE_TASKS.md).
+Detailed contracts: [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), [R24 safe filesystem operations](docs/SAFE_FILESYSTEM_OPERATIONS.md), and [durable tasks](docs/DURABLE_TASKS.md).
 
 ## Configuration
 
@@ -215,6 +213,15 @@ The most important process-wide variables are summarized below. Subsystem docume
 | `MCP_MAX_BATCH_FILES` | Maximum items in bounded batch/path-list operations. | `256` |
 | `MCP_MAX_MATCHES` | Server maximum for grep matches. | `10000` |
 | `MCP_MAX_OUTPUT_BYTES` | Aggregate structured/text output budget. | `67108864` |
+| `MCP_MAX_FILESYSTEM_PACKAGE_OPERATIONS` | Maximum operations in one `filesystem-package-v1` manifest. | `256` |
+| `MCP_MAX_FILESYSTEM_PACKAGE_BYTES` | Maximum prepared filesystem-package manifest size. | `16777216` |
+| `MCP_MAX_FILESYSTEM_RECURSIVE_ENTRIES` | Maximum entries in one exact recursive copy/delete scope. | `100000` |
+| `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH` | Maximum exact recursive copy/delete depth. | `128` |
+| `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES` | Maximum aggregate source bytes in one filesystem package. | `1073741824` |
+| `MCP_MAX_FILESYSTEM_STAGING_BYTES` | Maximum aggregate bytes staged before filesystem-package commit. | `1073741824` |
+| `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEWS` | Maximum retained filesystem-package preview capabilities. | `16` |
+| `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES` | Maximum aggregate retained preview state. | `134217728` |
+| `MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS` | Filesystem-package preview lifetime. | `900` |
 | `MCP_MEMORY_THRESHOLD` | Deprecated fallback for file/output byte limits. | unset |
 | `MCP_HTTP_ADDR` | HTTP listen address. | `127.0.0.1:8765` |
 | `MCP_HTTP_PATH` | MCP endpoint path. | `/mcp` |
@@ -265,7 +272,7 @@ go build -o scripthold ./cmd/scripthold
 
 Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents should read the root [AGENTS.md](AGENTS.md) and the nearest scoped guide. Reusable verification is in [docs/DEVELOPMENT_CHECKLIST.md](docs/DEVELOPMENT_CHECKLIST.md), current planning in [docs/ROADMAP.md](docs/ROADMAP.md), and publication in [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
-The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Unreleased R23 next-major MCP surface migration is documented separately in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md).
+The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Unreleased next-major R23/R24 MCP surface migration is documented separately in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md).
 
 ## License
 
