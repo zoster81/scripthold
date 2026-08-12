@@ -2,7 +2,7 @@
 
 ## Status
 
-**COMPLETE.** The R17 lifecycle design was approved on 2026-08-04 and implemented/verified in R18 on 2026-08-05. This document is the authoritative current contract for the persistent backup subsystem.
+**COMPLETE.** The R17 lifecycle design was approved on 2026-08-04 and implemented/verified in R18 on 2026-08-05. This document is the authoritative current contract for the persistent backup subsystem. The approved active R23 work in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md) may revise the public backup UX and default-policy mechanism while preserving or explicitly reviewing the durability, store-boundary, restore-safety, quota, and GC guarantees defined here; until R23 is implemented, this document describes the current `2.2.0` behavior.
 
 This document defines the security boundary, storage format, capture transaction, public management surface, restore contract, garbage-collection model, limits, failure semantics, crash invariants, and verification requirements. Future changes must preserve or explicitly revise these guarantees through a reviewed design; milestone chronology belongs in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 

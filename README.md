@@ -30,7 +30,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 **Scripthold `2.2.0`** is the current public release. It exposes 30 tools, 3 guided prompts, and 168 registered encodings. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add the six MCPB bundles, `mcpb-checksums.txt`, and the MCP Registry publication for `io.github.zoster81/scripthold`.
 
-R22 completed the global encoding expansion and full UTF-32 pipeline. Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
+R22 completed the global encoding expansion and full UTF-32 pipeline. **R23 is the active development milestone**, redesigning mixed read/write MCP surfaces into truthful read-only preparation and mutation boundaries while preserving one-shot preview/apply and improving backup history/usability; current `2.2.0` tool behavior remains documented in [TOOLS.md](TOOLS.md). Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the approved R23 design in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
 
 ## Transport and authorization model
 
@@ -195,7 +195,7 @@ The mounted directory must be accessible to UID/GID `10001`. HTTP containers sho
 - `task_run` is disabled by default. Script tasks validate/fingerprint the script and execute an owner-only matching snapshot; shell tasks confine only the working directory and otherwise run with the executor identity's operating-system permissions.
 - HTTP adds authentication, Host/Origin, proxy/TLS, resource, logging, and execution boundaries; it is not a replacement for operating-system isolation.
 
-Detailed contracts: [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), and [durable tasks](docs/DURABLE_TASKS.md).
+Detailed contracts: [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), and [durable tasks](docs/DURABLE_TASKS.md).
 
 ## Configuration
 

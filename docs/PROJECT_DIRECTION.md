@@ -32,9 +32,9 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-Scripthold `2.2.0` is the current public release. R22 completed the 168-codec global encoding expansion, full UTF-32 LE/BE text support, conservative detector hardening, registry-driven public-operation verification, and the exact-commit release gate. No later release-scoped roadmap milestone is currently active.
+Scripthold `2.2.0` is the current public release. R22 completed the 168-codec global encoding expansion, full UTF-32 LE/BE text support, conservative detector hardening, registry-driven public-operation verification, and the exact-commit release gate. **R23 is now the active development milestone**, focused on truthful separation of read-only preparation from mutation, capability-bound preview/apply, reduced unnecessary connector blocking, and improved persistent-backup history/usability.
 
-Current milestone state belongs in [ROADMAP.md](ROADMAP.md), completed milestone history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and the completed R22 encoding contract in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md). Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
+Current milestone state belongs in [ROADMAP.md](ROADMAP.md), the approved R23 design in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md), completed milestone history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and the completed R22 encoding contract in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md). Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
 
 ## Supported transports
 

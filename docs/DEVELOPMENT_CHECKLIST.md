@@ -8,6 +8,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 
 - [ ] Restate the intended behavior and observable outcome.
 - [ ] Identify affected packages, handlers, schemas, metadata, documentation, workflows, and packaging.
+- [ ] For MCP tools, verify that static annotations describe the complete public tool capability; do not mix read-only and mutating actions under misleading metadata.
 - [ ] Identify compatibility constraints and any intentional breaking change.
 - [ ] Define valid, empty, missing, malformed, ambiguous, oversized, and unsupported inputs.
 - [ ] Define encoding, BOM, and LF/CRLF behavior where relevant.
@@ -15,6 +16,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 - [ ] Review path traversal, symlink, junction, reparse-point, hard-link, and allowed-root risks.
 - [ ] Review cancellation, timeout, concurrency, race, TOCTOU, and cleanup behavior.
 - [ ] For prepared operations, define capability lifetime, entropy, replay, ownership, eviction, restart, and stale-target behavior.
+- [ ] For approval-bound mutations, ensure apply accepts only the prepared capability identifier unless an explicitly reviewed design proves additional fields cannot alter the approved operation.
 - [ ] For multi-file operations, define preflight, staging, commit order, partial-state reporting, crash behavior, and any explicit non-atomicity.
 - [ ] Review Windows, Linux, macOS, long-path, and cross-platform implications.
 - [ ] Identify likely regressions and public behavior that must remain unchanged.
@@ -45,6 +47,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 - [ ] Review multi-file partial commits and misleading atomicity claims.
 - [ ] Review encoding corruption, malformed Unicode, and binary false positives.
 - [ ] Review dependency, platform, API, metadata, and documentation drift.
+- [ ] Review whether any supposedly read-only MCP tool can reach filesystem, backup-store, task-store, or other persistent mutation paths.
 - [ ] Revise the design before implementation if a mitigation is insufficient.
 
 ## 4. Repository safety before editing

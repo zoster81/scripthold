@@ -2,7 +2,7 @@
 
 ## Status
 
-**COMPLETE.** This document is the stable R16 contract for deterministic fingerprints, one-shot edit approval, declared patch packages, and structured verification. Persistent backup storage is governed separately by [PERSISTENT_BACKUP_LIFECYCLE.md](PERSISTENT_BACKUP_LIFECYCLE.md).
+**COMPLETE.** This document is the stable R16 contract for deterministic fingerprints, one-shot edit approval, declared patch packages, and structured verification. Persistent backup storage is governed separately by [PERSISTENT_BACKUP_LIFECYCLE.md](PERSISTENT_BACKUP_LIFECYCLE.md). The approved active R23 redesign in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md) plans to split mixed read-only/mutating public tool boundaries while preserving these preparation, capability, conflict, and durability guarantees; until implemented, the current `2.2.0` surface below remains authoritative.
 
 ## Goals
 

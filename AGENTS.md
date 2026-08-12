@@ -21,9 +21,14 @@ Do not copy private workstation state, local process details, credentials, or op
 - R19 offline backup-store diagnostics design: [`docs/OFFLINE_BACKUP_DIAGNOSTICS.md`](docs/OFFLINE_BACKUP_DIAGNOSTICS.md)
 - R20 MCP `2026-07-28` adoption design: [`docs/MCP_2026_07_28_ADOPTION.md`](docs/MCP_2026_07_28_ADOPTION.md)
 - Completed R22 global encoding coverage and Scripthold 2.2.0 contract: [`docs/GLOBAL_ENCODING_COVERAGE.md`](docs/GLOBAL_ENCODING_COVERAGE.md)
+- Approved R23 MCP mutation-surface and backup-UX design: [`docs/MCP_MUTATION_SURFACE.md`](docs/MCP_MUTATION_SURFACE.md)
+- Approved planned R24 safe-filesystem operations baseline: [`docs/SAFE_FILESYSTEM_OPERATIONS.md`](docs/SAFE_FILESYSTEM_OPERATIONS.md)
+- Approved planned R25 source-intelligence foundation baseline: [`docs/SOURCE_INTELLIGENCE.md`](docs/SOURCE_INTELLIGENCE.md)
+- Approved planned R26 backup-recovery baseline: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
+- Approved planned R27 broad multi-language code-intelligence baseline: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
-Link to these documents instead of duplicating their detailed content.
+Link to these documents instead of duplicating their detailed content. Before activating or implementing R24-R27, read the corresponding approved planned design baseline in addition to the roadmap; `PLANNED` status does not make those approved requirements optional.
 
 ## Repository map
 
