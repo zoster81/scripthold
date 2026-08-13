@@ -7,7 +7,7 @@ This document is the authoritative source for **current and future milestone sta
 - Current public release: **Scripthold `2.2.0`**.
 - Public surface: **30 tools**, **3 guided prompts**, and **168 registered text encodings** over stdio and Streamable HTTP.
 - R21-R25 are complete.
-- No release-scoped milestone is currently `ACTIVE`. R26-R27 remain `PLANNED` and must not be implemented incidentally.
+- **R26 is the sole `ACTIVE` release-scoped milestone.** R27 remains `PLANNED` and must not be implemented incidentally.
 - The completed R24 and R25 contracts and verification records are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md) and [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md).
 - Publication does not imply deployment. Operator-specific deployment, rollback, and runtime state are governed separately by [PUBLISHING.md](PUBLISHING.md) and private operational procedures.
 
@@ -52,16 +52,16 @@ This document is the authoritative source for **current and future milestone sta
 | R23 | COMPLETE | Separate read-only preparation from mutation, preserve capability-bound preview/apply, and improve persistent-backup history/usability. |
 | R24 | COMPLETE | Typed safe filesystem packages for coordinated create/copy/move/delete and directory operations without arbitrary shell fallback, verified through connector acceptance and native Windows/Linux/macOS CI. |
 | R25 | COMPLETE | Native language-neutral source navigation with evidence-qualified analysis, shared scanner/detector/composite architecture, Go/C#/VB.NET/Python canaries, and Classic ASP segmentation. |
-| R26 | PLANNED | Separately reviewed offline backup-store repair/salvage beyond the current diagnostic-only surface. |
+| R26 | ACTIVE | Offline evidence-preserving backup-store recovery/salvage through deterministic persisted plan/apply into a separate fully audited destination. |
 | R27 | PLANNED | Broad native multi-language/source-format intelligence with the approved expanded catalog, evidence-qualified project relations, structural search, bounded context, graphs, and incremental indexing. |
 
-Detailed outcomes for R1–R25 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the completed R24 contract is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md); the completed R25 contract is [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). Approved future design baselines are [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) (R26) and [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md) (R27).
+Detailed outcomes for R1–R25 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the completed R24 contract is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md); the completed R25 contract is [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The active R26 implementation handoff is [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md); the approved planned R27 baseline is [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md).
 
-## Approved future milestones
+## Active and planned milestones
 
 ### R26 — Backup recovery
 
-The approved baseline is [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md). R26 must add an offline evidence-preserving recovery/salvage workflow beyond R19 diagnosis while keeping normal startup fail closed and R19 mutation-free. The source store remains immutable evidence during planning and recovery; the baseline recovery path reconstructs only fully verified authoritative records into a separate destination, never fabricates missing bytes/metadata, never promotes orphan objects into backups without trustworthy manifests, requires explicit stale-plan validation and a final full audit, and leaves adoption/deployment of the recovered store as a separate operator action.
+The binding sequential implementation handoff is [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md). R26 adds offline evidence-preserving recovery/salvage beyond R19 diagnosis while keeping normal startup fail closed and R19 mutation-free. The frozen workflow uses explicit `backup-store recover-plan` / `recover-apply` commands, a persisted deterministic plan that is fully recomputed under lock before apply, an immutable source store, a new staged destination with fresh store identity, fully verified objects, manifest identity preserved except destination `StoreID`/checksum, rebuilt derived state, mandatory full audit, and a path-free provenance sidecar. Adoption/deployment remains separate.
 
 ### R27 — Broad multi-language code intelligence
 
@@ -69,4 +69,4 @@ The approved baseline and complete sequential handoff are [MULTILANGUAGE_CODE_IN
 
 ## Reprioritization rule
 
-R25 is complete. R26-R27 remain approved planned roadmap items, not active implementation authorization; any activation or reprioritization requires an explicit maintainer decision and corresponding roadmap update.
+R25 is complete. R26 is explicitly `ACTIVE` and must follow the sequential handoff in `BACKUP_RECOVERY.md`; R27 remains an approved `PLANNED` roadmap item and requires a later explicit activation/roadmap update.

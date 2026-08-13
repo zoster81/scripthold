@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R26 PLANNED DESIGN BASELINE.** This document records the approved direction for recovery, salvage, and repair planning beyond the completed R19 diagnostic-only command. R26 is not active while an earlier release-scoped milestone is active unless maintainers explicitly reprioritize the roadmap.
+**ACTIVE — R26 IMPLEMENTATION HANDOFF.** R26 was explicitly activated on 2026-08-13 after the completed R25 delivery reached `main` and its exact push-event CI/release-candidate gate passed. This document is now the binding sequential implementation handoff for recovery and salvage beyond the completed R19 diagnostic-only command. R27 remains `PLANNED` and must not be implemented incidentally.
 
 The current production contract remains unchanged: normal backup-store startup fails closed on structural corruption, and `scripthold backup-store diagnose` is read-only and authorizes no repair. R26 must not weaken those guarantees merely to improve availability.
 
@@ -91,16 +91,18 @@ Tests must snapshot source namespace, bytes, metadata, and identities before/aft
 
 R26 remains an offline CLI capability rather than an MCP action operating on an unhealthy store.
 
-Exact final command names are deferred, but the conceptual flow should resemble:
+The public offline CLI names and required path arguments are frozen:
 
 ```text
-scripthold backup-store recover-plan --store <source> [bounded options]
-scripthold backup-store recover-apply --store <source> --plan <capability-or-plan> --destination <new-store>
+scripthold backup-store recover-plan --store <source> --output <plan.json> [--max-manifests N] [--max-objects N] [--max-bytes N] [--pretty]
+scripthold backup-store recover-apply --store <source> --plan <plan.json> --destination <new-store> --report <report.json> [--pretty]
 ```
 
-The implementation may choose a one-process capability or an explicitly persisted signed plan format. That decision must be made before implementation because offline recovery may need to survive process restart. In either case, apply must execute exactly the reviewed plan or fail stale/conflict validation.
+All five path-bearing values are explicit absolute local paths. `recover-plan` and `recover-apply` never infer the source from `MCP_BACKUP_STORE_DIR`, never start an MCP transport, and never authorize a live-store mutation. Unknown, duplicate, empty, positional, or unsupported arguments fail closed.
 
-The command must never infer the source store from ambient `MCP_BACKUP_STORE_DIR` unless an explicit reviewed compatibility decision says otherwise. Explicit paths reduce accidental targeting.
+The plan is a persisted strict `backup-recovery-plan-v1` JSON document so review may survive process restart. It is **not a bearer capability and is not trusted merely because it exists**: apply reopens the source under the exclusive existing-store lock, repeats the bounded evidence scan with the plan's frozen bounds, recomputes the deterministic plan identity, and requires semantic equality before creating or resuming destination state. No signing secret or hidden process-local capability is introduced. A source change therefore invalidates the plan without a TTL-dependent security assumption.
+
+`--output` is created owner-only and no-replace after planning completes; its contents are path-free. A limited scan may produce review evidence but is marked non-applicable and cannot be consumed by `recover-apply`. `recover-plan` exits `0` only for a complete applicable plan, `2` for a complete command result that is non-applicable/limited and requires operator action, and `1` for usage, validation, I/O, locking, or other operational failure. `recover-apply` exits `0` only after a destination has been fully audited and the recovery report durably installed; a healthy recovered subset remains explicitly `recovered_with_omissions` in the report rather than being called a full recovery.
 
 ## Evidence classification
 
@@ -117,13 +119,13 @@ At minimum, recovery distinguishes:
 - **untrusted manifest/object/residue** — evidence insufficient or contradictory;
 - **missing evidence** — a manifest references an object that does not exist or cannot be verified.
 
-A recovered active backup manifest can be created only from sufficient authoritative evidence. Unknown bytes never become trusted because of filename alone.
+A recovered active backup manifest can be created only from sufficient authoritative evidence. Unknown bytes never become trusted because of filename alone. A trusted supported descriptor is required for an applicable recovery plan; missing, malformed, or unsupported descriptor evidence may be diagnosed/reported but cannot be used to guess a store format.
 
 ## Salvage rules
 
 ### Healthy authoritative records
 
-A manifest/object pair that passes the complete current validation contract may be copied into the recovered store with its logical backup identity preserved where doing so remains format-valid and collision-safe.
+A manifest/object pair that passes the complete current validation contract may be reconstructed in the recovered store with its logical backup identity preserved. `BackupID`, `CreatedAt`, `TargetPath`, `SourceOperation`, object algorithm/digest/bytes, content fingerprint, original mode/modification time, label, pin state, and supported format fields remain exact. Only the fresh destination `StoreID` is substituted and `ManifestChecksum` is recomputed over that destination manifest. Any collision or field that cannot be preserved exactly rejects that record rather than inventing replacement metadata.
 
 ### Derived index corruption
 
@@ -149,53 +151,75 @@ Recovery may read unsafe source entries only when the existing-store security bo
 
 ## Destination store
 
-The recovered destination must be a new explicit absolute path that:
+The recovered destination is a new explicit absolute path that must not exist when a new apply begins. It:
 
-- does not overlap the source store;
+- does not overlap or alias the source store;
 - does not overlap public allowed roots when later used as a server backup store;
 - is created with owner-only permissions;
-- has a fresh validated store descriptor unless format-preserving reconstruction requires a specifically reviewed identity rule;
+- receives a **fresh store ID** in a current validated descriptor;
 - uses immutable no-replace object/manifest installation;
-- is never partially presented as a healthy completed store without a final full audit.
+- is never partially presented at the requested destination path before a complete full audit.
 
-The destination must record recovery provenance in a way that does not alter the immutable public manifest semantics or expose source paths. Exact provenance format is an R26 implementation design decision.
+Apply builds under a same-parent staging directory so final promotion is same-volume. The staging/state names are derived from a bounded SHA-256 key over the canonical destination identity plus `planId`; they do not embed the source path. A strict owner-only recovery-state record binds staging to the plan, destination identity, fresh destination store ID, and phase. Retry may resume only recognized state whose identities and already-written content revalidate exactly. Unknown/ambiguous residue is never deleted, adopted, or overwritten automatically.
 
-A failed recovery apply may leave a recognizable incomplete recovery destination, but it must never be mistaken for an adopted healthy store. Restart/retry semantics must be deterministic.
+After construction, apply removes/finishes temporary recovery state as required, rebuilds derived index state, performs a complete full audit, and promotes the audited staging directory to the still-absent destination with a native same-volume no-replace rename. A crash after promotion but before report installation is recoverable only through the same plan/state evidence and another full audit; an arbitrary pre-existing destination is always a conflict.
+
+Recovery provenance does **not** add a new entry to `backup-store-v1`. `--report` names a mandatory owner-only, strict, no-replace `backup-recovery-report-v1` sidecar outside both source and destination stores. The plan plus report form the audit record: the plan carries the accepted/rejected evidence and exact actions; the report binds that plan to the fresh destination store ID, resulting generation/counts, omission status, and final full-audit result. Ordinary plan/report JSON is path-free.
 
 ## Plan/apply contract
 
 ### Recovery plan
 
-Planning is read-only and must return:
+Planning is read-only with respect to the source and emits a strict persisted plan containing:
 
-- source format/generation evidence where trusted;
-- counts/bytes of trusted records;
-- counts of rejected/unrecoverable records by stable reason;
-- derived-state issues;
-- orphan/unknown evidence counts;
-- expected destination object/manifest counts and bytes;
-- deterministic ordered recovery actions;
-- bounded warnings;
-- a plan identity bound to the exact source evidence.
+- `formatVersion = backup-recovery-plan-v1`;
+- deterministic lowercase SHA-256 `planId`;
+- trusted source store ID/format and descriptor fingerprint;
+- a deterministic recovery evidence digest over the ordered source classification, independent of the derived index;
+- the exact scan bounds and whether coverage was complete;
+- counts/bytes of trusted records and expected destination state;
+- deterministic accepted actions identified by backup ID, manifest checksum, object digest, and object bytes without exposing target paths;
+- rejected/unrecoverable backup IDs where trustworthy plus stable reason codes/counts for other rejected evidence;
+- derived-state, orphan, unknown, and bounded warning summaries;
+- `applicable` and omission status.
 
-The plan must be invalidated by source changes between plan and apply.
+The JSON decoder rejects unknown fields, duplicate/trailing data, malformed identities, inconsistent counts, unsorted/duplicate actions, and values outside fixed bounds. `planId` is computed from a canonical semantic encoding that excludes formatting and wall-clock time. Source changes between plan and apply change the recomputed evidence/plan identity and fail as stale/conflict.
 
 ### Recovery apply
 
 Apply must:
 
-1. re-acquire/retain the exclusive existing-source lock;
-2. revalidate source root/lock identity;
-3. validate the exact reviewed plan and source evidence;
-4. validate/create the explicit destination under strict non-overlap rules;
-5. copy and fully verify trusted objects;
-6. recreate/copy only trusted manifests under no-replace semantics;
-7. build derived state from recovered authoritative records;
-8. sync all durable destination state;
-9. perform a complete full audit of the destination;
-10. return final recovered/rejected counts and audit evidence.
+1. strictly decode the persisted plan before filesystem mutation;
+2. re-acquire/retain the exclusive existing-source lock and revalidate source root/lock identity;
+3. repeat the bounded source scan with the plan's exact bounds and require the same canonical plan/evidence identity;
+4. validate canonical source/destination/plan/report non-overlap and derive the recognized sibling staging/state identity;
+5. create or exactly resume only plan-bound owner-only staging state;
+6. copy every accepted object from the source through a bounded stream and verify its complete SHA-256/size before no-replace installation;
+7. reconstruct only accepted manifests, preserving authoritative fields, substituting only the fresh destination store ID and recomputing the checksum;
+8. rebuild the derived index from recovered authoritative records rather than copying source derived state;
+9. sync durable staging state and perform a complete full backup-store audit;
+10. promote the audited staging directory to the absent destination through native same-volume no-replace rename;
+11. write the strict no-replace `backup-recovery-report-v1` provenance sidecar and finish recognized recovery state;
+12. return bounded path-free recovered/rejected counts and final audit evidence.
 
-Any source mismatch before destination commitment must fail as stale/conflict. Any destination partial state after a failure must be reported explicitly and remain distinguishable from successful completion.
+Any source mismatch before promotion fails as stale/conflict. Any interrupted destination-side state remains explicitly recovery staging or a plan-bound post-promotion state and must never be mistaken for an automatically adopted store.
+
+## Frozen implementation decisions
+
+The following R26 decisions are binding. An implementation chat must not silently reopen them; a maintainer must explicitly revise this document and the roadmap before code diverges.
+
+1. **Offline CLI only.** R26 adds `recover-plan` and `recover-apply` under `scripthold backup-store`; it adds no MCP tool, prompt, transport behavior, startup repair, or automatic adoption.
+2. **Existing source is evidence.** Source access extends/factors the R19 existing-only diagnostic authority. It must not call ordinary `backupstore.Open` in a way that initializes, repairs, cleans, rewrites, or adopts source state.
+3. **Persisted plan, deterministic revalidation.** `backup-recovery-plan-v1` survives restart but grants no authority by itself. Apply recomputes the same bounded plan under lock and requires exact semantic identity. No process-local preview, TTL, signature secret, or ambient store selection is part of R26.
+4. **Trusted descriptor required.** R26 may report a missing/malformed/unsupported descriptor, but an applicable plan requires a strictly supported trusted descriptor. R26 does not guess a format or migrate versions.
+5. **Only fully trusted backup records are promoted.** A live recovered backup requires a trusted manifest plus the exact fully hashed referenced object. Orphans, partial JSON, digest mismatches, and missing objects remain evidence only.
+6. **Logical backup identity is preserved.** Recovered manifests preserve every authoritative field exactly except destination `StoreID`; `ManifestChecksum` is recomputed because that field changes. `BackupID` is never regenerated to hide a collision.
+7. **Derived state is rebuilt.** Source index/staging/trash is never copied as authoritative recovery state. Destination index/generation is rebuilt from recovered manifests/objects.
+8. **New destination, staged promotion.** The requested destination is never an in-place source repair and is not exposed until a same-parent staged store passes a full audit. Promotion is native same-volume no-replace rename.
+9. **Restart is explicit and fail-closed.** Only exact plan-bound owner-only recovery state may resume. Every retained file is revalidated before reuse. Unknown residue or an unrelated pre-existing destination is a conflict, never an excuse for cleanup or overwrite.
+10. **Provenance stays outside `backup-store-v1`.** The mandatory `backup-recovery-report-v1` sidecar plus the reviewed plan record what was accepted/omitted and prove the final audit without adding unknown files to the recovered store.
+11. **Bounds reuse existing policy where possible.** Manifest, object, and byte defaults/hard ceilings reuse the current backup-store limits for equivalent dimensions. R26 may add only the minimal independent caps required for retained issues, plan/report bytes, staging state, and elapsed work; limits that prevent complete verification make a plan non-applicable.
+12. **No deployment side effect.** A successful apply creates a verified offline destination/report only. Launcher, environment, runtime, connector, release, or backup-store adoption remains a separate operator action.
 
 ## Recovery provenance
 
@@ -273,6 +297,97 @@ R19 diagnosis remains valuable before and after R26:
 - before recovery, to understand source health;
 - after recovery, to independently inspect the completed destination offline;
 - as mutation-negative regression evidence.
+
+## Sequential TDD implementation plan
+
+Every phase is mandatory and sequential. A new implementation chat must read the required project context, this document, `OFFLINE_BACKUP_DIAGNOSTICS.md`, `PERSISTENT_BACKUP_LIFECYCLE.md`, `SAFE_FILESYSTEM_OPERATIONS.md`, `ROADMAP.md`, `DEVELOPMENT_CHECKLIST.md`, applicable `AGENTS.md` files, and the private operator backlog; then inspect repository state and continue from the first incomplete phase. Do not start R27 or skip a failing earlier phase.
+
+### Phase 0 — activation, baseline, and invariant map
+
+- confirm R26 is the sole `ACTIVE` release-scoped milestone and R25 is complete;
+- record branch, `HEAD`, `origin/main`, working-tree/unrelated changes and current backup-store format invariants;
+- map R19 diagnostic opener/scanner, descriptor/manifest/index codecs, owner-only ACL/mode helpers, locking, durable filesystem primitives, and CLI dispatch;
+- run focused backup-store/diagnostic baselines before code changes.
+
+Exit criterion: module/security map is established and relevant baselines are green or pre-existing failures are isolated.
+
+### Phase 1 — freeze CLI, schemas, bounds, and stable outcomes
+
+Add RED tests for the exact commands/arguments above; strict `backup-recovery-plan-v1`, `backup-recovery-state-v1`, and `backup-recovery-report-v1` codecs; deterministic/path-free serialization; canonical `planId`; plan applicability/omission states; exit-code mapping; and reuse of existing backup-store limits. Fuzz every new strict decoder.
+
+Exit criterion: contract tests fail only because R26 implementation is absent and no public MCP/catalog change is required.
+
+### Phase 2 — mutation-free source evidence scanner
+
+Factor/reuse the R19 existing-store security authority to enumerate descriptor, manifests, objects, derived state, recognized residue, and unknown entries without initialization or cleanup. Classify trusted/untrusted/missing/orphan evidence deterministically, retain bounded issues, fully hash only within explicit bounds, and compute the recovery evidence digest independent of source index state.
+
+Exit criterion: healthy and corrupt fixtures classify deterministically while byte/namespace/metadata/identity snapshots prove zero source mutation on success, failure, limit, and cancellation.
+
+### Phase 3 — deterministic recovery planner and persisted plan
+
+Build ordered accepted/rejected actions from Phase 2 evidence, preserve no target paths in serialized actions, compute canonical `planId`, mark limited/incompatible scans non-applicable, and atomically/no-replace write owner-only plan files outside the source store. Re-read the written plan through the strict decoder and verify identity before returning success.
+
+Exit criterion: repeated plans over identical source evidence are semantically identical; any source evidence change produces a different identity or conflict.
+
+### Phase 4 — destination authorization, staging identity, and restart state
+
+Implement canonical non-overlap/alias checks for source, destination, plan, report, staging and state; derive deterministic same-parent staging/state names; create fresh destination store identity only in staging; and implement strict resume rules. Test symlink/junction/reparse, hard-link, case/8.3/macOS alias, pre-existing destination, unknown residue, wrong-plan state, and crash checkpoints.
+
+Exit criterion: destination work cannot target/alias the source, expose an unaudited requested destination, overwrite unknown state, or resume foreign staging.
+
+### Phase 5 — verified object reconstruction
+
+For each accepted action, stream source object bytes through complete SHA-256/size verification, enforce copy/space/limit/cancellation bounds, install immutable owner-only destination objects no-replace, and verify any exact already-staged object before reuse. Never copy orphan/untrusted bytes into authoritative destination object state merely because they are present.
+
+Exit criterion: success/dedup/retry are byte-exact; corruption, replacement, partial write, short read, disk-full, sync and cancellation failures remain explicit and source-immutable.
+
+### Phase 6 — manifest reconstruction with preserved logical identity
+
+Re-read/revalidate each accepted source manifest and reconstruct it with every authoritative field preserved except fresh destination `StoreID` and recomputed `ManifestChecksum`. Reject collisions, mismatched plan evidence, malformed IDs, impossible metadata, or any record that cannot be represented exactly.
+
+Exit criterion: destination manifests round-trip through the current strict decoder, preserve backup identity/metadata, and reference only verified destination objects.
+
+### Phase 7 — derived index rebuild and full staged audit
+
+Rebuild index/generation solely from destination authoritative records, persist/sync it through existing durable rules, and run the complete full audit over staging. A limited audit or any issue blocks promotion. Verify expected manifest/object/pin/byte counts against the plan.
+
+Exit criterion: only a completely audited staged store is eligible for promotion; stale/corrupt source index state has no authority over the result.
+
+### Phase 8 — promotion, report, and idempotent completion
+
+Promote staging to the absent requested destination with native same-volume no-replace rename, handle plan-bound post-promotion retry, write the strict owner-only no-replace provenance report, independently reopen/full-audit the final destination, and finish recognized recovery state. Report `recovered` versus `recovered_with_omissions` truthfully.
+
+Exit criterion: command success implies a durable report plus a fully audited destination; interruption at every boundary has a deterministic retry/conflict result and never rewrites source evidence.
+
+### Phase 9 — stale-plan, concurrency, cancellation, and failure injection
+
+Cover source changes before/during re-scan, active writer/lock contention, destination races, plan/report replacement, cancellation during hashing/copy/audit, permission/quota/disk-full/sync/rename failures, and every durable phase transition. No failure path may claim rollback that was not performed.
+
+Exit criterion: stale/partial/cancelled states are classified exactly and race tests show no competing recovery state transitions.
+
+### Phase 10 — offline CLI wiring and operator output
+
+Wire the strict parsers into `runCommand` before transport startup. Keep normal output path-free/content-free, honor `--pretty`, never read `MCP_BACKUP_STORE_DIR`, never start MCP, and keep usage/validation errors distinct from completed recovery evidence. Add end-to-end command tests for plan review across process restart and apply through report creation.
+
+Exit criterion: native CLI smoke proves the complete offline plan/restart/apply workflow without server startup or source mutation.
+
+### Phase 11 — adversarial/platform conformance
+
+Run Windows/Linux/macOS-focused coverage for owner-only permissions, long/case paths, 8.3/macOS aliases, symlink/junction/reparse/hard-link/special-file attacks, Unicode paths/metadata, malformed/oversized JSON and identifiers, unsupported formats, huge sparse/orphan namespaces, and concurrent filesystem replacement. Snapshot the source before/after every adversarial case.
+
+Exit criterion: platform-specific path/permission behavior never weakens source immutability, destination separation, or fail-closed evidence classification.
+
+### Phase 12 — full repository and release-candidate gate
+
+Review the complete diff and confirm no unrelated changes. Run formatting, focused tests, `go mod verify`, full normal and race suites, `go vet`, Staticcheck, govulncheck, relevant fuzz targets, documentation/link/catalog/project-identity checks, Gitleaks, `git diff --check`, offline CLI/native smoke, and all supported Windows/Linux/macOS amd64/arm64 build gates required by changed code. Use GitHub native/container CI as the authoritative cross-platform runtime gate where local execution is unavailable.
+
+Exit criterion: every applicable local and exact pushed-commit CI gate is green with no unresolved security/correctness failure.
+
+### Phase 13 — completion documentation and R27 handoff
+
+Update this document from implementation handoff to completed contract/verification record, move concise outcome to `ROADMAP_HISTORY.md`, update roadmap/README/changelog truthfully, confirm normal startup and R19 diagnostics remain unchanged, and perform an explicit R27 compatibility check without implementing R27. Do not build/activate a candidate, alter a launcher, tag, release, or deploy unless separately authorized.
+
+Exit criterion: R26 completion evidence is reproducible from tracked docs/Git/CI, R27 remains the only next planned milestone, and the repository is clean after any authorized commit/push.
 
 ## Required tests
 

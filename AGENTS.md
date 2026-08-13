@@ -24,11 +24,11 @@ Do not copy private workstation state, local process details, credentials, or op
 - Completed R23 MCP mutation-surface and backup-UX contract: [`docs/MCP_MUTATION_SURFACE.md`](docs/MCP_MUTATION_SURFACE.md)
 - Completed R24 safe-filesystem operations contract and verification record: [`docs/SAFE_FILESYSTEM_OPERATIONS.md`](docs/SAFE_FILESYSTEM_OPERATIONS.md)
 - Completed R25 source-intelligence contract and verification record: [`docs/SOURCE_INTELLIGENCE.md`](docs/SOURCE_INTELLIGENCE.md)
-- Approved planned R26 backup-recovery baseline: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
+- Active R26 backup-recovery implementation handoff: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
 - Approved planned R27 broad multi-language code-intelligence baseline: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
-Link to these documents instead of duplicating their detailed content. Before activating or implementing R25-R27, read the corresponding approved planned design baseline in addition to the roadmap; `PLANNED` status does not make those approved requirements optional.
+Link to these documents instead of duplicating their detailed content. Before implementing R26, read its active sequential handoff in addition to the roadmap; before activating R27, read its approved planned baseline. `PLANNED` status does not make approved R27 requirements optional.
 
 ## Repository map
 
