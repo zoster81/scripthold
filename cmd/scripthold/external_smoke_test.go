@@ -132,10 +132,7 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte("package smoke\nfunc Work() {}\n"), 0o644); err != nil {
 		t.Fatalf("write R25 stdio smoke source: %v", err)
 	}
-	sourceRequestPath := sourcePath
-	if !equivalentSmokeRoot(tempRoot, expectedRoot) {
-		sourceRequestPath = childVisibleSmokePath(expectedRoot, filepath.Base(sourcePath))
-	}
+	sourceRequestPath := smokeSourceRequestPath(tempRoot, expectedRoot, filepath.Base(sourcePath))
 	sourceResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "source_symbols",
 		Arguments: map[string]any{
@@ -168,6 +165,31 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if sourceOutput.Operation != "outline" || sourceOutput.FilesParsed != 1 || sourceOutput.SymbolCount < 2 || !sourceOutput.CoverageComplete {
 		t.Fatalf("unexpected source_symbols stdio smoke output: %#v", sourceOutput)
 	}
+}
+
+func TestSmokeSourceRequestPath(t *testing.T) {
+	tempRoot := t.TempDir()
+	resolvedRoot, err := filepath.EvalSymlinks(tempRoot)
+	if err != nil {
+		t.Fatalf("resolve temp root: %v", err)
+	}
+	if got, want := smokeSourceRequestPath(tempRoot, tempRoot, "sample.go"), filepath.Join(filepath.Clean(resolvedRoot), "sample.go"); got != want {
+		t.Fatalf("same-root source request path = %q, want %q", got, want)
+	}
+	if got, want := smokeSourceRequestPath(tempRoot, "/data", "sample.go"), "/data/sample.go"; got != want {
+		t.Fatalf("child-root source request path = %q, want %q", got, want)
+	}
+}
+
+func smokeSourceRequestPath(tempRoot, expectedRoot, name string) string {
+	if equivalentSmokeRoot(tempRoot, expectedRoot) {
+		root := tempRoot
+		if resolved, err := filepath.EvalSymlinks(tempRoot); err == nil {
+			root = filepath.Clean(resolved)
+		}
+		return filepath.Join(root, name)
+	}
+	return childVisibleSmokePath(expectedRoot, name)
 }
 
 func TestChildVisibleSmokePath(t *testing.T) {
