@@ -4,7 +4,9 @@
 
 **APPROVED — R25 PLANNED DESIGN BASELINE.** This document records the approved foundation for source-symbol extraction and indexing. R25 remains planned and is not activated automatically by completion of an earlier milestone; roadmap ordering or explicit maintainer reprioritization governs activation.
 
-R25 establishes a language-neutral public model and provider architecture. Native Go parsing is the first reference implementation because the repository is Go and the standard library provides a high-quality parser without a new dependency. **Go is not the final product scope.** Broad multi-language coverage is a mandatory R27 outcome defined separately in [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md).
+R25 establishes a language-neutral public model and provider architecture implemented natively in Scripthold. Go's standard-library parser is the first reference implementation because it is already available without adding a parser dependency, but **Go is not the final product scope**. R25 must also prove that the shared model is not Go-shaped by exercising several structurally different language families before completion. Broad multi-language coverage is a mandatory R27 outcome defined separately in [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md).
+
+The approved implementation direction is intentionally dependency-light and native: source intelligence must be built from Scripthold-owned Go code and existing standard-library facilities rather than by embedding Tree-sitter, Babel, OpenRewrite, language-server runtimes, compiler frontends, downloaded grammars, or equivalent third-party parsing engines. External projects may be studied for algorithms, workflows, feature ideas, and acceptance criteria, but are not implementation dependencies.
 
 ## Problem
 
@@ -26,15 +28,15 @@ R25 introduces **symbol extraction / source indexing** as a bounded read-only ca
 R25 will:
 
 - expose a read-only source-symbol operation suitable for AI/agent navigation;
-- return structured declarations rather than regex matches;
+- return structured declarations rather than unqualified raw lexical matches;
 - represent functions, methods, types/classes, interfaces/traits where applicable, fields/properties, constants, variables/globals, constructors, namespaces/modules/packages, and other provider-supported declaration kinds;
 - preserve hierarchical ownership (`parent`, qualified name, nested symbols where appropriate);
 - return source positions and bounded signatures without returning complete source files by default;
 - operate on one file, a bounded list of files, or bounded directory roots;
 - reuse Scripthold's secure deterministic traversal and allowed-root boundary;
-- make language selection explicit and trustworthy rather than infer from a filename alone without verification;
-- establish a provider interface that permits multiple parser technologies later while preserving one public schema;
-- use Go's `go/parser`, `go/ast`, and `go/token` as the first production provider;
+- make language selection explicit and trustworthy through an evidence cascade rather than treating a filename alone as authoritative;
+- establish a provider interface that permits multiple native analysis strategies later while preserving one public schema, including lexical scanners, token-aware recognizers, structural parsers, composite-document segmenters, and project resolvers;
+- use Go's `go/parser`, `go/ast`, and `go/token` as the first production provider while also proving the common architecture against a brace-oriented language, a Basic-family language, and an indentation-oriented language before R25 completion;
 - report unsupported languages and unsupported semantic capabilities explicitly;
 - remain bounded in files, bytes, symbols, parse diagnostics, retained signatures, output size, time, and memory;
 - preserve stdio/Streamable HTTP equivalence;
@@ -44,7 +46,7 @@ R25 will:
 
 R25 will not:
 
-- pretend grep/regular expressions are a parser fallback for unsupported languages;
+- promote raw grep/regular-expression matches to syntactic or semantic facts without the validation required by the advertised evidence level;
 - promise broad multi-language coverage by itself;
 - implement project-wide reference finding, implementations, call graphs, or dependency graphs as the primary R25 deliverable;
 - run arbitrary compilers, build systems, shell commands, or language servers from a read-only symbol request;
@@ -300,7 +302,383 @@ It must not:
 - download dependencies or grammars;
 - log complete source text or unbounded signatures.
 
-If a future provider requires an external process, that provider belongs to an explicitly reviewed R27 execution/security design and cannot be smuggled into R25 as an implementation detail.
+External parser/compiler/language-server processes are outside the approved R25/R27 source-intelligence plan. Introducing such a provider requires a later explicit architecture decision and cannot be smuggled into R25 as an implementation detail.
+
+## Frozen implementation decisions
+
+The following decisions were explicitly approved before R25 activation and are part of the handoff contract. An implementation session must not silently reopen them. A maintainer may revise them explicitly, in which case this document and the roadmap must be updated before implementation diverges.
+
+1. **Native implementation.** R25/R27 source intelligence is implemented in Scripthold-owned Go code. Do not add Tree-sitter, Babel, OpenRewrite, parser-runtime bindings, downloaded grammars, language servers, compiler frontends, or equivalent third-party parsing engines as the source-intelligence foundation.
+2. **External projects are design references only.** Their useful ideas include compact outline/digest/show workflows, structural search, evidence-qualified relations, bounded context assembly, incremental indexing, language registries, composite-document delegation, and capability matrices. Their code/runtime dependencies are not imported merely to obtain those features.
+3. **Regex and grep are allowed primitives.** Raw textual matches remain lexical evidence. Regex over validated code spans, token streams, or scope-aware recognizers may contribute to structural results when tests establish that capability. The implementation must never label evidence more strongly than it proves.
+4. **No universal compiler is required.** The shared engine should recognize the source structure required for navigation and indexing rather than implement complete evaluation/type semantics for every language.
+5. **Shared infrastructure before language proliferation.** Reusable decoding/position mapping, language detection, scanning, tokenization, scope tracking, declaration normalization, and diagnostics must be centralized. New languages compose these primitives instead of cloning complete scanners.
+6. **Small common IR.** The public model normalizes genuinely common concepts but preserves `nativeKind`, language identity, precise ranges, provider/analyzer identity, diagnostics, and evidence so language-specific meaning is not erased.
+7. **Composite documents are first-class.** One physical file may contain a host format plus multiple language regions. Region mapping must preserve positions in the original decoded document. Classic ASP is the initial composite canary.
+8. **Language detection is evidence-based and economical.** Explicit language, exact filename, compound suffix, extension candidates, shebang/interpreter, internal directives, content markers, project/path evidence, and finally bounded analyzer probes form an ordered cascade. Extensions narrow candidates but are not proof.
+9. **Ambiguity is a valid result.** Detection must return exact/probable/ambiguous/unknown-equivalent evidence instead of silently choosing a language when available evidence does not justify the choice.
+10. **R25 must prove non-Go neutrality.** The completion canaries are Go, C#, VB.NET, Python, plus Classic ASP segmentation/delegation. These cover standard-library AST integration, brace/OOP syntax, Basic-family line/end scopes, indentation scopes, and mixed-language documents. R25 is not broad R27 language completion.
+11. **R25 remains syntax/navigation focused.** Project-wide semantic references, implementations, call graphs, blast radius, persistent indexing, and broad language expansion belong to R27. R25 may expose only the local structural facts required to make its public symbol/navigation model coherent.
+12. **Compact agent workflow.** Prefer one coherent `source_symbols`-class tool with operations equivalent to `outline`, `digest`, `find`, and `show` rather than multiplying near-duplicate MCP tools. Final schema names remain subject to the Phase 1 compatibility review, but tool-count reduction is the default.
+13. **No source duplication in future indexes.** R27 should index fingerprints, symbols, ranges, dependencies, relations, diagnostics, and generations; exact source bodies should normally be re-read through Scripthold and fingerprint-verified on demand.
+14. **Encoding remains Scripthold-authoritative.** Language detection must never be confused with encoding detection. Source bytes are decoded through the existing content/BOM trust path before native analyzers consume text unless an explicitly reviewed analyzer requires raw bytes.
+
+## Evidence model
+
+R25 must define evidence strength independently from the internal implementation technique. The final names may be refined during Phase 1, but the distinctions are mandatory:
+
+- **textual** — a byte/text occurrence, including ordinary grep/regex;
+- **lexical** — a token/pattern recognized after enough lexical processing to exclude irrelevant text such as comments/strings where promised;
+- **structural** — declaration, scope, import, inheritance, or call-site syntax established by a language recognizer/parser;
+- **scope-resolved** — an identifier related to a declaration through proven local/enclosing scope rules;
+- **project-resolved** — a target selected through project symbol/import/dependency evidence without claiming complete compiler semantics;
+- **semantic** — a relation established with sufficient language semantics/type/dispatch information to justify that label.
+
+R25 primarily emits structural declaration evidence. R27 may add the stronger levels. A unique name match in a repository is never automatically semantic.
+
+## Native architecture
+
+The target dependency flow is:
+
+```text
+raw source bytes
+    -> existing Scripthold encoding/BOM authority
+    -> SourceDocument + position map
+    -> LanguageDetector + LanguageRegistry
+    -> optional CompositeSegmenter
+    -> native scanner/lexer
+    -> language/family recognizer or structural parser
+    -> normalized symbols/scopes/diagnostics
+    -> R25 query operations
+    -> R27 project resolver/index/graphs later
+```
+
+The intended internal responsibilities are:
+
+- `SourceDocument`: decoded source, encoding/BOM metadata, deterministic line map, decoded-coordinate mapping, and bounded access helpers;
+- `LanguageRegistry`: canonical IDs, aliases, families, exact basenames, extensions/compound extensions, interpreters, detector hints, analyzer strategy, composite strategy, and declared capabilities;
+- `LanguageDetector`: ordered evidence collection, candidate narrowing, ambiguity handling, and bounded analyzer probes only where necessary;
+- shared scanner/lexer primitives: identifiers, keywords, punctuation, delimiters, comments, strings, escapes, newline significance, line continuation, optional indentation and preprocessing hooks;
+- native analyzers: `ScannerRecognizer`, `TokenStructuralParser`, and language-specific/full structural parsers only where the simpler forms cannot meet the declared accuracy contract;
+- `CompositeSegmenter`: host/embedded region extraction with original-document position preservation and delegation to registered analyzers;
+- normalizer: common symbol kinds plus language-native distinctions, hierarchy, signatures, visibility/modifiers, diagnostics, evidence and coverage;
+- orchestrator: authorized traversal, encoding, limits, cancellation, deterministic ordering, concurrency, partial errors and MCP mapping.
+
+The implementation may choose package names after inspecting repository conventions. Public/provider abstractions must not expose implementation types from `go/ast` or any future language analyzer.
+
+## Language detection contract
+
+Detection and parsing are separate responsibilities. The detector should perform the cheapest reliable checks first:
+
+1. explicit canonical/alias language requested by the caller;
+2. exact basename rules;
+3. compound suffix rules;
+4. ordinary extension to a deterministic candidate set;
+5. shebang/interpreter for applicable files, especially extensionless sources;
+6. language/modeline/directive evidence from bounded decoded content;
+7. distinctive content markers;
+8. bounded project/path evidence that can disambiguate but never grant filesystem authority;
+9. parser/recognizer probes only for the remaining ambiguous candidates.
+
+Ambiguous extensions such as `.h`, `.m`, `.inc`, `.bas`, and composite/template suffixes require dedicated tests. A path hint is evidence, not source-language proof. The registry is the single source of truth for language aliases/candidate routing; supported-language documentation and detection-table tests should be derived from it rather than maintained as separate lists.
+
+## Scanner and recognizer policy
+
+The shared scanner must be incremental/bounded and cancellation-aware. It should solve expensive lexical edge cases once: strings, comments, escapes, delimiters, line continuations, logical lines, optional indentation, and optional preprocessing spans. Language analyzers compose scanner profiles and focused recognizers instead of copying scanners wholesale.
+
+Regular expressions are appropriate for bounded, well-defined tasks such as directives, labels, candidate discovery, fixed-format constructs, and recognizers operating on already validated code/logical-line spans. Go's standard `regexp` engine is acceptable under existing resource limits. Regex is not a license to match arbitrary source text and report semantic certainty.
+
+A language analyzer should use the least complex strategy that passes its quality contract:
+
+- scanner/recognizer for simple, line-oriented, fixed-format, legacy, or DSL constructs;
+- token structural parser for nested declarations/scopes where token relationships matter;
+- dedicated structural grammar/parser only for constructs that cannot be recognized reliably through shared primitives.
+
+## Public source-navigation model
+
+Phase 1 must freeze a compact model capable of powering four agent-oriented operations without duplicating full file text:
+
+- `outline`: deterministic symbols/signatures/ranges and hierarchy for one or more paths;
+- `digest`: bounded module/file summary containing language, declarations, imports/dependencies where already structurally known, counts, coverage and estimated source footprint without full bodies;
+- `find`: exact/prefix/name/qualified-name lookup over the current request scope, not an R27 persistent project index;
+- `show`: return the exact bounded source region for a selected symbol using current source/fingerprint evidence rather than embedding all bodies in the outline.
+
+The final public tool may express these as an `operation` field on `source_symbols` or another smaller coherent schema chosen in Phase 1. Do not create four public tools without a demonstrated schema/security reason.
+
+The normalized symbol representation must cover at least:
+
+- deterministic request-local `id` or equivalent disambiguator;
+- `path` and canonical `language`;
+- normalized `kind` and bounded language-specific `nativeKind`;
+- `name`, `qualifiedName`, and parent identity/name where reliable;
+- `declarationRange` and `nameRange`;
+- optional `signatureRange` and `bodyRange` when reliably established;
+- bounded signature text when requested;
+- visibility/modifiers where syntactically reliable;
+- evidence/analyzer identity and bounded diagnostics;
+- explicit completeness/truncation state.
+
+Public byte offsets are forbidden unless their coordinate domain is explicitly defined and valid after Scripthold decoding. Line/column positions must remain correct for UTF-8, UTF-16, UTF-32, and supported legacy encodings that reach an analyzer.
+
+## Sequential TDD implementation plan
+
+Every phase is mandatory and sequential. A new implementation chat must read the required project context, inspect the current repository state, identify the first phase whose exit criterion is not yet satisfied, and continue from there. Do not skip a failing earlier phase to implement a later feature. Each phase follows focused TDD where practical: add/reproduce the focused failing test, prove it fails for the intended reason, implement the smallest coherent behavior, rerun focused tests, then run directly affected regressions.
+
+### Phase 0 — activation, context, and baseline
+
+When the maintainer explicitly activates R25:
+
+1. read the root and every applicable scoped `AGENTS.md`, this document, `MULTILANGUAGE_CODE_INTELLIGENCE.md`, `ROADMAP.md`, `DEVELOPMENT_CHECKLIST.md`, encoding/security/traversal source-of-truth documents, and the private operator backlog;
+2. confirm R24 remains complete, R26/R27 are not accidentally activated, and update only R25 to `ACTIVE` if activation was explicitly authorized;
+3. record branch, `HEAD`, `origin/main`, working-tree state and unrelated user changes before editing;
+4. inspect current handler/server/catalog patterns, configuration limits, secure walker, encoding APIs, concurrency primitives and tests;
+5. establish baseline focused tests for encoding/traversal/catalog behavior that R25 will reuse;
+6. do not change release/tag/runtime/launcher/deployment state as part of R25 source implementation.
+
+Exit criterion: repository/module map and clean preservation plan are documented in-session; applicable baseline tests pass or pre-existing failures are explicitly isolated before R25 code changes.
+
+### Phase 1 — freeze public contract and resource limits
+
+Before implementation, add failing tests that define:
+
+- the final `source_symbols`-class tool name and compact operation schema;
+- `outline`, `digest`, `find`, and `show` behavior or the explicitly approved equivalent;
+- strict unknown-field rejection and operation-specific field legality;
+- normalized symbol/range/evidence/coverage schemas;
+- per-file diagnostics and partial-coverage representation;
+- language detection result states and candidate/evidence output bounds;
+- read-only MCP annotations and stdio/HTTP schema equivalence;
+- hard/default limits for input paths, files, aggregate source bytes, per-file bytes, symbols, signature/body return bytes, diagnostics, detector probes, nesting, concurrency, time/cancellation and aggregate output.
+
+Review the proposed public model explicitly against Go, C#, VB.NET, Python, Classic ASP, C/C++, JavaScript/TypeScript, Rust, Pascal/Delphi, MQL4/MQL5, Razor and Vue constructs before freezing it. Do not implement analyzers until this review shows that no public field assumes Go-specific concepts.
+
+Exit criterion: the public contract, evidence vocabulary and limits are test-defined; tests fail only because the implementation is absent.
+
+### Phase 2 — `SourceDocument` and coordinate correctness
+
+Build the shared decoded source abstraction on the existing encoding subsystem. It must:
+
+- preserve the authoritative detected/explicit encoding and BOM evidence;
+- expose decoded text under current file-size/decoded-size bounds;
+- construct deterministic line-start mappings without unbounded duplicate storage;
+- map analyzer offsets/ranges to the public line/column contract;
+- distinguish decoded UTF-8/internal offsets from original-file byte offsets;
+- support CRLF, LF, CR and mixed endings without changing source;
+- expose bounded slices for signatures/body retrieval;
+- honor cancellation during large inputs.
+
+Focused tests must cover UTF-8, UTF-8 BOM, UTF-16 LE/BE, UTF-32 LE/BE, representative legacy encodings, Unicode identifiers, combining/multibyte text, very long lines, mixed endings, malformed/ambiguous encoding and range boundaries.
+
+Exit criterion: analyzers can consume one safe decoded coordinate space and return ranges that remain correct independent of original encoding.
+
+### Phase 3 — language registry and detector
+
+Implement one registry as the canonical routing/capability table. Add the initial R25 canaries plus enough future R27 entries to prove that the registry model supports broad families without implementing them yet. Registry validation tests must reject duplicate canonical IDs/aliases, conflicting exact basenames, accidental duplicate extensions without explicit ambiguity, invalid analyzer references and inconsistent capability claims.
+
+Implement the ordered detector cascade. Detector tests must cover:
+
+- explicit language and aliases;
+- exact basename and compound suffix;
+- extensionless shebangs;
+- misleading extension/content disagreement;
+- `.h`, `.m`, `.inc`, `.bas` ambiguity classes;
+- Classic ASP/page directives;
+- malformed/spoofed shebang/directive inputs;
+- project/path hints as non-authoritative evidence;
+- ambiguous and unknown outputs;
+- deterministic evidence ordering;
+- bounded content probing and cancellation.
+
+Exit criterion: language routing is deterministic, ambiguity-safe, inexpensive on unambiguous files, and independent from encoding selection.
+
+### Phase 4 — shared scanner/lexer primitives
+
+Build the native scanner core before the non-Go structural analyzers. The core must support profile-controlled:
+
+- identifiers/keywords and case-sensitive/case-insensitive matching;
+- punctuation/operators and balanced delimiter tracking;
+- line/block/nestable comments where enabled;
+- normal/raw/verbatim/triple/interpolated string families required by the initial canaries;
+- escape handling;
+- physical versus logical lines and continuation rules;
+- optional indentation tokens;
+- optional directive/preprocessor spans;
+- bounded token/text retention and cancellation.
+
+Do not turn the scanner profile into a giant language-specific switch. Shared behavior belongs in reusable primitives; language-specific behavior stays behind profile/analyzer interfaces.
+
+Test comments/strings containing declaration-looking text, unterminated literals/comments, pathological nesting, huge logical lines, Unicode identifiers where permitted, repeated scanning determinism, cancellation and fuzz boundaries.
+
+Exit criterion: C#, VB.NET and Python analyzers can share the scanner infrastructure without copying its core lexical logic.
+
+### Phase 5 — common symbol builder, scopes, and diagnostics
+
+Implement reusable language-neutral construction for:
+
+- normalized/native kinds;
+- parent/child scopes;
+- qualified names;
+- deterministic IDs/disambiguators suitable for request-local overloaded symbols;
+- declaration/name/signature/body ranges;
+- visibility/modifiers;
+- bounded diagnostics;
+- structural evidence and `coverageComplete` logic.
+
+Add generic scope-stack tests for braces, explicit `End` scopes and indentation adapters without yet claiming language-specific correctness. Ensure overloads and nested symbols do not collide merely by name.
+
+Exit criterion: language analyzers emit through one normalized builder and cannot bypass coverage/evidence rules.
+
+### Phase 6 — Go reference analyzer
+
+Implement the Go analyzer using only standard-library `go/parser`, `go/ast` and `go/token` behind the common analyzer interface. Cover package, imports where structurally useful, grouped const/var, named types/aliases, structs/interfaces/members, functions, methods/receivers, generics, signatures and reliable ranges. Preserve recoverable parser diagnostics and partial coverage.
+
+Do not expose `go/ast` types through shared/public APIs. Do not add type checking, `go list`, module download or compiler execution merely for declarations.
+
+Exit criterion: Go passes the existing R25 quality bar and proves standard-library AST integration through the same IR used by native scanners.
+
+### Phase 7 — C# brace/OOP canary
+
+Implement a native C# structural analyzer using the shared scanner plus focused token parsing. R25 requires declaration/navigation coverage for representative:
+
+- namespaces, classes, structs, interfaces, records and enums;
+- methods, constructors, properties, events and fields/constants;
+- generics and nested types;
+- attributes/modifiers without promoting attributes to declarations;
+- using directives where included in `digest` structural metadata;
+- partial and extension-method syntax represented without project-wide semantic resolution;
+- expression-bodied members sufficiently to obtain declaration/body ranges where reliable.
+
+Do not attempt full C# compilation/type binding in R25. Tests must aggressively include declaration-like text in comments, strings, interpolated strings and malformed/incomplete editing states.
+
+Exit criterion: the common model handles a modern brace/OOP language without Go-specific special cases.
+
+### Phase 8 — VB.NET Basic-family canary
+
+Implement native VB.NET declaration analysis through a case-insensitive scanner, logical-line builder and explicit-scope recognizer. Cover representative:
+
+- `Namespace`, `Module`, `Class`, `Structure`, `Interface`, `Enum`;
+- `Sub`, `Function`, constructors, `Property`, `Event`, fields/constants;
+- `Inherits`/`Implements` structural declarations;
+- generics and modifiers;
+- line continuation and colon-separated statements;
+- `'` comments and string handling;
+- explicit `End ...` scopes and malformed/missing endings.
+
+Structure the Basic-family primitives so later VB6, VBA, VBScript, QBasic/QuickBASIC, classic BASIC and other profiles can reuse them without pretending the dialects are identical.
+
+Exit criterion: line-oriented/case-insensitive/end-delimited syntax works through shared infrastructure and proves the provider abstraction is not brace-centric.
+
+### Phase 9 — Python indentation canary
+
+Implement native Python structural analysis using the shared scanner/indentation support. Cover representative:
+
+- modules/imports for structural digest metadata;
+- functions, async functions, classes and methods;
+- decorators associated with the following declaration;
+- nested definitions;
+- multiline signatures and annotations;
+- indentation/dedent scope ownership;
+- strings including triple-quoted strings so embedded declaration-looking text cannot leak;
+- incomplete/malformed source with bounded recovery diagnostics.
+
+R25 does not claim dynamic dispatch/reference resolution.
+
+Exit criterion: indentation-defined ownership works without contaminating the common IR with brace/end assumptions.
+
+### Phase 10 — Classic ASP composite canary
+
+Implement the first `CompositeSegmenter` for Classic ASP. The segmenter must preserve original document coordinates and identify at least:
+
+- host HTML/text regions;
+- ASP directives such as language selection;
+- `<% ... %>` server-script regions;
+- `<%= ... %>` expression regions;
+- server-side `<script ... runat="server">` regions with language evidence where present;
+- include/dependency directives where reliably recognizable.
+
+Delegate VBScript-like embedded code through a narrowly scoped Basic-family profile sufficient to prove segmentation/delegation architecture; if JScript or another scripting language is declared but not implemented in R25, report that embedded region explicitly as unsupported rather than misparse it. Do not create a monolithic ASP grammar.
+
+Tests must prove that region-relative analysis maps back to exact host-file line/column ranges across mixed HTML/script, CRLF and non-UTF-8 source.
+
+Exit criterion: one physical file can truthfully expose multiple language regions without losing position or coverage evidence.
+
+### Phase 11 — compact `outline` / `digest` / `find` / `show` orchestration
+
+Wire authorized file/list/directory requests through secure traversal, encoding, detection, segmentation and analyzers. Implement the four compact navigation behaviors under one coherent public tool unless Phase 1 explicitly approved another surface.
+
+Requirements include:
+
+- deterministic path then source-position ordering;
+- bounded concurrency using existing project primitives;
+- independent per-file failures and aggregate `coverageComplete`;
+- language/kind filters without hiding unsupported coverage;
+- `digest` that avoids returning full source bodies;
+- request-scoped `find` with deterministic exact/prefix/qualified lookup and explicit ambiguity;
+- `show` that re-reads/currently verifies the target source evidence before returning the selected bounded source region, rather than trusting a stale copied body;
+- strict output/result limits and cancellation;
+- no workspace mutation, cache files, external process or network activity.
+
+Exit criterion: an MCP client can navigate the R25 canary languages materially more efficiently than by reading every complete source file.
+
+### Phase 12 — correctness corpus and adversarial quality gate
+
+Create a maintainable per-language conformance corpus and reusable harness. For every R25 language/form, include:
+
+- positive declaration variants;
+- negative declaration-looking comments/strings;
+- multiline signatures and nesting;
+- malformed/truncated editing states;
+- ambiguous detection fixtures;
+- scope/shadow/overload cases relevant to that language;
+- Unicode identifiers/content;
+- applicable UTF-8/UTF-16/UTF-32/legacy encodings;
+- LF/CRLF and relevant mixed-line-ending cases;
+- large/generated sources within limits;
+- adversarial long literals/comments/nesting;
+- deterministic repeated-output checks;
+- cancellation and resource-limit failures.
+
+Track quality with tests that make false positives and range errors visible. Where practical, use hand-authored expected symbol tables/ranges rather than self-generated golden output from the analyzer under test. Fuzz scanner/recognizer boundaries and malformed inputs.
+
+Exit criterion: each canary satisfies a documented production declaration/navigation bar, not merely hello-world parsing.
+
+### Phase 13 — performance, memory, and concurrency gate
+
+Benchmark representative workloads before finalizing defaults:
+
+- many small files;
+- fewer large generated files;
+- mixed R25 languages;
+- unambiguous versus ambiguous language detection;
+- cold parse and repeated request/cache behavior if a bounded cache exists;
+- outline/digest/find/show operations.
+
+Verify that retained memory is bounded by configured per-file/aggregate/result limits rather than total repository source size. If a cache is introduced, fingerprint content, bound count/bytes, invalidate on source/provider/config change, and make restart semantics explicit. Race-test shared registry/cache state.
+
+Exit criterion: defaults/hard ceilings are evidence-driven, documented and covered by tests; no unbounded AST/token/source retention exists.
+
+### Phase 14 — MCP/catalog/documentation integration
+
+Only after internal behavior is stable:
+
+- add/update the authoritative tool catalog entry and registration/schema;
+- update README/TOOLS references and examples without duplicating the detailed design;
+- document the R25 supported-language/capability matrix generated or mechanically checked against the registry;
+- update roadmap status/completion text only according to actual milestone state;
+- verify no duplicate near-equivalent source-intelligence tools were introduced;
+- run source MCP smoke over stdio and HTTP and connector-level read-only acceptance.
+
+Exit criterion: discovery, catalog, docs and runtime schema agree exactly and the canary capability matrix is truthful.
+
+### Phase 15 — full completion and R27 handoff gate
+
+Review the complete diff and confirm no unrelated files changed. Run the affected focused tests first, then the repository gates required by the applicable guides, including formatting, `go mod verify`, full normal tests, race where configured toolchain permits it, vet, Staticcheck, govulncheck, source server smoke, documentation/link/catalog checks, relevant fuzz tests, `git diff --check`, final Git status, and supported-platform compile/runtime checks required by changed code.
+
+Before declaring R25 complete, perform an explicit architecture review against the full R27 language/capability matrix in `MULTILANGUAGE_CODE_INTELLIGENCE.md`. Confirm that adding VB6/VBA/VBScript, C/C++, Java/JavaScript/TypeScript, Rust, Pascal/Delphi, MQL4/MQL5, .NET-related formats and composite web formats does not require breaking the R25 public model.
+
+R25 completion does not authorize R27 implementation, commit, push, release, candidate build, launcher change, tunnel restart or deployment. Those remain separately authorized actions.
+
+Exit criterion: every R25 completion-gate item and repository verification gate has passed with recorded evidence, and the R27 compatibility review finds no public-schema redesign requirement.
 
 ## Required tests
 
@@ -359,9 +737,9 @@ If a future provider requires an external process, that provider belongs to an e
 
 Mitigation: normalized concepts are language-neutral and provider-specific capabilities are explicit. R27's required language families are documented before R25 implementation so the provider interface must be reviewed against non-Go constructs such as classes, namespaces, traits, properties, overloads, modules, and Pascal units.
 
-### Risk: regex fallback produces plausible but wrong symbols
+### Risk: lexical/regex recognizers produce plausible but overclaimed symbols
 
-Mitigation: unsupported languages remain unsupported until a reviewed parser/provider exists. Grep remains a separate lexical tool and is never mislabeled semantic parsing.
+Mitigation: textual and lexical matches remain labeled at their actual evidence level. Regex may participate in a structural recognizer only after the language-specific lexical/scope validation required by that analyzer and only when corpus tests demonstrate the advertised declaration accuracy. Unsupported constructs remain explicit.
 
 ### Risk: parsing entire repositories consumes too much memory
 
@@ -379,15 +757,15 @@ Mitigation: every provider declares capability level. R25 results describe decla
 
 R25 is complete only when:
 
-1. the language-neutral symbol schema and provider interface are documented and reviewed against the R27 target language families;
-2. a read-only public symbol operation is implemented with strict bounds and explicit partial coverage;
-3. Go's native AST provider implements the approved declaration/hierarchy/signature/range baseline without external execution;
-4. language selection does not treat extension alone as authoritative proof;
-5. encoding, allowed-root, traversal, cancellation, output, and transport invariants remain intact;
-6. regex pseudo-parsing is not used as an unsupported-language fallback;
-7. deterministic, malformed-input, fuzz/resource, mutation-negative, and connector smoke tests pass;
-8. the implementation leaves a documented provider extension point suitable for R27 rather than requiring a public-schema rewrite for each new language.
+1. the language-neutral symbol schema, evidence model, registry, detector, shared scanner and analyzer interfaces are documented and reviewed against the complete R27 target catalog;
+2. one compact read-only `source_symbols`-class capability implements the approved outline/digest/find/show-equivalent workflow with strict bounds and explicit partial coverage;
+3. Go, C#, VB.NET and Python implement the approved production declaration/navigation canary bar through the same common model, and Classic ASP proves host/embedded segmentation/delegation with original-document range mapping;
+4. language selection follows the approved evidence cascade and does not treat extension alone as authoritative proof;
+5. encoding, coordinate mapping, allowed-root, traversal, cancellation, output, concurrency and transport invariants remain intact;
+6. regex/grep use is evidence-qualified: raw lexical matches are never promoted to structural or semantic facts without the validation promised by the analyzer;
+7. deterministic, malformed-input, negative comment/string, range, encoding, fuzz/resource, mutation-negative, performance and connector smoke tests pass for every R25 canary;
+8. the implementation leaves the documented native registry/scanner/composite/provider extension points required by R27 without a public-schema rewrite for the approved broad catalog.
 
 ## Relationship to R27
 
-R25 proves the common model. R27 must then deliver broad, production-quality multi-language coverage and deeper semantic relationships. R25 must therefore be judged not only by how well it parses Go, but by whether its architecture can support the mandatory R27 language matrix without breaking the public source-symbol contract.
+R25 proves the common model across structurally different canaries. R27 must then deliver the approved broad native language/source-format catalog, project relationships, structural search, bounded context, and incremental indexing. R25 must therefore be judged not only by its canary accuracy, but by whether its architecture can support the complete R27 capability matrix without breaking the public source-symbol contract.
