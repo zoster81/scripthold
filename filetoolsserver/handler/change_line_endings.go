@@ -33,7 +33,7 @@ func (h *Handler) HandleChangeLineEndings(ctx context.Context, req *mcp.CallTool
 	}
 	defer stream.Close()
 
-	rawSource := textstream.WithContext(ctx, stream.session)
+	rawSource := textstream.WithContext(ctx, stream.stream.RawReader())
 	validatedSource, err := fileEncoding.NewValidatingReader(rawSource, stream.Charset)
 	if err != nil {
 		return errorResult(fmt.Sprintf("failed to initialize encoding validation for %s: %v", stream.Charset, err)), ChangeLineEndingsOutput{}, nil

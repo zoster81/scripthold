@@ -90,8 +90,8 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if got := len(tools.Tools); got != 34 {
-		t.Fatalf("tool count = %d, want 34", got)
+	if got := len(tools.Tools); got != 35 {
+		t.Fatalf("tool count = %d, want 35", got)
 	}
 
 	roots, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_allowed_directories"})
@@ -113,13 +113,57 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if !ok {
 		t.Fatalf("directories field type = %T", structured["directories"])
 	}
+	foundRoot := false
 	for _, value := range directories {
 		actualRoot, ok := value.(string)
 		if ok && equivalentSmokeRoot(actualRoot, expectedRoot) {
-			return
+			foundRoot = true
+			break
 		}
 	}
-	t.Fatalf("allowed directories = %#v, want %q", directories, expectedRoot)
+	if !foundRoot {
+		t.Fatalf("allowed directories = %#v, want %q", directories, expectedRoot)
+	}
+
+	if tempRoot == "" {
+		return
+	}
+	sourcePath := filepath.Join(tempRoot, "r25-smoke.go")
+	if err := os.WriteFile(sourcePath, []byte("package smoke\nfunc Work() {}\n"), 0o644); err != nil {
+		t.Fatalf("write R25 stdio smoke source: %v", err)
+	}
+	sourceResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "source_symbols",
+		Arguments: map[string]any{
+			"operation":         "outline",
+			"paths":             []string{sourcePath},
+			"language":          "go",
+			"encoding":          "utf-8",
+			"includeSignatures": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("call source_symbols: %v", err)
+	}
+	if sourceResult.IsError {
+		t.Fatalf("source_symbols returned an error: %#v", sourceResult.Content)
+	}
+	encodedSource, err := json.Marshal(sourceResult.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal source_symbols output: %v", err)
+	}
+	var sourceOutput struct {
+		Operation        string `json:"operation"`
+		FilesParsed      int    `json:"filesParsed"`
+		SymbolCount      int    `json:"symbolCount"`
+		CoverageComplete bool   `json:"coverageComplete"`
+	}
+	if err := json.Unmarshal(encodedSource, &sourceOutput); err != nil {
+		t.Fatalf("decode source_symbols output: %v", err)
+	}
+	if sourceOutput.Operation != "outline" || sourceOutput.FilesParsed != 1 || sourceOutput.SymbolCount < 2 || !sourceOutput.CoverageComplete {
+		t.Fatalf("unexpected source_symbols stdio smoke output: %#v", sourceOutput)
+	}
 }
 
 func equivalentSmokeRoot(actual, expected string) bool {

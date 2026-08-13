@@ -1,6 +1,9 @@
 package handler
 
-import "github.com/zoster81/scripthold/internal/operation"
+import (
+	"github.com/zoster81/scripthold/internal/operation"
+	"github.com/zoster81/scripthold/internal/textstream"
+)
 
 // Sentinel errors for handler operations.
 // Use errors.Is() to check for specific error types.
@@ -24,14 +27,14 @@ var (
 var (
 	// ErrEncodingUnsupported is returned when an unsupported encoding is specified.
 	// Wrap this error to include the encoding name: fmt.Errorf("%w: %s", ErrEncodingUnsupported, name)
-	ErrEncodingUnsupported = operation.New(operation.KindEncoding, "unsupported encoding")
+	ErrEncodingUnsupported = textstream.ErrEncodingUnsupported
 
 	// ErrEncodingAmbiguous is returned when non-empty content lacks enough
 	// evidence for safe automatic decoding.
-	ErrEncodingAmbiguous = operation.New(operation.KindEncoding, "encoding is ambiguous; specify encoding explicitly")
+	ErrEncodingAmbiguous = textstream.ErrEncodingAmbiguous
 
 	// ErrBOMEncodingConflict is returned when an explicit or resolved encoding conflicts with the file BOM.
-	ErrBOMEncodingConflict = operation.New(operation.KindEncoding, "BOM encoding conflict")
+	ErrBOMEncodingConflict = textstream.ErrBOMEncodingConflict
 
 	// ErrEncodingDecode is returned when file bytes cannot be decoded with the selected encoding.
 	ErrEncodingDecode = operation.New(operation.KindDecoding, "encoding decode failed")

@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R25 PLANNED DESIGN BASELINE.** This document records the approved foundation for source-symbol extraction and indexing. R25 remains planned and is not activated automatically by completion of an earlier milestone; roadmap ordering or explicit maintainer reprioritization governs activation.
+**COMPLETE — R25.** The implementation and completion verification finished on 2026-08-13. This document is the completed contract and verification record for the native language-neutral source-navigation foundation. R26 and R27 remain separate planned milestones and were not activated by R25 completion.
 
 R25 establishes a language-neutral public model and provider architecture implemented natively in Scripthold. Go's standard-library parser is the first reference implementation because it is already available without adding a parser dependency, but **Go is not the final product scope**. R25 must also prove that the shared model is not Go-shaped by exercising several structurally different language families before completion. Broad multi-language coverage is a mandatory R27 outcome defined separately in [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md).
 
@@ -419,6 +419,126 @@ The normalized symbol representation must cover at least:
 - explicit completeness/truncation state.
 
 Public byte offsets are forbidden unless their coordinate domain is explicitly defined and valid after Scripthold decoding. Line/column positions must remain correct for UTF-8, UTF-16, UTF-32, and supported legacy encodings that reach an analyzer.
+
+## Frozen R25 Phase 1 public contract
+
+Phase 1 was completed on 2026-08-13 after explicit review against Go, C#, VB.NET, Python, Classic ASP, C/C++, JavaScript/TypeScript, Rust, Pascal/Delphi, MQL4/MQL5, Razor, and Vue constructs. The review found no need for a Go-shaped public field. R25 implementation must preserve the contract below unless the maintainer explicitly reopens Phase 1 and updates both the tests and this document.
+
+### Tool and operation shape
+
+The public tool name is `source_symbols`. It remains one read-only tool with four strict `oneOf` operation branches, each with `additionalProperties: false`:
+
+- `outline`: required `operation`, `paths`; optional `language`, `encoding`, `kinds`, `includes`, `excludes`, `respectGitignore`, `includeSignatures`, `maxSymbols`, `maxFiles`;
+- `digest`: required `operation`, `paths`; optional `language`, `encoding`, `includes`, `excludes`, `respectGitignore`, `maxFiles`;
+- `find`: required `operation`, `paths`, `query`; optional `match`, `language`, `encoding`, `kinds`, `includes`, `excludes`, `respectGitignore`, `includeSignatures`, `maxSymbols`, `maxFiles`; `match` is `exact`, `prefix`, or `qualified`;
+- `show`: required `operation`, `path`, `symbolId`, `sourceFingerprint`, `language`, `encoding`; optional `maxBytes`.
+
+`outline`, `digest`, and `find` are request-scoped over authorized paths. `show` is deliberately stateless: it re-reads the authoritative source, verifies the supplied content fingerprint, decodes with the selected canonical encoding, re-analyzes the file, and resolves the deterministic `symbolId`. A stale fingerprint is a conflict; R25 must not depend on a hidden process/session symbol cache. `show` returns one complete bounded selected region or a limit error rather than silently presenting a truncated body as exact source.
+
+Path arrays accept at most 256 input paths. `kinds` accepts at most 32 entries. Include/exclude lists are independently bounded to 64 entries. `find.query` is bounded to 512 decoded Unicode scalar values. Explicit language and encoding names are canonicalized/validated rather than accepted as arbitrary analyzer identifiers.
+
+### Coordinates, identity, symbols, and coverage
+
+The public coordinate system identifier is `unicode-scalar-1-based-half-open`: line and column are 1-based in the decoded source document, columns count Unicode scalar values, and ranges use an exclusive end. Tabs count as one source scalar; no grapheme-width or display-cell promise is made. Raw original-file byte offsets are not public R25 coordinates.
+
+A normalized symbol is a flat deterministic record with request-local hierarchy references rather than a recursively duplicated payload. It contains at least deterministic 64-lowercase-hex `id`, authorized `path`, canonical `language`, normalized `kind`, bounded `nativeKind`, `name`, optional `qualifiedName`, optional `parentId`/`parentQualifiedName`, optional composite `regionId`, `declarationRange`, `nameRange`, optional reliable `signatureRange`/`bodyRange`, optional bounded `signature`, optional visibility/modifiers, evidence, and analyzer identity. The ID must include enough normalized identity/range information to avoid collisions between overloads, nested declarations, and repeated names; it must not be a name-only hash.
+
+Composite hosts keep the physical host `path` and host-document coordinates while using `regionId` and canonical embedded-language identity where applicable. This is sufficient for Classic ASP now and for later Razor/Vue-style segmentation without changing the public range model.
+
+Every request reports deterministic file summaries, files considered/parsed/skipped, symbol count, truncation state, and aggregate `coverageComplete`. Each file summary carries source fingerprint, selected encoding, language/detection evidence, analyzer, bounded diagnostics, status, and file-level completeness. Ordinary per-file failures may coexist with useful results, but any skipped/failed/limited coverage forces the relevant completeness flag false.
+
+`outline` and `find` return normalized symbol records and never return complete source bodies implicitly. `digest` returns bounded per-file structural summaries, declaration counts and structurally proven dependency/import facts without full bodies. `show` is the only R25 operation that returns the selected exact source region.
+
+### Evidence and language detection
+
+Symbol facts use the frozen evidence vocabulary `textual`, `lexical`, `structural`, `scope-resolved`, `project-resolved`, and `semantic`; R25 declarations are primarily `structural`. Stronger labels remain unavailable unless the analyzer actually proves them.
+
+Language detection is a separate evidence system with result states `exact`, `probable`, `ambiguous`, and `unknown`. It does not expose fabricated percentage confidence. Candidate lists contain at most 16 entries and evidence lists at most 32 entries, with explicit truncation/omission evidence if those fixed output caps are reached. The ordered evidence kinds remain explicit request, exact basename, compound suffix, extension, shebang/interpreter, internal directive/modeline, content marker, project/path hint, and bounded analyzer probe. Explicit `language` is strong selection evidence but does not excuse analyzer validation of the source.
+
+### Source-analysis resource limits
+
+R25 adds one small `Config.Source` limit group rather than a second general budgeting subsystem. Where a source-specific budget overlaps an existing server-wide file/output budget, the effective value is the lower of the two. Source limits can therefore tighten general policy but can never bypass it.
+
+| Limit / environment | Default | Hard maximum |
+|---|---:|---:|
+| `MaxInputPaths` / `MCP_SOURCE_MAX_INPUT_PATHS` | 32 | 256 |
+| `MaxFiles` / `MCP_SOURCE_MAX_FILES` | 256 | 4,096 |
+| `MaxAggregateBytes` / `MCP_SOURCE_MAX_AGGREGATE_BYTES` | 64 MiB | 512 MiB |
+| `MaxFileBytes` / `MCP_SOURCE_MAX_FILE_BYTES` | 8 MiB | 64 MiB |
+| `MaxSymbols` / `MCP_SOURCE_MAX_SYMBOLS` | 10,000 | 100,000 |
+| `MaxSignatureBytes` / `MCP_SOURCE_MAX_SIGNATURE_BYTES` | 8 KiB | 64 KiB |
+| `MaxShowBytes` / `MCP_SOURCE_MAX_SHOW_BYTES` | 1 MiB | 8 MiB |
+| `MaxDiagnostics` / `MCP_SOURCE_MAX_DIAGNOSTICS` | 256 | 4,096 |
+| `MaxDetectorProbes` / `MCP_SOURCE_MAX_DETECTOR_PROBES` | 4 | 16 |
+| `MaxNesting` / `MCP_SOURCE_MAX_NESTING` | 256 | 2,048 |
+| `MaxConcurrency` / `MCP_SOURCE_MAX_CONCURRENCY` | 4 | 32 |
+| `MaxRequestSeconds` / `MCP_SOURCE_MAX_REQUEST_SECONDS` | 30 s | 300 s |
+| `MaxOutputBytes` / `MCP_SOURCE_MAX_OUTPUT_BYTES` | 16 MiB | 64 MiB |
+
+The existing bounded-environment policy applies: invalid, non-positive, overflowing, or above-hard-maximum values fall back to the documented default rather than weakening a compiled ceiling. Client request limits may only lower the configured effective ceiling. Cancellation may terminate earlier than `MaxRequestSeconds`.
+
+### Cross-family compatibility review
+
+- Go receivers, grouped declarations and generics fit normalized kinds plus hierarchy/ranges without exposing `go/ast` concepts.
+- C# namespaces, records, constructors, properties/events, nested/generic types, partial and extension syntax fit `nativeKind`, modifiers and parent identity without type binding.
+- VB.NET modules, case-insensitive names, `Sub`/`Function`/`New`, explicit `End` scopes and line continuations fit the same model; matching semantics are analyzer/language aware rather than globally case-sensitive.
+- Python modules/classes/functions/async/decorators and indentation-defined nested ownership fit parent/range evidence without brace assumptions.
+- Classic ASP requires multiple language regions in one physical file, which is covered by `regionId` plus host-document coordinates.
+- C/C++ overloads, operators/destructors and templates require collision-safe IDs and `nativeKind`, not semantic type resolution.
+- JavaScript/TypeScript functions/classes/interfaces/type aliases/namespaces and overload-like declarations fit the extensible normalized/native kind split.
+- Rust modules, traits, impl-associated items and methods fit hierarchy/native kinds without forcing implementation blocks into a universal semantic type.
+- Pascal/Delphi units, classes/records, procedures/functions, constructors/destructors/properties and forward/implementation forms fit ranges, modifiers and native kinds.
+- MQL4 and MQL5 use separate canonical language IDs even though their declaration surface is C-like.
+- Razor and Vue require the same first-class composite-region mechanism as Classic ASP, not a fake single-language parse.
+
+### R25 supported-language capability matrix
+
+The registry is the canonical capability source; `TestR25AnalyzerRegistryCoverageIsMechanicallyConsistent` verifies that every registered `SourceAnalysis` capability resolves to the matching analyzer and that metadata-only future entries cannot activate R27 behavior.
+
+| Language/form | R25 strategy | Declaration/navigation coverage | Strongest R25 evidence |
+|---|---|---|---|
+| Go | Standard-library `go/parser` / `go/ast` / `go/token` | Packages, imports, grouped constants/variables, named types/aliases, structs/interfaces/members, generics, functions and receiver-associated methods | `structural` |
+| C# | Shared scanner + focused brace/OOP recognizer | Namespaces, classes/structs/interfaces/records/enums, nested/generic types, constructors/destructors, methods, properties/indexers, events, fields/constants, using directives, attributes/modifiers, partial/extension and expression-bodied syntax | `structural` |
+| VB.NET | Shared case-insensitive scanner + logical statements + explicit-`End` scopes | Namespace/module/type declarations, `Sub`/`Function`/constructors, properties/events including custom events, fields/constants, escaped identifiers, declaration modifiers, `Declare` callables, continuation/colon statements, `Imports`, `Inherits`/`Implements` | `structural` |
+| Python | Shared scanner + indentation ownership | Classes, functions/async functions, methods/nested definitions, decorators, multiline signatures and imports | `structural` |
+| Classic ASP | Host/embedded segmenter + bounded VBScript-family delegation | Host/directive/server/expression regions, server-side script blocks, include dependencies and VBScript-like declarations with host coordinates; unsupported JScript remains explicit | `structural` |
+
+R25 intentionally does not claim project-wide type binding, references, implementations, dispatch/call resolution, or semantic compilation for these canaries. Those capabilities remain R27 work.
+
+### Implementation progress
+
+- Phase 0: **COMPLETE** — activation/context/module mapping and pre-change baselines passed on 2026-08-13.
+- Phase 1: **COMPLETE** — contract, evidence model, cross-family review and limits are frozen above; focused RED tests compile and fail only because `Config.Source` and `source_symbols` implementation are intentionally absent at this stage.
+- Phase 2: **COMPLETE** — shared decoded-file streaming now reuses one digesting `ReadSession`, `SourceDocument` maps UTF-8/internal offsets to 1-based Unicode-scalar half-open ranges across UTF-8/16/32/legacy encodings and CR/LF/CRLF mixtures, and bounded source slices/fingerprints/cancellation are covered by focused tests; full handler regressions remained green after extracting the shared decoder.
+- Phase 3: **COMPLETE** — the validated native registry routes the five R25 canaries while representing future families as inactive metadata only; the evidence detector covers explicit names/aliases, basenames, compound suffixes, shebangs, directives, content disagreement, ambiguity classes, project hints, bounded probes, spoofed inputs, deterministic ordering and cancellation without consulting encoding state.
+- Phase 4: **COMPLETE** — one profile-driven state-machine scanner now covers shared identifiers/keywords, delimiter tracking, line/block/nestable comments, C# raw/verbatim/interpolated strings, VB.NET strings/continuations, Python triple/raw/f-string families, logical lines, indentation, directives, bounded tokens/nesting, diagnostics, determinism and cancellation; focused tests, full package tests and a short real fuzz run are green.
+- Phase 5: **COMPLETE** — one common flat symbol builder now owns normalized/native kinds, deterministic collision-resistant IDs, lexical and explicit parent ownership, qualified names, decoded-source declaration/name/signature/body ranges, visibility/modifiers, structural-evidence ceilings, bounded signatures/diagnostics/symbols, coverage/truncation state, deterministic ordering, and brace/explicit-`End`/indent scope adapters; rejected work is transactional and focused plus full-package tests are green.
+- Phase 6: **COMPLETE** — the Go reference analyzer uses only standard-library AST/token packages, recovers partial parser output with bounded diagnostics, normalizes grouped declarations/types/members/generics/functions/receiver methods through the common builder, and passes focused plus full-package regressions.
+- Phase 7: **COMPLETE** — the native C# brace/OOP canary reuses the shared scanner and covers namespace/type/member/generic/nesting/partial/extension/expression-body cases while excluding declaration-like comments/strings; focused and full-package tests are green.
+- Phase 8: **COMPLETE** — the VB.NET canary reuses case-insensitive scanner/logical-line primitives, explicit `End` ownership, continuation/colon statements, declaration members and structural `Imports`/`Inherits`/`Implements`; focused and full-package tests are green.
+- Phase 9: **COMPLETE** — the Python canary uses shared indentation tokens for class/function/method/nested ownership, decorators, async/multiline declarations and import facts while keeping triple strings opaque; focused and full-package tests are green.
+- Phase 10: **COMPLETE** — Classic ASP now segments host/directive/server/expression/server-script regions, preserves physical host coordinates, delegates supported VBScript-like regions, reports JScript as unsupported, and extracts include facts; focused and full-package tests are green.
+- Phase 11: **COMPLETE** — request-scoped `outline`/`digest`/`find`/fingerprint-bound `show` orchestration composes existing authorization, walker, decoding, detection, analyzers and ordered concurrency; direct handler tests plus full handler/source-intelligence regressions are green.
+- Phase 12: **COMPLETE** — the hand-authored conformance corpus covers all five canaries across UTF-8/UTF-16/UTF-32/legacy encodings, Unicode, false-positive negatives, malformed/partial inputs, deterministic repetition, generated-source limits, and mechanically checked registry/analyzer consistency; full source-intelligence regressions are green.
+- Phase 13: **COMPLETE** — local Windows/amd64 benchmarks cover every canary, a 5,000-function generated Go source, `outline`/`digest`/`find`/`show`, and 80 mixed small files; serial versus four-worker output is identical. Measured evidence did not justify adding a cache, so the simpler request-scoped design and frozen defaults remain.
+- Phase 14: **COMPLETE** — the authoritative catalog exposes one strict read-only `source_symbols` `oneOf` schema, runtime registration and documentation agree on the 35-tool Unreleased surface, direct MCP and HTTP-equivalence R25 contracts are green, and a temporary source stdio server launched through `go run` passed external MCP discovery plus a real `source_symbols outline` call without touching the active R24 runtime.
+- Phase 15: **COMPLETE** — the complete R25 diff and public model were reviewed after all focused gates; `go mod verify`, full normal and race suites, `go vet`, Staticcheck, govulncheck, deterministic scanner fuzzing, source MCP smoke, catalog/schema/transport checks, and compile-only builds for Windows/Linux/macOS on amd64/arm64 all passed. The explicit R27 compatibility review found no public-schema redesign requirement: the frozen normalized/native kind split, hierarchy, decoded ranges, composite `regionId`, evidence ladder, dependency/relation records and request-scoped navigation model remain extensible for the approved R27 catalog. R26 and R27 remain out of scope.
+
+### Completion verification record
+
+The final local completion gate on 2026-08-13 preserved the strict 35-tool Unreleased catalog and the four-branch `source_symbols` input contract. The complete normal suite and complete CGO race suite passed; Staticcheck reported no findings and govulncheck reported no known vulnerabilities. The final post-hardening scanner fuzz gate completed 3,013 executions, and compile-only `CGO_ENABLED=0` builds succeeded for Windows, Linux, and macOS on both amd64 and arm64 without producing a deployment candidate.
+
+MCP acceptance covered direct/server construction, Streamable HTTP equivalence, and an external stdio process launched temporarily from source. The stdio smoke discovered the 35-tool catalog and executed a real `source_symbols outline` request against a temporary Go source file. No release, tag, commit, push, candidate activation, launcher change, tunnel restart, or active R24 runtime change was part of R25 completion.
+
+### Post-completion real-world hardening
+
+Before R25 delivery, a separate real-world acceptance pass raised the quality bar to at least eight independent public source origins for every R25 canary. The private, non-vendored acceptance corpus pinned 41 public upstreams: 8 Go, 8 C#, 8 VB.NET, 8 Python, and 9 Classic ASP origins. It contained 8,945 selected source files totaling 62,238,585 source bytes. The external projects remained read-only test inputs and were never runtime/build dependencies.
+
+Every selected public source was automatically language-detected and analyzed twice on the final R25 hardening tree. The gate retained 125,607 symbols and verified deterministic output, unique per-file symbol IDs, valid parent IDs, source-bounded declaration/name ranges, signature/body containment, and stable ordering. Go reached 504/504 complete files, C# 3,550/3,550, Python 1,933/1,933, VB.NET 2,942 complete files plus five truthful partial fixtures out of 2,947, and Classic ASP 10 complete pages plus one deliberately unsupported server-side JScript page out of 11. The VB.NET partials were one physically inconsistent inactive conditional-compilation branch and four intentionally malformed compiler/analyzer fixtures; no supported valid source remained unexpectedly partial.
+
+The real-source pass drove focused RED-to-GREEN regressions for corroborated language-detection precedence, VB.NET multiline strings, escaped identifiers, declaration modifiers, bodyless and `Declare` callables, custom events and multiline-lambda `End` pairing; C# attributed declarations, indexers, destructors and multiline interpolation expressions; Python relative-import levels; and the public `find.maxSymbols` contract. `find.maxSymbols` now limits retained matches without prematurely truncating the bounded per-file declaration analysis required to discover later symbols. Three conservatively ambiguous decodes were verified explicitly: two UTF-8 files and one Windows-1252 VB.NET source.
+
+Public runtime acceptance on the final local R25 candidate exercised recursive traversal with `find(maxSymbols=1)` on new C#, VB.NET, Python and Classic ASP upstreams, a 36-file Go `digest`, and fingerprint-bound `find -> show` round trips on new Go, C#, VB.NET, Python and Classic ASP sources. The complete repository gate then passed normal and CGO race suites, `go vet`, Staticcheck, govulncheck, 3,013 scanner fuzz executions, all standalone Node release-script tests, Gitleaks, six CGO0 cross-builds, and corrected current-source external stdio MCP smoke. These checks supplement rather than replace the tracked conformance corpus and normal repository tests.
 
 ## Sequential TDD implementation plan
 

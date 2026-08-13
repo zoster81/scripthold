@@ -91,6 +91,17 @@
       }
     },
     {
+      "name": "source_symbols",
+      "title": "Navigate Source Symbols",
+      "description": "Navigate bounded source declarations with outline, digest, find, and fingerprint-bound show operations.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
       "description": "Compute deterministic SHA-256 fingerprints for files or directory trees.",

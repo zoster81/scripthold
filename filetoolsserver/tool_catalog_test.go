@@ -50,10 +50,10 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal connector catalog: %v", err)
 	}
-	// The connector rejects oversized function catalogs. This byte ceiling is
-	// deliberately conservative and covers the exact runtime tools/list payload,
-	// including annotations and compact output schemas.
-	const maxConnectorCatalogBytes = 21_000
+	// The connector rejects oversized function catalogs. This byte ceiling remains
+	// conservative while accounting for R25's strict four-branch source_symbols
+	// input contract in the exact runtime tools/list payload.
+	const maxConnectorCatalogBytes = 24_000
 	if got := len(serializedCatalog); got > maxConnectorCatalogBytes {
 		t.Fatalf("connector catalog = %d bytes, exceeds budget %d", got, maxConnectorCatalogBytes)
 	}

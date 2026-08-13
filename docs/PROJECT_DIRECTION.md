@@ -16,9 +16,10 @@ Scripthold is a secure local-workspace MCP runtime for web, desktop, and CLI age
 
 The maintained product includes:
 
-- one authoritative tool catalog over stdio and Streamable HTTP: 34 tools in the completed R24 Unreleased source tree and 30 in the public `2.2.0` release, plus 3 guided prompts;
+- one authoritative tool catalog over stdio and Streamable HTTP: 35 tools in the completed R25 Unreleased source tree and 30 in the public `2.2.0` release, plus 3 guided prompts;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, missing-ancestor, and Windows path-alias validation;
 - 168 registered text encodings with content-based detection intentionally narrower than explicit codec support;
+- bounded native read-only source navigation through `source_symbols` (`outline`, `digest`, `find`, `show`) for the R25 Go, C#, VB.NET, Python, and Classic ASP canaries, with evidence-qualified language detection and no external parser/compiler/LSP runtime dependency;
 - bounded-memory text reading, grep, conversion, BOM, and line-ending operations, with explicit limits for full-document edits;
 - durable staged mutations with practical concurrent-change detection, no-replace creation, platform synchronization, and operation-specific rollback/recovery evidence;
 - deterministic fingerprints, one-shot edit/package approval, strict patch packages, and typed structured verification;
@@ -32,7 +33,7 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-Scripthold `2.2.0` is the current public release. R22 completed the 168-codec global encoding expansion and full UTF-32 LE/BE text support. **R23 completed on 2026-08-12**, delivering truthful separation of read-only preparation from mutation. **R24 completed on 2026-08-13**, delivering the 34-tool Unreleased safe-filesystem package surface with bounded `filesystem_package` preview/apply, exact recursive copy/delete, same-volume native move, backup-before-loss deletion, and deterministic partial-state evidence. Its completion gate includes local verification, activated-candidate connector acceptance, native Windows/Linux/macOS regression suites, and the exact push-event `Release candidate` gate. R25-R27 remain planned and are not active.
+Scripthold `2.2.0` is the current public release. R22 completed the 168-codec global encoding expansion and full UTF-32 LE/BE text support. **R23 completed on 2026-08-12**, delivering truthful separation of read-only preparation from mutation. **R24 completed on 2026-08-13**, delivering the 34-tool Unreleased safe-filesystem package surface with bounded `filesystem_package` preview/apply, exact recursive copy/delete, same-volume native move, backup-before-loss deletion, and deterministic partial-state evidence. **R25 completed on 2026-08-13**, adding `source_symbols` as the 35th Unreleased tool with native Go/C#/VB.NET/Python declaration navigation, Classic ASP segmentation/delegation, evidence-qualified detection, decoded-source coordinates, bounded request-scoped analysis, and no external parser/compiler/LSP runtime dependency. The completed contract and verification record are in [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). R26-R27 remain planned and inactive.
 
 Current milestone state belongs in [ROADMAP.md](ROADMAP.md), the completed R23 contract in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md), the completed R24 contract in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), completed milestone history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and the completed R22 encoding contract in [GLOBAL_ENCODING_COVERAGE.md](GLOBAL_ENCODING_COVERAGE.md). Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
 

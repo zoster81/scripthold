@@ -1,6 +1,6 @@
 # Scripthold Engineering Milestone History
 
-This document records concise public outcomes for completed milestones R1–R24. It is history, not the active planning surface: current and future milestone state belongs in [ROADMAP.md](ROADMAP.md), release-by-release user-visible changes in [CHANGELOG.md](../CHANGELOG.md), and detailed subsystem contracts in the linked design documents.
+This document records concise public outcomes for completed milestones R1–R25. It is history, not the active planning surface: current and future milestone state belongs in [ROADMAP.md](ROADMAP.md), release-by-release user-visible changes in [CHANGELOG.md](../CHANGELOG.md), and detailed subsystem contracts in the linked design documents.
 
 The record intentionally excludes private workstation paths, connector state, process identifiers, local binaries, and operator handoff details.
 
@@ -103,6 +103,12 @@ Separated the five historical mixed preparation/review tools from six dedicated 
 Replaced the four overlapping simple namespace mutation tools with read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`. The strict `filesystem-package-v1` surface coordinates no-replace directory/file creation, raw-byte file creation, file and exact recursive directory copy, native same-volume move, and backup-before-loss file/exact-directory deletion. Exact recursive scopes are deterministic and fail closed on links, special entries, nested volumes, limits, or post-preview drift; one-shot capabilities bind path/object/content/tree/parent evidence, and durable progress is reported through bounded `PARTIAL_COMMIT` evidence rather than false atomicity or automatic rollback claims.
 
 R24 completed on 2026-08-13 after focused/adversarial and full local verification, activated-candidate connector acceptance of the 34-tool surface, native Windows/Linux/macOS race/regression and binary/server smoke, deterministic fuzzing, static/vulnerability checks, container smoke, six-target compilation, and the aggregate push-event `Release candidate` gate. The completed contract and verification record remain in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md).
+
+## R25 — Native source intelligence foundation
+
+Added the read-only `source_symbols` tool with strict `outline`, `digest`, `find`, and fingerprint-bound `show` operations over one language-neutral symbol/range/evidence model. The shared native foundation includes decoded Unicode-scalar coordinates, evidence-based language detection, a registry, bounded scanner/recognizer primitives, normalized hierarchy/diagnostics, request-scoped orchestration, and first-class composite regions. R25 production canaries cover Go through the standard-library AST, C#, VB.NET, Python, and Classic ASP segmentation with bounded VBScript-family delegation; unsupported embedded languages remain explicit rather than guessed.
+
+R25 completed on 2026-08-13 after focused conformance and adversarial gates, cross-encoding corpora, deterministic concurrency/benchmarks, direct/HTTP/stdio MCP acceptance, complete normal and CGO race suites, Go vet, Staticcheck, govulncheck, deterministic scanner fuzzing, catalog/documentation checks, and compile-only builds for Windows/Linux/macOS on amd64/arm64. Before delivery, an additional real-world gate expanded acceptance to at least eight independent public origins per canary: 41 public upstreams, 8,945 selected source files and 125,607 retained symbols were analyzed twice with deterministic range/hierarchy invariants, while intentionally malformed or unsupported source remained explicitly partial. The final R27 compatibility review found no breaking public-schema redesign requirement. Local completion preceded repository delivery and did not itself publish a release or tag. The completed contract and verification record remain in [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md).
 
 ## Historical verification boundary
 

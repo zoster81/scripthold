@@ -42,6 +42,19 @@ const (
 	EnvMaxFilesystemPackagePreviewBytes   = "MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES"
 	EnvFilesystemPackagePreviewTTLSeconds = "MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS"
 	EnvMaxSessions                        = "MCP_MAX_SESSIONS" // Maximum live native Streamable HTTP sessions.
+	EnvSourceMaxInputPaths                = "MCP_SOURCE_MAX_INPUT_PATHS"
+	EnvSourceMaxFiles                     = "MCP_SOURCE_MAX_FILES"
+	EnvSourceMaxAggregateBytes            = "MCP_SOURCE_MAX_AGGREGATE_BYTES"
+	EnvSourceMaxFileBytes                 = "MCP_SOURCE_MAX_FILE_BYTES"
+	EnvSourceMaxSymbols                   = "MCP_SOURCE_MAX_SYMBOLS"
+	EnvSourceMaxSignatureBytes            = "MCP_SOURCE_MAX_SIGNATURE_BYTES"
+	EnvSourceMaxShowBytes                 = "MCP_SOURCE_MAX_SHOW_BYTES"
+	EnvSourceMaxDiagnostics               = "MCP_SOURCE_MAX_DIAGNOSTICS"
+	EnvSourceMaxDetectorProbes            = "MCP_SOURCE_MAX_DETECTOR_PROBES"
+	EnvSourceMaxNesting                   = "MCP_SOURCE_MAX_NESTING"
+	EnvSourceMaxConcurrency               = "MCP_SOURCE_MAX_CONCURRENCY"
+	EnvSourceMaxRequestSeconds            = "MCP_SOURCE_MAX_REQUEST_SECONDS"
+	EnvSourceMaxOutputBytes               = "MCP_SOURCE_MAX_OUTPUT_BYTES"
 
 	EnvBackupStoreDir             = "MCP_BACKUP_STORE_DIR"
 	EnvBackupDefaultPolicy        = "MCP_BACKUP_DEFAULT_POLICY"
@@ -92,6 +105,34 @@ const (
 	DefaultMaxFilesystemPackagePreviewBytes   = int64(128 * 1024 * 1024)
 	DefaultFilesystemPackagePreviewTTLSeconds = 15 * 60
 	DefaultMaxSessions                        = 128
+
+	DefaultSourceMaxInputPaths     = 32
+	DefaultSourceMaxFiles          = 256
+	DefaultSourceMaxAggregateBytes = int64(64 * 1024 * 1024)
+	DefaultSourceMaxFileBytes      = int64(8 * 1024 * 1024)
+	DefaultSourceMaxSymbols        = 10_000
+	DefaultSourceMaxSignatureBytes = 8 * 1024
+	DefaultSourceMaxShowBytes      = 1024 * 1024
+	DefaultSourceMaxDiagnostics    = 256
+	DefaultSourceMaxDetectorProbes = 4
+	DefaultSourceMaxNesting        = 256
+	DefaultSourceMaxConcurrency    = 4
+	DefaultSourceMaxRequestSeconds = 30
+	DefaultSourceMaxOutputBytes    = int64(16 * 1024 * 1024)
+
+	HardMaxSourceInputPaths     = 256
+	HardMaxSourceFiles          = 4_096
+	HardMaxSourceAggregateBytes = int64(512 * 1024 * 1024)
+	HardMaxSourceFileBytes      = int64(64 * 1024 * 1024)
+	HardMaxSourceSymbols        = 100_000
+	HardMaxSourceSignatureBytes = 64 * 1024
+	HardMaxSourceShowBytes      = 8 * 1024 * 1024
+	HardMaxSourceDiagnostics    = 4_096
+	HardMaxSourceDetectorProbes = 16
+	HardMaxSourceNesting        = 2_048
+	HardMaxSourceConcurrency    = 32
+	HardMaxSourceRequestSeconds = 300
+	HardMaxSourceOutputBytes    = int64(64 * 1024 * 1024)
 
 	BackupPolicyDisabled = "disabled"
 	BackupPolicyRequired = "required"
@@ -174,6 +215,25 @@ type Limits struct {
 	MaxSessions                        int
 }
 
+// SourceConfig bounds R25 source-intelligence work independently from ordinary
+// file operations. Effective shared limits are the minimum of these values and
+// the corresponding server-wide limits.
+type SourceConfig struct {
+	MaxInputPaths     int
+	MaxFiles          int
+	MaxAggregateBytes int64
+	MaxFileBytes      int64
+	MaxSymbols        int
+	MaxSignatureBytes int
+	MaxShowBytes      int
+	MaxDiagnostics    int
+	MaxDetectorProbes int
+	MaxNesting        int
+	MaxConcurrency    int
+	MaxRequestSeconds int
+	MaxOutputBytes    int64
+}
+
 // BackupLimits bounds the future persistent backup store independently from
 // request output and source-file limits.
 type BackupLimits struct {
@@ -219,6 +279,7 @@ type Config struct {
 	// DefaultEncoding is used for newly created files when no encoding is supplied.
 	DefaultEncoding string
 	Limits          Limits
+	Source          SourceConfig
 	Backup          BackupConfig
 	Tasks           TaskConfig
 }
@@ -266,6 +327,21 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 			MaxFilesystemPackagePreviewBytes:   DefaultMaxFilesystemPackagePreviewBytes,
 			FilesystemPackagePreviewTTLSeconds: DefaultFilesystemPackagePreviewTTLSeconds,
 			MaxSessions:                        DefaultMaxSessions,
+		},
+		Source: SourceConfig{
+			MaxInputPaths:     DefaultSourceMaxInputPaths,
+			MaxFiles:          DefaultSourceMaxFiles,
+			MaxAggregateBytes: DefaultSourceMaxAggregateBytes,
+			MaxFileBytes:      DefaultSourceMaxFileBytes,
+			MaxSymbols:        DefaultSourceMaxSymbols,
+			MaxSignatureBytes: DefaultSourceMaxSignatureBytes,
+			MaxShowBytes:      DefaultSourceMaxShowBytes,
+			MaxDiagnostics:    DefaultSourceMaxDiagnostics,
+			MaxDetectorProbes: DefaultSourceMaxDetectorProbes,
+			MaxNesting:        DefaultSourceMaxNesting,
+			MaxConcurrency:    DefaultSourceMaxConcurrency,
+			MaxRequestSeconds: DefaultSourceMaxRequestSeconds,
+			MaxOutputBytes:    DefaultSourceMaxOutputBytes,
 		},
 		Backup: BackupConfig{
 			StoreDir:      getenv(EnvBackupStoreDir),
@@ -336,6 +412,20 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Limits.MaxFilesystemPackagePreviewBytes = boundedInt64Environment(getenv, EnvMaxFilesystemPackagePreviewBytes, cfg.Limits.MaxFilesystemPackagePreviewBytes, HardMaxFilesystemPackagePreviewBytes)
 	cfg.Limits.FilesystemPackagePreviewTTLSeconds = boundedIntEnvironment(getenv, EnvFilesystemPackagePreviewTTLSeconds, cfg.Limits.FilesystemPackagePreviewTTLSeconds, HardFilesystemPackagePreviewTTLSeconds)
 	cfg.Limits.MaxSessions = intEnvironment(getenv, EnvMaxSessions, cfg.Limits.MaxSessions)
+
+	cfg.Source.MaxInputPaths = boundedIntEnvironment(getenv, EnvSourceMaxInputPaths, cfg.Source.MaxInputPaths, HardMaxSourceInputPaths)
+	cfg.Source.MaxFiles = boundedIntEnvironment(getenv, EnvSourceMaxFiles, cfg.Source.MaxFiles, HardMaxSourceFiles)
+	cfg.Source.MaxAggregateBytes = boundedInt64Environment(getenv, EnvSourceMaxAggregateBytes, cfg.Source.MaxAggregateBytes, HardMaxSourceAggregateBytes)
+	cfg.Source.MaxFileBytes = boundedInt64Environment(getenv, EnvSourceMaxFileBytes, cfg.Source.MaxFileBytes, HardMaxSourceFileBytes)
+	cfg.Source.MaxSymbols = boundedIntEnvironment(getenv, EnvSourceMaxSymbols, cfg.Source.MaxSymbols, HardMaxSourceSymbols)
+	cfg.Source.MaxSignatureBytes = boundedIntEnvironment(getenv, EnvSourceMaxSignatureBytes, cfg.Source.MaxSignatureBytes, HardMaxSourceSignatureBytes)
+	cfg.Source.MaxShowBytes = boundedIntEnvironment(getenv, EnvSourceMaxShowBytes, cfg.Source.MaxShowBytes, HardMaxSourceShowBytes)
+	cfg.Source.MaxDiagnostics = boundedIntEnvironment(getenv, EnvSourceMaxDiagnostics, cfg.Source.MaxDiagnostics, HardMaxSourceDiagnostics)
+	cfg.Source.MaxDetectorProbes = boundedIntEnvironment(getenv, EnvSourceMaxDetectorProbes, cfg.Source.MaxDetectorProbes, HardMaxSourceDetectorProbes)
+	cfg.Source.MaxNesting = boundedIntEnvironment(getenv, EnvSourceMaxNesting, cfg.Source.MaxNesting, HardMaxSourceNesting)
+	cfg.Source.MaxConcurrency = boundedIntEnvironment(getenv, EnvSourceMaxConcurrency, cfg.Source.MaxConcurrency, HardMaxSourceConcurrency)
+	cfg.Source.MaxRequestSeconds = boundedIntEnvironment(getenv, EnvSourceMaxRequestSeconds, cfg.Source.MaxRequestSeconds, HardMaxSourceRequestSeconds)
+	cfg.Source.MaxOutputBytes = boundedInt64Environment(getenv, EnvSourceMaxOutputBytes, cfg.Source.MaxOutputBytes, HardMaxSourceOutputBytes)
 
 	cfg.Backup.Limits.MaxTotalBytes = boundedInt64Environment(getenv, EnvBackupMaxTotalBytes, cfg.Backup.Limits.MaxTotalBytes, HardMaxBackupTotalBytes)
 	cfg.Backup.Limits.MaxObjectBytes = boundedInt64Environment(getenv, EnvBackupMaxObjectBytes, cfg.Backup.Limits.MaxObjectBytes, HardMaxBackupObjectBytes)

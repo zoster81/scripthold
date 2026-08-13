@@ -19,7 +19,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `GLOBAL_ENCODING_COVERAGE.md`: completed R22 / 2.2.0 implementation and verification contract for global portable encoding coverage, full UTF-32 text support, detector hardening, corpus provenance, and release gates.
 - `MCP_MUTATION_SURFACE.md`: completed R23 contract for truthful read-only/mutation tool boundaries, capability-bound preview/apply, connector-blocking reduction, and backup-history/default-policy UX.
 - `SAFE_FILESYSTEM_OPERATIONS.md`: completed R24 contract and verification record for typed preview/apply filesystem packages, recursive directory operations, backup-before-loss, and partial-state evidence.
-- `SOURCE_INTELLIGENCE.md`: approved planned R25 baseline for language-neutral structured symbol extraction/indexing and the initial Go AST reference provider.
+- `SOURCE_INTELLIGENCE.md`: completed R25 contract and verification record for native language-neutral source navigation, evidence-qualified analysis, shared scanners/detection/composites, and the initial canary analyzers.
 - `BACKUP_RECOVERY.md`: approved planned R26 baseline for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
 - `MULTILANGUAGE_CODE_INTELLIGENCE.md`: approved planned R27 baseline for broad mandatory multi-language source intelligence, semantic capability reporting, relationships, and incremental indexing.
 

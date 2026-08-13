@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-The completed R24 Unreleased next-major source tree exposes an authoritative 34-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+The completed R25 Unreleased next-major source tree exposes an authoritative 35-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 
@@ -398,6 +398,54 @@ Recursively search for files and directories matching a glob pattern through the
     "/path/to/project/main.go",
     "/path/to/project/src/utils.go"
   ]
+}
+```
+
+### source_symbols
+
+Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.
+
+R25 analyzes Go, C#, VB.NET, Python, and Classic ASP. Go uses the standard-library AST; C#, VB.NET, and Python use the shared bounded native scanner/recognizers; Classic ASP preserves host coordinates while segmenting HTML/directives/server regions and delegates supported VBScript-like regions. Unsupported or ambiguous language coverage is reported explicitly rather than guessed. No external parser/compiler/LSP process, network lookup, project load, or cache file is used.
+
+**Common navigation parameters:**
+- `paths` (required for `outline`, `digest`, `find`): one or more authorized files/directories; directory traversal reuses the secure `.gitignore`-aware walker.
+- `language` / `encoding` (optional): explicit routing/decoding evidence; otherwise conservative detection applies.
+- `includes` / `excludes`, `respectGitignore`, `maxFiles`: bounded traversal filters.
+- `kinds` (optional for `outline`/`find`): normalized symbol-kind filter without hiding unsupported file coverage.
+- `includeSignatures` (optional for `outline`/`find`): retain bounded declaration signatures.
+
+**Operations:**
+- `outline`: returns deterministic path/source-ordered normalized declarations and per-file detection/fingerprint/coverage evidence.
+- `digest`: returns compact declaration counts plus structural dependencies, relations, and composite regions; it does not return source bodies.
+- `find`: requires `query`; `match` is `exact`, `prefix`, or `qualified`. Multiple retained matches set `ambiguous: true` rather than inventing a unique target.
+- `show`: requires one `path`, `symbolId`, `sourceFingerprint`, `language`, and `encoding`. The file is re-read and re-analyzed; a stale fingerprint returns `CONFLICT`. `maxBytes` bounds the selected declaration text.
+
+Public source coordinates use 1-based Unicode-scalar, half-open ranges (`unicode-scalar-1-based-half-open`) independent of the original file encoding. Symbol IDs and source fingerprints are deterministic lowercase SHA-256 values. Per-file analysis failures are independent; aggregate `coverageComplete` becomes false for skipped, unsupported, ambiguous, partial, or truncated coverage.
+
+Dedicated limits use the `MCP_SOURCE_MAX_*` family: input paths, files, aggregate/file bytes, symbols, signature/show bytes, diagnostics, detector probes, nesting, concurrency, request seconds, and output bytes. Corresponding global file/batch/output ceilings remain effective and cannot be bypassed.
+
+```json
+{
+  "operation": "find",
+  "paths": ["/project/src"],
+  "query": "Work",
+  "match": "exact",
+  "includeSignatures": true,
+  "maxSymbols": 50
+}
+```
+
+A typical follow-up uses the returned per-file `sourceFingerprint`, symbol `id`, language, and encoding:
+
+```json
+{
+  "operation": "show",
+  "path": "/project/src/main.go",
+  "symbolId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "sourceFingerprint": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "language": "go",
+  "encoding": "utf-8",
+  "maxBytes": 65536
 }
 ```
 

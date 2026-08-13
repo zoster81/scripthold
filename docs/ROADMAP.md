@@ -6,9 +6,9 @@ This document is the authoritative source for **current and future milestone sta
 
 - Current public release: **Scripthold `2.2.0`**.
 - Public surface: **30 tools**, **3 guided prompts**, and **168 registered text encodings** over stdio and Streamable HTTP.
-- R21-R24 are complete.
-- No release-scoped milestone is currently `ACTIVE`. R25-R27 remain `PLANNED` and must not be implemented incidentally.
-- The completed R24 contract and verification record are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md).
+- R21-R25 are complete.
+- No release-scoped milestone is currently `ACTIVE`. R26-R27 remain `PLANNED` and must not be implemented incidentally.
+- The completed R24 and R25 contracts and verification records are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md) and [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md).
 - Publication does not imply deployment. Operator-specific deployment, rollback, and runtime state are governed separately by [PUBLISHING.md](PUBLISHING.md) and private operational procedures.
 
 ## Operating rules
@@ -51,17 +51,13 @@ This document is the authoritative source for **current and future milestone sta
 | R22 | COMPLETE | Global portable encoding coverage, full UTF-32 support, detector hardening, and published `2.2.0`. |
 | R23 | COMPLETE | Separate read-only preparation from mutation, preserve capability-bound preview/apply, and improve persistent-backup history/usability. |
 | R24 | COMPLETE | Typed safe filesystem packages for coordinated create/copy/move/delete and directory operations without arbitrary shell fallback, verified through connector acceptance and native Windows/Linux/macOS CI. |
-| R25 | PLANNED | Native language-neutral source navigation with evidence-qualified analysis, shared scanner/detector/composite architecture, Go/C#/VB.NET/Python canaries, and Classic ASP segmentation. |
+| R25 | COMPLETE | Native language-neutral source navigation with evidence-qualified analysis, shared scanner/detector/composite architecture, Go/C#/VB.NET/Python canaries, and Classic ASP segmentation. |
 | R26 | PLANNED | Separately reviewed offline backup-store repair/salvage beyond the current diagnostic-only surface. |
 | R27 | PLANNED | Broad native multi-language/source-format intelligence with the approved expanded catalog, evidence-qualified project relations, structural search, bounded context, graphs, and incremental indexing. |
 
-Detailed outcomes for R1–R24 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the completed R24 contract is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md). Approved future design baselines are [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md) (R25), [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) (R26), and [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md) (R27).
+Detailed outcomes for R1–R25 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the completed R24 contract is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md); the completed R25 contract is [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). Approved future design baselines are [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) (R26) and [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md) (R27).
 
 ## Approved future milestones
-
-### R25 — Source intelligence foundation
-
-The approved baseline and complete sequential handoff are [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). R25 must introduce a compact read-only language-neutral `source_symbols`-class navigation capability, evidence-qualified language detection/analysis, shared native scanners/recognizers, correct decoded-source range mapping, and first-class composite-document support under strict deterministic resource bounds. Source intelligence is implemented in Scripthold-owned Go code; external parser engines/grammar runtimes/language servers are not part of the approved foundation. Go's standard-library AST is the first reference analyzer, but R25 completion also requires production declaration/navigation canaries for C#, VB.NET and Python plus Classic ASP segmentation/delegation. Regex/grep are allowed implementation primitives when the reported evidence level does not exceed what their surrounding lexical/scope validation proves.
 
 ### R26 — Backup recovery
 
@@ -73,4 +69,4 @@ The approved baseline and complete sequential handoff are [MULTILANGUAGE_CODE_IN
 
 ## Reprioritization rule
 
-No release-scoped milestone is currently active. R25-R27 are approved roadmap items, not active implementation authorization; activation or reprioritization requires an explicit maintainer decision and corresponding roadmap update.
+R25 is complete. R26-R27 remain approved planned roadmap items, not active implementation authorization; any activation or reprioritization requires an explicit maintainer decision and corresponding roadmap update.

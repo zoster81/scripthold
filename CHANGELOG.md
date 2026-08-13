@@ -8,6 +8,8 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Added
 
+- Added R25 read-only `source_symbols` with strict `outline`, `digest`, `find`, and fingerprint-bound `show` operations over one language-neutral symbol/range/evidence model for Go, C#, VB.NET, Python, and Classic ASP.
+- Added the native R25 source-intelligence foundation: decoded Unicode-scalar coordinates across supported encodings, evidence-based language detection, shared registry/scanner/recognizer infrastructure, normalized hierarchy/diagnostics, composite-region mapping, bounded request-scoped orchestration, and dedicated `MCP_SOURCE_MAX_*` limits without external parser/compiler/LSP runtime dependencies.
 - Added R24 read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`, with strict `filesystem-package-v1` support for `mkdir`, raw-byte `createFile`, `copyFile`, exact recursive `copyDirectory`, native same-volume `move`, `deleteFile`, and exact recursive `deleteDirectory`.
 - Added dedicated bounded R24 package, recursive-scope, staging, retained-preview, and lifetime limits plus stable `UNSUPPORTED` errors for filesystem behavior that cannot be implemented without weakening the v1 contract.
 - Added R23 read-only backup history and verified backup/current or same-target backup/backup comparison, including bounded text diffs when safe and fingerprint-only evidence for binary or oversized content.
@@ -16,6 +18,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Changed
 
+- Expanded the Unreleased next-major catalog from 34 to 35 tools for completed R25 while preserving one strict `source_symbols` `oneOf` input contract, read-only annotations, deterministic bounds, and identical stdio/Streamable HTTP registration.
 - Replaced the four overlapping public `create_directory`, `copy_file`, `move_file`, and `delete_file` tools with the two R24 package tools, reducing the Unreleased next-major catalog from 36 to 34 tools without compatibility aliases or duplicate namespace mutation models.
 - Made R24 namespace mutations no-replace and approval-bound: exact recursive scopes are fully retained/revalidated, destructive regular-file bytes require verified persistent backup before deletion, feasible creation/copy content is staged before the first target commit, cross-volume moves are not emulated, and failures after durable progress expose bounded `PARTIAL_COMMIT` state without automatic rollback claims.
 - Hardened R24 package admission and failure reporting by enforcing actual raw JSON manifest-byte limits, canonical standard Base64 for `createFile`, deterministic cleanup-residue ordering, and worst-case preview/apply response budgets before capability creation.
@@ -127,6 +130,9 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Fixed
 
+- Hardened R25 real-world source analysis through an eight-origin-per-canary acceptance baseline covering 41 public upstreams, 8,945 source files, and 125,607 retained symbols: corroborated unambiguous extensions no longer become falsely ambiguous from incidental cross-language content markers; VB.NET now handles multiline strings, escaped identifiers, declaration modifiers, bodyless/`Declare` callables, custom events, and multiline lambda `End` pairing without leaking locals; C# now handles attributed declarations, indexers, destructors, and multiline interpolated expressions without silent omissions or false members; and Python structural dependencies preserve relative import levels.
+- Fixed `source_symbols find` so request `maxSymbols` limits retained matches without prematurely truncating bounded per-file declaration analysis, allowing exact/prefix/qualified lookup to find declarations that occur later in large source files.
+- Fixed a production-build regression in the hardened VB.NET analyzer by replacing an accidentally test-only modifier helper dependency with package production code.
 - Serialized durable task-state transitions across frontends, the worker, and detached executors so cancellation, recovery, and completion cannot persist competing events with the same revision.
 - Fixed update checks so cached offline failures actually suppress repeated requests, future or malformed cache entries fail safely, bounded cache writes are atomic, remote responses are size-limited, and a stable release correctly supersedes an equal-numbered internal prerelease build.
 - Made Windows owner-only task-store ACL application set the process user as the explicit owner as well as the sole DACL principal, matching the backup-store policy under elevated and CI runner tokens.

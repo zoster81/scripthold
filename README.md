@@ -15,7 +15,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 Scripthold detects encodings from bytes and decoded-text evidence rather than filenames, presents text to the MCP client as UTF-8, and preserves or deliberately converts encoding, BOM, and line endings through bounded-memory and durable filesystem operations.
 
-- **34 tools and 3 guided prompts** over one authoritative catalog in the current next-major source tree; the public `2.2.0` release exposes 30 tools.
+- **35 tools and 3 guided prompts** over one authoritative catalog in the current next-major source tree; the public `2.2.0` release exposes 30 tools.
 - **168 registered encodings**, including UTF-32 LE/BE and broad portable legacy coverage; automatic detection remains intentionally more conservative than explicit codec support.
 - **Secure filesystem boundaries** with resolved-root containment, deterministic traversal, Windows reparse/junction handling, staged mutation, conflict detection, and no-replace creation.
 - **Verified change workflows** with deterministic fingerprints, one-shot edit approval, strict patch packages, persistent backup integration, and typed verification.
@@ -30,7 +30,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 **Scripthold `2.2.0`** is the current public release. It exposes 30 tools, 3 guided prompts, and 168 registered encodings. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add the six MCPB bundles, `mcpb-checksums.txt`, and the MCP Registry publication for `io.github.zoster81/scripthold`.
 
-R22 completed the global encoding expansion and full UTF-32 pipeline, **R23 completed on 2026-08-12**, and **R24 completed on 2026-08-13**. The completed 34-tool Unreleased next-major source surface replaces the four overlapping simple filesystem mutation tools with read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`, including bounded exact recursive copy/delete, same-volume native move, and backup-before-loss deletion. R24 passed local verification, activated-candidate connector preview/apply acceptance, native Windows/Linux/macOS regression suites, and the exact push-event `Release candidate` gate. `2.2.0` remains the current public release until an explicitly authorized later release is published. R25-R27 remain planned and none is active. Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the completed R23 contract in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), the completed R24 contract in [docs/SAFE_FILESYSTEM_OPERATIONS.md](docs/SAFE_FILESYSTEM_OPERATIONS.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
+R22 completed the global encoding expansion and full UTF-32 pipeline, **R23 completed on 2026-08-12**, **R24 completed on 2026-08-13**, and **R25 completed on 2026-08-13**. R24 established the 34-tool Unreleased next-major filesystem surface; R25 adds the read-only `source_symbols` source-navigation tool as the 35th catalog entry. `source_symbols` provides bounded `outline`, `digest`, `find`, and fingerprint-bound `show` over the initial Go, C#, VB.NET, Python, and Classic ASP canaries without external parser/compiler/LSP runtime dependencies. `2.2.0` remains the current public release until an explicitly authorized later release is published. R26-R27 remain planned and inactive. Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the completed R23 contract in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), the completed R24 contract in [docs/SAFE_FILESYSTEM_OPERATIONS.md](docs/SAFE_FILESYSTEM_OPERATIONS.md), the completed R25 contract in [docs/SOURCE_INTELLIGENCE.md](docs/SOURCE_INTELLIGENCE.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
 
 ## Transport and authorization model
 
@@ -62,6 +62,7 @@ MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stat
 - [`filesystem_package`](TOOLS.md#filesystem_package) — read-only bounded preparation for coordinated no-replace create/copy/move/delete filesystem changes.
 - [`filesystem_package_apply`](TOOLS.md#filesystem_package_apply) — apply one prepared filesystem package by one-shot `previewId`.
 - [`search_files`](TOOLS.md#search_files) — bounded `.gitignore`-aware glob search.
+- [`source_symbols`](TOOLS.md#source_symbols) — bounded read-only source `outline`, `digest`, `find`, and fingerprint-bound `show` navigation.
 - [`fingerprint_paths`](TOOLS.md#fingerprint_paths) — deterministic SHA-256 state fingerprints.
 - [`verify_state`](TOOLS.md#verify_state) — bounded typed JSON/text/Git-diff/fingerprint checks.
 - [`backup_store`](TOOLS.md#backup_store) — read-only status/history/compare/audit plus restore/GC preparation for the optional persistent store.
@@ -197,7 +198,7 @@ The mounted directory must be accessible to UID/GID `10001`. HTTP containers sho
 - `task_run` is disabled by default. Script tasks validate/fingerprint the script and execute an owner-only matching snapshot; shell tasks confine only the working directory and otherwise run with the executor identity's operating-system permissions.
 - HTTP adds authentication, Host/Origin, proxy/TLS, resource, logging, and execution boundaries; it is not a replacement for operating-system isolation.
 
-Detailed contracts: [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), [R24 safe filesystem operations](docs/SAFE_FILESYSTEM_OPERATIONS.md), and [durable tasks](docs/DURABLE_TASKS.md).
+Detailed contracts: [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), [R24 safe filesystem operations](docs/SAFE_FILESYSTEM_OPERATIONS.md), [R25 source intelligence](docs/SOURCE_INTELLIGENCE.md), and [durable tasks](docs/DURABLE_TASKS.md).
 
 ## Configuration
 
@@ -213,6 +214,13 @@ The most important process-wide variables are summarized below. Subsystem docume
 | `MCP_MAX_BATCH_FILES` | Maximum items in bounded batch/path-list operations. | `256` |
 | `MCP_MAX_MATCHES` | Server maximum for grep matches. | `10000` |
 | `MCP_MAX_OUTPUT_BYTES` | Aggregate structured/text output budget. | `67108864` |
+| `MCP_SOURCE_MAX_FILES` | R25 source files considered per request before stricter global ceilings. | `256` |
+| `MCP_SOURCE_MAX_AGGREGATE_BYTES` | Aggregate raw source bytes selected by one source-intelligence request. | `67108864` |
+| `MCP_SOURCE_MAX_FILE_BYTES` | Per-file source-intelligence byte ceiling. | `8388608` |
+| `MCP_SOURCE_MAX_SYMBOLS` | Retained source-symbol ceiling per request/analyzer budget. | `10000` |
+| `MCP_SOURCE_MAX_CONCURRENCY` | Bounded source-analysis worker count. | `4` |
+| `MCP_SOURCE_MAX_REQUEST_SECONDS` | Source-intelligence request deadline. | `30` |
+| `MCP_SOURCE_MAX_OUTPUT_BYTES` | Source-intelligence structured output budget before the global output ceiling. | `16777216` |
 | `MCP_MAX_FILESYSTEM_PACKAGE_OPERATIONS` | Maximum operations in one `filesystem-package-v1` manifest. | `256` |
 | `MCP_MAX_FILESYSTEM_PACKAGE_BYTES` | Maximum prepared filesystem-package manifest size. | `16777216` |
 | `MCP_MAX_FILESYSTEM_RECURSIVE_ENTRIES` | Maximum entries in one exact recursive copy/delete scope. | `100000` |
@@ -249,6 +257,7 @@ Backup limits, task-store limits, edit/package preview limits, and the full HTTP
 
 - Read and safely modify legacy source/configuration files without changing their encoding accidentally.
 - Search mixed-encoding repositories with explicit partial-coverage evidence.
+- Navigate declarations in Go, C#, VB.NET, Python, and Classic ASP without reading every complete source file.
 - Preview and approve edits or multi-file patch packages against deterministic fingerprints.
 - Keep approval-bound persistent backups and restore a selected original target safely.
 - Run long builds/tests through durable tasks without tying process lifetime to one MCP request.

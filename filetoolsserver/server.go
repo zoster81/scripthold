@@ -16,7 +16,7 @@ var Version = "dev"
 // Server instructions for AI assistants
 const serverInstructions = `Scripthold provides secure, encoding-aware filesystem tools and durable asynchronous shell/script tasks.
 
-Use these tools when encoding, BOM, line endings, bounded traversal, atomic mutation, backups, or persistent task execution matter. Filesystem access is limited to startup roots. Encoding detection uses BOM/content evidence, never filenames; ambiguous input requires an explicit encoding. Mutations revalidate paths and preserve encoding/BOM/line endings where documented.
+Use these tools when encoding, BOM, line endings, bounded traversal, source-symbol navigation, atomic mutation, backups, or persistent task execution matter. Filesystem access is limited to startup roots. Encoding detection uses BOM/content evidence, never filenames; ambiguous input requires an explicit encoding. Use source_symbols for bounded read-only outline, digest, find, and fingerprint-bound show over supported source languages. Mutations revalidate paths and preserve encoding/BOM/line endings where documented.
 
 For long work use task_run, then task_get/task_logs/task_list; tasks survive MCP reconnects and support cancellation. Use preview/apply workflows for sensitive edits, patch packages, restores, and GC. Tool errors expose stable error codes.
 
@@ -142,6 +142,8 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	addTool(server, catalogTool("tree"), handler.Wrap(logger, "tree", h.HandleTree))
 
 	addTool(server, catalogTool("search_files"), handler.Wrap(logger, "search_files", h.HandleSearchFiles))
+
+	addTool(server, sourceSymbolsCatalogTool(), handler.Wrap(logger, "source_symbols", h.SourceSymbols))
 
 	addTool(server, catalogTool("fingerprint_paths"), handler.Wrap(logger, "fingerprint_paths", h.HandleFingerprintPaths))
 
