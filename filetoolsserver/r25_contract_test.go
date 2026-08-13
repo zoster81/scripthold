@@ -102,7 +102,7 @@ func TestR25SourceSymbolsNavigationOutputContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	root := t.TempDir()
+	root := canonicalServerTestDir(t)
 	path := filepath.Join(root, "sample.go")
 	source := "package sample\n\n" +
 		"type Box struct {\n\tValue int\n}\n\n" +

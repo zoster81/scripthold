@@ -132,11 +132,15 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte("package smoke\nfunc Work() {}\n"), 0o644); err != nil {
 		t.Fatalf("write R25 stdio smoke source: %v", err)
 	}
+	sourceRequestPath := sourcePath
+	if !equivalentSmokeRoot(tempRoot, expectedRoot) {
+		sourceRequestPath = childVisibleSmokePath(expectedRoot, filepath.Base(sourcePath))
+	}
 	sourceResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "source_symbols",
 		Arguments: map[string]any{
 			"operation":         "outline",
-			"paths":             []string{sourcePath},
+			"paths":             []string{sourceRequestPath},
 			"language":          "go",
 			"encoding":          "utf-8",
 			"includeSignatures": true,
@@ -164,6 +168,37 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if sourceOutput.Operation != "outline" || sourceOutput.FilesParsed != 1 || sourceOutput.SymbolCount < 2 || !sourceOutput.CoverageComplete {
 		t.Fatalf("unexpected source_symbols stdio smoke output: %#v", sourceOutput)
 	}
+}
+
+func TestChildVisibleSmokePath(t *testing.T) {
+	tests := map[string]struct {
+		root string
+		name string
+		want string
+	}{
+		"POSIX root":          {root: "/data", name: "sample.go", want: "/data/sample.go"},
+		"POSIX slash root":    {root: "/", name: "sample.go", want: "/sample.go"},
+		"Windows backslashes": {root: `C:\data`, name: "sample.go", want: `C:\data\sample.go`},
+		"Windows slashes":     {root: "C:/data", name: "sample.go", want: "C:/data/sample.go"},
+	}
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := childVisibleSmokePath(testCase.root, testCase.name); got != testCase.want {
+				t.Fatalf("childVisibleSmokePath(%q, %q) = %q, want %q", testCase.root, testCase.name, got, testCase.want)
+			}
+		})
+	}
+}
+
+func childVisibleSmokePath(root, name string) string {
+	trimmed := strings.TrimRight(root, `/\`)
+	if trimmed == "" && strings.HasPrefix(root, "/") {
+		return "/" + name
+	}
+	if strings.Contains(root, `\`) && !strings.Contains(root, "/") {
+		return trimmed + `\` + name
+	}
+	return trimmed + "/" + name
 }
 
 func equivalentSmokeRoot(actual, expected string) bool {
