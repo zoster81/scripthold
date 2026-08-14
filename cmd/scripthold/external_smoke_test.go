@@ -113,14 +113,7 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if !ok {
 		t.Fatalf("directories field type = %T", structured["directories"])
 	}
-	foundRoot := false
-	for _, value := range directories {
-		actualRoot, ok := value.(string)
-		if ok && equivalentSmokeRoot(actualRoot, expectedRoot) {
-			foundRoot = true
-			break
-		}
-	}
+	reportedRoot, foundRoot := matchingSmokeRoot(directories, expectedRoot)
 	if !foundRoot {
 		t.Fatalf("allowed directories = %#v, want %q", directories, expectedRoot)
 	}
@@ -132,7 +125,7 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte("package smoke\nfunc Work() {}\n"), 0o644); err != nil {
 		t.Fatalf("write R25 stdio smoke source: %v", err)
 	}
-	sourceRequestPath := smokeSourceRequestPath(tempRoot, expectedRoot, filepath.Base(sourcePath))
+	sourceRequestPath := childVisibleSmokePath(reportedRoot, filepath.Base(sourcePath))
 	sourceResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "source_symbols",
 		Arguments: map[string]any{
@@ -167,29 +160,30 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	}
 }
 
-func TestSmokeSourceRequestPath(t *testing.T) {
-	tempRoot := t.TempDir()
-	resolvedRoot, err := filepath.EvalSymlinks(tempRoot)
-	if err != nil {
-		t.Fatalf("resolve temp root: %v", err)
+func TestMatchingSmokeRootReturnsReportedPath(t *testing.T) {
+	reportedRoot := t.TempDir()
+	equivalentExpected := reportedRoot + string(os.PathSeparator) + "."
+	got, ok := matchingSmokeRoot([]any{123, reportedRoot}, equivalentExpected)
+	if !ok {
+		t.Fatal("matchingSmokeRoot did not recognize an equivalent reported root")
 	}
-	if got, want := smokeSourceRequestPath(tempRoot, tempRoot, "sample.go"), filepath.Join(filepath.Clean(resolvedRoot), "sample.go"); got != want {
-		t.Fatalf("same-root source request path = %q, want %q", got, want)
+	if got != reportedRoot {
+		t.Fatalf("matchingSmokeRoot returned %q, want reported spelling %q", got, reportedRoot)
 	}
-	if got, want := smokeSourceRequestPath(tempRoot, "/data", "sample.go"), "/data/sample.go"; got != want {
-		t.Fatalf("child-root source request path = %q, want %q", got, want)
+
+	if got, ok := matchingSmokeRoot([]any{"/data"}, "/data"); !ok || got != "/data" {
+		t.Fatalf("matchingSmokeRoot exact child root = %q, %v; want /data, true", got, ok)
 	}
 }
 
-func smokeSourceRequestPath(tempRoot, expectedRoot, name string) string {
-	if equivalentSmokeRoot(tempRoot, expectedRoot) {
-		root := tempRoot
-		if resolved, err := filepath.EvalSymlinks(tempRoot); err == nil {
-			root = filepath.Clean(resolved)
+func matchingSmokeRoot(directories []any, expectedRoot string) (string, bool) {
+	for _, value := range directories {
+		actualRoot, ok := value.(string)
+		if ok && equivalentSmokeRoot(actualRoot, expectedRoot) {
+			return actualRoot, true
 		}
-		return filepath.Join(root, name)
 	}
-	return childVisibleSmokePath(expectedRoot, name)
+	return "", false
 }
 
 func TestChildVisibleSmokePath(t *testing.T) {
