@@ -263,7 +263,7 @@ func TestPublicLauncherExamplesExposeDurableTaskPolicy(t *testing.T) {
 
 func TestContainerAndSmitheryMetadataMatchTheRuntimeContract(t *testing.T) {
 	root := repositoryRoot(t)
-	assertFileContains(t, root, "Dockerfile", "FROM golang:1.26.5-alpine3.24 AS builder")
+	assertFileContains(t, root, "Dockerfile", "FROM golang:1.26.6-alpine3.24 AS builder")
 	assertFileContains(t, root, "Dockerfile", "FROM alpine:3.24.1")
 	assertFileContains(t, root, "Dockerfile", "USER 10001:10001")
 	assertFileContains(t, root, "Dockerfile", `ENTRYPOINT ["/usr/local/bin/scripthold"]`)

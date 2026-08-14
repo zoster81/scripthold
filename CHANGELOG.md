@@ -18,6 +18,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Changed
 
+- Raised the Go build baseline from 1.26.5 to 1.26.6 after the vulnerability gate identified reachable standard-library issues fixed in the patch release; the container builder now uses `golang:1.26.6-alpine3.24`.
 - Expanded the Unreleased next-major catalog from 34 to 35 tools for completed R25 while preserving one strict `source_symbols` `oneOf` input contract, read-only annotations, deterministic bounds, and identical stdio/Streamable HTTP registration.
 - Replaced the four overlapping public `create_directory`, `copy_file`, `move_file`, and `delete_file` tools with the two R24 package tools, reducing the Unreleased next-major catalog from 36 to 34 tools without compatibility aliases or duplicate namespace mutation models.
 - Made R24 namespace mutations no-replace and approval-bound: exact recursive scopes are fully retained/revalidated, destructive regular-file bytes require verified persistent backup before deletion, feasible creation/copy content is staged before the first target commit, cross-volume moves are not emulated, and failures after durable progress expose bounded `PARTIAL_COMMIT` state without automatic rollback claims.
