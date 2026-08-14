@@ -61,7 +61,7 @@ Detailed outcomes for R1–R25 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HIST
 
 ### R26 — Backup recovery
 
-The binding sequential implementation handoff is [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md). R26 adds offline evidence-preserving recovery/salvage beyond R19 diagnosis while keeping normal startup fail closed and R19 mutation-free. The frozen workflow uses explicit `backup-store recover-plan` / `recover-apply` commands, a persisted deterministic plan that is fully recomputed under lock before apply, an immutable source store, a new staged destination with fresh store identity, fully verified objects, manifest identity preserved except destination `StoreID`/checksum, rebuilt derived state, mandatory full audit, and a path-free provenance sidecar. Adoption/deployment remains separate.
+The binding contract is [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md). The R26 source implementation and applicable local verification are complete, while the milestone remains `ACTIVE` pending an explicitly authorized repository-delivery step and the exact pushed-commit native GitHub CI/release-candidate gate. R26 adds offline evidence-preserving recovery/salvage beyond R19 diagnosis while keeping normal startup fail closed and R19 mutation-free. The workflow uses explicit `backup-store recover-plan` / `recover-apply` commands, a persisted deterministic plan that is fully recomputed under lock before apply, an immutable source store, a new staged destination with fresh store identity, fully verified objects, manifest identity preserved except destination `StoreID`/checksum, rebuilt derived state, mandatory full audit, and a path-free provenance sidecar. Adoption/deployment remains separate.
 
 ### R27 — Broad multi-language code intelligence
 
