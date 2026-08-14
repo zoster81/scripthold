@@ -20,10 +20,10 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `MCP_MUTATION_SURFACE.md`: completed R23 contract for truthful read-only/mutation tool boundaries, capability-bound preview/apply, connector-blocking reduction, and backup-history/default-policy UX.
 - `SAFE_FILESYSTEM_OPERATIONS.md`: completed R24 contract and verification record for typed preview/apply filesystem packages, recursive directory operations, backup-before-loss, and partial-state evidence.
 - `SOURCE_INTELLIGENCE.md`: completed R25 contract and verification record for native language-neutral source navigation, evidence-qualified analysis, shared scanners/detection/composites, and the initial canary analyzers.
-- `BACKUP_RECOVERY.md`: active R26 sequential implementation handoff for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
+- `BACKUP_RECOVERY.md`: completed R26 contract and verification record for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
 - `MULTILANGUAGE_CODE_INTELLIGENCE.md`: approved planned R27 baseline for broad mandatory multi-language source intelligence, semantic capability reporting, relationships, and incremental indexing.
 
-Keep operational details in their proper source instead of duplicating them across documents. The active R26 handoff and planned R27 baseline are binding requirements for their milestones unless maintainers explicitly revise them; do not replace them with a shorter roadmap summary.
+Keep operational details in their proper source instead of duplicating them across documents. The completed R26 contract remains authoritative history, and the planned R27 baseline is binding for that milestone unless maintainers explicitly revise it; do not replace either with a shorter roadmap summary.
 
 ## Portability rules
 

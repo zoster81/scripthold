@@ -2,17 +2,17 @@
 
 ## Status
 
-**ACTIVE — LOCAL IMPLEMENTATION AND VERIFICATION COMPLETE; REPOSITORY DELIVERY PENDING.** R26 was explicitly activated on 2026-08-13 after the completed R25 delivery reached `main` and its exact push-event CI/release-candidate gate passed. The R26 source implementation and applicable local Phase 0–12 verification completed on 2026-08-14. The milestone remains `ACTIVE` until the implementation is committed/pushed through an explicitly authorized repository-delivery step and the exact pushed commit passes the required native GitHub CI/release-candidate gate. R27 remains `PLANNED` and must not be implemented incidentally.
+**COMPLETE — R26.** R26 completed on 2026-08-14. The implementation was delivered in `898c568b184b0982053a2a7c6ddb99f9e92fe9dd` (`feat: add offline backup recovery`), and exact push-event CI run `31806897971` passed the required native Windows/Ubuntu/macOS regression and smoke matrix, module verification, static/vulnerability/workflow analysis, deterministic fuzz smoke, all six supported cross-builds, container smoke, and the aggregate `Release candidate` gate. R27 remains `PLANNED` until explicitly activated.
 
 The implemented contract preserves the production boundary: normal backup-store startup still fails closed on structural corruption, `scripthold backup-store diagnose` remains read-only and authorizes no repair, and recovery is an explicit offline workflow that never auto-adopts its output.
 
-### Local implementation verification
+### Completion verification
 
 The local R26 completion gate covers strict/path-free recovery plan, state, and report codecs; mutation-free source evidence scanning; deterministic persisted planning; exact plan-bound staging/restart; fully hashed object reconstruction; identity-preserving manifest reconstruction; destination-only index rebuild; mandatory full staged and post-promotion audits; no-replace promotion/reporting; stale-source, replacement, cancellation, crash/retry, and failure-injection paths; and offline CLI dispatch before normal server configuration or transport startup.
 
 On the final source snapshot, focused recovery/CLI tests and vet passed; `go mod verify` plus the complete normal and CGO race suites passed; full `go vet`, Staticcheck, and govulncheck passed with no known vulnerabilities; the four R26 fuzz targets completed more than 1.3 million executions without failure; project-identity/catalog, Node release-script, actionlint, ShellCheck, Gitleaks, and diff checks passed; and command plus backup-store test compilation passed for Windows, Linux, and macOS on both amd64 and arm64. A native Windows external-process smoke completed `recover-plan` -> process restart -> `recover-apply` -> full `diagnose`, proved the source store unchanged, and verified that ambient backup-store/transport configuration cannot redirect the offline commands.
 
-Windows-native conformance additionally exercised Unicode/long paths, case/8.3 aliases, hard links, and real junction/reparse paths. Linux/macOS test binaries compile locally; native runtime behavior on those systems remains part of the exact pushed-commit GitHub CI gate rather than being claimed from cross-compilation.
+Windows-native conformance additionally exercised Unicode/long paths, case/8.3 aliases, hard links, and real junction/reparse paths. Linux/macOS test binaries also compiled locally, and the exact pushed implementation commit subsequently passed native GitHub-hosted Windows, Ubuntu Linux, and macOS regression/smoke jobs through the aggregate `Release candidate` gate.
 
 ## Problem
 

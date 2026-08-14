@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R27 PLANNED DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
+**APPROVED — R27 PLANNED DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 remains `PLANNED` and requires explicit activation before implementation. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
 
 R27 builds on the language-neutral native analyzer architecture required by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The implementation foundation is fixed to Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters and project resolvers plus standard-library facilities where available. Public schema details remain subject to the staged contract review below, but external parser engines, downloaded grammars, compiler frontends and language-server runtimes are not implementation-time alternatives within the approved R27 plan.
 
@@ -472,18 +472,18 @@ A single `supported: true` flag is insufficient. Documentation must be generated
 
 Every phase is mandatory and sequential. A future chat starts by reading the project guides, this document, `SOURCE_INTELLIGENCE.md`, the current roadmap and private operator backlog, then identifies the first incomplete phase from repository evidence. It must not select an easier later language wave while an earlier phase has unresolved correctness failures.
 
-### Phase 0 — activation and R25 inheritance audit
+### Phase 0 — activation and completed-foundation audit
 
 When R27 is explicitly activated:
 
-1. confirm R25 is complete with its final verification evidence and R26 state is not accidentally modified;
+1. confirm R25 and R26 are complete with their final verification evidence and that R27 has been explicitly activated;
 2. record branch, `HEAD`, `origin/main`, working tree and unrelated changes;
 3. inspect the actual R25 public schema, registry, detector, scanners, analyzers, composite support, limits, cache behavior and corpus rather than coding from this document alone;
 4. run focused R25 regression baselines before modifying shared source-intelligence primitives;
 5. compare the shipped R25 model to the complete R27 target catalog and record any internal-only extension needed; a breaking public redesign is a blocker requiring explicit maintainer review;
 6. do not change release/runtime/launcher/deployment state as part of activation.
 
-Exit criterion: R25 is a proven reusable base, all deviations from the planned R25 handoff are understood, and R27 alone is the active source-intelligence milestone.
+Exit criterion: the completed R25 source-intelligence base and R26 milestone boundary are understood, all deviations from the planned R25 handoff are understood, and R27 alone is the active source-intelligence milestone.
 
 ### Phase 1 — freeze R27 public relations/search/context contract
 
