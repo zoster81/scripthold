@@ -150,7 +150,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 		descriptor.Capabilities.Ranges = true
 		descriptor.Capabilities.Dependencies = true
 		switch descriptor.ID {
-		case "vbnet", "cpp", "java", "kotlin", "javascript", "typescript", "rust", "php", "ruby", "swift", "pascal", "delphi", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "nim", "solidity", "apex", "al", "arduino":
+		case "vbnet", "cpp", "java", "kotlin", "javascript", "typescript", "rust", "php", "ruby", "swift", "pascal", "delphi", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "nim", "solidity", "apex", "al", "arduino", "groovy", "autohotkey":
 			descriptor.Capabilities.InheritanceRelations = true
 		}
 		if descriptor.ScannerProfile == "" || descriptor.AnalyzerStrategy == "" || descriptor.AnalyzerVersion == "" {
@@ -224,6 +224,24 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"object IDs and extension targets remain structural; package/application binding, generated/runtime behavior, semantic relations, and incremental indexing are not implemented"}
 			case "arduino":
 				descriptor.KnownLimitations = []string{"Arduino prototype generation, board/core preprocessing, library/project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "perl":
+				descriptor.KnownLimitations = []string{"runtime symbol-table mutation, BEGIN/eval/metaprogramming, non-literal module loading, method dispatch, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "lua", "luau":
+				descriptor.KnownLimitations = []string{"metatables, runtime table/member mutation, non-literal require targets, dynamic dispatch, project/type resolution, semantic relations, and incremental indexing are not implemented"}
+			case "elixir":
+				descriptor.KnownLimitations = []string{"macro expansion, quoted/generated code, protocol/behaviour resolution, runtime dispatch, Mix/project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "erlang":
+				descriptor.KnownLimitations = []string{"preprocessor expansion, parse transforms, generated code, behaviour/call resolution, OTP/project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "gleam":
+				descriptor.KnownLimitations = []string{"type inference/checking, generated code, package/project resolution, call resolution, semantic relations, and incremental indexing are not implemented"}
+			case "groovy":
+				descriptor.KnownLimitations = []string{"AST transforms, scripts/DSL metaprogramming, dynamic dispatch, Gradle/project/type resolution, semantic relations, and incremental indexing are not implemented"}
+			case "shell", "bash":
+				descriptor.KnownLimitations = []string{"expansion/eval/source execution, aliases, dynamically generated functions, command resolution, environment/runtime semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "tcl":
+				descriptor.KnownLimitations = []string{"eval/uplevel/runtime command creation, dynamic namespaces, non-literal source/package targets, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "autohotkey":
+				descriptor.KnownLimitations = []string{"runtime hotkey/label creation, dynamic calls/properties, include expression evaluation, project resolution, semantic relations, and incremental indexing are not implemented"}
 			default:
 				descriptor.KnownLimitations = []string{"project resolution, syntactic call graph, semantic relations, and incremental indexing are not implemented"}
 			}
@@ -317,6 +335,28 @@ func activeProviderMetadata(analyzer AnalyzerID) (scannerProfile, strategy, vers
 		return "al", "native-token-structural", "r27-p7-v1"
 	case AnalyzerArduino:
 		return "arduino", "native-adapter-structural", "r27-p7-v1"
+	case AnalyzerPerl:
+		return "perl", "native-line-structural", "r27-p8-v1"
+	case AnalyzerLua:
+		return "lua", "native-line-structural", "r27-p8-v1"
+	case AnalyzerLuau:
+		return "luau", "native-line-structural", "r27-p8-v1"
+	case AnalyzerElixir:
+		return "elixir", "native-line-structural", "r27-p8-v1"
+	case AnalyzerErlang:
+		return "erlang", "native-clause-structural", "r27-p8-v1"
+	case AnalyzerGleam:
+		return "gleam", "native-token-structural", "r27-p8-v1"
+	case AnalyzerGroovy:
+		return "groovy", "native-token-structural", "r27-p8-v1"
+	case AnalyzerShell:
+		return "shell", "native-token-structural", "r27-p8-v1"
+	case AnalyzerBash:
+		return "bash", "native-token-structural", "r27-p8-v1"
+	case AnalyzerTcl:
+		return "tcl", "native-command-structural", "r27-p8-v1"
+	case AnalyzerAutoHotkey:
+		return "autohotkey", "native-token-structural", "r27-p8-v1"
 	default:
 		return "unimplemented", "unimplemented", "none"
 	}
@@ -339,7 +379,7 @@ func detectionEvidenceForDescriptor(descriptor LanguageDescriptor) []EvidenceKin
 	// Modelines can name every registered canonical ID/alias.
 	values = append(values, EvidenceDirective)
 	switch descriptor.ID {
-	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino":
+	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey":
 		values = append(values, EvidenceContentMarker)
 	}
 	values = append(values, EvidenceProjectHint)

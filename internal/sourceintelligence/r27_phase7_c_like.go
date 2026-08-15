@@ -213,16 +213,19 @@ func (ApexAnalyzer) ID() AnalyzerID       { return AnalyzerApex }
 func (ApexAnalyzer) Language() string     { return "apex" }
 
 type phase7BracePolicy struct {
-	language        string
-	analyzer        AnalyzerID
-	profile         ScannerProfile
-	typeKinds       map[string]SymbolKind
-	typeNative      map[string]string
-	modifiers       map[string]struct{}
-	moduleKeyword   string
-	importKeywords  map[string]struct{}
-	explicitFuncs   map[string]string
-	caseInsensitive bool
+	language             string
+	analyzer             AnalyzerID
+	profile              ScannerProfile
+	typeKinds            map[string]SymbolKind
+	typeNative           map[string]string
+	modifiers            map[string]struct{}
+	moduleKeyword        string
+	moduleKind           SymbolKind
+	lineTerminatedModule bool
+	importKeywords       map[string]struct{}
+	explicitFuncs        map[string]string
+	maskText             func(string) (string, bool)
+	caseInsensitive      bool
 }
 
 func (DartAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -284,7 +287,19 @@ func analyzePhase7Brace(ctx context.Context, document *SourceDocument, options A
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
-	scan, err := ScanSource(ctx, document, policy.profile, ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	scanDocument := document
+	maskComplete := true
+	if policy.maskText != nil {
+		masked, complete := policy.maskText(document.Text)
+		maskComplete = complete
+		if len(masked) != len(document.Text) {
+			return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "phase 7 masked source must preserve byte offsets")
+		}
+		clone := *document
+		clone.Text = masked
+		scanDocument = &clone
+	}
+	scan, err := ScanSource(ctx, scanDocument, policy.profile, ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -294,6 +309,10 @@ func analyzePhase7Brace(ctx context.Context, document *SourceDocument, options A
 	}
 	if !scan.Complete {
 		builder.MarkIncomplete()
+	}
+	if !maskComplete {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{Code: policy.language + "-unterminated-opaque-region", Message: policy.language + " source contains an unterminated language-specific opaque region", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
 	parser := &phase7BraceParser{ctx: ctx, document: document, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil), builder: builder, policy: policy}
 	parent := parser.parseModuleAndDependencies()
@@ -337,13 +356,26 @@ func (p *phase7BraceParser) parseModuleAndDependencies() *SymbolParent {
 		}
 		text := p.lower(p.tokens[i].Text)
 		if p.policy.moduleKeyword != "" && p.eq(text, p.policy.moduleKeyword) && p.module == nil {
-			semicolon := p.findSameDepth(i+1, len(p.tokens), ";", p.tokens[i].Nesting)
-			if semicolon > i+1 {
-				start := nextIdentifierToken(p.tokens, i+1, semicolon)
+			terminator := p.findSameDepth(i+1, len(p.tokens), ";", p.tokens[i].Nesting)
+			declarationEnd := -1
+			if terminator > i+1 {
+				declarationEnd = p.tokens[terminator].EndOffset
+			} else if p.policy.lineTerminatedModule {
+				terminator = p.lineEnd(i)
+				if terminator > i+1 {
+					declarationEnd = p.tokens[terminator-1].EndOffset
+				}
+			}
+			if terminator > i+1 && declarationEnd >= 0 {
+				start := nextIdentifierToken(p.tokens, i+1, terminator)
 				if start >= 0 {
-					name := tokenRangeText(p.tokens, start, semicolon)
+					name := tokenRangeText(p.tokens, start, terminator)
 					if name != "" {
-						symbol, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: p.policy.moduleKeyword, Name: name, QualifiedName: name, Declaration: OffsetRange{Start: p.tokens[i].StartOffset, End: p.tokens[semicolon].EndOffset}, NameRange: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semicolon-1].EndOffset}, Signature: &OffsetRange{Start: p.tokens[i].StartOffset, End: p.tokens[semicolon].EndOffset}, Evidence: SymbolEvidenceStructural})
+						kind := p.policy.moduleKind
+						if kind == "" {
+							kind = SymbolKindModule
+						}
+						symbol, ok := p.add(SymbolSpec{Kind: kind, NativeKind: p.policy.moduleKeyword, Name: name, QualifiedName: name, Declaration: OffsetRange{Start: p.tokens[i].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator-1].EndOffset}, Signature: &OffsetRange{Start: p.tokens[i].StartOffset, End: declarationEnd}, Evidence: SymbolEvidenceStructural})
 						if ok {
 							value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 							p.module = &value

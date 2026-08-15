@@ -135,6 +135,13 @@ var (
 	apexContentMarker       = regexp.MustCompile(`(?im)^[ \t]*(?:trigger[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+on[ \t]+[A-Za-z_]|(?:with|without)[ \t]+sharing[ \t]+class[ \t]+[A-Za-z_]|@AuraEnabled\b)`)
 	alContentMarker         = regexp.MustCompile(`(?im)^[ \t]*(?:codeunit|pageextension|tableextension|reportextension|enumextension)[ \t]+[0-9]+[ \t]+[A-Za-z_]`)
 	arduinoContentMarker    = regexp.MustCompile(`(?m)^[ \t]*(?:#include[ \t]*<Arduino\.h>|void[ \t]+(?:setup|loop)[ \t]*\([ \t]*\))`)
+	perlContentMarker       = regexp.MustCompile(`(?m)^[ \t]*use[ \t]+(?:strict|warnings|feature)\b`)
+	luauContentMarker       = regexp.MustCompile(`(?m)^[ \t]*--![ \t]*(?:strict|nonstrict|nocheck)\b`)
+	elixirContentMarker     = regexp.MustCompile(`(?m)^[ \t]*defmodule[ \t]+[A-Z][A-Za-z0-9_.]*[ \t]+do\b`)
+	erlangContentMarker     = regexp.MustCompile(`(?m)^[ \t]*-module[ \t]*\([ \t]*[a-z][A-Za-z0-9_@]*[ \t]*\)[ \t]*\.`)
+	autoHotkeyContentMarker = regexp.MustCompile(`(?im)^[ \t]*#Requires[ \t]+AutoHotkey\b`)
+	groovyContentMarker     = regexp.MustCompile(`(?m)^[ \t]*def[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[ \t]*\{`)
+	tclContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:namespace[ \t]+eval[ \t]+(?:::)?[A-Za-z_][A-Za-z0-9_:]*[ \t]*\{|proc[ \t]+[A-Za-z_][A-Za-z0-9_:]*[ \t]+\{)`)
 )
 
 const (
@@ -540,6 +547,13 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		{language: "apex", pattern: apexContentMarker, detail: "apex-declaration"},
 		{language: "al", pattern: alContentMarker, detail: "al-declaration"},
 		{language: "arduino", pattern: arduinoContentMarker, detail: "arduino-convention"},
+		{language: "perl", pattern: perlContentMarker, detail: "perl-pragmas"},
+		{language: "luau", pattern: luauContentMarker, detail: "luau-mode-directive"},
+		{language: "elixir", pattern: elixirContentMarker, detail: "elixir-module"},
+		{language: "erlang", pattern: erlangContentMarker, detail: "erlang-module-attribute"},
+		{language: "autohotkey", pattern: autoHotkeyContentMarker, detail: "autohotkey-requires"},
+		{language: "groovy", pattern: groovyContentMarker, detail: "groovy-def-function"},
+		{language: "tcl", pattern: tclContentMarker, detail: "tcl-command"},
 	}
 	for _, marker := range markers {
 		if marker.pattern.MatchString(text) {

@@ -126,6 +126,17 @@ var analyzerFactories = map[AnalyzerID]func() SourceAnalyzer{
 	AnalyzerApex:           func() SourceAnalyzer { return ApexAnalyzer{} },
 	AnalyzerAL:             func() SourceAnalyzer { return ALAnalyzer{} },
 	AnalyzerArduino:        func() SourceAnalyzer { return ArduinoAnalyzer{} },
+	AnalyzerPerl:           func() SourceAnalyzer { return PerlAnalyzer{} },
+	AnalyzerLua:            func() SourceAnalyzer { return LuaAnalyzer{} },
+	AnalyzerLuau:           func() SourceAnalyzer { return LuauAnalyzer{} },
+	AnalyzerElixir:         func() SourceAnalyzer { return ElixirAnalyzer{} },
+	AnalyzerErlang:         func() SourceAnalyzer { return ErlangAnalyzer{} },
+	AnalyzerGleam:          func() SourceAnalyzer { return GleamAnalyzer{} },
+	AnalyzerGroovy:         func() SourceAnalyzer { return GroovyAnalyzer{} },
+	AnalyzerShell:          func() SourceAnalyzer { return ShellAnalyzer{} },
+	AnalyzerBash:           func() SourceAnalyzer { return BashAnalyzer{} },
+	AnalyzerTcl:            func() SourceAnalyzer { return TclAnalyzer{} },
+	AnalyzerAutoHotkey:     func() SourceAnalyzer { return AutoHotkeyAnalyzer{} },
 }
 
 func AnalyzerFor(descriptor LanguageDescriptor) (SourceAnalyzer, bool) {

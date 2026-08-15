@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-7 are complete, and Phase 8 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
+**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-8 are complete, and Phase 9 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
 
 R27 builds on the language-neutral native analyzer architecture required by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The implementation foundation is fixed to Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters and project resolvers plus standard-library facilities where available. Public schema details remain subject to the staged contract review below, but external parser engines, downloaded grammars, compiler frontends and language-server runtimes are not implementation-time alternatives within the approved R27 plan.
 
@@ -631,13 +631,21 @@ Extend appropriate shared infrastructure to Objective-C/Objective-C++, Dart, D, 
 
 Exit criterion: **met** — trading and specialty C-like languages reach the declared production structural bar without being mislabeled as C++ dialects.
 
-### Phase 8 — dynamic, BEAM and scripting breadth
+### Phase 8 — dynamic, BEAM and scripting breadth — COMPLETE
+
+Completed on 2026-08-15 with eleven distinct production analyzer identities for Perl, Lua, Luau, Elixir, Erlang, Gleam, Groovy, POSIX shell, Bash, Tcl and AutoHotkey, raising the mechanically generated capability matrix to 56 active providers. The implementation uses language-appropriate native scanners and structural recognizers rather than forcing one brace model: Perl package/substructure, Lua/Luau functions and Luau types, Elixir module/function blocks, Erlang module/record/function-clause structure, Gleam types/functions/constants, Groovy brace/OOP structure, shell/Bash functions, Tcl namespace/proc commands, and AutoHotkey classes/functions are normalized under distinct provider identities.
+
+Structural dependency coverage includes literal/static Perl `use`/`require`, Lua/Luau `require`, Elixir alias/import/require/use, Erlang include/import/behaviour attributes, Gleam imports, Groovy imports, POSIX `.` and Bash `source`, Tcl source/package requirements and AutoHotkey includes. Dynamic targets, runtime dispatch, metaprogramming, macro/eval behavior, project/type resolution, semantic relationships and incremental indexing remain explicit limitations rather than inferred facts. POSIX shell and Bash stay separate providers: `.sh`/shell shebang routing remains Bash-compatible while the stricter POSIX `shell` provider is available through explicit selection.
+
+Phase 8 conformance covers deterministic decoded-source analysis across Windows-1252/CRLF, UTF-16 LE/BE and UTF-32LE fixtures; language-specific opaque regions including Perl POD/data/heredocs, Lua long brackets, Elixir/Groovy multiline strings, Groovy slashy forms, shell here-documents/backticks and AutoHotkey escaped strings; malformed/incomplete coverage diagnostics; cancellation; generated 1,200-declaration resource bounds for every provider; conservative content markers and ambiguity behavior; static-versus-dynamic dependency targets; and public `source_symbols` routing across all auto-detectable Phase 8 formats plus explicit POSIX shell selection. A terminal fuzz gate completed 913,587 executions across all eleven analyzers, adding 514 new interesting inputs beyond the seed corpus with no panic or invariant failure. Shared Phase 7 brace-engine regressions remained green after the minimal Groovy masking/package extension.
+
+The original acceptance scope follows for auditability:
 
 Implement/complete Perl, Lua, Luau, Elixir, Erlang, Gleam, Groovy, POSIX shell/Bash, Tcl and AutoHotkey. Use native token/structural recognizers appropriate to each language; do not force brace-oriented machinery where it does not fit.
 
 Dynamic dispatch and runtime metaprogramming limitations must remain explicit. Shell here-documents, quoting and function syntax require negative tests to prevent declaration leakage from strings/data blocks.
 
-Exit criterion: these languages have production declaration/navigation coverage and structurally reliable imports/modules where the language exposes them.
+Exit criterion: **met** — these languages have production declaration/navigation coverage and structurally reliable imports/modules where the language exposes them, with dynamic/runtime limitations kept explicit.
 
 ### Phase 9 — scientific, legacy and functional breadth
 

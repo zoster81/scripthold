@@ -57,6 +57,17 @@ const (
 	AnalyzerApex           AnalyzerID = "apex-native"
 	AnalyzerAL             AnalyzerID = "al-native"
 	AnalyzerArduino        AnalyzerID = "arduino-native"
+	AnalyzerPerl           AnalyzerID = "perl-native"
+	AnalyzerLua            AnalyzerID = "lua-native"
+	AnalyzerLuau           AnalyzerID = "luau-native"
+	AnalyzerElixir         AnalyzerID = "elixir-native"
+	AnalyzerErlang         AnalyzerID = "erlang-native"
+	AnalyzerGleam          AnalyzerID = "gleam-native"
+	AnalyzerGroovy         AnalyzerID = "groovy-native"
+	AnalyzerShell          AnalyzerID = "shell-native"
+	AnalyzerBash           AnalyzerID = "bash-native"
+	AnalyzerTcl            AnalyzerID = "tcl-native"
+	AnalyzerAutoHotkey     AnalyzerID = "autohotkey-native"
 )
 
 var knownAnalyzerIDs = map[AnalyzerID]struct{}{
@@ -105,6 +116,17 @@ var knownAnalyzerIDs = map[AnalyzerID]struct{}{
 	AnalyzerApex:           {},
 	AnalyzerAL:             {},
 	AnalyzerArduino:        {},
+	AnalyzerPerl:           {},
+	AnalyzerLua:            {},
+	AnalyzerLuau:           {},
+	AnalyzerElixir:         {},
+	AnalyzerErlang:         {},
+	AnalyzerGleam:          {},
+	AnalyzerGroovy:         {},
+	AnalyzerShell:          {},
+	AnalyzerBash:           {},
+	AnalyzerTcl:            {},
+	AnalyzerAutoHotkey:     {},
 }
 
 var canonicalLanguageIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -504,6 +526,20 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	alLanguage := analyzable("al", AnalyzerAL, []string{".al"})
 	alLanguage.Capabilities.CaseInsensitive = true
 	arduinoLanguage := analyzable("arduino", AnalyzerArduino, []string{".ino"})
+	perlLanguage := analyzable("perl", AnalyzerPerl, []string{".pl", ".pm"})
+	perlLanguage.ShebangInterpreters = []string{"perl"}
+	luaLanguage := analyzable("lua", AnalyzerLua, []string{".lua"})
+	luaLanguage.ShebangInterpreters = []string{"lua"}
+	luauLanguage := analyzable("luau", AnalyzerLuau, []string{".luau"})
+	elixirLanguage := analyzable("elixir", AnalyzerElixir, []string{".ex", ".exs"})
+	erlangLanguage := analyzable("erlang", AnalyzerErlang, []string{".erl", ".hrl"})
+	gleamLanguage := analyzable("gleam", AnalyzerGleam, []string{".gleam"})
+	groovyLanguage := analyzable("groovy", AnalyzerGroovy, []string{".groovy"})
+	shellLanguage := analyzable("shell", AnalyzerShell, nil, "posix-shell", "sh-posix")
+	bashLanguage := analyzable("bash", AnalyzerBash, []string{".sh", ".bash"})
+	bashLanguage.ShebangInterpreters = []string{"bash", "sh"}
+	tclLanguage := analyzable("tcl", AnalyzerTcl, []string{".tcl"})
+	autoHotkeyLanguage := analyzable("autohotkey", AnalyzerAutoHotkey, []string{".ahk"}, "ahk")
 
 	return []LanguageDescriptor{
 		goLanguage, csharp, vbnet, python, asp, cLanguage, cppLanguage,
@@ -519,37 +555,37 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		{ID: "vue", Extensions: []string{".vue"}},
 		javaLanguage, kotlinLanguage,
 		swiftLanguage, rubyLanguage,
-		{ID: "perl", Extensions: []string{".pl", ".pm"}, ShebangInterpreters: []string{"perl"}},
-		{ID: "bash", Extensions: []string{".sh", ".bash"}, ShebangInterpreters: []string{"bash", "sh"}},
+		perlLanguage,
+		bashLanguage,
 		powerShellLanguage,
-		{ID: "lua", Extensions: []string{".lua"}, ShebangInterpreters: []string{"lua"}},
+		luaLanguage,
 		{ID: "r", Extensions: []string{".r"}},
 		zigLanguage,
 		dartLanguage,
 		dLanguage,
 		nimLanguage,
 		planned("flow", nil),
-		planned("luau", []string{".luau"}),
-		planned("gleam", []string{".gleam"}),
+		luauLanguage,
+		gleamLanguage,
 		fsharpLanguage, cppcliLanguage, jscriptNetLanguage, cilLanguage, vbScriptLanguage, classicBasicLanguage, freeBasicLanguage, pureBasicLanguage,
 		planned("julia", []string{".jl"}),
 		planned("ocaml", []string{".ml", ".mli"}),
 		planned("common-lisp", []string{".lisp", ".lsp"}),
 		planned("clojure", []string{".clj", ".cljs", ".cljc"}),
 		planned("emacs-lisp", []string{".el"}),
-		planned("shell", nil),
-		planned("tcl", []string{".tcl"}),
-		planned("autohotkey", []string{".ahk"}),
+		shellLanguage,
+		tclLanguage,
+		autoHotkeyLanguage,
 		planned("assembly", []string{".asm", ".s"}),
 		arduinoLanguage,
 		{ID: "fortran", Extensions: []string{".f", ".f90", ".f95", ".f03", ".f08"}},
 		{ID: "cobol", Extensions: []string{".cob", ".cbl"}},
 		{ID: "ada", Extensions: []string{".adb", ".ads"}},
 		{ID: "haskell", Extensions: []string{".hs"}},
-		{ID: "erlang", Extensions: []string{".erl", ".hrl"}},
-		{ID: "elixir", Extensions: []string{".ex", ".exs"}},
+		erlangLanguage,
+		elixirLanguage,
 		{ID: "scala", Extensions: []string{".scala", ".sc"}},
-		{ID: "groovy", Extensions: []string{".groovy"}},
+		groovyLanguage,
 		{ID: "sql", Extensions: []string{".sql"}},
 		planned("plsql", []string{".pls", ".pkb", ".pks"}),
 		planned("graphql", []string{".graphql", ".gql"}),
