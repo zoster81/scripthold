@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-8 are complete, and Phase 9 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
+**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-9 are complete, and Phase 10 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
 
 R27 builds on the language-neutral native analyzer architecture required by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The implementation foundation is fixed to Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters and project resolvers plus standard-library facilities where available. Public schema details remain subject to the staged contract review below, but external parser engines, downloaded grammars, compiler frontends and language-server runtimes are not implementation-time alternatives within the approved R27 plan.
 
@@ -647,7 +647,15 @@ Dynamic dispatch and runtime metaprogramming limitations must remain explicit. S
 
 Exit criterion: **met** — these languages have production declaration/navigation coverage and structurally reliable imports/modules where the language exposes them, with dynamic/runtime limitations kept explicit.
 
-### Phase 9 — scientific, legacy and functional breadth
+### Phase 9 — scientific, legacy and functional breadth — COMPLETE
+
+Completed on 2026-08-15 with twelve distinct production analyzer identities for Fortran, COBOL, Ada, MATLAB, Octave, Julia, R, Haskell, OCaml, Common Lisp, Clojure and Emacs Lisp, raising the mechanically generated capability matrix from 56 to 68 active providers. The implementation deliberately uses three native structural families instead of one universal parser: fixed/free source-line models for Fortran and COBOL, language-specific token/line recognizers for Ada and the scientific/ML-family languages, and balanced S-expression recognizers for the Lisp family.
+
+Fortran supports free source plus fixed-form extensions with decoded Unicode-scalar column handling and continuation ranges preserved in original coordinates; COBOL distinguishes fixed and free source, indicator/inline comments, `PROGRAM-ID`, procedure sections and static `COPY` targets. Ada exposes packages, types, procedures/functions and static `with` dependencies. MATLAB and Octave retain separate provider identities and share only compatible line/scope primitives; generic `.m` remains ambiguous with Objective-C and between the two numerical dialects until distinctive evidence such as `classdef`, `endfunction` or Objective-C constructs corroborates one candidate. Julia covers modules, struct/type forms, functions, compact functions and macros structurally; R recognizes assigned functions and only dependency forms whose package target is statically justified. Haskell covers modules/imports, data/newtype/type/class forms, signatures and top-level bindings; OCaml distinguishes module/type/class, value and function bindings. Common Lisp, Clojure and Emacs Lisp use reader-aware balanced forms, suppress quoted/discarded declaration-like data where proven, and retain only structurally static dependencies; Clojure namespace parsing preserves every static `:require` vector.
+
+Conformance covers fixed-form Fortran IBM850/CRLF, COBOL and Ada Windows-1252/CRLF, UTF-16 LE/BE and UTF-32LE modern-language fixtures, deterministic repeated analysis, malformed input with explicit incomplete coverage, cancellation, generated 1,200-declaration limits for all twelve providers, false-positive negatives for comments/quotes/reader forms, static-versus-dynamic dependency boundaries, conservative content detection and public heterogeneous `source_symbols` routing. The terminal fuzz gate executed 723,229 cases across all twelve analyzers, adding 470 new interesting inputs beyond the seed corpus with no panic or invariant failure.
+
+The original acceptance scope follows for auditability:
 
 Implement/complete Fortran, COBOL, Ada, MATLAB/Octave, Julia, R, Haskell, OCaml, Common Lisp, Clojure and Emacs Lisp.
 
@@ -655,7 +663,7 @@ Where fixed-format or line-oriented syntax makes regex/token recognizers the bes
 
 Legacy encodings and line-ending conventions are part of the quality gate for languages/ecosystems where real repositories commonly require them.
 
-Exit criterion: legacy/scientific/functional entries have explicit, tested declaration/structure capability rather than text-only placeholders unless the format genuinely has no declaration concept.
+Exit criterion: **met** — legacy/scientific/functional entries have explicit, tested declaration/structure capability rather than text-only placeholders unless the format genuinely has no declaration concept.
 
 ### Phase 10 — data, infrastructure, hardware and document formats
 

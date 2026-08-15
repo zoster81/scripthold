@@ -68,6 +68,18 @@ const (
 	AnalyzerBash           AnalyzerID = "bash-native"
 	AnalyzerTcl            AnalyzerID = "tcl-native"
 	AnalyzerAutoHotkey     AnalyzerID = "autohotkey-native"
+	AnalyzerFortran        AnalyzerID = "fortran-native"
+	AnalyzerCOBOL          AnalyzerID = "cobol-native"
+	AnalyzerAda            AnalyzerID = "ada-native"
+	AnalyzerMATLAB         AnalyzerID = "matlab-native"
+	AnalyzerOctave         AnalyzerID = "octave-native"
+	AnalyzerJulia          AnalyzerID = "julia-native"
+	AnalyzerR              AnalyzerID = "r-native"
+	AnalyzerHaskell        AnalyzerID = "haskell-native"
+	AnalyzerOCaml          AnalyzerID = "ocaml-native"
+	AnalyzerCommonLisp     AnalyzerID = "common-lisp-native"
+	AnalyzerClojure        AnalyzerID = "clojure-native"
+	AnalyzerEmacsLisp      AnalyzerID = "emacs-lisp-native"
 )
 
 var knownAnalyzerIDs = map[AnalyzerID]struct{}{
@@ -127,6 +139,18 @@ var knownAnalyzerIDs = map[AnalyzerID]struct{}{
 	AnalyzerBash:           {},
 	AnalyzerTcl:            {},
 	AnalyzerAutoHotkey:     {},
+	AnalyzerFortran:        {},
+	AnalyzerCOBOL:          {},
+	AnalyzerAda:            {},
+	AnalyzerMATLAB:         {},
+	AnalyzerOctave:         {},
+	AnalyzerJulia:          {},
+	AnalyzerR:              {},
+	AnalyzerHaskell:        {},
+	AnalyzerOCaml:          {},
+	AnalyzerCommonLisp:     {},
+	AnalyzerClojure:        {},
+	AnalyzerEmacsLisp:      {},
 }
 
 var canonicalLanguageIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -540,13 +564,30 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	bashLanguage.ShebangInterpreters = []string{"bash", "sh"}
 	tclLanguage := analyzable("tcl", AnalyzerTcl, []string{".tcl"})
 	autoHotkeyLanguage := analyzable("autohotkey", AnalyzerAutoHotkey, []string{".ahk"}, "ahk")
+	fortranLanguage := analyzable("fortran", AnalyzerFortran, []string{".f", ".f90", ".f95", ".f03", ".f08"})
+	fortranLanguage.Capabilities.CaseInsensitive = true
+	cobolLanguage := analyzable("cobol", AnalyzerCOBOL, []string{".cob", ".cbl"})
+	cobolLanguage.Capabilities.CaseInsensitive = true
+	adaLanguage := analyzable("ada", AnalyzerAda, []string{".adb", ".ads"})
+	adaLanguage.Capabilities.CaseInsensitive = true
+	matlabLanguage := analyzable("matlab", AnalyzerMATLAB, nil)
+	matlabLanguage.AmbiguousExtensions = []string{".m"}
+	octaveLanguage := analyzable("octave", AnalyzerOctave, nil)
+	octaveLanguage.AmbiguousExtensions = []string{".m"}
+	juliaLanguage := analyzable("julia", AnalyzerJulia, []string{".jl"})
+	rLanguage := analyzable("r", AnalyzerR, []string{".r"})
+	haskellLanguage := analyzable("haskell", AnalyzerHaskell, []string{".hs"})
+	ocamlLanguage := analyzable("ocaml", AnalyzerOCaml, []string{".ml", ".mli"})
+	commonLispLanguage := analyzable("common-lisp", AnalyzerCommonLisp, []string{".lisp", ".lsp"})
+	clojureLanguage := analyzable("clojure", AnalyzerClojure, []string{".clj", ".cljs", ".cljc"})
+	emacsLispLanguage := analyzable("emacs-lisp", AnalyzerEmacsLisp, []string{".el"})
 
 	return []LanguageDescriptor{
 		goLanguage, csharp, vbnet, python, asp, cLanguage, cppLanguage,
 		objectiveCLanguage,
 		objectiveCPPLanguage,
-		{ID: "matlab", AmbiguousExtensions: []string{".m"}},
-		{ID: "octave", AmbiguousExtensions: []string{".m"}},
+		matlabLanguage,
+		octaveLanguage,
 		javascriptLanguage, typescriptLanguage, rustLanguage,
 		pascalLanguage, delphiLanguage, phpLanguage,
 		mql4Language,
@@ -559,7 +600,7 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		bashLanguage,
 		powerShellLanguage,
 		luaLanguage,
-		{ID: "r", Extensions: []string{".r"}},
+		rLanguage,
 		zigLanguage,
 		dartLanguage,
 		dLanguage,
@@ -568,20 +609,20 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		luauLanguage,
 		gleamLanguage,
 		fsharpLanguage, cppcliLanguage, jscriptNetLanguage, cilLanguage, vbScriptLanguage, classicBasicLanguage, freeBasicLanguage, pureBasicLanguage,
-		planned("julia", []string{".jl"}),
-		planned("ocaml", []string{".ml", ".mli"}),
-		planned("common-lisp", []string{".lisp", ".lsp"}),
-		planned("clojure", []string{".clj", ".cljs", ".cljc"}),
-		planned("emacs-lisp", []string{".el"}),
+		juliaLanguage,
+		ocamlLanguage,
+		commonLispLanguage,
+		clojureLanguage,
+		emacsLispLanguage,
 		shellLanguage,
 		tclLanguage,
 		autoHotkeyLanguage,
 		planned("assembly", []string{".asm", ".s"}),
 		arduinoLanguage,
-		{ID: "fortran", Extensions: []string{".f", ".f90", ".f95", ".f03", ".f08"}},
-		{ID: "cobol", Extensions: []string{".cob", ".cbl"}},
-		{ID: "ada", Extensions: []string{".adb", ".ads"}},
-		{ID: "haskell", Extensions: []string{".hs"}},
+		fortranLanguage,
+		cobolLanguage,
+		adaLanguage,
+		haskellLanguage,
 		erlangLanguage,
 		elixirLanguage,
 		{ID: "scala", Extensions: []string{".scala", ".sc"}},

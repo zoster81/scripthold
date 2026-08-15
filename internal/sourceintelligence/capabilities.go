@@ -242,6 +242,28 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"eval/uplevel/runtime command creation, dynamic namespaces, non-literal source/package targets, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "autohotkey":
 				descriptor.KnownLimitations = []string{"runtime hotkey/label creation, dynamic calls/properties, include expression evaluation, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "fortran":
+				descriptor.KnownLimitations = []string{"preprocessor/include expansion, generic/interface and module/type resolution, compiler/project semantics, semantic relations, and incremental indexing are not implemented; fixed source form is selected only for fixed-form extensions"}
+			case "cobol":
+				descriptor.KnownLimitations = []string{"COPY replacement, compiler directives, data/control-flow resolution, dialect-specific semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "ada":
+				descriptor.KnownLimitations = []string{"generic instantiation, renames/overload/tasking semantics, project/type resolution, semantic relations, and incremental indexing are not implemented"}
+			case "matlab", "octave":
+				descriptor.KnownLimitations = []string{"dynamic workspace/path behavior, eval/metaprogramming, class dispatch, toolbox/package/project resolution, semantic relations, and incremental indexing are not implemented; shared .m files remain ambiguity-safe without distinctive evidence"}
+			case "julia":
+				descriptor.KnownLimitations = []string{"macro/generated-code expansion, multiple-dispatch/type inference, package/project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "r":
+				descriptor.KnownLimitations = []string{"non-standard evaluation, environment/S3/S4/R6 runtime semantics, dynamic package resolution, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "haskell":
+				descriptor.KnownLimitations = []string{"CPP, Template Haskell, type inference/typeclass resolution, package/module project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "ocaml":
+				descriptor.KnownLimitations = []string{"functor/type/module inference, PPX expansion, Dune/project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "common-lisp":
+				descriptor.KnownLimitations = []string{"reader-macro and macro expansion, CLOS/runtime package mutation, implementation/project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "clojure":
+				descriptor.KnownLimitations = []string{"macro expansion, reader conditionals/tagged literals, protocol/runtime dispatch, classpath/project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "emacs-lisp":
+				descriptor.KnownLimitations = []string{"macro/advice/autoload expansion, runtime symbol mutation, package/load-path resolution, semantic relations, and incremental indexing are not implemented"}
 			default:
 				descriptor.KnownLimitations = []string{"project resolution, syntactic call graph, semantic relations, and incremental indexing are not implemented"}
 			}
@@ -357,6 +379,30 @@ func activeProviderMetadata(analyzer AnalyzerID) (scannerProfile, strategy, vers
 		return "tcl", "native-command-structural", "r27-p8-v1"
 	case AnalyzerAutoHotkey:
 		return "autohotkey", "native-token-structural", "r27-p8-v1"
+	case AnalyzerFortran:
+		return "fortran", "native-fixed-free-structural", "r27-p9-v1"
+	case AnalyzerCOBOL:
+		return "cobol", "native-fixed-line-structural", "r27-p9-v1"
+	case AnalyzerAda:
+		return "ada", "native-line-structural", "r27-p9-v1"
+	case AnalyzerMATLAB:
+		return "matlab", "native-line-structural", "r27-p9-v1"
+	case AnalyzerOctave:
+		return "octave", "native-line-structural", "r27-p9-v1"
+	case AnalyzerJulia:
+		return "julia", "native-line-structural", "r27-p9-v1"
+	case AnalyzerR:
+		return "r", "native-line-structural", "r27-p9-v1"
+	case AnalyzerHaskell:
+		return "haskell", "native-line-structural", "r27-p9-v1"
+	case AnalyzerOCaml:
+		return "ocaml", "native-line-structural", "r27-p9-v1"
+	case AnalyzerCommonLisp:
+		return "common-lisp", "native-sexpr-structural", "r27-p9-v1"
+	case AnalyzerClojure:
+		return "clojure", "native-sexpr-structural", "r27-p9-v1"
+	case AnalyzerEmacsLisp:
+		return "emacs-lisp", "native-sexpr-structural", "r27-p9-v1"
 	default:
 		return "unimplemented", "unimplemented", "none"
 	}
@@ -379,7 +425,7 @@ func detectionEvidenceForDescriptor(descriptor LanguageDescriptor) []EvidenceKin
 	// Modelines can name every registered canonical ID/alias.
 	values = append(values, EvidenceDirective)
 	switch descriptor.ID {
-	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey":
+	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp":
 		values = append(values, EvidenceContentMarker)
 	}
 	values = append(values, EvidenceProjectHint)

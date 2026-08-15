@@ -137,6 +137,18 @@ var analyzerFactories = map[AnalyzerID]func() SourceAnalyzer{
 	AnalyzerBash:           func() SourceAnalyzer { return BashAnalyzer{} },
 	AnalyzerTcl:            func() SourceAnalyzer { return TclAnalyzer{} },
 	AnalyzerAutoHotkey:     func() SourceAnalyzer { return AutoHotkeyAnalyzer{} },
+	AnalyzerFortran:        func() SourceAnalyzer { return FortranAnalyzer{} },
+	AnalyzerCOBOL:          func() SourceAnalyzer { return COBOLAnalyzer{} },
+	AnalyzerAda:            func() SourceAnalyzer { return AdaAnalyzer{} },
+	AnalyzerMATLAB:         func() SourceAnalyzer { return MATLABAnalyzer{} },
+	AnalyzerOctave:         func() SourceAnalyzer { return OctaveAnalyzer{} },
+	AnalyzerJulia:          func() SourceAnalyzer { return JuliaAnalyzer{} },
+	AnalyzerR:              func() SourceAnalyzer { return RAnalyzer{} },
+	AnalyzerHaskell:        func() SourceAnalyzer { return HaskellAnalyzer{} },
+	AnalyzerOCaml:          func() SourceAnalyzer { return OCamlAnalyzer{} },
+	AnalyzerCommonLisp:     func() SourceAnalyzer { return CommonLispAnalyzer{} },
+	AnalyzerClojure:        func() SourceAnalyzer { return ClojureAnalyzer{} },
+	AnalyzerEmacsLisp:      func() SourceAnalyzer { return EmacsLispAnalyzer{} },
 }
 
 func AnalyzerFor(descriptor LanguageDescriptor) (SourceAnalyzer, bool) {

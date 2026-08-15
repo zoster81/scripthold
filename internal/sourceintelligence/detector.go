@@ -142,6 +142,18 @@ var (
 	autoHotkeyContentMarker = regexp.MustCompile(`(?im)^[ \t]*#Requires[ \t]+AutoHotkey\b`)
 	groovyContentMarker     = regexp.MustCompile(`(?m)^[ \t]*def[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[ \t]*\{`)
 	tclContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:namespace[ \t]+eval[ \t]+(?:::)?[A-Za-z_][A-Za-z0-9_:]*[ \t]*\{|proc[ \t]+[A-Za-z_][A-Za-z0-9_:]*[ \t]+\{)`)
+	fortranContentMarker    = regexp.MustCompile(`(?im)^[ \t]*(?:subroutine[ \t]+[A-Za-z_][A-Za-z0-9_]*|end[ \t]+subroutine\b)`)
+	cobolContentMarker      = regexp.MustCompile(`(?im)^[ \t]*(?:identification[ \t]+division\.|program-id\.[ \t]+[A-Za-z0-9_-]+)`)
+	adaContentMarker        = regexp.MustCompile(`(?im)^[ \t]*(?:with[ \t]+Ada(?:\.[A-Za-z0-9_.]+)?[ \t]*;|package[ \t]+body[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]+is\b)`)
+	matlabContentMarker     = regexp.MustCompile(`(?im)^[ \t]*classdef[ \t]+[A-Za-z_][A-Za-z0-9_]*\b`)
+	octaveContentMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:endfunction\b|pkg[ \t]+load[ \t]+[A-Za-z_][A-Za-z0-9_.-]*\b|unwind_protect\b)`)
+	juliaContentMarker      = regexp.MustCompile(`(?m)^[ \t]*(?:mutable[ \t]+struct|abstract[ \t]+type|primitive[ \t]+type)[ \t]+[A-Za-z_][A-Za-z0-9_]*\b`)
+	rContentMarker          = regexp.MustCompile(`(?m)^[ \t]*[A-Za-z_.][A-Za-z0-9_.]*[ \t]*<-[ \t]*function[ \t]*\(`)
+	haskellContentMarker    = regexp.MustCompile(`(?m)^[ \t]*(?:data|newtype)[ \t]+[A-Z][A-Za-z0-9_']*\b`)
+	ocamlContentMarker      = regexp.MustCompile(`(?m)^[ \t]*module[ \t]+[A-Z][A-Za-z0-9_']*[ \t]*=[ \t]*struct\b`)
+	commonLispContentMarker = regexp.MustCompile(`(?im)^[ \t]*\((?:defpackage|defun|defclass|defstruct)[ \t]+`)
+	clojureContentMarker    = regexp.MustCompile(`(?m)^[ \t]*\((?:ns|defn|defrecord|defprotocol)[ \t]+`)
+	emacsLispContentMarker  = regexp.MustCompile(`(?im)^[ \t]*\((?:defcustom|defgroup)[ \t]+`)
 )
 
 const (
@@ -554,6 +566,18 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		{language: "autohotkey", pattern: autoHotkeyContentMarker, detail: "autohotkey-requires"},
 		{language: "groovy", pattern: groovyContentMarker, detail: "groovy-def-function"},
 		{language: "tcl", pattern: tclContentMarker, detail: "tcl-command"},
+		{language: "fortran", pattern: fortranContentMarker, detail: "fortran-program-unit"},
+		{language: "cobol", pattern: cobolContentMarker, detail: "cobol-division-program"},
+		{language: "ada", pattern: adaContentMarker, detail: "ada-context-package"},
+		{language: "matlab", pattern: matlabContentMarker, detail: "matlab-classdef"},
+		{language: "octave", pattern: octaveContentMarker, detail: "octave-distinctive-form"},
+		{language: "julia", pattern: juliaContentMarker, detail: "julia-type-form"},
+		{language: "r", pattern: rContentMarker, detail: "r-function-assignment"},
+		{language: "haskell", pattern: haskellContentMarker, detail: "haskell-data-form"},
+		{language: "ocaml", pattern: ocamlContentMarker, detail: "ocaml-module-struct"},
+		{language: "common-lisp", pattern: commonLispContentMarker, detail: "common-lisp-def-form"},
+		{language: "clojure", pattern: clojureContentMarker, detail: "clojure-def-form"},
+		{language: "emacs-lisp", pattern: emacsLispContentMarker, detail: "emacs-lisp-custom-form"},
 	}
 	for _, marker := range markers {
 		if marker.pattern.MatchString(text) {
