@@ -101,13 +101,40 @@ type detectionCollector struct {
 }
 
 var (
-	safeShebangInterpreter = regexp.MustCompile(`^[A-Za-z0-9_.+-]+$`)
-	safeDirectiveValue     = regexp.MustCompile(`^[A-Za-z0-9_+#.+-]+$`)
-	modelineLanguage       = regexp.MustCompile(`(?i)(?:\b(?:ft|filetype)\s*=\s*([a-z0-9_+#.-]+)|\bmode\s*:\s*([a-z0-9_+#.-]+))`)
-	goContentMarker        = regexp.MustCompile(`(?m)^\s*package\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:$|//)`)
-	csharpContentMarker    = regexp.MustCompile(`(?m)^\s*(?:using\s+[A-Za-z_]|namespace\s+[A-Za-z_]|(?:(?:public|internal|private|protected|static|abstract|sealed|partial)\s+)*(?:class|struct|interface|record|enum)\s+[A-Za-z_])`)
-	vbnetContentMarker     = regexp.MustCompile(`(?im)^\s*(?:Imports\s+[A-Za-z_]|(?:(?:Public|Private|Friend|Protected|Partial|MustInherit|NotInheritable)\s+)*(?:Class|Module|Structure|Interface|Enum)\s+[A-Za-z_]|End\s+(?:Class|Module|Structure|Interface|Enum)\b)`)
-	pythonContentMarker    = regexp.MustCompile(`(?m)^\s*(?:(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(|class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*\(|\s*:)|(?:from|import)\s+[A-Za-z_])`)
+	safeShebangInterpreter  = regexp.MustCompile(`^[A-Za-z0-9_.+-]+$`)
+	safeDirectiveValue      = regexp.MustCompile(`^[A-Za-z0-9_+#.+-]+$`)
+	modelineLanguage        = regexp.MustCompile(`(?i)(?:\b(?:ft|filetype)\s*=\s*([a-z0-9_+#.-]+)|\bmode\s*:\s*([a-z0-9_+#.-]+))`)
+	goContentMarker         = regexp.MustCompile(`(?m)^\s*package\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:$|//)`)
+	csharpContentMarker     = regexp.MustCompile(`(?m)^[ \t]*(?:using[ \t]+[A-Za-z_]|namespace[ \t]+[A-Za-z_]|(?:(?:public|internal|private|protected|static|abstract|sealed|partial)[ \t]+)+(?:class|struct|interface|record|enum)[ \t]+[A-Za-z_]|(?:class|interface|record|enum)[ \t]+[A-Za-z_])`)
+	vbnetContentMarker      = regexp.MustCompile(`(?im)^[ \t]*(?:Imports[ \t]+[A-Za-z_]|(?:(?:Public|Private|Friend|Protected|Partial|MustInherit|NotInheritable)[ \t]+)*(?:Class|Module|Structure|Interface|Enum)[ \t]+[A-Za-z_]|End[ \t]+(?:Class|Module|Structure|Interface|Enum)\b)`)
+	pythonContentMarker     = regexp.MustCompile(`(?m)^\s*(?:(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(|class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*\(|\s*:)|(?:from|import)\s+[A-Za-z_])`)
+	cppContentMarker        = regexp.MustCompile(`(?m)^\s*(?:namespace\s+[A-Za-z_]|template\s*<)`)
+	javaContentMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+(?:static[ \t]+)?[A-Za-z_]|(?:(?:public|protected|private|abstract|final|sealed|static)[ \t]+)*(?:class|interface|enum|record)[ \t]+[A-Za-z_])`)
+	kotlinContentMarker     = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+[A-Za-z_]|(?:(?:public|private|protected|internal|sealed|data|enum|open|abstract)[ \t]+)*(?:class|interface|object)[ \t]+[A-Za-z_]|(?:fun|typealias)[ \t]+[A-Za-z_])`)
+	phpContentMarker        = regexp.MustCompile(`(?i)<\?php\b`)
+	rubyContentMarker       = regexp.MustCompile(`(?m)^\s*(?:module|class|def|require(?:_relative)?)\b`)
+	swiftContentMarker      = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+(?:(?:class|struct|enum|protocol|func|var|let|typealias)[ \t]+)?[A-Za-z_]|(?:(?:public|private|fileprivate|internal|open|final)[ \t]+)*(?:protocol|extension)[ \t]+[A-Za-z_]|func[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:<[^\r\n>]*>[ \t]*)?\(|init[!?]?[ \t]*\(|deinit\b|(?:associatedtype|typealias)[ \t]+[A-Za-z_]|(?:let|var)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:)`)
+	delphiContentMarker     = regexp.MustCompile(`(?im)\b(?:class|record)\s+helper\s+for\b`)
+	vbscriptContentMarker   = regexp.MustCompile(`(?im)^[ \t]*(?:(?:public|private)[ \t]+)?(?:class|sub|function)[ \t]+[A-Za-z_][A-Za-z0-9_]*`)
+	fsharpContentMarker     = regexp.MustCompile(`(?m)^[ \t]*(?:open[ \t]+[A-Za-z_]|let(?:[ \t]+rec)?[ \t]+[A-Za-z_]|type[ \t]+[A-Za-z_][A-Za-z0-9_']*[ \t]*=|module[ \t]+[A-Za-z_])`)
+	cilContentMarker        = regexp.MustCompile(`(?m)^[ \t]*\.(?:assembly|module|class|method|field)\b`)
+	powerShellContentMarker = regexp.MustCompile(`(?im)^[ \t]*(?:(?:function|filter)[ \t]+[A-Za-z_][A-Za-z0-9_-]*|using[ \t]+module\b|param[ \t]*\()`)
+	pureBasicContentMarker  = regexp.MustCompile(`(?im)^[ \t]*(?:procedure(?:c|dll|cdll)?[ \t]+[A-Za-z_]|endprocedure\b|module[ \t]+[A-Za-z_]|endmodule\b|structure[ \t]+[A-Za-z_]|endstructure\b|x?includefile[ \t]+")`)
+	freeBasicContentMarker  = regexp.MustCompile(`(?im)^[ \t]*(?:namespace[ \t]+[A-Za-z_]|end[ \t]+namespace\b|#include(?:[ \t]+once)?[ \t]+["<])`)
+	webFormsContentMarker   = regexp.MustCompile(`(?is)<%@\s*(?:Page|Control|Master)\b`)
+	razorContentMarker      = regexp.MustCompile(`(?m)^[ \t]*@(?:functions|model|inherits|using)\b`)
+	blazorContentMarker     = regexp.MustCompile(`(?m)^[ \t]*@(?:code|page|inject|using)\b`)
+	xamlContentMarker       = regexp.MustCompile(`(?is)(?:\bx:Class\s*=|\bxmlns:x\s*=)`)
+	mqlContentMarker        = regexp.MustCompile(`(?im)^[ \t]*(?:#property[ \t]+(?:strict|indicator_|script_|description|version)|(?:input|sinput)[ \t]+[A-Za-z_]|(?:void|int|double|bool|string|datetime)[ \t]+On(?:Init|Deinit|Tick|Timer|Calculate|Start|Tester)[ \t]*\()`)
+	objectiveCContentMarker = regexp.MustCompile(`(?m)^[ \t]*(?:#import[ \t]+[<\"]|@(?:interface|implementation|protocol|property)\b)`)
+	dartContentMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+['\"]dart:|mixin[ \t]+[A-Za-z_]|extension[ \t]+[A-Za-z_][^\r\n]*\bon\b|part[ \t]+of\b)`)
+	dContentMarker          = regexp.MustCompile(`(?m)^[ \t]*(?:module[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]*;|import[ \t]+[A-Za-z_][A-Za-z0-9_.]*(?:[ \t]*:[^;]+)?[ \t]*;|unittest\b|version[ \t]*\()`)
+	zigContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*@import[ \t]*\(|(?:pub[ \t]+)?const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*(?:struct|enum|union|opaque)\b)`)
+	nimContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:(?:proc|func|method|iterator|template)[ \t]+[A-Za-z_][A-Za-z0-9_]*\*?[ \t]*\(|import[ \t]+[A-Za-z_][A-Za-z0-9_./]*)`)
+	solidityContentMarker   = regexp.MustCompile(`(?m)^[ \t]*(?:pragma[ \t]+solidity\b|(?:abstract[ \t]+)?contract[ \t]+[A-Za-z_]|library[ \t]+[A-Za-z_]|function[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[^\r\n]*(?:external|public|internal|private)\b)`)
+	apexContentMarker       = regexp.MustCompile(`(?im)^[ \t]*(?:trigger[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+on[ \t]+[A-Za-z_]|(?:with|without)[ \t]+sharing[ \t]+class[ \t]+[A-Za-z_]|@AuraEnabled\b)`)
+	alContentMarker         = regexp.MustCompile(`(?im)^[ \t]*(?:codeunit|pageextension|tableextension|reportextension|enumextension)[ \t]+[0-9]+[ \t]+[A-Za-z_]`)
+	arduinoContentMarker    = regexp.MustCompile(`(?m)^[ \t]*(?:#include[ \t]*<Arduino\.h>|void[ \t]+(?:setup|loop)[ \t]*\([ \t]*\))`)
 )
 
 const (
@@ -284,6 +311,21 @@ func (collector *detectionCollector) finalize() DetectionResult {
 		result.Language = states[0].language
 		return result
 	}
+	if collector.extensionCandidateCount > 1 {
+		contentExtension := -1
+		contentExtensionCount := 0
+		for index := range states {
+			if states[index].priority == priorityExtension && states[index].hasExtension && states[index].hasContent {
+				contentExtension = index
+				contentExtensionCount++
+			}
+		}
+		if contentExtensionCount == 1 {
+			result.State = DetectionProbable
+			result.Language = states[contentExtension].language
+			return result
+		}
+	}
 	if collector.extensionCandidateCount == 1 &&
 		states[0].priority == priorityExtension &&
 		states[0].hasExtension &&
@@ -380,7 +422,7 @@ func hasClassicASPLanguageDirective(text string) bool {
 		end := start + 3 + relativeEnd
 		if end-start <= maxDirectiveBytes {
 			directive := lower[start+3 : end]
-			if containsASPDirectiveAssignment(directive, "language") {
+			if !isASPNetTypedDirective(directive) && containsASPDirectiveAssignment(directive, "language") {
 				return true
 			}
 		}
@@ -388,6 +430,19 @@ func hasClassicASPLanguageDirective(text string) bool {
 		if searchFrom >= len(lower) {
 			return false
 		}
+	}
+}
+
+func isASPNetTypedDirective(directive string) bool {
+	fields := strings.Fields(strings.TrimSpace(directive))
+	if len(fields) == 0 {
+		return false
+	}
+	switch strings.ToLower(fields[0]) {
+	case "page", "control", "master", "register", "import", "assembly", "outputcache", "reference", "previouspagetype", "mastertype":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -456,6 +511,35 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		{language: "csharp", pattern: csharpContentMarker, detail: "csharp-declaration"},
 		{language: "vbnet", pattern: vbnetContentMarker, detail: "vbnet-declaration"},
 		{language: "python", pattern: pythonContentMarker, detail: "python-declaration"},
+		{language: "cpp", pattern: cppContentMarker, detail: "cpp-distinctive-declaration"},
+		{language: "java", pattern: javaContentMarker, detail: "java-declaration"},
+		{language: "kotlin", pattern: kotlinContentMarker, detail: "kotlin-declaration"},
+		{language: "php", pattern: phpContentMarker, detail: "php-open-tag"},
+		{language: "ruby", pattern: rubyContentMarker, detail: "ruby-declaration"},
+		{language: "swift", pattern: swiftContentMarker, detail: "swift-declaration"},
+		{language: "delphi", pattern: delphiContentMarker, detail: "delphi-helper"},
+		{language: "vbscript", pattern: vbscriptContentMarker, detail: "vbscript-declaration"},
+		{language: "fsharp", pattern: fsharpContentMarker, detail: "fsharp-declaration"},
+		{language: "cil", pattern: cilContentMarker, detail: "cil-directive"},
+		{language: "powershell", pattern: powerShellContentMarker, detail: "powershell-declaration"},
+		{language: "purebasic", pattern: pureBasicContentMarker, detail: "purebasic-declaration"},
+		{language: "freebasic", pattern: freeBasicContentMarker, detail: "freebasic-declaration"},
+		{language: "aspnet-webforms", pattern: webFormsContentMarker, detail: "webforms-directive"},
+		{language: "razor", pattern: razorContentMarker, detail: "razor-directive"},
+		{language: "blazor", pattern: blazorContentMarker, detail: "blazor-directive"},
+		{language: "xaml", pattern: xamlContentMarker, detail: "xaml-directive"},
+		{language: "mql4", pattern: mqlContentMarker, detail: "mql-declaration"},
+		{language: "mql5", pattern: mqlContentMarker, detail: "mql-declaration"},
+		{language: "objective-c", pattern: objectiveCContentMarker, detail: "objective-c-declaration"},
+		{language: "objective-cpp", pattern: objectiveCContentMarker, detail: "objective-c-declaration"},
+		{language: "dart", pattern: dartContentMarker, detail: "dart-declaration"},
+		{language: "d", pattern: dContentMarker, detail: "d-declaration"},
+		{language: "zig", pattern: zigContentMarker, detail: "zig-declaration"},
+		{language: "nim", pattern: nimContentMarker, detail: "nim-declaration"},
+		{language: "solidity", pattern: solidityContentMarker, detail: "solidity-declaration"},
+		{language: "apex", pattern: apexContentMarker, detail: "apex-declaration"},
+		{language: "al", pattern: alContentMarker, detail: "al-declaration"},
+		{language: "arduino", pattern: arduinoContentMarker, detail: "arduino-convention"},
 	}
 	for _, marker := range markers {
 		if marker.pattern.MatchString(text) {

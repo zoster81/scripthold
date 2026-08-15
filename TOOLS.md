@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-The completed R25 Unreleased next-major source tree exposes an authoritative 35-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+The active R27 Unreleased next-major source tree exposes an authoritative 36-tool catalog and 3 guided prompts; the public Scripthold 2.2.0 release exposes 30 tools. Both catalogs are transport-independent within their respective version. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 
@@ -12,9 +12,9 @@ These prompt concepts and the implementation approaches reviewed are credited to
 
 ## Error Handling
 
-Reusable domain failures carry transport-independent typed categories for invalid input or paths, access denial, symlink escapes, missing files, permissions, encoding, conflicts, cancellation, limits, and filesystem failures. Every failed MCP tool call preserves human-readable text and adds a stable machine-readable code at `_meta.errorCode`. Per-file failures from `read_multiple_files`, batch `convert_encoding`, and `grep_text_files.skippedFiles` use the same `errorCode` vocabulary. Encoding-related per-file failures may additionally expose `encodingErrorCode` as an additive refinement: `ENCODING_AMBIGUOUS`, `ENCODING_MALFORMED`, `ENCODING_UNSUPPORTED`, `ENCODING_BOM_CONFLICT`, `ENCODING_UNREPRESENTABLE`, or `ENCODING_OTHER`. This refinement does not replace or reinterpret the stable top-level code.
+Reusable domain failures carry transport-independent typed categories for invalid input or paths, access denial, symlink escapes, missing files, permissions, encoding, conflicts, cancellation, limits, and filesystem failures. Every failed MCP tool call preserves human-readable text and a stable machine-readable code at `_meta.errorCode`. For tools with a structured output contract, the same `errorCode` and `message` are also merged into structured output so clients that do not expose MCP metadata/text still receive actionable diagnostics; existing structured failure evidence is retained alongside the common envelope. The intentionally content-only `check_update` tool keeps its content-only response contract. Per-file failures from `read_multiple_files`, batch `convert_encoding`, and `grep_text_files.skippedFiles` use the same `errorCode` vocabulary. Encoding-related per-file failures may additionally expose `encodingErrorCode` as an additive refinement: `ENCODING_AMBIGUOUS`, `ENCODING_MALFORMED`, `ENCODING_UNSUPPORTED`, `ENCODING_BOM_CONFLICT`, `ENCODING_UNREPRESENTABLE`, or `ENCODING_OTHER`. This refinement does not replace or reinterpret the stable top-level code.
 
-Stable codes are `INVALID_INPUT`, `INVALID_PATH`, `ACCESS_DENIED`, `SYMLINK_ESCAPE`, `NOT_FOUND`, `PERMISSION`, `ENCODING`, `ENCODING_AMBIGUOUS`, `CONFLICT`, `PARTIAL_COMMIT`, `UNSUPPORTED`, `CANCELLED`, `LIMIT`, `IO_ERROR`, `INTERNAL_ERROR`, and the fallback `OPERATION_FAILED`. `PARTIAL_COMMIT` is reserved for a package apply whose final state includes at least one committed or unclassifiable target. Successful results omit error codes. See [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md).
+Stable codes are `INVALID_INPUT`, `INVALID_PATH`, `ACCESS_DENIED`, `SYMLINK_ESCAPE`, `NOT_FOUND`, `PERMISSION`, `ENCODING`, `ENCODING_AMBIGUOUS`, `CONFLICT`, `PARTIAL_COMMIT`, `UNSUPPORTED`, `CANCELLED`, `LIMIT`, `IO_ERROR`, `INTERNAL_ERROR`, and the fallback `OPERATION_FAILED`. `PARTIAL_COMMIT` means a mutating operation failed after the target or package may have advanced; accompanying structured state/fingerprint evidence distinguishes committed, unchanged, partial, or unknown outcomes where supported. Successful results omit error codes. See [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md).
 
 ## File Operations
 
@@ -108,7 +108,7 @@ Read multiple files through the same incremental encoding/BOM-aware pipeline use
 
 Replace the complete target file contents with the supplied UTF-8 `content`, using the selected target encoding through the shared document encoder. The explicit `write_whole_file` name is intentional: the historical `write_file` name could be mistaken for an incremental edit or append operation, while this tool discards any existing text not present in `content`. Use `edit_file` when only part of an existing document should change.
 
-The supplied line endings are written exactly as provided. Encoding failures and invalid BOM policies are rejected before filesystem mutation. The result is staged and synced before an atomic commit; existing targets are checked for concurrent changes, and new targets use a no-replace commit so a concurrently created file is not overwritten.
+The supplied line endings are written exactly as provided. Encoding failures and invalid BOM policies are rejected before filesystem mutation. The result is staged and synced before an atomic commit; existing targets are checked for concurrent changes, and new targets use a no-replace commit so a concurrently created file is not overwritten. The prepared result and final target are fingerprinted; an existing pre-state fingerprint is additionally retained when the target already fits the configured bounded file-read limit, while larger existing targets keep the historical metadata-only concurrency snapshot rather than forcing a new unbounded read. If replacement reports an error after a possible commit, the handler re-reads only bounded evidence and reports `state: unchanged|committed|unknown`, `changed`, `applied: false`, and `actualFingerprint` when available; a committed or unclassifiable post-error state returns `PARTIAL_COMMIT` rather than an empty or misleading result.
 
 **Parameters:**
 - `path` (required): Path to the file
@@ -139,7 +139,13 @@ The supplied line endings are written exactly as provided. Encoding failures and
   "encoding": "utf-16-le",
   "bomPolicy": "auto",
   "hasBOM": true,
-  "bomType": "utf-16-le"
+  "bomType": "utf-16-le",
+  "targetFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "resultFingerprint": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "actualFingerprint": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "state": "committed",
+  "changed": true,
+  "applied": true
 }
 ```
 
@@ -178,6 +184,8 @@ The edit preview cache is bounded by `MCP_MAX_EDIT_PREVIEWS` (default `128`), `M
 Apply one previously prepared `edit_file` capability. The **complete input schema is only** `previewId`; path, edits, patch, encoding, `forceWritable`, backup policy, content, and all other overrides are rejected as unknown fields.
 
 The capability is consumed before revalidation, so success, conflict, cancellation, write failure, and replay are terminal. Apply revalidates authorization, path, stable file identity, approved pre-state fingerprint, and retained result fingerprint. For a changed edit with effective policy `required`, the exact approved pre-state is durably captured and verified before permission changes or target replacement, then the target is revalidated again. The exact retained bytes are committed through synced same-directory replacement and verified by final fingerprint. A no-op returns `applied: false`, creates no backup, and leaves metadata/bytes unchanged. A durable backup remains valid if a later target write fails; no automatic rollback is promised.
+
+Apply reports actual target evidence rather than reusing the preview prediction: `state` is `unchanged`, `committed`, or `unknown`, and `actualFingerprint` records the observed post-state when classification succeeds. If an error occurs before mutation and the approved fingerprint remains present, `changed` is false. If replacement committed but a later durability/verification step fails, the response is `applied: false`, `state: committed`, `changed: true`, and `PARTIAL_COMMIT`. An unclassifiable post-error state also fails conservatively with `PARTIAL_COMMIT` rather than claiming that no change occurred.
 
 ```json
 {
@@ -405,7 +413,7 @@ Recursively search for files and directories matching a glob pattern through the
 
 Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.
 
-R25 analyzes Go, C#, VB.NET, Python, and Classic ASP. Go uses the standard-library AST; C#, VB.NET, and Python use the shared bounded native scanner/recognizers; Classic ASP preserves host coordinates while segmenting HTML/directives/server regions and delegates supported VBScript-like regions. Unsupported or ambiguous language coverage is reported explicitly rather than guessed. No external parser/compiler/LSP process, network lookup, project load, or cache file is used.
+The completed production surface now contains 45 active providers: the five R25 canaries—Go, C#, VB.NET, Python, and Classic ASP—plus R27 Phase 3 C/C++/Java/Kotlin, Phase 4 JavaScript/JSX/TypeScript/TSX/Rust, Phase 5 PHP/Ruby/Swift/Pascal/Delphi, Phase 6 VB6/VBA/VBScript/QBasic/classic BASIC/FreeBASIC/PureBasic/F#/C++/CLI/JScript.NET/CIL/PowerShell/ASP.NET Web Forms/Razor/Blazor/XAML, and Phase 7 MQL4/MQL5/Objective-C/Objective-C++/Dart/D/Zig/Nim/Solidity/Apex/AL/Arduino. Go uses the standard-library AST; the remaining programming-language providers use bounded native scanners, structural recognizers, or offset-preserving adapters. Classic ASP preserves host coordinates while delegating VBScript and JScript server regions; Web Forms delegates declared C#/VB server-code regions; Razor/Blazor analyze only balanced `@code`/`@functions` member regions; XAML reports structural `x:Class`, `x:Name`, and namespace evidence. Basic dialects have separate analyzer identities and shared `.bas` routing remains ambiguous unless explicit/project evidence resolves it; MQL4/MQL5 keep `.mqh` ambiguous and Objective-C `.m` remains ambiguous with MATLAB/Octave without corroborating evidence. All active providers retain their documented structural boundaries: macro/preprocessor/runtime metaprogramming, compiler/build/project/type resolution, semantic relations beyond proven structural edges, and incremental indexing are not inferred. Unsupported or ambiguous coverage is reported explicitly rather than guessed. No external parser/compiler/LSP process, network lookup, project load, or cache file is used.
 
 **Common navigation parameters:**
 - `paths` (required for `outline`, `digest`, `find`): one or more authorized files/directories; directory traversal reuses the secure `.gitignore`-aware walker.
@@ -448,6 +456,41 @@ A typical follow-up uses the returned per-file `sourceFingerprint`, symbol `id`,
   "maxBytes": 65536
 }
 ```
+
+### source_query
+
+`source_query` is the frozen **R27 Phase 1** compact read-only contract for future source search, project relations, and task-context assembly. Phase 1 deliberately freezes the public vocabulary and resource boundaries before the native R27 query/index engine exists. Therefore an otherwise-valid request currently returns `UNSUPPORTED`; this catalog entry does **not** claim that project-wide search, relations, context assembly, or incremental indexing are implemented yet.
+
+The single-tool surface was selected instead of three near-duplicate `source_search`, `source_relations`, and `source_context` tools because all three share authorization, traversal, language/encoding filters, index binding, evidence, and resource policy, while three complete schemas exceeded the fixed connector-catalog budget. The public request remains strict: unknown top-level fields are rejected by the MCP schema, selector/index objects reject unknown nested fields, and the handler rejects known fields that are illegal for the selected operation.
+
+**Common parameters:**
+- `operation` (required): `search`, `relations`, or `context`.
+- `paths` (required): authorized source files/directories. The configured `MCP_SOURCE_MAX_INPUT_PATHS` ceiling applies.
+- `language`, `encoding`, `includes`, `excludes`, `respectGitignore`, `maxFiles` (optional): use the established source-intelligence selection/traversal policy.
+- `index` (optional): bind the future query to an index `generation`, a deterministic lowercase SHA-256 `fingerprint`, or both. `stalePolicy` is `reject` or `allow`; omitting the whole object requests no explicit generation binding. No index is created merely by supplying this field.
+
+Selectors are fingerprint-bound and use `kind: "path" | "symbol" | "position"`. Every selector carries `path` plus the current lowercase SHA-256 `sourceFingerprint`; a `symbol` selector additionally requires lowercase SHA-256 `symbolId`, while a `position` selector requires positive 1-based `line` and `column`. Invalid combinations are rejected rather than guessed.
+
+**`search`:** requires non-empty `query` and `mode: "textual" | "lexical" | "structural"`; optional `match` is `exact`, `prefix`, or `contains`. `kinds`, `evidence`, and `maxResults` are search-specific. Evidence strength uses the frozen ordered vocabulary `textual`, `lexical`, `structural`, `scope-resolved`, `project-resolved`, and `semantic`; a result may never claim a stronger level than the native analyzer proves.
+
+**`relations`:** requires `relation`, whose frozen vocabulary is `dependencies`, `dependents`, `references`, `definitions`, `inheritance`, `implementations`, `overrides`, `callers`, `callees`, `trace`, `impact`, or `cycles`. `trace` requires both `subject` and `target`; `cycles` accepts neither selector and does not accept `maxDepth`; the other relation kinds require `subject` and reject `target`. Relation queries may use `evidence`, `maxResults`, `maxNodes`, `maxEdges`, and—where meaningful—`maxDepth`.
+
+Relationship **resolution state is separate from evidence strength**. The frozen states are `resolved`, `ambiguous`, `unresolved`, and `external`. This prevents an ambiguous structural fact from being represented as though `ambiguous` were a weaker point on the textual-to-semantic evidence ladder. Future indexed results also expose index staleness as `current`, `stale`, or `not-indexed`.
+
+**`context`:** requires one to 32 fingerprint-bound `targets` and positive `budgetBytes`; optional `bodyPolicy` is `prefer` or `signatures-only`, with `maxItems` and `maxDepth` as additional bounds. The deterministic priority vocabulary is `target`, `enclosing`, `direct-dependency`, `direct-related-body`, `direct-related-signature`, `reverse-or-type-relation`, and `deeper-relation`. Later context implementation must degrade from body to signature under pressure rather than silently presenting an unbounded or falsely complete result.
+
+R27 adds these configurable ceilings; invalid, non-positive, overflowing, or above-hard-maximum environment values fall back to their defaults under the same fail-closed configuration policy as R25. Client-provided limits can only lower the effective configured ceiling. Existing source input/file/byte/request/output limits continue to apply as well.
+
+| Limit / environment | Default | Hard maximum |
+|---|---:|---:|
+| `MaxResults` / `MCP_SOURCE_MAX_RESULTS` | 10,000 | 100,000 |
+| `MaxGraphNodes` / `MCP_SOURCE_MAX_GRAPH_NODES` | 5,000 | 50,000 |
+| `MaxGraphEdges` / `MCP_SOURCE_MAX_GRAPH_EDGES` | 20,000 | 200,000 |
+| `MaxGraphDepth` / `MCP_SOURCE_MAX_GRAPH_DEPTH` | 8 | 64 |
+| `MaxContextBytes` / `MCP_SOURCE_MAX_CONTEXT_BYTES` | 1 MiB | 8 MiB |
+| `MaxContextItems` / `MCP_SOURCE_MAX_CONTEXT_ITEMS` | 256 | 4,096 |
+
+Successful R27 query results will retain the existing `unicode-scalar-1-based-half-open` source-coordinate contract where ranges are returned, plus explicit coverage/truncation and coherent index-generation evidence. Phase 1 creates no persistent index, performs no source mutation, starts no external parser/compiler/LSP process, and performs no network activity.
 
 ### fingerprint_paths
 
@@ -877,7 +920,7 @@ Execution is disabled by default. `MCP_ENABLE_RUN_SCRIPT=1` authorizes `task_run
 
 ### task_run
 
-Durably enqueue one task. `idempotencyKey` is mandatory; an identical retry returns the original task, while a different request using the same key fails.
+Durably enqueue one task. `idempotencyKey` is mandatory; an identical retry returns the original task, while a different request using the same key fails. Admission observes request cancellation while waiting for the shared task-store control lock and rechecks cancellation after lock acquisition, so a request already cancelled before durable admission does not later create a queued task.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -889,7 +932,7 @@ Durably enqueue one task. `idempotencyKey` is mandatory; an identical retry retu
 | `lockKeys` | string[] | no | Tasks sharing any key do not overlap. |
 | `cwd` | string | no | Allowed working directory; defaults to the script parent or first allowed root. |
 | `command` | string | shell only | Unrestricted command text. |
-| `shell` | string | no | Windows: `powershell`, `pwsh`, `cmd`; Unix: `sh`, `bash`, `pwsh`. |
+| `shell` | string | no | Logical shell name validated before admission. Windows: `powershell`, `pwsh`, `cmd`; Unix: `sh`, `bash`, `pwsh`. Executable filenames/paths such as `powershell.exe` are not shell identifiers. |
 | `path` | string | script only | Allowed regular `.ps1`, `.bat`, `.cmd`, `.py`, `.js`, `.mjs`, `.cjs`, `.sh`, `.exe`, or `.com` file. |
 | `args` | string[] | no | Direct script arguments without concatenation. |
 | `maxRuntimeSeconds` | integer | no | Zero/omitted is unlimited unless an operator ceiling applies. Queue time is excluded. |
@@ -914,7 +957,7 @@ Returns newest-first bounded metadata with optional `statuses`, `kinds`, and `ta
 
 ### task_get
 
-Accepts `taskId` and returns the latest state, timestamps, terminal result, worker liveness, and the bounded immutable lifecycle history. States are `queued`, `starting`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, and `interrupted`.
+Accepts `taskId` and returns the latest state, timestamps, terminal result, worker liveness, and the bounded immutable lifecycle history. States are `queued`, `starting`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, and `interrupted`. A supported shell whose runtime is unavailable remains a `TASK_START_FAILED` terminal result, but its bounded message preserves only an explicitly safe preparation/start cause; internal task-store paths and unclassified OS errors remain private. A direct process that exits non-zero reports `PROCESS_EXIT_NONZERO` with its exit code. If the direct process exits but inherited stdout/stderr handles held by descendants do not close before the bounded drain delay, the distinct terminal code is `PROCESS_OUTPUT_DRAIN_TIMEOUT`; when available, the direct process exit code is preserved instead of being replaced by a generic `PROCESS_WAIT_FAILED`.
 
 ### task_logs
 

@@ -12,6 +12,7 @@ import (
 	"github.com/zoster81/scripthold/filetoolsserver"
 	"github.com/zoster81/scripthold/internal/config"
 	"github.com/zoster81/scripthold/internal/httptransport"
+	"github.com/zoster81/scripthold/internal/toolcatalog"
 )
 
 func TestSelectRunnerPreservesStdioPolicy(t *testing.T) {
@@ -108,6 +109,10 @@ func testHTTPToken() string {
 	return strings.Repeat("test-token-", 4)
 }
 
+func expectedToolCount() int {
+	return len(toolcatalog.All())
+}
+
 func TestSingleSessionRunnerUsesSharedServerAndHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -135,8 +140,8 @@ func TestSingleSessionRunnerUsesSharedServerAndHonorsCancellation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 35 {
-		t.Fatalf("tool count = %d, want 35", len(tools.Tools))
+	if got, want := len(tools.Tools), expectedToolCount(); got != want {
+		t.Fatalf("tool count = %d, want %d", got, want)
 	}
 
 	cancel()

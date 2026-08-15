@@ -55,6 +55,12 @@ const (
 	EnvSourceMaxConcurrency               = "MCP_SOURCE_MAX_CONCURRENCY"
 	EnvSourceMaxRequestSeconds            = "MCP_SOURCE_MAX_REQUEST_SECONDS"
 	EnvSourceMaxOutputBytes               = "MCP_SOURCE_MAX_OUTPUT_BYTES"
+	EnvSourceMaxResults                   = "MCP_SOURCE_MAX_RESULTS"
+	EnvSourceMaxGraphNodes                = "MCP_SOURCE_MAX_GRAPH_NODES"
+	EnvSourceMaxGraphEdges                = "MCP_SOURCE_MAX_GRAPH_EDGES"
+	EnvSourceMaxGraphDepth                = "MCP_SOURCE_MAX_GRAPH_DEPTH"
+	EnvSourceMaxContextBytes              = "MCP_SOURCE_MAX_CONTEXT_BYTES"
+	EnvSourceMaxContextItems              = "MCP_SOURCE_MAX_CONTEXT_ITEMS"
 
 	EnvBackupStoreDir             = "MCP_BACKUP_STORE_DIR"
 	EnvBackupDefaultPolicy        = "MCP_BACKUP_DEFAULT_POLICY"
@@ -119,6 +125,12 @@ const (
 	DefaultSourceMaxConcurrency    = 4
 	DefaultSourceMaxRequestSeconds = 30
 	DefaultSourceMaxOutputBytes    = int64(16 * 1024 * 1024)
+	DefaultSourceMaxResults        = 10_000
+	DefaultSourceMaxGraphNodes     = 5_000
+	DefaultSourceMaxGraphEdges     = 20_000
+	DefaultSourceMaxGraphDepth     = 8
+	DefaultSourceMaxContextBytes   = 1024 * 1024
+	DefaultSourceMaxContextItems   = 256
 
 	HardMaxSourceInputPaths     = 256
 	HardMaxSourceFiles          = 4_096
@@ -133,6 +145,12 @@ const (
 	HardMaxSourceConcurrency    = 32
 	HardMaxSourceRequestSeconds = 300
 	HardMaxSourceOutputBytes    = int64(64 * 1024 * 1024)
+	HardMaxSourceResults        = 100_000
+	HardMaxSourceGraphNodes     = 50_000
+	HardMaxSourceGraphEdges     = 200_000
+	HardMaxSourceGraphDepth     = 64
+	HardMaxSourceContextBytes   = 8 * 1024 * 1024
+	HardMaxSourceContextItems   = 4_096
 
 	BackupPolicyDisabled = "disabled"
 	BackupPolicyRequired = "required"
@@ -232,6 +250,12 @@ type SourceConfig struct {
 	MaxConcurrency    int
 	MaxRequestSeconds int
 	MaxOutputBytes    int64
+	MaxResults        int
+	MaxGraphNodes     int
+	MaxGraphEdges     int
+	MaxGraphDepth     int
+	MaxContextBytes   int
+	MaxContextItems   int
 }
 
 // BackupLimits bounds the future persistent backup store independently from
@@ -342,6 +366,12 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 			MaxConcurrency:    DefaultSourceMaxConcurrency,
 			MaxRequestSeconds: DefaultSourceMaxRequestSeconds,
 			MaxOutputBytes:    DefaultSourceMaxOutputBytes,
+			MaxResults:        DefaultSourceMaxResults,
+			MaxGraphNodes:     DefaultSourceMaxGraphNodes,
+			MaxGraphEdges:     DefaultSourceMaxGraphEdges,
+			MaxGraphDepth:     DefaultSourceMaxGraphDepth,
+			MaxContextBytes:   DefaultSourceMaxContextBytes,
+			MaxContextItems:   DefaultSourceMaxContextItems,
 		},
 		Backup: BackupConfig{
 			StoreDir:      getenv(EnvBackupStoreDir),
@@ -426,6 +456,12 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Source.MaxConcurrency = boundedIntEnvironment(getenv, EnvSourceMaxConcurrency, cfg.Source.MaxConcurrency, HardMaxSourceConcurrency)
 	cfg.Source.MaxRequestSeconds = boundedIntEnvironment(getenv, EnvSourceMaxRequestSeconds, cfg.Source.MaxRequestSeconds, HardMaxSourceRequestSeconds)
 	cfg.Source.MaxOutputBytes = boundedInt64Environment(getenv, EnvSourceMaxOutputBytes, cfg.Source.MaxOutputBytes, HardMaxSourceOutputBytes)
+	cfg.Source.MaxResults = boundedIntEnvironment(getenv, EnvSourceMaxResults, cfg.Source.MaxResults, HardMaxSourceResults)
+	cfg.Source.MaxGraphNodes = boundedIntEnvironment(getenv, EnvSourceMaxGraphNodes, cfg.Source.MaxGraphNodes, HardMaxSourceGraphNodes)
+	cfg.Source.MaxGraphEdges = boundedIntEnvironment(getenv, EnvSourceMaxGraphEdges, cfg.Source.MaxGraphEdges, HardMaxSourceGraphEdges)
+	cfg.Source.MaxGraphDepth = boundedIntEnvironment(getenv, EnvSourceMaxGraphDepth, cfg.Source.MaxGraphDepth, HardMaxSourceGraphDepth)
+	cfg.Source.MaxContextBytes = boundedIntEnvironment(getenv, EnvSourceMaxContextBytes, cfg.Source.MaxContextBytes, HardMaxSourceContextBytes)
+	cfg.Source.MaxContextItems = boundedIntEnvironment(getenv, EnvSourceMaxContextItems, cfg.Source.MaxContextItems, HardMaxSourceContextItems)
 
 	cfg.Backup.Limits.MaxTotalBytes = boundedInt64Environment(getenv, EnvBackupMaxTotalBytes, cfg.Backup.Limits.MaxTotalBytes, HardMaxBackupTotalBytes)
 	cfg.Backup.Limits.MaxObjectBytes = boundedInt64Environment(getenv, EnvBackupMaxObjectBytes, cfg.Backup.Limits.MaxObjectBytes, HardMaxBackupObjectBytes)

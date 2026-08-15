@@ -16,6 +16,40 @@ import (
 	"github.com/zoster81/scripthold/internal/config"
 )
 
+func TestBuildServerErrorsIncludeStructuredDiagnostics(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	server := BuildServer(ServerOptions{
+		Version:            "structured-error-architecture-test",
+		AllowedDirectories: []string{root},
+		Config:             config.Load(),
+		EnableClientRoots:  false,
+		LifecycleContext:   ctx,
+	})
+	session := connectTestClient(t, ctx, server, "structured-error-architecture")
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "read_text_file",
+		Arguments: map[string]any{"path": outside},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("result = %#v, want MCP error", result)
+	}
+	var envelope struct {
+		ErrorCode string `json:"errorCode"`
+		Message   string `json:"message"`
+	}
+	decodeStructuredOutput(t, result.StructuredContent, &envelope)
+	if envelope.ErrorCode == "" || envelope.Message == "" {
+		t.Fatalf("structured error = %+v, want non-empty errorCode and message", envelope)
+	}
+}
+
 func TestBuildServerTreatsTypedNilBackupStoreAsDisabled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

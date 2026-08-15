@@ -3,6 +3,7 @@
 package taskstore
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -12,14 +13,21 @@ import (
 type controlLock struct{ handle windows.Handle }
 
 func acquireControlLock(path string) (*controlLock, error) {
-	return acquireWindowsControlLock(path, true)
+	return acquireWindowsControlLock(context.Background(), path, true)
+}
+
+func acquireControlLockContext(ctx context.Context, path string) (*controlLock, error) {
+	return acquireWindowsControlLock(ctx, path, true)
 }
 
 func tryAcquireControlLock(path string) (*controlLock, error) {
-	return acquireWindowsControlLock(path, false)
+	return acquireWindowsControlLock(context.Background(), path, false)
 }
 
-func acquireWindowsControlLock(path string, wait bool) (*controlLock, error) {
+func acquireWindowsControlLock(ctx context.Context, path string, wait bool) (*controlLock, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ptr, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return nil, err
@@ -27,6 +35,9 @@ func acquireWindowsControlLock(path string, wait bool) (*controlLock, error) {
 	deadline := time.Now().Add(30 * time.Second)
 	var handle windows.Handle
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		handle, err = windows.CreateFile(ptr, windows.GENERIC_READ|windows.GENERIC_WRITE,
 			0, nil, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 		if err == nil {
@@ -35,7 +46,18 @@ func acquireWindowsControlLock(path string, wait bool) (*controlLock, error) {
 		if (!errors.Is(err, windows.ERROR_SHARING_VIOLATION) && !errors.Is(err, windows.ERROR_LOCK_VIOLATION)) || !wait || time.Now().After(deadline) {
 			return nil, err
 		}
-		time.Sleep(10 * time.Millisecond)
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {

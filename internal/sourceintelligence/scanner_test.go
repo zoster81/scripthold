@@ -159,6 +159,28 @@ func TestScannerNestedBlockCommentsWhenProfileEnablesThem(t *testing.T) {
 	}
 }
 
+func TestScannerPrefersLongerBlockCommentOverSharedLineCommentPrefix(t *testing.T) {
+	profile := ScannerProfile{
+		Name:          "nim-comment-prefix-test",
+		Keywords:      []string{"proc"},
+		LineComments:  []string{"#"},
+		BlockComments: []BlockCommentRule{{Start: "#[", End: "]#", Nestable: true}},
+	}
+	text := "#[\nproc Fake()\n#[ nested proc AlsoFake() ]#\n]#\nproc Real()\n"
+	result := scanSourceText(t, text, profile, phase4ScannerLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("shared-prefix block comment scan incomplete: %+v", result.Diagnostics)
+	}
+	if got := keywordTexts(result.Tokens, "proc"); !reflect.DeepEqual(got, []string{"proc"}) {
+		t.Fatalf("shared-prefix block comment leaked declaration keyword: %v", got)
+	}
+
+	invalid := scanSourceText(t, "#[\nproc Fake()\n", profile, phase4ScannerLimits)
+	if invalid.Complete || !hasScannerDiagnostic(invalid.Diagnostics, "unterminated-comment") {
+		t.Fatalf("unterminated shared-prefix block comment was accepted: %+v", invalid)
+	}
+}
+
 func TestScannerCSharpInterpolatedExpressionsMaySpanLines(t *testing.T) {
 	text := `class Real {
     string a = $"{string.Join(

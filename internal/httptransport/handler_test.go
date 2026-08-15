@@ -19,6 +19,7 @@ import (
 	"github.com/zoster81/scripthold/filetoolsserver/handler"
 	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/toolcatalog"
 )
 
 func TestHandlerHealthAndReadinessExposeNoSensitiveState(t *testing.T) {
@@ -400,8 +401,8 @@ func TestStreamableHTTPMatchesSharedServerAcrossAdapters(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s list tools: %v", name, err)
 		}
-		if len(tools.Tools) != 35 {
-			t.Fatalf("%s tool count = %d", name, len(tools.Tools))
+		if got, want := len(tools.Tools), expectedToolCount(); got != want {
+			t.Fatalf("%s tool count = %d, want %d", name, got, want)
 		}
 		serializedTools := marshalJSON(t, tools.Tools)
 		if expectedTools == "" {
@@ -1215,6 +1216,10 @@ func tryConnectHTTPClient(ctx context.Context, endpoint string) (*mcp.ClientSess
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return fn(req) }
+
+func expectedToolCount() int {
+	return len(toolcatalog.All())
+}
 
 func marshalJSON(t *testing.T, value any) string {
 	t.Helper()

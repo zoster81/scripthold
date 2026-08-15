@@ -2,7 +2,7 @@
 
 ## Status
 
-**COMPLETE — R25.** The implementation and completion verification finished on 2026-08-13. Repository delivery was finalized at `1c558a8cf37c634f6ef4b8a7e3af2d6879c33526`, whose exact push-event CI and aggregate release-candidate gate passed. This document is the completed contract and verification record for the native language-neutral source-navigation foundation. R26 subsequently completed as a separate milestone; R27 remains planned. Neither status change alters the frozen R25 contract.
+**COMPLETE — R25.** The implementation and completion verification finished on 2026-08-13. Repository delivery was finalized at `1c558a8cf37c634f6ef4b8a7e3af2d6879c33526`, whose exact push-event CI and aggregate release-candidate gate passed. This document is the completed contract and verification record for the native language-neutral source-navigation foundation. R26 subsequently completed as a separate milestone, and R27 was activated on 2026-08-14. Neither later status change alters the frozen R25 contract.
 
 R25 establishes a language-neutral public model and provider architecture implemented natively in Scripthold. Go's standard-library parser is the first reference implementation because it is already available without adding a parser dependency, but **Go is not the final product scope**. R25 must also prove that the shared model is not Go-shaped by exercising several structurally different language families before completion. Broad multi-language coverage is a mandatory R27 outcome defined separately in [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md).
 

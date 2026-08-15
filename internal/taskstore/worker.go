@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/zoster81/scripthold/internal/execution"
 	"github.com/zoster81/scripthold/internal/filesystem"
@@ -201,7 +202,7 @@ func (worker *Worker) reconcile(ctx context.Context) error {
 			if errors.Is(err, errTaskStateChanged) || errors.Is(err, errTaskStartFinalized) {
 				continue
 			}
-			_ = worker.finishWithoutExecution(candidate.request, candidate.state, StatusFailed, "TASK_START_FAILED", "task could not be prepared or started")
+			_ = worker.finishWithoutExecution(candidate.request, candidate.state, StatusFailed, "TASK_START_FAILED", taskStartFailureMessage(err))
 			continue
 		}
 		active++
@@ -290,17 +291,19 @@ func replaceEnvironmentValue(environment []string, name, value string) []string 
 
 func (worker *Worker) prepareLaunch(taskID string, request Request) (launchRecord, error) {
 	if request.Kind == KindShell && !worker.policy.AllowShell {
-		return launchRecord{}, errors.New("shell task execution is disabled in the worker")
+		err := errors.New("shell task execution is disabled in the worker")
+		return launchRecord{}, withPublicTaskStartCause(err, err.Error())
 	}
 	if request.Kind == KindScript && !worker.policy.AllowRunScript {
-		return launchRecord{}, errors.New("script task execution is disabled in the worker")
+		err := errors.New("script task execution is disabled in the worker")
+		return launchRecord{}, withPublicTaskStartCause(err, err.Error())
 	}
 	cwd, err := validateAdmittedTaskPath(request.WorkingDirectory)
 	if err != nil {
-		return launchRecord{}, err
+		return launchRecord{}, withPublicTaskStartCause(err, "working directory is no longer valid")
 	}
 	if _, err := execution.ValidateWorkingDirectory(cwd); err != nil {
-		return launchRecord{}, err
+		return launchRecord{}, withPublicTaskStartCause(err, "working directory is not usable")
 	}
 	maximum := request.MaxRuntimeSeconds
 	if worker.store.limits.MaxRuntimeSeconds > 0 && (maximum == 0 || maximum > worker.store.limits.MaxRuntimeSeconds) {
@@ -310,19 +313,22 @@ func (worker *Worker) prepareLaunch(taskID string, request Request) (launchRecor
 	var args []string
 	if request.Kind == KindShell {
 		program, args, err = execution.BuildShellCommand(request.Shell, request.Command)
+		if err != nil {
+			return launchRecord{}, withPublicTaskStartCause(err, err.Error())
+		}
 	} else {
 		path, pathErr := validateAdmittedTaskPath(request.ScriptPath)
 		if pathErr != nil {
-			return launchRecord{}, pathErr
+			return launchRecord{}, withPublicTaskStartCause(pathErr, "script path is no longer valid")
 		}
 		snapshotPath, snapshotErr := worker.snapshotScript(taskID, path, request.ScriptSize, request.ScriptDigest)
 		if snapshotErr != nil {
-			return launchRecord{}, snapshotErr
+			return launchRecord{}, withPublicTaskStartCause(snapshotErr, "script snapshot could not be prepared")
 		}
 		program, args, err = execution.BuildScriptCommand(snapshotPath, request.Args)
-	}
-	if err != nil {
-		return launchRecord{}, err
+		if err != nil {
+			return launchRecord{}, withPublicTaskStartCause(err, err.Error())
+		}
 	}
 	return launchRecord{Program: program, Args: args, WorkingDirectory: cwd, MaxRuntimeSeconds: maximum}, nil
 }
@@ -411,6 +417,44 @@ func (worker *Worker) finishWithoutExecution(request persistedRequest, current s
 
 func (worker *Worker) finishWithoutExecutionUnlocked(request persistedRequest, current stateRecord, status Status, code, message string) error {
 	return worker.store.appendStateUnlocked(request.TaskID, terminalStateWithoutExecution(current, status, code, message))
+}
+
+type publicTaskStartError struct {
+	cause   error
+	message string
+}
+
+func (err *publicTaskStartError) Error() string { return err.cause.Error() }
+func (err *publicTaskStartError) Unwrap() error { return err.cause }
+
+func withPublicTaskStartCause(cause error, message string) error {
+	if cause == nil {
+		return nil
+	}
+	return &publicTaskStartError{cause: cause, message: message}
+}
+
+func taskStartFailureMessage(err error) string {
+	const (
+		prefix   = "task could not be prepared or started"
+		maxBytes = 1024
+	)
+	if err == nil {
+		return prefix
+	}
+	var publicErr *publicTaskStartError
+	if !errors.As(err, &publicErr) || strings.TrimSpace(publicErr.message) == "" {
+		return prefix
+	}
+	message := prefix + ": " + strings.ToValidUTF8(publicErr.message, "\uFFFD")
+	if len(message) <= maxBytes {
+		return message
+	}
+	message = message[:maxBytes]
+	for !utf8.ValidString(message) {
+		message = message[:len(message)-1]
+	}
+	return message
 }
 
 func terminalStateWithoutExecution(current stateRecord, status Status, code, message string) stateRecord {

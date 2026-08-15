@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/backupstore"
@@ -19,6 +20,11 @@ const (
 	editActionPreview        = "preview"
 	editActionApply          = "apply"
 	editBackupPolicyRequired = "required"
+	editApplyStateUnchanged  = "unchanged"
+	editApplyStateCommitted  = "committed"
+	editApplyStateUnknown    = "unknown"
+
+	editApplyClassificationTimeout = 30 * time.Second
 )
 
 func normalizeEditBackupPolicy(value string) (string, error) {
@@ -129,7 +135,7 @@ func (h *Handler) prepareEdit(ctx context.Context, input EditFileInput) (prepare
 	readOnly := isReadOnly(document.Mode)
 	forceWritable := input.ForceWritable != nil && *input.ForceWritable
 	if readOnly && !forceWritable {
-		return preparedEdit{}, errorResult("file is read-only — STOP, do NOT retry and do NOT attempt to change file attributes. Ask the user whether to proceed with forceWritable: true, or skip this file")
+		return preparedEdit{}, errorResultWithCode(ErrCodePermission, "file is read-only — STOP, do NOT retry and do NOT attempt to change file attributes. Ask the user whether to proceed with forceWritable: true, or skip this file")
 	}
 	if document.LineEndings.Style == LineEndingMixed {
 		slog.Warn("file has mixed line endings", "path", input.Path, "crlf", document.LineEndings.CRLFCount, "lf", document.LineEndings.LFCount)
@@ -306,6 +312,9 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	output.Action = editActionApply
 	output.PreviewID = ""
 	output.Applied = false
+	output.Changed = false
+	output.State = editApplyStateUnchanged
+	output.ActualFingerprint = currentFingerprint
 	worstCase := output
 	worstCase.Applied = true
 	worstCase.ReadOnlyCleared = true
@@ -362,28 +371,76 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 		var commitFailure *mcp.CallToolResult
 		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, prepared, current, current.Mode.Perm())
 		if commitFailure != nil {
-			return commitFailure, output, nil
+			return h.classifyEditApplyFailure(prepared, output, commitFailure)
 		}
+		output.ReadOnlyCleared = readOnlyCleared
 	}
 	post, err := filesystem.CaptureSnapshotWithDigest(validation.Path)
 	if err != nil {
-		return errorResultFromError(err), output, nil
+		return h.classifyEditApplyFailure(prepared, output, errorResultFromError(err))
 	}
 	actualFingerprint, err := filesystem.FingerprintRegularFileSnapshot(post)
 	if err != nil {
-		return errorResultFromError(err), output, nil
+		return h.classifyEditApplyFailure(prepared, output, errorResultFromError(err))
 	}
 	if actualFingerprint != prepared.resultFingerprint {
-		return errorResultWithCode(ErrCodeConflict, "applied file does not match the prepared result fingerprint"), output, nil
+		return h.classifyEditApplyFailure(prepared, output, errorResultWithCode(ErrCodeConflict, "applied file does not match the prepared result fingerprint"))
 	}
 	output.ReadOnlyCleared = readOnlyCleared
-	output.ResultFingerprint = actualFingerprint
+	output.ActualFingerprint = actualFingerprint
+	output.State = editApplyStateUnchanged
+	output.Changed = false
+	if prepared.changed {
+		output.State = editApplyStateCommitted
+		output.Changed = true
+	}
 	output.Applied = prepared.changed
 	text := editApplyText(output)
 	if readOnlyCleared {
 		text += "\nRead-only flag was cleared."
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output, nil
+}
+
+func (h *Handler) classifyEditApplyFailure(prepared preparedEdit, output EditFileOutput, failure *mcp.CallToolResult) (*mcp.CallToolResult, EditFileOutput, error) {
+	output.Applied = false
+	output.State = editApplyStateUnknown
+	output.ActualFingerprint = ""
+	output.Changed = false
+
+	classificationCtx, cancel := context.WithTimeout(context.Background(), editApplyClassificationTimeout)
+	defer cancel()
+	validation := h.ValidatePath(prepared.requestedPath)
+	if validation.Ok() && validation.Path == prepared.resolvedPath && classificationCtx.Err() == nil {
+		post, err := filesystem.CaptureRegularFileSnapshotBounded(classificationCtx, validation.Path, h.maxFileBytes())
+		if err == nil {
+			if actual, fingerprintErr := filesystem.FingerprintRegularFileSnapshot(post); fingerprintErr == nil {
+				output.ActualFingerprint = actual
+				switch actual {
+				case prepared.targetFingerprint:
+					output.State = editApplyStateUnchanged
+					output.Changed = false
+				case prepared.resultFingerprint:
+					output.State = editApplyStateCommitted
+					output.Changed = prepared.changed
+				default:
+					output.State = editApplyStateUnknown
+					output.Changed = actual != prepared.targetFingerprint
+				}
+			}
+		}
+	}
+
+	if output.State == editApplyStateUnchanged {
+		return failure, output, nil
+	}
+	message := "edit apply failed after the target may have changed"
+	if failure != nil && len(failure.Content) > 0 {
+		if text, ok := failure.Content[0].(*mcp.TextContent); ok && text.Text != "" {
+			message = text.Text
+		}
+	}
+	return errorResultWithCode(ErrCodePartialCommit, message), output, nil
 }
 
 func (h *Handler) commitPreparedEdit(ctx context.Context, prepared preparedEdit, expected filesystem.FileSnapshot, currentMode os.FileMode) (bool, *mcp.CallToolResult) {
@@ -400,13 +457,13 @@ func (h *Handler) commitPreparedEdit(ctx context.Context, prepared preparedEdit,
 
 	readOnly := isReadOnly(currentMode)
 	if readOnly && !prepared.forceWritable {
-		return false, errorResult("file is read-only — STOP, do NOT retry and do NOT attempt to change file attributes. Ask the user whether to proceed with forceWritable: true, or skip this file")
+		return false, errorResultWithCode(ErrCodePermission, "file is read-only — STOP, do NOT retry and do NOT attempt to change file attributes. Ask the user whether to proceed with forceWritable: true, or skip this file")
 	}
 	writeMode := currentMode
 	readOnlyCleared := false
 	if readOnly {
 		if err := clearReadOnly(validation.Path, currentMode); err != nil {
-			return false, errorResult(fmt.Sprintf("failed to clear read-only flag: %v", err))
+			return false, errorResultFromError(fmt.Errorf("failed to clear read-only flag: %w", err))
 		}
 		readOnlyCleared = true
 		writeMode = currentMode | 0200
@@ -416,7 +473,7 @@ func (h *Handler) commitPreparedEdit(ctx context.Context, prepared preparedEdit,
 			if restoreErr := os.Chmod(validation.Path, currentMode); restoreErr != nil {
 				slog.Error("failed to restore read-only mode after snapshot failure", "path", prepared.requestedPath, "error", restoreErr)
 			}
-			return false, errorResult(fmt.Sprintf("failed to refresh file snapshot: %v", err))
+			return false, errorResultFromError(fmt.Errorf("failed to refresh file snapshot: %w", err))
 		}
 		expected = refreshed
 	}
@@ -427,7 +484,7 @@ func (h *Handler) commitPreparedEdit(ctx context.Context, prepared preparedEdit,
 				slog.Error("failed to restore read-only mode after edit failure", "path", prepared.requestedPath, "error", restoreErr)
 			}
 		}
-		return false, errorResult(fmt.Sprintf("failed to write file: %v", err))
+		return false, errorResultFromError(fmt.Errorf("failed to write file: %w", err))
 	}
 	return readOnlyCleared, nil
 }

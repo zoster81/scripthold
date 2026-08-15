@@ -2,9 +2,24 @@
 
 ## Status
 
-**APPROVED — R27 PLANNED DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 remains `PLANNED` and requires explicit activation before implementation. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
+**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-7 are complete, and Phase 8 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
 
 R27 builds on the language-neutral native analyzer architecture required by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The implementation foundation is fixed to Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters and project resolvers plus standard-library facilities where available. Public schema details remain subject to the staged contract review below, but external parser engines, downloaded grammars, compiler frontends and language-server runtimes are not implementation-time alternatives within the approved R27 plan.
+
+## Phase 0 activation audit conclusions
+
+The 2026-08-14 activation audit confirmed that the completed R25 foundation can be extended without a breaking redesign of the existing `source_symbols` public contract. The four R25 operations (`outline`, `digest`, `find`, `show`), decoded Unicode-scalar coordinates, fingerprint-bound `show`, request/file/output bounds, explicit ambiguity handling and read-only annotations remain compatibility constraints for R27.
+
+The internal R25 model requires deliberate extension before broad R27 coverage:
+
+- the language registry needs a richer mechanically checked per-language/dialect capability model beyond the current source-analysis/composite/case-sensitivity flags;
+- analyzer dispatch must scale beyond a small fixed canary switch while remaining native, deterministic and explicit about provider identity/version;
+- scanner/recognizer infrastructure needs profile-driven support for additional scope, directive, string/comment, template/composite and legacy line models rather than one global language switch;
+- relation IR must add explicit resolution/evidence state for references, definitions, implementations, overrides, calls and project relationships without overstating lexical or structural matches;
+- incremental indexing must be a separate bounded internal authority keyed by source fingerprints/coherent generations rather than hidden mutable state inside the request-scoped R25 handler;
+- the R25 tracked conformance corpus and private real-world canary corpus remain regression evidence, but R27 requires representative malformed/negative/encoding/resource fixtures and mechanically checked capability coverage for every production provider.
+
+No release, launcher, deployment or active-runtime state is part of R27 activation. Phase 1 preserved the established R25 `source_symbols` surface and froze the additive `source_query` contract; later R27 phases must implement that contract without silently widening its evidence claims or compatibility boundary.
 
 ## Product outcome
 
@@ -114,7 +129,7 @@ Providers should expose these where grammar evidence is reliable.
 - resolved call graph edges;
 - type relationships requiring name/type resolution.
 
-Semantic capability may require substantially richer native parsing, project modeling, scope/type information, or dispatch analysis. It must be exposed only when Scripthold can establish it accurately; otherwise the strongest justified result is reported as structural, scope-resolved, project-resolved, ambiguous, or unsupported.
+Semantic capability may require substantially richer native parsing, project modeling, scope/type information, or dispatch analysis. It must be exposed only when Scripthold can establish it accurately; otherwise the strongest justified evidence remains structural, scope-resolved, or project-resolved while the orthogonal resolution state reports resolved, ambiguous, unresolved, or external as applicable.
 
 ### Index capability
 
@@ -136,21 +151,21 @@ Before R27 can be complete:
 - each mandatory language must expose every reliable structural relationship supported by its provider rather than discarding it for schema simplicity;
 - project-wide resolved references/definitions must work for a **meaningful cross-ecosystem subset**, not just Go, with each result labeled by its actual evidence level;
 - that resolved subset must include languages from several distinct ecosystems, including at minimum one C/C++-family language, one JVM/.NET-family language, one JavaScript/TypeScript-family language, one dynamic language, Rust or Go, and Pascal/Delphi where the native resolver can establish useful relationships accurately;
-- semantic labels are reserved for cases where the native analyzer truly establishes the required semantics; otherwise use structural/scope-resolved/project-resolved/ambiguous/unsupported evidence rather than regex or name-only approximation.
+- semantic labels are reserved for cases where the native analyzer truly establishes the required semantics; otherwise use the strongest justified structural/scope-resolved/project-resolved evidence plus an explicit resolution state rather than regex or name-only approximation.
 
 The final R27 activation plan must publish a concrete per-language capability matrix before implementation is considered complete.
 
 ## Public operations
 
-R27 extends R25 without creating one MCP tool per graph/query verb. The preferred compact read-only surface is:
+R27 extends R25 without creating one MCP tool per graph/query verb. Phase 1 froze the compact read-only surface as:
 
-- `source_symbols` — retain/expand R25 `outline`, `digest`, `find`, and `show` navigation;
-- `source_search` — textual/lexical/structural source search with the evidence level explicit;
-- `source_relations` — one strict relation operation covering dependencies/dependents, references/definitions, implementations/inheritance, callers/callees, trace, impact and cycles where supported;
-- `source_context` — assemble bounded task context around one or more symbols using deterministic priority and source fingerprints;
-- an index/status/refresh operation only if the incremental-index lifecycle cannot be expressed cleanly through the above without ambiguity.
+- `source_symbols` — retain/expand R25 `outline`, `digest`, `find`, and `show` navigation without a breaking redesign;
+- `source_query` — one additive strict read-only contract with `search`, `relations`, and `context` operations sharing source selection, fingerprint/index binding, evidence vocabulary, and resource policy;
+- an index/status/refresh operation only if a later incremental-index lifecycle cannot be expressed cleanly through `source_query` without ambiguity.
 
-Phase 1 of R27 must freeze the exact schema, but adding separate `source_references`, `source_definitions`, `source_callers`, `source_callees`, and similar tools is disfavored unless a concrete schema/security reason makes consolidation materially worse. Source intelligence remains read-only.
+The single `source_query` contract is the explicitly approved smaller equivalent to the originally sketched three-tool surface. Three complete near-duplicate schemas exceeded the fixed connector-catalog budget, while the consolidated contract remained usable and preserved stricter operation-specific validation in the typed handler. Unknown top-level fields and unknown selector/index fields are rejected; known fields that are illegal for the selected operation are rejected as invalid input. Source intelligence remains read-only.
+
+Phase 1 freezes the request/result vocabulary and bounds, not working project semantics: until later R27 phases implement the native engine, otherwise-valid `source_query` requests return `UNSUPPORTED`. Phase 1 creates no persistent index and does not claim project-wide search, relations, or context results are already available.
 
 ## Common entity model
 
@@ -438,11 +453,11 @@ R27 inherits all frozen R25 source-intelligence decisions unless this document e
 6. all approved target-catalog entries must have an explicit capability row before R27 completion; programming languages must reach production declaration/navigation coverage unless this document explicitly marks the concept not applicable, composite formats must reach reliable segmentation/delegation, and document/config formats must expose the structural capabilities meaningful to that format;
 7. the original fourteen mandatory families remain non-negotiable high-quality gates and cannot be displaced by adding many easier languages;
 8. MQL4 and MQL5 are separate supported dialects; VB.NET, VB6, VBA and VBScript are separate supported dialects; Pascal/Object Pascal/Delphi coverage must include Delphi-specific constructs; C/C++/Objective-C, Java/JavaScript, and similarly named families are never conflated;
-9. relationship evidence uses the R25 ladder: textual, lexical, structural, scope-resolved, project-resolved, semantic, plus ambiguous/unresolved/external states where required;
+9. relationship evidence uses the ordered R25 ladder textual, lexical, structural, scope-resolved, project-resolved, semantic; resolution is a separate state machine with resolved, ambiguous, unresolved, and external states where required;
 10. one unique project-wide name match is not semantic resolution;
 11. exact source bodies are not duplicated into the index by default; ranges and fingerprints point back to authoritative source;
 12. persistent index storage, if enabled, is a separate protected internal authority and must be reviewed before activation;
-13. public tools remain compact: extend `source_symbols`, and prefer consolidated `source_search`, `source_relations`, and `source_context` rather than one tool per relation verb;
+13. public tools remain compact: preserve `source_symbols` and use the Phase 1-frozen additive `source_query` `search`/`relations`/`context` surface rather than one tool per relation verb;
 14. embeddings, model dependencies, automated source rewriting/refactoring, and external parser/compiler/LSP processes are outside R27's approved core scope.
 
 ## R27 capability matrix contract
@@ -466,7 +481,7 @@ Before language expansion begins, every registry entry must expose a mechanicall
 - analyzer strategy and version;
 - known unsupported/partial constructs.
 
-A single `supported: true` flag is insufficient. Documentation must be generated from or mechanically checked against this registry data so implementation, tool output and docs cannot drift independently.
+A single `supported: true` flag is insufficient. Documentation must be generated from or mechanically checked against this registry data so implementation, tool output and docs cannot drift independently. Phase 2 established [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md) as the deterministic checked-in projection of the native registry; `go run ./internal/sourceintelligence/cmd/capability-matrix` renders the canonical Markdown to stdout, and tests compare the checked-in file byte-for-byte.
 
 ## R27 sequential implementation plan
 
@@ -485,77 +500,97 @@ When R27 is explicitly activated:
 
 Exit criterion: the completed R25 source-intelligence base and R26 milestone boundary are understood, all deviations from the planned R25 handoff are understood, and R27 alone is the active source-intelligence milestone.
 
-### Phase 1 — freeze R27 public relations/search/context contract
+### Phase 1 — freeze R27 public relations/search/context contract — COMPLETE
 
-Add failing contract tests before implementing new relation/index behavior. Freeze:
+Completed on 2026-08-14 using TDD: focused RED tests first proved the R27 public contract and new limits were absent, then the smallest contract-only implementation was added. The frozen surface is the explicitly approved smaller equivalent: one additive `source_query` tool with `search`, `relations`, and `context` operations while the existing `source_symbols` contract remains unchanged.
 
-- compact `source_search`, `source_relations`, and `source_context` schemas or the explicitly approved smaller equivalent;
+Phase 1 froze:
+
+- search modes `textual`, `lexical`, and `structural`, with explicit evidence filtering;
 - relation kinds for dependencies/dependents, references/definitions, inheritance/implementations/overrides, callers/callees, trace, impact and cycles;
-- structural/scope-resolved/project-resolved/semantic/ambiguous/unresolved evidence representation;
-- graph node/edge/depth/file/result/output limits;
-- index generation/fingerprint/staleness evidence;
-- context-budget and deterministic-priority behavior;
-- strict per-operation unknown-field rejection;
-- read-only MCP annotations and stdio/HTTP equivalence.
+- the ordered evidence ladder `textual` / `lexical` / `structural` / `scope-resolved` / `project-resolved` / `semantic`, with separate `resolved` / `ambiguous` / `unresolved` / `external` resolution state;
+- graph node/edge/depth/file/result limits and bounded context bytes/items;
+- optional index generation/fingerprint binding, `reject`/`allow` stale policy, and result staleness vocabulary `current` / `stale` / `not-indexed`;
+- fingerprint-bound path/symbol/position selectors;
+- context-budget behavior and deterministic priority vocabulary;
+- strict top-level and nested selector/index unknown-field rejection plus operation-specific known-field validation;
+- read-only MCP annotations and direct/Streamable-HTTP contract equivalence.
 
-Do not create separate public tools for each relation unless the contract review proves consolidation unsafe or materially less usable.
+The contract is intentionally compact because three complete near-duplicate public schemas exceeded the fixed connector definition budget. Local JSON-Schema definition reuse and typed runtime validation preserve the same operation-specific legality and configured ceilings without raising that budget. The generic compact MCP output schema remains the repository-wide connector policy; the typed structured-result model and this contract document freeze relationship evidence, resolution, index, coverage, and context vocabulary.
 
-Exit criterion: clients can distinguish every planned relationship/evidence state without relying on language-specific hidden fields.
+Valid Phase 1 `source_query` requests deliberately return `UNSUPPORTED` until later native analysis/index phases implement them. No persistent index, relation engine, context assembler, release, launcher, deployment, or active-runtime change is part of Phase 1.
 
-### Phase 2 — expand shared native scanner/recognizer infrastructure
+Exit criterion: **met** — clients can distinguish every planned relationship/evidence/resolution state without language-specific hidden fields, and the public contract is transport-equivalent and resource-bounded.
 
-Before implementing many languages, close infrastructure gaps exposed by the catalog. Add reusable, profile-driven support for:
+### Phase 2 — expand shared native scanner/recognizer infrastructure — COMPLETE
 
-- C-like preprocessing/directives and balanced declarations;
-- Basic logical lines and case-insensitive keyword families;
-- indentation-delimited scopes;
-- begin/end and keyword-delimited scopes used by Pascal/Ada/SQL-family languages;
-- fixed/free-form line models required by legacy scientific languages;
-- Lisp/S-expression balanced forms;
-- shell quoting/heredoc-like constructs needed for reliable declarations/functions;
-- markup/template host segmentation and offset-preserving masking/delegation;
-- assembly/fixed-label recognition primitives;
-- language-specific identifier policies without duplicating scanners.
+Completed on 2026-08-14. The shared native scanner/recognizer foundation now provides reusable profile-driven primitives for:
 
-Keep specialized rules behind profiles/analyzers rather than accumulating one global switch. Extend fuzz/adversarial tests whenever scanner complexity grows.
+- language-specific identifier policies while preserving R25's Unicode identifier behavior as the default;
+- configurable line-start directives and balanced single- or multi-byte delimiters with top-only deterministic pairing;
+- Basic-style logical-line assembly, statement separators and continuation reuse; Python now reuses the same line builder for indentation-aware logical lines;
+- analyzer-proven keyword-scope pairing that fails closed on crossed or malformed closes rather than re-parenting source;
+- bounded free/fixed-form physical-line models with decoded Unicode-scalar column handling, continuation fields and fixed/colon label recognition;
+- Lisp/S-expression balanced forms without exposing declaration-like text in strings/comments;
+- bounded queued shell-style heredocs, quoted delimiters, tab-stripping variants, cancellation and complete malformed-pending diagnostics;
+- offset-preserving composite/template segmentation and masking that retains exact decoded UTF-8 byte offsets and CR/LF positions;
+- reusable delimiter pairing adopted by C#, logical-line assembly adopted by VB.NET and Python, proving the new primitives replace R25 duplication rather than sitting unused beside it.
 
-Exit criterion: each later language wave can be implemented primarily by analyzers/profiles rather than scanner forks.
+Phase 2 also expanded the registry to cover the approved R27 target catalog as explicit canonical capability rows without activating unsupported analyzers. `Razor` and `Blazor`, Objective-C and Objective-C++, MQL4/MQL5, VB-family dialects and other required distinctions remain separate registry identities. At the Phase 2 checkpoint only the five completed R25 providers claimed production declaration capabilities; later provider waves activate rows only after their implementation and tests pass, while all remaining planned rows stay explicitly `unimplemented` with analyzer strategy/version and known limitations recorded. [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md) is rendered from this registry and byte-for-byte tested against it.
 
-### Phase 3 — mandatory declaration wave: C/C++ and JVM
+Scanner/profile validation is fail-closed and bounded, malformed/adversarial cases and fuzz seeds cover delimiters, heredocs, S-expressions, line models and composites, and no external parser/compiler/LSP runtime, network access, persistent index or public schema change was introduced.
 
-Implement production declaration/navigation coverage for C, C++, Java and Kotlin, using shared native primitives plus dedicated structural parsing where needed.
+Exit criterion: **met** — later language waves can be built primarily from analyzers/profiles and shared bounded primitives rather than scanner forks, and every approved registry entry has mechanically checked capability metadata before language expansion begins.
 
-C/C++ acceptance must include declarations versus definitions, structs/classes/unions/enums, namespaces, functions/methods, constructors/destructors, templates/generics where declared supported, overload identity, headers/includes, preprocessor boundaries and explicit macro limitations. `.h` detection must remain ambiguity-aware.
+### Phase 3 — mandatory declaration wave: C/C++ and JVM — COMPLETE
 
-Java/Kotlin acceptance must include packages/imports, classes/interfaces/enums/records/data/sealed forms as applicable, constructors, methods/properties, generics, nested types and declared inheritance/implementation relationships. Mixed Java/Kotlin project routing must not require semantic resolution yet.
+Completed on 2026-08-14 using TDD over two native structural parser families built on the Phase 2 scanner foundation. C and C++ now provide bounded declarations versus definitions, structs/classes/unions/enums, namespaces, fields/globals/constants, functions/methods, constructors/destructors/operators, templates, overload identity, literal includes and structural inheritance. C++ additionally handles raw-string masking, unambiguous same-file qualified out-of-class definitions and function-pointer declarators without promoting pointer variables to functions. `.h` remains ambiguous unless distinctive C++ content independently corroborates the C++ candidate.
 
-Exit criterion: all four languages meet the production declaration quality bar and add reliable structural dependency facts to the common model.
+Preprocessor macro bodies remain opaque directives; literal includes are reported structurally, while conditional preprocessing marks coverage incomplete because macro state is not evaluated. Macro expansion, compile-database/project type resolution and semantic relationships remain explicitly unsupported rather than inferred.
 
-### Phase 4 — mandatory declaration wave: JavaScript/TypeScript and Rust
+Java and Kotlin now provide bounded packages/imports, classes/interfaces/enums plus Java records and Kotlin data/sealed/enum-class forms, constructors, methods, fields/properties/constants, nested types, Kotlin type aliases/import aliases, Java annotations, generics-aware declaration headers and structural extends/implements/permits/supertype facts. Classpath/build-model/type resolution and semantic relationships remain outside this phase.
 
-Implement JavaScript, JSX where declared, TypeScript/TSX and Rust.
+Phase 3 conformance covers malformed/incomplete input, declaration false-positive resistance in comments and advanced string forms, C++ raw strings, Java text blocks, Kotlin triple strings, conditional-preprocessor truthfulness, Unicode/source ranges across UTF-16LE, UTF-32LE, UTF-16BE and Windows-1252 fixtures, deterministic repeated analysis, cancellation, strict symbol limits over generated 1,200-declaration inputs, public `source_symbols` mixed-language routing/find behavior, static analysis and analyzer fuzzing. The capability matrix is regenerated from the authoritative registry, so only implemented providers claim production declaration capabilities.
 
-JavaScript/TypeScript must distinguish ES modules/CommonJS structural evidence, imports/exports, functions/classes/methods/fields, arrow-function symbol policy, TypeScript interfaces/types/enums/namespaces/generics and dynamic-resolution uncertainty. TypeScript is not reported as supported through JavaScript-only parsing.
+Exit criterion: **met** — C, C++, Java and Kotlin satisfy the Phase 3 production declaration/navigation gate and add truthful structural dependency/type-relationship facts without claiming later project or semantic resolution.
 
-Rust must cover modules/use, structs/enums/traits/impl blocks, functions/methods, generics/lifetimes in signatures, trait implementations and explicit macro limitations.
+### Phase 4 — mandatory declaration wave: JavaScript/TypeScript and Rust — COMPLETE
 
-Exit criterion: the shared model handles highly dynamic JS/TS and trait/impl-oriented Rust without weakening evidence labels.
+Completed on 2026-08-14 using TDD over one shared ECMAScript/TypeScript structural family with separate analyzer identities and one independent Rust structural analyzer, all built on the Phase 2 scanner/builder/relationship foundation. JavaScript/JSX now covers literal ES-module imports, exports/re-exports, literal CommonJS `require`, functions, classes, constructors, methods, fields/private fields, directly named arrow functions and structural `extends` relationships. Template literals remain declaration-opaque, JSX markup remains inside its containing expression, and a conservative offset-preserving regex prepass prevents valid regular-expression contents from corrupting shared delimiter state without reclassifying division or `/=`.
 
-### Phase 5 — mandatory declaration wave: PHP/Ruby/Swift/Pascal-Delphi
+TypeScript/TSX extends that provider family with interfaces, type aliases, enums, namespaces/modules, properties, generic declarations, overload declaration-versus-definition identity, structural `extends`/`implements` relationships and TSX-safe expression handling. TypeScript retains its own `typescript-native` analyzer identity rather than being reported as JavaScript support. Type checking, dynamic property/prototype behavior, non-literal module loading, JSX/TSX component semantics and project/semantic resolution remain explicitly unsupported.
 
-Implement production declaration/navigation coverage for PHP, Ruby, Swift and Pascal/Object Pascal/Delphi.
+Rust now covers inline/external modules, `use`, structs and fields, enums, traits, trait and inherent `impl` blocks, functions/methods, associated constants/types, generics/lifetimes in signatures and structural trait-implementation relationships. Rust raw strings are masked offset-preservingly, nested comments and attributes are handled, and macro definitions/invocations remain opaque rather than expanded. `cfg` evaluation, macro expansion, Cargo/project/type/trait resolution and semantic relationships remain explicitly unsupported.
 
-PHP: namespaces/use, classes/interfaces/traits/enums, functions/methods/properties/constants and explicit dynamic include limitations.
+Phase 4 conformance covers declaration false-positive resistance in regex/template/JSX/TSX/raw-string/macro bodies, malformed input, ASI, nested comments/attributes, Unicode and decoded-source ranges across UTF-16LE/UTF-32LE/UTF-16BE fixtures, deterministic repeated analysis, cancellation, strict symbol limits over generated 1,200-declaration inputs per language, public mixed-language `source_symbols` routing/find behavior, vet/Staticcheck and analyzer fuzzing. The capability matrix is regenerated from the authoritative registry and does not activate later providers.
 
-Ruby: modules/classes/methods/constants, singleton/class methods, mixins and explicit reopen/metaprogramming limitations.
+Exit criterion: **met** — JavaScript/TypeScript dynamic uncertainty and Rust trait/impl structure fit the common model with truthful structural evidence, while stronger project/type/semantic claims remain withheld.
 
-Swift: imports, classes/structs/enums/protocols/extensions, functions/methods/properties/initializers and declared conformance/extension relationships where structural evidence suffices.
+### Phase 5 — mandatory declaration wave: PHP/Ruby/Swift/Pascal-Delphi — COMPLETE
 
-Pascal/Delphi: programs/units/packages, interface/implementation sections, classes/records/interfaces/enums/types, procedures/functions/methods/constructors/destructors, fields/properties/constants/variables, `uses`, forwards, overloads, visibility, nested procedures/functions, generics/helpers/directives according to the documented capability, plus representative legacy encodings/CRLF.
+Completed on 2026-08-14 with five distinct native analyzer identities (`php-native`, `ruby-native`, `swift-native`, `pascal-native`, and `delphi-native`) over the shared decoded-source scanner/builder model. PHP covers namespaces/use, literal includes, classes/interfaces/traits/enums, functions/methods/properties/constants, constructors/destructors and structural extends/implements/trait-use evidence. Heredoc/nowdoc bodies are masked offset-preservingly and only literal include/require targets are reported; dynamic includes, autoloading and runtime metaprogramming remain unresolved.
 
-Exit criterion: all original fourteen mandatory families now have production declaration coverage through native analyzers.
+Ruby covers modules/classes, reopen declarations as distinct source identities, instance/singleton/class methods, constructors, constants, literal require/require_relative dependencies and structural inheritance/mixin relationships. Explicit `end` scopes include anonymous control blocks so nested control flow cannot close declaration scopes accidentally. DSL/metaprogramming and dynamic dispatch remain intentionally unexpanded.
 
-### Phase 6 — Basic, .NET and Classic ASP breadth
+Swift covers imports, classes/structs/enums/protocols, extensions, functions/methods/properties/initializers, aliases/associated types and structural inheritance/conformance evidence. Extension members are attached structurally to the extended type without fabricating a second declaration; macro expansion, conditional compilation and compiler/type/package resolution remain outside this phase.
+
+Pascal and Delphi use separate provider identities over shared case-insensitive line-oriented primitives. Coverage includes programs/units/packages, `uses`, interface/implementation sections, classes/records/interfaces/enums/aliases, fields/properties/constants/variables, procedures/functions/methods/constructors/destructors, forwards, overload modifiers, visibility, nested routines, Delphi generic qualified implementations and class/record helpers with structural relations. Compiler directives are lexically opaque and are not evaluated. Ambiguous `.pas`/`.inc` routing remains fail-closed unless independent evidence disambiguates it.
+
+Phase 5 conformance covers false-positive resistance across strings/heredocs/metaprogramming/directives, malformed input, deterministic repeated analysis, cancellation, public mixed-language `source_symbols` routing/find behavior, strict 1,200-declaration resource-limit fixtures per provider, PHP UTF-16LE, Ruby Windows-1252, Swift UTF-16BE, Pascal IBM850+CRLF and Delphi Windows-1252+CRLF source decoding, vet/Staticcheck and analyzer fuzzing. Detector marker hardening also prevents line-oriented C#/VB.NET/Java/Kotlin evidence from crossing physical newlines into Pascal/Delphi section syntax.
+
+Exit criterion: **met** — all original fourteen mandatory language families now have production declaration/navigation coverage through native analyzers, while stronger project/type/semantic/index claims remain withheld.
+
+### Phase 6 — Basic, .NET and Classic ASP breadth — COMPLETE
+
+Completed on 2026-08-14 with sixteen new production analyzer identities while retaining and extending the existing Classic ASP provider, bringing the mechanically generated capability matrix to 33 active providers. VB6, VBA, VBScript, QBasic, classic line-numbered BASIC, FreeBASIC, and PureBasic share bounded case-insensitive scanner/line primitives but retain distinct analyzer identities and dialect policies; ambiguous `.bas` routing remains fail-closed unless explicit or project evidence identifies the dialect. VB6/VBA module metadata, literal library/include dependencies, type/member/routine structure, QBasic line-number handling, and FreeBASIC/PureBasic dialect-specific container/dependency forms are structural only.
+
+F#, C++/CLI, JScript.NET, CIL/MSIL, and PowerShell have separate Phase 6 providers. F# reports namespace/module/type/member/open/inheritance structure without compiler inference; C++/CLI reuses only proven C++ structure through offset-preserving CLR-modifier masking and reprojects fresh provider IDs; JScript.NET preserves package hierarchy and reconstructs literal import and inheritance evidence directly in host coordinates; CIL reports assembly/module/type/member structure; PowerShell masks here-strings and reports classes/functions/filters/fields/methods and literal `using module` dependencies without executing profiles or dynamic commands.
+
+Classic ASP now delegates both VBScript and JScript server regions while retaining unsupported-language degradation. ASP.NET Web Forms delegates structurally declared C#/VB server-code regions; Razor and Blazor preserve host coordinates and analyze only balanced `@functions`/`@code` member regions; XAML reports quote-safe structural `x:Class`, `x:Name`, and XML namespace evidence. Generated partial classes, binding/render semantics, page lifecycle, runtime scripting, project/type resolution, semantic relations beyond proven structural edges, and incremental indexing remain outside this phase.
+
+TDD/conformance covered legacy Windows-1252 and IBM850 CRLF inputs plus UTF-16 LE/BE Unicode fixtures, deterministic repeated analysis, malformed/cancellation/opaque-region boundaries, conservative `.bas` ambiguity, all 17 Phase 6 new-or-extended analyzers under generated 1,200-declaration symbol limits, and the public `source_symbols` path for eleven auto-routed formats plus six explicit shared-extension/syntax dialects. The terminal Phase 6 fuzz campaign executed 29,686 cases, retained 128 new interesting inputs (156 total), and completed without panic or invariant failure.
+
+The original acceptance scope follows for auditability:
 
 Extend the R25 Basic/composite foundation to:
 
@@ -578,13 +613,23 @@ Reuse shared Basic primitives but maintain dialect-specific keywords, declaratio
 
 Exit criterion: the explicitly requested Basic/.NET/ASP scope has truthful per-dialect capability rows and representative real-world/legacy tests.
 
-### Phase 7 — MQL4/MQL5 and C-like specialty languages
+### Phase 7 — MQL4/MQL5 and C-like specialty languages — COMPLETE
+
+Completed on 2026-08-15 with twelve distinct production analyzer identities, raising the mechanically generated capability matrix to 45 active providers. MQL4 and MQL5 remain separate providers while sharing only declaration-safe C++ lexical/structural machinery: functions, classes, methods, globals/inputs, event handlers, literal `#include`/`#import` dependencies and structural inheritance are retained under fresh MQL provider identities, while macro expansion, conditional-preprocessor evaluation, imported-binary semantics and trading runtime state remain explicitly unresolved. Shared `.mqh` routing remains fail-closed between MQL4 and MQL5 unless explicit/project evidence identifies the dialect.
+
+Objective-C and Objective-C++ have distinct providers for `@interface`, `@protocol`, `@implementation`, `@property`, class/instance methods, initializer constructors, imports and structural inheritance/protocol conformance. Objective-C++ masks Objective-C declaration regions offset-preservingly before delegating the remaining compatible source to the C++ structural analyzer, then reprojects all retained facts under the Objective-C++ provider identity. `.m` remains ambiguous with MATLAB/Octave from extension alone and is selected as Objective-C only when independent source evidence corroborates it.
+
+Dart, D, Zig, Nim, Solidity, Apex and AL use bounded native structural recognizers tailored to their declaration models; Arduino reuses only proven C++ declaration structure under its own provider identity. Coverage includes language-appropriate modules/imports, types/containers, functions/methods, fields/constants, constructors and reliable structural inheritance/mixin/implements/extension facts. Solidity additionally preserves contract/interface/library/event/modifier structure; Apex preserves trigger declarations; AL preserves namespace/object/procedure/extension structure. No provider in this phase claims compiler/build/project/type resolution, runtime evaluation, semantic relations or incremental indexing.
+
+Phase 7 conformance covers deterministic decoded-source analysis across Windows-1252 CRLF, UTF-16 LE/BE and UTF-32LE fixtures; declaration-like comment/string negatives; malformed input and cancellation; conservative `.m` and `.mqh` ambiguity; generated 1,200-declaration resource bounds for all twelve providers; public `source_symbols` routing for distinctive extensions plus explicit shared-header dialects; and a terminal 24,880-execution fuzz campaign with 58 new interesting inputs and no panic/invariant failure. The shared scanner was also hardened so a longer block-comment opener wins over a shared line-comment prefix, preventing Nim `#[ ... ]#` contents from leaking declarations through the `#` line-comment rule.
+
+The original acceptance scope follows for auditability:
 
 Implement MQL4 and MQL5 as distinct analyzers sharing only proven C-like lexical/structural primitives. Cover functions, classes, structs, interfaces where supported by the dialect, enums, methods, constructors/destructors, globals/inputs, event handlers, `#include`, `#import`, macros and conditional preprocessing as structurally reliable.
 
 Extend appropriate shared infrastructure to Objective-C/Objective-C++, Dart, D, Zig, Nim, Solidity, Apex, AL and Arduino source conventions. Objective-C `.m` detection must remain distinguishable from MATLAB/Octave through content/project evidence rather than extension alone.
 
-Exit criterion: trading and specialty C-like languages reach the declared production structural bar without being mislabeled as C++ dialects.
+Exit criterion: **met** — trading and specialty C-like languages reach the declared production structural bar without being mislabeled as C++ dialects.
 
 ### Phase 8 — dynamic, BEAM and scripting breadth
 
@@ -657,7 +702,7 @@ Every graph query must bound files, nodes, edges, depth, retained diagnostics an
 
 Exit criterion: graph operations are deterministic, evidence-aware and available across multiple language ecosystems rather than one favored language.
 
-### Phase 14 — bounded `source_context`
+### Phase 14 — bounded `source_query` context operation
 
 Implement deterministic task-context assembly around selected symbols. The baseline priority should prefer:
 
@@ -898,8 +943,8 @@ R27 is complete only when:
 3. Pascal/Object Pascal/Delphi coverage includes the language-specific baseline above and representative legacy-source tests;
 4. MQL4/MQL5, VB.NET/VB6/VBA/VBScript, the approved .NET-relevant formats, Classic ASP and other explicitly requested dialects are separately identified and tested rather than hidden behind family labels;
 5. the published capability matrix states detection, declarations, structural relationships, scope/project resolution, semantic relationships where genuinely proven, calls, dependencies, composite support, encoding coverage and incremental indexing support;
-6. project-wide resolved references/definitions and graph relationships work across the required distinct language ecosystems and retain structural/scope-resolved/project-resolved/semantic/ambiguous/unresolved evidence instead of Go-only or name-only certainty;
-7. `source_search`, `source_relations`, `source_context` and the retained `source_symbols` workflow satisfy the compact public-surface, bounds, determinism and read-only requirements;
+6. project-wide resolved references/definitions and graph relationships work across the required distinct language ecosystems and retain truthful structural/scope-resolved/project-resolved/semantic evidence plus explicit resolved/ambiguous/unresolved/external state instead of Go-only or name-only certainty;
+7. the frozen `source_query` search/relations/context operations and retained `source_symbols` workflow satisfy the compact public-surface, bounds, determinism and read-only requirements;
 8. structural search, dependencies/dependents, callers/callees, implementations/inheritance, trace, impact and cycle queries are bounded and evidence-aware where the capability matrix claims them;
 9. incremental invalidation is content-fingerprint-based and coherent-generation safe, and any persistent index has a separately reviewed protected storage boundary without duplicating complete source by default;
 10. no external parser/compiler/language-server process or downloaded grammar/runtime was introduced outside an explicit later architecture decision;

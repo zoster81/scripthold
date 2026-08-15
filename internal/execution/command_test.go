@@ -1,6 +1,36 @@
 package execution
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
+
+func TestBuildShellCommandPreservesPowerShellCommandText(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell payload regression")
+	}
+	command := `& { $ErrorActionPreference = "Stop"; $value = "abc"; Write-Output "VALUE=$value" }`
+	_, arguments, err := BuildShellCommand("powershell", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arguments) == 0 || arguments[len(arguments)-1] != command {
+		t.Fatalf("command argument = %#v, want exact payload %q", arguments, command)
+	}
+}
+
+func TestValidateShellRejectsWindowsExecutableNames(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows shell contract")
+	}
+	for _, shell := range []string{"powershell.exe", "pwsh.exe", "cmd.exe"} {
+		t.Run(shell, func(t *testing.T) {
+			if err := ValidateShell(shell); err == nil {
+				t.Fatalf("ValidateShell(%q) succeeded, want unsupported logical shell name", shell)
+			}
+		})
+	}
+}
 
 func TestBuildScriptCommandKeepsArgumentsSeparate(t *testing.T) {
 	script := `C:\allowed\tool.exe`

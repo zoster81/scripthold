@@ -85,28 +85,10 @@ var vbModifiers = map[string]struct{}{
 }
 
 func buildVBStatements(tokens []Token) []vbStatement {
-	var result []vbStatement
-	start := 0
-	flush := func(end int) {
-		for start < end && (tokens[start].Kind == TokenNewline || tokens[start].Kind == TokenDirective) {
-			start++
-		}
-		for end > start && (tokens[end-1].Kind == TokenNewline || tokens[end-1].Kind == TokenDirective) {
-			end--
-		}
-		if start < end {
-			result = append(result, vbStatement{tokens: tokens[start:end], startOffset: tokens[start].StartOffset, endOffset: tokens[end-1].EndOffset})
-		}
-	}
-	for index, token := range tokens {
-		if token.Kind == TokenEOF {
-			flush(index)
-			break
-		}
-		if token.Kind == TokenNewline || token.Text == ":" && token.Nesting == 0 {
-			flush(index)
-			start = index + 1
-		}
+	lines := BuildLogicalLines(tokens, LogicalLineProfile{Separators: []string{":"}, SkipDirectives: true})
+	result := make([]vbStatement, 0, len(lines))
+	for _, line := range lines {
+		result = append(result, vbStatement{tokens: line.Tokens, startOffset: line.StartOffset, endOffset: line.EndOffset})
 	}
 	return result
 }

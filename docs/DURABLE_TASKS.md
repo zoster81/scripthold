@@ -27,9 +27,9 @@ After a machine reboot, queued tasks remain queued. A task that crossed the dura
 | `task_logs` | Incrementally read stdout and stderr with independent absolute cursors. |
 | `task_cancel` | Idempotently cancel queued work or terminate a running process tree. |
 
-`task_run` requires `kind`, `idempotencyKey`, and the kind-specific fields. Duplicate names are allowed; the task ID is authoritative. Repeating an idempotency key with the identical canonical request returns the original task. Reusing it with different input fails without executing either request twice.
+`task_run` requires `kind`, `idempotencyKey`, and the kind-specific fields. Duplicate names are allowed; the task ID is authoritative. Repeating an idempotency key with the identical canonical request returns the original task. Reusing it with different input fails without executing either request twice. Admission waits for the shared control lock with the request context and checks cancellation again after lock acquisition; cancellation before durable admission therefore cannot create a task later merely because lock contention cleared.
 
-For `kind=script`, use `path`, optional `args`, and optional `cwd`. Admission hashes the regular script under the configured file-size limit; the worker revalidates the path and copies a SHA-256-matching snapshot into the private task directory before launch. Execution uses that private snapshot, closing the check-to-launch mutation window. For `kind=shell`, use `command`, optional `shell`, and optional `cwd`; only the working directory is confined, while the command remains unrestricted and runs as the server identity.
+For `kind=script`, use `path`, optional `args`, and optional `cwd`. Admission hashes the regular script under the configured file-size limit; the worker revalidates the path and copies a SHA-256-matching snapshot into the private task directory before launch. Execution uses that private snapshot, closing the check-to-launch mutation window. For `kind=shell`, use `command`, optional `shell`, and optional `cwd`; only the working directory is confined, while the command remains unrestricted and runs as the server identity. Shell identifiers are validated before admission: Windows supports the logical names `powershell`, `pwsh`, and `cmd`, while Unix supports `sh`, `bash`, and `pwsh`; executable filenames or arbitrary shell paths are not accepted as shell identifiers. Scripthold passes the supplied command as one shell command argument and does not pre-expand PowerShell `$variables` or otherwise interpolate the command text itself.
 
 Optional `name`, `description`, and `tags` make the registry understandable. Optional `lockKeys` serialize tasks that share any key while unrelated tasks run in parallel up to `MCP_TASK_MAX_CONCURRENCY`.
 
@@ -48,6 +48,8 @@ queued -> starting -> running -> succeeded
 ```
 
 Cancellation of `queued` work prevents launch. Cancellation of `running` work is polled by the executor and terminates the complete child process tree. Every state transition is serialized through the cross-process control lock before it becomes an immutable bounded lifecycle event containing only status, revision, timestamp, and an optional stable error code. A stale concurrent transition fails instead of creating two events with the same revision. Commands, arguments, paths, environment values, and output are excluded from lifecycle history.
+
+Preparation/start failures retain the stable `TASK_START_FAILED` code and may include a bounded explicitly safe cause in the terminal result, such as a supported shell runtime not being installed. Unclassified OS errors and internal task-store paths remain private and fall back to the generic public message. A normal non-zero direct process exit is `PROCESS_EXIT_NONZERO` with the process exit code. `PROCESS_WAIT_FAILED` is reserved for an otherwise unclassified process-wait failure. If the direct process exits but a descendant keeps inherited stdout/stderr handles open beyond the bounded `os/exec` drain delay, the executor reports `PROCESS_OUTPUT_DRAIN_TIMEOUT` and preserves the direct process exit code when available; it does not misclassify incomplete output drainage as a normal successful task.
 
 The worker writes a started marker before process creation. Recovery may safely requeue a stale `starting` task only when that marker does not exist. Once the marker exists, recovery is at-most-once: loss of the executor produces `interrupted`, never an implicit rerun.
 
@@ -85,6 +87,8 @@ Start-Process .\scripthold_windows_amd64.exe -ArgumentList @("task-supervisor", 
 ```
 
 The four tracked PowerShell examples expose every task limit and start or reuse the supervisor. The task store is intentionally shared between the stdio and HTTP branches, while backup stores remain separate because each frontend process owns its backup-store writer lock.
+
+PowerShell shell tasks report the exit status of the PowerShell process itself. Windows PowerShell may run a native child that exits non-zero, continue with later successful PowerShell commands, and finally exit zero; Scripthold does not silently rewrite the caller's command to change that language/runtime behavior. Callers that require native-child failure propagation must express that policy explicitly in their PowerShell command or use an appropriate script, rather than relying on implicit command transformation.
 
 ## Compatibility
 

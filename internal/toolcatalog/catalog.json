@@ -102,6 +102,15 @@
       }
     },
     {
+      "name": "source_query",
+      "title": "Source Query",
+      "description": "Run bounded source queries.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
       "description": "Compute deterministic SHA-256 fingerprints for files or directory trees.",

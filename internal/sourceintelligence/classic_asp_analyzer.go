@@ -74,7 +74,7 @@ func (ClassicASPAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 		if !segment.supported {
 			hostBuilder.MarkIncomplete()
 			rangeValue := OffsetRange{Start: segment.start, End: segment.end}
-			_ = hostBuilder.AddDiagnostic(DiagnosticSpec{Code: "asp-unsupported-language", Message: "embedded server language " + segment.language + " is not supported in R25", Severity: DiagnosticWarning, Range: &rangeValue, AffectsCoverage: true})
+			_ = hostBuilder.AddDiagnostic(DiagnosticSpec{Code: "asp-unsupported-language", Message: "embedded server language " + segment.language + " is not supported", Severity: DiagnosticWarning, Range: &rangeValue, AffectsCoverage: true})
 			continue
 		}
 		if remaining <= 0 {
@@ -83,7 +83,7 @@ func (ClassicASPAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 		}
 		regionOptions := options
 		regionOptions.Limits.MaxSymbols = remaining
-		regionSymbols, complete, truncated, err := analyzeClassicASPVBScriptRegion(ctx, document, segment, regionOptions)
+		regionSymbols, complete, truncated, err := analyzeClassicASPRegion(ctx, document, segment, regionOptions)
 		if err != nil {
 			return AnalyzerResult{}, err
 		}
@@ -92,7 +92,7 @@ func (ClassicASPAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 		if !complete {
 			hostBuilder.MarkIncomplete()
 			rangeValue := OffsetRange{Start: segment.start, End: segment.end}
-			_ = hostBuilder.AddDiagnostic(DiagnosticSpec{Code: "asp-embedded-partial", Message: "embedded VBScript analysis is partial", Severity: DiagnosticWarning, Range: &rangeValue, AffectsCoverage: true})
+			_ = hostBuilder.AddDiagnostic(DiagnosticSpec{Code: "asp-embedded-partial", Message: "embedded server-script analysis is partial", Severity: DiagnosticWarning, Range: &rangeValue, AffectsCoverage: true})
 		}
 		if truncated {
 			hostBuilder.MarkTruncated()
@@ -110,15 +110,25 @@ func (ClassicASPAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 	return AnalyzerResult{Analysis: hostResult, Dependencies: dependencies, Regions: regions}, nil
 }
 
-func analyzeClassicASPVBScriptRegion(ctx context.Context, host *SourceDocument, segment aspSegment, options AnalyzeOptions) ([]NormalizedSymbol, bool, bool, error) {
+func analyzeClassicASPRegion(ctx context.Context, host *SourceDocument, segment aspSegment, options AnalyzeOptions) ([]NormalizedSymbol, bool, bool, error) {
 	text := host.Text[segment.codeStart:segment.codeEnd]
 	subdocument := &SourceDocument{Path: host.Path + "#" + segment.regionID, Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
-	subresult, err := (VBNetAnalyzer{}).Analyze(ctx, subdocument, options)
+	language := normalizeASPLanguage(segment.language)
+	var analyzer SourceAnalyzer
+	switch language {
+	case "vbscript":
+		analyzer = VBScriptAnalyzer{}
+	case "jscript":
+		analyzer = JavaScriptAnalyzer{}
+	default:
+		return nil, false, false, operation.New(operation.KindUnsupported, "unsupported Classic ASP embedded language")
+	}
+	subresult, err := analyzer.Analyze(ctx, subdocument, options)
 	if err != nil {
 		return nil, false, false, err
 	}
 	builder := NewSymbolBuilder(host, SymbolBuilderOptions{
-		Context: ctx, Language: "vbscript", Analyzer: string(AnalyzerClassicASP), RegionID: segment.regionID,
+		Context: ctx, Language: language, Analyzer: string(AnalyzerClassicASP), RegionID: segment.regionID,
 		IncludeSignatures: options.IncludeSignatures, MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits,
 	})
 	if err := builder.checkReady(); err != nil {
@@ -147,8 +157,12 @@ func analyzeClassicASPVBScriptRegion(ctx context.Context, host *SourceDocument, 
 		if parent == nil && source.ParentQualifiedName != "" {
 			parent = &SymbolParent{QualifiedName: source.ParentQualifiedName}
 		}
+		kind := source.Kind
+		if language == "vbscript" && parent == nil && kind == SymbolKindFunction {
+			kind = SymbolKindMethod
+		}
 		target, addErr := builder.Add(SymbolSpec{
-			Kind: source.Kind, NativeKind: source.NativeKind, Name: source.Name, QualifiedName: source.QualifiedName, Parent: parent,
+			Kind: kind, NativeKind: source.NativeKind, Name: source.Name, QualifiedName: source.QualifiedName, Parent: parent,
 			RegionID: segment.regionID, Declaration: declaration, NameRange: nameRange, Signature: signature, Body: body,
 			Visibility: source.Visibility, Modifiers: source.Modifiers, Evidence: SymbolEvidenceStructural, Disambiguator: source.ID,
 		})
@@ -165,7 +179,6 @@ func analyzeClassicASPVBScriptRegion(ctx context.Context, host *SourceDocument, 
 	result := builder.Result()
 	return result.Symbols, subresult.Analysis.CoverageComplete && result.CoverageComplete, subresult.Analysis.Truncated || result.Truncated, nil
 }
-
 func shiftOffsetRange(value OffsetRange, delta int) OffsetRange {
 	return OffsetRange{Start: value.Start + delta, End: value.End + delta}
 }
@@ -314,7 +327,8 @@ func normalizeASPLanguage(value string) string {
 }
 
 func classicASPSupportedLanguage(language string) bool {
-	return normalizeASPLanguage(language) == "vbscript"
+	normalized := normalizeASPLanguage(language)
+	return normalized == "vbscript" || normalized == "jscript"
 }
 
 func htmlLikeAttribute(text, name string) string {

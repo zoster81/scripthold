@@ -240,11 +240,14 @@ func (store *Store) Submit(ctx context.Context, request Request) (SubmitResult, 
 	idDigest := sha256.Sum256([]byte(store.descriptor.Salt + "\x00" + request.IdempotencyKey))
 	taskID := "tsk_" + hex.EncodeToString(idDigest[:16])
 
-	lock, err := acquireControlLock(filepath.Join(store.root, controlLockName))
+	lock, err := acquireControlLockContext(ctx, filepath.Join(store.root, controlLockName))
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("lock task store: %w", err)
 	}
 	defer lock.close()
+	if err := ctx.Err(); err != nil {
+		return SubmitResult{}, err
+	}
 
 	taskDir := filepath.Join(store.tasksRoot, taskID)
 	if _, err := os.Lstat(taskDir); err == nil {

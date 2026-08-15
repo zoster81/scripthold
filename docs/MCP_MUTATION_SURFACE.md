@@ -94,7 +94,7 @@ Before the first mutation boundary it revalidates:
 - retained permission and backup policy;
 - source/target state required by the specific operation.
 
-If any approved precondition changed, apply fails with `CONFLICT` rather than recalculating a different result.
+If any approved precondition changed, apply fails with `CONFLICT` rather than recalculating a different result. After a write reaches a boundary where the target may already have changed, single-file apply must classify the bounded actual target state instead of reusing preview predictions: an unchanged target preserves the underlying error with `changed=false`; an observed committed result or an unclassifiable post-error state returns `PARTIAL_COMMIT` with actual-state evidence and never claims `applied=true` merely because the prepared bytes were expected to change the file.
 
 ## MCP annotation contract
 

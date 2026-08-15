@@ -56,21 +56,53 @@ func BuildScriptCommand(scriptPath string, scriptArgs []string) (string, []strin
 	}
 }
 
-// BuildShellCommand maps a requested shell to a fixed executable invocation.
-func BuildShellCommand(requestedShell, command string) (string, []string, error) {
+// ValidateShell checks whether the requested logical shell name is supported on
+// the current platform without resolving an executable. It is safe to use at
+// admission time before durable task creation.
+func ValidateShell(requestedShell string) error {
+	_, err := normalizeShell(requestedShell)
+	return err
+}
+
+func normalizeShell(requestedShell string) (string, error) {
 	shell := strings.ToLower(strings.TrimSpace(requestedShell))
 	if runtime.GOOS == "windows" {
-		if shell == "" {
-			shell = "powershell"
-		}
 		switch shell {
-		case "powershell", "windows-powershell":
+		case "", "powershell", "windows-powershell":
+			return "powershell", nil
+		case "pwsh", "powershell-core":
+			return "pwsh", nil
+		case "cmd":
+			return "cmd", nil
+		default:
+			return "", fmt.Errorf("unsupported shell %q on Windows; use powershell, pwsh, or cmd", requestedShell)
+		}
+	}
+	switch shell {
+	case "":
+		return "sh", nil
+	case "sh", "bash", "pwsh", "powershell":
+		return shell, nil
+	default:
+		return "", fmt.Errorf("unsupported shell %q; use sh, bash, or pwsh", requestedShell)
+	}
+}
+
+// BuildShellCommand maps a requested shell to a fixed executable invocation.
+func BuildShellCommand(requestedShell, command string) (string, []string, error) {
+	shell, err := normalizeShell(requestedShell)
+	if err != nil {
+		return "", nil, err
+	}
+	if runtime.GOOS == "windows" {
+		switch shell {
+		case "powershell":
 			program, err := firstExecutable("powershell.exe", "powershell")
 			if err != nil {
 				return "", nil, fmt.Errorf("windows powershell was not found: %w", err)
 			}
 			return program, []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command}, nil
-		case "pwsh", "powershell-core":
+		case "pwsh":
 			program, err := firstExecutable("pwsh.exe", "pwsh")
 			if err != nil {
 				return "", nil, fmt.Errorf("PowerShell 7 was not found: %w", err)
@@ -82,12 +114,7 @@ func BuildShellCommand(requestedShell, command string) (string, []string, error)
 				return "", nil, fmt.Errorf("cmd.exe was not found: %w", err)
 			}
 			return program, []string{"/d", "/s", "/c", command}, nil
-		default:
-			return "", nil, fmt.Errorf("unsupported shell %q on Windows; use powershell, pwsh, or cmd", requestedShell)
 		}
-	}
-	if shell == "" {
-		shell = "sh"
 	}
 	switch shell {
 	case "sh", "bash":
@@ -102,9 +129,8 @@ func BuildShellCommand(requestedShell, command string) (string, []string, error)
 			return "", nil, fmt.Errorf("PowerShell was not found: %w", err)
 		}
 		return program, []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}, nil
-	default:
-		return "", nil, fmt.Errorf("unsupported shell %q; use sh, bash, or pwsh", requestedShell)
 	}
+	return "", nil, fmt.Errorf("unsupported normalized shell %q", shell)
 }
 
 func firstExecutable(candidates ...string) (string, error) {

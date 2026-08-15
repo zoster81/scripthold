@@ -26,6 +26,7 @@ const (
 	TokenIndent      TokenKind = "indent"
 	TokenDedent      TokenKind = "dedent"
 	TokenDirective   TokenKind = "directive"
+	TokenHereDoc     TokenKind = "heredoc"
 	TokenEOF         TokenKind = "eof"
 )
 
@@ -64,8 +65,8 @@ type ScanResult struct {
 }
 
 type delimiterEntry struct {
-	open   byte
-	close  byte
+	open   string
+	close  string
 	offset int
 }
 
@@ -77,19 +78,20 @@ type matchedStringRule struct {
 }
 
 type sourceScanner struct {
-	ctx           context.Context
-	document      *SourceDocument
-	text          string
-	profile       ScannerProfile
-	limits        ScannerLimits
-	keywords      map[string]struct{}
-	result        ScanResult
-	at            int
-	lineStart     bool
-	pendingIndent bool
-	continued     bool
-	delimiters    []delimiterEntry
-	indentStack   []int
+	ctx             context.Context
+	document        *SourceDocument
+	text            string
+	profile         ScannerProfile
+	limits          ScannerLimits
+	keywords        map[string]struct{}
+	result          ScanResult
+	at              int
+	lineStart       bool
+	pendingIndent   bool
+	continued       bool
+	delimiters      []delimiterEntry
+	pendingHereDocs []pendingHereDoc
+	indentStack     []int
 }
 
 // ScanSource performs bounded lexical scanning over one already-decoded source document.
@@ -109,6 +111,7 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 	if limits.MaxTokens <= 0 || limits.MaxTokenBytes <= 0 || limits.MaxNesting <= 0 {
 		return ScanResult{}, operation.New(operation.KindInvalidInput, "scanner limits must be positive")
 	}
+	profile = normalizeScannerProfile(profile)
 	if err := ctx.Err(); err != nil {
 		return ScanResult{}, operation.Wrap(operation.KindCancelled, "scan_source", document.Path, err)
 	}
@@ -138,6 +141,9 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 }
 
 func (scanner *sourceScanner) validateProfile() error {
+	if err := scanner.validateR27Profile(); err != nil {
+		return err
+	}
 	for _, comment := range scanner.profile.BlockComments {
 		if comment.Start == "" || comment.End == "" {
 			return operation.New(operation.KindInvalidInput, "block comment delimiters must be non-empty")
@@ -181,24 +187,40 @@ func (scanner *sourceScanner) run() error {
 			}
 			continue
 		}
-		if scanner.lineStart && scanner.profile.Directives && scanner.text[scanner.at] == '#' {
-			if err := scanner.scanDirective(); err != nil {
+		if scanner.lineStart {
+			if _, ok := scanner.directiveRuleAt(scanner.at); ok {
+				if err := scanner.scanDirective(); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		lineComment := scanner.lineCommentPrefixAt(scanner.at)
+		blockComment, hasBlockComment := scanner.blockCommentRuleAt(scanner.at)
+		if hasBlockComment && (lineComment == "" || len(blockComment.Start) > len(lineComment)) {
+			if err := scanner.skipBlockComment(blockComment); err != nil {
 				return err
 			}
 			continue
 		}
-		if prefix := scanner.lineCommentPrefixAt(scanner.at); prefix != "" {
-			scanner.skipLineComment(prefix)
+		if lineComment != "" {
+			scanner.skipLineComment(lineComment)
 			continue
 		}
-		if rule, ok := scanner.blockCommentRuleAt(scanner.at); ok {
-			if err := scanner.skipBlockComment(rule); err != nil {
+		if hasBlockComment {
+			if err := scanner.skipBlockComment(blockComment); err != nil {
 				return err
 			}
 			continue
 		}
 		if match, ok := scanner.stringRuleAt(scanner.at); ok {
 			if err := scanner.scanString(match); err != nil {
+				return err
+			}
+			continue
+		}
+		if heredoc, operatorBytes, ok := scanner.hereDocOpeningAt(scanner.at); ok {
+			if err := scanner.scanHereDocOpening(heredoc, operatorBytes); err != nil {
 				return err
 			}
 			continue
@@ -210,8 +232,15 @@ func (scanner *sourceScanner) run() error {
 			continue
 		}
 
+		if delimiter, ok := scanner.delimiterAt(scanner.at); ok {
+			if err := scanner.scanDelimiter(delimiter); err != nil {
+				return err
+			}
+			continue
+		}
+
 		r, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
-		if isIdentifierStart(r) {
+		if scanner.identifierStart(r) {
 			if err := scanner.scanIdentifier(); err != nil {
 				return err
 			}
@@ -237,9 +266,15 @@ func (scanner *sourceScanner) run() error {
 	if err := scanner.checkContext(); err != nil {
 		return err
 	}
+	if len(scanner.pendingHereDocs) > 0 {
+		for _, heredoc := range scanner.pendingHereDocs {
+			scanner.addDiagnostic("unterminated-heredoc", fmt.Sprintf("heredoc %q has no body terminator", heredoc.delimiter), heredoc.openingOffset, len(scanner.text))
+		}
+		scanner.pendingHereDocs = nil
+	}
 	if len(scanner.delimiters) > 0 {
 		for _, delimiter := range scanner.delimiters {
-			scanner.addDiagnostic("unterminated-delimiter", fmt.Sprintf("delimiter %q is not closed", delimiter.open), delimiter.offset, delimiter.offset+1)
+			scanner.addDiagnostic("unterminated-delimiter", fmt.Sprintf("delimiter %q is not closed", delimiter.open), delimiter.offset, delimiter.offset+len(delimiter.open))
 		}
 	}
 	if scanner.profile.Indentation {
@@ -314,6 +349,11 @@ func (scanner *sourceScanner) scanNewline() error {
 	}
 	scanner.lineStart = true
 	scanner.pendingIndent = scanner.profile.Indentation && !suppressed && len(scanner.delimiters) == 0
+	if !suppressed && len(scanner.pendingHereDocs) > 0 {
+		if err := scanner.consumePendingHereDocs(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -504,7 +544,7 @@ func (scanner *sourceScanner) scanIdentifier() error {
 	scanner.at += size
 	for scanner.at < len(scanner.text) {
 		r, runeSize := utf8.DecodeRuneInString(scanner.text[scanner.at:])
-		if !isIdentifierContinue(r) {
+		if !scanner.identifierContinue(r) {
 			break
 		}
 		scanner.at += runeSize
@@ -531,29 +571,9 @@ func (scanner *sourceScanner) scanNumber() error {
 	return scanner.emit(TokenNumber, start, scanner.at)
 }
 
-func (scanner *sourceScanner) scanPunctuation(value byte, size int) error {
+func (scanner *sourceScanner) scanPunctuation(_ byte, size int) error {
 	start := scanner.at
 	scanner.at += size
-	if close, ok := matchingClose(value); ok {
-		if len(scanner.delimiters)+1 > scanner.limits.MaxNesting {
-			return scanner.limitError("delimiter nesting", len(scanner.delimiters)+1, scanner.limits.MaxNesting)
-		}
-		scanner.delimiters = append(scanner.delimiters, delimiterEntry{open: value, close: close, offset: start})
-		if len(scanner.delimiters) > scanner.result.MaxDepth {
-			scanner.result.MaxDepth = len(scanner.delimiters)
-		}
-	} else if isClosingDelimiter(value) {
-		if len(scanner.delimiters) == 0 {
-			scanner.addDiagnostic("mismatched-delimiter", fmt.Sprintf("closing delimiter %q has no opener", value), start, scanner.at)
-		} else {
-			top := scanner.delimiters[len(scanner.delimiters)-1]
-			if top.close == value {
-				scanner.delimiters = scanner.delimiters[:len(scanner.delimiters)-1]
-			} else {
-				scanner.addDiagnostic("mismatched-delimiter", fmt.Sprintf("closing delimiter %q does not match %q", value, top.open), start, scanner.at)
-			}
-		}
-	}
 	scanner.lineStart = false
 	return scanner.emit(TokenPunctuation, start, scanner.at)
 }
@@ -721,33 +741,8 @@ func isHorizontalSpace(value byte) bool {
 
 func isNewlineStart(value byte) bool { return value == '\r' || value == '\n' }
 
-func isIdentifierStart(value rune) bool {
-	return value == '_' || unicode.IsLetter(value)
-}
-
-func isIdentifierContinue(value rune) bool {
-	return isIdentifierStart(value) || unicode.IsDigit(value) || unicode.IsMark(value) || unicode.In(value, unicode.Pc)
-}
-
 func isDelimiterOrPunctuation(value rune) bool {
 	return strings.ContainsRune("()[]{}.,:;", value)
-}
-
-func matchingClose(value byte) (byte, bool) {
-	switch value {
-	case '(':
-		return ')', true
-	case '[':
-		return ']', true
-	case '{':
-		return '}', true
-	default:
-		return 0, false
-	}
-}
-
-func isClosingDelimiter(value byte) bool {
-	return value == ')' || value == ']' || value == '}'
 }
 
 func isOperatorRune(value rune) bool {

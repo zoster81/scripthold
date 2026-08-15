@@ -72,39 +72,13 @@ type pythonParser struct {
 }
 
 func buildPythonLogicalLines(tokens []Token) []pythonLogicalLine {
-	var result []pythonLogicalLine
-	indent := 0
-	lineIndent := 0
-	var lineTokens []Token
-	flush := func() {
-		if len(lineTokens) == 0 {
-			return
-		}
+	lines := BuildLogicalLines(tokens, LogicalLineProfile{TrackIndentation: true, SkipDirectives: true})
+	result := make([]pythonLogicalLine, 0, len(lines))
+	for _, line := range lines {
 		result = append(result, pythonLogicalLine{
-			indent: lineIndent, tokens: append([]Token(nil), lineTokens...),
-			startOffset: lineTokens[0].StartOffset, endOffset: lineTokens[len(lineTokens)-1].EndOffset,
+			indent: line.Indent, tokens: line.Tokens, startOffset: line.StartOffset, endOffset: line.EndOffset,
 		})
-		lineTokens = lineTokens[:0]
 	}
-	for _, token := range tokens {
-		switch token.Kind {
-		case TokenIndent, TokenDedent:
-			indent = token.Nesting
-		case TokenNewline:
-			flush()
-		case TokenEOF:
-			flush()
-			return result
-		case TokenDirective:
-			// Python comments are skipped by the scanner; directives are not declarations.
-		default:
-			if len(lineTokens) == 0 {
-				lineIndent = indent
-			}
-			lineTokens = append(lineTokens, token)
-		}
-	}
-	flush()
 	return result
 }
 

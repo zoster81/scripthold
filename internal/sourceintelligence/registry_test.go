@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestDefaultLanguageRegistryR25CanariesAndFutureShapes(t *testing.T) {
+func TestDefaultLanguageRegistryCompletedProvidersAndFutureShapes(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,57 @@ func TestDefaultLanguageRegistryR25CanariesAndFutureShapes(t *testing.T) {
 		t.Fatalf("vbnet must declare case-insensitive identifiers: %+v", vb)
 	}
 
-	for _, id := range []string{"cpp", "rust", "typescript", "razor", "vue", "mql4", "mql5", "delphi"} {
+	for _, id := range []string{"c", "cpp", "java", "kotlin"} {
+		descriptor, ok := registry.Lookup(id)
+		if !ok {
+			t.Fatalf("missing R27 Phase 3 language %q", id)
+		}
+		if !descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer == "" {
+			t.Fatalf("R27 Phase 3 provider %q is not routed to an analyzer: %+v", id, descriptor)
+		}
+	}
+
+	for _, id := range []string{"javascript", "typescript", "rust"} {
+		descriptor, ok := registry.Lookup(id)
+		if !ok {
+			t.Fatalf("missing R27 Phase 4 language %q", id)
+		}
+		if !descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer == "" {
+			t.Fatalf("R27 Phase 4 provider %q is not routed to an analyzer: %+v", id, descriptor)
+		}
+	}
+
+	for _, id := range []string{"php", "ruby", "swift", "pascal", "delphi"} {
+		descriptor, ok := registry.Lookup(id)
+		if !ok {
+			t.Fatalf("missing R27 Phase 5 language %q", id)
+		}
+		if !descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer == "" {
+			t.Fatalf("R27 Phase 5 provider %q is not routed to an analyzer: %+v", id, descriptor)
+		}
+	}
+
+	for _, id := range []string{"vb6", "vba", "vbscript", "qbasic", "classic-basic", "freebasic", "purebasic", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "aspnet-webforms", "razor", "blazor", "xaml"} {
+		descriptor, ok := registry.Lookup(id)
+		if !ok {
+			t.Fatalf("missing R27 Phase 6 language %q", id)
+		}
+		if !descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer == "" {
+			t.Fatalf("R27 Phase 6 provider %q is not routed to an analyzer: %+v", id, descriptor)
+		}
+	}
+
+	for _, id := range []string{"mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino"} {
+		descriptor, ok := registry.Lookup(id)
+		if !ok {
+			t.Fatalf("missing R27 Phase 7 language %q", id)
+		}
+		if !descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer == "" {
+			t.Fatalf("R27 Phase 7 provider %q is not routed to an analyzer: %+v", id, descriptor)
+		}
+	}
+
+	for _, id := range []string{"vue"} {
 		descriptor, ok := registry.Lookup(id)
 		if !ok {
 			t.Fatalf("registry cannot represent future language %q", id)
@@ -166,6 +216,62 @@ func TestLanguageRegistryAcceptsExplicitAmbiguityClasses(t *testing.T) {
 			t.Fatalf(".h candidates[%d] = %q, want %q", index, candidates[index].ID, want)
 		}
 	}
+}
+
+func TestR27CapabilityMatrixCoversApprovedCatalogWithoutAccidentalActivation(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := registry.CapabilityRows()
+	if len(rows) != len(defaultLanguageDescriptors()) {
+		t.Fatalf("capability rows = %d, descriptors=%d", len(rows), len(defaultLanguageDescriptors()))
+	}
+	byID := make(map[string]LanguageCapabilityRow, len(rows))
+	for _, row := range rows {
+		if row.ID == "" || row.Family == "" || row.ScannerProfile == "" || row.EncodingCoverage == "" || row.AnalyzerStrategy == "" || row.AnalyzerVersion == "" {
+			t.Fatalf("incomplete capability row: %+v", row)
+		}
+		if !containsEvidenceKind(row.DetectionEvidence, EvidenceExplicit) || !containsEvidenceKind(row.DetectionEvidence, EvidenceDirective) || !containsEvidenceKind(row.DetectionEvidence, EvidenceProjectHint) {
+			t.Fatalf("capability row %s omits universal detector evidence: %v", row.ID, row.DetectionEvidence)
+		}
+		if row.Capabilities.SourceAnalysis {
+			if row.Analyzer == "" || row.ScannerProfile == "unimplemented" || row.AnalyzerStrategy == "unimplemented" || !row.Capabilities.Declarations || !row.Capabilities.Ranges {
+				t.Fatalf("active analyzer row %s is incomplete: %+v", row.ID, row)
+			}
+		} else if row.Analyzer != "" || row.AnalyzerStrategy != "unimplemented" || len(row.KnownLimitations) == 0 {
+			t.Fatalf("inactive row %s overclaims implementation: %+v", row.ID, row)
+		}
+		if _, duplicate := byID[row.ID]; duplicate {
+			t.Fatalf("duplicate capability row %s", row.ID)
+		}
+		byID[row.ID] = row
+	}
+
+	approved := []string{
+		"c", "cpp", "objective-c", "objective-cpp", "csharp", "java", "kotlin", "scala", "go", "rust", "swift", "dart", "d", "zig", "nim",
+		"javascript", "typescript", "flow", "python", "php", "ruby", "perl", "lua", "luau", "elixir", "erlang", "gleam", "groovy",
+		"vbnet", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "vb6", "vba", "vbscript", "qbasic", "classic-basic", "freebasic", "purebasic",
+		"fortran", "cobol", "ada", "pascal", "delphi", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp",
+		"shell", "bash", "tcl", "autohotkey", "mql4", "mql5", "assembly", "vhdl", "verilog", "systemverilog", "arduino",
+		"sql", "plsql", "graphql", "terraform", "nix", "proto", "solidity", "apex", "al",
+		"html", "xml", "xaml", "css", "scss", "sass", "less", "json", "yaml", "toml", "markdown", "openapi", "ansible-yaml",
+		"classic-asp", "aspnet-webforms", "razor", "blazor", "vue", "svelte", "astro", "php-html", "jsp", "jinja", "twig", "blade", "ejs",
+	}
+	for _, id := range approved {
+		if _, ok := byID[id]; !ok {
+			t.Errorf("approved R27 catalog entry %q has no capability row", id)
+		}
+	}
+}
+
+func containsEvidenceKind(values []EvidenceKind, want EvidenceKind) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func withRegistryID(descriptor LanguageDescriptor, id string) LanguageDescriptor {

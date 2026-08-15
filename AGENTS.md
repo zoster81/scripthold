@@ -25,10 +25,11 @@ Do not copy private workstation state, local process details, credentials, or op
 - Completed R24 safe-filesystem operations contract and verification record: [`docs/SAFE_FILESYSTEM_OPERATIONS.md`](docs/SAFE_FILESYSTEM_OPERATIONS.md)
 - Completed R25 source-intelligence contract and verification record: [`docs/SOURCE_INTELLIGENCE.md`](docs/SOURCE_INTELLIGENCE.md)
 - Completed R26 backup-recovery contract and verification record: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
-- Approved planned R27 broad multi-language code-intelligence baseline: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
+- Active R27 broad multi-language code-intelligence baseline: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
+- Mechanically verified R27 language capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
-Link to these documents instead of duplicating their detailed content. R26 is complete; before activating R27, read its approved planned baseline together with the completed R25/R26 contracts and the roadmap. `PLANNED` status does not make approved R27 requirements optional.
+Link to these documents instead of duplicating their detailed content. R26 is complete and R27 is active; before continuing R27, read its active baseline together with the completed R25/R26 contracts and the roadmap. The approved R27 requirements remain binding unless maintainers explicitly revise them.
 
 ## Repository map
 

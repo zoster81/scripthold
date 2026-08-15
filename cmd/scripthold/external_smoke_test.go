@@ -90,8 +90,8 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if got := len(tools.Tools); got != 35 {
-		t.Fatalf("tool count = %d, want 35", got)
+	if got, want := len(tools.Tools), expectedToolCount(); got != want {
+		t.Fatalf("tool count = %d, want %d", got, want)
 	}
 
 	roots, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_allowed_directories"})

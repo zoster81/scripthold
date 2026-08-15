@@ -22,6 +22,26 @@ func TestWithTaskStoreTreatsTypedNilAsUnavailable(t *testing.T) {
 	}
 }
 
+func TestTaskRunRejectsUnsupportedShellBeforeAdmission(t *testing.T) {
+	handler := NewHandler([]string{t.TempDir()}, WithExecutionPolicy(ExecutionPolicy{AllowShell: true}))
+	for _, shell := range []string{"fish", "powershell.exe"} {
+		t.Run(shell, func(t *testing.T) {
+			result, _, err := handler.HandleTaskRun(context.Background(), nil, TaskRunInput{
+				Kind:           "shell",
+				IdempotencyKey: "unsupported-shell-" + shell,
+				Command:        "echo ok",
+				Shell:          shell,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+				t.Fatalf("unsupported shell result = %#v", result)
+			}
+		})
+	}
+}
+
 func TestTaskRunRejectsCrossKindPathWithStableCode(t *testing.T) {
 	handler := NewHandler([]string{t.TempDir()}, WithExecutionPolicy(ExecutionPolicy{AllowShell: true}))
 	result, _, err := handler.HandleTaskRun(context.Background(), nil, TaskRunInput{Kind: "shell", Path: `C:\unexpected.ps1`})

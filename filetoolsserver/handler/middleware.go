@@ -61,6 +61,39 @@ func Wrap[In, Out any](logger *slog.Logger, toolName string, handler mcp.ToolHan
 	return wrapped
 }
 
+// WithStructuredErrorOutput makes MCP tool failures self-describing even when
+// the typed output is its zero value. Existing public output fields are
+// preserved and the common errorCode/message envelope is merged into them.
+func WithStructuredErrorOutput[In, Out any](handler mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input In) (*mcp.CallToolResult, any, error) {
+		result, output, err := handler(ctx, req, input)
+		if err != nil || result == nil || !result.IsError {
+			return result, output, err
+		}
+
+		structured := make(map[string]any)
+		if encoded, marshalErr := json.Marshal(output); marshalErr == nil {
+			_ = json.Unmarshal(encoded, &structured)
+		}
+		if structured == nil {
+			structured = make(map[string]any)
+		}
+		code := ErrCodeOperationFailed
+		if value, ok := result.Meta[ErrorCodeMetaKey].(string); ok && value != "" {
+			code = value
+		}
+		message := "operation failed"
+		if len(result.Content) > 0 {
+			if text, ok := result.Content[0].(*mcp.TextContent); ok && text.Text != "" {
+				message = text.Text
+			}
+		}
+		structured["errorCode"] = code
+		structured["message"] = message
+		return result, structured, nil
+	}
+}
+
 // RepairStringifiedArrayArgs decodes declared array/object tool args that some
 // MCP clients send as a JSON-encoded string, so schema validation succeeds.
 // String-valued fields are never inferred from their contents: valid JSON text

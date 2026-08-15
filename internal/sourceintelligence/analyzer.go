@@ -80,22 +80,61 @@ func scannerTokenBudget(text string) int {
 	return budget
 }
 
+var analyzerFactories = map[AnalyzerID]func() SourceAnalyzer{
+	AnalyzerGo:             func() SourceAnalyzer { return GoAnalyzer{} },
+	AnalyzerCSharp:         func() SourceAnalyzer { return CSharpAnalyzer{} },
+	AnalyzerVBNet:          func() SourceAnalyzer { return VBNetAnalyzer{} },
+	AnalyzerPython:         func() SourceAnalyzer { return PythonAnalyzer{} },
+	AnalyzerClassicASP:     func() SourceAnalyzer { return ClassicASPAnalyzer{} },
+	AnalyzerC:              func() SourceAnalyzer { return CAnalyzer{} },
+	AnalyzerCPP:            func() SourceAnalyzer { return CPPAnalyzer{} },
+	AnalyzerJava:           func() SourceAnalyzer { return JavaAnalyzer{} },
+	AnalyzerKotlin:         func() SourceAnalyzer { return KotlinAnalyzer{} },
+	AnalyzerJavaScript:     func() SourceAnalyzer { return JavaScriptAnalyzer{} },
+	AnalyzerTypeScript:     func() SourceAnalyzer { return TypeScriptAnalyzer{} },
+	AnalyzerRust:           func() SourceAnalyzer { return RustAnalyzer{} },
+	AnalyzerPHP:            func() SourceAnalyzer { return PHPAnalyzer{} },
+	AnalyzerRuby:           func() SourceAnalyzer { return RubyAnalyzer{} },
+	AnalyzerSwift:          func() SourceAnalyzer { return SwiftAnalyzer{} },
+	AnalyzerPascal:         func() SourceAnalyzer { return PascalAnalyzer{} },
+	AnalyzerDelphi:         func() SourceAnalyzer { return DelphiAnalyzer{} },
+	AnalyzerVB6:            func() SourceAnalyzer { return VB6Analyzer{} },
+	AnalyzerVBA:            func() SourceAnalyzer { return VBAAnalyzer{} },
+	AnalyzerVBScript:       func() SourceAnalyzer { return VBScriptAnalyzer{} },
+	AnalyzerQBasic:         func() SourceAnalyzer { return QBasicAnalyzer{} },
+	AnalyzerClassicBasic:   func() SourceAnalyzer { return ClassicBasicAnalyzer{} },
+	AnalyzerFreeBasic:      func() SourceAnalyzer { return FreeBasicAnalyzer{} },
+	AnalyzerPureBasic:      func() SourceAnalyzer { return PureBasicAnalyzer{} },
+	AnalyzerFSharp:         func() SourceAnalyzer { return FSharpAnalyzer{} },
+	AnalyzerCPPCLI:         func() SourceAnalyzer { return CPPCLIAnalyzer{} },
+	AnalyzerJScriptNet:     func() SourceAnalyzer { return JScriptNetAnalyzer{} },
+	AnalyzerCIL:            func() SourceAnalyzer { return CILAnalyzer{} },
+	AnalyzerPowerShell:     func() SourceAnalyzer { return PowerShellAnalyzer{} },
+	AnalyzerASPNetWebForms: func() SourceAnalyzer { return ASPNetWebFormsAnalyzer{} },
+	AnalyzerRazor:          func() SourceAnalyzer { return RazorAnalyzer{} },
+	AnalyzerBlazor:         func() SourceAnalyzer { return BlazorAnalyzer{} },
+	AnalyzerXAML:           func() SourceAnalyzer { return XAMLAnalyzer{} },
+	AnalyzerMQL4:           func() SourceAnalyzer { return MQL4Analyzer{} },
+	AnalyzerMQL5:           func() SourceAnalyzer { return MQL5Analyzer{} },
+	AnalyzerObjectiveC:     func() SourceAnalyzer { return ObjectiveCAnalyzer{} },
+	AnalyzerObjectiveCPP:   func() SourceAnalyzer { return ObjectiveCPPAnalyzer{} },
+	AnalyzerDart:           func() SourceAnalyzer { return DartAnalyzer{} },
+	AnalyzerD:              func() SourceAnalyzer { return DAnalyzer{} },
+	AnalyzerZig:            func() SourceAnalyzer { return ZigAnalyzer{} },
+	AnalyzerNim:            func() SourceAnalyzer { return NimAnalyzer{} },
+	AnalyzerSolidity:       func() SourceAnalyzer { return SolidityAnalyzer{} },
+	AnalyzerApex:           func() SourceAnalyzer { return ApexAnalyzer{} },
+	AnalyzerAL:             func() SourceAnalyzer { return ALAnalyzer{} },
+	AnalyzerArduino:        func() SourceAnalyzer { return ArduinoAnalyzer{} },
+}
+
 func AnalyzerFor(descriptor LanguageDescriptor) (SourceAnalyzer, bool) {
 	if !descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer == "" {
 		return nil, false
 	}
-	switch descriptor.Analyzer {
-	case AnalyzerGo:
-		return GoAnalyzer{}, true
-	case AnalyzerCSharp:
-		return CSharpAnalyzer{}, true
-	case AnalyzerVBNet:
-		return VBNetAnalyzer{}, true
-	case AnalyzerPython:
-		return PythonAnalyzer{}, true
-	case AnalyzerClassicASP:
-		return ClassicASPAnalyzer{}, true
-	default:
+	factory, ok := analyzerFactories[descriptor.Analyzer]
+	if !ok {
 		return nil, false
 	}
+	return factory(), true
 }

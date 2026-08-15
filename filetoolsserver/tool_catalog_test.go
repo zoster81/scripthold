@@ -12,6 +12,10 @@ import (
 	"github.com/zoster81/scripthold/internal/toolcatalog"
 )
 
+func expectedToolCount() int {
+	return len(toolcatalog.All())
+}
+
 func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -51,9 +55,10 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 		t.Fatalf("marshal connector catalog: %v", err)
 	}
 	// The connector rejects oversized function catalogs. This byte ceiling remains
-	// conservative while accounting for R25's strict four-branch source_symbols
-	// input contract in the exact runtime tools/list payload.
+	// conservative while accounting for the strict R25 source_symbols and compact
+	// R27 source_query contracts in the exact runtime tools/list payload.
 	const maxConnectorCatalogBytes = 24_000
+	t.Logf("connector catalog = %d bytes (budget %d)", len(serializedCatalog), maxConnectorCatalogBytes)
 	if got := len(serializedCatalog); got > maxConnectorCatalogBytes {
 		t.Fatalf("connector catalog = %d bytes, exceeds budget %d", got, maxConnectorCatalogBytes)
 	}

@@ -124,6 +124,12 @@ func RunExecutor(ctx context.Context, store *Store, taskID, token string) error 
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
 			exitCode = exitErr.ExitCode()
+		} else if errors.Is(waitErr, exec.ErrWaitDelay) && status == StatusSucceeded {
+			exitCode = -1
+			if command.ProcessState != nil {
+				exitCode = command.ProcessState.ExitCode()
+			}
+			status, code, message = StatusFailed, "PROCESS_OUTPUT_DRAIN_TIMEOUT", "process exited but inherited output streams did not close before the drain timeout"
 		} else if status == StatusSucceeded {
 			status, code, message, exitCode = StatusFailed, "PROCESS_WAIT_FAILED", "process wait failed", -1
 		}

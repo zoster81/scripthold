@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/zoster81/scripthold/internal/execution"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/taskstore"
 )
@@ -63,6 +64,11 @@ func (h *Handler) HandleTaskRun(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 	if kind == taskstore.KindShell && strings.TrimSpace(input.Path) != "" {
 		return errorResultWithCode(ErrCodeInvalidInput, "path is not valid for shell tasks"), taskstore.SubmitResult{}, nil
+	}
+	if kind == taskstore.KindShell {
+		if err := execution.ValidateShell(input.Shell); err != nil {
+			return errorResultWithCode(ErrCodeInvalidInput, err.Error()), taskstore.SubmitResult{}, nil
+		}
 	}
 	if h.taskStore == nil {
 		return errorResult("task system is unavailable; configure MCP_TASK_STORE_DIR and start task-worker"), taskstore.SubmitResult{}, nil

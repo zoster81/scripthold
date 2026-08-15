@@ -2,7 +2,7 @@
 
 ## Status
 
-**COMPLETE — R26.** R26 completed on 2026-08-14. The implementation was delivered in `898c568b184b0982053a2a7c6ddb99f9e92fe9dd` (`feat: add offline backup recovery`), and exact push-event CI run `31806897971` passed the required native Windows/Ubuntu/macOS regression and smoke matrix, module verification, static/vulnerability/workflow analysis, deterministic fuzz smoke, all six supported cross-builds, container smoke, and the aggregate `Release candidate` gate. R27 remains `PLANNED` until explicitly activated.
+**COMPLETE — R26.** R26 completed on 2026-08-14. The implementation was delivered in `898c568b184b0982053a2a7c6ddb99f9e92fe9dd` (`feat: add offline backup recovery`), and exact push-event CI run `31806897971` passed the required native Windows/Ubuntu/macOS regression and smoke matrix, module verification, static/vulnerability/workflow analysis, deterministic fuzz smoke, all six supported cross-builds, container smoke, and the aggregate `Release candidate` gate. R27 was subsequently activated on 2026-08-14; that later milestone does not alter this completed R26 contract.
 
 The implemented contract preserves the production boundary: normal backup-store startup still fails closed on structural corruption, `scripthold backup-store diagnose` remains read-only and authorizes no repair, and recovery is an explicit offline workflow that never auto-adopts its output.
 
@@ -395,7 +395,7 @@ Exit criterion: every applicable local and exact pushed-commit CI gate is green 
 
 Update this document from implementation handoff to completed contract/verification record, move concise outcome to `ROADMAP_HISTORY.md`, update roadmap/README/changelog truthfully, confirm normal startup and R19 diagnostics remain unchanged, and perform an explicit R27 compatibility check without implementing R27. Do not build/activate a candidate, alter a launcher, tag, release, or deploy unless separately authorized.
 
-Exit criterion: R26 completion evidence is reproducible from tracked docs/Git/CI, R27 remains the only next planned milestone, and the repository is clean after any authorized commit/push.
+Exit criterion at R26 completion: R26 completion evidence is reproducible from tracked docs/Git/CI, R27 was still the only next planned milestone, and the repository was clean after any authorized commit/push.
 
 ## Required tests
 

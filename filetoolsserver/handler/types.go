@@ -41,11 +41,17 @@ type WriteWholeFileInput struct {
 }
 
 type WriteWholeFileOutput struct {
-	Message   string `json:"message"`
-	Encoding  string `json:"encoding"`
-	BOMPolicy string `json:"bomPolicy"`
-	HasBOM    bool   `json:"hasBOM"`
-	BOMType   string `json:"bomType,omitempty"`
+	Message           string `json:"message"`
+	Encoding          string `json:"encoding"`
+	BOMPolicy         string `json:"bomPolicy"`
+	HasBOM            bool   `json:"hasBOM"`
+	BOMType           string `json:"bomType,omitempty"`
+	TargetFingerprint string `json:"targetFingerprint,omitempty"`
+	ResultFingerprint string `json:"resultFingerprint,omitempty"`
+	ActualFingerprint string `json:"actualFingerprint,omitempty"`
+	State             string `json:"state,omitempty"`
+	Changed           bool   `json:"changed"`
+	Applied           bool   `json:"applied"`
 }
 
 type ListDirectoryInput struct {
@@ -191,6 +197,8 @@ type EditFileOutput struct {
 	TargetPath        string `json:"targetPath,omitempty"`
 	TargetFingerprint string `json:"targetFingerprint,omitempty"`
 	ResultFingerprint string `json:"resultFingerprint,omitempty"`
+	ActualFingerprint string `json:"actualFingerprint,omitempty"`
+	State             string `json:"state,omitempty"`
 	Encoding          string `json:"encoding,omitempty"`
 	HasBOM            bool   `json:"hasBOM,omitempty"`
 	BOMType           string `json:"bomType,omitempty"`

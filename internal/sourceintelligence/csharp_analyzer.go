@@ -551,29 +551,7 @@ func (parser *csharpParser) tokenEqual(index int, text string) bool {
 }
 
 func buildTokenPairs(tokens []Token) map[int]int {
-	pairs := make(map[int]int)
-	var stack []int
-	for index, token := range tokens {
-		switch token.Text {
-		case "(", "[", "{":
-			stack = append(stack, index)
-		case ")", "]", "}":
-			if len(stack) == 0 {
-				continue
-			}
-			open := stack[len(stack)-1]
-			if matchingToken(tokens[open].Text, token.Text) {
-				stack = stack[:len(stack)-1]
-				pairs[open] = index
-				pairs[index] = open
-			}
-		}
-	}
-	return pairs
-}
-
-func matchingToken(open, close string) bool {
-	return open == "(" && close == ")" || open == "[" && close == "]" || open == "{" && close == "}"
+	return PairDelimiterTokens(tokens, nil)
 }
 
 func csharpVisibility(modifiers []string) Visibility {

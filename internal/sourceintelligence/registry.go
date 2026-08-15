@@ -12,19 +12,99 @@ import (
 type AnalyzerID string
 
 const (
-	AnalyzerGo         AnalyzerID = "go-ast"
-	AnalyzerCSharp     AnalyzerID = "csharp-native"
-	AnalyzerVBNet      AnalyzerID = "vbnet-native"
-	AnalyzerPython     AnalyzerID = "python-native"
-	AnalyzerClassicASP AnalyzerID = "classic-asp-composite"
+	AnalyzerGo             AnalyzerID = "go-ast"
+	AnalyzerCSharp         AnalyzerID = "csharp-native"
+	AnalyzerVBNet          AnalyzerID = "vbnet-native"
+	AnalyzerPython         AnalyzerID = "python-native"
+	AnalyzerClassicASP     AnalyzerID = "classic-asp-composite"
+	AnalyzerC              AnalyzerID = "c-native"
+	AnalyzerCPP            AnalyzerID = "cpp-native"
+	AnalyzerJava           AnalyzerID = "java-native"
+	AnalyzerKotlin         AnalyzerID = "kotlin-native"
+	AnalyzerJavaScript     AnalyzerID = "javascript-native"
+	AnalyzerTypeScript     AnalyzerID = "typescript-native"
+	AnalyzerRust           AnalyzerID = "rust-native"
+	AnalyzerPHP            AnalyzerID = "php-native"
+	AnalyzerRuby           AnalyzerID = "ruby-native"
+	AnalyzerSwift          AnalyzerID = "swift-native"
+	AnalyzerPascal         AnalyzerID = "pascal-native"
+	AnalyzerDelphi         AnalyzerID = "delphi-native"
+	AnalyzerVB6            AnalyzerID = "vb6-native"
+	AnalyzerVBA            AnalyzerID = "vba-native"
+	AnalyzerVBScript       AnalyzerID = "vbscript-native"
+	AnalyzerQBasic         AnalyzerID = "qbasic-native"
+	AnalyzerClassicBasic   AnalyzerID = "classic-basic-native"
+	AnalyzerFreeBasic      AnalyzerID = "freebasic-native"
+	AnalyzerPureBasic      AnalyzerID = "purebasic-native"
+	AnalyzerFSharp         AnalyzerID = "fsharp-native"
+	AnalyzerCPPCLI         AnalyzerID = "cpp-cli-native"
+	AnalyzerJScriptNet     AnalyzerID = "jscript-net-native"
+	AnalyzerCIL            AnalyzerID = "cil-native"
+	AnalyzerPowerShell     AnalyzerID = "powershell-native"
+	AnalyzerASPNetWebForms AnalyzerID = "aspnet-webforms-composite"
+	AnalyzerRazor          AnalyzerID = "razor-composite"
+	AnalyzerBlazor         AnalyzerID = "blazor-composite"
+	AnalyzerXAML           AnalyzerID = "xaml-native"
+	AnalyzerMQL4           AnalyzerID = "mql4-native"
+	AnalyzerMQL5           AnalyzerID = "mql5-native"
+	AnalyzerObjectiveC     AnalyzerID = "objective-c-native"
+	AnalyzerObjectiveCPP   AnalyzerID = "objective-cpp-native"
+	AnalyzerDart           AnalyzerID = "dart-native"
+	AnalyzerD              AnalyzerID = "d-native"
+	AnalyzerZig            AnalyzerID = "zig-native"
+	AnalyzerNim            AnalyzerID = "nim-native"
+	AnalyzerSolidity       AnalyzerID = "solidity-native"
+	AnalyzerApex           AnalyzerID = "apex-native"
+	AnalyzerAL             AnalyzerID = "al-native"
+	AnalyzerArduino        AnalyzerID = "arduino-native"
 )
 
 var knownAnalyzerIDs = map[AnalyzerID]struct{}{
-	AnalyzerGo:         {},
-	AnalyzerCSharp:     {},
-	AnalyzerVBNet:      {},
-	AnalyzerPython:     {},
-	AnalyzerClassicASP: {},
+	AnalyzerGo:             {},
+	AnalyzerCSharp:         {},
+	AnalyzerVBNet:          {},
+	AnalyzerPython:         {},
+	AnalyzerClassicASP:     {},
+	AnalyzerC:              {},
+	AnalyzerCPP:            {},
+	AnalyzerJava:           {},
+	AnalyzerKotlin:         {},
+	AnalyzerJavaScript:     {},
+	AnalyzerTypeScript:     {},
+	AnalyzerRust:           {},
+	AnalyzerPHP:            {},
+	AnalyzerRuby:           {},
+	AnalyzerSwift:          {},
+	AnalyzerPascal:         {},
+	AnalyzerDelphi:         {},
+	AnalyzerVB6:            {},
+	AnalyzerVBA:            {},
+	AnalyzerVBScript:       {},
+	AnalyzerQBasic:         {},
+	AnalyzerClassicBasic:   {},
+	AnalyzerFreeBasic:      {},
+	AnalyzerPureBasic:      {},
+	AnalyzerFSharp:         {},
+	AnalyzerCPPCLI:         {},
+	AnalyzerJScriptNet:     {},
+	AnalyzerCIL:            {},
+	AnalyzerPowerShell:     {},
+	AnalyzerASPNetWebForms: {},
+	AnalyzerRazor:          {},
+	AnalyzerBlazor:         {},
+	AnalyzerXAML:           {},
+	AnalyzerMQL4:           {},
+	AnalyzerMQL5:           {},
+	AnalyzerObjectiveC:     {},
+	AnalyzerObjectiveCPP:   {},
+	AnalyzerDart:           {},
+	AnalyzerD:              {},
+	AnalyzerZig:            {},
+	AnalyzerNim:            {},
+	AnalyzerSolidity:       {},
+	AnalyzerApex:           {},
+	AnalyzerAL:             {},
+	AnalyzerArduino:        {},
 }
 
 var canonicalLanguageIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -32,9 +112,23 @@ var canonicalLanguageIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`
 // LanguageCapabilities describe only capabilities actually enabled in the
 // current milestone. Future registry entries can exist with all capabilities false.
 type LanguageCapabilities struct {
-	SourceAnalysis  bool
-	Composite       bool
-	CaseInsensitive bool
+	SourceAnalysis             bool
+	Composite                  bool
+	CaseInsensitive            bool
+	Declarations               bool
+	Hierarchy                  bool
+	Signatures                 bool
+	Ranges                     bool
+	Dependencies               bool
+	InheritanceRelations       bool
+	SyntacticCalls             bool
+	ScopeResolvedReferences    bool
+	ProjectResolvedReferences  bool
+	ProjectResolvedDefinitions bool
+	Implementations            bool
+	Overrides                  bool
+	SemanticRelations          bool
+	IncrementalIndex           bool
 }
 
 // LanguageDescriptor is the canonical routing record for one language family.
@@ -48,6 +142,14 @@ type LanguageDescriptor struct {
 	ShebangInterpreters []string
 	Analyzer            AnalyzerID
 	Capabilities        LanguageCapabilities
+	Family              string
+	DetectionEvidence   []EvidenceKind
+	ScannerProfile      string
+	CompositeBehavior   string
+	EncodingCoverage    string
+	AnalyzerStrategy    string
+	AnalyzerVersion     string
+	KnownLimitations    []string
 }
 
 // LanguageRegistry is an immutable validated routing table after construction.
@@ -87,6 +189,7 @@ func NewLanguageRegistry(descriptors []LanguageDescriptor) (*LanguageRegistry, e
 		if _, exists := registry.byID[descriptor.ID]; exists {
 			return nil, fmt.Errorf("duplicate canonical language %q", descriptor.ID)
 		}
+		descriptor = enrichLanguageDescriptor(descriptor)
 		if descriptor.Analyzer != "" {
 			if _, ok := knownAnalyzerIDs[descriptor.Analyzer]; !ok {
 				return nil, fmt.Errorf("language %s references unknown analyzer %q", descriptor.ID, descriptor.Analyzer)
@@ -99,6 +202,9 @@ func NewLanguageRegistry(descriptors []LanguageDescriptor) (*LanguageRegistry, e
 		}
 		if descriptor.Capabilities.Composite && !descriptor.Capabilities.SourceAnalysis {
 			return nil, fmt.Errorf("language %s composite capability requires source-analysis capability", descriptor.ID)
+		}
+		if err := validateLanguageCapabilityMetadata(descriptor); err != nil {
+			return nil, err
 		}
 
 		descriptor.Aliases = normalizeUniqueStrings(descriptor.Aliases, normalizeLanguageName)
@@ -178,6 +284,8 @@ func cloneLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor {
 	descriptor.Extensions = append([]string(nil), descriptor.Extensions...)
 	descriptor.AmbiguousExtensions = append([]string(nil), descriptor.AmbiguousExtensions...)
 	descriptor.ShebangInterpreters = append([]string(nil), descriptor.ShebangInterpreters...)
+	descriptor.DetectionEvidence = append([]EvidenceKind(nil), descriptor.DetectionEvidence...)
+	descriptor.KnownLimitations = append([]string(nil), descriptor.KnownLimitations...)
 	return descriptor
 }
 
@@ -295,7 +403,16 @@ func (registry *LanguageRegistry) ShebangCandidates(interpreter string) []Langua
 // DefaultLanguageRegistry contains the R25 analyzable canaries and representative
 // future-family routing metadata. Future entries intentionally have no analyzer.
 func DefaultLanguageRegistry() (*LanguageRegistry, error) {
-	return NewLanguageRegistry(defaultLanguageDescriptors())
+	registry, err := NewLanguageRegistry(defaultLanguageDescriptors())
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range registry.CapabilityRows() {
+		if row.Family == "custom" {
+			return nil, fmt.Errorf("default language %s has no approved R27 family classification", row.ID)
+		}
+	}
+	return registry, nil
 }
 
 func defaultLanguageDescriptors() []LanguageDescriptor {
@@ -304,6 +421,9 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 			ID: id, Aliases: aliases, Extensions: extensions, Analyzer: analyzer,
 			Capabilities: LanguageCapabilities{SourceAnalysis: true},
 		}
+	}
+	planned := func(id string, extensions []string) LanguageDescriptor {
+		return LanguageDescriptor{ID: id, Extensions: extensions}
 	}
 
 	goLanguage := analyzable("go", AnalyzerGo, []string{".go"}, "golang")
@@ -314,36 +434,114 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	python.ShebangInterpreters = []string{"python", "python3", "python3.11", "python3.12", "python3.13"}
 	asp := analyzable("classic-asp", AnalyzerClassicASP, []string{".asp"}, "asp", "active-server-pages")
 	asp.Capabilities.Composite = true
+	cLanguage := analyzable("c", AnalyzerC, []string{".c"})
+	cLanguage.AmbiguousExtensions = []string{".h"}
+	cppLanguage := analyzable("cpp", AnalyzerCPP, []string{".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"}, "c++")
+	cppLanguage.AmbiguousExtensions = []string{".h"}
+	javaLanguage := analyzable("java", AnalyzerJava, []string{".java"})
+	kotlinLanguage := analyzable("kotlin", AnalyzerKotlin, []string{".kt", ".kts"})
+	javascriptLanguage := analyzable("javascript", AnalyzerJavaScript, []string{".js", ".mjs", ".cjs", ".jsx"}, "js")
+	javascriptLanguage.ShebangInterpreters = []string{"node", "nodejs"}
+	typescriptLanguage := analyzable("typescript", AnalyzerTypeScript, []string{".ts", ".tsx", ".mts", ".cts"}, "ts")
+	typescriptLanguage.CompoundSuffixes = []string{".d.ts"}
+	rustLanguage := analyzable("rust", AnalyzerRust, []string{".rs"})
+	pascalLanguage := analyzable("pascal", AnalyzerPascal, []string{".pp"})
+	pascalLanguage.AmbiguousExtensions = []string{".pas", ".inc"}
+	pascalLanguage.Capabilities.CaseInsensitive = true
+	delphiLanguage := analyzable("delphi", AnalyzerDelphi, []string{".dpr", ".dpk"})
+	delphiLanguage.AmbiguousExtensions = []string{".pas", ".inc"}
+	delphiLanguage.Capabilities.CaseInsensitive = true
+	phpLanguage := analyzable("php", AnalyzerPHP, []string{".php", ".phtml"})
+	phpLanguage.AmbiguousExtensions = []string{".inc"}
+	phpLanguage.ShebangInterpreters = []string{"php"}
+	rubyLanguage := analyzable("ruby", AnalyzerRuby, []string{".rb"})
+	rubyLanguage.ShebangInterpreters = []string{"ruby"}
+	swiftLanguage := analyzable("swift", AnalyzerSwift, []string{".swift"})
+	vb6Language := analyzable("vb6", AnalyzerVB6, nil)
+	vb6Language.AmbiguousExtensions = []string{".bas"}
+	vb6Language.Capabilities.CaseInsensitive = true
+	vbaLanguage := analyzable("vba", AnalyzerVBA, nil)
+	vbaLanguage.AmbiguousExtensions = []string{".bas"}
+	vbaLanguage.Capabilities.CaseInsensitive = true
+	vbScriptLanguage := analyzable("vbscript", AnalyzerVBScript, []string{".vbs"})
+	vbScriptLanguage.Capabilities.CaseInsensitive = true
+	qbasicLanguage := analyzable("qbasic", AnalyzerQBasic, nil, "quickbasic")
+	qbasicLanguage.AmbiguousExtensions = []string{".bas"}
+	qbasicLanguage.Capabilities.CaseInsensitive = true
+	classicBasicLanguage := analyzable("classic-basic", AnalyzerClassicBasic, nil)
+	classicBasicLanguage.Capabilities.CaseInsensitive = true
+	freeBasicLanguage := analyzable("freebasic", AnalyzerFreeBasic, []string{".bi"})
+	freeBasicLanguage.Capabilities.CaseInsensitive = true
+	pureBasicLanguage := analyzable("purebasic", AnalyzerPureBasic, []string{".pb", ".pbi"})
+	pureBasicLanguage.Capabilities.CaseInsensitive = true
+	fsharpLanguage := analyzable("fsharp", AnalyzerFSharp, []string{".fs", ".fsi", ".fsx"})
+	cppcliLanguage := analyzable("cpp-cli", AnalyzerCPPCLI, nil)
+	jscriptNetLanguage := analyzable("jscript-net", AnalyzerJScriptNet, nil)
+	cilLanguage := analyzable("cil", AnalyzerCIL, []string{".il"})
+	powerShellLanguage := analyzable("powershell", AnalyzerPowerShell, []string{".ps1", ".psm1", ".psd1"}, "pwsh")
+	powerShellLanguage.ShebangInterpreters = []string{"pwsh", "powershell"}
+	webFormsLanguage := analyzable("aspnet-webforms", AnalyzerASPNetWebForms, []string{".aspx", ".ascx", ".master"})
+	webFormsLanguage.Capabilities.Composite = true
+	razorLanguage := analyzable("razor", AnalyzerRazor, []string{".cshtml"})
+	razorLanguage.Capabilities.Composite = true
+	blazorLanguage := analyzable("blazor", AnalyzerBlazor, []string{".razor"})
+	blazorLanguage.Capabilities.Composite = true
+	xamlLanguage := analyzable("xaml", AnalyzerXAML, []string{".xaml"})
+	mql4Language := analyzable("mql4", AnalyzerMQL4, []string{".mq4"})
+	mql4Language.AmbiguousExtensions = []string{".mqh"}
+	mql5Language := analyzable("mql5", AnalyzerMQL5, []string{".mq5"})
+	mql5Language.AmbiguousExtensions = []string{".mqh"}
+	objectiveCLanguage := analyzable("objective-c", AnalyzerObjectiveC, nil, "objc")
+	objectiveCLanguage.AmbiguousExtensions = []string{".h", ".m"}
+	objectiveCPPLanguage := analyzable("objective-cpp", AnalyzerObjectiveCPP, []string{".mm"}, "objc++")
+	objectiveCPPLanguage.AmbiguousExtensions = []string{".h"}
+	dartLanguage := analyzable("dart", AnalyzerDart, []string{".dart"})
+	dLanguage := analyzable("d", AnalyzerD, []string{".d"})
+	zigLanguage := analyzable("zig", AnalyzerZig, []string{".zig"})
+	nimLanguage := analyzable("nim", AnalyzerNim, []string{".nim"})
+	solidityLanguage := analyzable("solidity", AnalyzerSolidity, []string{".sol"})
+	apexLanguage := analyzable("apex", AnalyzerApex, []string{".cls"})
+	alLanguage := analyzable("al", AnalyzerAL, []string{".al"})
+	alLanguage.Capabilities.CaseInsensitive = true
+	arduinoLanguage := analyzable("arduino", AnalyzerArduino, []string{".ino"})
 
 	return []LanguageDescriptor{
-		goLanguage, csharp, vbnet, python, asp,
-		{ID: "c", Extensions: []string{".c"}, AmbiguousExtensions: []string{".h"}},
-		{ID: "cpp", Aliases: []string{"c++"}, Extensions: []string{".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"}, AmbiguousExtensions: []string{".h"}},
-		{ID: "objective-c", Extensions: []string{".mm"}, AmbiguousExtensions: []string{".h", ".m"}},
+		goLanguage, csharp, vbnet, python, asp, cLanguage, cppLanguage,
+		objectiveCLanguage,
+		objectiveCPPLanguage,
 		{ID: "matlab", AmbiguousExtensions: []string{".m"}},
-		{ID: "javascript", Aliases: []string{"js"}, Extensions: []string{".js", ".mjs", ".cjs", ".jsx"}, ShebangInterpreters: []string{"node", "nodejs"}},
-		{ID: "typescript", Aliases: []string{"ts"}, Extensions: []string{".ts", ".tsx", ".mts", ".cts"}, CompoundSuffixes: []string{".d.ts"}},
-		{ID: "rust", Extensions: []string{".rs"}},
-		{ID: "pascal", Extensions: []string{".pp"}, AmbiguousExtensions: []string{".pas"}},
-		{ID: "delphi", Extensions: []string{".dpr", ".dpk"}, AmbiguousExtensions: []string{".pas", ".inc"}},
-		{ID: "php", Extensions: []string{".php", ".phtml"}, AmbiguousExtensions: []string{".inc"}, ShebangInterpreters: []string{"php"}},
-		{ID: "mql4", Extensions: []string{".mq4"}, AmbiguousExtensions: []string{".mqh"}},
-		{ID: "mql5", Extensions: []string{".mq5"}, AmbiguousExtensions: []string{".mqh"}},
-		{ID: "vba", AmbiguousExtensions: []string{".bas"}},
-		{ID: "vb6", AmbiguousExtensions: []string{".bas"}},
-		{ID: "qbasic", Aliases: []string{"quickbasic"}, AmbiguousExtensions: []string{".bas"}},
-		{ID: "razor", Extensions: []string{".cshtml", ".razor"}},
+		{ID: "octave", AmbiguousExtensions: []string{".m"}},
+		javascriptLanguage, typescriptLanguage, rustLanguage,
+		pascalLanguage, delphiLanguage, phpLanguage,
+		mql4Language,
+		mql5Language,
+		vbaLanguage, vb6Language, qbasicLanguage, razorLanguage, blazorLanguage,
 		{ID: "vue", Extensions: []string{".vue"}},
-		{ID: "java", Extensions: []string{".java"}},
-		{ID: "kotlin", Extensions: []string{".kt", ".kts"}},
-		{ID: "swift", Extensions: []string{".swift"}},
-		{ID: "ruby", Extensions: []string{".rb"}, ShebangInterpreters: []string{"ruby"}},
+		javaLanguage, kotlinLanguage,
+		swiftLanguage, rubyLanguage,
 		{ID: "perl", Extensions: []string{".pl", ".pm"}, ShebangInterpreters: []string{"perl"}},
 		{ID: "bash", Extensions: []string{".sh", ".bash"}, ShebangInterpreters: []string{"bash", "sh"}},
-		{ID: "powershell", Aliases: []string{"pwsh"}, Extensions: []string{".ps1", ".psm1", ".psd1"}, ShebangInterpreters: []string{"pwsh", "powershell"}},
+		powerShellLanguage,
 		{ID: "lua", Extensions: []string{".lua"}, ShebangInterpreters: []string{"lua"}},
 		{ID: "r", Extensions: []string{".r"}},
-		{ID: "zig", Extensions: []string{".zig"}},
+		zigLanguage,
+		dartLanguage,
+		dLanguage,
+		nimLanguage,
+		planned("flow", nil),
+		planned("luau", []string{".luau"}),
+		planned("gleam", []string{".gleam"}),
+		fsharpLanguage, cppcliLanguage, jscriptNetLanguage, cilLanguage, vbScriptLanguage, classicBasicLanguage, freeBasicLanguage, pureBasicLanguage,
+		planned("julia", []string{".jl"}),
+		planned("ocaml", []string{".ml", ".mli"}),
+		planned("common-lisp", []string{".lisp", ".lsp"}),
+		planned("clojure", []string{".clj", ".cljs", ".cljc"}),
+		planned("emacs-lisp", []string{".el"}),
+		planned("shell", nil),
+		planned("tcl", []string{".tcl"}),
+		planned("autohotkey", []string{".ahk"}),
+		planned("assembly", []string{".asm", ".s"}),
+		arduinoLanguage,
 		{ID: "fortran", Extensions: []string{".f", ".f90", ".f95", ".f03", ".f08"}},
 		{ID: "cobol", Extensions: []string{".cob", ".cbl"}},
 		{ID: "ada", Extensions: []string{".adb", ".ads"}},
@@ -353,12 +551,34 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		{ID: "scala", Extensions: []string{".scala", ".sc"}},
 		{ID: "groovy", Extensions: []string{".groovy"}},
 		{ID: "sql", Extensions: []string{".sql"}},
+		planned("plsql", []string{".pls", ".pkb", ".pks"}),
+		planned("graphql", []string{".graphql", ".gql"}),
+		planned("nix", []string{".nix"}),
+		planned("proto", []string{".proto"}),
+		solidityLanguage,
+		apexLanguage,
+		alLanguage,
 		{ID: "html", Extensions: []string{".html", ".htm"}},
 		{ID: "css", Extensions: []string{".css"}},
+		planned("scss", []string{".scss"}),
+		planned("sass", []string{".sass"}),
+		planned("less", []string{".less"}),
 		{ID: "json", Extensions: []string{".json"}},
 		{ID: "yaml", Extensions: []string{".yaml", ".yml"}},
 		{ID: "toml", Extensions: []string{".toml"}},
-		{ID: "xml", Extensions: []string{".xml"}},
+		{ID: "xml", Extensions: []string{".xml"}}, xamlLanguage,
+		planned("markdown", []string{".md", ".markdown"}),
+		planned("openapi", nil),
+		planned("ansible-yaml", nil),
+		webFormsLanguage,
+		planned("svelte", []string{".svelte"}),
+		planned("astro", []string{".astro"}),
+		planned("php-html", nil),
+		planned("jsp", []string{".jsp"}),
+		planned("jinja", []string{".jinja", ".j2"}),
+		planned("twig", []string{".twig"}),
+		{ID: "blade", CompoundSuffixes: []string{".blade.php"}},
+		planned("ejs", []string{".ejs"}),
 		{ID: "dockerfile", ExactBasenames: []string{"Dockerfile"}},
 		{ID: "make", ExactBasenames: []string{"Makefile", "GNUmakefile"}},
 		{ID: "terraform", Extensions: []string{".tf", ".tfvars"}},

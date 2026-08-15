@@ -263,6 +263,28 @@ func TestLanguageDetectorRejectsSpoofedShebangAndUnknownExplicitLanguage(t *test
 	}
 }
 
+func TestR27DetectorKeepsRazorAndBlazorCanonicalRoutingDistinct(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, testCase := range []struct {
+		path string
+		want string
+	}{
+		{path: "View.cshtml", want: "razor"},
+		{path: "Component.razor", want: "blazor"},
+	} {
+		result, err := DetectLanguage(context.Background(), registry, DetectionInput{Path: testCase.path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.State != DetectionProbable || result.Language != testCase.want {
+			t.Fatalf("%s result = %+v, want probable %s", testCase.path, result, testCase.want)
+		}
+	}
+}
+
 func TestLanguageDetectorBoundedContentProbeDeterminismAndCancellation(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

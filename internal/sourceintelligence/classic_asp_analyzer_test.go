@@ -69,10 +69,10 @@ func TestClassicASPAnalyzerSegmentsAndDelegatesVBScript(t *testing.T) {
 }
 
 func TestClassicASPAnalyzerReportsUnsupportedEmbeddedLanguage(t *testing.T) {
-	text := `<%@ Language="JScript" %>
+	text := `<%@ Language="PerlScript" %>
 <html><body>
-<% function nope() { return 1; } %>
-<script language="JScript" runat="server">function alsoNope(){}</script>
+<% sub nope : end sub %>
+<script language="PerlScript" runat="server">sub alsoNope</script>
 </body></html>`
 	document := sourceDocumentForScanner(text)
 	document.Path = "unsupported.asp"
@@ -81,18 +81,18 @@ func TestClassicASPAnalyzerReportsUnsupportedEmbeddedLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
-		t.Fatalf("unsupported JScript did not lower coverage: %+v", result.Analysis)
+		t.Fatalf("unsupported PerlScript did not lower coverage: %+v", result.Analysis)
 	}
 	if len(result.Analysis.Symbols) != 0 {
-		t.Fatalf("unsupported JScript was misparsed: %+v", result.Analysis.Symbols)
+		t.Fatalf("unsupported PerlScript was misparsed: %+v", result.Analysis.Symbols)
 	}
 	unsupported := 0
 	for _, region := range result.Regions {
-		if region.Kind == "server-script" && !region.Supported && region.Language == "jscript" {
+		if region.Kind == "server-script" && !region.Supported && region.Language == "perlscript" {
 			unsupported++
 		}
 	}
 	if unsupported != 2 {
-		t.Fatalf("unsupported JScript regions=%d, regions=%+v", unsupported, result.Regions)
+		t.Fatalf("unsupported PerlScript regions=%d, regions=%+v", unsupported, result.Regions)
 	}
 }
