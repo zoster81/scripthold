@@ -460,7 +460,7 @@ func commitStagedReplacement(path, targetTemp string, options ReplaceOptions, op
 	if options.Expected != nil && !options.Expected.Exists {
 		commitTarget = ops.installNoReplace
 	}
-	if err = commitTarget(targetTemp, path); err != nil {
+	if err = commitStagedTargetWithRetry(path, targetTemp, options.Expected, commitTarget); err != nil {
 		if options.Expected != nil && !options.Expected.Exists && ops.isDestinationExists(err) {
 			err = fmt.Errorf("%w: path appeared before commit: %s", ErrConcurrentModification, path)
 		}
@@ -475,6 +475,36 @@ func commitStagedReplacement(path, targetTemp string, options ReplaceOptions, op
 	// backup is no longer needed.
 	backupCommitted = false
 	return nil
+}
+
+const (
+	atomicReplaceRetryWindow = 750 * time.Millisecond
+	atomicReplaceRetryDelay  = 25 * time.Millisecond
+)
+
+func commitStagedTargetWithRetry(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error) error {
+	err := commit(stagedPath, path)
+	if err == nil || expected == nil || !expected.Exists || !isRetryableAtomicReplaceError(err) {
+		return err
+	}
+
+	deadline := time.Now().Add(atomicReplaceRetryWindow)
+	lastErr := err
+	for time.Now().Before(deadline) {
+		time.Sleep(atomicReplaceRetryDelay)
+		if verifyErr := expected.Verify(path); verifyErr != nil {
+			if isRetryableAtomicReplaceError(verifyErr) {
+				lastErr = verifyErr
+				continue
+			}
+			return fmt.Errorf("target changed while waiting to retry atomic replacement: %w", verifyErr)
+		}
+		lastErr = commit(stagedPath, path)
+		if lastErr == nil || !isRetryableAtomicReplaceError(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
 }
 
 // CopyFile copies a regular file through the same durable staging layer and

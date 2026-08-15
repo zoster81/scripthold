@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-9 are complete, and Phase 10 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
+**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-11 are complete, and Phase 12 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
 
 R27 builds on the language-neutral native analyzer architecture required by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The implementation foundation is fixed to Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters and project resolvers plus standard-library facilities where available. Public schema details remain subject to the staged contract review below, but external parser engines, downloaded grammars, compiler frontends and language-server runtimes are not implementation-time alternatives within the approved R27 plan.
 
@@ -665,15 +665,35 @@ Legacy encodings and line-ending conventions are part of the quality gate for la
 
 Exit criterion: **met** — legacy/scientific/functional entries have explicit, tested declaration/structure capability rather than text-only placeholders unless the format genuinely has no declaration concept.
 
-### Phase 10 — data, infrastructure, hardware and document formats
+### Phase 10 — data, infrastructure, hardware and document formats — COMPLETE
+
+Completed on 2026-08-15 with 22 production provider identities for SQL, PL/SQL, GraphQL, Terraform/HCL, Nix, Protocol Buffers, VHDL, Verilog, SystemVerilog, Assembly, HTML, XML, CSS, SCSS, Sass, Less, JSON, YAML, TOML, Markdown, OpenAPI and Ansible-oriented YAML, raising the mechanically generated capability matrix from 68 to 90 active providers while retaining 103 total registry rows. HCL is a canonical alias/extension route to the `terraform` provider rather than a duplicate provider identity; OpenAPI and Ansible remain separate capability rows selected only by distinctive root structure instead of treating every YAML document as ambiguous.
+
+The native recognizers expose only format-appropriate structural entities: SQL schemas/tables/views/functions with common, PostgreSQL and SQL Server DDL profiles; PL/SQL packages/routines; GraphQL schemas/types/fields/operations; Terraform resources/modules/variables plus generic HCL sections; Proto packages/messages/services/RPCs and literal imports; VHDL entities/architectures/signals; Verilog/SystemVerilog modules/interfaces/packages/signals; GAS/NASM/MASM-style Assembly labels; explicit markup IDs; CSS-family selectors/variables; JSON/YAML/TOML keys/sections; Markdown headings; OpenAPI operations/component schemas; and Ansible plays/tasks. New normalized `schema`, `operation`, `signal`, `entity`, `label`, `selector`, `section`, `key` and `resource` kinds extend the existing public-neutral symbol vocabulary without changing the `source_symbols` request schema.
+
+Hardening preserves offsets while masking comments, strings, heredocs, CDATA and fenced code where appropriate, degrades malformed structured input to explicit incomplete coverage, and uses a Phase-10-only `distinctive-content` detector tier so strong signatures can safely override generic `.sql`/`.yaml` extensions without changing global extension priority. Adversarial tests prove that those strong markers do not leak from comments, strings, YAML block scalars or nested examples. Generic `.yaml` and `.sql` remain generic without distinctive evidence, and Verilog/SystemVerilog detection remains mutually exclusive when stronger SystemVerilog constructs are present.
+
+Conformance covers Windows-1252/CRLF, UTF-16 LE/BE and UTF-32LE decoded-source fixtures with deterministic repeated analysis, cancellation, malformed/opaque negatives, generated 1,200-declaration limits for all 22 providers, SQL/HCL/Assembly dialect cases and heterogeneous public `source_symbols` routing. The terminal fuzz gate executed 1,394,056 cases across all 22 analyzers, adding 415 new interesting inputs beyond the seed corpus with no panic or invariant failure.
+
+The original acceptance scope follows for auditability:
 
 Implement structural capabilities for SQL with dialect profiles, PL/SQL, GraphQL, HCL/Terraform, Nix, Protocol Buffers, VHDL, Verilog/SystemVerilog, Assembly dialects, HTML, XML, CSS/SCSS/Sass/Less, JSON, YAML, TOML, Markdown, OpenAPI and Ansible-oriented YAML.
 
 These formats do not need fictitious programming-language semantics. Their capability rows should expose meaningful entities such as schemas/types/operations/modules/signals/entities/labels/selectors/sections/keys/resources depending on the format, plus dependencies/includes where structurally meaningful.
 
-Exit criterion: the complete approved non-general-purpose catalog is routable and provides useful truthful structural navigation.
+Exit criterion: **met** — the complete approved non-general-purpose catalog is routable and provides useful truthful structural navigation.
 
-### Phase 11 — composite/template breadth
+### Phase 11 — composite/template breadth — COMPLETE
+
+Completed on 2026-08-15 with nine new production provider identities for Vue, Svelte, Astro, PHP/HTML, JSP, Jinja, Twig, Blade and EJS, raising the mechanically generated capability matrix from 90 to 99 active providers while retaining 103 total registry rows. Vue, Svelte and Astro preserve host-document coordinates while delegating supported script/style regions to the existing JavaScript/TypeScript and CSS-family analyzers; Astro frontmatter is treated as TypeScript structure. PHP/HTML, JSP and EJS keep host markup separate from explicit PHP/Java/JavaScript regions. Jinja and Twig expose only structural block/macro declarations, while Blade exposes structural sections plus explicit `@php` regions instead of pretending template expressions are PHP semantics.
+
+The same wave completes the previously partial ASP.NET Web Forms, Razor and Blazor composite combinations: structurally declared C#/VB server regions continue to use the Phase 6 analyzers, while host HTML and supported client JavaScript/CSS regions now participate in the same host-coordinate result. Embedded symbols retain their real region language while the analyzer identity remains the composite host provider. Unsupported embedded language hints remain explicit unsupported regions and lower coverage rather than being silently coerced.
+
+Hardening masks HTML/template comments and opaque regions before discovery, orders and de-overlaps embedded regions in source order, preserves original offsets with full-length masking, bounds retained symbols/regions/dependencies/relations, propagates cancellation, and reports unterminated regions as incomplete coverage with diagnostics. Static host relationships are retained only when the target is literal and structurally justified: script `src`, JSP include directives, Jinja/Twig literal include/extends/import forms, Blade literal include/extends forms, EJS literal `include(...)`, and dependencies already proven by delegated JavaScript/TypeScript/PHP analyzers. Dynamic template targets are not promoted to dependencies.
+
+Conformance covers Windows-1252/CRLF, UTF-16 LE/BE and UTF-32LE decoded-source fixtures with deterministic repeated analysis, 1,200-region retention limits, malformed/opaque negatives, unsupported `lang` hints, public heterogeneous `source_symbols` outline and exact-find routing, historical Phase 6 composite regressions, and a terminal fuzz campaign of 161,436 executions across all nine new analyzers with 104 new interesting inputs beyond the nine seed cases and no panic or invariant failure. The project-wide index itself remains a later Phase 15 responsibility; Phase 11 proves that composite/template facts and stable source regions are normalized inputs for those later search/index layers rather than claiming that the incremental index already exists.
+
+The original acceptance scope follows for auditability:
 
 Extend `CompositeSegmenter` support to Vue, Svelte, Astro, PHP/HTML, JSP, Jinja, Twig, Blade, EJS, ASP.NET Web Forms and Razor/Blazor combinations not already complete.
 
@@ -686,7 +706,7 @@ Requirements:
 - report unsupported embedded languages/regions explicitly;
 - expose host/import/include relationships without pretending template expressions are project-resolved semantics.
 
-Exit criterion: mixed-source files participate in outline/search/index queries without corrupting ranges or hiding unsupported regions.
+Exit criterion: **met at the Phase-11 source-analysis boundary** — mixed-source files participate in public outline/find navigation with stable normalized regions and truthful unsupported-region coverage, and those facts are ready for the later project search/index phases without pre-claiming Phase 15 incremental indexing.
 
 ### Phase 12 — project symbol tables and dependency resolution
 

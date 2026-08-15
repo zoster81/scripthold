@@ -80,6 +80,37 @@ const (
 	AnalyzerCommonLisp     AnalyzerID = "common-lisp-native"
 	AnalyzerClojure        AnalyzerID = "clojure-native"
 	AnalyzerEmacsLisp      AnalyzerID = "emacs-lisp-native"
+	AnalyzerSQL            AnalyzerID = "sql-native"
+	AnalyzerPLSQL          AnalyzerID = "plsql-native"
+	AnalyzerGraphQL        AnalyzerID = "graphql-native"
+	AnalyzerTerraform      AnalyzerID = "terraform-native"
+	AnalyzerNix            AnalyzerID = "nix-native"
+	AnalyzerProto          AnalyzerID = "proto-native"
+	AnalyzerVHDL           AnalyzerID = "vhdl-native"
+	AnalyzerVerilog        AnalyzerID = "verilog-native"
+	AnalyzerSystemVerilog  AnalyzerID = "systemverilog-native"
+	AnalyzerAssembly       AnalyzerID = "assembly-native"
+	AnalyzerHTML           AnalyzerID = "html-native"
+	AnalyzerXML            AnalyzerID = "xml-native"
+	AnalyzerCSS            AnalyzerID = "css-native"
+	AnalyzerSCSS           AnalyzerID = "scss-native"
+	AnalyzerSass           AnalyzerID = "sass-native"
+	AnalyzerLess           AnalyzerID = "less-native"
+	AnalyzerJSON           AnalyzerID = "json-native"
+	AnalyzerYAML           AnalyzerID = "yaml-native"
+	AnalyzerTOML           AnalyzerID = "toml-native"
+	AnalyzerMarkdown       AnalyzerID = "markdown-native"
+	AnalyzerOpenAPI        AnalyzerID = "openapi-native"
+	AnalyzerAnsibleYAML    AnalyzerID = "ansible-yaml-native"
+	AnalyzerVue            AnalyzerID = "vue-native"
+	AnalyzerSvelte         AnalyzerID = "svelte-native"
+	AnalyzerAstro          AnalyzerID = "astro-native"
+	AnalyzerPHPHTML        AnalyzerID = "php-html-native"
+	AnalyzerJSP            AnalyzerID = "jsp-native"
+	AnalyzerJinja          AnalyzerID = "jinja-native"
+	AnalyzerTwig           AnalyzerID = "twig-native"
+	AnalyzerBlade          AnalyzerID = "blade-native"
+	AnalyzerEJS            AnalyzerID = "ejs-native"
 )
 
 var knownAnalyzerIDs = map[AnalyzerID]struct{}{
@@ -151,6 +182,37 @@ var knownAnalyzerIDs = map[AnalyzerID]struct{}{
 	AnalyzerCommonLisp:     {},
 	AnalyzerClojure:        {},
 	AnalyzerEmacsLisp:      {},
+	AnalyzerSQL:            {},
+	AnalyzerPLSQL:          {},
+	AnalyzerGraphQL:        {},
+	AnalyzerTerraform:      {},
+	AnalyzerNix:            {},
+	AnalyzerProto:          {},
+	AnalyzerVHDL:           {},
+	AnalyzerVerilog:        {},
+	AnalyzerSystemVerilog:  {},
+	AnalyzerAssembly:       {},
+	AnalyzerHTML:           {},
+	AnalyzerXML:            {},
+	AnalyzerCSS:            {},
+	AnalyzerSCSS:           {},
+	AnalyzerSass:           {},
+	AnalyzerLess:           {},
+	AnalyzerJSON:           {},
+	AnalyzerYAML:           {},
+	AnalyzerTOML:           {},
+	AnalyzerMarkdown:       {},
+	AnalyzerOpenAPI:        {},
+	AnalyzerAnsibleYAML:    {},
+	AnalyzerVue:            {},
+	AnalyzerSvelte:         {},
+	AnalyzerAstro:          {},
+	AnalyzerPHPHTML:        {},
+	AnalyzerJSP:            {},
+	AnalyzerJinja:          {},
+	AnalyzerTwig:           {},
+	AnalyzerBlade:          {},
+	AnalyzerEJS:            {},
 }
 
 var canonicalLanguageIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -581,6 +643,49 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	commonLispLanguage := analyzable("common-lisp", AnalyzerCommonLisp, []string{".lisp", ".lsp"})
 	clojureLanguage := analyzable("clojure", AnalyzerClojure, []string{".clj", ".cljs", ".cljc"})
 	emacsLispLanguage := analyzable("emacs-lisp", AnalyzerEmacsLisp, []string{".el"})
+	assemblyLanguage := analyzable("assembly", AnalyzerAssembly, []string{".asm", ".s"})
+	sqlLanguage := analyzable("sql", AnalyzerSQL, []string{".sql"})
+	plsqlLanguage := analyzable("plsql", AnalyzerPLSQL, []string{".pls", ".pkb", ".pks"})
+	plsqlLanguage.Capabilities.CaseInsensitive = true
+	graphqlLanguage := analyzable("graphql", AnalyzerGraphQL, []string{".graphql", ".gql"})
+	terraformLanguage := analyzable("terraform", AnalyzerTerraform, []string{".tf", ".tfvars", ".hcl"}, "hcl")
+	nixLanguage := analyzable("nix", AnalyzerNix, []string{".nix"})
+	protoLanguage := analyzable("proto", AnalyzerProto, []string{".proto"}, "protobuf")
+	vhdlLanguage := analyzable("vhdl", AnalyzerVHDL, []string{".vhd", ".vhdl"})
+	vhdlLanguage.Capabilities.CaseInsensitive = true
+	verilogLanguage := analyzable("verilog", AnalyzerVerilog, []string{".v"})
+	systemVerilogLanguage := analyzable("systemverilog", AnalyzerSystemVerilog, []string{".sv", ".svh"})
+	htmlLanguage := analyzable("html", AnalyzerHTML, []string{".html", ".htm"})
+	xmlLanguage := analyzable("xml", AnalyzerXML, []string{".xml"})
+	cssLanguage := analyzable("css", AnalyzerCSS, []string{".css"})
+	scssLanguage := analyzable("scss", AnalyzerSCSS, []string{".scss"})
+	sassLanguage := analyzable("sass", AnalyzerSass, []string{".sass"})
+	lessLanguage := analyzable("less", AnalyzerLess, []string{".less"})
+	jsonLanguage := analyzable("json", AnalyzerJSON, []string{".json"})
+	yamlLanguage := analyzable("yaml", AnalyzerYAML, []string{".yaml", ".yml"})
+	tomlLanguage := analyzable("toml", AnalyzerTOML, []string{".toml"})
+	markdownLanguage := analyzable("markdown", AnalyzerMarkdown, []string{".md", ".markdown"})
+	openAPILanguage := analyzable("openapi", AnalyzerOpenAPI, nil)
+	ansibleYAMLLanguage := analyzable("ansible-yaml", AnalyzerAnsibleYAML, nil)
+	vueLanguage := analyzable("vue", AnalyzerVue, []string{".vue"})
+	vueLanguage.Capabilities.Composite = true
+	svelteLanguage := analyzable("svelte", AnalyzerSvelte, []string{".svelte"})
+	svelteLanguage.Capabilities.Composite = true
+	astroLanguage := analyzable("astro", AnalyzerAstro, []string{".astro"})
+	astroLanguage.Capabilities.Composite = true
+	phpHTMLLanguage := analyzable("php-html", AnalyzerPHPHTML, nil)
+	phpHTMLLanguage.Capabilities.Composite = true
+	jspLanguage := analyzable("jsp", AnalyzerJSP, []string{".jsp"})
+	jspLanguage.Capabilities.Composite = true
+	jinjaLanguage := analyzable("jinja", AnalyzerJinja, []string{".jinja", ".j2"}, "jinja2")
+	jinjaLanguage.Capabilities.Composite = true
+	twigLanguage := analyzable("twig", AnalyzerTwig, []string{".twig"})
+	twigLanguage.Capabilities.Composite = true
+	bladeLanguage := analyzable("blade", AnalyzerBlade, nil)
+	bladeLanguage.CompoundSuffixes = []string{".blade.php"}
+	bladeLanguage.Capabilities.Composite = true
+	ejsLanguage := analyzable("ejs", AnalyzerEJS, []string{".ejs"})
+	ejsLanguage.Capabilities.Composite = true
 
 	return []LanguageDescriptor{
 		goLanguage, csharp, vbnet, python, asp, cLanguage, cppLanguage,
@@ -593,7 +698,7 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		mql4Language,
 		mql5Language,
 		vbaLanguage, vb6Language, qbasicLanguage, razorLanguage, blazorLanguage,
-		{ID: "vue", Extensions: []string{".vue"}},
+		vueLanguage,
 		javaLanguage, kotlinLanguage,
 		swiftLanguage, rubyLanguage,
 		perlLanguage,
@@ -617,7 +722,7 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		shellLanguage,
 		tclLanguage,
 		autoHotkeyLanguage,
-		planned("assembly", []string{".asm", ".s"}),
+		assemblyLanguage,
 		arduinoLanguage,
 		fortranLanguage,
 		cobolLanguage,
@@ -627,40 +732,40 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		elixirLanguage,
 		{ID: "scala", Extensions: []string{".scala", ".sc"}},
 		groovyLanguage,
-		{ID: "sql", Extensions: []string{".sql"}},
-		planned("plsql", []string{".pls", ".pkb", ".pks"}),
-		planned("graphql", []string{".graphql", ".gql"}),
-		planned("nix", []string{".nix"}),
-		planned("proto", []string{".proto"}),
+		sqlLanguage,
+		plsqlLanguage,
+		graphqlLanguage,
+		nixLanguage,
+		protoLanguage,
 		solidityLanguage,
 		apexLanguage,
 		alLanguage,
-		{ID: "html", Extensions: []string{".html", ".htm"}},
-		{ID: "css", Extensions: []string{".css"}},
-		planned("scss", []string{".scss"}),
-		planned("sass", []string{".sass"}),
-		planned("less", []string{".less"}),
-		{ID: "json", Extensions: []string{".json"}},
-		{ID: "yaml", Extensions: []string{".yaml", ".yml"}},
-		{ID: "toml", Extensions: []string{".toml"}},
-		{ID: "xml", Extensions: []string{".xml"}}, xamlLanguage,
-		planned("markdown", []string{".md", ".markdown"}),
-		planned("openapi", nil),
-		planned("ansible-yaml", nil),
+		htmlLanguage,
+		cssLanguage,
+		scssLanguage,
+		sassLanguage,
+		lessLanguage,
+		jsonLanguage,
+		yamlLanguage,
+		tomlLanguage,
+		xmlLanguage, xamlLanguage,
+		markdownLanguage,
+		openAPILanguage,
+		ansibleYAMLLanguage,
 		webFormsLanguage,
-		planned("svelte", []string{".svelte"}),
-		planned("astro", []string{".astro"}),
-		planned("php-html", nil),
-		planned("jsp", []string{".jsp"}),
-		planned("jinja", []string{".jinja", ".j2"}),
-		planned("twig", []string{".twig"}),
-		{ID: "blade", CompoundSuffixes: []string{".blade.php"}},
-		planned("ejs", []string{".ejs"}),
+		svelteLanguage,
+		astroLanguage,
+		phpHTMLLanguage,
+		jspLanguage,
+		jinjaLanguage,
+		twigLanguage,
+		bladeLanguage,
+		ejsLanguage,
 		{ID: "dockerfile", ExactBasenames: []string{"Dockerfile"}},
 		{ID: "make", ExactBasenames: []string{"Makefile", "GNUmakefile"}},
-		{ID: "terraform", Extensions: []string{".tf", ".tfvars"}},
-		{ID: "verilog", Extensions: []string{".v"}},
-		{ID: "systemverilog", Extensions: []string{".sv", ".svh"}},
-		{ID: "vhdl", Extensions: []string{".vhd", ".vhdl"}},
+		terraformLanguage,
+		verilogLanguage,
+		systemVerilogLanguage,
+		vhdlLanguage,
 	}
 }

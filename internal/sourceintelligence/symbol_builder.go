@@ -60,6 +60,15 @@ const (
 	SymbolKindDelegate       SymbolKind = "delegate"
 	SymbolKindTrait          SymbolKind = "trait"
 	SymbolKindImplementation SymbolKind = "implementation"
+	SymbolKindSchema         SymbolKind = "schema"
+	SymbolKindOperation      SymbolKind = "operation"
+	SymbolKindSignal         SymbolKind = "signal"
+	SymbolKindEntity         SymbolKind = "entity"
+	SymbolKindLabel          SymbolKind = "label"
+	SymbolKindSelector       SymbolKind = "selector"
+	SymbolKindSection        SymbolKind = "section"
+	SymbolKindKey            SymbolKind = "key"
+	SymbolKindResource       SymbolKind = "resource"
 )
 
 var normalizedSymbolKinds = map[SymbolKind]struct{}{
@@ -68,6 +77,8 @@ var normalizedSymbolKinds = map[SymbolKind]struct{}{
 	SymbolKindType: {}, SymbolKindAlias: {}, SymbolKindFunction: {}, SymbolKindMethod: {}, SymbolKindConstructor: {},
 	SymbolKindDestructor: {}, SymbolKindOperator: {}, SymbolKindProperty: {}, SymbolKindEvent: {}, SymbolKindField: {},
 	SymbolKindConstant: {}, SymbolKindVariable: {}, SymbolKindDelegate: {}, SymbolKindTrait: {}, SymbolKindImplementation: {},
+	SymbolKindSchema: {}, SymbolKindOperation: {}, SymbolKindSignal: {}, SymbolKindEntity: {}, SymbolKindLabel: {},
+	SymbolKindSelector: {}, SymbolKindSection: {}, SymbolKindKey: {}, SymbolKindResource: {},
 }
 
 // Visibility is a normalized declaration visibility when the source states one.

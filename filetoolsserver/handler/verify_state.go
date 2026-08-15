@@ -544,6 +544,7 @@ func (h *Handler) runVerificationGit(ctx context.Context, request verificationGi
 	args := []string{
 		"--no-pager", "--literal-pathspecs",
 		"-c", "core.fsmonitor=false",
+		"-c", "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol",
 		"-c", "diff.external=",
 		"-c", "interactive.diffFilter=",
 		"diff", "--check", "--no-ext-diff", "--no-textconv", "--",

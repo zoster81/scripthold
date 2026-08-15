@@ -4,6 +4,8 @@ package filesystem
 
 import (
 	"errors"
+	"fmt"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -29,7 +31,13 @@ func moveFileEx(source, destination string, flags uint32) error {
 	if err != nil {
 		return err
 	}
-	return windows.MoveFileEx(sourcePtr, destinationPtr, flags)
+	if err := windows.MoveFileEx(sourcePtr, destinationPtr, flags); err != nil {
+		if errno, ok := err.(syscall.Errno); ok {
+			return fmt.Errorf("MoveFileEx failed (Win32 code %d): %w", uint32(errno), err)
+		}
+		return err
+	}
+	return nil
 }
 
 func syncDirectory(string) error {

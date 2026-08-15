@@ -149,6 +149,12 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 			t.Fatalf("task catalog is missing %q", name)
 		}
 	}
+	taskGetDescription := []byte(byName["task_get"].Description)
+	for _, term := range [][]byte{[]byte("workerOnline"), []byte("scheduler"), []byte("executor")} {
+		if !bytes.Contains(taskGetDescription, term) {
+			t.Fatalf("task_get description must disambiguate workerOnline from executor liveness: %q", byName["task_get"].Description)
+		}
+	}
 	taskRunSchema, err := json.Marshal(byName["task_run"].InputSchema)
 	if err != nil {
 		t.Fatal(err)

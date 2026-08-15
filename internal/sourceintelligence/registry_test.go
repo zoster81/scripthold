@@ -79,7 +79,17 @@ func TestDefaultLanguageRegistryCompletedProvidersAndFutureShapes(t *testing.T) 
 		}
 	}
 
-	for _, id := range []string{"vue"} {
+	for _, id := range []string{"vue", "svelte", "astro", "php-html", "jsp", "jinja", "twig", "blade", "ejs"} {
+		descriptor, ok := registry.Lookup(id)
+		if !ok {
+			t.Fatalf("missing R27 Phase 11 language %q", id)
+		}
+		if !descriptor.Capabilities.SourceAnalysis || !descriptor.Capabilities.Composite || descriptor.Analyzer == "" {
+			t.Fatalf("R27 Phase 11 provider %q is not routed to a composite analyzer: %+v", id, descriptor)
+		}
+	}
+
+	for _, id := range []string{"flow", "scala", "dockerfile", "make"} {
 		descriptor, ok := registry.Lookup(id)
 		if !ok {
 			t.Fatalf("registry cannot represent future language %q", id)

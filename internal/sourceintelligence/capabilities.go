@@ -199,9 +199,9 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "powershell":
 				descriptor.KnownLimitations = []string{"profiles, dynamic invocation, module/class resolution, interpolation semantics, semantic relations, and incremental indexing are not implemented"}
 			case "aspnet-webforms":
-				descriptor.KnownLimitations = []string{"only declared server-code regions are analyzed; generated partial classes, page lifecycle/event binding, project resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"declared C#/VB server regions plus host HTML and supported client script/style regions are analyzed structurally; generated partial classes, page lifecycle/event binding, template/runtime semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "razor", "blazor":
-				descriptor.KnownLimitations = []string{"only balanced @code/@functions member regions are analyzed; generated component/render semantics, project/type resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"balanced @code/@functions regions plus host HTML and supported client script/style regions are analyzed structurally; inline Razor expressions/directives outside supported member regions, generated component/render semantics, project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "xaml":
 				descriptor.KnownLimitations = []string{"x:Class/x:Name/xmlns declarations are structural only; bindings, resources, code-behind resolution, semantic relations, and incremental indexing are not implemented"}
 			case "mql4", "mql5":
@@ -264,6 +264,48 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"macro expansion, reader conditionals/tagged literals, protocol/runtime dispatch, classpath/project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "emacs-lisp":
 				descriptor.KnownLimitations = []string{"macro/advice/autoload expansion, runtime symbol mutation, package/load-path resolution, semantic relations, and incremental indexing are not implemented"}
+			case "sql":
+				descriptor.KnownLimitations = []string{"SQL support is structural and profile-bounded to common DDL plus selected PostgreSQL and SQL Server forms; query planning, schema/catalog resolution, procedural semantics, database connectivity, semantic relations, and incremental indexing are not implemented"}
+			case "plsql":
+				descriptor.KnownLimitations = []string{"package/procedure/function declarations are structural only; overload/type/schema resolution, dynamic SQL, database connectivity, semantic relations, and incremental indexing are not implemented"}
+			case "graphql":
+				descriptor.KnownLimitations = []string{"schema/type/field and named operation structure is extracted without schema composition, fragment/variable/type validation, resolver/runtime semantics, project resolution, semantic relations, or incremental indexing"}
+			case "terraform":
+				descriptor.KnownLimitations = []string{"Terraform and generic HCL blocks are structural only; expression evaluation, interpolation, provider/module registry resolution, state/plan semantics, dependency graph resolution, semantic relations, and incremental indexing are not implemented"}
+			case "nix":
+				descriptor.KnownLimitations = []string{"let bindings are structural only; lazy evaluation, imports, attribute-set/module/package semantics, derivation evaluation, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "proto":
+				descriptor.KnownLimitations = []string{"package/message/enum/service/rpc structure and literal imports are extracted without descriptor linking, option evaluation, generated-code semantics, type/project resolution, semantic relations, or incremental indexing"}
+			case "vhdl":
+				descriptor.KnownLimitations = []string{"entity/architecture/signal structure is extracted without elaboration, generic/port/type binding, library/project resolution, simulation semantics, semantic relations, or incremental indexing"}
+			case "verilog", "systemverilog":
+				descriptor.KnownLimitations = []string{"module/interface/package/signal structure is bounded and macro-free; preprocessing, generate/elaboration, parameter/type/net binding, simulation semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "assembly":
+				descriptor.KnownLimitations = []string{"GAS/NASM-style labels, numeric local labels, and MASM PROC declarations are structural only; macro expansion, instruction decoding, control-flow/symbol/linker resolution, architecture semantics, semantic relations, and incremental indexing are not implemented"}
+			case "html", "xml":
+				descriptor.KnownLimitations = []string{"only elements with explicit id attributes are navigation symbols; DOM/schema/namespace validation, template/runtime semantics, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
+			case "css", "scss", "sass", "less":
+				descriptor.KnownLimitations = []string{"selector and supported variable structure is lexical/structural only; nesting expansion, mixins/functions, imports/modules, cascade/style computation, semantic relations, and incremental indexing are not implemented"}
+			case "json":
+				descriptor.KnownLimitations = []string{"object keys are navigation symbols; arrays and scalar values are not independently indexed, and schema validation, reference resolution, semantic relations, and incremental indexing are not implemented"}
+			case "yaml":
+				descriptor.KnownLimitations = []string{"mapping keys are indentation-based structural navigation; anchors, aliases, tags, merge semantics, complex keys, schema validation, semantic relations, and incremental indexing are not implemented"}
+			case "toml":
+				descriptor.KnownLimitations = []string{"sections and simple keys are structural navigation; arrays-of-tables, dotted/quoted key edge cases, semantic validation, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
+			case "markdown":
+				descriptor.KnownLimitations = []string{"ATX headings outside fenced code are indexed; setext headings, link/reference resolution, embedded-language semantics, semantic relations, and incremental indexing are not implemented"}
+			case "openapi":
+				descriptor.KnownLimitations = []string{"root OpenAPI 3.x detection plus operationId/component-schema navigation is structural only; YAML/JSON schema semantics, $ref resolution, path/parameter validation, code generation, semantic relations, and incremental indexing are not implemented"}
+			case "ansible-yaml":
+				descriptor.KnownLimitations = []string{"root play/task name navigation is structural only; roles/includes/imports, variables, inventory, module/plugin resolution, execution semantics, semantic relations, and incremental indexing are not implemented"}
+			case "vue", "svelte", "astro":
+				descriptor.KnownLimitations = []string{"host markup plus supported script/style regions are analyzed with offset-preserving masking; framework compilation, template expression semantics, component resolution, generated code, semantic relations, and incremental indexing are not implemented"}
+			case "php-html", "jsp", "ejs":
+				descriptor.KnownLimitations = []string{"host markup plus explicit embedded code regions are analyzed structurally with original host coordinates; template/runtime execution, generated output, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "jinja", "twig":
+				descriptor.KnownLimitations = []string{"host markup plus structural block/macro declarations are indexed; template expressions, filters/tests, inheritance resolution, runtime rendering, semantic relations, and incremental indexing are not implemented"}
+			case "blade":
+				descriptor.KnownLimitations = []string{"host markup, section declarations and explicit @php regions are indexed; Blade expression/directive execution, component/view resolution, generated output, semantic relations, and incremental indexing are not implemented"}
 			default:
 				descriptor.KnownLimitations = []string{"project resolution, syntactic call graph, semantic relations, and incremental indexing are not implemented"}
 			}
@@ -334,7 +376,7 @@ func activeProviderMetadata(analyzer AnalyzerID) (scannerProfile, strategy, vers
 	case AnalyzerPowerShell:
 		return "powershell", "native-token-structural", "r27-p6-v1"
 	case AnalyzerASPNetWebForms, AnalyzerRazor, AnalyzerBlazor:
-		return "dotnet-composite", "native-composite-delegating", "r27-p6-v1"
+		return "dotnet-composite", "native-composite-delegating", "r27-p11-v1"
 	case AnalyzerXAML:
 		return "xaml", "native-document-structural", "r27-p6-v1"
 	case AnalyzerMQL4, AnalyzerMQL5:
@@ -403,6 +445,30 @@ func activeProviderMetadata(analyzer AnalyzerID) (scannerProfile, strategy, vers
 		return "clojure", "native-sexpr-structural", "r27-p9-v1"
 	case AnalyzerEmacsLisp:
 		return "emacs-lisp", "native-sexpr-structural", "r27-p9-v1"
+	case AnalyzerSQL, AnalyzerPLSQL:
+		return "sql-dialect", "native-line-structural", "r27-p10-v1"
+	case AnalyzerGraphQL, AnalyzerProto:
+		return "schema-block", "native-block-structural", "r27-p10-v1"
+	case AnalyzerTerraform:
+		return "hcl", "native-block-structural", "r27-p10-v1"
+	case AnalyzerNix:
+		return "nix", "native-line-structural", "r27-p10-v1"
+	case AnalyzerVHDL:
+		return "vhdl", "native-line-structural", "r27-p10-v1"
+	case AnalyzerVerilog, AnalyzerSystemVerilog:
+		return "hdl", "native-block-structural", "r27-p10-v1"
+	case AnalyzerAssembly:
+		return "assembly", "native-line-structural", "r27-p10-v1"
+	case AnalyzerHTML, AnalyzerXML:
+		return "markup", "native-document-structural", "r27-p10-v1"
+	case AnalyzerCSS, AnalyzerSCSS, AnalyzerSass, AnalyzerLess:
+		return "style", "native-selector-structural", "r27-p10-v1"
+	case AnalyzerJSON:
+		return "json", "native-document-structural", "r27-p10-v1"
+	case AnalyzerYAML, AnalyzerTOML, AnalyzerMarkdown, AnalyzerOpenAPI, AnalyzerAnsibleYAML:
+		return "document-line", "native-line-structural", "r27-p10-v1"
+	case AnalyzerVue, AnalyzerSvelte, AnalyzerAstro, AnalyzerPHPHTML, AnalyzerJSP, AnalyzerJinja, AnalyzerTwig, AnalyzerBlade, AnalyzerEJS:
+		return "composite-template", "native-masked-composite", "r27-p11-v1"
 	default:
 		return "unimplemented", "unimplemented", "none"
 	}
@@ -425,7 +491,7 @@ func detectionEvidenceForDescriptor(descriptor LanguageDescriptor) []EvidenceKin
 	// Modelines can name every registered canonical ID/alias.
 	values = append(values, EvidenceDirective)
 	switch descriptor.ID {
-	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp":
+	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp", "graphql", "proto", "terraform", "vhdl", "verilog", "systemverilog", "plsql", "openapi", "ansible-yaml", "php-html":
 		values = append(values, EvidenceContentMarker)
 	}
 	values = append(values, EvidenceProjectHint)

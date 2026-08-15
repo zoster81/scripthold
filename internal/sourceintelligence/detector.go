@@ -101,71 +101,83 @@ type detectionCollector struct {
 }
 
 var (
-	safeShebangInterpreter  = regexp.MustCompile(`^[A-Za-z0-9_.+-]+$`)
-	safeDirectiveValue      = regexp.MustCompile(`^[A-Za-z0-9_+#.+-]+$`)
-	modelineLanguage        = regexp.MustCompile(`(?i)(?:\b(?:ft|filetype)\s*=\s*([a-z0-9_+#.-]+)|\bmode\s*:\s*([a-z0-9_+#.-]+))`)
-	goContentMarker         = regexp.MustCompile(`(?m)^\s*package\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:$|//)`)
-	csharpContentMarker     = regexp.MustCompile(`(?m)^[ \t]*(?:using[ \t]+[A-Za-z_]|namespace[ \t]+[A-Za-z_]|(?:(?:public|internal|private|protected|static|abstract|sealed|partial)[ \t]+)+(?:class|struct|interface|record|enum)[ \t]+[A-Za-z_]|(?:class|interface|record|enum)[ \t]+[A-Za-z_])`)
-	vbnetContentMarker      = regexp.MustCompile(`(?im)^[ \t]*(?:Imports[ \t]+[A-Za-z_]|(?:(?:Public|Private|Friend|Protected|Partial|MustInherit|NotInheritable)[ \t]+)*(?:Class|Module|Structure|Interface|Enum)[ \t]+[A-Za-z_]|End[ \t]+(?:Class|Module|Structure|Interface|Enum)\b)`)
-	pythonContentMarker     = regexp.MustCompile(`(?m)^\s*(?:(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(|class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*\(|\s*:)|(?:from|import)\s+[A-Za-z_])`)
-	cppContentMarker        = regexp.MustCompile(`(?m)^\s*(?:namespace\s+[A-Za-z_]|template\s*<)`)
-	javaContentMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+(?:static[ \t]+)?[A-Za-z_]|(?:(?:public|protected|private|abstract|final|sealed|static)[ \t]+)*(?:class|interface|enum|record)[ \t]+[A-Za-z_])`)
-	kotlinContentMarker     = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+[A-Za-z_]|(?:(?:public|private|protected|internal|sealed|data|enum|open|abstract)[ \t]+)*(?:class|interface|object)[ \t]+[A-Za-z_]|(?:fun|typealias)[ \t]+[A-Za-z_])`)
-	phpContentMarker        = regexp.MustCompile(`(?i)<\?php\b`)
-	rubyContentMarker       = regexp.MustCompile(`(?m)^\s*(?:module|class|def|require(?:_relative)?)\b`)
-	swiftContentMarker      = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+(?:(?:class|struct|enum|protocol|func|var|let|typealias)[ \t]+)?[A-Za-z_]|(?:(?:public|private|fileprivate|internal|open|final)[ \t]+)*(?:protocol|extension)[ \t]+[A-Za-z_]|func[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:<[^\r\n>]*>[ \t]*)?\(|init[!?]?[ \t]*\(|deinit\b|(?:associatedtype|typealias)[ \t]+[A-Za-z_]|(?:let|var)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:)`)
-	delphiContentMarker     = regexp.MustCompile(`(?im)\b(?:class|record)\s+helper\s+for\b`)
-	vbscriptContentMarker   = regexp.MustCompile(`(?im)^[ \t]*(?:(?:public|private)[ \t]+)?(?:class|sub|function)[ \t]+[A-Za-z_][A-Za-z0-9_]*`)
-	fsharpContentMarker     = regexp.MustCompile(`(?m)^[ \t]*(?:open[ \t]+[A-Za-z_]|let(?:[ \t]+rec)?[ \t]+[A-Za-z_]|type[ \t]+[A-Za-z_][A-Za-z0-9_']*[ \t]*=|module[ \t]+[A-Za-z_])`)
-	cilContentMarker        = regexp.MustCompile(`(?m)^[ \t]*\.(?:assembly|module|class|method|field)\b`)
-	powerShellContentMarker = regexp.MustCompile(`(?im)^[ \t]*(?:(?:function|filter)[ \t]+[A-Za-z_][A-Za-z0-9_-]*|using[ \t]+module\b|param[ \t]*\()`)
-	pureBasicContentMarker  = regexp.MustCompile(`(?im)^[ \t]*(?:procedure(?:c|dll|cdll)?[ \t]+[A-Za-z_]|endprocedure\b|module[ \t]+[A-Za-z_]|endmodule\b|structure[ \t]+[A-Za-z_]|endstructure\b|x?includefile[ \t]+")`)
-	freeBasicContentMarker  = regexp.MustCompile(`(?im)^[ \t]*(?:namespace[ \t]+[A-Za-z_]|end[ \t]+namespace\b|#include(?:[ \t]+once)?[ \t]+["<])`)
-	webFormsContentMarker   = regexp.MustCompile(`(?is)<%@\s*(?:Page|Control|Master)\b`)
-	razorContentMarker      = regexp.MustCompile(`(?m)^[ \t]*@(?:functions|model|inherits|using)\b`)
-	blazorContentMarker     = regexp.MustCompile(`(?m)^[ \t]*@(?:code|page|inject|using)\b`)
-	xamlContentMarker       = regexp.MustCompile(`(?is)(?:\bx:Class\s*=|\bxmlns:x\s*=)`)
-	mqlContentMarker        = regexp.MustCompile(`(?im)^[ \t]*(?:#property[ \t]+(?:strict|indicator_|script_|description|version)|(?:input|sinput)[ \t]+[A-Za-z_]|(?:void|int|double|bool|string|datetime)[ \t]+On(?:Init|Deinit|Tick|Timer|Calculate|Start|Tester)[ \t]*\()`)
-	objectiveCContentMarker = regexp.MustCompile(`(?m)^[ \t]*(?:#import[ \t]+[<\"]|@(?:interface|implementation|protocol|property)\b)`)
-	dartContentMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+['\"]dart:|mixin[ \t]+[A-Za-z_]|extension[ \t]+[A-Za-z_][^\r\n]*\bon\b|part[ \t]+of\b)`)
-	dContentMarker          = regexp.MustCompile(`(?m)^[ \t]*(?:module[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]*;|import[ \t]+[A-Za-z_][A-Za-z0-9_.]*(?:[ \t]*:[^;]+)?[ \t]*;|unittest\b|version[ \t]*\()`)
-	zigContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*@import[ \t]*\(|(?:pub[ \t]+)?const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*(?:struct|enum|union|opaque)\b)`)
-	nimContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:(?:proc|func|method|iterator|template)[ \t]+[A-Za-z_][A-Za-z0-9_]*\*?[ \t]*\(|import[ \t]+[A-Za-z_][A-Za-z0-9_./]*)`)
-	solidityContentMarker   = regexp.MustCompile(`(?m)^[ \t]*(?:pragma[ \t]+solidity\b|(?:abstract[ \t]+)?contract[ \t]+[A-Za-z_]|library[ \t]+[A-Za-z_]|function[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[^\r\n]*(?:external|public|internal|private)\b)`)
-	apexContentMarker       = regexp.MustCompile(`(?im)^[ \t]*(?:trigger[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+on[ \t]+[A-Za-z_]|(?:with|without)[ \t]+sharing[ \t]+class[ \t]+[A-Za-z_]|@AuraEnabled\b)`)
-	alContentMarker         = regexp.MustCompile(`(?im)^[ \t]*(?:codeunit|pageextension|tableextension|reportextension|enumextension)[ \t]+[0-9]+[ \t]+[A-Za-z_]`)
-	arduinoContentMarker    = regexp.MustCompile(`(?m)^[ \t]*(?:#include[ \t]*<Arduino\.h>|void[ \t]+(?:setup|loop)[ \t]*\([ \t]*\))`)
-	perlContentMarker       = regexp.MustCompile(`(?m)^[ \t]*use[ \t]+(?:strict|warnings|feature)\b`)
-	luauContentMarker       = regexp.MustCompile(`(?m)^[ \t]*--![ \t]*(?:strict|nonstrict|nocheck)\b`)
-	elixirContentMarker     = regexp.MustCompile(`(?m)^[ \t]*defmodule[ \t]+[A-Z][A-Za-z0-9_.]*[ \t]+do\b`)
-	erlangContentMarker     = regexp.MustCompile(`(?m)^[ \t]*-module[ \t]*\([ \t]*[a-z][A-Za-z0-9_@]*[ \t]*\)[ \t]*\.`)
-	autoHotkeyContentMarker = regexp.MustCompile(`(?im)^[ \t]*#Requires[ \t]+AutoHotkey\b`)
-	groovyContentMarker     = regexp.MustCompile(`(?m)^[ \t]*def[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[ \t]*\{`)
-	tclContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:namespace[ \t]+eval[ \t]+(?:::)?[A-Za-z_][A-Za-z0-9_:]*[ \t]*\{|proc[ \t]+[A-Za-z_][A-Za-z0-9_:]*[ \t]+\{)`)
-	fortranContentMarker    = regexp.MustCompile(`(?im)^[ \t]*(?:subroutine[ \t]+[A-Za-z_][A-Za-z0-9_]*|end[ \t]+subroutine\b)`)
-	cobolContentMarker      = regexp.MustCompile(`(?im)^[ \t]*(?:identification[ \t]+division\.|program-id\.[ \t]+[A-Za-z0-9_-]+)`)
-	adaContentMarker        = regexp.MustCompile(`(?im)^[ \t]*(?:with[ \t]+Ada(?:\.[A-Za-z0-9_.]+)?[ \t]*;|package[ \t]+body[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]+is\b)`)
-	matlabContentMarker     = regexp.MustCompile(`(?im)^[ \t]*classdef[ \t]+[A-Za-z_][A-Za-z0-9_]*\b`)
-	octaveContentMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:endfunction\b|pkg[ \t]+load[ \t]+[A-Za-z_][A-Za-z0-9_.-]*\b|unwind_protect\b)`)
-	juliaContentMarker      = regexp.MustCompile(`(?m)^[ \t]*(?:mutable[ \t]+struct|abstract[ \t]+type|primitive[ \t]+type)[ \t]+[A-Za-z_][A-Za-z0-9_]*\b`)
-	rContentMarker          = regexp.MustCompile(`(?m)^[ \t]*[A-Za-z_.][A-Za-z0-9_.]*[ \t]*<-[ \t]*function[ \t]*\(`)
-	haskellContentMarker    = regexp.MustCompile(`(?m)^[ \t]*(?:data|newtype)[ \t]+[A-Z][A-Za-z0-9_']*\b`)
-	ocamlContentMarker      = regexp.MustCompile(`(?m)^[ \t]*module[ \t]+[A-Z][A-Za-z0-9_']*[ \t]*=[ \t]*struct\b`)
-	commonLispContentMarker = regexp.MustCompile(`(?im)^[ \t]*\((?:defpackage|defun|defclass|defstruct)[ \t]+`)
-	clojureContentMarker    = regexp.MustCompile(`(?m)^[ \t]*\((?:ns|defn|defrecord|defprotocol)[ \t]+`)
-	emacsLispContentMarker  = regexp.MustCompile(`(?im)^[ \t]*\((?:defcustom|defgroup)[ \t]+`)
+	safeShebangInterpreter     = regexp.MustCompile(`^[A-Za-z0-9_.+-]+$`)
+	safeDirectiveValue         = regexp.MustCompile(`^[A-Za-z0-9_+#.+-]+$`)
+	modelineLanguage           = regexp.MustCompile(`(?i)(?:\b(?:ft|filetype)\s*=\s*([a-z0-9_+#.-]+)|\bmode\s*:\s*([a-z0-9_+#.-]+))`)
+	goContentMarker            = regexp.MustCompile(`(?m)^\s*package\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:$|//)`)
+	csharpContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:using[ \t]+[A-Za-z_]|namespace[ \t]+[A-Za-z_]|(?:(?:public|internal|private|protected|static|abstract|sealed|partial)[ \t]+)+(?:class|struct|interface|record|enum)[ \t]+[A-Za-z_]|(?:class|interface|record|enum)[ \t]+[A-Za-z_])`)
+	vbnetContentMarker         = regexp.MustCompile(`(?im)^[ \t]*(?:Imports[ \t]+[A-Za-z_]|(?:(?:Public|Private|Friend|Protected|Partial|MustInherit|NotInheritable)[ \t]+)*(?:Class|Module|Structure|Interface|Enum)[ \t]+[A-Za-z_]|End[ \t]+(?:Class|Module|Structure|Interface|Enum)\b)`)
+	pythonContentMarker        = regexp.MustCompile(`(?m)^\s*(?:(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(|class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*\(|\s*:)|(?:from|import)\s+[A-Za-z_])`)
+	cppContentMarker           = regexp.MustCompile(`(?m)^\s*(?:namespace\s+[A-Za-z_]|template\s*<)`)
+	javaContentMarker          = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+(?:static[ \t]+)?[A-Za-z_]|(?:(?:public|protected|private|abstract|final|sealed|static)[ \t]+)*(?:class|interface|enum|record)[ \t]+[A-Za-z_])`)
+	kotlinContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+[A-Za-z_]|(?:(?:public|private|protected|internal|sealed|data|enum|open|abstract)[ \t]+)*(?:class|interface|object)[ \t]+[A-Za-z_]|(?:fun|typealias)[ \t]+[A-Za-z_])`)
+	phpContentMarker           = regexp.MustCompile(`(?i)<\?php\b`)
+	phpEchoContentMarker       = regexp.MustCompile(`(?i)<\?=`)
+	phpHTMLHostMarkupMarker    = regexp.MustCompile(`(?is)<(?:!doctype\s+html\b|html\b|head\b|body\b|main\b|div\b|section\b|article\b|nav\b|form\b|table\b|ul\b|ol\b|li\b|p\b|h[1-6]\b|span\b|template\b|script\b|style\b|link\b|meta\b)[^>]*>`)
+	rubyContentMarker          = regexp.MustCompile(`(?m)^\s*(?:module|class|def|require(?:_relative)?)\b`)
+	swiftContentMarker         = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+(?:(?:class|struct|enum|protocol|func|var|let|typealias)[ \t]+)?[A-Za-z_]|(?:(?:public|private|fileprivate|internal|open|final)[ \t]+)*(?:protocol|extension)[ \t]+[A-Za-z_]|func[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:<[^\r\n>]*>[ \t]*)?\(|init[!?]?[ \t]*\(|deinit\b|(?:associatedtype|typealias)[ \t]+[A-Za-z_]|(?:let|var)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:)`)
+	delphiContentMarker        = regexp.MustCompile(`(?im)\b(?:class|record)\s+helper\s+for\b`)
+	vbscriptContentMarker      = regexp.MustCompile(`(?im)^[ \t]*(?:(?:public|private)[ \t]+)?(?:class|sub|function)[ \t]+[A-Za-z_][A-Za-z0-9_]*`)
+	fsharpContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:open[ \t]+[A-Za-z_]|let(?:[ \t]+rec)?[ \t]+[A-Za-z_]|type[ \t]+[A-Za-z_][A-Za-z0-9_']*[ \t]*=|module[ \t]+[A-Za-z_])`)
+	cilContentMarker           = regexp.MustCompile(`(?m)^[ \t]*\.(?:assembly|module|class|method|field)\b`)
+	powerShellContentMarker    = regexp.MustCompile(`(?im)^[ \t]*(?:(?:function|filter)[ \t]+[A-Za-z_][A-Za-z0-9_-]*|using[ \t]+module\b|param[ \t]*\()`)
+	pureBasicContentMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:procedure(?:c|dll|cdll)?[ \t]+[A-Za-z_]|endprocedure\b|module[ \t]+[A-Za-z_]|endmodule\b|structure[ \t]+[A-Za-z_]|endstructure\b|x?includefile[ \t]+")`)
+	freeBasicContentMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:namespace[ \t]+[A-Za-z_]|end[ \t]+namespace\b|#include(?:[ \t]+once)?[ \t]+["<])`)
+	webFormsContentMarker      = regexp.MustCompile(`(?is)<%@\s*(?:Page|Control|Master)\b`)
+	razorContentMarker         = regexp.MustCompile(`(?m)^[ \t]*@(?:functions|model|inherits|using)\b`)
+	blazorContentMarker        = regexp.MustCompile(`(?m)^[ \t]*@(?:code|page|inject|using)\b`)
+	xamlContentMarker          = regexp.MustCompile(`(?is)(?:\bx:Class\s*=|\bxmlns:x\s*=)`)
+	mqlContentMarker           = regexp.MustCompile(`(?im)^[ \t]*(?:#property[ \t]+(?:strict|indicator_|script_|description|version)|(?:input|sinput)[ \t]+[A-Za-z_]|(?:void|int|double|bool|string|datetime)[ \t]+On(?:Init|Deinit|Tick|Timer|Calculate|Start|Tester)[ \t]*\()`)
+	objectiveCContentMarker    = regexp.MustCompile(`(?m)^[ \t]*(?:#import[ \t]+[<\"]|@(?:interface|implementation|protocol|property)\b)`)
+	dartContentMarker          = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+['\"]dart:|mixin[ \t]+[A-Za-z_]|extension[ \t]+[A-Za-z_][^\r\n]*\bon\b|part[ \t]+of\b)`)
+	dContentMarker             = regexp.MustCompile(`(?m)^[ \t]*(?:module[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]*;|import[ \t]+[A-Za-z_][A-Za-z0-9_.]*(?:[ \t]*:[^;]+)?[ \t]*;|unittest\b|version[ \t]*\()`)
+	zigContentMarker           = regexp.MustCompile(`(?m)^[ \t]*(?:const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*@import[ \t]*\(|(?:pub[ \t]+)?const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*(?:struct|enum|union|opaque)\b)`)
+	nimContentMarker           = regexp.MustCompile(`(?m)^[ \t]*(?:(?:proc|func|method|iterator|template)[ \t]+[A-Za-z_][A-Za-z0-9_]*\*?[ \t]*\(|import[ \t]+[A-Za-z_][A-Za-z0-9_./]*)`)
+	solidityContentMarker      = regexp.MustCompile(`(?m)^[ \t]*(?:pragma[ \t]+solidity\b|(?:abstract[ \t]+)?contract[ \t]+[A-Za-z_]|library[ \t]+[A-Za-z_]|function[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[^\r\n]*(?:external|public|internal|private)\b)`)
+	apexContentMarker          = regexp.MustCompile(`(?im)^[ \t]*(?:trigger[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+on[ \t]+[A-Za-z_]|(?:with|without)[ \t]+sharing[ \t]+class[ \t]+[A-Za-z_]|@AuraEnabled\b)`)
+	alContentMarker            = regexp.MustCompile(`(?im)^[ \t]*(?:codeunit|pageextension|tableextension|reportextension|enumextension)[ \t]+[0-9]+[ \t]+[A-Za-z_]`)
+	arduinoContentMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:#include[ \t]*<Arduino\.h>|void[ \t]+(?:setup|loop)[ \t]*\([ \t]*\))`)
+	perlContentMarker          = regexp.MustCompile(`(?m)^[ \t]*use[ \t]+(?:strict|warnings|feature)\b`)
+	luauContentMarker          = regexp.MustCompile(`(?m)^[ \t]*--![ \t]*(?:strict|nonstrict|nocheck)\b`)
+	elixirContentMarker        = regexp.MustCompile(`(?m)^[ \t]*defmodule[ \t]+[A-Z][A-Za-z0-9_.]*[ \t]+do\b`)
+	erlangContentMarker        = regexp.MustCompile(`(?m)^[ \t]*-module[ \t]*\([ \t]*[a-z][A-Za-z0-9_@]*[ \t]*\)[ \t]*\.`)
+	autoHotkeyContentMarker    = regexp.MustCompile(`(?im)^[ \t]*#Requires[ \t]+AutoHotkey\b`)
+	groovyContentMarker        = regexp.MustCompile(`(?m)^[ \t]*def[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[ \t]*\{`)
+	tclContentMarker           = regexp.MustCompile(`(?m)^[ \t]*(?:namespace[ \t]+eval[ \t]+(?:::)?[A-Za-z_][A-Za-z0-9_:]*[ \t]*\{|proc[ \t]+[A-Za-z_][A-Za-z0-9_:]*[ \t]+\{)`)
+	fortranContentMarker       = regexp.MustCompile(`(?im)^[ \t]*(?:subroutine[ \t]+[A-Za-z_][A-Za-z0-9_]*|end[ \t]+subroutine\b)`)
+	cobolContentMarker         = regexp.MustCompile(`(?im)^[ \t]*(?:identification[ \t]+division\.|program-id\.[ \t]+[A-Za-z0-9_-]+)`)
+	adaContentMarker           = regexp.MustCompile(`(?im)^[ \t]*(?:with[ \t]+Ada(?:\.[A-Za-z0-9_.]+)?[ \t]*;|package[ \t]+body[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]+is\b)`)
+	matlabContentMarker        = regexp.MustCompile(`(?im)^[ \t]*classdef[ \t]+[A-Za-z_][A-Za-z0-9_]*\b`)
+	octaveContentMarker        = regexp.MustCompile(`(?im)^[ \t]*(?:endfunction\b|pkg[ \t]+load[ \t]+[A-Za-z_][A-Za-z0-9_.-]*\b|unwind_protect\b)`)
+	juliaContentMarker         = regexp.MustCompile(`(?m)^[ \t]*(?:mutable[ \t]+struct|abstract[ \t]+type|primitive[ \t]+type)[ \t]+[A-Za-z_][A-Za-z0-9_]*\b`)
+	rContentMarker             = regexp.MustCompile(`(?m)^[ \t]*[A-Za-z_.][A-Za-z0-9_.]*[ \t]*<-[ \t]*function[ \t]*\(`)
+	haskellContentMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:data|newtype)[ \t]+[A-Z][A-Za-z0-9_']*\b`)
+	ocamlContentMarker         = regexp.MustCompile(`(?m)^[ \t]*module[ \t]+[A-Z][A-Za-z0-9_']*[ \t]*=[ \t]*struct\b`)
+	commonLispContentMarker    = regexp.MustCompile(`(?im)^[ \t]*\((?:defpackage|defun|defclass|defstruct)[ \t]+`)
+	clojureContentMarker       = regexp.MustCompile(`(?m)^[ \t]*\((?:ns|defn|defrecord|defprotocol)[ \t]+`)
+	emacsLispContentMarker     = regexp.MustCompile(`(?im)^[ \t]*\((?:defcustom|defgroup)[ \t]+`)
+	graphqlContentMarker       = regexp.MustCompile(`(?ms)^[ \t]*schema[ \t]*\{[^}]*\bquery[ \t]*:[ \t]*[A-Za-z_]`)
+	protoContentMarker         = regexp.MustCompile(`(?m)^[ \t]*syntax[ \t]*=[ \t]*"proto(?:2|3)"[ \t]*;`)
+	terraformContentMarker     = regexp.MustCompile(`(?m)^[ \t]*terraform[ \t]*\{`)
+	vhdlContentMarker          = regexp.MustCompile(`(?im)^[ \t]*entity[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+is\b`)
+	plsqlContentMarker         = regexp.MustCompile(`(?im)^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?package(?:[ \t]+body)?[ \t]+[A-Za-z_][A-Za-z0-9_$#]*[ \t]+(?:as|is)\b`)
+	openAPIContentMarker       = regexp.MustCompile(`(?i)^(?:[ \t]*#[^\r\n]*(?:\r?\n|$)|[ \t]*---[ \t]*(?:\r?\n|$))*[ \t]*openapi[ \t]*:[ \t]*3(?:\.[0-9]+)+(?:[ \t]*#[^\r\n]*)?(?:\r?\n|$)`)
+	ansibleContentMarker       = regexp.MustCompile(`(?s)^(?:[ \t]*#[^\r\n]*(?:\r?\n|$)|[ \t]*---[ \t]*(?:\r?\n|$))*-[ \t]+name:[^\r\n]*\r?\n[ \t]+hosts:[^\r\n]*\r?\n(?:[^\r\n]*\r?\n){0,8}[ \t]+tasks:[ \t]*(?:\r?\n|$)`)
+	verilogContentMarker       = regexp.MustCompile(`(?ims)^[ \t]*module[ \t]+[A-Za-z_][A-Za-z0-9_$]*[ \t]*(?:#[ \t]*\([^;]*\)[ \t]*)?(?:\([^;]*\)[ \t]*)?;.*?^[ \t]*endmodule\b`)
+	systemVerilogContentMarker = regexp.MustCompile(`(?is)\b(?:interface|package)[ \t]+[A-Za-z_][A-Za-z0-9_$]*\b.*?\bend(?:interface|package)\b`)
 )
 
 const (
-	priorityExplicit       = 100
-	priorityExactBasename  = 95
-	priorityCompoundSuffix = 90
-	priorityShebang        = 80
-	priorityDirective      = 80
-	priorityExtension      = 70
-	priorityContent        = 50
-	priorityAnalyzerProbe  = 40
-	priorityProjectHint    = 20
+	priorityExplicit           = 100
+	priorityExactBasename      = 95
+	priorityCompoundSuffix     = 90
+	priorityShebang            = 80
+	priorityDirective          = 80
+	priorityExtension          = 70
+	priorityDistinctiveContent = 85
+	priorityContent            = 50
+	priorityAnalyzerProbe      = 40
+	priorityProjectHint        = 20
 )
 
 // DetectLanguage applies the frozen ordered evidence cascade to bounded decoded text.
@@ -216,6 +228,7 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 	}
 	addDirectiveEvidence(registry, collector, probeText)
 	addContentMarkerEvidence(registry, collector, probeText)
+	addPhase11PathContentEvidence(registry, collector, base, probeText)
 
 	for _, hinted := range input.ProjectLanguages {
 		if descriptor, ok := registry.Resolve(hinted); ok {
@@ -326,6 +339,11 @@ func (collector *detectionCollector) finalize() DetectionResult {
 		return result
 	}
 	if len(states) == 1 {
+		result.State = DetectionProbable
+		result.Language = states[0].language
+		return result
+	}
+	if states[0].priority == priorityDistinctiveContent && states[1].priority < priorityDistinctiveContent {
 		result.State = DetectionProbable
 		result.Language = states[0].language
 		return result
@@ -520,6 +538,56 @@ func isDirectiveWordByte(value byte) bool {
 }
 
 func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCollector, text string) {
+	phpProbe := phase10MaskDelimitedRegions(text, [][2]string{{"<!--", "-->"}})
+	if phpContentMarker.MatchString(phpProbe) {
+		if descriptor, ok := registry.Lookup("php"); ok {
+			collector.add(descriptor.ID, EvidenceContentMarker, "php-open-tag", priorityContent)
+		}
+	}
+	if phase11PHPHTMLDistinctiveContent(phpProbe) {
+		if descriptor, ok := registry.Lookup("php-html"); ok {
+			collector.add(descriptor.ID, EvidenceContentMarker, "php-html-host-and-code", priorityDistinctiveContent)
+		}
+	}
+
+	graphqlProbe := phase10MaskStrings(phase10MaskComments(text, []string{"#"}, "", ""), false, true, true)
+	protoProbe := phase10MaskComments(text, []string{"//"}, "/*", "*/")
+	terraformProbe := phase10MaskHeredocs(phase10MaskComments(text, []string{"#", "//"}, "/*", "*/"))
+	vhdlProbe := phase10MaskComments(text, []string{"--"}, "", "")
+	plsqlProbe := phase10MaskStrings(phase10MaskComments(text, []string{"--"}, "/*", "*/"), true, false, false)
+	hdlProbe := phase10MaskStrings(phase10MaskComments(text, []string{"//"}, "/*", "*/"), false, true, false)
+
+	distinctive := []struct {
+		language string
+		pattern  *regexp.Regexp
+		detail   string
+		probe    string
+	}{
+		{language: "graphql", pattern: graphqlContentMarker, detail: "graphql-schema-root", probe: graphqlProbe},
+		{language: "proto", pattern: protoContentMarker, detail: "protobuf-syntax-directive", probe: protoProbe},
+		{language: "terraform", pattern: terraformContentMarker, detail: "terraform-root-block", probe: terraformProbe},
+		{language: "vhdl", pattern: vhdlContentMarker, detail: "vhdl-entity", probe: vhdlProbe},
+		{language: "plsql", pattern: plsqlContentMarker, detail: "plsql-package", probe: plsqlProbe},
+		{language: "openapi", pattern: openAPIContentMarker, detail: "openapi-version-root", probe: text},
+		{language: "ansible-yaml", pattern: ansibleContentMarker, detail: "ansible-play-structure", probe: text},
+	}
+	for _, marker := range distinctive {
+		if marker.pattern.MatchString(marker.probe) {
+			if descriptor, ok := registry.Lookup(marker.language); ok {
+				collector.add(descriptor.ID, EvidenceContentMarker, marker.detail, priorityDistinctiveContent)
+			}
+		}
+	}
+	if systemVerilogContentMarker.MatchString(hdlProbe) {
+		if descriptor, ok := registry.Lookup("systemverilog"); ok {
+			collector.add(descriptor.ID, EvidenceContentMarker, "systemverilog-interface-package", priorityDistinctiveContent)
+		}
+	} else if verilogContentMarker.MatchString(hdlProbe) {
+		if descriptor, ok := registry.Lookup("verilog"); ok {
+			collector.add(descriptor.ID, EvidenceContentMarker, "verilog-module", priorityDistinctiveContent)
+		}
+	}
+
 	markers := []struct {
 		language string
 		pattern  *regexp.Regexp
@@ -533,7 +601,6 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		{language: "cpp", pattern: cppContentMarker, detail: "cpp-distinctive-declaration"},
 		{language: "java", pattern: javaContentMarker, detail: "java-declaration"},
 		{language: "kotlin", pattern: kotlinContentMarker, detail: "kotlin-declaration"},
-		{language: "php", pattern: phpContentMarker, detail: "php-open-tag"},
 		{language: "ruby", pattern: rubyContentMarker, detail: "ruby-declaration"},
 		{language: "swift", pattern: swiftContentMarker, detail: "swift-declaration"},
 		{language: "delphi", pattern: delphiContentMarker, detail: "delphi-helper"},
@@ -586,4 +653,38 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 			}
 		}
 	}
+}
+
+func addPhase11PathContentEvidence(registry *LanguageRegistry, collector *detectionCollector, base, text string) {
+	lowerBase := strings.ToLower(base)
+	switch {
+	case strings.HasSuffix(lowerBase, ".astro"):
+		if _, ok := phase11AstroFrontmatter(text); ok {
+			if descriptor, exists := registry.Lookup("astro"); exists {
+				collector.add(descriptor.ID, EvidenceContentMarker, "astro-frontmatter", priorityDistinctiveContent)
+			}
+		}
+	case strings.HasSuffix(lowerBase, ".ejs"):
+		probe := phase10MaskDelimitedRegions(text, [][2]string{{"<!--", "-->"}})
+		if strings.Contains(probe, "<%") && strings.Contains(probe, "%>") {
+			if descriptor, exists := registry.Lookup("ejs"); exists {
+				collector.add(descriptor.ID, EvidenceContentMarker, "ejs-delimiter", priorityDistinctiveContent)
+			}
+		}
+	}
+}
+
+func phase11PHPHTMLDistinctiveContent(phpProbe string) bool {
+	if !phpContentMarker.MatchString(phpProbe) && !phpEchoContentMarker.MatchString(phpProbe) {
+		return false
+	}
+	regions := phase11RegexRegions(phpProbe, phase11PHPBlock, "php", "php", 2, 3)
+	if len(regions) == 0 {
+		return false
+	}
+	host, err := phase11MaskRanges(phpProbe, phase11FullRanges(regions))
+	if err != nil {
+		return false
+	}
+	return phpHTMLHostMarkupMarker.MatchString(host)
 }

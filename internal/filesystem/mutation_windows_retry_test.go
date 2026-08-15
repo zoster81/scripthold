@@ -1,0 +1,160 @@
+//go:build windows
+
+package filesystem
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"golang.org/x/sys/windows"
+)
+
+func TestReplaceFileRetriesTransientWindowsDeleteShareContention(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle := openWithoutDeleteShare(t, target)
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		_ = windows.CloseHandle(handle)
+		close(released)
+	}()
+
+	err = ReplaceFile(target, []byte("after\n"), ReplaceOptions{Mode: 0o644, Expected: &expected})
+	<-released
+	if err != nil {
+		t.Fatalf("ReplaceFile() failed after transient delete-share contention cleared: %v", err)
+	}
+	payload, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(payload), "after\n"; got != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+}
+
+func TestReplaceFileRepeatedTransientWindowsDeleteShareContention(t *testing.T) {
+	root := t.TempDir()
+	for attempt := 0; attempt < 16; attempt++ {
+		target := filepath.Join(root, fmt.Sprintf("target-%02d.txt", attempt))
+		if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		expected, err := CaptureSnapshotWithDigest(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		handle := openWithoutDeleteShare(t, target)
+		released := make(chan struct{})
+		go func(handle windows.Handle, delay time.Duration) {
+			time.Sleep(delay)
+			_ = windows.CloseHandle(handle)
+			close(released)
+		}(handle, time.Duration(10+(attempt%4)*10)*time.Millisecond)
+		if err := ReplaceFile(target, []byte("after\n"), ReplaceOptions{Mode: 0o644, Expected: &expected}); err != nil {
+			<-released
+			t.Fatalf("attempt %d: ReplaceFile() failed after transient contention: %v", attempt, err)
+		}
+		<-released
+	}
+}
+
+func TestReplaceFilePermanentWindowsDeleteShareContentionPreservesWin32Code(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := openWithoutDeleteShare(t, target)
+	defer windows.CloseHandle(handle)
+
+	err = ReplaceFile(target, []byte("after\n"), ReplaceOptions{Mode: 0o644, Expected: &expected})
+	if err == nil {
+		t.Fatal("ReplaceFile() unexpectedly succeeded under persistent delete-share contention")
+	}
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		t.Fatalf("error = %v, want errors.Is(ERROR_ACCESS_DENIED)", err)
+	}
+	if !strings.Contains(err.Error(), "Win32 code 5") {
+		t.Fatalf("error = %q, want raw Win32 code 5", err)
+	}
+	payload, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if got, want := string(payload), "before\n"; got != want {
+		t.Fatalf("target = %q, want unchanged %q", got, want)
+	}
+}
+func TestReplaceFileRetryRevalidatesExpectedSnapshot(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle := openWithoutDeleteShare(t, target)
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = os.WriteFile(target, []byte("external\n"), 0o644)
+		_ = windows.CloseHandle(handle)
+		close(released)
+	}()
+
+	err = ReplaceFile(target, []byte("replacement\n"), ReplaceOptions{Mode: 0o644, Expected: &expected})
+	<-released
+	if err == nil {
+		t.Fatal("ReplaceFile() succeeded after the expected target changed during retry")
+	}
+	payload, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if got, want := string(payload), "external\n"; got != want {
+		t.Fatalf("target = %q, want concurrent content %q", got, want)
+	}
+}
+
+func openWithoutDeleteShare(t *testing.T, path string) windows.Handle {
+	t.Helper()
+	pathPtr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := windows.CreateFile(
+		pathPtr,
+		windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handle
+}

@@ -88,6 +88,7 @@ func (ASPNetWebFormsAnalyzer) Analyze(ctx context.Context, document *SourceDocum
 		builder.MarkIncomplete()
 	}
 	regions := make([]SourceRegion, 0, len(segments))
+	excludedClientRanges := make([]OffsetRange, 0, len(segments))
 	remaining := options.Limits.MaxSymbols
 	for _, segment := range segments {
 		language := normalizeDotNetScriptLanguage(segment.language)
@@ -98,6 +99,9 @@ func (ASPNetWebFormsAnalyzer) Analyze(ctx context.Context, document *SourceDocum
 			return AnalyzerResult{}, err
 		}
 		regions = append(regions, region)
+		if segment.kind != "host" {
+			excludedClientRanges = append(excludedClientRanges, OffsetRange{Start: segment.start, End: segment.end})
+		}
 		if segment.kind != "server-script" {
 			continue
 		}
@@ -121,7 +125,21 @@ func (ASPNetWebFormsAnalyzer) Analyze(ctx context.Context, document *SourceDocum
 		mergeAnalysisSymbols(&builder.result, analysis)
 		remaining -= len(analysis.Symbols)
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: aspNetDirectiveDependencies(document), Regions: regions}, nil
+	result := AnalyzerResult{Analysis: builder.Result(), Dependencies: aspNetDirectiveDependencies(document), Regions: regions}
+	clientOptions := options
+	clientOptions.Limits.MaxSymbols = max(1, remaining)
+	client, err := phase11AnalyzeClientWebRegions(ctx, document, clientOptions, "aspnet-webforms", AnalyzerASPNetWebForms, excludedClientRanges)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	result.Analysis = phase11MergeAnalysis(result.Analysis, client.Analysis, options.Limits)
+	phase11AppendDependencies(&result, client.Dependencies, options.Limits)
+	phase11AppendRelations(&result, client.Relations, options.Limits)
+	serverRegions := result.Regions
+	result.Regions = nil
+	phase11AppendRegions(&result, serverRegions, options.Limits)
+	phase11AppendRegions(&result, client.Regions, options.Limits)
+	return result, nil
 }
 func aspNetPageLanguage(text string) string {
 	lower := strings.ToLower(text)
@@ -251,7 +269,25 @@ func analyzeRazorFamily(ctx context.Context, document *SourceDocument, options A
 		}
 		regions = append(regions, r)
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: razorUsingDependencies(document), Regions: regions}, nil
+	result := AnalyzerResult{Analysis: builder.Result(), Dependencies: razorUsingDependencies(document), Regions: regions}
+	excludedClientRanges := make([]OffsetRange, 0, len(ranges))
+	for _, item := range ranges {
+		excludedClientRanges = append(excludedClientRanges, item.full)
+	}
+	clientOptions := options
+	clientOptions.Limits.MaxSymbols = max(1, remaining)
+	client, err := phase11AnalyzeClientWebRegions(ctx, document, clientOptions, language, analyzer, excludedClientRanges)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	result.Analysis = phase11MergeAnalysis(result.Analysis, client.Analysis, options.Limits)
+	phase11AppendDependencies(&result, client.Dependencies, options.Limits)
+	phase11AppendRelations(&result, client.Relations, options.Limits)
+	serverRegions := result.Regions
+	result.Regions = nil
+	phase11AppendRegions(&result, serverRegions, options.Limits)
+	phase11AppendRegions(&result, client.Regions, options.Limits)
+	return result, nil
 }
 func findRazorCodeRanges(ctx context.Context, document *SourceDocument, directives []string) ([]embeddedCodeRange, bool, error) {
 	masked, complete := maskSimpleDelimited(document.Text, "@*", "*@")

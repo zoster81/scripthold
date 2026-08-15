@@ -313,7 +313,7 @@
     {
       "name": "task_get",
       "title": "Get Durable Task",
-      "description": "Get task lifecycle, bounded history, and terminal result without its command.",
+      "description": "Get task state/history; workerOnline is scheduler liveness, independent of executor liveness.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
