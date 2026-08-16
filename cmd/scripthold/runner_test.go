@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/filetoolsserver"
 	"github.com/zoster81/scripthold/internal/config"
@@ -111,6 +115,88 @@ func testHTTPToken() string {
 
 func expectedToolCount() int {
 	return len(toolcatalog.All())
+}
+
+type inFlightPeerCloseTransport struct {
+	writeErr error
+}
+
+func (transport inFlightPeerCloseTransport) Connect(context.Context) (mcp.Connection, error) {
+	request, err := jsonrpc.DecodeMessage([]byte(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"peer-close-test","version":"test"}}}`))
+	if err != nil {
+		return nil, err
+	}
+	writeErr := transport.writeErr
+	if writeErr == nil {
+		writeErr = io.EOF
+	}
+	return &inFlightPeerCloseConnection{
+		request:      request,
+		writeErr:     writeErr,
+		writeAttempt: make(chan struct{}),
+	}, nil
+}
+
+type inFlightPeerCloseConnection struct {
+	request      jsonrpc.Message
+	writeErr     error
+	writeAttempt chan struct{}
+	writeOnce    sync.Once
+	reads        atomic.Int32
+}
+
+func (connection *inFlightPeerCloseConnection) Read(context.Context) (jsonrpc.Message, error) {
+	if connection.reads.Add(1) == 1 {
+		return connection.request, nil
+	}
+	<-connection.writeAttempt
+	return nil, io.EOF
+}
+func (connection *inFlightPeerCloseConnection) Write(context.Context, jsonrpc.Message) error {
+	connection.writeOnce.Do(func() { close(connection.writeAttempt) })
+	return connection.writeErr
+}
+func (*inFlightPeerCloseConnection) Close() error      { return nil }
+func (*inFlightPeerCloseConnection) SessionID() string { return "" }
+
+func TestSingleSessionRunnerTreatsInFlightPeerCloseAsNormalTermination(t *testing.T) {
+	runner := singleSessionRunner{transport: inFlightPeerCloseTransport{}}
+	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
+		Version:          "peer-close-test",
+		LifecycleContext: context.Background(),
+	})
+	if err := runner.Run(context.Background(), server); err != nil {
+		t.Fatalf("in-flight peer close returned runner error %v, want normal termination", err)
+	}
+}
+
+type failingTransport struct {
+	err error
+}
+
+func (transport failingTransport) Connect(context.Context) (mcp.Connection, error) {
+	return nil, transport.err
+}
+
+func TestSingleSessionRunnerPreservesNonPeerFailure(t *testing.T) {
+	want := errors.New("transport failure")
+	runner := singleSessionRunner{transport: failingTransport{err: want}}
+	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{Version: "transport-failure-test"})
+	if err := runner.Run(context.Background(), server); !errors.Is(err, want) {
+		t.Fatalf("runner error = %v, want %v", err, want)
+	}
+}
+
+func TestSingleSessionRunnerDoesNotHideTransportFailureAfterPeerClose(t *testing.T) {
+	want := errors.New("response write failure")
+	runner := singleSessionRunner{transport: inFlightPeerCloseTransport{writeErr: want}}
+	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
+		Version:          "peer-close-write-failure-test",
+		LifecycleContext: context.Background(),
+	})
+	if err := runner.Run(context.Background(), server); err == nil {
+		t.Fatalf("runner hid non-peer transport failure %v after observing peer EOF", want)
+	}
 }
 
 func TestSingleSessionRunnerUsesSharedServerAndHonorsCancellation(t *testing.T) {

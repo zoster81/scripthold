@@ -309,8 +309,8 @@ func TestR27Phase7RegistryProviderIdentityAndCapabilityCeilings(t *testing.T) {
 			t.Fatalf("Phase 7 analyzer identity %q shared by %s and %s", descriptor.Analyzer, previous, language)
 		}
 		seen[descriptor.Analyzer] = language
-		if descriptor.Capabilities.ScopeResolvedReferences || descriptor.Capabilities.ProjectResolvedReferences || descriptor.Capabilities.ProjectResolvedDefinitions || descriptor.Capabilities.Implementations || descriptor.Capabilities.Overrides || descriptor.Capabilities.SemanticRelations || descriptor.Capabilities.IncrementalIndex {
-			t.Fatalf("Phase 7 row %s overclaims project/semantic/index capability: %+v", language, descriptor.Capabilities)
+		if descriptor.Capabilities.ScopeResolvedReferences || descriptor.Capabilities.ProjectResolvedReferences || descriptor.Capabilities.ProjectResolvedDefinitions || descriptor.Capabilities.Implementations || descriptor.Capabilities.Overrides || descriptor.Capabilities.SemanticRelations {
+			t.Fatalf("Phase 7 row %s overclaims project/semantic capability: %+v", language, descriptor.Capabilities)
 		}
 		analyzer, available := AnalyzerFor(descriptor)
 		if !available || analyzer.ID() != wantID || analyzer.Language() != language {

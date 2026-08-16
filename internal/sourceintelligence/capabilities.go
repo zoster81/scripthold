@@ -149,6 +149,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 		descriptor.Capabilities.Signatures = true
 		descriptor.Capabilities.Ranges = true
 		descriptor.Capabilities.Dependencies = true
+		descriptor.Capabilities.IncrementalIndex = true
 		switch descriptor.ID {
 		case "vbnet", "cpp", "java", "kotlin", "javascript", "typescript", "rust", "php", "ruby", "swift", "pascal", "delphi", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "nim", "solidity", "apex", "al", "arduino", "groovy", "autohotkey":
 			descriptor.Capabilities.InheritanceRelations = true
@@ -167,19 +168,19 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "javascript":
 				descriptor.KnownLimitations = []string{"dynamic property/prototype resolution, non-literal module loading, JSX component semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "typescript":
-				descriptor.KnownLimitations = []string{"TypeScript type checking/project resolution, non-literal module loading, TSX component semantics, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"TypeScript type checking, tsconfig/module-resolution semantics, non-literal module loading, TSX component semantics, semantic relations, and incremental indexing are not implemented"}
 			case "rust":
-				descriptor.KnownLimitations = []string{"macro expansion, cfg evaluation, Cargo/project/type/trait resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"macro expansion, cfg evaluation, Cargo metadata/build resolution, type/trait resolution, semantic relations, and incremental indexing are not implemented"}
 			case "php":
 				descriptor.KnownLimitations = []string{"dynamic/non-literal includes, autoload/runtime metaprogramming, project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "ruby":
-				descriptor.KnownLimitations = []string{"reopened declarations remain structural; DSL/metaprogramming, dynamic dispatch, project resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"reopened declarations remain structural; DSL/metaprogramming, dynamic dispatch, runtime load-path/autoload resolution, semantic relations, and incremental indexing are not implemented"}
 			case "swift":
 				descriptor.KnownLimitations = []string{"macro expansion, conditional compilation, package/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "pascal":
 				descriptor.KnownLimitations = []string{"compiler directives and conditional compilation are not evaluated; project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "delphi":
-				descriptor.KnownLimitations = []string{"compiler directives and conditional compilation are not evaluated; helpers/generics remain structural; project/package/type resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"compiler directives and conditional compilation are not evaluated; helpers/generics remain structural; compiler project/package configuration and type semantics, semantic relations, and incremental indexing are not implemented"}
 			case "vb6", "vba":
 				descriptor.KnownLimitations = []string{"COM/project references, designer/event binding, conditional compilation, runtime dispatch, project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "vbscript":
@@ -309,6 +310,11 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			default:
 				descriptor.KnownLimitations = []string{"project resolution, syntactic call graph, semantic relations, and incremental indexing are not implemented"}
 			}
+		}
+		// R27 Phase 15 provides process-local incremental generations uniformly for
+		// every active source analyzer. Persistent on-disk indexing remains future work.
+		for index := range descriptor.KnownLimitations {
+			descriptor.KnownLimitations[index] = strings.ReplaceAll(descriptor.KnownLimitations[index], "incremental indexing", "persistent on-disk indexing")
 		}
 	} else {
 		if descriptor.ScannerProfile == "" {

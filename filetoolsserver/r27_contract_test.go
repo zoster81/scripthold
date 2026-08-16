@@ -2,6 +2,8 @@ package filetoolsserver
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/filetoolsserver/handler"
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
 const (
@@ -94,6 +97,69 @@ func TestR27SourceQueryPublicContract(t *testing.T) {
 		"index": map[string]any{"generation": 0},
 	}, handler.ErrCodeInvalidInput)
 
+	basePath := filepath.Join(root, "Base.java")
+	childPath := filepath.Join(root, "Child.java")
+	if err := os.WriteFile(basePath, []byte("package demo; public class Base {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(childPath, []byte("package demo; public class Child extends Base {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: map[string]any{
+		"operation": "search", "paths": []string{root}, "query": "Base", "mode": "structural", "match": "exact", "language": "java", "maxResults": 16,
+	}})
+	if err != nil || live == nil || live.IsError {
+		t.Fatalf("live source_query result=%#v err=%v", live, err)
+	}
+	structured := r25StructuredMap(t, live)
+	index := r25SchemaMap(t, structured["index"])
+	if index["staleness"] != "current" || index["generation"] == nil || index["fingerprint"] == nil {
+		t.Fatalf("live source_query index=%#v", index)
+	}
+	search := r25SchemaMap(t, structured["search"])
+	matches, ok := search["matches"].([]any)
+	if !ok || len(matches) < 2 {
+		t.Fatalf("live source_query search=%#v", search)
+	}
+	seenDefinition, seenRelation := false, false
+	for _, raw := range matches {
+		match := r25SchemaMap(t, raw)
+		if match["path"] == basePath && match["symbolId"] != "" && match["evidence"] == "structural" {
+			seenDefinition = true
+		}
+		if match["path"] == childPath && match["symbolId"] == nil && match["evidence"] == "project-resolved" {
+			seenRelation = true
+		}
+	}
+	if !seenDefinition || !seenRelation {
+		t.Fatalf("live source_query matches=%#v", matches)
+	}
+
+	childDocument, err := sourceintelligence.OpenSourceDocument(ctx, childPath, sourceintelligence.OpenDocumentOptions{
+		RequestedEncoding: "utf-8", MaxFileBytes: 1024 * 1024, MaxDecodedCharacters: 1024 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("open child source for context contract: %v", err)
+	}
+	liveContext, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: map[string]any{
+		"operation": "context", "paths": []string{root}, "language": "java", "encoding": "utf-8",
+		"targets":     []any{map[string]any{"kind": "path", "path": childPath, "sourceFingerprint": childDocument.SourceFingerprint}},
+		"budgetBytes": 4096, "bodyPolicy": "signatures-only", "maxItems": 8, "maxDepth": 2,
+	}})
+	if err != nil || liveContext == nil || liveContext.IsError {
+		t.Fatalf("live source_query context result=%#v err=%v", liveContext, err)
+	}
+	contextStructured := r25StructuredMap(t, liveContext)
+	contextResult := r25SchemaMap(t, contextStructured["context"])
+	contextItems, ok := contextResult["items"].([]any)
+	if !ok || len(contextItems) == 0 || contextResult["budgetBytes"] != float64(4096) {
+		t.Fatalf("live source_query context=%#v", contextResult)
+	}
+	contextIndex := r25SchemaMap(t, contextStructured["index"])
+	if contextIndex["staleness"] != "current" || contextIndex["generation"] == nil || contextIndex["fingerprint"] == nil {
+		t.Fatalf("live source_query context index=%#v", contextStructured["index"])
+	}
+
 	tooManyPaths := make([]string, r27MaxInputPaths+1)
 	for index := range tooManyPaths {
 		tooManyPaths[index] = root
@@ -119,11 +185,19 @@ func TestR27SourceQueryPublicContract(t *testing.T) {
 	for _, args := range []map[string]any{
 		{"operation": "search", "paths": []string{root}, "query": "Box", "mode": "structural"},
 		{"operation": "relations", "paths": []string{root}, "relation": "cycles"},
-		{"operation": "relations", "paths": []string{root}, "relation": "trace", "subject": r27PathSelector(root), "target": r27PathSelector(root)},
-		{"operation": "context", "paths": []string{root}, "targets": []any{r27PathSelector(root)}, "budgetBytes": 4096},
+	} {
+		r27AssertCallSuccess(t, ctx, session, args)
+	}
+	for _, args := range []map[string]any{
+		{"operation": "search", "paths": []string{root}, "query": "Box", "mode": "textual"},
+		{"operation": "search", "paths": []string{root}, "query": "Box", "mode": "lexical"},
 	} {
 		r27AssertCallErrorCode(t, ctx, session, args, handler.ErrCodeUnsupported)
 	}
+	r27AssertCallErrorCode(t, ctx, session, map[string]any{
+		"operation": "search", "paths": []string{root}, "query": "Box", "mode": "structural",
+		"index": map[string]any{"fingerprint": r27ZeroDigest()},
+	}, handler.ErrCodeConflict)
 }
 
 func r27Tool(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string) *mcp.Tool {
@@ -237,6 +311,17 @@ func r27AssertRejected(t *testing.T, ctx context.Context, session *mcp.ClientSes
 	}
 	if result.Meta[handler.ErrorCodeMetaKey] == handler.ErrCodeUnsupported {
 		t.Fatalf("%s invalid arguments reached the unsupported engine stub instead of being rejected: %#v", name, args)
+	}
+}
+
+func r27AssertCallSuccess(t *testing.T, ctx context.Context, session *mcp.ClientSession, args map[string]any) {
+	t.Helper()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+	if err != nil {
+		t.Fatalf("source_query transport error: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("source_query(%v) = %#v, want success", args["operation"], result)
 	}
 }
 

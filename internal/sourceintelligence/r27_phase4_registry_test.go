@@ -28,8 +28,8 @@ func TestR27Phase4RegistryActivatesJavaScriptTypeScriptAndRustSeparately(t *test
 		if !caps.SourceAnalysis || !caps.Declarations || !caps.Hierarchy || !caps.Signatures || !caps.Ranges || !caps.Dependencies {
 			t.Fatalf("%s incomplete Phase 4 declaration capability row: %+v", language, caps)
 		}
-		if caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.SemanticRelations || caps.IncrementalIndex {
-			t.Fatalf("%s overclaims later R27 semantics: %+v", language, caps)
+		if caps.SemanticRelations {
+			t.Fatalf("%s overclaims unimplemented semantic capability: %+v", language, caps)
 		}
 	}
 	if js, _ := registry.Resolve("javascript"); js.Analyzer == expected["typescript"] {

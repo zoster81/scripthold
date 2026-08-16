@@ -20,6 +20,8 @@ var r27SourceLimitContract = []r27SourceLimitExpectation{
 	{field: "MaxGraphDepth", environment: "MCP_SOURCE_MAX_GRAPH_DEPTH", defaultValue: 8, hardMaximum: 64},
 	{field: "MaxContextBytes", environment: "MCP_SOURCE_MAX_CONTEXT_BYTES", defaultValue: 1024 * 1024, hardMaximum: 8 * 1024 * 1024},
 	{field: "MaxContextItems", environment: "MCP_SOURCE_MAX_CONTEXT_ITEMS", defaultValue: 256, hardMaximum: 4_096},
+	{field: "MaxIndexProjects", environment: "MCP_SOURCE_MAX_INDEX_PROJECTS", defaultValue: 4, hardMaximum: 16},
+	{field: "MaxIndexGenerations", environment: "MCP_SOURCE_MAX_INDEX_GENERATIONS", defaultValue: 2, hardMaximum: 4},
 }
 
 func TestR27SourceLimitsDefaults(t *testing.T) {

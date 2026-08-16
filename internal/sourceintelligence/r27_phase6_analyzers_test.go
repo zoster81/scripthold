@@ -192,8 +192,8 @@ func TestR27Phase6RegistryActivatesEveryRequestedDialectSeparately(t *testing.T)
 		if !caps.SourceAnalysis || !caps.Declarations || !caps.Ranges {
 			t.Fatalf("%s incomplete capability row: %+v", language, caps)
 		}
-		if caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.SemanticRelations || caps.IncrementalIndex {
-			t.Fatalf("%s overclaims later phases: %+v", language, caps)
+		if caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.SemanticRelations {
+			t.Fatalf("%s overclaims unproven project/semantic capability: %+v", language, caps)
 		}
 	}
 	for _, language := range []string{"vb6", "vba", "vbscript", "qbasic", "classic-basic", "freebasic", "purebasic"} {

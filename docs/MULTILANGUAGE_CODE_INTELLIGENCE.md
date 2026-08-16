@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-11 are complete, and Phase 12 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
+**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-15 are complete, and Phase 16 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
 
 R27 builds on the language-neutral native analyzer architecture required by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The implementation foundation is fixed to Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters and project resolvers plus standard-library facilities where available. Public schema details remain subject to the staged contract review below, but external parser engines, downloaded grammars, compiler frontends and language-server runtimes are not implementation-time alternatives within the approved R27 plan.
 
@@ -708,7 +708,7 @@ Requirements:
 
 Exit criterion: **met at the Phase-11 source-analysis boundary** — mixed-source files participate in public outline/find navigation with stable normalized regions and truthful unsupported-region coverage, and those facts are ready for the later project search/index phases without pre-claiming Phase 15 incremental indexing.
 
-### Phase 12 — project symbol tables and dependency resolution
+### Phase 12 — project symbol tables and dependency resolution — COMPLETE
 
 Build project-wide resolution on normalized R25/R27 facts, not raw source rescanning for each query. Use deterministic structures such as:
 
@@ -720,9 +720,13 @@ Build project-wide resolution on normalized R25/R27 facts, not raw source rescan
 
 Resolve in ordered stages appropriate to the language: local/enclosing scope, same file/type/module, explicit imports/aliases, dependency-constrained exported candidates, then broader project candidates. Preserve the stage/evidence that produced each edge. A unique broad-project candidate remains `project-resolved`/inferred unless stronger language rules justify semantic status.
 
-Exit criterion: useful cross-file definitions/references work across the required ecosystem subset with deterministic ambiguity rather than name-guess certainty.
+Completed on 2026-08-16 using TDD. The internal request-scoped `ProjectModel` consumes normalized analyzer facts only and builds exact qualified-name/name indexes, per-file symbol maps, path-stem dependency lookup, and deterministic forward/reverse dependency adjacency without rescanning raw source. Structural declaration relations are resolved in ordered same-file, same-module, explicit-import/alias, dependency-constrained, and broader-project stages; generic spelling is normalized only for lookup, while original spelling, range, resolution state and evidence remain preserved. Same-file unique targets are `scope-resolved`; unique cross-file targets are `project-resolved`; ambiguous candidates remain explicitly `ambiguous` with structural evidence rather than being guessed or promoted to semantic certainty. Candidate sets, files, symbols, dependencies and references are bounded; cancellation is checked during model construction; the model remains memory-only and does not pre-claim Phase 15 persistence.
 
-### Phase 13 — relations, graph algorithms, structural search and impact
+The Phase 12 cross-ecosystem gate proves project definitions/references with native analyzer facts for C++, Java, TypeScript, Ruby, Rust and Delphi, plus explicit Kotlin import-alias resolution, reverse dependency/reference adjacency, deterministic input-order independence, missing-relative-import fail-closed behavior, ambiguity preservation, candidate-limit failure, cancellation and duplicate-path rejection. Phase 13 subsequently integrated this resolver into the public `source_query` engine and promoted `project-ref`/`project-def` only for that verified subset.
+
+Exit criterion: **met** — useful cross-file definitions/references work across the required ecosystem subset with deterministic ambiguity rather than name-guess certainty.
+
+### Phase 13 — relations, graph algorithms, structural search and impact — COMPLETE
 
 Implement bounded graph/query features on normalized relations:
 
@@ -736,9 +740,11 @@ Implement bounded graph/query features on normalized relations:
 
 Every graph query must bound files, nodes, edges, depth, retained diagnostics and output. Cycles/recursion must never produce unbounded traversal.
 
-Exit criterion: graph operations are deterministic, evidence-aware and available across multiple language ecosystems rather than one favored language.
+Completed on 2026-08-16 using TDD. The request-scoped query engine reuses the Phase 12 `ProjectModel` and the existing authorized source traversal/decoding/analyzer pipeline. `source_query search` now supports bounded `structural` matching over normalized symbols, dependencies and resolved structural relationships; `textual`/`lexical` remain explicitly `UNSUPPORTED` because decoded text search remains the responsibility of `grep_text_files`. Relationship queries now cover dependencies/dependents, references/definitions, inheritance, proven implementations, shortest dependency trace through bounded BFS, reverse dependency impact, and dependency cycles through Tarjan SCC in `O(V + E)`. `callers`, `callees` and `overrides` remain `UNSUPPORTED` until analyzers expose trustworthy corresponding facts rather than name guesses. Fingerprint-bound selectors reject stale sources with `CONFLICT`; graph node/edge/depth limits fail closed; `maxResults` truncates only deterministic proven output; request-scoped results report `index.staleness=not-indexed` and explicit coverage/truncation. Java, TypeScript and Rust gates exercise distinct query families, while the capability matrix promotes `project-ref`/`project-def` only for the Phase 12 verified C++, Java, Kotlin, TypeScript, Rust, Ruby and Delphi subset and `impl` only for the proven Java path. At this checkpoint context assembly remained Phase 14 and coherent index binding remained Phase 15; Phase 14 subsequently completed the context operation without changing the Phase 13 relation claims.
 
-### Phase 14 — bounded `source_query` context operation
+Exit criterion: **met** — graph operations are deterministic, evidence-aware and available across multiple language ecosystems rather than one favored language.
+
+### Phase 14 — bounded `source_query` context operation — COMPLETE
 
 Implement deterministic task-context assembly around selected symbols. The baseline priority should prefer:
 
@@ -752,9 +758,13 @@ Implement deterministic task-context assembly around selected symbols. The basel
 
 Each retained item has a deterministic priority and estimated/actual output cost. Degrade from body to signature instead of silently dropping all context when the budget tightens. Re-read exact current source through authorized Scripthold paths and verify fingerprints before returning body ranges.
 
-Exit criterion: agents can obtain task-focused context without embeddings and without loading entire projects.
+Completed on 2026-08-16 using TDD. The Phase 14 planner runs entirely over the bounded request-scoped Phase 12 `ProjectModel`, while source text materialization remains inside the authorized handler boundary. Fingerprint-bound symbol, path, and position targets resolve deterministically; a position on a resolved project reference targets the resolved definition candidates and preserves ambiguity rather than guessing. Explicit symbol/position targets are all-or-error under `maxItems` and `budgetBytes`. `bodyPolicy=prefer` retains a complete declaration body when it fits and otherwise degrades to the declaration signature; `signatures-only` never returns a body, and priority-7 deeper relations are always signatures even under `prefer`. Target, enclosing, direct dependency, reverse/type, and deeper-dependency candidates are deduplicated by stable symbol identity and ordered deterministically; unsupported caller/callee facts are not invented. Deeper dependency traversal preserves the real edge evidence and resolution state, merging discordant resolution states as `ambiguous` rather than imposing an artificial ordering. `maxDepth` marks truncation only when an unvisited dependency remains beyond the boundary, so already-visited cycles do not create false truncation.
 
-### Phase 15 — incremental index generation
+Before any context text is returned, the handler revalidates the authorized path, reopens the current source through `OpenSourceDocument`, compares the authoritative source fingerprint with the planned fingerprint, and slices only that verified decoded snapshot. A mutation between planning and materialization therefore fails closed with `CONFLICT`. `usedBytes` counts the actual UTF-8 bytes of returned decoded `ContextItem.text`; UTF-16LE coverage verifies that source encoding and Unicode-scalar coordinates remain intact. Direct MCP and Streamable HTTP produce equivalent structured results, request-scoped output remains `index.staleness=not-indexed`, and no persistent index, embeddings, external parser/compiler/LSP process, source mutation, or network activity is introduced.
+
+Exit criterion: **met** — agents can obtain deterministic task-focused context without embeddings and without loading entire projects, with bounded degradation and current-source fingerprint verification.
+
+### Phase 15 — incremental index generation — COMPLETE
 
 Introduce a deterministic incremental index only after source facts and relation semantics are stable. The baseline index stores metadata rather than duplicate complete source:
 
@@ -772,7 +782,15 @@ Reparse changed files by content fingerprint and invalidate affected dependents 
 
 Start process-local unless persistent storage is explicitly justified. Persistent storage requires its own protected-root, format, permissions, quota, corruption/recovery, cleanup and privacy review before implementation.
 
-Exit criterion: warm incremental updates avoid unnecessary full rebuilds without sacrificing correctness or coherent-generation guarantees.
+Completed on 2026-08-16 using TDD. `source_query` now uses one Handler-owned, process-local `ProjectIndexManager` keyed by a deterministic scope fingerprint over authorized canonical roots plus traversal/language/encoding selection. Current source bytes remain authoritative: every selected regular file is SHA-256 fingerprinted before reuse, unchanged parsed facts are shared into the next generation only when path, content fingerprint and the complete analyzer/registry/configuration fingerprint still match, and changed files are re-analyzed. The retained index is metadata-only; complete source bodies are never cached and `context` still reopens the authorized current source and verifies its fingerprint before returning text.
+
+Each changed refresh constructs a complete new `ProjectModel` from reused and newly analyzed facts before publication. This deliberately widens dependency invalidation to the entire bounded metadata model whenever any selected file changes: analyzer work remains incremental, while all dependency/reference/reverse edges are recomputed so stale relationships cannot survive when a narrower affected set cannot be proven. Probe-to-analysis fingerprint drift fails with `CONFLICT` and publishes nothing. File addition/removal, unavailable/non-regular/over-limit coverage and selection truncation are part of the generation fingerprint, and analyzer/registry/resolver-affecting configuration changes force re-analysis. Project manifest/config fingerprints are not yet separate inputs because the current resolver does not consume project manifests/configuration; they must enter the analysis/generation authority before any later resolver begins depending on them.
+
+Generations are immutable, process-local and globally monotonic for the manager lifetime. Same-scope refreshes are serialized through a cancellable per-scope gate while unrelated scopes may refresh concurrently; a query therefore observes exactly one coherent model/evidence pair. Retention is bounded by `MCP_SOURCE_MAX_INDEX_PROJECTS` (default 4, hard maximum 16) and `MCP_SOURCE_MAX_INDEX_GENERATIONS` (default 2, hard maximum 4), with deterministic inactive-scope LRU eviction and no generation-number reuse. Optional public `index.generation` and/or `index.fingerprint` bindings are now active: the default/reject policy refuses stale or unavailable generations, while `stalePolicy=allow` may select an exact retained historical metadata generation and reports `index.staleness=stale`. Historical context bodies are never trusted; current-source drift still fails closed.
+
+The mechanically generated capability matrix now advertises `index` for every active `SourceAnalysis` provider and continues to leave inactive providers unclaimed; the remaining index limitation is persistent on-disk storage, not process-local incremental generation. Focused conformance covers unchanged warm reuse, one-file changes, analyzer/config invalidation, relation recomputation, file deletion, unavailable coverage, atomic TOCTOU abort, concurrent duplicate-refresh suppression, bounded stale retention, scope eviction without generation reuse, handler generation/fingerprint binding and stale-context rejection.
+
+Exit criterion: **met** — warm unchanged requests reuse the existing generation without reparsing or rebuilding project relations; changed requests re-analyze only changed parsed facts while conservatively rebuilding bounded relationship metadata, and every published query result is bound to one coherent immutable generation.
 
 ### Phase 16 — complete capability/corpus matrix
 

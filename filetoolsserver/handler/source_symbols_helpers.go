@@ -97,7 +97,11 @@ func (h *Handler) sourceLimits() config.SourceConfig {
 		MaxShowBytes: config.DefaultSourceMaxShowBytes, MaxDiagnostics: config.DefaultSourceMaxDiagnostics,
 		MaxDetectorProbes: config.DefaultSourceMaxDetectorProbes, MaxNesting: config.DefaultSourceMaxNesting,
 		MaxConcurrency: config.DefaultSourceMaxConcurrency, MaxRequestSeconds: config.DefaultSourceMaxRequestSeconds,
-		MaxOutputBytes: config.DefaultSourceMaxOutputBytes,
+		MaxOutputBytes: config.DefaultSourceMaxOutputBytes, MaxResults: config.DefaultSourceMaxResults,
+		MaxGraphNodes: config.DefaultSourceMaxGraphNodes, MaxGraphEdges: config.DefaultSourceMaxGraphEdges,
+		MaxGraphDepth: config.DefaultSourceMaxGraphDepth, MaxContextBytes: config.DefaultSourceMaxContextBytes,
+		MaxContextItems: config.DefaultSourceMaxContextItems, MaxIndexProjects: config.DefaultSourceMaxIndexProjects,
+		MaxIndexGenerations: config.DefaultSourceMaxIndexGenerations,
 	}
 	if h != nil && h.config != nil {
 		limits = h.config.Source

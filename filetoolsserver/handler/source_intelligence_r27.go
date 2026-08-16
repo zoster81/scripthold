@@ -9,7 +9,7 @@ import (
 	"github.com/zoster81/scripthold/internal/config"
 )
 
-func (h *Handler) SourceQuery(_ context.Context, _ *mcp.CallToolRequest, input SourceQueryInput) (*mcp.CallToolResult, SourceQueryOutput, error) {
+func (h *Handler) SourceQuery(ctx context.Context, _ *mcp.CallToolRequest, input SourceQueryInput) (*mcp.CallToolResult, SourceQueryOutput, error) {
 	operation := strings.ToLower(strings.TrimSpace(input.Operation))
 	limits := h.sourceLimits()
 	if result := validateSourceQueryCommon(input, limits); result != nil {
@@ -18,7 +18,10 @@ func (h *Handler) SourceQuery(_ context.Context, _ *mcp.CallToolRequest, input S
 	if result := validateSourceQueryOperation(operation, input, limits); result != nil {
 		return result, SourceQueryOutput{}, nil
 	}
-	return errorResultWithCode(ErrCodeUnsupported, "source_query engine is not implemented yet"), SourceQueryOutput{}, nil
+	if operation == "search" && input.Mode != "structural" {
+		return errorResultWithCode(ErrCodeUnsupported, "source_query textual and lexical modes are not implemented; use grep_text_files for decoded textual search"), SourceQueryOutput{}, nil
+	}
+	return h.executeSourceQuery(ctx, input, limits)
 }
 
 func validateSourceQueryCommon(input SourceQueryInput, limits config.SourceConfig) *mcp.CallToolResult {

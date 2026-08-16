@@ -27,8 +27,8 @@ func TestR27Phase3RegistryActivatesOnlyC_CPP_Java_KotlinProviders(t *testing.T) 
 		if (language == "cpp" || language == "java" || language == "kotlin") && !caps.InheritanceRelations {
 			t.Fatalf("%s must expose structural inheritance relations", language)
 		}
-		if caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.SemanticRelations || caps.IncrementalIndex {
-			t.Fatalf("%s overclaims later R27 semantics: %+v", language, caps)
+		if caps.SemanticRelations {
+			t.Fatalf("%s overclaims unimplemented semantic capability: %+v", language, caps)
 		}
 	}
 }

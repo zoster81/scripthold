@@ -564,6 +564,18 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	phpLanguage.ShebangInterpreters = []string{"php"}
 	rubyLanguage := analyzable("ruby", AnalyzerRuby, []string{".rb"})
 	rubyLanguage.ShebangInterpreters = []string{"ruby"}
+	promoteProjectResolution := func(descriptor *LanguageDescriptor, implementations bool) {
+		descriptor.Capabilities.ProjectResolvedReferences = true
+		descriptor.Capabilities.ProjectResolvedDefinitions = true
+		descriptor.Capabilities.Implementations = implementations
+	}
+	promoteProjectResolution(&cppLanguage, false)
+	promoteProjectResolution(&javaLanguage, true)
+	promoteProjectResolution(&kotlinLanguage, false)
+	promoteProjectResolution(&typescriptLanguage, false)
+	promoteProjectResolution(&rustLanguage, false)
+	promoteProjectResolution(&rubyLanguage, false)
+	promoteProjectResolution(&delphiLanguage, false)
 	swiftLanguage := analyzable("swift", AnalyzerSwift, []string{".swift"})
 	vb6Language := analyzable("vb6", AnalyzerVB6, nil)
 	vb6Language.AmbiguousExtensions = []string{".bas"}

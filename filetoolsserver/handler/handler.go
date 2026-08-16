@@ -15,6 +15,7 @@ import (
 	"github.com/zoster81/scripthold/internal/filesystempackage"
 	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/security"
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 	"github.com/zoster81/scripthold/internal/taskstore"
 )
 
@@ -122,6 +123,9 @@ type Handler struct {
 	replaceFile                    func(string, []byte, filesystem.ReplaceOptions) error
 	patchPackageAfterPrepare       func() error
 	patchPackageAfterStage         func() error
+	sourceIndexOnce                sync.Once
+	sourceIndex                    *sourceintelligence.ProjectIndexManager
+	sourceIndexInitErr             error
 	mu                             sync.RWMutex
 }
 

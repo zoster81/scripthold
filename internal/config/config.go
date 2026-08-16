@@ -61,6 +61,8 @@ const (
 	EnvSourceMaxGraphDepth                = "MCP_SOURCE_MAX_GRAPH_DEPTH"
 	EnvSourceMaxContextBytes              = "MCP_SOURCE_MAX_CONTEXT_BYTES"
 	EnvSourceMaxContextItems              = "MCP_SOURCE_MAX_CONTEXT_ITEMS"
+	EnvSourceMaxIndexProjects             = "MCP_SOURCE_MAX_INDEX_PROJECTS"
+	EnvSourceMaxIndexGenerations          = "MCP_SOURCE_MAX_INDEX_GENERATIONS"
 
 	EnvBackupStoreDir             = "MCP_BACKUP_STORE_DIR"
 	EnvBackupDefaultPolicy        = "MCP_BACKUP_DEFAULT_POLICY"
@@ -112,45 +114,49 @@ const (
 	DefaultFilesystemPackagePreviewTTLSeconds = 15 * 60
 	DefaultMaxSessions                        = 128
 
-	DefaultSourceMaxInputPaths     = 32
-	DefaultSourceMaxFiles          = 256
-	DefaultSourceMaxAggregateBytes = int64(64 * 1024 * 1024)
-	DefaultSourceMaxFileBytes      = int64(8 * 1024 * 1024)
-	DefaultSourceMaxSymbols        = 10_000
-	DefaultSourceMaxSignatureBytes = 8 * 1024
-	DefaultSourceMaxShowBytes      = 1024 * 1024
-	DefaultSourceMaxDiagnostics    = 256
-	DefaultSourceMaxDetectorProbes = 4
-	DefaultSourceMaxNesting        = 256
-	DefaultSourceMaxConcurrency    = 4
-	DefaultSourceMaxRequestSeconds = 30
-	DefaultSourceMaxOutputBytes    = int64(16 * 1024 * 1024)
-	DefaultSourceMaxResults        = 10_000
-	DefaultSourceMaxGraphNodes     = 5_000
-	DefaultSourceMaxGraphEdges     = 20_000
-	DefaultSourceMaxGraphDepth     = 8
-	DefaultSourceMaxContextBytes   = 1024 * 1024
-	DefaultSourceMaxContextItems   = 256
+	DefaultSourceMaxInputPaths       = 32
+	DefaultSourceMaxFiles            = 256
+	DefaultSourceMaxAggregateBytes   = int64(64 * 1024 * 1024)
+	DefaultSourceMaxFileBytes        = int64(8 * 1024 * 1024)
+	DefaultSourceMaxSymbols          = 10_000
+	DefaultSourceMaxSignatureBytes   = 8 * 1024
+	DefaultSourceMaxShowBytes        = 1024 * 1024
+	DefaultSourceMaxDiagnostics      = 256
+	DefaultSourceMaxDetectorProbes   = 4
+	DefaultSourceMaxNesting          = 256
+	DefaultSourceMaxConcurrency      = 4
+	DefaultSourceMaxRequestSeconds   = 30
+	DefaultSourceMaxOutputBytes      = int64(16 * 1024 * 1024)
+	DefaultSourceMaxResults          = 10_000
+	DefaultSourceMaxGraphNodes       = 5_000
+	DefaultSourceMaxGraphEdges       = 20_000
+	DefaultSourceMaxGraphDepth       = 8
+	DefaultSourceMaxContextBytes     = 1024 * 1024
+	DefaultSourceMaxContextItems     = 256
+	DefaultSourceMaxIndexProjects    = 4
+	DefaultSourceMaxIndexGenerations = 2
 
-	HardMaxSourceInputPaths     = 256
-	HardMaxSourceFiles          = 4_096
-	HardMaxSourceAggregateBytes = int64(512 * 1024 * 1024)
-	HardMaxSourceFileBytes      = int64(64 * 1024 * 1024)
-	HardMaxSourceSymbols        = 100_000
-	HardMaxSourceSignatureBytes = 64 * 1024
-	HardMaxSourceShowBytes      = 8 * 1024 * 1024
-	HardMaxSourceDiagnostics    = 4_096
-	HardMaxSourceDetectorProbes = 16
-	HardMaxSourceNesting        = 2_048
-	HardMaxSourceConcurrency    = 32
-	HardMaxSourceRequestSeconds = 300
-	HardMaxSourceOutputBytes    = int64(64 * 1024 * 1024)
-	HardMaxSourceResults        = 100_000
-	HardMaxSourceGraphNodes     = 50_000
-	HardMaxSourceGraphEdges     = 200_000
-	HardMaxSourceGraphDepth     = 64
-	HardMaxSourceContextBytes   = 8 * 1024 * 1024
-	HardMaxSourceContextItems   = 4_096
+	HardMaxSourceInputPaths       = 256
+	HardMaxSourceFiles            = 4_096
+	HardMaxSourceAggregateBytes   = int64(512 * 1024 * 1024)
+	HardMaxSourceFileBytes        = int64(64 * 1024 * 1024)
+	HardMaxSourceSymbols          = 100_000
+	HardMaxSourceSignatureBytes   = 64 * 1024
+	HardMaxSourceShowBytes        = 8 * 1024 * 1024
+	HardMaxSourceDiagnostics      = 4_096
+	HardMaxSourceDetectorProbes   = 16
+	HardMaxSourceNesting          = 2_048
+	HardMaxSourceConcurrency      = 32
+	HardMaxSourceRequestSeconds   = 300
+	HardMaxSourceOutputBytes      = int64(64 * 1024 * 1024)
+	HardMaxSourceResults          = 100_000
+	HardMaxSourceGraphNodes       = 50_000
+	HardMaxSourceGraphEdges       = 200_000
+	HardMaxSourceGraphDepth       = 64
+	HardMaxSourceContextBytes     = 8 * 1024 * 1024
+	HardMaxSourceContextItems     = 4_096
+	HardMaxSourceIndexProjects    = 16
+	HardMaxSourceIndexGenerations = 4
 
 	BackupPolicyDisabled = "disabled"
 	BackupPolicyRequired = "required"
@@ -237,25 +243,27 @@ type Limits struct {
 // file operations. Effective shared limits are the minimum of these values and
 // the corresponding server-wide limits.
 type SourceConfig struct {
-	MaxInputPaths     int
-	MaxFiles          int
-	MaxAggregateBytes int64
-	MaxFileBytes      int64
-	MaxSymbols        int
-	MaxSignatureBytes int
-	MaxShowBytes      int
-	MaxDiagnostics    int
-	MaxDetectorProbes int
-	MaxNesting        int
-	MaxConcurrency    int
-	MaxRequestSeconds int
-	MaxOutputBytes    int64
-	MaxResults        int
-	MaxGraphNodes     int
-	MaxGraphEdges     int
-	MaxGraphDepth     int
-	MaxContextBytes   int
-	MaxContextItems   int
+	MaxInputPaths       int
+	MaxFiles            int
+	MaxAggregateBytes   int64
+	MaxFileBytes        int64
+	MaxSymbols          int
+	MaxSignatureBytes   int
+	MaxShowBytes        int
+	MaxDiagnostics      int
+	MaxDetectorProbes   int
+	MaxNesting          int
+	MaxConcurrency      int
+	MaxRequestSeconds   int
+	MaxOutputBytes      int64
+	MaxResults          int
+	MaxGraphNodes       int
+	MaxGraphEdges       int
+	MaxGraphDepth       int
+	MaxContextBytes     int
+	MaxContextItems     int
+	MaxIndexProjects    int
+	MaxIndexGenerations int
 }
 
 // BackupLimits bounds the future persistent backup store independently from
@@ -353,25 +361,27 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 			MaxSessions:                        DefaultMaxSessions,
 		},
 		Source: SourceConfig{
-			MaxInputPaths:     DefaultSourceMaxInputPaths,
-			MaxFiles:          DefaultSourceMaxFiles,
-			MaxAggregateBytes: DefaultSourceMaxAggregateBytes,
-			MaxFileBytes:      DefaultSourceMaxFileBytes,
-			MaxSymbols:        DefaultSourceMaxSymbols,
-			MaxSignatureBytes: DefaultSourceMaxSignatureBytes,
-			MaxShowBytes:      DefaultSourceMaxShowBytes,
-			MaxDiagnostics:    DefaultSourceMaxDiagnostics,
-			MaxDetectorProbes: DefaultSourceMaxDetectorProbes,
-			MaxNesting:        DefaultSourceMaxNesting,
-			MaxConcurrency:    DefaultSourceMaxConcurrency,
-			MaxRequestSeconds: DefaultSourceMaxRequestSeconds,
-			MaxOutputBytes:    DefaultSourceMaxOutputBytes,
-			MaxResults:        DefaultSourceMaxResults,
-			MaxGraphNodes:     DefaultSourceMaxGraphNodes,
-			MaxGraphEdges:     DefaultSourceMaxGraphEdges,
-			MaxGraphDepth:     DefaultSourceMaxGraphDepth,
-			MaxContextBytes:   DefaultSourceMaxContextBytes,
-			MaxContextItems:   DefaultSourceMaxContextItems,
+			MaxInputPaths:       DefaultSourceMaxInputPaths,
+			MaxFiles:            DefaultSourceMaxFiles,
+			MaxAggregateBytes:   DefaultSourceMaxAggregateBytes,
+			MaxFileBytes:        DefaultSourceMaxFileBytes,
+			MaxSymbols:          DefaultSourceMaxSymbols,
+			MaxSignatureBytes:   DefaultSourceMaxSignatureBytes,
+			MaxShowBytes:        DefaultSourceMaxShowBytes,
+			MaxDiagnostics:      DefaultSourceMaxDiagnostics,
+			MaxDetectorProbes:   DefaultSourceMaxDetectorProbes,
+			MaxNesting:          DefaultSourceMaxNesting,
+			MaxConcurrency:      DefaultSourceMaxConcurrency,
+			MaxRequestSeconds:   DefaultSourceMaxRequestSeconds,
+			MaxOutputBytes:      DefaultSourceMaxOutputBytes,
+			MaxResults:          DefaultSourceMaxResults,
+			MaxGraphNodes:       DefaultSourceMaxGraphNodes,
+			MaxGraphEdges:       DefaultSourceMaxGraphEdges,
+			MaxGraphDepth:       DefaultSourceMaxGraphDepth,
+			MaxContextBytes:     DefaultSourceMaxContextBytes,
+			MaxContextItems:     DefaultSourceMaxContextItems,
+			MaxIndexProjects:    DefaultSourceMaxIndexProjects,
+			MaxIndexGenerations: DefaultSourceMaxIndexGenerations,
 		},
 		Backup: BackupConfig{
 			StoreDir:      getenv(EnvBackupStoreDir),
@@ -462,6 +472,8 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Source.MaxGraphDepth = boundedIntEnvironment(getenv, EnvSourceMaxGraphDepth, cfg.Source.MaxGraphDepth, HardMaxSourceGraphDepth)
 	cfg.Source.MaxContextBytes = boundedIntEnvironment(getenv, EnvSourceMaxContextBytes, cfg.Source.MaxContextBytes, HardMaxSourceContextBytes)
 	cfg.Source.MaxContextItems = boundedIntEnvironment(getenv, EnvSourceMaxContextItems, cfg.Source.MaxContextItems, HardMaxSourceContextItems)
+	cfg.Source.MaxIndexProjects = boundedIntEnvironment(getenv, EnvSourceMaxIndexProjects, cfg.Source.MaxIndexProjects, HardMaxSourceIndexProjects)
+	cfg.Source.MaxIndexGenerations = boundedIntEnvironment(getenv, EnvSourceMaxIndexGenerations, cfg.Source.MaxIndexGenerations, HardMaxSourceIndexGenerations)
 
 	cfg.Backup.Limits.MaxTotalBytes = boundedInt64Environment(getenv, EnvBackupMaxTotalBytes, cfg.Backup.Limits.MaxTotalBytes, HardMaxBackupTotalBytes)
 	cfg.Backup.Limits.MaxObjectBytes = boundedInt64Environment(getenv, EnvBackupMaxObjectBytes, cfg.Backup.Limits.MaxObjectBytes, HardMaxBackupObjectBytes)
