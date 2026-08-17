@@ -4,9 +4,10 @@ This document is the authoritative source for **current and future milestone sta
 
 ## Current state
 
-- Current public release: **Scripthold `3.0.0`**.
+- Current public release: **Scripthold `3.0.0`**, published on 2026-08-17.
 - Public surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
-- R21-R27 are complete.
+- The `3.0.0` GitHub Release, GitHub-only MCPB publication, and MCP Registry publication are complete; publication remains separate from operator deployment.
+- R21-R27 are complete, and R23-R27 shipped together in `3.0.0`.
 - **R27 completed on 2026-08-16.** Phases 0-18 are complete; no later release-scoped milestone is activated by this completion.
 - The completed R24, R25, and R26 contracts and verification records are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), and [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md).
 - Publication does not imply deployment. Operator-specific deployment, rollback, and runtime state are governed separately by [PUBLISHING.md](PUBLISHING.md) and private operational procedures.

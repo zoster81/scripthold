@@ -2,7 +2,7 @@
 
 ## Status
 
-This guide documents the intentional breaking MCP API transition from Scripthold `2.2.0` to `3.0.0`, implemented by completed R23 and R24 and carried forward through the completed R25-R27 release scope. R24 completed its verification gate on 2026-08-13 with local checks, activated-candidate connector preview/apply acceptance, native Windows/Linux/macOS regression suites, and the exact push-event `Release candidate` gate passing. Release publication and operator deployment remain separate explicitly governed actions.
+This guide documents the intentional breaking MCP API transition from Scripthold `2.2.0` to `3.0.0`, implemented by completed R23 and R24 and carried forward through the completed R25-R27 release scope. R24 completed its verification gate on 2026-08-13 with local checks, activated-candidate connector preview/apply acceptance, native Windows/Linux/macOS regression suites, and the exact push-event `Release candidate` gate passing. Scripthold `3.0.0` was published on 2026-08-17; operator deployment remains a separate explicitly governed action.
 
 The authoritative R23 design and completion gate are in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md). The authoritative R24 filesystem-package contract is in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md). Tool schemas and examples are in [`TOOLS.md`](../TOOLS.md).
 
@@ -16,7 +16,7 @@ R24 applies the same capability model to coordinated filesystem mutations and re
 
 ## Required caller changes
 
-| Scripthold 2.2.0 request | Next-major request |
+| Scripthold 2.2.0 request | Scripthold 3.0.0 request |
 |---|---|
 | `edit_file` omitted action or `action=direct` | `edit_file action=preview`, then `edit_file_apply {previewId}` |
 | `edit_file action=apply` | `edit_file_apply {previewId}` |

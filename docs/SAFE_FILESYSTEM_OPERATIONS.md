@@ -327,7 +327,7 @@ R24 deliberately replaces the four overlapping simple MCP mutation tools rather 
 - add read-only `filesystem_package`;
 - add mutating `filesystem_package_apply` with a `previewId`-only schema.
 
-The existing internal filesystem primitives behind the removed tools remain reusable implementation building blocks. No compatibility wrapper or alias keeps the old public names alive. This is an intentional next-major surface change and must be reflected in migration documentation, the authoritative tool catalog, runtime registration, README/TOOLS references, schema tests, and connector acceptance.
+The existing internal filesystem primitives behind the removed tools remain reusable implementation building blocks. No compatibility wrapper or alias keeps the old public names alive. This intentional breaking surface change ships in Scripthold `3.0.0` and is reflected in migration documentation, the authoritative tool catalog, runtime registration, README/TOOLS references, schema tests, and connector acceptance.
 
 Text/encoding-aware tools such as `write_whole_file`, `edit_file`, `patch_package`, `convert_encoding`, and their R23 apply partners remain separate because they provide materially different contracts rather than duplicate namespace operations.
 

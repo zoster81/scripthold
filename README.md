@@ -36,7 +36,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 ## Current release and development state
 
-**Scripthold `3.0.0`** is the current public release. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add MCPB bundles and the MCP Registry publication for `io.github.zoster81/scripthold`.
+**Scripthold `3.0.0`** is the current public release, published on 2026-08-17 from the exact commit qualified by the push-event `Test Suite`. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers. The GitHub Release contains six raw binaries, six platform archives, six GitHub-produced MCPB bundles, `checksums.txt`, and `mcpb-checksums.txt`; the MCP Registry publishes `io.github.zoster81/scripthold` version `3.0.0`.
 
 The `3.0.0` release line contains the completed R23-R27 work and exposes 36 tools. R27 completed on 2026-08-16 with **101 active source-analysis providers across 103 registry rows**; Dockerfile and Make remain auxiliary inactive metadata. `source_symbols` provides bounded declaration/navigation workflows, while `source_query` adds structural search, supported project relations, bounded fingerprint-verified context, and coherent process-local incremental generations. Capability claims are provider-specific and mechanically projected in [docs/LANGUAGE_CAPABILITIES.md](docs/LANGUAGE_CAPABILITIES.md); ambiguous formats fail closed, and no external parser/compiler/LSP runtime or persistent on-disk code index is required.
 

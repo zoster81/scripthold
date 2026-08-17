@@ -4,9 +4,10 @@ This document is the maintainer procedure for publishing semantic releases from 
 
 ## Current release state
 
-- Current public release: **`3.0.0`**.
-- MCP Registry identity: **`io.github.zoster81/scripthold`**.
+- Current public release: **`3.0.0`**, published on 2026-08-17 from annotated tag `v3.0.0` on commit `ea6ff42f20de1a162e7e45860347d8b0001a8a1c`.
+- MCP Registry identity: **`io.github.zoster81/scripthold`**, with public Registry version **`3.0.0`**.
 - Release surface: 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active source-intelligence providers.
+- Published asset inventory: six raw binaries, six platform archives, `checksums.txt`, six GitHub-only MCPB bundles, and `mcpb-checksums.txt`.
 - `2.0.0` remains the historical pre-rebrand rollback release with its original asset and Registry identity.
 - Publication and deployment are separate. A successful GitHub Release or Registry publication does not imply that any private or production runtime was upgraded.
 
