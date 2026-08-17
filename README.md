@@ -2,10 +2,16 @@
 
 <!-- mcp-name: io.github.zoster81/scripthold -->
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/zoster81/scripthold)](https://goreportcard.com/report/github.com/zoster81/scripthold)
+[![Test Suite](https://github.com/zoster81/scripthold/actions/workflows/test.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/test.yml?query=branch%3Amain)
+[![CodeQL](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml?query=branch%3Amain)
+[![golangci-lint](https://img.shields.io/badge/golangci--lint-v2.12.2-4C8EDA?logo=go&logoColor=white)](.golangci.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/zoster81/scripthold?logo=go)](go.mod)
 [![Release](https://img.shields.io/github/v/release/zoster81/scripthold)](https://github.com/zoster81/scripthold/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/github/license/zoster81/scripthold)](LICENSE)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-Scripthold-blue)](https://registry.modelcontextprotocol.io/?search=io.github.zoster81%2Fscripthold)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-555)](.github/workflows/test.yml)
+[![Text encodings](https://img.shields.io/badge/text%20encodings-168-6f42c1)](docs/GLOBAL_ENCODING_COVERAGE.md)
+[![Source providers](https://img.shields.io/badge/source%20providers-101-0b7285)](docs/LANGUAGE_CAPABILITIES.md)
 
 **Code from the web. Work locally. Recover safely.**
 
@@ -17,6 +23,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 - **36 tools and 3 guided prompts** over one authoritative catalog in the current next-major source tree; the public `2.2.0` release exposes 30 tools.
 - **168 registered encodings**, including UTF-32 LE/BE and broad portable legacy coverage; automatic detection remains intentionally more conservative than explicit codec support.
+- **101 active source-intelligence providers** across programming languages, dialects, DSLs, document/config formats, and composites, with capability-specific evidence and fail-closed ambiguity.
 - **Secure filesystem boundaries** with resolved-root containment, deterministic traversal, Windows reparse/junction handling, staged mutation, conflict detection, and no-replace creation.
 - **Verified change workflows** with deterministic fingerprints, one-shot edit approval, strict patch packages, persistent backup integration, and typed verification.
 - **Offline backup recovery** with deterministic persisted review plans, immutable source evidence, fully verified reconstruction into a separate staged destination, mandatory full audit, no-replace promotion, and path-free provenance.
@@ -27,11 +34,19 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 > **Lineage:** Scripthold originated from the [original `mcp-file-tools` project](https://github.com/dimitar-grigorov/mcp-file-tools), created by **Dimitar Grigorov**, and retains its GPL-3.0 lineage and permanent attribution. See [Project Direction](docs/PROJECT_DIRECTION.md).
 
-## Current release
+## Current release and development state
 
-**Scripthold `2.2.0`** is the current public release. It exposes 30 tools, 3 guided prompts, and 168 registered encodings. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add the six MCPB bundles, `mcpb-checksums.txt`, and the MCP Registry publication for `io.github.zoster81/scripthold`.
+**Scripthold `2.2.0`** is the current public release. It exposes 30 tools, 3 guided prompts, and 168 registered encodings. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add MCPB bundles and the MCP Registry publication for `io.github.zoster81/scripthold`.
 
-R22 completed the global encoding expansion and full UTF-32 pipeline, **R23 completed on 2026-08-12**, **R24 completed on 2026-08-13**, **R25 completed on 2026-08-13**, and **R26 completed on 2026-08-14**. R24 established the 34-tool Unreleased next-major filesystem surface; R25 adds the read-only `source_symbols` source-navigation tool as the 35th catalog entry. `source_symbols` provides bounded `outline`, `digest`, `find`, and fingerprint-bound `show` over the initial Go, C#, VB.NET, Python, and Classic ASP canaries without external parser/compiler/LSP runtime dependencies. R26 adds explicit offline `backup-store recover-plan` / `recover-apply` reconstruction into a separate fully audited destination while preserving the damaged source store as evidence; its exact pushed implementation commit passed native Windows/Ubuntu/macOS CI and the aggregate `Release candidate` gate. R27 was activated on 2026-08-14; Phase 1 added `source_query` as the 36th Unreleased catalog entry and froze one compact read-only `search` / `relations` / `context` contract while preserving `source_symbols`. Phases 2 through 18 are now complete. The profile-driven native scanner/recognizer foundation now backs 101 active production providers: the five R25 canaries; the C/C++/Java/Kotlin, JavaScript/TypeScript/Rust, PHP/Ruby/Swift/Pascal/Delphi, Basic/.NET/composite, MQL4/MQL5 and specialty C-like waves; distinct Perl, Lua, Luau, Elixir, Erlang, Gleam, Groovy, POSIX shell, Bash, Tcl, and AutoHotkey providers; distinct Fortran, COBOL, Ada, MATLAB, Octave, Julia, R, Haskell, OCaml, Common Lisp, Clojure, and Emacs Lisp providers; the Phase 10 data/infra/hardware/document wave covering SQL/PLSQL, GraphQL, Terraform/HCL, Nix, Protocol Buffers, VHDL, Verilog/SystemVerilog, Assembly, HTML/XML, CSS/SCSS/Sass/Less, JSON/YAML/TOML/Markdown, OpenAPI, and Ansible-oriented YAML; the Phase 11 composite/template wave covering Vue, Svelte, Astro, PHP/HTML, JSP, Jinja, Twig, Blade, and EJS while completing host HTML/client JavaScript/CSS delegation for ASP.NET Web Forms, Razor, and Blazor; and the Phase 16 Scala and Flow providers that complete every approved R27 target-catalog row while leaving Dockerfile and Make as auxiliary inactive registry metadata. Classic ASP was also extended from VBScript-only embedded analysis to truthful VBScript/JScript delegation. Their mechanically projected capability rows are in [docs/LANGUAGE_CAPABILITIES.md](docs/LANGUAGE_CAPABILITIES.md). Shared-extension Basic dialects and `.mqh` remain fail-closed when evidence cannot distinguish their dialects; generic `.m` remains ambiguous among Objective-C, MATLAB, and Octave without independent content/project evidence; .NET composite formats preserve host coordinates across structurally declared server regions, host HTML, and supported client JavaScript/CSS regions; dynamic, scientific/legacy, and Phase 10 non-general-purpose providers expose only the structural facts justified by their native recognizers without claiming unsupported runtime/compiler/type semantics or fictitious programming-language semantics. Phase 12 added bounded project resolution; Phase 13 made `source_query` structural search plus supported dependency/reference/type/trace/impact/cycle relations operational with explicit evidence, ambiguity and graph bounds. Phase 14 added deterministic fingerprint-verified task-context assembly with target/enclosing/dependency/type priorities, exact decoded UTF-8 budgeting, body-to-signature degradation, signature-only deeper relations, and fail-closed stale-source handling. Phase 15 adds a bounded process-local incremental index with content/analyzer/configuration fingerprint invalidation, immutable coherent generations, conservative whole-model relation recomputation after changes, active generation/fingerprint stale binding, generation-bound coverage, and no retained complete source bodies or persistent storage. Phase 16 closes the approved provider catalog with distinct Scala and Flow providers; Phase 17 verifies repository-scale bounds, concurrent generation consistency, security boundaries, benchmarks, and a heterogeneous MCP workflow; Phase 18 completes registry-first documentation, fuzzing, normal/race/static/vulnerability, catalog, and documentation gates. Textual/lexical query modes remain delegated to existing decoded text search and analyzer-unproven callers/callees/overrides remain unsupported. **R27 completed on 2026-08-16; Phases 0 through 18 are complete.** `2.2.0` remains the current public release until an explicitly authorized later release is published. Current/future milestone state lives in [docs/ROADMAP.md](docs/ROADMAP.md), the completed R23 contract in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), the completed R24 contract in [docs/SAFE_FILESYSTEM_OPERATIONS.md](docs/SAFE_FILESYSTEM_OPERATIONS.md), the completed R25 contract in [docs/SOURCE_INTELLIGENCE.md](docs/SOURCE_INTELLIGENCE.md), the completed R26 contract in [docs/BACKUP_RECOVERY.md](docs/BACKUP_RECOVERY.md), the completed R27 contract in [docs/MULTILANGUAGE_CODE_INTELLIGENCE.md](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md), completed milestone history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and release changes in [CHANGELOG.md](CHANGELOG.md). Publication does not imply any operator-specific deployment state.
+The current `main` development line contains the completed R23-R27 next-major work and exposes 36 tools. R27 completed on 2026-08-16 with **101 active source-analysis providers across 103 registry rows**; Dockerfile and Make remain auxiliary inactive metadata. `source_symbols` provides bounded declaration/navigation workflows, while `source_query` adds structural search, supported project relations, bounded fingerprint-verified context, and coherent process-local incremental generations. Capability claims are provider-specific and mechanically projected in [docs/LANGUAGE_CAPABILITIES.md](docs/LANGUAGE_CAPABILITIES.md); ambiguous formats fail closed, and no external parser/compiler/LSP runtime or persistent on-disk code index is required.
+
+No milestone after R27 is active by default, and the completed next-major work is **not** a public release until an explicitly authorized release is published. Current milestone state belongs in [docs/ROADMAP.md](docs/ROADMAP.md), concise completed history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and the R23-R27 subsystem contracts in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), [docs/SAFE_FILESYSTEM_OPERATIONS.md](docs/SAFE_FILESYSTEM_OPERATIONS.md), [docs/SOURCE_INTELLIGENCE.md](docs/SOURCE_INTELLIGENCE.md), [docs/BACKUP_RECOVERY.md](docs/BACKUP_RECOVERY.md), and [docs/MULTILANGUAGE_CODE_INTELLIGENCE.md](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md).
+
+## Quality and security
+
+The push-event [Test Suite](.github/workflows/test.yml) is the exact-commit release-candidate gate. It covers Windows/Linux/macOS native regression and race testing, Go vet, standalone Staticcheck, the repository's focused `golangci-lint` policy, govulncheck, deterministic fuzz checks, six supported-target cross-builds, workflow/shell validation, and native/container smoke before the aggregate `Release candidate` job can pass.
+
+[CodeQL](.github/workflows/codeql.yml) adds Go code scanning on `main` pushes, a weekly schedule, and manual runs. Vulnerability reporting and responsible-disclosure guidance are in [SECURITY.md](SECURITY.md). Secret scanning, allowed-root confinement, durable mutation/backup invariants, encoding safety, and transport security remain part of the repository's normal verification model rather than badge-only claims.
 
 ## Transport and authorization model
 
@@ -268,7 +283,7 @@ Backup limits, task-store limits, edit/package preview limits, and the full HTTP
 
 - Read and safely modify legacy source/configuration files without changing their encoding accidentally.
 - Search mixed-encoding repositories with explicit partial-coverage evidence.
-- Navigate declarations in Go, C#, VB.NET, Python, and Classic ASP without reading every complete source file.
+- Navigate heterogeneous repositories across 101 active source providers, query supported project relations, and assemble bounded source context without loading complete projects into the model.
 - Preview and approve edits or multi-file patch packages against deterministic fingerprints.
 - Keep approval-bound persistent backups and restore a selected original target safely.
 - Recover trustworthy records from a damaged backup store offline into a separate audited destination without modifying the source evidence.
@@ -284,16 +299,18 @@ Assistant: read_text_file (cp1251) -> edit_file preview preserving cp1251 -> exp
 
 ## Development and contribution
 
-Prerequisite Go version is declared by `go.mod`.
+Prerequisite Go version is declared by `go.mod`. The full local quality gate also uses the repository-pinned `golangci-lint` policy.
 
 ```bash
+go mod verify
 go test ./...
+golangci-lint run ./...
 go build -o scripthold ./cmd/scripthold
 ```
 
 Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents should read the root [AGENTS.md](AGENTS.md) and the nearest scoped guide. Reusable verification is in [docs/DEVELOPMENT_CHECKLIST.md](docs/DEVELOPMENT_CHECKLIST.md), current planning in [docs/ROADMAP.md](docs/ROADMAP.md), and publication in [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
-The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Unreleased next-major R23/R24 MCP surface migration is documented separately in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md).
+The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Unreleased next-major R23-R27 surface evolution is documented in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md) and the completed subsystem contracts.
 
 ## License
 

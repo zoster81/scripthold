@@ -8,6 +8,8 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Added
 
+- Added a pinned `golangci-lint` v2 quality gate for local development and GitHub Test Suite runs. The initial policy deliberately complements rather than duplicates Go vet, standalone Staticcheck, and govulncheck, and the aggregate `Release candidate` job now depends on it.
+- Added a dedicated Go CodeQL workflow for `main` pushes, weekly scheduled scans, and manual security analysis, plus a public `SECURITY.md` reporting/disclosure policy.
 - Added privacy-bounded Windows atomic-replacement diagnostics for intermittent `MoveFileExW` retry exhaustion without changing the replacement primitive. The versioned warning records retry/Win32 evidence, hashed target/staged identities, file/delete-pending state, DELETE and parent-directory access probes, and one bounded Restart Manager query over target plus staged resource; recovered retry episodes are available only at debug level. Source contents, diffs, command lines, executable paths, preview identifiers, and clear filesystem paths are excluded.
 - Added R27 Phase 17 repository-scale validation with deterministic 96-file concurrency/generation-swap/security tests, repeatable cold/warm/one-file-incremental/large-generated/mixed-monorepo/lookup/graph/context/ambiguous-detection benchmarks, static no-network/no-external-execution/no-direct-logging import gates, a heterogeneous in-process MCP `outline -> find/show -> relations -> context` workflow, and complete repository race coverage. The connector workflow exposed and TDD-fixed a Scala 3 class-plus-typed-method detection ambiguity without introducing the Python-colliding generic `class Name:` marker.
 - Added R27 Phase 16 capability/corpus completion with distinct native Scala and Flow structural providers, raising the authoritative matrix to 101 active approved R27 providers across 103 total registry rows while leaving only auxiliary Dockerfile/Make metadata inactive. Scala covers proven brace- and indentation-owned declarations, structural imports and inheritance; Flow uses offset-preserving Flow-only normalization over the typed ECMAScript recognizer, preserves ordinary JavaScript routing, supports aliases/opaque aliases plus structural dependencies/inheritance, and withholds Flow type checking and TypeScript-only namespace/module semantics. New conformance covers mixed public `source_symbols`/`source_query` routing, exact/probable detection evidence, Unicode UTF-16LE/UTF-32BE, Scala CRLF, malformed/opaque boundaries, cancellation, 1,200-declaration/function limits, inheritance evidence, and a mechanical gate that every approved target-catalog row resolves to its matching active analyzer.
@@ -32,6 +34,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Changed
 
+- Renamed the primary GitHub Actions workflow from `CI` to `Test Suite`, replaced the retired Go Report Card README badge with live Test Suite/CodeQL quality signals, and consolidated duplicated R27 status prose into the roadmap/history/subsystem sources of truth.
 - Completed R27 Phase 18 and the R27 source milestone on 2026-08-16 by synchronizing registry-derived capabilities, README/TOOLS, roadmap/history and the completed design record; adding a 5,000-execution Scala/Flow fuzz gate; and passing the applicable module, full normal/race, vet, Staticcheck, govulncheck, catalog/identity, Node, documentation, leakage and diff checks. This completion does not imply a commit, build, cross-build, release, deployment or runtime migration, which remain separately authorized operations.
 - Completed the R26 recovery verification gate across local normal/race/static/vulnerability/fuzz/platform checks and the exact pushed implementation commit's native Windows/Ubuntu/macOS regression and smoke jobs, six supported cross-builds, container smoke, and aggregate `Release candidate` CI gate.
 - Raised the Go build baseline from 1.26.5 to 1.26.6 after the vulnerability gate identified reachable standard-library issues fixed in the patch release; the container builder now uses `golang:1.26.6-alpine3.24`.
@@ -44,6 +47,10 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 - Made package and restore ordering fail closed by completing required durable backup capture and post-backup revalidation before any target-adjacent staging. Multi-file apply still reports explicit partial-commit evidence and does not claim automatic rollback.
 - Made BOM and encoding approval capabilities retain exact result bytes with stable identity/fingerprint binding, bounded lifetime/memory, cross-kind rejection, replay prevention, and final post-commit fingerprint verification. Adjacent conversion `.bak` remains separate from persistent-store backup policy.
 - Expanded the runtime catalog from 30 to 36 tools for R23 while keeping its serialized discovery payload within the existing conservative connector budget; R24 subsequently replaces four simple namespace mutation entries with two package entries for a 34-tool Unreleased source surface.
+
+### Fixed
+
+- Removed five ineffectual assignments found while onboarding the new lint gate; each value was overwritten before use, so behavior is unchanged while the dead state is no longer retained.
 
 ## 2.2.0 - 2026-08-11
 

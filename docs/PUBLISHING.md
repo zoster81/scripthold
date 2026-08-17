@@ -12,7 +12,7 @@ This document is the maintainer procedure for publishing semantic releases from 
 
 ## Release ownership boundaries
 
-A public release is created only from an exact clean commit that has passed the complete push-event `CI` `Release candidate` gate.
+A public release is created only from an exact clean commit that has passed the complete push-event `Test Suite` `Release candidate` gate.
 
 Local maintainers may prepare source, run tests, build ordinary release-candidate binaries, and run deterministic GoReleaser snapshots. They must not create or simulate GitHub-owned MCPB release outputs.
 
@@ -41,7 +41,7 @@ The following actions remain explicit maintainer decisions and are never inciden
    ```
 
 5. Verify the exact clean commit locally with the applicable release-candidate checks. `goreleaser check`, release-script tests, workflow validation, secret scanning, six-target compilation, native/container smoke, and deterministic snapshot comparison belong here when required by the release scope.
-6. Push `main` and require the `CI` workflow's `Release candidate` job to succeed on that exact push-event SHA.
+6. Push `main` and require the `Test Suite` workflow's `Release candidate` job to succeed on that exact push-event SHA.
 7. Create and push an **annotated** tag on that same commit:
 
    ```bash
@@ -53,12 +53,12 @@ The following actions remain explicit maintainer decisions and are never inciden
    - is annotated;
    - matches the dated changelog entry;
    - resolves to the exact current `origin/main` commit at publication time;
-   - has a successful push-event `CI` run for that exact SHA;
+   - has a successful push-event `Test Suite` run for that exact SHA;
    - has a successful `Release candidate` job in that run.
 9. GoReleaser publishes the normal release assets: six raw binaries, six platform archives, and `checksums.txt`, with the documentation/support files configured by `.goreleaser.yml`.
 10. GitHub then runs the MCPB and Registry workflows in order. Those workflows verify the immutable release/tag inputs and published checksums before producing their GitHub-only outputs.
 
-The tag-triggered Release workflow attests the already-completed exact-commit CI gate instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser.
+The tag-triggered Release workflow attests the already-completed exact-commit Test Suite gate instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser.
 
 ## GitHub-only MCPB boundary
 
@@ -121,7 +121,7 @@ Repository workflows pin their release-validation dependencies. Local validation
 
 The relevant categories are:
 
-- Go toolchain, race/CGO compiler, vet, Staticcheck, and govulncheck;
+- Go toolchain, race/CGO compiler, vet, the pinned `golangci-lint` policy, Staticcheck, and govulncheck;
 - Node.js for release-script tests;
 - actionlint and ShellCheck for workflow/shell validation;
 - GoReleaser for normal release assets;
@@ -163,7 +163,7 @@ Before tagging:
 
 After tagging:
 
-- [ ] Release workflow verifies the immutable annotated tag and exact CI-gated commit;
+- [ ] Release workflow verifies the immutable annotated tag and exact Test Suite-gated commit;
 - [ ] GoReleaser publication succeeds;
 - [ ] GitHub-only MCPB publication succeeds;
 - [ ] GitHub-only Registry publication succeeds;

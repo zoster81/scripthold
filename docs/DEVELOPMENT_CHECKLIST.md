@@ -92,6 +92,7 @@ Run checks from focused to broad and record exact outcomes.
 - [ ] `go mod verify`;
 - [ ] `go test ./... -count=1`;
 - [ ] `go vet ./...`;
+- [ ] `golangci-lint run ./...` with the repository-pinned policy;
 - [ ] Staticcheck at the repository-pinned version;
 - [ ] govulncheck at the repository-pinned version;
 - [ ] race detector where a working CGO compiler is available;
@@ -166,7 +167,7 @@ Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. This 
 
 - [ ] release-scoped milestone complete;
 - [ ] exact clean commit and dated changelog entry verified;
-- [ ] complete push-event `CI` `Release candidate` gate passes on the exact pushed SHA;
+- [ ] complete push-event `Test Suite` (`.github/workflows/test.yml`) `Release candidate` gate passes on the exact pushed SHA;
 - [ ] annotated tag resolves to that same commit;
 - [ ] normal GoReleaser publication succeeds;
 - [ ] GitHub-only MCPB and Registry workflows succeed;

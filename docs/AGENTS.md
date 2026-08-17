@@ -21,10 +21,10 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `SAFE_FILESYSTEM_OPERATIONS.md`: completed R24 contract and verification record for typed preview/apply filesystem packages, recursive directory operations, backup-before-loss, and partial-state evidence.
 - `SOURCE_INTELLIGENCE.md`: completed R25 contract and verification record for native language-neutral source navigation, evidence-qualified analysis, shared scanners/detection/composites, and the initial canary analyzers.
 - `BACKUP_RECOVERY.md`: completed R26 contract and verification record for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
-- `MULTILANGUAGE_CODE_INTELLIGENCE.md`: active R27 baseline for broad mandatory multi-language source intelligence, semantic capability reporting, relationships, and incremental indexing.
+- `MULTILANGUAGE_CODE_INTELLIGENCE.md`: completed R27 contract and verification record for broad multi-language source intelligence, capability reporting, relationships, and incremental indexing.
 - `LANGUAGE_CAPABILITIES.md`: deterministic R27 capability projection rendered from the native language registry; update the registry/renderer and keep the byte-for-byte drift test green rather than editing support claims independently.
 
-Keep operational details in their proper source instead of duplicating them across documents. The completed R26 contract remains authoritative history, and the active R27 baseline is binding for that milestone unless maintainers explicitly revise it; do not replace either with a shorter roadmap summary.
+Keep operational details in their proper source instead of duplicating them across documents. The completed R26 and R27 contracts remain authoritative history unless maintainers explicitly revise them; current milestone state belongs in `ROADMAP.md`, while detailed completion evidence belongs in the subsystem contracts and `ROADMAP_HISTORY.md`.
 
 ## Portability rules
 

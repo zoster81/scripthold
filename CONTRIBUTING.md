@@ -12,6 +12,7 @@ Prerequisites:
 - Git;
 - Node.js 18 or later for release-script tests;
 - Bash, `curl`, `tar`, and `sha256sum` for workflow linting;
+- `golangci-lint` at the repository-pinned version for the full local quality gate;
 - a working C compiler only when running the Go race detector locally.
 
 Do not add credentials, real tunnel identifiers, private launcher copies, workstation-specific paths, process IDs, or local deployment state to the repository.
@@ -39,6 +40,7 @@ gofmt -w path/to/changed.go
 go mod verify
 go test ./... -count=1
 go vet ./...
+golangci-lint run ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 

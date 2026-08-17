@@ -25,11 +25,11 @@ Do not copy private workstation state, local process details, credentials, or op
 - Completed R24 safe-filesystem operations contract and verification record: [`docs/SAFE_FILESYSTEM_OPERATIONS.md`](docs/SAFE_FILESYSTEM_OPERATIONS.md)
 - Completed R25 source-intelligence contract and verification record: [`docs/SOURCE_INTELLIGENCE.md`](docs/SOURCE_INTELLIGENCE.md)
 - Completed R26 backup-recovery contract and verification record: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
-- Active R27 broad multi-language code-intelligence baseline: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
+- Completed R27 broad multi-language code-intelligence contract and verification record: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
 - Mechanically verified R27 language capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
-Link to these documents instead of duplicating their detailed content. R26 is complete and R27 is active; before continuing R27, read its active baseline together with the completed R25/R26 contracts and the roadmap. The approved R27 requirements remain binding unless maintainers explicitly revise them.
+Link to these documents instead of duplicating their detailed content. R27 is complete and no later release-scoped milestone is active by default. Before new milestone work, read the completed R25-R27 contracts together with the roadmap and explicitly activate the intended milestone; completed requirements remain authoritative history unless maintainers deliberately revise them.
 
 ## Repository map
 
@@ -88,6 +88,7 @@ go test ./path/to/affected/package -count=1
 go mod verify
 go test ./... -count=1
 go vet ./...
+golangci-lint run ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/verify-release-version.test.js
