@@ -29,7 +29,7 @@ func TestAtomicReplaceRetryReportsRecoveredEpisodeWithoutPathDisclosure(t *testi
 
 	attempt := 0
 	var reports []atomicReplaceRetryReport
-	err = commitStagedTargetWithRetryObserved(target, staged, &expected, func(string, string) error {
+	err = commitStagedTargetWithRetryObservedAlternative(target, staged, &expected, func(string, string) error {
 		attempt++
 		if attempt == 1 {
 			return windows.ERROR_ACCESS_DENIED
@@ -40,7 +40,7 @@ func TestAtomicReplaceRetryReportsRecoveredEpisodeWithoutPathDisclosure(t *testi
 			t.Fatalf("report paths target=%q staged=%q", targetPath, stagedPath)
 		}
 		reports = append(reports, report)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -512,10 +512,6 @@ func commitStagedTargetWithRetry(path, stagedPath string, expected *FileSnapshot
 	return commitStagedTargetWithRetryObservedAlternative(path, stagedPath, expected, commit, reportAtomicReplaceRetry, tryAlternativeAtomicReplace)
 }
 
-func commitStagedTargetWithRetryObserved(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error, reporter atomicReplaceRetryReporter) error {
-	return commitStagedTargetWithRetryObservedAlternative(path, stagedPath, expected, commit, reporter, nil)
-}
-
 func commitStagedTargetWithRetryObservedAlternative(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error, reporter atomicReplaceRetryReporter, alternative atomicReplaceAlternative) error {
 	started := time.Now()
 	commitAttempts := 1
