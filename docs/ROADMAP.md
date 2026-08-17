@@ -4,8 +4,8 @@ This document is the authoritative source for **current and future milestone sta
 
 ## Current state
 
-- Current public release: **Scripthold `2.2.0`**.
-- Public surface: **30 tools**, **3 guided prompts**, and **168 registered text encodings** over stdio and Streamable HTTP.
+- Current public release: **Scripthold `3.0.0`**.
+- Public surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
 - R21-R27 are complete.
 - **R27 completed on 2026-08-16.** Phases 0-18 are complete; no later release-scoped milestone is activated by this completion.
 - The completed R24, R25, and R26 contracts and verification records are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), and [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md).

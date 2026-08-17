@@ -10,7 +10,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `ROADMAP_HISTORY.md`: concise completed milestone history for R1 onward, not an operator session log.
 - `PUBLISHING.md`: maintainer release and distribution procedure.
 - `MIGRATION_2.0.md`: authoritative intentional breaking changes and migration actions for 1.8 to 2.0.
-- `MIGRATION_3.0.md`: Unreleased R23 next-major MCP-surface migration from mixed mutation actions to read-only preparation plus `previewId`-only apply tools.
+- `MIGRATION_3.0.md`: Scripthold 2.2.0-to-3.0.0 MCP-surface migration from mixed mutation actions to read-only preparation plus `previewId`-only apply tools.
 - `HTTP_SECURITY.md`: approved Streamable HTTP threat model, secure defaults, implementation constraints, test matrix, and release blockers.
 - `VERIFIED_CHANGE_WORKFLOWS.md`: approved R16 design baseline for fingerprints, preview/apply, patch packages, structured verification, and its relationship to the later backup subsystem.
 - `PERSISTENT_BACKUP_LIFECYCLE.md`: approved R17 design and R18 implementation contract for the internal store boundary, content-addressed objects, manifests, quotas, restore, garbage collection, and crash recovery.

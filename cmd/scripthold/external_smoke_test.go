@@ -57,6 +57,14 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 		expectedRoot = tempRoot
 	}
 
+	var sourcePath string
+	if tempRoot != "" {
+		sourcePath = filepath.Join(tempRoot, "r25-smoke.go")
+		if err := os.WriteFile(sourcePath, []byte("package smoke\nfunc Work() {}\n"), 0o644); err != nil {
+			t.Fatalf("write R25 stdio smoke source: %v", err)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
@@ -120,10 +128,6 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 
 	if tempRoot == "" {
 		return
-	}
-	sourcePath := filepath.Join(tempRoot, "r25-smoke.go")
-	if err := os.WriteFile(sourcePath, []byte("package smoke\nfunc Work() {}\n"), 0o644); err != nil {
-		t.Fatalf("write R25 stdio smoke source: %v", err)
 	}
 	sourceRequestPath := childVisibleSmokePath(reportedRoot, filepath.Base(sourcePath))
 	sourceResult, err := session.CallTool(ctx, &mcp.CallToolParams{

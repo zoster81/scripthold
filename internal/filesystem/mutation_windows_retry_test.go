@@ -5,6 +5,7 @@ package filesystem
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +105,158 @@ func TestReplaceFilePermanentWindowsDeleteShareContentionPreservesWin32Code(t *t
 		t.Fatalf("target = %q, want unchanged %q", got, want)
 	}
 }
+
+func TestReplaceFileSucceedsWhileFileIdentityIsOpen(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := OpenFileIdentity(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer identity.Close()
+
+	replacement := []byte("after!\n")
+	if err := ReplaceFile(target, replacement, ReplaceOptions{Mode: expected.Mode, ModTime: &expected.ModTime, Expected: &expected}); err != nil {
+		t.Fatalf("ReplaceFile() should not be blocked by an active FileIdentity: %v", err)
+	}
+	matches, err := identity.Matches(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("FileIdentity still matched the path after replacement")
+	}
+}
+
+func TestReplaceFileSucceedsWhileReadSessionIsOpen(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := OpenReadSession(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Start(0); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := io.ReadAll(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(payload), "before\n"; got != want {
+		t.Fatalf("session payload = %q, want %q", got, want)
+	}
+
+	replacement := []byte("after!\n")
+	if err := ReplaceFile(target, replacement, ReplaceOptions{Mode: expected.Mode, ModTime: &expected.ModTime, Expected: &expected}); err != nil {
+		t.Fatalf("ReplaceFile() should not be blocked by an active ReadSession: %v", err)
+	}
+	payload, err = os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(payload), string(replacement); got != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+	if _, err := session.Finish(); !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("Finish() error = %v, want ErrConcurrentModification after path replacement", err)
+	}
+}
+func TestAlternativeAtomicReplaceFailureDoesNotShortenClassicRetry(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commitCalls := 0
+	alternativeCalls := 0
+	err = commitStagedTargetWithRetryObservedAlternative(
+		target,
+		filepath.Join(root, "staged.txt"),
+		&expected,
+		func(string, string) error {
+			commitCalls++
+			if commitCalls == 1 {
+				return windows.ERROR_ACCESS_DENIED
+			}
+			return nil
+		},
+		nil,
+		func(string, string, error) (bool, error) {
+			alternativeCalls++
+			return true, windows.ERROR_INVALID_NAME
+		},
+	)
+	if err != nil {
+		t.Fatalf("classic retry should recover after alternative failure: %v", err)
+	}
+	if alternativeCalls != 1 {
+		t.Fatalf("alternative calls = %d, want 1", alternativeCalls)
+	}
+	if commitCalls != 2 {
+		t.Fatalf("classic commit calls = %d, want 2", commitCalls)
+	}
+}
+func TestAlternativeAtomicReplaceRunsOnlyAfterExpectedSnapshotRevalidation(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commitCalls := 0
+	alternativeCalls := 0
+	err = commitStagedTargetWithRetryObservedAlternative(
+		target,
+		filepath.Join(root, "staged.txt"),
+		&expected,
+		func(string, string) error {
+			commitCalls++
+			if commitCalls == 1 {
+				if err := os.WriteFile(target, []byte("changed\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return windows.ERROR_ACCESS_DENIED
+			}
+			return nil
+		},
+		nil,
+		func(string, string, error) (bool, error) {
+			alternativeCalls++
+			return true, nil
+		},
+	)
+	if err == nil || !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("error = %v, want ErrConcurrentModification", err)
+	}
+	if alternativeCalls != 0 {
+		t.Fatalf("alternative calls = %d, want 0 before successful revalidation", alternativeCalls)
+	}
+}
+
 func TestReplaceFileRetryRevalidatesExpectedSnapshot(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target.txt")

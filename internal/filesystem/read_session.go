@@ -35,7 +35,10 @@ func OpenReadSession(path string) (session *ReadSession, err error) {
 		err = operation.WrapFilesystem("open_read_session", path, err)
 	}()
 
-	file, err := os.Open(path)
+	// Use the same platform-aware read sharing as retained identities. On
+	// Windows this includes FILE_SHARE_DELETE so a concurrent reader does not
+	// become an implicit rename/delete lock for an otherwise valid mutation.
+	file, err := openIdentityFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -149,13 +152,23 @@ func (session *ReadSession) Finish() (snapshot FileSnapshot, err error) {
 	if err := session.initial.verifyInfo(session.path, info); err != nil {
 		return FileSnapshot{}, err
 	}
+	currentInfo, err := os.Stat(session.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return FileSnapshot{}, fmt.Errorf("%w: path disappeared: %s", ErrConcurrentModification, session.path)
+		}
+		return FileSnapshot{}, err
+	}
+	if err := session.initial.verifyInfo(session.path, currentInfo); err != nil {
+		return FileSnapshot{}, err
+	}
+	if !os.SameFile(info, currentInfo) {
+		return FileSnapshot{}, fmt.Errorf("%w: filesystem object changed for %s", ErrConcurrentModification, session.path)
+	}
 
 	snapshot = session.initial
 	copy(snapshot.digest[:], session.hasher.Sum(nil))
 	snapshot.hasDigest = true
-	if err := snapshot.verifyMetadata(session.path); err != nil {
-		return FileSnapshot{}, err
-	}
 	session.finished = true
 	return snapshot, nil
 }

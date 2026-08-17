@@ -2,9 +2,9 @@
 
 ## Status
 
-**COMPLETE — R23.** The compatibility decision is fixed and the current source tree implements the split described here. On 2026-08-12 the source-side verification gate and connector-level acceptance both completed successfully. Connector discovery exposed the historical preparation/review tools separately from six `previewId`-only apply tools, and operational smoke confirmed side-effect-free edit preview, exact prepared apply, replay rejection, and rejection of the removed direct-edit form. [`TOOLS.md`](../TOOLS.md) documents the Unreleased next-major surface; `2.2.0` remains the current public release.
+**COMPLETE — R23.** The compatibility decision is fixed and the current source tree implements the split described here. On 2026-08-12 the source-side verification gate and connector-level acceptance both completed successfully. Connector discovery exposed the historical preparation/review tools separately from six `previewId`-only apply tools, and operational smoke confirmed side-effect-free edit preview, exact prepared apply, replay rejection, and rejection of the removed direct-edit form. [`TOOLS.md`](../TOOLS.md) documents the released `3.0.0` surface; at R23 completion, `2.2.0` was still the current public release.
 
-R23 intentionally changes the public MCP surface according to the compatibility decision below. The source-tree contract is documented and tested as an Unreleased next-major candidate; release publication and operator deployment remain separate explicitly governed actions.
+R23 intentionally changed the public MCP surface according to the compatibility decision below. The contract was documented and tested before publication and shipped in Scripthold `3.0.0`; release publication and operator deployment remain separate explicitly governed actions.
 
 ## Problem
 
@@ -140,7 +140,7 @@ Every apply schema contains only required `previewId`; unknown fields are reject
 
 R23 also finalizes the operator default as `MCP_BACKUP_DEFAULT_POLICY=disabled|required`, defaulting to `disabled` for compatibility. Eligible approval-bound content mutations are edit, patch package, BOM change, and encoding conversion. A request may explicitly bind `backupPolicy="required"`; omission inherits the operator default. No request value can weaken an operator default of `required`. Restore keeps its independent mandatory safety-backup rule for an existing target, while GC has no content-backup policy. `convert_encoding.backup=true` remains the separate adjacent `.bak` request and is retained inside the preview capability; it is not reinterpreted as the persistent-store policy.
 
-Because R23 removes previously public mutating request forms, it is a semantic-versioning breaking change. It must ship on the next major release line (from the current `2.2.0`, `3.0.0` or later). The concrete caller migration is documented in [MIGRATION_3.0.md](MIGRATION_3.0.md) and the user-visible changes are recorded in the Unreleased changelog; completing R23 does not itself create, tag, or publish that release.
+Because R23 removes previously public mutating request forms, it is a semantic-versioning breaking change and therefore ships in Scripthold `3.0.0` rather than as a silent `2.x` compatibility change. The concrete caller migration is documented in [MIGRATION_3.0.md](MIGRATION_3.0.md) and the user-visible changes are recorded in the `3.0.0` changelog; completing R23 did not itself create, tag, or publish that release.
 
 ## Persistent backup UX
 
@@ -167,7 +167,7 @@ The migration decision was resolved before implementation and is now binding:
 - direct `edit_file` mutation is removed from the MCP surface;
 - six dedicated apply tools accept only `previewId` and reject unknown override fields;
 - guided prompts and public documentation use the separated preparation/apply flow;
-- the change is intentionally breaking and therefore targets the next major release line rather than a silent `2.x` compatibility change.
+- the change is intentionally breaking and therefore ships in `3.0.0` rather than as a silent `2.x` compatibility change.
 
 The legacy mixed Go handler entry points retained for package-internal regression coverage are not registered as MCP tools and are not part of the R23 public surface. A compatibility wrapper that combines read-only and mutating actions under one static tool definition does not satisfy R23 and must not be reintroduced.
 ## Required tests

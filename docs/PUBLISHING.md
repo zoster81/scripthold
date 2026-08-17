@@ -4,9 +4,9 @@ This document is the maintainer procedure for publishing semantic releases from 
 
 ## Current release state
 
-- Current public release: **`2.2.0`**.
+- Current public release: **`3.0.0`**.
 - MCP Registry identity: **`io.github.zoster81/scripthold`**.
-- Release surface: 30 tools, 3 guided prompts, and 168 registered text encodings.
+- Release surface: 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active source-intelligence providers.
 - `2.0.0` remains the historical pre-rebrand rollback release with its original asset and Registry identity.
 - Publication and deployment are separate. A successful GitHub Release or Registry publication does not imply that any private or production runtime was upgraded.
 

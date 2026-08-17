@@ -16,7 +16,7 @@ Scripthold is a secure local-workspace MCP runtime for web, desktop, and CLI age
 
 The maintained product includes:
 
-- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the current completed-R27 Unreleased source tree and 30 in the public `2.2.0` release, plus 3 guided prompts;
+- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the current `3.0.0` release, plus 3 guided prompts;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, missing-ancestor, and Windows path-alias validation;
 - 168 registered text encodings with content-based detection intentionally narrower than explicit codec support;
 - bounded native read-only source intelligence through `source_symbols` and `source_query`, with 101 active approved R27 providers, evidence-qualified detection, capability-specific project relations, bounded task context, coherent process-local indexing, decoded-source coordinates, and no external parser/compiler/LSP runtime dependency;
@@ -33,7 +33,7 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-Scripthold `2.2.0` is the current public release with 30 tools, 3 guided prompts, and 168 registered text encodings. The current `main` development line contains the completed R23-R27 next-major work and exposes 36 tools. R27 completed on 2026-08-16 with 101 active approved source-intelligence providers across 103 registry rows, capability-specific project relations, bounded structural search/context, and coherent process-local incremental indexing; Dockerfile and Make remain auxiliary inactive metadata.
+Scripthold `3.0.0` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active approved source-intelligence providers across 103 registry rows. The release contains the completed R23-R27 work; R27 completed on 2026-08-16 with capability-specific project relations, bounded structural search/context, and coherent process-local incremental indexing, while Dockerfile and Make remain auxiliary inactive metadata.
 
 The current development surface remains native Go and fail-closed: source intelligence does not execute project code or depend on external parser/compiler/LSP runtimes, ambiguous language routing is reported instead of guessed, and persistent on-disk source indexing is not enabled. No milestone after R27 is active by default.
 

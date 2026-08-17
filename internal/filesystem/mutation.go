@@ -506,12 +506,17 @@ type atomicReplaceRetryReport struct {
 }
 
 type atomicReplaceRetryReporter func(targetPath, stagedPath string, report atomicReplaceRetryReport)
+type atomicReplaceAlternative func(stagedPath, targetPath string, previousErr error) (bool, error)
 
 func commitStagedTargetWithRetry(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error) error {
-	return commitStagedTargetWithRetryObserved(path, stagedPath, expected, commit, reportAtomicReplaceRetry)
+	return commitStagedTargetWithRetryObservedAlternative(path, stagedPath, expected, commit, reportAtomicReplaceRetry, tryAlternativeAtomicReplace)
 }
 
 func commitStagedTargetWithRetryObserved(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error, reporter atomicReplaceRetryReporter) error {
+	return commitStagedTargetWithRetryObservedAlternative(path, stagedPath, expected, commit, reporter, nil)
+}
+
+func commitStagedTargetWithRetryObservedAlternative(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error, reporter atomicReplaceRetryReporter, alternative atomicReplaceAlternative) error {
 	started := time.Now()
 	commitAttempts := 1
 	err := commit(stagedPath, path)
@@ -535,6 +540,7 @@ func commitStagedTargetWithRetryObserved(path, stagedPath string, expected *File
 
 	deadline := started.Add(atomicReplaceRetryWindow)
 	lastErr := err
+	alternativeTried := false
 	for time.Now().Before(deadline) {
 		time.Sleep(atomicReplaceRetryDelay)
 		if verifyErr := expected.Verify(path); verifyErr != nil {
@@ -545,6 +551,19 @@ func commitStagedTargetWithRetryObserved(path, stagedPath string, expected *File
 			}
 			report(atomicReplaceRetryAborted)
 			return fmt.Errorf("target changed while waiting to retry atomic replacement: %w", verifyErr)
+		}
+		if alternative != nil && !alternativeTried {
+			alternativeTried = true
+			attempted, alternativeErr := alternative(stagedPath, path, lastErr)
+			if attempted {
+				commitAttempts++
+				if alternativeErr == nil {
+					report(atomicReplaceRetryRecovered)
+					return nil
+				}
+				lastErr = alternativeErr
+				attempts = append(attempts, atomicReplaceRetryAttempt{Phase: atomicReplaceAttemptCommit, Err: lastErr})
+			}
 		}
 		commitAttempts++
 		lastErr = commit(stagedPath, path)

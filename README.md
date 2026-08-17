@@ -21,7 +21,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 Scripthold detects encodings from bytes and decoded-text evidence rather than filenames, presents text to the MCP client as UTF-8, and preserves or deliberately converts encoding, BOM, and line endings through bounded-memory and durable filesystem operations.
 
-- **36 tools and 3 guided prompts** over one authoritative catalog in the current next-major source tree; the public `2.2.0` release exposes 30 tools.
+- **36 tools and 3 guided prompts** over one authoritative catalog in Scripthold `3.0.0`.
 - **168 registered encodings**, including UTF-32 LE/BE and broad portable legacy coverage; automatic detection remains intentionally more conservative than explicit codec support.
 - **101 active source-intelligence providers** across programming languages, dialects, DSLs, document/config formats, and composites, with capability-specific evidence and fail-closed ambiguity.
 - **Secure filesystem boundaries** with resolved-root containment, deterministic traversal, Windows reparse/junction handling, staged mutation, conflict detection, and no-replace creation.
@@ -36,11 +36,11 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 ## Current release and development state
 
-**Scripthold `2.2.0`** is the current public release. It exposes 30 tools, 3 guided prompts, and 168 registered encodings. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add MCPB bundles and the MCP Registry publication for `io.github.zoster81/scripthold`.
+**Scripthold `3.0.0`** is the current public release. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers. The GitHub Release publishes six raw binaries, six platform archives, and `checksums.txt`; GitHub-only workflows add MCPB bundles and the MCP Registry publication for `io.github.zoster81/scripthold`.
 
-The current `main` development line contains the completed R23-R27 next-major work and exposes 36 tools. R27 completed on 2026-08-16 with **101 active source-analysis providers across 103 registry rows**; Dockerfile and Make remain auxiliary inactive metadata. `source_symbols` provides bounded declaration/navigation workflows, while `source_query` adds structural search, supported project relations, bounded fingerprint-verified context, and coherent process-local incremental generations. Capability claims are provider-specific and mechanically projected in [docs/LANGUAGE_CAPABILITIES.md](docs/LANGUAGE_CAPABILITIES.md); ambiguous formats fail closed, and no external parser/compiler/LSP runtime or persistent on-disk code index is required.
+The `3.0.0` release line contains the completed R23-R27 work and exposes 36 tools. R27 completed on 2026-08-16 with **101 active source-analysis providers across 103 registry rows**; Dockerfile and Make remain auxiliary inactive metadata. `source_symbols` provides bounded declaration/navigation workflows, while `source_query` adds structural search, supported project relations, bounded fingerprint-verified context, and coherent process-local incremental generations. Capability claims are provider-specific and mechanically projected in [docs/LANGUAGE_CAPABILITIES.md](docs/LANGUAGE_CAPABILITIES.md); ambiguous formats fail closed, and no external parser/compiler/LSP runtime or persistent on-disk code index is required.
 
-No milestone after R27 is active by default, and the completed next-major work is **not** a public release until an explicitly authorized release is published. Current milestone state belongs in [docs/ROADMAP.md](docs/ROADMAP.md), concise completed history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and the R23-R27 subsystem contracts in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), [docs/SAFE_FILESYSTEM_OPERATIONS.md](docs/SAFE_FILESYSTEM_OPERATIONS.md), [docs/SOURCE_INTELLIGENCE.md](docs/SOURCE_INTELLIGENCE.md), [docs/BACKUP_RECOVERY.md](docs/BACKUP_RECOVERY.md), and [docs/MULTILANGUAGE_CODE_INTELLIGENCE.md](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md).
+No milestone after R27 is active by default; Scripthold `3.0.0` publishes the completed R23-R27 release scope. Current milestone state belongs in [docs/ROADMAP.md](docs/ROADMAP.md), concise completed history in [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md), and the R23-R27 subsystem contracts in [docs/MCP_MUTATION_SURFACE.md](docs/MCP_MUTATION_SURFACE.md), [docs/SAFE_FILESYSTEM_OPERATIONS.md](docs/SAFE_FILESYSTEM_OPERATIONS.md), [docs/SOURCE_INTELLIGENCE.md](docs/SOURCE_INTELLIGENCE.md), [docs/BACKUP_RECOVERY.md](docs/BACKUP_RECOVERY.md), and [docs/MULTILANGUAGE_CODE_INTELLIGENCE.md](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md).
 
 ## Quality and security
 
@@ -110,7 +110,7 @@ The detailed schemas, outputs, limits, and examples are authoritative in [TOOLS.
 
 ### Encoding support
 
-`list_encodings` is authoritative for canonical names, aliases, and capability metadata. Scripthold `2.2.0` exposes 168 canonical read/write encodings across Unicode, IBM/DOS/EBCDIC, ISO-8859, Windows, classic Mac/KOI8/other single-byte families, and East Asian/stateful multibyte families.
+`list_encodings` is authoritative for canonical names, aliases, and capability metadata. Scripthold `3.0.0` exposes 168 canonical read/write encodings across Unicode, IBM/DOS/EBCDIC, ISO-8859, Windows, classic Mac/KOI8/other single-byte families, and East Asian/stateful multibyte families.
 
 The production runtime remains pure Go. Additional mappings and state machines derived from pinned GNU libiconv evidence are checked in and require no libiconv/GCC dependency during ordinary build or execution. UTF-32 LE/BE are full text encodings with strict scalar validation; generic byte-order-unspecified `utf-32` remains intentionally rejected. See [docs/GLOBAL_ENCODING_COVERAGE.md](docs/GLOBAL_ENCODING_COVERAGE.md) for the completed R22 contract.
 
@@ -310,7 +310,7 @@ go build -o scripthold ./cmd/scripthold
 
 Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents should read the root [AGENTS.md](AGENTS.md) and the nearest scoped guide. Reusable verification is in [docs/DEVELOPMENT_CHECKLIST.md](docs/DEVELOPMENT_CHECKLIST.md), current planning in [docs/ROADMAP.md](docs/ROADMAP.md), and publication in [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
-The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Unreleased next-major R23-R27 surface evolution is documented in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md) and the completed subsystem contracts.
+The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Scripthold `3.0.0` R23-R27 surface evolution is documented in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md) and the completed subsystem contracts.
 
 ## License
 
