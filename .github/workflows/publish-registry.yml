@@ -43,6 +43,12 @@ jobs:
           fetch-depth: 0
           path: release-source
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '26.7.0'
+          package-manager-cache: false
+
       - name: Verify checked-out release tag and metadata
         run: |
           set -euo pipefail

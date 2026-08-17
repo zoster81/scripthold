@@ -297,7 +297,7 @@ func TestTestSuiteReleaseCandidateOwnsExpensiveValidationAndReleaseAttestsIt(t *
 		"go test -race ./... -count=1",
 		"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)",
 		"staticcheck@v0.7.0",
-		"govulncheck@v1.6.0",
+		"govulncheck@v1.7.0",
 		"-fuzztime=10000x",
 		"cross-build:",
 		"container-smoke:",
@@ -340,7 +340,7 @@ func TestTestSuiteReleaseCandidateOwnsExpensiveValidationAndReleaseAttestsIt(t *
 	for _, duplicated := range []string{
 		"go test -race ./...",
 		"staticcheck@v0.7.0",
-		"govulncheck@v1.6.0",
+		"govulncheck@v1.7.0",
 		"-fuzztime=10000x",
 		"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)",
 	} {
@@ -361,13 +361,22 @@ func TestValidationToolVersionsArePinned(t *testing.T) {
 	assertFileContains(t, root, filepath.FromSlash("scripts/validate-workflows.sh"), "SHELLCHECK_VERSION=0.11.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/checkout@v7.0.1")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/setup-go@v7.0.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/setup-node@v7.0.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "node-version: '26.7.0'")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "package-manager-cache: false")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "actions/setup-node@v7.0.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "package-manager-cache: false")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-mcpb-assets.yml"), "actions/setup-node@v7.0.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-mcpb-assets.yml"), "package-manager-cache: false")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "actions/setup-node@v7.0.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "package-manager-cache: false")
 	assertFileNotContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/upload-artifact@")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "staticcheck@v0.7.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "govulncheck@v1.6.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "govulncheck@v1.7.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "golangci/golangci-lint-action@v9.3.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "version: v2.12.2")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/init@v4.37.3")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/analyze@v4.37.3")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/init@v4.37.7")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/analyze@v4.37.7")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "goreleaser/goreleaser-action@v7.2.3")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "version: 'v2.17.1'")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "MCP_PUBLISHER_VERSION: 1.8.1")

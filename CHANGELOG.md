@@ -34,6 +34,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 
 ### Changed
 
+- Refreshed repository validation tooling to the current verified stable pins: Node.js 26.7.0 through `actions/setup-node@v7.0.0` with automatic npm caching disabled, govulncheck v1.7.0, and CodeQL Action v4.37.7.
 - Renamed the primary GitHub Actions workflow from `CI` to `Test Suite`, replaced the retired Go Report Card README badge with live Test Suite/CodeQL quality signals, and consolidated duplicated R27 status prose into the roadmap/history/subsystem sources of truth.
 - Completed R27 Phase 18 and the R27 source milestone on 2026-08-16 by synchronizing registry-derived capabilities, README/TOOLS, roadmap/history and the completed design record; adding a 5,000-execution Scala/Flow fuzz gate; and passing the applicable module, full normal/race, vet, Staticcheck, govulncheck, catalog/identity, Node, documentation, leakage and diff checks. This completion does not imply a commit, build, cross-build, release, deployment or runtime migration, which remain separately authorized operations.
 - Completed the R26 recovery verification gate across local normal/race/static/vulnerability/fuzz/platform checks and the exact pushed implementation commit's native Windows/Ubuntu/macOS regression and smoke jobs, six supported cross-builds, container smoke, and aggregate `Release candidate` CI gate.
