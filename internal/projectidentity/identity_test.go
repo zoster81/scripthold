@@ -289,11 +289,11 @@ func TestForkOwnedDownloaderPluginIsRemoved(t *testing.T) {
 	}
 }
 
-func TestCIReleaseCandidateOwnsExpensiveValidationAndReleaseAttestsIt(t *testing.T) {
+func TestTestSuiteReleaseCandidateOwnsExpensiveValidationAndReleaseAttestsIt(t *testing.T) {
 	root := repositoryRoot(t)
 	ciWorkflow := filepath.FromSlash(".github/workflows/test.yml")
 	for _, required := range []string{
-		"name: CI",
+		"name: Test Suite",
 		"go test -race ./... -count=1",
 		"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)",
 		"staticcheck@v0.7.0",
@@ -364,6 +364,10 @@ func TestValidationToolVersionsArePinned(t *testing.T) {
 	assertFileNotContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/upload-artifact@")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "staticcheck@v0.7.0")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "govulncheck@v1.6.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "golangci/golangci-lint-action@v9.3.0")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "version: v2.12.2")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/init@v4.37.3")
+	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/analyze@v4.37.3")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "goreleaser/goreleaser-action@v7.2.3")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "version: 'v2.17.1'")
 	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "MCP_PUBLISHER_VERSION: 1.8.1")
