@@ -8,7 +8,7 @@ import (
 )
 
 func TestR27Phase5SourceSymbolsRoutesPHPRubySwiftPascalAndDelphi(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	files := map[string]string{
 		"sample.php":   "<?php\nclass PHPBox { public function get(): int { return 1; } }\n",
 		"sample.rb":    "class RubyBox\n  def get\n    1\n  end\nend\n",

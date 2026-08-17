@@ -17,7 +17,7 @@ import (
 )
 
 func TestR27Phase17ManySmallFilesWarmConcurrencyAndGenerationSwap(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	const fileCount = 96
 	for index := 0; index < fileCount; index++ {
 		name := fmt.Sprintf("Item%03d", index)
@@ -100,8 +100,8 @@ func TestR27Phase17ManySmallFilesWarmConcurrencyAndGenerationSwap(t *testing.T) 
 }
 
 func TestR27Phase17AllowedRootCancellationAndNoUnrelatedSourceLeakage(t *testing.T) {
-	root := t.TempDir()
-	outside := t.TempDir()
+	root := canonicalHandlerTestDir(t)
+	outside := canonicalHandlerTestDir(t)
 	sentinel := "unrelated-source-body-sentinel"
 	safePath := filepath.Join(root, "Safe.java")
 	secretPath := filepath.Join(root, "Secret.java")

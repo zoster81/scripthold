@@ -15,7 +15,7 @@ import (
 func TestR27Phase17ConnectorWorkflowAcrossHeterogeneousProject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	root := t.TempDir()
+	root := canonicalServerTestDir(t)
 	sentinel := "unrelated-connector-source-sentinel"
 	files := map[string]string{
 		"base.ts":       "export class Base {}\n",

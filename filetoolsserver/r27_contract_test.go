@@ -31,7 +31,7 @@ func TestR27SourceQueryPublicContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	root := t.TempDir()
+	root := canonicalServerTestDir(t)
 	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "r27-source-query-contract")
 	tool := r27Tool(t, ctx, session, "source_query")
 	r27AssertReadOnlyTool(t, tool)

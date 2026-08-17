@@ -11,7 +11,7 @@ import (
 )
 
 func TestR27Phase14SourceQueryContextBodySignatureBudgetAndStale(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "Service.java")
 	content := "package demo;\npublic class Service {\n    public int run(int value) { return value + 1; }\n}\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

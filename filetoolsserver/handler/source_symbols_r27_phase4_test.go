@@ -8,7 +8,7 @@ import (
 )
 
 func TestR27Phase4SourceSymbolsRoutesJavaScriptTypeScriptAndRust(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	files := map[string]string{
 		"sample.jsx": "export class JSBox extends Base { run() { return 1; } }\nexport const jswork = () => 1;\n",
 		"sample.tsx": "export interface TSBox { value: string; }\nexport const tswork = <T,>(value: T): T => value;\n",

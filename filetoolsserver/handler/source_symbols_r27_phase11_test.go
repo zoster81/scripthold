@@ -8,7 +8,7 @@ import (
 )
 
 func TestR27Phase11SourceSymbolsRoutesCompositeTemplateProviders(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	files := map[string]string{
 		"Widget.vue":     `<main id="VueHost"></main><script lang="ts">function VueBox() {}</script><style>.vue-card { display: block; }</style>`,
 		"Widget.svelte":  `<main id="SvelteHost"></main><script>function SvelteBox() {}</script>`,

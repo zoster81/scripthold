@@ -10,7 +10,7 @@ import (
 )
 
 func TestR27Phase16PublicRoutingAcrossScalaFlowMixedRepository(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	files := map[string]string{
 		"Service.scala": `package demo
 trait Worker:

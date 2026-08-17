@@ -10,7 +10,7 @@ import (
 )
 
 func TestR27Phase15SourceQuerySkipsStableDecodeFailureWithoutFalseConflict(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	validPath := filepath.Join(root, "Valid.java")
 	brokenPath := filepath.Join(root, "Broken.java")
 	if err := os.WriteFile(validPath, []byte("package demo;\npublic class Valid {}\n"), 0o600); err != nil {
@@ -40,7 +40,7 @@ func TestR27Phase15SourceQuerySkipsStableDecodeFailureWithoutFalseConflict(t *te
 }
 
 func TestR27Phase15SourceQueryIncrementalGenerationAndStaleBinding(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "Box.java")
 	if err := os.WriteFile(path, []byte("package demo;\npublic class Box {}\n"), 0o600); err != nil {
 		t.Fatal(err)

@@ -12,7 +12,7 @@ import (
 )
 
 func TestR27Phase14ContextMaterializationRejectsPostPlanMutation(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "current.java")
 	content := "public class Current {}\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -39,7 +39,7 @@ func TestR27Phase14ContextMaterializationRejectsPostPlanMutation(t *testing.T) {
 }
 
 func TestR27Phase14SourceQueryContextPreservesDecodedUTF16CoordinatesAndBudget(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "Unicode.java")
 	content := "package demo;\r\npublic class Unicode {\r\n    public int café(int value) { return value + 1; }\r\n}\r\n"
 	if err := os.WriteFile(path, encodeGrepFixture(t, "utf-16-le", content, true), 0o600); err != nil {

@@ -10,7 +10,7 @@ import (
 )
 
 func TestR27Phase13SourceQueryStructuralSearchAndCoverage(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	basePath := filepath.Join(root, "Base.java")
 	childPath := filepath.Join(root, "Child.java")
 	writePhase13Source(t, basePath, "package demo; public class Base {}\n")
@@ -48,7 +48,7 @@ func TestR27Phase13SourceQueryStructuralSearchAndCoverage(t *testing.T) {
 }
 
 func TestR27Phase13SourceQueryProjectRelationsAndStaleSelector(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	basePath := filepath.Join(root, "base.ts")
 	childPath := filepath.Join(root, "child.ts")
 	writePhase13Source(t, basePath, "export class Base {}\n")
@@ -98,7 +98,7 @@ func TestR27Phase13SourceQueryProjectRelationsAndStaleSelector(t *testing.T) {
 }
 
 func TestR27Phase13SourceQueryGraphAndDeferredModes(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	aPath := filepath.Join(root, "a.ts")
 	bPath := filepath.Join(root, "b.ts")
 	cPath := filepath.Join(root, "c.ts")

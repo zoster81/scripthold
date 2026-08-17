@@ -8,7 +8,7 @@ import (
 )
 
 func TestR27Phase3SourceSymbolsRoutesC_CPP_Java_Kotlin(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	files := map[string]string{
 		"sample.c":    "struct CBox { int value; };\nint cwork(int value) { return value; }\n",
 		"sample.cpp":  "namespace cppdemo { class Box { public: int get() const; }; }\n",

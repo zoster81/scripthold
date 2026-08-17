@@ -8,7 +8,7 @@ import (
 )
 
 func TestR27Phase8SourceSymbolsRoutesDynamicBEAMAndScriptingLanguages(t *testing.T) {
-	autoRoot := filepath.Join(t.TempDir(), "auto")
+	autoRoot := filepath.Join(canonicalHandlerTestDir(t), "auto")
 	if err := os.MkdirAll(autoRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}

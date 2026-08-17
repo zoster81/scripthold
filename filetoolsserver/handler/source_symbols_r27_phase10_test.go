@@ -8,7 +8,7 @@ import (
 )
 
 func TestR27Phase10SourceSymbolsRoutesDataHardwareAndDocumentLanguages(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	files := map[string]string{
 		"schema.sql":   "CREATE SCHEMA app;\nCREATE TABLE app.users (id INTEGER);\n",
 		"package.pkb":  "CREATE OR REPLACE PACKAGE demo AS\n  PROCEDURE run(value NUMBER);\nEND demo;\n/\n",

@@ -8,7 +8,7 @@ import (
 )
 
 func TestR27Phase9SourceSymbolsRoutesScientificLegacyAndFunctionalLanguages(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	files := map[string]string{
 		"demo.f90":  "module FMod\ncontains\nsubroutine runF()\nend subroutine runF\nend module FMod\n",
 		"demo.cob":  "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. COBDEMO.\n       PROCEDURE DIVISION.\n       MAIN SECTION.\n",
