@@ -257,7 +257,6 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			code, continuedQuote, validContinuation = phase9COBOLStripInlineCommentState(rawCode, continuedQuote, line.Continuation)
 			if previousQuote != 0 && !validContinuation {
 				addUnterminatedLiteral(continuedRange)
-				continuedQuote = 0
 				continuedRange = OffsetRange{}
 				code, continuedQuote, _ = phase9COBOLStripInlineCommentState(rawCode, 0, false)
 			}

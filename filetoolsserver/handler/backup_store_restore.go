@@ -240,7 +240,6 @@ func (h *Handler) handleBackupStoreRestoreApply(ctx context.Context, previewID s
 	}
 
 	_, commitErr := h.restoreCommitReplacement(staged, filesystem.ReplaceOptions{Expected: &current})
-	staged = nil
 	if commitErr != nil {
 		return h.restoreApplyFailure(ctx, prepared, output, commitErr, nil, readOnlyCleared, originalMode)
 	}

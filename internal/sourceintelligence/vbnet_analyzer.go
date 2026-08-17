@@ -252,7 +252,7 @@ func (parser *vbnetParser) statementIndex(target vbStatement) int {
 }
 
 func (parser *vbnetParser) parseCallable(index, end int, statement vbStatement, keywordIndex int, keyword string, parent *SymbolParent, ownerName, ownerKind string) int {
-	nameIndex := -1
+	var nameIndex int
 	constructor := keyword == "sub" && keywordIndex+1 < len(statement.tokens) && strings.EqualFold(statement.tokens[keywordIndex+1].Text, "new")
 	if constructor {
 		nameIndex = keywordIndex + 1

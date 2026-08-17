@@ -39,7 +39,7 @@ jobs:
           test "$(git rev-parse origin/main)" = "${tag_commit}"
           echo "TAG_COMMIT=${tag_commit}" >> "${GITHUB_ENV}"
 
-      - name: Verify successful exact-commit CI gate
+      - name: Verify successful exact-commit Test Suite gate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -66,7 +66,7 @@ jobs:
             )] | sort_by(.run_number) | last | .id // empty' \
             <<<"${runs_json}")"
           if [[ -z "${run_id}" ]]; then
-            echo "no successful exact-commit CI push run found for ${TAG_COMMIT}" >&2
+            echo "no successful exact-commit Test Suite push run found for ${TAG_COMMIT}" >&2
             exit 1
           fi
           jobs_json="$(gh api --method GET \
@@ -77,12 +77,12 @@ jobs:
             -F per_page=100)"
           candidate_count="$(jq '[.jobs[] | select(.name == "Release candidate" and .conclusion == "success")] | length' <<<"${jobs_json}")"
           test "${candidate_count}" -eq 1
-          echo "Verified CI run ${run_id} for ${TAG_COMMIT}"
+          echo "Verified Test Suite run ${run_id} for ${TAG_COMMIT}"
           {
             echo '### Release candidate provenance'
             echo
             echo "- Commit: \`${TAG_COMMIT}\`"
-            echo "- CI run: \`${run_id}\`"
+            echo "- Test Suite run: \`${run_id}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   release:

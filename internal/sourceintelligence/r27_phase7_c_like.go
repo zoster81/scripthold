@@ -929,12 +929,11 @@ func (p *phase7BraceParser) parseCStyle(start, end int, parent *SymbolParent, me
 					kind = SymbolKindDestructor
 					native = "destructor"
 				}
-				bodyOpen := -1
 				declarationEnd := p.tokens[terminator].EndOffset
 				next := terminator + 1
 				var body *OffsetRange
 				if p.tokens[terminator].Text == "{" {
-					bodyOpen = terminator
+					bodyOpen := terminator
 					close := p.pairs[bodyOpen]
 					if close > bodyOpen {
 						declarationEnd = p.tokens[close].EndOffset

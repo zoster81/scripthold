@@ -1,4 +1,4 @@
-name: CI
+name: Test Suite
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: test-suite-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,6 +37,26 @@ jobs:
         run: |
           go mod tidy -diff
           go mod verify
+
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.12.2
+          args: --timeout=5m
 
   test:
     name: Test (${{ matrix.os }})
@@ -308,6 +328,7 @@ jobs:
     name: Release candidate
     needs:
       - verify-modules
+      - golangci-lint
       - test
       - analysis
       - fuzz

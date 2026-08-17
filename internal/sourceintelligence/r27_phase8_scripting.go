@@ -59,7 +59,7 @@ func analyzeShellFamily(ctx context.Context, document *SourceDocument, options A
 			continue
 		}
 		start := i
-		nameIndex := -1
+		var nameIndex int
 		paren := -1
 		if bash && strings.EqualFold(token.Text, "function") {
 			nameIndex = phase8NextIdentifier(scan.Tokens, i+1, len(scan.Tokens))
