@@ -309,7 +309,7 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 			open = index
 			break
 		}
-		if parser.kotlin && parser.tokens[index].Kind == TokenNewline && parser.tokens[index].Nesting == depth {
+		if parser.kotlin && (parser.tokens[index].Kind == TokenNewline || parser.tokens[index].Kind == TokenEOF) && parser.tokens[index].Nesting == depth {
 			lineEnd = index
 			break
 		}
@@ -349,7 +349,7 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 		signatureEnd = parser.tokens[open].StartOffset
 		value := OffsetRange{Start: parser.tokens[open].StartOffset, End: parser.tokens[close].EndOffset}
 		body = &value
-	} else if parser.tokens[terminator].Kind == TokenNewline {
+	} else if parser.tokens[terminator].Kind == TokenNewline || parser.tokens[terminator].Kind == TokenEOF {
 		previous := previousStructuralToken(parser.tokens, terminator-1, nameIndex)
 		if previous >= nameIndex {
 			declarationEnd = parser.tokens[previous].EndOffset

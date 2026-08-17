@@ -144,7 +144,7 @@ func phase9LispScannerProfile(name string, keywords []string) ScannerProfile {
 		Keywords:     keywords,
 		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: ":*+-/<>=!?", ExtraContinue: ":*+-.?/<>=!"},
 		LineComments: []string{";"},
-		Strings:      []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true}},
+		Strings:      []StringRule{{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true}},
 		Delimiters:   []DelimiterRule{{Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}},
 	}
 }

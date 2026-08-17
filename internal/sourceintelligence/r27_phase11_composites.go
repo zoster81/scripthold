@@ -363,6 +363,17 @@ func phase11MergeAnalysis(dst, src AnalysisResult, limits SymbolBuilderLimits) A
 		seen[symbol.ID] = struct{}{}
 		dst.Symbols = append(dst.Symbols, symbol)
 	}
+	sort.SliceStable(dst.Symbols, func(i, j int) bool {
+		left := dst.Symbols[i]
+		right := dst.Symbols[j]
+		if left.declarationOffsets.Start != right.declarationOffsets.Start {
+			return left.declarationOffsets.Start < right.declarationOffsets.Start
+		}
+		if left.declarationOffsets.End != right.declarationOffsets.End {
+			return left.declarationOffsets.End < right.declarationOffsets.End
+		}
+		return left.ID < right.ID
+	})
 	for _, diagnostic := range src.Diagnostics {
 		if len(dst.Diagnostics) >= limits.MaxDiagnostics {
 			dst.DiagnosticsTruncated = true

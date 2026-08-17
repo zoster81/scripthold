@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -72,6 +73,17 @@ func analyzeObjectiveCFamily(ctx context.Context, document *SourceDocument, opti
 		return AnalyzerResult{}, err
 	}
 	mergeAnalysisSymbols(&base.Analysis, reprojected)
+	sort.Slice(base.Analysis.Symbols, func(i, j int) bool {
+		left := base.Analysis.Symbols[i]
+		right := base.Analysis.Symbols[j]
+		if left.declarationOffsets.Start != right.declarationOffsets.Start {
+			return left.declarationOffsets.Start < right.declarationOffsets.Start
+		}
+		if left.declarationOffsets.End != right.declarationOffsets.End {
+			return left.declarationOffsets.End < right.declarationOffsets.End
+		}
+		return left.ID < right.ID
+	})
 	base.Dependencies = appendUniqueDependencies(base.Dependencies, cpp.Dependencies)
 	base.Relations = append(base.Relations, cpp.Relations...)
 	return base, nil

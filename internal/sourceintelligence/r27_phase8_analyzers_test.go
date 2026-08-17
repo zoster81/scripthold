@@ -175,6 +175,31 @@ func TestR27Phase8OpaqueDataAndQuotingDoNotLeakDeclarations(t *testing.T) {
 	}
 }
 
+func TestR27RealWorldShellMultilineQuotedStringsRemainOpaque(t *testing.T) {
+	text := "printf \"%b\" \"\nfunction Fake-InString() { :; }\n\"\nreal_after_string() { :; }\n"
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "shell", analyzer: ShellAnalyzer{}},
+		{name: "bash", analyzer: BashAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid multiline quoted shell string reported partial: %+v", result.Analysis)
+			}
+			if containsSortedString(names, "Fake-InString") || !containsSortedString(names, "real_after_string") {
+				t.Fatalf("multiline quoted shell boundary leaked declarations: %v", names)
+			}
+		})
+	}
+}
+
 func TestR27Phase8RegistryProviderIdentityAndCapabilityCeilings(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

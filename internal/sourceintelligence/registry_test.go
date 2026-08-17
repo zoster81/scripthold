@@ -89,13 +89,22 @@ func TestDefaultLanguageRegistryCompletedProvidersAndFutureShapes(t *testing.T) 
 		}
 	}
 
-	for _, id := range []string{"flow", "scala", "dockerfile", "make"} {
+	for _, id := range []string{"flow", "scala"} {
 		descriptor, ok := registry.Lookup(id)
 		if !ok {
-			t.Fatalf("registry cannot represent future language %q", id)
+			t.Fatalf("missing R27 Phase 16 language %q", id)
+		}
+		if !descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer == "" {
+			t.Fatalf("R27 Phase 16 provider %q is not routed to an analyzer: %+v", id, descriptor)
+		}
+	}
+	for _, id := range []string{"dockerfile", "make"} {
+		descriptor, ok := registry.Lookup(id)
+		if !ok {
+			t.Fatalf("registry cannot represent auxiliary metadata row %q", id)
 		}
 		if descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer != "" {
-			t.Fatalf("future R27 entry %q was accidentally activated: %+v", id, descriptor)
+			t.Fatalf("auxiliary metadata row %q was accidentally activated: %+v", id, descriptor)
 		}
 	}
 
@@ -269,8 +278,19 @@ func TestR27CapabilityMatrixCoversApprovedCatalogWithoutAccidentalActivation(t *
 		"classic-asp", "aspnet-webforms", "razor", "blazor", "vue", "svelte", "astro", "php-html", "jsp", "jinja", "twig", "blade", "ejs",
 	}
 	for _, id := range approved {
-		if _, ok := byID[id]; !ok {
+		row, ok := byID[id]
+		if !ok {
 			t.Errorf("approved R27 catalog entry %q has no capability row", id)
+			continue
+		}
+		if !row.Capabilities.SourceAnalysis || row.Analyzer == "" || row.AnalyzerStrategy == "unimplemented" {
+			t.Errorf("approved R27 catalog entry %q is not production-active at the Phase 16 completion gate: %+v", id, row)
+			continue
+		}
+		descriptor, exists := registry.Lookup(id)
+		analyzer, available := AnalyzerFor(descriptor)
+		if !exists || !available || analyzer == nil || analyzer.ID() != descriptor.Analyzer || analyzer.Language() != id {
+			t.Errorf("approved R27 catalog entry %q has no matching active analyzer: descriptor=%+v analyzer=%#v available=%v", id, descriptor, analyzer, available)
 		}
 	}
 }

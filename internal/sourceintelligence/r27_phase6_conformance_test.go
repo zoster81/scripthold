@@ -123,6 +123,26 @@ func TestR27Phase6OpaqueAndDynamicBoundariesDoNotLeakDeclarations(t *testing.T) 
 		t.Fatalf("PowerShell here-string boundary symbols=%v", psNames)
 	}
 
+	assignedHereString := "$newPrompt = @'\nfunction Fake-InAssignedHereString { }\n'@\nfunction Real-AssignedFunction { }\n"
+	assigned, err := (PowerShellAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(assignedHereString), phase3AnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignedNames := sortedSymbolQualifiedNames(assigned.Analysis.Symbols)
+	if !assigned.Analysis.CoverageComplete || containsSortedString(assignedNames, "Fake-InAssignedHereString") || !containsSortedString(assignedNames, "Real-AssignedFunction") {
+		t.Fatalf("PowerShell assigned here-string boundary analysis=%+v symbols=%v", assigned.Analysis, assignedNames)
+	}
+
+	commentMarker := "# @'\nfunction Real-AfterComment { }\n"
+	commented, err := (PowerShellAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(commentMarker), phase3AnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	commentedNames := sortedSymbolQualifiedNames(commented.Analysis.Symbols)
+	if !commented.Analysis.CoverageComplete || !containsSortedString(commentedNames, "Real-AfterComment") {
+		t.Fatalf("PowerShell comment marker was treated as a here-string: analysis=%+v symbols=%v", commented.Analysis, commentedNames)
+	}
+
 	fsharpText := "(* outer (* type Fake = class end *) *)\nlet real value = \"type StringFake = class end\"\n"
 	fs, err := (FSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(fsharpText), phase3AnalyzeOptions(true, 64))
 	if err != nil {
@@ -141,6 +161,32 @@ func TestR27Phase6OpaqueAndDynamicBoundariesDoNotLeakDeclarations(t *testing.T) 
 	vbNames := sortedSymbolQualifiedNames(vb.Analysis.Symbols)
 	if containsSortedString(vbNames, "DynamicFake") || !containsSortedString(vbNames, "Real") {
 		t.Fatalf("VBScript runtime/string boundary symbols=%v", vbNames)
+	}
+}
+
+func TestR27RealWorldFSharpCompilerDirectivesAreIndentationNeutral(t *testing.T) {
+	text := "type Service() =\n" +
+		"    member _.Run() =\n" +
+		"#if DEBUG\n" +
+		"        let value = 1\n" +
+		"#else\n" +
+		"        let value = 2\n" +
+		"#endif\n" +
+		"        value\n" +
+		"    member _.Next() = 2\n" +
+		"let top value = value\n"
+	result, err := (FSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid F# compiler directives changed indentation state: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Service", "Service.Run", "Service.Next", "top"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
 	}
 }
 

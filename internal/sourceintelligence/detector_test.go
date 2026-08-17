@@ -105,6 +105,211 @@ func TestLanguageDetectorOrderedEvidenceAndAmbiguity(t *testing.T) {
 	}
 }
 
+func TestR27RealWorldClassicVBExportedFormatsRouteConservatively(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name         string
+		input        DetectionInput
+		wantState    DetectionState
+		wantLanguage string
+		wantContains []string
+	}{
+		{
+			name:      "vb6 form designer is distinctive",
+			input:     DetectionInput{Path: "About.frm", Text: "VERSION 5.00\r\nBegin VB.Form frmAbout\r\nEnd\r\nAttribute VB_Name = \"frmAbout\"\r\nPrivate Sub Form_Load()\r\nEnd Sub\r\n"},
+			wantState: DetectionProbable, wantLanguage: "vb6", wantContains: []string{"vb6", "vba"},
+		},
+		{
+			name:      "vb6 user control is distinctive",
+			input:     DetectionInput{Path: "Grid.ctl", Text: "VERSION 5.00\r\nBegin VB.UserControl Grid\r\nEnd\r\nAttribute VB_Name = \"Grid\"\r\nPublic Sub Refresh()\r\nEnd Sub\r\n"},
+			wantState: DetectionProbable, wantLanguage: "vb6", wantContains: []string{"vb6"},
+		},
+		{
+			name:      "vb6 designer extension corroborates classic metadata",
+			input:     DetectionInput{Path: "DataEnv.dsr", Text: "VERSION 5.00\r\nBegin {C0E45035-5775-11D0-B388-00A0C9055D8E} DataEnvironment1\r\nEnd\r\nAttribute VB_Name = \"DataEnvironment1\"\r\nPrivate Sub DataEnvironment_Initialize()\r\nEnd Sub\r\n"},
+			wantState: DetectionProbable, wantLanguage: "vb6", wantContains: []string{"vb6", "vba"},
+		},
+		{
+			name:      "classic class remains ambiguous with apex and vba",
+			input:     DetectionInput{Path: "Worker.cls", Text: "VERSION 1.0 CLASS\r\nBEGIN\r\n  MultiUse = -1\r\nEND\r\nAttribute VB_Name = \"Worker\"\r\nPublic Sub Run()\r\nEnd Sub\r\n"},
+			wantState: DetectionAmbiguous, wantContains: []string{"apex", "vb6", "vba"},
+		},
+		{
+			name:      "vba userform is not promoted to vb6 by frm extension",
+			input:     DetectionInput{Path: "UserForm1.frm", Text: "VERSION 5.00\r\nBegin {00000000-0000-0000-0000-000000000000} UserForm1\r\nEnd\r\nAttribute VB_Name = \"UserForm1\"\r\nPrivate Sub UserForm_Initialize()\r\nEnd Sub\r\n"},
+			wantState: DetectionAmbiguous, wantContains: []string{"vb6", "vba"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := DetectLanguage(context.Background(), registry, tc.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.State != tc.wantState || result.Language != tc.wantLanguage {
+				t.Fatalf("result=%+v want state=%s language=%q", result, tc.wantState, tc.wantLanguage)
+			}
+			for _, language := range tc.wantContains {
+				if !hasDetectionCandidate(result, language) {
+					t.Fatalf("candidates=%+v missing %s", result.Candidates, language)
+				}
+			}
+		})
+	}
+}
+
+func TestR27RealWorldSharedLSPExtensionRequiresCommonLispContent(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, testCase := range []struct {
+		name         string
+		path         string
+		text         string
+		wantState    DetectionState
+		wantLanguage string
+	}{
+		{
+			name:      "newlisp shebang and forms do not route as common lisp",
+			path:      "markdown.lsp",
+			text:      "#!/usr/bin/env newlisp\n(context 'Hash)\n(define (hash s) s)\n",
+			wantState: DetectionAmbiguous,
+		},
+		{
+			name:         "common lisp lsp is corroborated by defun",
+			path:         "sample.lsp",
+			text:         "(in-package :foo)\n(defun add (x) x)\n",
+			wantState:    DetectionProbable,
+			wantLanguage: "common-lisp",
+		},
+		{
+			name:      "newlisp also shares lisp extension",
+			path:      "log-to-database.lisp",
+			text:      "(module \"sqlite3.lsp\")\n(define (displayln value) (println value))\n",
+			wantState: DetectionAmbiguous,
+		},
+		{
+			name:      "shared lisp extension without content corroboration remains ambiguous",
+			path:      "package-only.lisp",
+			text:      "(in-package :foo)\n",
+			wantState: DetectionAmbiguous,
+		},
+		{
+			name:         "common lisp lisp is corroborated by defun",
+			path:         "sample.lisp",
+			text:         "(in-package :foo)\n(defun add (x) x)\n",
+			wantState:    DetectionProbable,
+			wantLanguage: "common-lisp",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, detectErr := DetectLanguage(context.Background(), registry, DetectionInput{Path: testCase.path, Text: testCase.text})
+			if detectErr != nil {
+				t.Fatal(detectErr)
+			}
+			if result.State != testCase.wantState || result.Language != testCase.wantLanguage {
+				t.Fatalf("result=%+v want state=%s language=%q", result, testCase.wantState, testCase.wantLanguage)
+			}
+			if !hasDetectionCandidate(result, "common-lisp") {
+				t.Fatalf("candidates=%+v missing common-lisp", result.Candidates)
+			}
+		})
+	}
+}
+
+func TestR27RealWorldSharedFExtensionRequiresFortranContent(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, testCase := range []struct {
+		name         string
+		path         string
+		text         string
+		wantState    DetectionState
+		wantLanguage string
+	}{
+		{
+			name:      "forth source does not route as fortran",
+			path:      "core.f",
+			text:      ": immediate lastxt @ dup c@ negate swap c! ;\n: chars ;\n",
+			wantState: DetectionAmbiguous,
+		},
+		{
+			name:      "filebench source does not route as fortran",
+			path:      "copyfiles.f",
+			text:      "set $dir=/tmp\ndefine fileset name=bigfileset,path=$dir\ndefine process name=filereader,instances=1\n",
+			wantState: DetectionAmbiguous,
+		},
+		{
+			name:         "fixed form fortran is corroborated",
+			path:         "ahcon.f",
+			text:         "        SUBROUTINE AHCON (N)\n        INTEGER N\n        END SUBROUTINE AHCON\n",
+			wantState:    DetectionProbable,
+			wantLanguage: "fortran",
+		},
+		{
+			name:         "modern fortran extension remains authoritative",
+			path:         "solver.f90",
+			text:         "plain source without a distinctive detector marker\n",
+			wantState:    DetectionProbable,
+			wantLanguage: "fortran",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, detectErr := DetectLanguage(context.Background(), registry, DetectionInput{Path: testCase.path, Text: testCase.text})
+			if detectErr != nil {
+				t.Fatal(detectErr)
+			}
+			if result.State != testCase.wantState || result.Language != testCase.wantLanguage {
+				t.Fatalf("result=%+v want state=%s language=%q", result, testCase.wantState, testCase.wantLanguage)
+			}
+			if !hasDetectionCandidate(result, "fortran") {
+				t.Fatalf("candidates=%+v missing fortran", result.Candidates)
+			}
+		})
+	}
+}
+
+func TestR27RealSourceCIncludeDoesNotPromoteFreeBasic(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := DetectLanguage(context.Background(), registry, DetectionInput{
+		Path: "tool_main.c",
+		Text: "#include \"tool_setup.h\"\nint main(void) { return 0; }\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != DetectionProbable || result.Language != "c" {
+		t.Fatalf("C include detection = %+v, want probable c", result)
+	}
+	if hasDetectionCandidate(result, "freebasic") {
+		t.Fatalf("ordinary C #include promoted FreeBASIC: %+v", result)
+	}
+
+	freeBasic, err := DetectLanguage(context.Background(), registry, DetectionInput{
+		Path: "fixture",
+		Text: "#include once \"common.bi\"\nNamespace Demo\nEnd Namespace\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freeBasic.State != DetectionProbable || freeBasic.Language != "freebasic" {
+		t.Fatalf("distinctive FreeBASIC include detection = %+v", freeBasic)
+	}
+}
+
 func TestLanguageDetectorUniqueExtensionUsesIndependentContentCorroboration(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

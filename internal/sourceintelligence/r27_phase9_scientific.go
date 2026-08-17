@@ -66,14 +66,20 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 			}
 			continue
 		}
-		switch first {
-		case "end", "endfunction", "endclassdef":
+		if phase9MATLABLikeScopeTerminator(first, octave) {
 			if len(scopes) > 0 {
 				scopes = scopes[:len(scopes)-1]
 			}
 			continue
+		}
+		switch first {
 		case "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
 			scopes = append(scopes, phase9Scope{label: first})
+			continue
+		case "unwind_protect":
+			if octave {
+				scopes = append(scopes, phase9Scope{label: first})
+			}
 			continue
 		case "classdef":
 			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
@@ -108,6 +114,22 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 	}
 	phase9MarkUnclosedScopes(builder, language, scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func phase9MATLABLikeScopeTerminator(keyword string, octave bool) bool {
+	switch keyword {
+	case "end", "endfunction", "endclassdef":
+		return true
+	}
+	if !octave {
+		return false
+	}
+	switch keyword {
+	case "endif", "endfor", "endwhile", "endswitch", "end_try_catch", "endparfor", "endmethods", "endproperties", "end_unwind_protect":
+		return true
+	default:
+		return false
+	}
 }
 
 func phase9MATLABFunctionName(tokens []Token) int {

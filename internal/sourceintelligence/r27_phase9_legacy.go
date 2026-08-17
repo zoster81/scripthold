@@ -231,6 +231,12 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	var program *SymbolParent
 	dependencies := []StructuralDependency{}
+	continuedQuote := byte(0)
+	continuedRange := OffsetRange{}
+	addUnterminatedLiteral := func(value OffsetRange) {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{Code: "cobol-unterminated-string", Message: "COBOL source contains an unterminated quoted literal", Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true})
+	}
 	for _, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -238,13 +244,34 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		if fixedFormat && cobolFixedComment(document.Text[line.Physical.Start:line.Physical.End]) || line.Code.End <= line.Code.Start {
 			continue
 		}
-		code := strings.TrimSpace(document.Text[line.Code.Start:line.Code.End])
-		var complete bool
-		code, complete = phase9COBOLStripInlineComment(code)
-		if !complete {
-			builder.MarkIncomplete()
-			value := line.Code
-			_ = builder.AddDiagnostic(DiagnosticSpec{Code: "cobol-unterminated-string", Message: "COBOL source contains an unterminated quoted literal", Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true})
+		rawCode := document.Text[line.Code.Start:line.Code.End]
+		code := ""
+		if fixedFormat {
+			if continuedQuote != 0 && !line.Continuation {
+				addUnterminatedLiteral(continuedRange)
+				continuedQuote = 0
+				continuedRange = OffsetRange{}
+			}
+			previousQuote := continuedQuote
+			var validContinuation bool
+			code, continuedQuote, validContinuation = phase9COBOLStripInlineCommentState(rawCode, continuedQuote, line.Continuation)
+			if previousQuote != 0 && !validContinuation {
+				addUnterminatedLiteral(continuedRange)
+				continuedQuote = 0
+				continuedRange = OffsetRange{}
+				code, continuedQuote, _ = phase9COBOLStripInlineCommentState(rawCode, 0, false)
+			}
+			if continuedQuote != 0 && continuedRange == (OffsetRange{}) {
+				continuedRange = line.Code
+			} else if continuedQuote == 0 {
+				continuedRange = OffsetRange{}
+			}
+		} else {
+			var complete bool
+			code, complete = phase9COBOLStripInlineComment(rawCode)
+			if !complete {
+				addUnterminatedLiteral(line.Code)
+			}
 		}
 		if code == "" {
 			continue
@@ -281,12 +308,32 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 		}
 	}
+	if fixedFormat && continuedQuote != 0 {
+		addUnterminatedLiteral(continuedRange)
+	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
 func phase9COBOLStripInlineComment(text string) (string, bool) {
-	quote := byte(0)
-	for index := 0; index < len(text); index++ {
+	code, quote, _ := phase9COBOLStripInlineCommentState(text, 0, false)
+	return code, quote == 0
+}
+
+func phase9COBOLStripInlineCommentState(text string, quote byte, continuation bool) (string, byte, bool) {
+	start := 0
+	if quote != 0 {
+		if !continuation {
+			return strings.TrimSpace(text), quote, false
+		}
+		for start < len(text) && (text[start] == ' ' || text[start] == '\t') {
+			start++
+		}
+		if start >= len(text) || text[start] != quote {
+			return strings.TrimSpace(text), quote, false
+		}
+		start++
+	}
+	for index := start; index < len(text); index++ {
 		value := text[index]
 		if quote != 0 {
 			if value == quote {
@@ -303,10 +350,10 @@ func phase9COBOLStripInlineComment(text string) (string, bool) {
 			continue
 		}
 		if value == '*' && index+1 < len(text) && text[index+1] == '>' {
-			return strings.TrimSpace(text[:index]), true
+			return strings.TrimSpace(text[:index]), quote, true
 		}
 	}
-	return strings.TrimSpace(text), quote == 0
+	return strings.TrimSpace(text), quote, true
 }
 
 func phase9COBOLLooksFreeForm(text string) bool {
@@ -435,7 +482,7 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			}
 			symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: line.Tokens[nameIndex].Text, Parent: parent,
 				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if ok {
+			if ok && phase9AdaPackageOpensScope(line.Tokens, nameIndex) {
 				scopes = append(scopes, phase9Scope{label: "package", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 			}
 			continue
@@ -458,4 +505,20 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	}
 	phase9MarkUnclosedScopes(builder, "ada", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func phase9AdaPackageOpensScope(tokens []Token, nameIndex int) bool {
+	for index := nameIndex + 1; index < len(tokens); index++ {
+		switch strings.ToLower(tokens[index].Text) {
+		case "renames":
+			return false
+		case "new":
+			if index > nameIndex+1 && strings.EqualFold(tokens[index-1].Text, "is") {
+				return false
+			}
+		case ";":
+			return true
+		}
+	}
+	return true
 }

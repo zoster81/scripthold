@@ -37,8 +37,8 @@ func ElixirScannerProfile() ScannerProfile {
 		Strings: []StringRule{
 			{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true},
 			{Prefixes: []string{""}, Delimiter: "'''", Multiline: true, BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "'", Multiline: true, BackslashEscapes: true},
 		},
 	}
 }
@@ -84,14 +84,15 @@ func GroovyScannerProfile() ScannerProfile {
 
 func ShellScannerProfile(name string) ScannerProfile {
 	return ScannerProfile{
-		Name:         name,
-		Keywords:     []string{"case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select", "then", "until", "while"},
-		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$", ExtraContinue: "$-"},
-		LineComments: []string{"#"},
+		Name:                         name,
+		Keywords:                     []string{"case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select", "then", "until", "while"},
+		Identifier:                   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$", ExtraContinue: "$-"},
+		LineComments:                 []string{"#"},
+		LineCommentRequiresWordStart: true,
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'"},
-			{Prefixes: []string{""}, Delimiter: "`", BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "'", Multiline: true},
+			{Prefixes: []string{""}, Delimiter: "`", Multiline: true, BackslashEscapes: true},
 		},
 		HereDocs: []HereDocRule{
 			{Operator: "<<-", AllowQuotedDelimiter: true, StripLeadingTabs: true},
@@ -112,14 +113,15 @@ func TclScannerProfile() ScannerProfile {
 
 func AutoHotkeyScannerProfile() ScannerProfile {
 	return ScannerProfile{
-		Name:            "autohotkey",
-		CaseInsensitive: true,
-		Keywords:        []string{"class", "extends", "static"},
-		Identifier:      DefaultIdentifierPolicy(),
-		LineComments:    []string{";"},
-		BlockComments:   []BlockCommentRule{{Start: "/*", End: "*/"}},
-		Strings:         []StringRule{{Prefixes: []string{""}, Delimiter: "\"", DoubledDelimiterEscape: true}},
-		DirectiveRules:  []DirectiveRule{{Prefix: "#", CaseInsensitive: true}},
-		Directives:      true,
+		Name:                         "autohotkey",
+		CaseInsensitive:              true,
+		Keywords:                     []string{"class", "extends", "static"},
+		Identifier:                   DefaultIdentifierPolicy(),
+		LineComments:                 []string{";"},
+		LineCommentRequiresWordStart: true,
+		BlockComments:                []BlockCommentRule{{Start: "/*", End: "*/"}},
+		Strings:                      []StringRule{{Prefixes: []string{""}, Delimiter: "\"", DoubledDelimiterEscape: true}},
+		DirectiveRules:               []DirectiveRule{{Prefix: "#", CaseInsensitive: true}},
+		Directives:                   true,
 	}
 }

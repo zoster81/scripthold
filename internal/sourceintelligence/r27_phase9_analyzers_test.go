@@ -112,6 +112,102 @@ func TestR27Phase9ScientificLegacyAndFunctionalAnalyzersExposeDistinctNativeStru
 	}
 }
 
+func TestR27OctaveSpecificBlockTerminatorsCloseScopes(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "if", body: "  if x > 0\n    y = x;\n  else\n    y = -x;\n  endif\n"},
+		{name: "for", body: "  for i = 1:2\n    y = i;\n  endfor\n"},
+		{name: "while", body: "  while x > 0\n    x -= 1;\n  endwhile\n"},
+		{name: "switch", body: "  switch x\n    case 1\n      y = 1;\n    otherwise\n      y = 0;\n  endswitch\n"},
+		{name: "try", body: "  try\n    y = x;\n  catch\n    y = 0;\n  end_try_catch\n"},
+		{name: "parfor", body: "  parfor i = 1:2\n    y = i;\n  endparfor\n"},
+		{name: "unwind-protect", body: "  unwind_protect\n    y = x;\n  unwind_protect_cleanup\n    y = 0;\n  end_unwind_protect\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "function y = run(x)\n" + tc.body + "endfunction\n"
+			result, err := (OctaveAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("Octave specific terminator left analysis partial: %+v", result.Analysis)
+			}
+			if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["run"]; !ok || symbol.Kind != SymbolKindFunction {
+				t.Fatalf("missing run function: symbol=%+v exists=%v all=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestR27RealWorldCOBOLFixedLiteralContinuations(t *testing.T) {
+	valid := "       IDENTIFICATION DIVISION.\n" +
+		"       PROGRAM-ID. DEMO.\n" +
+		"       DATA DIVISION.\n" +
+		"       WORKING-STORAGE SECTION.\n" +
+		"       01 MSG PIC X(120) VALUE 'Additional switches (if any\n" +
+		"      -                         '): and more text that remains open\n" +
+		"      -                         ' across another continuation'.\n" +
+		"       PROCEDURE DIVISION.\n" +
+		"       MAIN SECTION.\n" +
+		"           STOP RUN.\n"
+	result, err := (COBOLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(valid), phase3AnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid fixed-format continued COBOL literal reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"DEMO", "DEMO.MAIN"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("continued literal handling lost %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+
+	malformed := "       IDENTIFICATION DIVISION.\n" +
+		"       PROGRAM-ID. BROKEN.\n" +
+		"       DATA DIVISION.\n" +
+		"       WORKING-STORAGE SECTION.\n" +
+		"       01 MSG PIC X(40) VALUE 'never closes\n" +
+		"       PROCEDURE DIVISION.\n"
+	broken, err := (COBOLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(malformed), phase3AnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broken.Analysis.CoverageComplete || !hasAnalysisDiagnostic(broken.Analysis.Diagnostics, "cobol-unterminated-string") {
+		t.Fatalf("uncontinued COBOL literal was accepted: %+v", broken.Analysis)
+	}
+}
+
+func TestR27RealWorldAdaPackageInstantiationsAndRenamesDoNotOpenScopes(t *testing.T) {
+	text := "package Vector_Inst is new Ada.Containers.Vectors (Index_Type => Natural, Element_Type => Integer);\n" +
+		"package IO_Alias renames Ada.Text_IO;\n" +
+		"package Normal is\n  procedure Nested;\nend Normal;\n" +
+		"procedure Top_Level;\n"
+	result, err := (AdaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid Ada package forms reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Vector_Inst", "IO_Alias", "Normal", "Normal.Nested", "Top_Level"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, wrong := range []string{"Vector_Inst.IO_Alias", "Vector_Inst.IO_Alias.Normal", "Normal.Top_Level"} {
+		if _, ok := byName[wrong]; ok {
+			t.Fatalf("non-scope Ada package form leaked parent %s; symbols=%v", wrong, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestR27Phase9RegistryProviderIdentityAndCapabilityCeilings(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

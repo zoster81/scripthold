@@ -624,6 +624,7 @@ func maskPowerShellHereStrings(ctx context.Context, text string) (string, []Scan
 	result := []byte(text)
 	changed := false
 	var diagnostics []ScannerDiagnostic
+	state := powerShellLineLexState{}
 	for at := 0; at < len(text); {
 		if at&4095 == 0 {
 			if err := ctx.Err(); err != nil {
@@ -637,33 +638,18 @@ func maskPowerShellHereStrings(ctx context.Context, text string) (string, []Scan
 		} else {
 			lineEnd += lineStart
 		}
-		trim := strings.TrimSpace(text[lineStart:lineEnd])
-		if trim != "@\"" && trim != "@'" {
+		opener, quote, found := powerShellHereStringOpener(text[lineStart:lineEnd], &state)
+		if !found {
 			at = nextPhysicalLine(text, lineEnd)
 			continue
 		}
-		quote := trim[1]
-		open := lineStart
+		open := lineStart + opener
 		cursor := nextPhysicalLine(text, lineEnd)
-		end := -1
-		for cursor <= len(text) {
-			le := strings.IndexAny(text[cursor:], "\r\n")
-			if le < 0 {
-				le = len(text)
-			} else {
-				le += cursor
-			}
-			candidate := strings.TrimSpace(text[cursor:le])
-			if (quote == '"' && candidate == "\"@") || (quote == '\'' && candidate == "'@") {
-				end = le
-				break
-			}
-			if le >= len(text) {
-				break
-			}
-			cursor = nextPhysicalLine(text, le)
+		end, foundEnd, findErr := powerShellHereStringEnd(ctx, text, cursor, quote)
+		if findErr != nil {
+			return "", nil, findErr
 		}
-		if end < 0 {
+		if !foundEnd {
 			diagnostics = append(diagnostics, ScannerDiagnostic{Code: "unterminated-here-string", Message: "PowerShell here-string is not terminated", StartOffset: open, EndOffset: len(text)})
 			end = len(text)
 		}
@@ -683,6 +669,176 @@ func maskPowerShellHereStrings(ctx context.Context, text string) (string, []Scan
 	}
 	return string(result), diagnostics, nil
 }
+
+func powerShellHereStringEnd(ctx context.Context, text string, cursor int, quote byte) (int, bool, error) {
+	interpolationDepth := 0
+	interpolationState := powerShellLineLexState{}
+	for cursor <= len(text) {
+		if cursor&4095 == 0 {
+			if err := ctx.Err(); err != nil {
+				return 0, false, err
+			}
+		}
+		lineEnd := strings.IndexAny(text[cursor:], "\r\n")
+		if lineEnd < 0 {
+			lineEnd = len(text)
+		} else {
+			lineEnd += cursor
+		}
+		line := text[cursor:lineEnd]
+		candidate := strings.TrimSpace(line)
+		if interpolationDepth == 0 && ((quote == '"' && candidate == "\"@") || (quote == '\'' && candidate == "'@")) {
+			return lineEnd, true, nil
+		}
+		if quote == '"' {
+			if interpolationDepth > 0 {
+				probeState := interpolationState
+				_, nestedQuote, nested := powerShellHereStringOpener(line, &probeState)
+				if nested {
+					nestedStart := nextPhysicalLine(text, lineEnd)
+					nestedEnd, ok, err := powerShellHereStringEnd(ctx, text, nestedStart, nestedQuote)
+					if err != nil {
+						return 0, false, err
+					}
+					if !ok {
+						return len(text), false, nil
+					}
+					cursor = nextPhysicalLine(text, nestedEnd)
+					interpolationState = powerShellLineLexState{}
+					continue
+				}
+			}
+			interpolationDepth = powerShellInterpolationDepth(line, interpolationDepth, &interpolationState)
+		}
+		if lineEnd >= len(text) {
+			break
+		}
+		cursor = nextPhysicalLine(text, lineEnd)
+	}
+	return len(text), false, nil
+}
+
+func powerShellInterpolationDepth(line string, depth int, state *powerShellLineLexState) int {
+	for index := 0; index < len(line); index++ {
+		if depth == 0 {
+			if line[index] == '`' && index+1 < len(line) {
+				index++
+				continue
+			}
+			if index+1 < len(line) && line[index] == '$' && line[index+1] == '(' {
+				depth = 1
+				index++
+			}
+			continue
+		}
+		if state.blockComment {
+			if strings.HasPrefix(line[index:], "#>") {
+				state.blockComment = false
+				index++
+			}
+			continue
+		}
+		if state.quote != 0 {
+			if state.quote == '\'' && line[index] == '\'' {
+				if index+1 < len(line) && line[index+1] == '\'' {
+					index++
+					continue
+				}
+				state.quote = 0
+				continue
+			}
+			if state.quote == '"' {
+				if line[index] == '`' && index+1 < len(line) {
+					index++
+					continue
+				}
+				if line[index] == '"' {
+					state.quote = 0
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(line[index:], "<#") {
+			state.blockComment = true
+			index++
+			continue
+		}
+		if line[index] == '#' {
+			break
+		}
+		if line[index] == '`' && index+1 < len(line) {
+			index++
+			continue
+		}
+		switch line[index] {
+		case '\'', '"':
+			state.quote = line[index]
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				depth = 0
+			}
+		}
+	}
+	return depth
+}
+
+type powerShellLineLexState struct {
+	blockComment bool
+	quote        byte
+}
+
+func powerShellHereStringOpener(line string, state *powerShellLineLexState) (int, byte, bool) {
+	trimmedEnd := len(strings.TrimRight(line, " \t"))
+	for index := 0; index < trimmedEnd; index++ {
+		if state.blockComment {
+			if strings.HasPrefix(line[index:], "#>") {
+				state.blockComment = false
+				index++
+			}
+			continue
+		}
+		if state.quote != 0 {
+			if state.quote == '\'' && line[index] == '\'' {
+				if index+1 < trimmedEnd && line[index+1] == '\'' {
+					index++
+					continue
+				}
+				state.quote = 0
+				continue
+			}
+			if state.quote == '"' {
+				if line[index] == '`' && index+1 < trimmedEnd {
+					index++
+					continue
+				}
+				if line[index] == '"' {
+					state.quote = 0
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(line[index:], "<#") {
+			state.blockComment = true
+			index++
+			continue
+		}
+		if line[index] == '#' {
+			return -1, 0, false
+		}
+		if index+2 == trimmedEnd && line[index] == '@' && (line[index+1] == '\'' || line[index+1] == '"') {
+			return index, line[index+1], true
+		}
+		switch line[index] {
+		case '\'', '"':
+			state.quote = line[index]
+		}
+	}
+	return -1, 0, false
+}
+
 func nextPhysicalLine(text string, end int) int {
 	if end >= len(text) {
 		return len(text)

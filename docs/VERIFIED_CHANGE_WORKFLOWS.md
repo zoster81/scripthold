@@ -147,6 +147,17 @@ The R23 integration point remains narrow and approval-bound:
 - restore keeps its separate mandatory safety-backup contract and GC captures no public target bytes.
 
 Restore, audit, quotas, pinning, retention, and garbage collection are otherwise defined by the backup lifecycle contract.
+
+## Windows atomic-replacement diagnostics
+
+Windows existing-file replacement continues to stage the complete result in the target directory, flush and close the staged file, revalidate the approved target snapshot, and commit with `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`. Retry remains bounded to transient Windows access/sharing/lock errors and revalidates the approved target before each repeated commit attempt. The diagnostic work described here does not change that mutation contract or substitute a different rename primitive.
+
+A retry episode is observed as one bounded event rather than one log record per attempt. A retry that eventually succeeds or aborts for a non-retryable reason is logged only when debug logging is enabled. An exhausted retry is always emitted as a warning and includes the deeper best-effort Windows evidence needed for later correlation. Diagnostic failures or panics are ignored and can never alter mutation success/failure.
+
+The versioned `windows-atomic-replace-v1` payload records only bounded technical evidence: retry phase/Win32 codes, attempt count and elapsed time; SHA-256 identifiers for the normalized target/staged paths plus the target extension; basic attributes, size/link/delete-pending state; independent DELETE-access probes for both target and staged file; independent `FILE_ADD_FILE` and `FILE_DELETE_CHILD` probes on the target parent directory; and a bounded Restart Manager view of applications/services currently using either target or staged file. Restart Manager collection is performed only after the ordinary retry window is exhausted, and target plus staged path are registered together in one session rather than through per-file calls. Process evidence is limited to PID, application type, bounded application/service display names, restartability, and whether the reported process is the current server process.
+
+The diagnostic payload deliberately excludes source bytes, diffs, command lines, executable paths, preview identifiers, and clear target/staged paths. A path hash exists only to correlate repeated incidents affecting the same pathname. A single `ERROR_ACCESS_DENIED` is not classified as a root cause: Windows permits delete/rename authorization through DELETE on the file or delete-child permission on the parent, while destination creation also depends on parent-directory access. A denied DELETE probe with a sharing violation plus a Restart Manager process is therefore stronger evidence of handle-sharing contention; granted DELETE or parent rights with no affected process instead require investigation of other Windows filesystem/security/filter behavior. Logs are evidence for a future multi-case analysis, not an automatic permission, process-kill, retry, or recovery mechanism.
+
 ## Required verification
 
 The completed implementation is protected by focused and regression coverage for:

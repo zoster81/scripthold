@@ -45,6 +45,45 @@ func TestR27ScannerProfileIdentifierDelimiterAndDirectivePolicies(t *testing.T) 
 	}
 }
 
+func TestR27ScannerBackslashEscapedPhysicalNewlinesHandleCRLFAtomically(t *testing.T) {
+	profile := ScannerProfile{
+		Name:    "r27-escaped-newline",
+		Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true}},
+	}
+	for _, testCase := range []struct {
+		name     string
+		text     string
+		complete bool
+	}{
+		{name: "LF continuation", text: "value = \"alpha\\\nbeta\"\n", complete: true},
+		{name: "CRLF continuation", text: "value = \"alpha\\\r\nbeta\"\r\n", complete: true},
+		{name: "CR continuation", text: "value = \"alpha\\\rbeta\"\r", complete: true},
+		{name: "unescaped CRLF", text: "value = \"alpha\r\nbeta\"\r\n", complete: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := scanSourceText(t, testCase.text, profile, phase4ScannerLimits)
+			if result.Complete != testCase.complete {
+				t.Fatalf("coverage complete=%v want %v diagnostics=%+v", result.Complete, testCase.complete, result.Diagnostics)
+			}
+			if testCase.complete && len(result.Diagnostics) != 0 {
+				t.Fatalf("valid escaped physical newline reported diagnostics: %+v", result.Diagnostics)
+			}
+			if !testCase.complete && !hasScannerDiagnostic(result.Diagnostics, "unterminated-string") {
+				t.Fatalf("unescaped physical newline missing unterminated-string: %+v", result.Diagnostics)
+			}
+		})
+	}
+
+	interpolated := ScannerProfile{
+		Name:    "r27-interpolated-escaped-newline",
+		Strings: []StringRule{{Prefixes: []string{"$"}, Delimiter: "\"", BackslashEscapes: true, InterpolationMarker: "$"}},
+	}
+	result := scanSourceText(t, "$\"alpha\\\r\nbeta\"\r\n", interpolated, phase4ScannerLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("interpolated escaped CRLF reported partial: %+v", result.Diagnostics)
+	}
+}
+
 func TestR27ScannerSExpressionProfileUsesSharedBalancedForms(t *testing.T) {
 	profile := ScannerProfile{
 		Name:         "r27-lisp",
@@ -64,6 +103,21 @@ func TestR27ScannerSExpressionProfileUsesSharedBalancedForms(t *testing.T) {
 	pairs := PairDelimiterTokens(result.Tokens, profile.Delimiters)
 	if len(pairs) != 6 {
 		t.Fatalf("S-expression pair entries = %d, want 6", len(pairs))
+	}
+}
+
+func TestR27ShellCommentsRequireWordStart(t *testing.T) {
+	text := "value=$((10#1))\n" +
+		"echo foo#bar function Inline { :; }\n" +
+		"echo ok # function Fake { :; }\n" +
+		"# function AlsoFake { :; }\n" +
+		"function Real { :; }\n"
+	result := scanSourceText(t, text, ShellScannerProfile("bash"), phase4ScannerLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("valid Bash hash usage reported partial: %+v", result.Diagnostics)
+	}
+	if got := keywordTexts(result.Tokens, "function"); !reflect.DeepEqual(got, []string{"function", "function"}) {
+		t.Fatalf("Bash comment boundary hid or leaked function keywords: %v", got)
 	}
 }
 

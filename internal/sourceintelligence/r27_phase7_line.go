@@ -292,7 +292,13 @@ func (NimAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
-	scan, err := ScanSource(ctx, document, NimScannerProfile(), ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	scanDocument := document
+	if masked := maskNimApostropheSuffixes(document.Text); masked != document.Text {
+		clone := *document
+		clone.Text = masked
+		scanDocument = &clone
+	}
+	scan, err := ScanSource(ctx, scanDocument, NimScannerProfile(), ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -306,6 +312,37 @@ func (NimAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	parser := &nimParser{ctx: ctx, document: document, builder: builder}
 	parser.parse(BuildLogicalLines(scan.Tokens, LogicalLineProfile{TrackIndentation: true}))
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
+}
+
+func maskNimApostropheSuffixes(text string) string {
+	masked := []byte(text)
+	for at := 0; at < len(text); at++ {
+		if text[at] != '\'' || at+1 >= len(text) {
+			continue
+		}
+		if at > 0 && text[at-1] == '`' && phase7NimSuffixByte(text[at+1]) {
+			masked[at] = ' '
+			continue
+		}
+		if at == 0 || !phase7NimNumericSuffixLeftByte(text[at-1]) || !phase7NimSuffixByte(text[at+1]) {
+			continue
+		}
+		end := at + 2
+		for end < len(text) && phase7NimSuffixByte(text[end]) {
+			end++
+		}
+		phase8MaskRange(masked, at, end)
+		at = end - 1
+	}
+	return string(masked)
+}
+
+func phase7NimNumericSuffixLeftByte(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'A' && value <= 'F' || value >= 'a' && value <= 'f'
+}
+
+func phase7NimSuffixByte(value byte) bool {
+	return value == '_' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
 type nimParser struct {

@@ -242,7 +242,193 @@ func (DAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "struct": SymbolKindStruct, "interface": SymbolKindInterface, "enum": SymbolKindEnum, "union": SymbolKindType},
 		typeNative: map[string]string{"class": "class", "struct": "struct", "interface": "interface", "enum": "enum", "union": "union"},
 		modifiers:  setOf("abstract", "final", "immutable", "private", "protected", "public", "shared", "static"), moduleKeyword: "module", importKeywords: setOf("import"),
+		maskText: maskDQStringLiterals,
 	})
+}
+
+func maskDQStringLiterals(text string) (string, bool) {
+	masked := []byte(text)
+	for at := 0; at < len(text); {
+		if strings.HasPrefix(text[at:], "//") {
+			at = phase7DLineEnd(text, at+2)
+			continue
+		}
+		if strings.HasPrefix(text[at:], "/*") {
+			if relative := strings.Index(text[at+2:], "*/"); relative >= 0 {
+				at += 2 + relative + 2
+				continue
+			}
+			break
+		}
+		if strings.HasPrefix(text[at:], "/+") {
+			if end, ok := phase7DNestedCommentEnd(text, at); ok {
+				at = end
+				continue
+			}
+			break
+		}
+		if text[at] == '"' || text[at] == '\'' || text[at] == '`' {
+			at = phase7DOrdinaryStringEnd(text, at)
+			continue
+		}
+		if text[at] != 'q' || at > 0 && phase7DIdentifierByte(text[at-1]) || at+1 >= len(text) {
+			at++
+			continue
+		}
+		end, ok := 0, false
+		switch text[at+1] {
+		case '{':
+			end, ok = phase7DBalancedQStringEnd(text, at+1, '{', '}', false)
+		case '"':
+			end, ok = phase7DQuotedQStringEnd(text, at)
+		}
+		if end == 0 {
+			at++
+			continue
+		}
+		if !ok {
+			phase8MaskRange(masked, at, len(text))
+			return string(masked), false
+		}
+		phase8MaskRange(masked, at, end)
+		at = end
+	}
+	return string(masked), true
+}
+
+func phase7DQuotedQStringEnd(text string, at int) (int, bool) {
+	content := at + 2
+	if content >= len(text) {
+		return len(text), false
+	}
+	switch text[content] {
+	case '{':
+		return phase7DBalancedQStringEnd(text, content, '{', '}', true)
+	case '[':
+		return phase7DBalancedQStringEnd(text, content, '[', ']', true)
+	case '(':
+		return phase7DBalancedQStringEnd(text, content, '(', ')', true)
+	case '<':
+		return phase7DBalancedQStringEnd(text, content, '<', '>', true)
+	}
+	if !phase7DIdentifierStart(text[content]) {
+		for cursor := content + 1; cursor+1 < len(text); cursor++ {
+			if text[cursor] == text[content] && text[cursor+1] == '"' {
+				return cursor + 2, true
+			}
+		}
+		return len(text), false
+	}
+	cursor := content + 1
+	for cursor < len(text) && phase7DIdentifierByte(text[cursor]) {
+		cursor++
+	}
+	delimiter := text[content:cursor]
+	for cursor < len(text) {
+		lineStart := cursor
+		if text[lineStart] == '\r' || text[lineStart] == '\n' {
+			lineStart = phase7DNextLine(text, lineStart)
+		}
+		lineEnd := phase7DLineEnd(text, lineStart)
+		line := text[lineStart:lineEnd]
+		terminator := delimiter + "\""
+		if strings.HasPrefix(line, terminator) {
+			return lineStart + len(terminator), true
+		}
+		if lineEnd >= len(text) {
+			break
+		}
+		cursor = phase7DNextLine(text, lineEnd)
+	}
+	return len(text), false
+}
+
+func phase7DBalancedQStringEnd(text string, open int, left, right byte, quoted bool) (int, bool) {
+	depth := 1
+	for cursor := open + 1; cursor < len(text); cursor++ {
+		switch text[cursor] {
+		case left:
+			depth++
+		case right:
+			depth--
+			if depth == 0 {
+				end := cursor + 1
+				if quoted {
+					if end >= len(text) || text[end] != '"' {
+						return len(text), false
+					}
+					end++
+				}
+				return end, true
+			}
+		}
+	}
+	return len(text), false
+}
+
+func phase7DNestedCommentEnd(text string, at int) (int, bool) {
+	depth := 1
+	for cursor := at + 2; cursor < len(text); cursor++ {
+		if strings.HasPrefix(text[cursor:], "/+") {
+			depth++
+			cursor++
+			continue
+		}
+		if strings.HasPrefix(text[cursor:], "+/") {
+			depth--
+			cursor++
+			if depth == 0 {
+				return cursor + 1, true
+			}
+		}
+	}
+	return len(text), false
+}
+
+func phase7DOrdinaryStringEnd(text string, at int) int {
+	delimiter := text[at]
+	for cursor := at + 1; cursor < len(text); cursor++ {
+		if delimiter != '`' && text[cursor] == '\\' && cursor+1 < len(text) {
+			cursor++
+			continue
+		}
+		if text[cursor] == delimiter {
+			return cursor + 1
+		}
+		if delimiter != '`' && (text[cursor] == '\r' || text[cursor] == '\n') {
+			return cursor
+		}
+	}
+	return len(text)
+}
+
+func phase7DLineEnd(text string, at int) int {
+	for at < len(text) && text[at] != '\r' && text[at] != '\n' {
+		at++
+	}
+	return at
+}
+
+func phase7DNextLine(text string, at int) int {
+	if at < len(text) && text[at] == '\r' {
+		at++
+		if at < len(text) && text[at] == '\n' {
+			at++
+		}
+		return at
+	}
+	if at < len(text) && text[at] == '\n' {
+		return at + 1
+	}
+	return at
+}
+
+func phase7DIdentifierStart(value byte) bool {
+	return value == '_' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func phase7DIdentifierByte(value byte) bool {
+	return phase7DIdentifierStart(value) || value >= '0' && value <= '9'
 }
 func (SolidityAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	return analyzePhase7Brace(ctx, document, options, phase7BracePolicy{

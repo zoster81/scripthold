@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED — R27 ACTIVE DESIGN BASELINE.** This document records the mandatory broad multi-language outcome for R27. R26 is complete; R27 was explicitly activated on 2026-08-14, Phases 0-15 are complete, and Phase 16 is the first incomplete phase. R27 is not a Go enhancement milestone and must not be declared complete with Go-only or narrowly Go-centric coverage.
+**APPROVED — R27 COMPLETE DESIGN AND IMPLEMENTATION RECORD.** This document records the mandatory broad multi-language outcome for R27. R27 was explicitly activated on 2026-08-14 and completed on 2026-08-16; Phases 0-18 are complete. R27 is not a Go enhancement milestone and was not completed with Go-only or narrowly Go-centric coverage.
 
 R27 builds on the language-neutral native analyzer architecture required by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md). The implementation foundation is fixed to Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters and project resolvers plus standard-library facilities where available. Public schema details remain subject to the staged contract review below, but external parser engines, downloaded grammars, compiler frontends and language-server runtimes are not implementation-time alternatives within the approved R27 plan.
 
@@ -792,41 +792,33 @@ The mechanically generated capability matrix now advertises `index` for every ac
 
 Exit criterion: **met** — warm unchanged requests reuse the existing generation without reparsing or rebuilding project relations; changed requests re-analyze only changed parsed facts while conservatively rebuilding bounded relationship metadata, and every published query result is bound to one coherent immutable generation.
 
-### Phase 16 — complete capability/corpus matrix
+### Phase 16 — complete capability/corpus matrix — COMPLETE
 
-Run the reusable conformance harness across every approved target-catalog row. Programming languages must have representative positive/negative/malformed/declaration/scope/range tests; composite formats require region/delegation tests; document/config formats require meaningful structural tests. Add mixed-language repositories, ambiguous extensions, Unicode, UTF-8/16/32 and relevant legacy encodings, LF/CRLF, large/generated sources, cancellation and resource-limit cases.
+Completed on 2026-08-16. The authoritative registry now has 103 rows, with all 101 approved R27 target-catalog entries backed by active matching analyzer identities; only auxiliary Dockerfile and Make metadata remain intentionally inactive and are excluded from the approved-catalog completion count. The registry test now enforces this mechanically, while `LANGUAGE_CAPABILITIES.md` remains a byte-for-byte generated projection of the same source of truth.
 
-The checked-in capability matrix must state any partial/unsupported advanced feature explicitly. Do not count a language as production-supported because a detector recognizes its extension.
+The final provider gap was closed with distinct native Scala and Flow analyzers. Scala covers package/import structure, class/trait/object/enum/function/member declarations, Scala 2 brace scopes, Scala 3 indentation scopes, and structural inheritance without compiler/type/macro claims. Flow keeps ordinary JavaScript separate unless `.js.flow` or distinctive `@flow` evidence applies, reuses the proven typed-ECMAScript structural parser only through offset-preserving Flow-only normalization, supports Flow aliases/opaque aliases and structural dependencies/inheritance, and explicitly withholds Flow type checking plus TypeScript-only namespace/module semantics. A devil's-advocate RED test caught and fixed an initially over-broad `opaque` keyword mask that erased a legitimate identifier named `opaque`.
 
-Exit criterion: all target entries have truthful tested capability rows and every original mandatory language satisfies its stronger acceptance bar.
+Phase 16 conformance adds mixed Scala/Flow public routing through both `source_symbols` and `source_query`, exact/probable detector evidence checks, positive declaration/hierarchy/dependency facts, opaque comment/string negatives, malformed-source coverage degradation, Unicode decoded ranges, UTF-16LE CRLF Scala, UTF-32BE Flow, cancellation, 1,200-declaration/function generated limits, structural inheritance evidence, and capability-matrix closure. Earlier provider-wave suites continue to supply the required composite-region, document/config, ambiguous-extension, legacy-encoding, mandatory-language and broader cross-ecosystem corpus coverage.
 
-### Phase 17 — scale, race, security and connector gate
+Exit criterion: **met** — every approved target entry has a truthful active tested capability row, the original mandatory languages retain their stronger phase-specific acceptance coverage, and detector-only auxiliary metadata is not counted as production support.
 
-Benchmark and test:
+### Phase 17 — scale, race, security and connector gate — COMPLETE
 
-- many small files;
-- large generated files;
-- mixed-language monorepos;
-- cold source analysis/index;
-- warm incremental refresh;
-- exact/prefix symbol lookup;
-- relation queries and bounded graph traversal;
-- context assembly;
-- highly ambiguous detection workloads.
+Completed on 2026-08-16. Deterministic scale/concurrency/security tests exercise a 96-file project, cold and unchanged-warm queries, twelve concurrent warm readers, one-file generation replacement, cancellation before publication, allowed-root denial, bounded context output and unrelated-source leakage sentinels. Static package-import gates additionally prevent the source-intelligence/query implementation from silently acquiring process-execution, network-client or direct logging dependencies.
 
-Verify bounded CPU/memory/output behavior, cancellation, duplicate refresh suppression, concurrent read queries, generation swap, source changes during indexing, race-safe registry/index access, no hidden network/external execution, allowed-root enforcement and no source-content logging/leakage.
+Repeatable allocation-reporting benchmarks now cover many small files, a 5,000-function generated source, a mixed Java/TypeScript/Scala/Flow monorepo, cold analysis/index construction, unchanged warm lookup, one-file incremental refresh, exact/prefix search, bounded dependency trace, context assembly and ambiguous detector workloads. Benchmarks report measurements rather than enforcing unstable wall-clock thresholds; resource correctness remains governed by deterministic hard/request bounds. The dependency benchmark intentionally stays within the default configured graph-depth ceiling rather than silently widening operator policy.
 
-Run connector-level workflows demonstrating outline -> find/show -> relations -> context over heterogeneous projects without full-project source reads.
+The heterogeneous MCP connector workflow proves `source_symbols outline -> find/show -> source_query relations -> context` across TypeScript, Scala, Flow and Ruby while retaining generation evidence and preventing an unrelated source marker from leaking into results. That workflow exposed a real Scala 3 detection gap for `class Name:` plus typed `def` declarations; a focused RED test reproduced the ambiguity and the detector was hardened with a Scala-specific typed-method marker instead of the Python-colliding generic class form. The Phase 16 Flow corpus also caught and fixed an over-broad `opaque` normalization before completion. Focused race checks and the complete `go test -race ./... -count=1` suite pass with the workspace-confined CGO/GCC toolchain.
 
-Exit criterion: the broad feature set remains bounded and useful at repository scale and does not weaken Scripthold's existing security/encoding guarantees.
+Exit criterion: **met** — the broad feature set remains bounded and useful at repository scale, coherent under concurrent refresh/read workloads, fail-closed at authorization/cancellation boundaries, and does not weaken the existing security or encoding guarantees.
 
-### Phase 18 — documentation, completion and future handoff
+### Phase 18 — documentation, completion and future handoff — COMPLETE
 
-Review the full diff and capability matrix. Update tool catalog, README/TOOLS, roadmap/history and language support documentation from authoritative registry data. Run all applicable focused and repository-wide gates, static/vulnerability checks, race/platform tests, fuzzing, documentation links/catalog drift checks, source smoke, `git diff --check` and final Git status.
+Completed on 2026-08-16. The final review synchronized the registry-derived capability matrix, tool reference, README, roadmap, roadmap history, changelog, project direction and this completed contract without changing the frozen public `source_query` schema. Broad support claims remain mechanically tied to active registry rows and capability-specific tests; Dockerfile/Make auxiliary metadata remains explicitly outside the 101-provider approved production count.
 
-R27 is not complete until the broad catalog, original mandatory-language gates, cross-ecosystem resolved relations, structural search/graphs, bounded context, and incremental-index requirements above are all satisfied or the maintainer has explicitly revised this document. R27 completion itself does not authorize commit, push, release, candidate build, runtime migration or deployment.
+The final completion gate passed `go mod verify`, project-identity/toolcatalog checks, the complete normal test suite, Go vet, Staticcheck, govulncheck with no vulnerabilities found, the prescribed Node release-script tests, the complete repository race suite with the workspace-confined CGO/GCC toolchain, a 5,000-execution Scala/Flow fuzz campaign, capability-matrix drift checks, and the heterogeneous in-process MCP connector workflow from Phase 17. Final documentation/link/hygiene/Gitleaks/diff checks are part of the repository completion review. Product builds, supported-target cross-builds and external source-runtime smoke were not performed in this implementation session because build and runtime changes were outside its explicit authorization; no build, deployment, publication or runtime state is implied by R27 source completion.
 
-Exit criterion: repository evidence satisfies every R27 completion gate and no undocumented capability or language claim exceeds tested behavior.
+Exit criterion: **met** — repository evidence satisfies the applicable R27 completion gates, no undocumented capability or language claim exceeds tested behavior, and commit, push, release, candidate build, runtime migration and deployment remain separately authorized operations.
 
 ## Language-specific acceptance themes
 

@@ -103,7 +103,10 @@ func NimScannerProfile() ScannerProfile {
 		Keywords:        []string{"const", "func", "import", "include", "iterator", "let", "method", "object", "proc", "ref", "template", "type", "var"},
 		Identifier:      IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraContinue: "*"},
 		LineComments:    []string{"#"},
-		BlockComments:   []BlockCommentRule{{Start: "#[", End: "]#", Nestable: true}},
+		BlockComments: []BlockCommentRule{
+			{Start: "##[", End: "]##"},
+			{Start: "#[", End: "]#", Nestable: true},
+		},
 		Strings: []StringRule{
 			{Prefixes: []string{"fmt", "f", "r", ""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true, CaseInsensitivePrefix: true},
 			{Prefixes: []string{"fmt", "f", "r", ""}, Delimiter: "\"", BackslashEscapes: true, CaseInsensitivePrefix: true},

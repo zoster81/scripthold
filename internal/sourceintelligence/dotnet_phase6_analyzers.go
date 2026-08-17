@@ -13,7 +13,7 @@ func (FSharpAnalyzer) ID() AnalyzerID   { return AnalyzerFSharp }
 func (FSharpAnalyzer) Language() string { return "fsharp" }
 
 func FSharpScannerProfile() ScannerProfile {
-	return ScannerProfile{Name: "fsharp", Keywords: []string{"abstract", "and", "class", "end", "inherit", "interface", "let", "member", "module", "namespace", "open", "override", "static", "type", "val", "with"}, LineComments: []string{"//"}, BlockComments: []BlockCommentRule{{Start: "(*", End: "*)", Nestable: true}}, Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true}, {Prefixes: []string{"@", ""}, Delimiter: "\"", BackslashEscapes: true, DoubledDelimiterEscape: true}}, Indentation: true}
+	return ScannerProfile{Name: "fsharp", Keywords: []string{"abstract", "and", "class", "end", "inherit", "interface", "let", "member", "module", "namespace", "open", "override", "static", "type", "val", "with"}, LineComments: []string{"//"}, BlockComments: []BlockCommentRule{{Start: "(*", End: "*)", Nestable: true}}, Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true}, {Prefixes: []string{"@", ""}, Delimiter: "\"", BackslashEscapes: true, DoubledDelimiterEscape: true}}, Directives: true, Indentation: true, IndentationNeutralDirectives: true}
 }
 
 func (FSharpAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {

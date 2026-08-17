@@ -151,7 +151,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 		descriptor.Capabilities.Dependencies = true
 		descriptor.Capabilities.IncrementalIndex = true
 		switch descriptor.ID {
-		case "vbnet", "cpp", "java", "kotlin", "javascript", "typescript", "rust", "php", "ruby", "swift", "pascal", "delphi", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "nim", "solidity", "apex", "al", "arduino", "groovy", "autohotkey":
+		case "vbnet", "cpp", "java", "kotlin", "javascript", "typescript", "rust", "php", "ruby", "swift", "pascal", "delphi", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "nim", "solidity", "apex", "al", "arduino", "groovy", "autohotkey", "scala", "flow":
 			descriptor.Capabilities.InheritanceRelations = true
 		}
 		if descriptor.ScannerProfile == "" || descriptor.AnalyzerStrategy == "" || descriptor.AnalyzerVersion == "" {
@@ -169,6 +169,10 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"dynamic property/prototype resolution, non-literal module loading, JSX component semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "typescript":
 				descriptor.KnownLimitations = []string{"TypeScript type checking, tsconfig/module-resolution semantics, non-literal module loading, TSX component semantics, semantic relations, and incremental indexing are not implemented"}
+			case "flow":
+				descriptor.KnownLimitations = []string{"Flow type checking, libdef/module-resolution semantics, non-literal module loading, JSX component semantics, TypeScript-only namespace/module constructs, semantic relations, and incremental indexing are not implemented"}
+			case "scala":
+				descriptor.KnownLimitations = []string{"Scala macro/inline expansion, implicit/given resolution, compiler type checking, sbt/project resolution, semantic relations, and incremental indexing are not implemented; declarations are bounded to proven brace/indentation structural forms"}
 			case "rust":
 				descriptor.KnownLimitations = []string{"macro expansion, cfg evaluation, Cargo metadata/build resolution, type/trait resolution, semantic relations, and incremental indexing are not implemented"}
 			case "php":
@@ -357,6 +361,10 @@ func activeProviderMetadata(analyzer AnalyzerID) (scannerProfile, strategy, vers
 		return "javascript", "native-token-structural", "r27-p4-v1"
 	case AnalyzerTypeScript:
 		return "typescript", "native-token-structural", "r27-p4-v1"
+	case AnalyzerFlow:
+		return "flow", "native-adapter-structural", "r27-p16-v1"
+	case AnalyzerScala:
+		return "scala", "native-line-structural", "r27-p16-v1"
 	case AnalyzerRust:
 		return "rust", "native-token-structural", "r27-p4-v1"
 	case AnalyzerPHP:
@@ -497,7 +505,7 @@ func detectionEvidenceForDescriptor(descriptor LanguageDescriptor) []EvidenceKin
 	// Modelines can name every registered canonical ID/alias.
 	values = append(values, EvidenceDirective)
 	switch descriptor.ID {
-	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp", "graphql", "proto", "terraform", "vhdl", "verilog", "systemverilog", "plsql", "openapi", "ansible-yaml", "php-html":
+	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp", "graphql", "proto", "terraform", "vhdl", "verilog", "systemverilog", "plsql", "openapi", "ansible-yaml", "php-html", "scala", "flow":
 		values = append(values, EvidenceContentMarker)
 	}
 	values = append(values, EvidenceProjectHint)

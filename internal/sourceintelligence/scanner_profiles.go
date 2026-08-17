@@ -60,20 +60,22 @@ type HereDocRule struct {
 // ScannerProfile contains lexical behavior only. Declaration semantics belong
 // to analyzers, not to this shared scanner.
 type ScannerProfile struct {
-	Name                 string
-	CaseInsensitive      bool
-	Keywords             []string
-	Identifier           IdentifierPolicy
-	LineComments         []string
-	BlockComments        []BlockCommentRule
-	Strings              []StringRule
-	Delimiters           []DelimiterRule
-	DirectiveRules       []DirectiveRule
-	HereDocs             []HereDocRule
-	Directives           bool
-	Indentation          bool
-	ExplicitContinuation string
-	ImplicitContinuation bool
+	Name                         string
+	CaseInsensitive              bool
+	Keywords                     []string
+	Identifier                   IdentifierPolicy
+	LineComments                 []string
+	LineCommentRequiresWordStart bool
+	BlockComments                []BlockCommentRule
+	Strings                      []StringRule
+	Delimiters                   []DelimiterRule
+	DirectiveRules               []DirectiveRule
+	HereDocs                     []HereDocRule
+	Directives                   bool
+	Indentation                  bool
+	IndentationNeutralDirectives bool
+	ExplicitContinuation         string
+	ImplicitContinuation         bool
 }
 
 // CSharpScannerProfile covers the lexical families needed by the R25 C# canary.

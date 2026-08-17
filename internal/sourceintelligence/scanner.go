@@ -311,6 +311,11 @@ indentationDone:
 	if scanner.at >= len(scanner.text) || isNewlineStart(scanner.text[scanner.at]) || scanner.lineCommentPrefixAt(scanner.at) != "" {
 		return nil
 	}
+	if scanner.profile.IndentationNeutralDirectives {
+		if _, ok := scanner.directiveRuleAt(scanner.at); ok {
+			return nil
+		}
+	}
 	top := scanner.indentStack[len(scanner.indentStack)-1]
 	switch {
 	case columns > top:
@@ -425,6 +430,19 @@ func (scanner *sourceScanner) consumeString(match matchedStringRule, start int) 
 	return scanner.consumeOpaqueString(match, start)
 }
 
+func (scanner *sourceScanner) consumeBackslashEscape() {
+	scanner.at++
+	if scanner.at >= len(scanner.text) {
+		return
+	}
+	if scanner.text[scanner.at] == '\r' && scanner.at+1 < len(scanner.text) && scanner.text[scanner.at+1] == '\n' {
+		scanner.at += 2
+		return
+	}
+	_, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
+	scanner.at += size
+}
+
 func (scanner *sourceScanner) consumeOpaqueString(match matchedStringRule, start int) error {
 	for scanner.at < len(scanner.text) {
 		if scanner.at&4095 == 0 {
@@ -433,11 +451,7 @@ func (scanner *sourceScanner) consumeOpaqueString(match matchedStringRule, start
 			}
 		}
 		if match.rule.BackslashEscapes && scanner.text[scanner.at] == '\\' {
-			scanner.at++
-			if scanner.at < len(scanner.text) {
-				_, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
-				scanner.at += size
-			}
+			scanner.consumeBackslashEscape()
 			continue
 		}
 		if match.rule.DoubledDelimiterEscape && strings.HasPrefix(scanner.text[scanner.at:], match.closingPattern+match.closingPattern) {
@@ -469,11 +483,7 @@ func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule,
 		}
 		if interpolationDepth == 0 {
 			if match.rule.BackslashEscapes && scanner.text[scanner.at] == '\\' {
-				scanner.at++
-				if scanner.at < len(scanner.text) {
-					_, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
-					scanner.at += size
-				}
+				scanner.consumeBackslashEscape()
 				continue
 			}
 			if match.rule.DoubledDelimiterEscape && strings.HasPrefix(scanner.text[scanner.at:], match.closingPattern+match.closingPattern) {
@@ -626,6 +636,9 @@ func (scanner *sourceScanner) addDiagnostic(code, message string, start, end int
 }
 
 func (scanner *sourceScanner) lineCommentPrefixAt(offset int) string {
+	if scanner.profile.LineCommentRequiresWordStart && !scanner.lineCommentStartsWord(offset) {
+		return ""
+	}
 	best := ""
 	for _, prefix := range scanner.profile.LineComments {
 		if len(prefix) > len(best) && strings.HasPrefix(scanner.text[offset:], prefix) {
@@ -633,6 +646,22 @@ func (scanner *sourceScanner) lineCommentPrefixAt(offset int) string {
 		}
 	}
 	return best
+}
+
+func (scanner *sourceScanner) lineCommentStartsWord(offset int) bool {
+	if offset <= 0 {
+		return true
+	}
+	previous, _ := utf8.DecodeLastRuneInString(scanner.text[:offset])
+	if unicode.IsSpace(previous) {
+		return true
+	}
+	switch previous {
+	case ';', '|', '&', '(', ')', '<', '>':
+		return true
+	default:
+		return false
+	}
 }
 
 func (scanner *sourceScanner) blockCommentRuleAt(offset int) (BlockCommentRule, bool) {

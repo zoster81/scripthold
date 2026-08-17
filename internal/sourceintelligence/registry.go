@@ -111,6 +111,8 @@ const (
 	AnalyzerTwig           AnalyzerID = "twig-native"
 	AnalyzerBlade          AnalyzerID = "blade-native"
 	AnalyzerEJS            AnalyzerID = "ejs-native"
+	AnalyzerScala          AnalyzerID = "scala-native"
+	AnalyzerFlow           AnalyzerID = "flow-native"
 )
 
 var knownAnalyzerIDs = map[AnalyzerID]struct{}{
@@ -213,6 +215,8 @@ var knownAnalyzerIDs = map[AnalyzerID]struct{}{
 	AnalyzerTwig:           {},
 	AnalyzerBlade:          {},
 	AnalyzerEJS:            {},
+	AnalyzerScala:          {},
+	AnalyzerFlow:           {},
 }
 
 var canonicalLanguageIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -530,10 +534,6 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 			Capabilities: LanguageCapabilities{SourceAnalysis: true},
 		}
 	}
-	planned := func(id string, extensions []string) LanguageDescriptor {
-		return LanguageDescriptor{ID: id, Extensions: extensions}
-	}
-
 	goLanguage := analyzable("go", AnalyzerGo, []string{".go"}, "golang")
 	csharp := analyzable("csharp", AnalyzerCSharp, []string{".cs"}, "cs", "c#")
 	vbnet := analyzable("vbnet", AnalyzerVBNet, []string{".vb"}, "vb.net", "visual-basic-dotnet")
@@ -577,11 +577,11 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	promoteProjectResolution(&rubyLanguage, false)
 	promoteProjectResolution(&delphiLanguage, false)
 	swiftLanguage := analyzable("swift", AnalyzerSwift, []string{".swift"})
-	vb6Language := analyzable("vb6", AnalyzerVB6, nil)
-	vb6Language.AmbiguousExtensions = []string{".bas"}
+	vb6Language := analyzable("vb6", AnalyzerVB6, []string{".ctl", ".dsr"})
+	vb6Language.AmbiguousExtensions = []string{".bas", ".cls", ".frm"}
 	vb6Language.Capabilities.CaseInsensitive = true
 	vbaLanguage := analyzable("vba", AnalyzerVBA, nil)
-	vbaLanguage.AmbiguousExtensions = []string{".bas"}
+	vbaLanguage.AmbiguousExtensions = []string{".bas", ".cls", ".frm"}
 	vbaLanguage.Capabilities.CaseInsensitive = true
 	vbScriptLanguage := analyzable("vbscript", AnalyzerVBScript, []string{".vbs"})
 	vbScriptLanguage.Capabilities.CaseInsensitive = true
@@ -620,7 +620,8 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	zigLanguage := analyzable("zig", AnalyzerZig, []string{".zig"})
 	nimLanguage := analyzable("nim", AnalyzerNim, []string{".nim"})
 	solidityLanguage := analyzable("solidity", AnalyzerSolidity, []string{".sol"})
-	apexLanguage := analyzable("apex", AnalyzerApex, []string{".cls"})
+	apexLanguage := analyzable("apex", AnalyzerApex, nil)
+	apexLanguage.AmbiguousExtensions = []string{".cls"}
 	alLanguage := analyzable("al", AnalyzerAL, []string{".al"})
 	alLanguage.Capabilities.CaseInsensitive = true
 	arduinoLanguage := analyzable("arduino", AnalyzerArduino, []string{".ino"})
@@ -638,7 +639,8 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	bashLanguage.ShebangInterpreters = []string{"bash", "sh"}
 	tclLanguage := analyzable("tcl", AnalyzerTcl, []string{".tcl"})
 	autoHotkeyLanguage := analyzable("autohotkey", AnalyzerAutoHotkey, []string{".ahk"}, "ahk")
-	fortranLanguage := analyzable("fortran", AnalyzerFortran, []string{".f", ".f90", ".f95", ".f03", ".f08"})
+	fortranLanguage := analyzable("fortran", AnalyzerFortran, []string{".f90", ".f95", ".f03", ".f08"})
+	fortranLanguage.AmbiguousExtensions = []string{".f"}
 	fortranLanguage.Capabilities.CaseInsensitive = true
 	cobolLanguage := analyzable("cobol", AnalyzerCOBOL, []string{".cob", ".cbl"})
 	cobolLanguage.Capabilities.CaseInsensitive = true
@@ -652,7 +654,8 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	rLanguage := analyzable("r", AnalyzerR, []string{".r"})
 	haskellLanguage := analyzable("haskell", AnalyzerHaskell, []string{".hs"})
 	ocamlLanguage := analyzable("ocaml", AnalyzerOCaml, []string{".ml", ".mli"})
-	commonLispLanguage := analyzable("common-lisp", AnalyzerCommonLisp, []string{".lisp", ".lsp"})
+	commonLispLanguage := analyzable("common-lisp", AnalyzerCommonLisp, nil)
+	commonLispLanguage.AmbiguousExtensions = []string{".lisp", ".lsp"}
 	clojureLanguage := analyzable("clojure", AnalyzerClojure, []string{".clj", ".cljs", ".cljc"})
 	emacsLispLanguage := analyzable("emacs-lisp", AnalyzerEmacsLisp, []string{".el"})
 	assemblyLanguage := analyzable("assembly", AnalyzerAssembly, []string{".asm", ".s"})
@@ -698,6 +701,9 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	bladeLanguage.Capabilities.Composite = true
 	ejsLanguage := analyzable("ejs", AnalyzerEJS, []string{".ejs"})
 	ejsLanguage.Capabilities.Composite = true
+	scalaLanguage := analyzable("scala", AnalyzerScala, []string{".scala", ".sc"})
+	flowLanguage := analyzable("flow", AnalyzerFlow, nil)
+	flowLanguage.CompoundSuffixes = []string{".js.flow"}
 
 	return []LanguageDescriptor{
 		goLanguage, csharp, vbnet, python, asp, cLanguage, cppLanguage,
@@ -722,7 +728,7 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		dartLanguage,
 		dLanguage,
 		nimLanguage,
-		planned("flow", nil),
+		flowLanguage,
 		luauLanguage,
 		gleamLanguage,
 		fsharpLanguage, cppcliLanguage, jscriptNetLanguage, cilLanguage, vbScriptLanguage, classicBasicLanguage, freeBasicLanguage, pureBasicLanguage,
@@ -742,7 +748,7 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		haskellLanguage,
 		erlangLanguage,
 		elixirLanguage,
-		{ID: "scala", Extensions: []string{".scala", ".sc"}},
+		scalaLanguage,
 		groovyLanguage,
 		sqlLanguage,
 		plsqlLanguage,

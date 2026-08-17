@@ -44,6 +44,114 @@ func TestR27Phase6BasicDialectAnalyzersRemainDistinct(t *testing.T) {
 	}
 }
 
+func TestR27RealWorldFreeBasicTypeAliasesDoNotOpenScopes(t *testing.T) {
+	text := "Type pCall As Function (xy As Any Ptr) As Long\n" +
+		"Type ValueAlias As Long\n" +
+		"Type DLLVERSIONINFO\n  cbSize As Long\nEnd Type\n" +
+		"Function WinMain() As Integer\n  Return 0\nEnd Function\n"
+	result, err := (FreeBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid FreeBASIC type aliases reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"pCall", "ValueAlias", "DLLVERSIONINFO", "DLLVERSIONINFO.cbSize", "WinMain"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, wrong := range []string{"pCall.ValueAlias", "pCall.DLLVERSIONINFO", "ValueAlias.DLLVERSIONINFO", "DLLVERSIONINFO.WinMain"} {
+		if _, ok := byName[wrong]; ok {
+			t.Fatalf("FreeBASIC type alias leaked scope through %s; symbols=%v", wrong, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestR27RealWorldVBDesignerKeywordAssignmentsDoNotOpenScopes(t *testing.T) {
+	text := "VERSION 5.00\r\n" +
+		"Begin {C0E45035-5775-11D0-B388-00A0C9055D8E} DataEnvironment1\r\n" +
+		"   BeginProperty Field1\r\n" +
+		"      Type = 200\r\n" +
+		"      Name = \"au_id\"\r\n" +
+		"   EndProperty\r\n" +
+		"End\r\n" +
+		"Attribute VB_Name = \"DataEnvironment1\"\r\n" +
+		"Private Sub Run()\r\nEnd Sub\r\n"
+	result, err := (VB6Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid exported VB6 designer source reported partial coverage: diagnostics=%+v", result.Analysis.Diagnostics)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if _, ok := byName["DataEnvironment1.Run"]; !ok {
+		t.Fatalf("code-behind method missing: symbols=%v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestR27RealWorldVBPropertyProceduresUseDeclaredPropertyName(t *testing.T) {
+	tests := []struct {
+		name     string
+		analyzer SourceAnalyzer
+		text     string
+		want     []string
+	}{
+		{
+			name:     "vb6",
+			analyzer: VB6Analyzer{},
+			text: "Attribute VB_Name = \"ArrayDataSource\"\n" +
+				"Public Property Get EOF() As Boolean\nEnd Property\n" +
+				"Public Property Let Bookmark(ByVal newValue As Variant)\nEnd Property\n" +
+				"Public Property Set Recordset(ByVal newValue As Object)\nEnd Property\n",
+			want: []string{"ArrayDataSource.EOF", "ArrayDataSource.Bookmark", "ArrayDataSource.Recordset"},
+		},
+		{
+			name:     "vba",
+			analyzer: VBAAnalyzer{},
+			text: "Attribute VB_Name = \"SheetCode\"\n" +
+				"Public Property Get EOF() As Boolean\nEnd Property\n" +
+				"Public Property Let Bookmark(ByVal newValue As Variant)\nEnd Property\n" +
+				"Public Property Set Recordset(ByVal newValue As Object)\nEnd Property\n",
+			want: []string{"SheetCode.EOF", "SheetCode.Bookmark", "SheetCode.Recordset"},
+		},
+		{
+			name:     "vbscript",
+			analyzer: VBScriptAnalyzer{},
+			text: "Class Service\n" +
+				"Public Property Get EOF()\nEnd Property\n" +
+				"Public Property Let Bookmark(value)\nEnd Property\n" +
+				"Public Property Set Recordset(value)\nEnd Property\n" +
+				"End Class\n",
+			want: []string{"Service.EOF", "Service.Bookmark", "Service.Recordset"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(tc.text), phase3AnalyzeOptions(true, 256))
+			if err != nil {
+				t.Fatal(err)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, qualifiedName := range tc.want {
+				symbol, ok := byName[qualifiedName]
+				if !ok || symbol.Kind != SymbolKindProperty {
+					t.Fatalf("%s property %q=%+v exists=%v symbols=%v", tc.name, qualifiedName, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			for _, forbidden := range []string{"Get", "Let", "Set"} {
+				for _, symbol := range result.Analysis.Symbols {
+					if symbol.Kind == SymbolKindProperty && symbol.Name == forbidden {
+						t.Fatalf("%s property procedure verb leaked as symbol name: %+v", tc.name, symbol)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestR27Phase6DotNetAdjacentAnalyzers(t *testing.T) {
 	tests := []struct {
 		language string

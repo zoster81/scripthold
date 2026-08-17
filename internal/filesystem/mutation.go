@@ -482,28 +482,83 @@ const (
 	atomicReplaceRetryDelay  = 25 * time.Millisecond
 )
 
+type atomicReplaceRetryOutcome string
+
+const (
+	atomicReplaceRetryRecovered atomicReplaceRetryOutcome = "recovered"
+	atomicReplaceRetryExhausted atomicReplaceRetryOutcome = "exhausted"
+	atomicReplaceRetryAborted   atomicReplaceRetryOutcome = "aborted"
+
+	atomicReplaceAttemptCommit = "commit"
+	atomicReplaceAttemptVerify = "verify"
+)
+
+type atomicReplaceRetryAttempt struct {
+	Phase string
+	Err   error
+}
+
+type atomicReplaceRetryReport struct {
+	Outcome        atomicReplaceRetryOutcome
+	CommitAttempts int
+	Attempts       []atomicReplaceRetryAttempt
+	Elapsed        time.Duration
+}
+
+type atomicReplaceRetryReporter func(targetPath, stagedPath string, report atomicReplaceRetryReport)
+
 func commitStagedTargetWithRetry(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error) error {
+	return commitStagedTargetWithRetryObserved(path, stagedPath, expected, commit, reportAtomicReplaceRetry)
+}
+
+func commitStagedTargetWithRetryObserved(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error, reporter atomicReplaceRetryReporter) error {
+	started := time.Now()
+	commitAttempts := 1
 	err := commit(stagedPath, path)
 	if err == nil || expected == nil || !expected.Exists || !isRetryableAtomicReplaceError(err) {
 		return err
 	}
 
-	deadline := time.Now().Add(atomicReplaceRetryWindow)
+	attempts := []atomicReplaceRetryAttempt{{Phase: atomicReplaceAttemptCommit, Err: err}}
+	report := func(outcome atomicReplaceRetryOutcome) {
+		if reporter == nil {
+			return
+		}
+		copied := append([]atomicReplaceRetryAttempt(nil), attempts...)
+		reporter(path, stagedPath, atomicReplaceRetryReport{
+			Outcome:        outcome,
+			CommitAttempts: commitAttempts,
+			Attempts:       copied,
+			Elapsed:        time.Since(started),
+		})
+	}
+
+	deadline := started.Add(atomicReplaceRetryWindow)
 	lastErr := err
 	for time.Now().Before(deadline) {
 		time.Sleep(atomicReplaceRetryDelay)
 		if verifyErr := expected.Verify(path); verifyErr != nil {
+			attempts = append(attempts, atomicReplaceRetryAttempt{Phase: atomicReplaceAttemptVerify, Err: verifyErr})
 			if isRetryableAtomicReplaceError(verifyErr) {
 				lastErr = verifyErr
 				continue
 			}
+			report(atomicReplaceRetryAborted)
 			return fmt.Errorf("target changed while waiting to retry atomic replacement: %w", verifyErr)
 		}
+		commitAttempts++
 		lastErr = commit(stagedPath, path)
-		if lastErr == nil || !isRetryableAtomicReplaceError(lastErr) {
+		if lastErr == nil {
+			report(atomicReplaceRetryRecovered)
+			return nil
+		}
+		attempts = append(attempts, atomicReplaceRetryAttempt{Phase: atomicReplaceAttemptCommit, Err: lastErr})
+		if !isRetryableAtomicReplaceError(lastErr) {
+			report(atomicReplaceRetryAborted)
 			return lastErr
 		}
 	}
+	report(atomicReplaceRetryExhausted)
 	return lastErr
 }
 

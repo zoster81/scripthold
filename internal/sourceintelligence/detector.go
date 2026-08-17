@@ -84,12 +84,13 @@ type DetectionInput struct {
 }
 
 type detectionCandidateState struct {
-	language       string
-	priority       int
-	strongest      EvidenceKind
-	insertionOrder int
-	hasExtension   bool
-	hasContent     bool
+	language                       string
+	priority                       int
+	strongest                      EvidenceKind
+	insertionOrder                 int
+	hasExtension                   bool
+	hasContent                     bool
+	extensionRequiresCorroboration bool
 }
 
 type detectionCollector struct {
@@ -111,18 +112,22 @@ var (
 	cppContentMarker           = regexp.MustCompile(`(?m)^\s*(?:namespace\s+[A-Za-z_]|template\s*<)`)
 	javaContentMarker          = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+(?:static[ \t]+)?[A-Za-z_]|(?:(?:public|protected|private|abstract|final|sealed|static)[ \t]+)*(?:class|interface|enum|record)[ \t]+[A-Za-z_])`)
 	kotlinContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+[A-Za-z_]|(?:(?:public|private|protected|internal|sealed|data|enum|open|abstract)[ \t]+)*(?:class|interface|object)[ \t]+[A-Za-z_]|(?:fun|typealias)[ \t]+[A-Za-z_])`)
+	scalaContentMarker         = regexp.MustCompile(`(?m)^[ \t]*(?:(?:case[ \t]+class|trait|object|given|extension)[ \t]+[A-Za-z_][A-Za-z0-9_]*|enum[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:|def[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[ \t]*:[ \t]*[A-Za-z_][A-Za-z0-9_.\[\]]*)`)
+	flowContentMarker          = regexp.MustCompile(`(?m)^[ \t]*(?://|/\*)[ \t]*@flow\b`)
 	phpContentMarker           = regexp.MustCompile(`(?i)<\?php\b`)
 	phpEchoContentMarker       = regexp.MustCompile(`(?i)<\?=`)
 	phpHTMLHostMarkupMarker    = regexp.MustCompile(`(?is)<(?:!doctype\s+html\b|html\b|head\b|body\b|main\b|div\b|section\b|article\b|nav\b|form\b|table\b|ul\b|ol\b|li\b|p\b|h[1-6]\b|span\b|template\b|script\b|style\b|link\b|meta\b)[^>]*>`)
 	rubyContentMarker          = regexp.MustCompile(`(?m)^\s*(?:module|class|def|require(?:_relative)?)\b`)
 	swiftContentMarker         = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+(?:(?:class|struct|enum|protocol|func|var|let|typealias)[ \t]+)?[A-Za-z_]|(?:(?:public|private|fileprivate|internal|open|final)[ \t]+)*(?:protocol|extension)[ \t]+[A-Za-z_]|func[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:<[^\r\n>]*>[ \t]*)?\(|init[!?]?[ \t]*\(|deinit\b|(?:associatedtype|typealias)[ \t]+[A-Za-z_]|(?:let|var)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:)`)
 	delphiContentMarker        = regexp.MustCompile(`(?im)\b(?:class|record)\s+helper\s+for\b`)
+	classicVBMetadataMarker    = regexp.MustCompile(`(?im)^[ \t]*Attribute[ \t]+VB_Name[ \t]*=[ \t]*"[^"\r\n]+"`)
+	vb6DesignerContentMarker   = regexp.MustCompile(`(?im)^[ \t]*Begin[ \t]+VB\.(?:Form|UserControl)[ \t]+[A-Za-z_][A-Za-z0-9_]*`)
 	vbscriptContentMarker      = regexp.MustCompile(`(?im)^[ \t]*(?:(?:public|private)[ \t]+)?(?:class|sub|function)[ \t]+[A-Za-z_][A-Za-z0-9_]*`)
 	fsharpContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:open[ \t]+[A-Za-z_]|let(?:[ \t]+rec)?[ \t]+[A-Za-z_]|type[ \t]+[A-Za-z_][A-Za-z0-9_']*[ \t]*=|module[ \t]+[A-Za-z_])`)
 	cilContentMarker           = regexp.MustCompile(`(?m)^[ \t]*\.(?:assembly|module|class|method|field)\b`)
 	powerShellContentMarker    = regexp.MustCompile(`(?im)^[ \t]*(?:(?:function|filter)[ \t]+[A-Za-z_][A-Za-z0-9_-]*|using[ \t]+module\b|param[ \t]*\()`)
 	pureBasicContentMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:procedure(?:c|dll|cdll)?[ \t]+[A-Za-z_]|endprocedure\b|module[ \t]+[A-Za-z_]|endmodule\b|structure[ \t]+[A-Za-z_]|endstructure\b|x?includefile[ \t]+")`)
-	freeBasicContentMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:namespace[ \t]+[A-Za-z_]|end[ \t]+namespace\b|#include(?:[ \t]+once)?[ \t]+["<])`)
+	freeBasicContentMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:namespace[ \t]+[A-Za-z_]|end[ \t]+namespace\b|#include[ \t]+once[ \t]+["<])`)
 	webFormsContentMarker      = regexp.MustCompile(`(?is)<%@\s*(?:Page|Control|Master)\b`)
 	razorContentMarker         = regexp.MustCompile(`(?m)^[ \t]*@(?:functions|model|inherits|using)\b`)
 	blazorContentMarker        = regexp.MustCompile(`(?m)^[ \t]*@(?:code|page|inject|using)\b`)
@@ -134,7 +139,7 @@ var (
 	zigContentMarker           = regexp.MustCompile(`(?m)^[ \t]*(?:const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*@import[ \t]*\(|(?:pub[ \t]+)?const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*(?:struct|enum|union|opaque)\b)`)
 	nimContentMarker           = regexp.MustCompile(`(?m)^[ \t]*(?:(?:proc|func|method|iterator|template)[ \t]+[A-Za-z_][A-Za-z0-9_]*\*?[ \t]*\(|import[ \t]+[A-Za-z_][A-Za-z0-9_./]*)`)
 	solidityContentMarker      = regexp.MustCompile(`(?m)^[ \t]*(?:pragma[ \t]+solidity\b|(?:abstract[ \t]+)?contract[ \t]+[A-Za-z_]|library[ \t]+[A-Za-z_]|function[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[^\r\n]*(?:external|public|internal|private)\b)`)
-	apexContentMarker          = regexp.MustCompile(`(?im)^[ \t]*(?:trigger[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+on[ \t]+[A-Za-z_]|(?:with|without)[ \t]+sharing[ \t]+class[ \t]+[A-Za-z_]|@AuraEnabled\b)`)
+	apexContentMarker          = regexp.MustCompile(`(?im)^[ \t]*(?:trigger[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+on[ \t]+[A-Za-z_]|(?:(?:public|global)[ \t]+)?(?:with|without|inherited)[ \t]+sharing[ \t]+class[ \t]+[A-Za-z_]|@AuraEnabled\b)`)
 	alContentMarker            = regexp.MustCompile(`(?im)^[ \t]*(?:codeunit|pageextension|tableextension|reportextension|enumextension)[ \t]+[0-9]+[ \t]+[A-Za-z_]`)
 	arduinoContentMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:#include[ \t]*<Arduino\.h>|void[ \t]+(?:setup|loop)[ \t]*\([ \t]*\))`)
 	perlContentMarker          = regexp.MustCompile(`(?m)^[ \t]*use[ \t]+(?:strict|warnings|feature)\b`)
@@ -217,6 +222,9 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 	if extension := filepath.Ext(base); extension != "" {
 		for _, descriptor := range registry.ExtensionCandidates(extension) {
 			collector.add(descriptor.ID, EvidenceExtension, strings.ToLower(extension), priorityExtension)
+			if descriptorHasAmbiguousExtension(descriptor, extension) {
+				collector.requireExtensionCorroboration(descriptor.ID)
+			}
 		}
 	}
 
@@ -271,6 +279,22 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 
 func newDetectionCollector() *detectionCollector {
 	return &detectionCollector{candidates: make(map[string]*detectionCandidateState)}
+}
+
+func descriptorHasAmbiguousExtension(descriptor LanguageDescriptor, extension string) bool {
+	normalized := normalizeExtension(extension)
+	for _, candidate := range descriptor.AmbiguousExtensions {
+		if candidate == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func (collector *detectionCollector) requireExtensionCorroboration(language string) {
+	if candidate := collector.candidates[normalizeLanguageName(language)]; candidate != nil {
+		candidate.extensionRequiresCorroboration = true
+	}
 }
 
 func (collector *detectionCollector) add(language string, kind EvidenceKind, detail string, priority int) {
@@ -339,6 +363,10 @@ func (collector *detectionCollector) finalize() DetectionResult {
 		return result
 	}
 	if len(states) == 1 {
+		if states[0].priority == priorityExtension && states[0].extensionRequiresCorroboration && !states[0].hasContent {
+			result.State = DetectionAmbiguous
+			return result
+		}
 		result.State = DetectionProbable
 		result.Language = states[0].language
 		return result
@@ -570,6 +598,8 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		{language: "plsql", pattern: plsqlContentMarker, detail: "plsql-package", probe: plsqlProbe},
 		{language: "openapi", pattern: openAPIContentMarker, detail: "openapi-version-root", probe: text},
 		{language: "ansible-yaml", pattern: ansibleContentMarker, detail: "ansible-play-structure", probe: text},
+		{language: "flow", pattern: flowContentMarker, detail: "flow-pragma", probe: text},
+		{language: "vb6", pattern: vb6DesignerContentMarker, detail: "vb6-designer", probe: text},
 	}
 	for _, marker := range distinctive {
 		if marker.pattern.MatchString(marker.probe) {
@@ -601,9 +631,12 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		{language: "cpp", pattern: cppContentMarker, detail: "cpp-distinctive-declaration"},
 		{language: "java", pattern: javaContentMarker, detail: "java-declaration"},
 		{language: "kotlin", pattern: kotlinContentMarker, detail: "kotlin-declaration"},
+		{language: "scala", pattern: scalaContentMarker, detail: "scala-distinctive-declaration"},
 		{language: "ruby", pattern: rubyContentMarker, detail: "ruby-declaration"},
 		{language: "swift", pattern: swiftContentMarker, detail: "swift-declaration"},
 		{language: "delphi", pattern: delphiContentMarker, detail: "delphi-helper"},
+		{language: "vb6", pattern: classicVBMetadataMarker, detail: "classic-vb-module-metadata"},
+		{language: "vba", pattern: classicVBMetadataMarker, detail: "classic-vb-module-metadata"},
 		{language: "vbscript", pattern: vbscriptContentMarker, detail: "vbscript-declaration"},
 		{language: "fsharp", pattern: fsharpContentMarker, detail: "fsharp-declaration"},
 		{language: "cil", pattern: cilContentMarker, detail: "cil-directive"},

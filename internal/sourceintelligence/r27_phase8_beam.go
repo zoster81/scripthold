@@ -27,7 +27,8 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, err := state.scan(options, ElixirScannerProfile(), document.Text)
+	masked := maskElixirSigils(document.Text)
+	scan, err := state.scan(options, ElixirScannerProfile(), masked)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -163,14 +164,98 @@ func elixirOpensBlock(tokens []Token) bool {
 }
 
 func elixirAnonymousBlock(first string, tokens []Token) bool {
+	fnDepth := 0
+	for _, token := range tokens {
+		switch strings.ToLower(token.Text) {
+		case "fn":
+			fnDepth++
+		case "end":
+			if fnDepth > 0 {
+				fnDepth--
+			}
+		}
+	}
+	if fnDepth > 0 {
+		return true
+	}
 	if !elixirOpensBlock(tokens) {
 		return false
 	}
 	switch first {
-	case "case", "cond", "for", "if", "receive", "try", "unless", "with", "quote":
+	case "case", "cond", "defimpl", "defprotocol", "for", "if", "receive", "try", "unless", "with", "quote":
 		return true
 	}
-	return first == "fn"
+	return false
+}
+
+func maskElixirSigils(text string) string {
+	masked := []byte(text)
+	for at := 0; at+2 < len(text); at++ {
+		if text[at] != '~' || !phase8ElixirSigilLetter(text[at+1]) {
+			continue
+		}
+		delimiterAt := at + 2
+		end, ok := phase8ElixirSigilEnd(text, delimiterAt)
+		if !ok {
+			continue
+		}
+		phase8MaskRange(masked, at, end)
+		at = end - 1
+	}
+	return string(masked)
+}
+
+func phase8ElixirSigilLetter(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func phase8ElixirSigilEnd(text string, delimiterAt int) (int, bool) {
+	if delimiterAt >= len(text) {
+		return 0, false
+	}
+	if delimiterAt+2 < len(text) && (text[delimiterAt] == '\'' || text[delimiterAt] == '"') && text[delimiterAt+1] == text[delimiterAt] && text[delimiterAt+2] == text[delimiterAt] {
+		delimiter := text[delimiterAt : delimiterAt+3]
+		if relative := strings.Index(text[delimiterAt+3:], delimiter); relative >= 0 {
+			return delimiterAt + 3 + relative + 3, true
+		}
+		return 0, false
+	}
+	left := text[delimiterAt]
+	right := left
+	paired := true
+	switch left {
+	case '(':
+		right = ')'
+	case '[':
+		right = ']'
+	case '{':
+		right = '}'
+	case '<':
+		right = '>'
+	case '/', '|', '\'', '"':
+		paired = false
+	default:
+		return 0, false
+	}
+	depth := 1
+	for cursor := delimiterAt + 1; cursor < len(text); cursor++ {
+		if text[cursor] == '\\' && cursor+1 < len(text) {
+			cursor++
+			continue
+		}
+		if paired && text[cursor] == left {
+			depth++
+			continue
+		}
+		if text[cursor] != right {
+			continue
+		}
+		depth--
+		if depth == 0 {
+			return cursor + 1, true
+		}
+	}
+	return 0, false
 }
 
 func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {

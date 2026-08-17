@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"strings"
+	"unicode/utf8"
 )
 
 type CommonLispAnalyzer struct{}
@@ -33,7 +34,13 @@ func analyzePhase9Lisp(ctx context.Context, document *SourceDocument, options An
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, err := ScanSource(ctx, document, profile, ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: max(2048, options.MaxNesting)})
+	scanDocument := document
+	if language == "clojure" || language == "emacs-lisp" {
+		clone := *document
+		clone.Text = phase9MaskLispReaderCharacters(document.Text, language)
+		scanDocument = &clone
+	}
+	scan, err := ScanSource(ctx, scanDocument, profile, ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: max(2048, options.MaxNesting)})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -71,6 +78,115 @@ func analyzePhase9Lisp(ctx context.Context, document *SourceDocument, options An
 		open = close
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func phase9MaskLispReaderCharacters(text, language string) string {
+	masked := []byte(text)
+	inString := false
+	escaped := false
+	for at := 0; at < len(text); {
+		if inString {
+			if escaped {
+				escaped = false
+				at++
+				continue
+			}
+			if text[at] == '\\' {
+				escaped = true
+				at++
+				continue
+			}
+			if text[at] == '"' {
+				inString = false
+			}
+			at++
+			continue
+		}
+		if text[at] == ';' {
+			for at < len(text) && text[at] != '\r' && text[at] != '\n' {
+				at++
+			}
+			continue
+		}
+		if text[at] == '"' {
+			inString = true
+			at++
+			continue
+		}
+		end := at
+		switch language {
+		case "clojure":
+			if text[at] == '\\' {
+				end = phase9ClojureCharacterEnd(text, at)
+			}
+		case "emacs-lisp":
+			if text[at] == '?' {
+				end = phase9EmacsCharacterEnd(text, at)
+			}
+		}
+		if end > at {
+			phase8MaskRange(masked, at, end)
+			at = end
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		if size <= 0 {
+			size = 1
+		}
+		at += size
+	}
+	return string(masked)
+}
+
+func phase9ClojureCharacterEnd(text string, at int) int {
+	cursor := at + 1
+	if cursor >= len(text) {
+		return cursor
+	}
+	if phase9ReaderCharacterNameByte(text[cursor]) {
+		for cursor < len(text) && phase9ReaderCharacterNameByte(text[cursor]) {
+			cursor++
+		}
+		return cursor
+	}
+	_, size := utf8.DecodeRuneInString(text[cursor:])
+	if size <= 0 {
+		size = 1
+	}
+	return min(len(text), cursor+size)
+}
+
+func phase9EmacsCharacterEnd(text string, at int) int {
+	cursor := at + 1
+	if cursor >= len(text) {
+		return cursor
+	}
+	if text[cursor] != '\\' {
+		_, size := utf8.DecodeRuneInString(text[cursor:])
+		if size <= 0 {
+			size = 1
+		}
+		return min(len(text), cursor+size)
+	}
+	cursor++
+	for cursor+2 < len(text) && (text[cursor] == 'C' || text[cursor] == 'M' || text[cursor] == 'S' || text[cursor] == 'H' || text[cursor] == 'A' || text[cursor] == 's') && text[cursor+1] == '-' {
+		cursor += 2
+		if cursor < len(text) && text[cursor] == '\\' {
+			cursor++
+		}
+	}
+	if cursor >= len(text) {
+		return cursor
+	}
+	_, size := utf8.DecodeRuneInString(text[cursor:])
+	if size <= 0 {
+		size = 1
+	}
+	return min(len(text), cursor+size)
+}
+
+func phase9ReaderCharacterNameByte(value byte) bool {
+	return value == '_' || value == '-' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
 func phase9LispFormSuppressed(tokens []Token, open int, language string) bool {

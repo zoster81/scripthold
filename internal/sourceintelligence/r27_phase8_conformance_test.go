@@ -98,6 +98,173 @@ func TestR27Phase8ProductionOpaqueAndMultilineBoundaries(t *testing.T) {
 		}
 	})
 
+	t.Run("perl-quote-like-operators", func(t *testing.T) {
+		text := "my $q = q{sub QFake { [ } apostrophe's };\n" +
+			"my $qq = qq(sub QQFake { ] });\n" +
+			"my @words = qw{alpha beta [ gamma};\n" +
+			"my $compiled = qr{foo\\e[K[bar]};\n" +
+			"if ($value =~ m{foo\\e[K[bar]}) { return 1; }\n" +
+			"$value =~ s{foo[bar]}{replacement \\e[K};\n" +
+			"$value =~ tr{abc[]}{xyz{} };\n" +
+			"$value =~ y/a[b]/x{y}/;\n" +
+			"sub Real {}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl quote-like operators reported partial: %+v", result.Analysis)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		for _, fake := range []string{"QFake", "QQFake"} {
+			if containsSortedString(names, fake) {
+				t.Fatalf("Perl quote-like operator leaked %s: %v", fake, names)
+			}
+		}
+		if !containsSortedString(names, "Real") {
+			t.Fatalf("Perl real function missing after quote-like operators: %v", names)
+		}
+	})
+
+	t.Run("perl-bare-slash-regex", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $header = shift;\n" +
+			"  return 1 if $header =~ /\\b(foo|bar)-?(\\d[\\d.]*)?\\b/;\n" +
+			"  my @lines = grep { /./ && !/^\\s*#/ } qw(alpha beta);\n" +
+			"  return scalar @lines;\n" +
+			"}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl slash regex reported partial: %+v", result.Analysis)
+		}
+		if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "Real") {
+			t.Fatalf("Perl real function missing after slash regex: %v", names)
+		}
+	})
+
+	t.Run("perl-division-not-slash-regex", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $ratio = $a / ($b + $c);\n" +
+			"  my $scaled = $ratio / 2;\n" +
+			"  return $scaled;\n" +
+			"}\n"
+		masked, complete := maskPerlNonCode(text)
+		if !complete || masked != text {
+			t.Fatalf("Perl division was altered by non-code masking: complete=%v masked=%q", complete, masked)
+		}
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl division reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-quote-like-letter-hash-keys", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my %opt;\n" +
+			"  $opt{m} = 1;\n" +
+			"  $opt->{q} = 2;\n" +
+			"  $opt{ s } = 3;\n" +
+			"  $opt->{ y } = 4;\n" +
+			"  return $opt{m};\n" +
+			"}\n"
+		masked, complete := maskPerlNonCode(text)
+		if !complete || masked != text {
+			t.Fatalf("Perl hash keys were altered by quote-like masking: complete=%v masked=%q", complete, masked)
+		}
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl quote-like-letter hash keys reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-closing-delimiter-quote-like-operator", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  return 1 if m}foo};\n" +
+			"}\n"
+		masked, complete := maskPerlNonCode(text)
+		if !complete || masked == text {
+			t.Fatalf("Perl closing-delimiter quote-like operator was not masked: complete=%v masked=%q", complete, masked)
+		}
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl closing-delimiter quote-like operator reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-leading-equals-continuation-is-not-pod", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $filter\n" +
+			"      = $enabled ? sub { 1 }\n" +
+			"      : sub { 0 };\n" +
+			"  return $filter;\n" +
+			"}\n"
+		masked, complete := maskPerlNonCode(text)
+		if !complete || masked != text {
+			t.Fatalf("Perl leading-equals continuation was treated as POD: complete=%v masked=%q", complete, masked)
+		}
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl leading-equals continuation reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-slash-regex-comment-marker", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  if ( $header =~ /^#!/ ) {\n" +
+			"    return ($1) if $header =~ /\\b(foo|bar)\\b/;\n" +
+			"  }\n" +
+			"  my @lines = grep { /./ && !/^\\s*#/ } @input;\n" +
+			"  my $ratio = $a * $b * $c;\n" +
+			"  return scalar @lines;\n" +
+			"}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl slash regex containing comment markers reported partial: %+v", result.Analysis)
+		}
+		if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "Real") {
+			t.Fatalf("Perl real function missing after slash regex comment markers: %v", names)
+		}
+	})
+
+	t.Run("perl-namespaced-print-parenthesized-heredoc", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  App::Ack::print( <<'END_OF_HELP' );\n" +
+			"sub HeredocFake {\n" +
+			"line(s) [text]\n" +
+			"END_OF_HELP\n" +
+			"}\n" +
+			"sub After {}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid parenthesized Perl print heredoc reported partial: %+v", result.Analysis)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		if containsSortedString(names, "HeredocFake") || !containsSortedString(names, "Real") || !containsSortedString(names, "After") {
+			t.Fatalf("Perl parenthesized print heredoc symbols=%v", names)
+		}
+	})
+
 	t.Run("groovy-slashy-and-dollar-slashy", func(t *testing.T) {
 		text := "def a = /class SlashyFake { def nope() {} }/\ndef b = $/class DollarFake { def nope2() {} }/$\ndef real() {}\n"
 		result, err := (GroovyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))

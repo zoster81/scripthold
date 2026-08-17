@@ -175,6 +175,18 @@ func basicSemanticIndex(tokens []Token) int {
 	return -1
 }
 
+func (p *basicParser) freeBasicTypeAlias(tokens []Token, semantic int) bool {
+	if !p.policy.freeBasic || semantic < 0 || semantic+2 >= len(tokens) || !strings.EqualFold(tokens[semantic].Text, "type") {
+		return false
+	}
+	for index := semantic + 2; index < len(tokens); index++ {
+		if strings.EqualFold(tokens[index].Text, "as") {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 	if len(tokens) == 0 {
 		return "", false
@@ -184,7 +196,13 @@ func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 		return "", false
 	}
 	first := strings.ToLower(tokens[semantic].Text)
+	if p.freeBasicTypeAlias(tokens, semantic) {
+		return "", false
+	}
 	if first == "declare" {
+		return "", false
+	}
+	if semantic+1 >= len(tokens) || tokens[semantic+1].Text == "=" {
 		return "", false
 	}
 	if p.policy.pureBasic {
@@ -315,6 +333,11 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 			i++
 			continue
 		}
+		if p.freeBasicTypeAlias(tokens, semantic) {
+			p.addNamed(line, semantic+1, SymbolKindType, "type-alias", currentParent)
+			i++
+			continue
+		}
 		label, isOpen := p.scopeOpen(tokens)
 		if isOpen {
 			close, ok := p.pairs[i]
@@ -422,11 +445,17 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 	if label == "operator" {
 		kind = SymbolKindOperator
 	}
-	if nameIndex >= len(tokens) {
-		return NormalizedSymbol{}, false
-	}
 	if label == "procedure" {
 		nameIndex = 1
+	}
+	if label == "property" && nameIndex < len(tokens) {
+		switch strings.ToLower(tokens[nameIndex].Text) {
+		case "get", "let", "set":
+			nameIndex++
+		}
+	}
+	if nameIndex >= len(tokens) {
+		return NormalizedSymbol{}, false
 	}
 	nameToken := tokens[nameIndex]
 	if nameToken.Kind != TokenIdentifier && nameToken.Kind != TokenKeyword {

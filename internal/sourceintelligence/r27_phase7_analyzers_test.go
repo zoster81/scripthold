@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestR27RealWorldObjectiveCPPCompositeMergePreservesSourceOrder(t *testing.T) {
+	text := "int Early = 1;\n" +
+		"@interface Bridge : NSObject\n" +
+		"- (void)run;\n" +
+		"@end\n" +
+		"int Late = 2;\n"
+	result, err := (ObjectiveCPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Early", "Bridge", "Bridge.run", "Late"}
+	if len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("symbols=%v want=%v", sortedSymbolQualifiedNames(result.Analysis.Symbols), want)
+	}
+	for index, name := range want {
+		if result.Analysis.Symbols[index].QualifiedName != name {
+			t.Fatalf("symbol order at %d = %q want %q; symbols=%v", index, result.Analysis.Symbols[index].QualifiedName, name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestR27Phase7TradingAndSpecialtyAnalyzersExposeDistinctNativeStructure(t *testing.T) {
 	tests := []struct {
 		language string

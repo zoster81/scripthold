@@ -180,6 +180,8 @@ var analyzerFactories = map[AnalyzerID]func() SourceAnalyzer{
 	AnalyzerTwig:           func() SourceAnalyzer { return TwigAnalyzer{} },
 	AnalyzerBlade:          func() SourceAnalyzer { return BladeAnalyzer{} },
 	AnalyzerEJS:            func() SourceAnalyzer { return EJSAnalyzer{} },
+	AnalyzerScala:          func() SourceAnalyzer { return ScalaAnalyzer{} },
+	AnalyzerFlow:           func() SourceAnalyzer { return FlowAnalyzer{} },
 }
 
 func AnalyzerFor(descriptor LanguageDescriptor) (SourceAnalyzer, bool) {

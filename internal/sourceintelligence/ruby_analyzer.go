@@ -111,6 +111,14 @@ func (p *rubyParser) parseLine(line LogicalLine) {
 		p.parseMethod(line, first)
 		return
 	}
+	if text == "private_class_method" {
+		for index := first + 1; index < len(tokens); index++ {
+			if strings.EqualFold(tokens[index].Text, "def") {
+				p.parseMethodWithVisibility(line, index, VisibilityPrivate)
+				return
+			}
+		}
+	}
 	if text == "include" || text == "extend" {
 		p.parseMixin(tokens, first)
 		return
@@ -207,6 +215,10 @@ func (p *rubyParser) parseClass(line LogicalLine, keyword int) {
 }
 
 func (p *rubyParser) parseMethod(line LogicalLine, keyword int) {
+	p.parseMethodWithVisibility(line, keyword, p.currentVisibility())
+}
+
+func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, visibility Visibility) {
 	tokens := line.Tokens
 	cursor := keyword + 1
 	if cursor >= len(tokens) {
@@ -243,10 +255,10 @@ func (p *rubyParser) parseMethod(line LogicalLine, keyword int) {
 	_, ok := p.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
 		NameRange:   OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset},
-		Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Visibility: p.currentVisibility(), Evidence: SymbolEvidenceStructural,
+		Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Visibility: visibility, Evidence: SymbolEvidenceStructural,
 		Disambiguator: tokenRangeText(tokens, nameIndex, len(tokens)) + ":" + nativeKind})
 	if ok {
-		p.scopes = append(p.scopes, rubyScope{kind: "method", parent: parent, owner: owner, visibility: p.currentVisibility()})
+		p.scopes = append(p.scopes, rubyScope{kind: "method", parent: parent, owner: owner, visibility: visibility})
 	}
 }
 
@@ -332,7 +344,18 @@ func rubyStartsAnonymousBlock(tokens []Token) bool {
 	case "if", "unless", "case", "begin", "while", "until", "for":
 		return true
 	}
-	return strings.EqualFold(tokens[len(tokens)-1].Text, "do")
+	inlineDepth := 0
+	for _, token := range tokens {
+		switch strings.ToLower(token.Text) {
+		case "begin", "case", "do":
+			inlineDepth++
+		case "end":
+			if inlineDepth > 0 {
+				inlineDepth--
+			}
+		}
+	}
+	return inlineDepth > 0
 }
 
 func (p *rubyParser) currentParent() *SymbolParent {
