@@ -220,11 +220,6 @@ func outputBOMMetadata(data []byte) (bool, string) {
 	return true, result.Charset
 }
 
-func (h *Handler) readTextDocument(ctx context.Context, path, requestedEncoding string) (textDocument, error) {
-	document, _, err := h.readTextDocumentWithData(ctx, path, requestedEncoding)
-	return document, err
-}
-
 func (h *Handler) readTextDocumentWithData(ctx context.Context, path, requestedEncoding string) (document textDocument, data []byte, err error) {
 	defer func() {
 		err = operation.WrapFilesystem("read_text_document", path, err)

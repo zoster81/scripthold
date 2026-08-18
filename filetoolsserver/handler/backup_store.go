@@ -44,127 +44,37 @@ func (h *Handler) HandleBackupStore(ctx context.Context, _ *mcp.CallToolRequest,
 		return h.finishBackupStoreOutput(output, "Persistent backup store is disabled.")
 	}
 
-	visibility := h.backupVisibilitySnapshot()
 	switch input.Action {
-	case BackupStoreActionStatus:
-		status, err := h.backupStore.Status(ctx)
-		if err != nil {
-			return errorResultFromError(err), BackupStoreOutput{}, nil
-		}
-		state := BackupStoreStateReady
-		if !status.Healthy {
-			state = BackupStoreStateDegraded
-		}
-		mappedStatus := mapBackupStoreStatus(status)
-		if h.config != nil {
-			mappedStatus.DefaultPolicy = h.config.Backup.DefaultPolicy
-		}
-		output := BackupStoreOutput{
-			Action:  input.Action,
-			Enabled: true,
-			State:   state,
-			Status:  mappedStatus,
-		}
-		return h.finishBackupStoreOutput(output, fmt.Sprintf("Backup store status: %s.", state))
-
-	case BackupStoreActionList:
-		validatedTarget := ""
-		if input.TargetPath != "" {
-			var err error
-			validatedTarget, err = visibility.validate(input.TargetPath)
-			if err != nil {
-				return errorResultFromError(err), BackupStoreOutput{}, nil
-			}
-		}
-		visibilityCache := make(map[string]bool)
-		listed, err := h.backupStore.List(ctx, backupstore.ListOptions{
-			Cursor:          input.Cursor,
-			Limit:           input.Limit,
-			TargetPath:      validatedTarget,
-			Pinned:          input.Pinned,
-			VisibilityScope: visibility.scope,
-			TargetVisible: func(path string) bool {
-				if visible, exists := visibilityCache[path]; exists {
-					return visible
-				}
-				_, visibilityErr := visibility.validate(path)
-				visible := visibilityErr == nil
-				visibilityCache[path] = visible
-				return visible
-			},
-		})
-		if err != nil {
-			return errorResultFromError(err), BackupStoreOutput{}, nil
-		}
-		output := BackupStoreOutput{
-			Action:     input.Action,
-			Enabled:    true,
-			State:      BackupStoreStateReady,
-			Generation: listed.Generation,
-			NextCursor: listed.NextCursor,
-			Items:      make([]BackupStoreManifestItem, len(listed.Items)),
-		}
-		for index, item := range listed.Items {
-			output.Items[index] = mapBackupStoreManifest(item)
-		}
-		return h.finishBackupStoreOutput(output, fmt.Sprintf("Listed %d backup records.", len(output.Items)))
-
-	case BackupStoreActionInspect:
-		validatedTarget := ""
-		inspected, err := h.backupStore.Inspect(ctx, input.BackupID, backupstore.InspectOptions{
-			AuthorizeTarget: func(path string) error {
-				var authorizationErr error
-				validatedTarget, authorizationErr = visibility.validate(path)
-				return authorizationErr
-			},
-		})
-		if err != nil {
-			return errorResultFromError(err), BackupStoreOutput{}, nil
-		}
-		inspected.Manifest.TargetPath = validatedTarget
-		output := BackupStoreOutput{
-			Action:   input.Action,
-			Enabled:  true,
-			State:    BackupStoreStateReady,
-			Manifest: mapBackupStoreInspect(inspected),
-		}
-		return h.finishBackupStoreOutput(output, "Backup metadata and object integrity verified.")
-
-	case BackupStoreActionRestorePreview:
-		return h.handleBackupStoreRestorePreview(ctx, input.BackupID, visibility)
+	case BackupStoreActionStatus,
+		BackupStoreActionList,
+		BackupStoreActionInspect,
+		BackupStoreActionRestorePreview,
+		BackupStoreActionGCDryRun,
+		BackupStoreActionAudit:
+		return h.HandleBackupStoreRead(ctx, nil, backupStoreReadInputFromLegacy(input))
 
 	case BackupStoreActionRestoreApply:
 		return h.handleBackupStoreRestoreApply(ctx, input.PreviewID)
 
-	case BackupStoreActionGCDryRun:
-		return h.handleBackupStoreGCDryRun(ctx)
-
 	case BackupStoreActionGCApply:
 		return h.handleBackupStoreGCApply(ctx, input.PreviewID)
-
-	case BackupStoreActionAudit:
-		audit, err := h.backupStore.Audit(ctx, backupstore.AuditOptions{
-			Mode:       backupstore.AuditMode(input.AuditMode),
-			MaxObjects: input.MaxObjects,
-			MaxBytes:   input.MaxBytes,
-		})
-		if err != nil {
-			return errorResultFromError(err), BackupStoreOutput{}, nil
-		}
-		state := BackupStoreStateReady
-		if !audit.Healthy {
-			state = BackupStoreStateDegraded
-		}
-		output := BackupStoreOutput{
-			Action:  input.Action,
-			Enabled: true,
-			State:   state,
-			Audit:   mapBackupStoreAudit(audit),
-		}
-		return h.finishBackupStoreOutput(output, fmt.Sprintf("Backup store %s audit completed: %s.", audit.Mode, state))
 	}
 
 	return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store action is invalid")), BackupStoreOutput{}, nil
+}
+
+func backupStoreReadInputFromLegacy(input BackupStoreInput) BackupStoreReadInput {
+	return BackupStoreReadInput{
+		Action:     input.Action,
+		Cursor:     input.Cursor,
+		Limit:      input.Limit,
+		TargetPath: input.TargetPath,
+		Pinned:     input.Pinned,
+		BackupID:   input.BackupID,
+		AuditMode:  input.AuditMode,
+		MaxObjects: input.MaxObjects,
+		MaxBytes:   input.MaxBytes,
+	}
 }
 
 func validateBackupStoreInput(input BackupStoreInput) error {

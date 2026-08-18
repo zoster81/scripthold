@@ -91,6 +91,74 @@ func TestHandleBackupStoreReadOnlyActions(t *testing.T) {
 	}
 }
 
+func TestHandleBackupStoreDeprecatedReadBridgeMatchesR23Surface(t *testing.T) {
+	fixture := newBackupStoreHandlerFixture(t)
+	target := filepath.Join(fixture.publicRoot, "public.txt")
+	capture := fixture.capture(t, target, "public backup bytes", true)
+	pinned := true
+
+	tests := []struct {
+		name    string
+		legacy  BackupStoreInput
+		current BackupStoreReadInput
+	}{
+		{
+			name:    "status",
+			legacy:  BackupStoreInput{Action: BackupStoreActionStatus},
+			current: BackupStoreReadInput{Action: BackupStoreActionStatus},
+		},
+		{
+			name: "list",
+			legacy: BackupStoreInput{
+				Action:     BackupStoreActionList,
+				Limit:      10,
+				TargetPath: target,
+				Pinned:     &pinned,
+			},
+			current: BackupStoreReadInput{
+				Action:     BackupStoreActionList,
+				Limit:      10,
+				TargetPath: target,
+				Pinned:     &pinned,
+			},
+		},
+		{
+			name:    "inspect",
+			legacy:  BackupStoreInput{Action: BackupStoreActionInspect, BackupID: capture.Manifest.BackupID},
+			current: BackupStoreReadInput{Action: BackupStoreActionInspect, BackupID: capture.Manifest.BackupID},
+		},
+		{
+			name:    "audit",
+			legacy:  BackupStoreInput{Action: BackupStoreActionAudit, AuditMode: string(backupstore.AuditQuick)},
+			current: BackupStoreReadInput{Action: BackupStoreActionAudit, AuditMode: string(backupstore.AuditQuick)},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			legacyResult, legacyOutput, legacyErr := fixture.handler.HandleBackupStore(context.Background(), nil, test.legacy)
+			currentResult, currentOutput, currentErr := fixture.handler.HandleBackupStoreRead(context.Background(), nil, test.current)
+			if legacyErr != nil || currentErr != nil {
+				t.Fatalf("legacy err=%v current err=%v", legacyErr, currentErr)
+			}
+			if legacyResult.IsError != currentResult.IsError {
+				t.Fatalf("legacy IsError=%v current IsError=%v", legacyResult.IsError, currentResult.IsError)
+			}
+			legacyJSON, err := json.Marshal(legacyOutput)
+			if err != nil {
+				t.Fatal(err)
+			}
+			currentJSON, err := json.Marshal(currentOutput)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(legacyJSON) != string(currentJSON) {
+				t.Fatalf("legacy output=%s current output=%s", legacyJSON, currentJSON)
+			}
+		})
+	}
+}
+
 func TestHandleBackupStoreFiltersTargetsByCurrentAuthorization(t *testing.T) {
 	fixture := newBackupStoreHandlerFixture(t)
 	publicCapture := fixture.capture(t, filepath.Join(fixture.publicRoot, "public.txt"), "public", false)

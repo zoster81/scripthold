@@ -477,11 +477,6 @@ type pendingGrepMatch struct {
 	remainingAfter int
 }
 
-// searchSingleFile retains the compatibility helper used by focused tests.
-func (h *Handler) searchSingleFile(ctx context.Context, path string, re *regexp.Regexp, input GrepInput, maxMatches int) grepFileResult {
-	return h.searchSingleFileWithBudget(ctx, path, re, input, maxMatches, h.maxOutputBytes())
-}
-
 func grepBudgetError(path string, budget int64) error {
 	return operation.Wrap(
 		operation.KindLimit,

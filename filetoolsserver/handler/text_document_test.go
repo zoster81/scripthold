@@ -244,7 +244,7 @@ func TestReadTextDocumentReportsDecodedLineEndings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	document, err := h.readTextDocument(context.Background(), path, "")
+	document, _, err := h.readTextDocumentWithData(context.Background(), path, "")
 	if err != nil {
 		t.Fatal(err)
 	}

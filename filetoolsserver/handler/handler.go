@@ -366,11 +366,6 @@ func (h *Handler) MergeAllowedDirectories(newDirs []string) []string {
 	return result
 }
 
-func normalizeAllowedDirectories(dirs []string) []string {
-	_, resolved := normalizeAllowedDirectorySets(dirs)
-	return resolved
-}
-
 func normalizeAllowedDirectorySets(dirs []string) (requested, resolved []string) {
 	requested = make([]string, 0, len(dirs))
 	resolved = make([]string, 0, len(dirs))

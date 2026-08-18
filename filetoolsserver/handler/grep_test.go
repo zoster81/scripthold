@@ -707,7 +707,7 @@ func TestSearchSingleFile_StopsAtLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := h.searchSingleFile(context.Background(), path, regexp.MustCompile("match"), GrepInput{}, 2)
+	result := h.searchSingleFileWithBudget(context.Background(), path, regexp.MustCompile("match"), GrepInput{}, 2, h.maxOutputBytes())
 	if result.err != nil {
 		t.Fatal(result.err)
 	}
@@ -745,7 +745,7 @@ func TestSearchSingleFile_RejectsOversizedLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := h.searchSingleFile(context.Background(), path, regexp.MustCompile("x"), GrepInput{Encoding: "utf-8"}, 1)
+	result := h.searchSingleFileWithBudget(context.Background(), path, regexp.MustCompile("x"), GrepInput{Encoding: "utf-8"}, 1, h.maxOutputBytes())
 	if operation.KindOf(result.err) != operation.KindLimit {
 		t.Fatalf("error = %v, kind=%v; want limit", result.err, operation.KindOf(result.err))
 	}
@@ -764,7 +764,7 @@ func TestSearchSingleFile_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result := h.searchSingleFile(ctx, path, regexp.MustCompile("match"), GrepInput{}, 1)
+	result := h.searchSingleFileWithBudget(ctx, path, regexp.MustCompile("match"), GrepInput{}, 1, h.maxOutputBytes())
 	if !errors.Is(result.err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", result.err)
 	}

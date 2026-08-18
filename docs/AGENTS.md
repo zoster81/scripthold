@@ -22,9 +22,10 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `SOURCE_INTELLIGENCE.md`: completed R25 contract and verification record for native language-neutral source navigation, evidence-qualified analysis, shared scanners/detection/composites, and the initial canary analyzers.
 - `BACKUP_RECOVERY.md`: completed R26 contract and verification record for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
 - `MULTILANGUAGE_CODE_INTELLIGENCE.md`: completed R27 contract and verification record for broad multi-language source intelligence, capability reporting, relationships, and incremental indexing.
+- `ENGINE_HYGIENE.md`: completed R28 contract and verification record for evidence-driven compatibility consolidation, dead/test-only cleanup, bounded source organization, and measured performance work.
 - `LANGUAGE_CAPABILITIES.md`: deterministic R27 capability projection rendered from the native language registry; update the registry/renderer and keep the byte-for-byte drift test green rather than editing support claims independently.
 
-Keep operational details in their proper source instead of duplicating them across documents. The completed R26 and R27 contracts remain authoritative history unless maintainers explicitly revise them; current milestone state belongs in `ROADMAP.md`, while detailed completion evidence belongs in the subsystem contracts and `ROADMAP_HISTORY.md`.
+Keep operational details in their proper source instead of duplicating them across documents. The completed R26-R28 contracts remain authoritative history unless maintainers explicitly revise them; current milestone state belongs in `ROADMAP.md`, while completed milestone evidence belongs in the subsystem contracts and `ROADMAP_HISTORY.md`.
 
 ## Portability rules
 

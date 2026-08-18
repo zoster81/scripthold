@@ -26,10 +26,11 @@ Do not copy private workstation state, local process details, credentials, or op
 - Completed R25 source-intelligence contract and verification record: [`docs/SOURCE_INTELLIGENCE.md`](docs/SOURCE_INTELLIGENCE.md)
 - Completed R26 backup-recovery contract and verification record: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
 - Completed R27 broad multi-language code-intelligence contract and verification record: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
+- Completed R28 engine-hygiene contract and verification record: [`docs/ENGINE_HYGIENE.md`](docs/ENGINE_HYGIENE.md)
 - Mechanically verified R27 language capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
-Link to these documents instead of duplicating their detailed content. R27 is complete and no later release-scoped milestone is active by default. Before new milestone work, read the completed R25-R27 contracts together with the roadmap and explicitly activate the intended milestone; completed requirements remain authoritative history unless maintainers deliberately revise them.
+Link to these documents instead of duplicating their detailed content. R28 is complete and no later release-scoped milestone is active by default. Before later milestone work, read the completed R25-R28 contracts together with the roadmap and explicitly activate the intended milestone; completed requirements remain authoritative history unless maintainers deliberately revise them.
 
 ## Repository map
 

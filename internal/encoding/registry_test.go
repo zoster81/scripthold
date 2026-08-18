@@ -317,12 +317,20 @@ func TestDetectorLabelsHaveExplicitDisposition(t *testing.T) {
 		"ISO-8859-1", "ISO-8859-2", "ISO-8859-5", "ISO-8859-6", "ISO-8859-7", "ISO-8859-8", "ISO-8859-9", "ISO-8859-13",
 		"ISO-2022-CN", "ISO-2022-JP", "ISO-2022-KR", "IBM855", "IBM866",
 	}
+	hasDisposition := func(label string) bool {
+		key := normalizeRegistryName(label)
+		if _, ok := descriptorByDetector[key]; ok {
+			return true
+		}
+		_, ok := rejectedDetectorLookup[key]
+		return ok
+	}
 	for _, label := range labels {
-		if !detectorLabelHasDisposition(label) {
+		if !hasDisposition(label) {
 			t.Errorf("detector label %q has no registry disposition", label)
 		}
 	}
-	if detectorLabelHasDisposition("future-unknown-detector-label") {
+	if hasDisposition("future-unknown-detector-label") {
 		t.Fatal("unknown detector label unexpectedly has a disposition")
 	}
 	if got := canonicalDetectedCharset("future-unknown-detector-label"); got != "" {

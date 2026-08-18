@@ -7,8 +7,9 @@ This document is the authoritative source for **current and future milestone sta
 - Current public release: **Scripthold `3.0.0`**, published on 2026-08-17.
 - Public surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
 - The `3.0.0` GitHub Release, GitHub-only MCPB publication, and MCP Registry publication are complete; publication remains separate from operator deployment.
-- R21-R27 are complete, and R23-R27 shipped together in `3.0.0`.
-- **R27 completed on 2026-08-16.** Phases 0-18 are complete; no later release-scoped milestone is activated by this completion.
+- R21-R28 are complete, and R23-R27 shipped together in `3.0.0`.
+- **R27 completed on 2026-08-16.** Phases 0-18 are complete.
+- **R28 completed on 2026-08-18.** Engine hygiene source work and verification are complete; R29-R33 remain planned and no later release-scoped milestone is active by default.
 - The completed R24, R25, and R26 contracts and verification records are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), and [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md).
 - Publication does not imply deployment. Operator-specific deployment, rollback, and runtime state are governed separately by [PUBLISHING.md](PUBLISHING.md) and private operational procedures.
 
@@ -55,22 +56,24 @@ This document is the authoritative source for **current and future milestone sta
 | R25 | COMPLETE | Native language-neutral source navigation with evidence-qualified analysis, shared scanner/detector/composite architecture, Go/C#/VB.NET/Python canaries, and Classic ASP segmentation. |
 | R26 | COMPLETE | Offline evidence-preserving backup-store recovery/salvage through deterministic persisted plan/apply into a separate fully audited destination. |
 | R27 | COMPLETE | Broad native multi-language/source-format intelligence with the approved expanded catalog, evidence-qualified project relations, structural search, bounded context, graphs, and incremental indexing. |
-| R28 | PLANNED | Engine hygiene: reduce proven complexity and duplication, retire justified legacy/deprecated paths, reorganize maintainability hotspots, and improve measured performance without changing behavior gratuitously. |
+| R28 | COMPLETE | Engine hygiene: reduce proven complexity and duplication, retire justified legacy/deprecated paths, reorganize maintainability hotspots, and improve measured performance without changing behavior gratuitously. |
 | R29 | PLANNED | Central logging and diagnostics lifecycle controlled only by startup/operator policy, including bounded file rotation, compression, retention, and storage limits. |
 | R30 | PLANNED | Documentation intelligence built on existing source-intelligence and verified-mutation primitives, beginning with Markdown structure and explicit preview/apply document changes. |
 | R31 | PLANNED | Unified single/multi-file edit UX for LLMs over one shared verified edit planner rather than overlapping mutation engines. |
 | R32 | PLANNED | Verified self-update with asset/version verification, staging, known-good rollback, and failure-safe installation boundaries. |
 | R33 | PLANNED | Source-intelligence completion focused on analysis quality, trustworthy missing relations, scale, detection, and query usefulness without automatic semantic refactoring. |
 
-Detailed outcomes for R1–R27 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the completed R24 contract is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md); the completed R25 contract is [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md); the completed R26 contract is [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md); and the completed R27 contract is [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md).
+Detailed outcomes for R1–R28 are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The completed R23 contract is [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md); the completed R24 contract is [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md); the completed R25 contract is [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md); the completed R26 contract is [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md); the completed R27 contract is [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md); and the completed R28 contract is [ENGINE_HYGIENE.md](ENGINE_HYGIENE.md).
 
 ## Approved road to 4.0
 
-R28-R33 define the approved **3.x planning sequence** after `3.0.0`. The intended minor-release mapping is R28 -> 3.1, R29 -> 3.2, R30 -> 3.3, R31 -> 3.4, R32 -> 3.5, and R33 -> 3.6. That mapping may be revised before activation if a milestone's scope materially changes, but the architectural order and boundaries below are the approved direction. No R28-R33 milestone is active until maintainers explicitly activate it.
+R28-R33 define the approved **3.x planning sequence** after `3.0.0`. The intended minor-release mapping is R28 -> 3.1, R29 -> 3.2, R30 -> 3.3, R31 -> 3.4, R32 -> 3.5, and R33 -> 3.6. That mapping may be revised before activation if a milestone's scope materially changes, but the architectural order and boundaries below are the approved direction. R28 completed on 2026-08-18; R29-R33 remain planned until maintainers explicitly activate them.
 
 A cross-cutting product rule for this sequence is that MCP functions must remain **clear to an LLM, compact in number, explicit about effects, and difficult to misuse**. Prefer one coherent capability over overlapping near-duplicate tools, and preserve read-only preparation plus approval-bound mutation where changes can affect user data.
 
 ### R28 — Engine hygiene
+
+The completed implementation contract and verification record is [ENGINE_HYGIENE.md](ENGINE_HYGIENE.md).
 
 Refactor only where repository evidence justifies it. Reduce real complexity, dead code, unused state, redundant implementations, and historical organization that obscures current responsibilities. Review deprecated pre-R23 bridges, older compatibility paths, obsolete configuration fallbacks, and phase-named source-intelligence organization individually rather than deleting compatibility wholesale. Do not treat legacy text encodings as technical debt; broad encoding support remains a core product capability.
 
@@ -150,9 +153,9 @@ Research must resolve peer configuration/identity, authentication/TLS, allowlist
 
 ## Latest completed milestones
 
-R26 and R27 are complete. R26 added deterministic offline evidence-preserving backup-store recovery into a separate audited destination. R27 completed the broad native source-intelligence program: 101 active approved providers, registry-derived capability reporting, bounded project resolution and graph queries, fingerprint-verified task context, and coherent process-local incremental generations.
+R27 and R28 are complete. R27 completed the broad native source-intelligence program: 101 active approved providers, registry-derived capability reporting, bounded project resolution and graph queries, fingerprint-verified task context, and coherent process-local incremental generations. R28 then reduced demonstrated implementation duplication and test-only production shims, reorganized historical source-intelligence production filenames by responsibility, and established a measured performance baseline without speculative optimization or public MCP behavior changes.
 
-Detailed milestone outcomes belong in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The authoritative R26 and R27 contracts are [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) and [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md), with the generated provider matrix in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md). No milestone after R27 is active; future release-scoped work requires explicit activation and a documented completion gate.
+Detailed milestone outcomes belong in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The authoritative R27 and R28 contracts are [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md) and [ENGINE_HYGIENE.md](ENGINE_HYGIENE.md), with the generated provider matrix in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md). No milestone after R28 is active by default; later release-scoped work still requires explicit activation and a documented completion gate.
 
 ## Reprioritization rule
 

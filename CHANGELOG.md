@@ -4,6 +4,12 @@ This file records changes maintained in the `zoster81/scripthold` fork relative 
 
 The upstream baseline for the first fork-specific changes is commit `52665aa080b24f6427e3fc485df76cc0a8ce1238`.
 
+## Unreleased
+
+### Changed
+
+- Completed R28 engine hygiene without changing the public MCP surface: consolidated the deprecated package-level backup-store read bridge onto current R23 read primitives where behavior was proven equivalent, removed internal test-only forwarding helpers, replaced historical R27 production filenames in `internal/sourceintelligence` with responsibility-oriented names, and retained non-equivalent compatibility and legacy-encoding paths. Benchmark/profile review established a measured performance baseline but intentionally made no speculative optimization.
+
 ## 3.0.0 - 2026-08-17
 
 ### Added

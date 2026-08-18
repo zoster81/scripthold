@@ -526,15 +526,6 @@ func canonicalDetectedCharset(label string) string {
 	return descriptor.Name
 }
 
-func detectorLabelHasDisposition(label string) bool {
-	key := normalizeRegistryName(label)
-	if _, ok := descriptorByDetector[key]; ok {
-		return true
-	}
-	_, ok := rejectedDetectorLookup[key]
-	return ok
-}
-
 type EncodingListItem struct {
 	Name           string   `json:"name"`
 	DisplayName    string   `json:"displayName"`

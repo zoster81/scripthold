@@ -62,7 +62,7 @@ func TestUpdateAllowedDirectories(t *testing.T) {
 
 	newDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
 	h.UpdateAllowedDirectories(newDirs)
-	want := normalizeAllowedDirectories(newDirs)
+	_, want := normalizeAllowedDirectorySets(newDirs)
 
 	got := h.GetAllowedDirectories()
 	if len(got) != len(want) {
