@@ -17,11 +17,14 @@ func TestExecutorClassifiesInheritedOutputDrainTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pidFile := filepath.Join(t.TempDir(), "output-holder.pid")
+	tempDir := t.TempDir()
+	pidFile := filepath.Join(tempDir, "output-holder.pid")
+	exitMarker := filepath.Join(tempDir, "direct-child-exiting")
+	defer killRecordedTaskstoreProcess(t, pidFile)
 	token := testRandomHex(t, 32)
 	if err := writeJSONExclusive(filepath.Join(store.taskDir(admitted.Task.ID), "launch.json"), launchRecord{
 		Program:          os.Args[0],
-		Args:             []string{"-test.run=TestTaskstoreWaitDelayHelperProcess", "--", "spawn-output-holder", pidFile},
+		Args:             []string{"-test.run=TestTaskstoreWaitDelayHelperProcess", "--", "spawn-output-holder", pidFile, exitMarker},
 		WorkingDirectory: os.TempDir(),
 		ExecutorToken:    token,
 	}); err != nil {
@@ -40,15 +43,36 @@ func TestExecutorClassifiesInheritedOutputDrainTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	started := time.Now()
-	if err := RunExecutor(context.Background(), store, admitted.Task.ID, token); err != nil {
-		t.Fatal(err)
-	}
-	elapsed := time.Since(started)
-	killRecordedTaskstoreProcess(t, pidFile)
+	done := make(chan error, 1)
+	go func() { done <- RunExecutor(context.Background(), store, admitted.Task.ID, token) }()
 
-	if elapsed > 10*time.Second {
-		t.Fatalf("RunExecutor() took %v after the direct child exited while a descendant held output open; want <= 10s", elapsed)
+	markerDeadline := time.Now().Add(10 * time.Second)
+	for !fileExists(exitMarker) && time.Now().Before(markerDeadline) {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Fatal("RunExecutor() returned before the direct child exit marker")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if !fileExists(exitMarker) {
+		t.Fatal("direct child exit marker was not observed")
+	}
+
+	drainStarted := time.Now()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunExecutor() did not finish within 10s after the direct child began exiting")
+	}
+	if elapsed := time.Since(drainStarted); elapsed > 10*time.Second {
+		t.Fatalf("RunExecutor() took %v after the direct child began exiting; want <= 10s", elapsed)
 	}
 	task, err := store.Get(context.Background(), admitted.Task.ID)
 	if err != nil {
@@ -95,6 +119,9 @@ func TestTaskstoreWaitDelayHelperProcess(t *testing.T) {
 
 	switch os.Args[separator+1] {
 	case "spawn-output-holder":
+		if separator+3 >= len(os.Args) {
+			os.Exit(2)
+		}
 		cmd := exec.Command(os.Args[0], "-test.run=TestTaskstoreWaitDelayHelperProcess", "--", "hold-output")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -104,6 +131,10 @@ func TestTaskstoreWaitDelayHelperProcess(t *testing.T) {
 		if err := os.WriteFile(os.Args[separator+2], []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
 			_ = cmd.Process.Kill()
 			os.Exit(4)
+		}
+		if err := os.WriteFile(os.Args[separator+3], []byte("exiting"), 0o600); err != nil {
+			_ = cmd.Process.Kill()
+			os.Exit(5)
 		}
 		os.Exit(0)
 	case "hold-output":
