@@ -230,12 +230,13 @@ func TestEngineCancellationAfterFirstCommitReportsPartialState(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalCreate := engine.commitOps.createDirectory
-	first := filepath.Join(root, "first")
+	createCalls := 0
 	engine.commitOps.createDirectory = func(path string, mode os.FileMode) error {
 		if err := originalCreate(path, mode); err != nil {
 			return err
 		}
-		if path == first {
+		createCalls++
+		if createCalls == 1 {
 			cancel()
 		}
 		return nil

@@ -179,9 +179,10 @@ func TestEngineMidCommitFailureReturnsDeterministicPartialState(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalCreate := engine.commitOps.createDirectory
-	second := filepath.Join(root, "second")
+	createCalls := 0
 	engine.commitOps.createDirectory = func(path string, mode os.FileMode) error {
-		if path == second {
+		createCalls++
+		if createCalls == 2 {
 			return operation.New(operation.KindFilesystem, "injected second-operation failure")
 		}
 		return originalCreate(path, mode)
@@ -207,13 +208,8 @@ func TestEnginePostCommitFailureClassifiesCommittedCurrentOperation(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalCapture := engine.commitOps.captureObjectIdentity
-	created := filepath.Join(root, "created")
-	engine.commitOps.captureObjectIdentity = func(path string) (filesystem.ObjectIdentity, error) {
-		if path == created {
-			return filesystem.ObjectIdentity{}, operation.New(operation.KindFilesystem, "injected post-commit verification failure")
-		}
-		return originalCapture(path)
+	engine.commitOps.captureObjectIdentity = func(string) (filesystem.ObjectIdentity, error) {
+		return filesystem.ObjectIdentity{}, operation.New(operation.KindFilesystem, "injected post-commit verification failure")
 	}
 	output, err := engine.Apply(context.Background(), preview.PreviewID)
 	if operation.KindOf(err) != operation.KindPartialCommit || output.Results[0].State != StateCommitted {
