@@ -2,7 +2,7 @@
 
 ## Status
 
-R28 source implementation is **COMPLETE** as of 2026-08-18. Its intended release line remains Scripthold 3.1; release, publication, deployment, launcher, and active-runtime changes remain separate maintainer actions.
+R28 is **COMPLETE** and shipped in Scripthold `3.1.0` on 2026-08-18. Release qualification, GitHub publication, GitHub-only MCPB publication, and MCP Registry publication are complete. Deployment, launcher, and active-runtime changes remain separate maintainer actions.
 
 This document is the completed implementation contract and verification record for R28. The public milestone state remains defined by [ROADMAP.md](ROADMAP.md); completed R23-R27 contracts remain authoritative compatibility history.
 
@@ -132,7 +132,7 @@ Final evidence on Windows amd64 with the verified workspace toolchain:
 - the CGO race gate passed for `internal/sourceintelligence` and `filetoolsserver/handler`, with the full handler race package completing in about 217 seconds;
 - no platform-specific implementation path was changed by R28. Product builds, cross-builds, release actions, launcher changes, deployment, and runtime restart were not performed as part of source completion.
 
-R28 therefore completes without a public MCP behavior change and without claiming an unmeasured performance improvement.
+R28 therefore completes without a public MCP behavior change and without claiming an unmeasured performance improvement. Scripthold `3.1.0` subsequently published this exact completed milestone after the full local release-candidate gate and exact pushed-commit GitHub `Release candidate` gate passed.
 
 ## Initial audit decisions
 
