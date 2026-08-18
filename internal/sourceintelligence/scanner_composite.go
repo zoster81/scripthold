@@ -182,6 +182,16 @@ func MaskOutsideRanges(text string, keep []OffsetRange) (string, error) {
 	return string(masked), nil
 }
 
+func asciiLowerPreservingBytes(text string) string {
+	lower := []byte(text)
+	for index, value := range lower {
+		if value >= 'A' && value <= 'Z' {
+			lower[index] = value + ('a' - 'A')
+		}
+	}
+	return string(lower)
+}
+
 func utf8Boundary(text string, offset int) bool {
 	return offset == 0 || offset == len(text) || offset > 0 && offset < len(text) && text[offset]&0xc0 != 0x80
 }

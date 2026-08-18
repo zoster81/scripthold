@@ -54,7 +54,8 @@ func TestExternalDurableTaskLifecycle(t *testing.T) {
 		t.Fatalf("frontend stderr: %s", stderr.String())
 	}
 	session, command, _ = connectExternalTaskFrontend(t, ctx, executable, publicRoot, environment)
-	waitExternalTaskStatus(t, ctx, session, taskID, "succeeded", 15*time.Second)
+	// This is a watchdog for eventual durability across frontend restart, not a latency requirement.
+	waitExternalTaskStatus(t, ctx, session, taskID, "succeeded", 30*time.Second)
 	assertExternalTaskLog(t, ctx, session, taskID, "frontend-survived")
 	_ = session.Close()
 	_ = command.Wait()

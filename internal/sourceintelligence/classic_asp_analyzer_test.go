@@ -68,6 +68,21 @@ func TestClassicASPAnalyzerSegmentsAndDelegatesVBScript(t *testing.T) {
 	}
 }
 
+func TestClassicASPAnalyzerPreservesOffsetsAcrossUnicodeCaseFolding(t *testing.T) {
+	text := "<%@ȺȺȺ%>"
+	document := sourceDocumentForScanner(text)
+	document.Path = "unicode-offset.asp"
+	result, err := (ClassicASPAnalyzer{}).Analyze(context.Background(), document, AnalyzeOptions{Limits: SymbolBuilderLimits{MaxSymbols: 32, MaxSignatureBytes: 1024, MaxDiagnostics: 8}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, region := range result.Regions {
+		if region.Range.Start.Line < 1 || region.Range.End.Line < region.Range.Start.Line {
+			t.Fatalf("invalid region range after Unicode case folding: %+v", region)
+		}
+	}
+}
+
 func TestClassicASPAnalyzerReportsUnsupportedEmbeddedLanguage(t *testing.T) {
 	text := `<%@ Language="PerlScript" %>
 <html><body>

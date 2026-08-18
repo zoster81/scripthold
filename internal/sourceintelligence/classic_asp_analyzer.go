@@ -184,7 +184,7 @@ func shiftOffsetRange(value OffsetRange, delta int) OffsetRange {
 }
 
 func segmentClassicASP(path, text, pageLanguage string) ([]aspSegment, bool) {
-	lower := strings.ToLower(text)
+	lower := asciiLowerPreservingBytes(text)
 	var segments []aspSegment
 	position := 0
 	incomplete := false
@@ -287,7 +287,7 @@ func nextServerScriptTag(lower string, start int) int {
 }
 
 func classicASPPageLanguage(text string) string {
-	lower := strings.ToLower(text)
+	lower := asciiLowerPreservingBytes(text)
 	search := 0
 	for {
 		startRelative := strings.Index(lower[search:], "<%@")
@@ -332,7 +332,7 @@ func classicASPSupportedLanguage(language string) bool {
 }
 
 func htmlLikeAttribute(text, name string) string {
-	lower := strings.ToLower(text)
+	lower := asciiLowerPreservingBytes(text)
 	name = strings.ToLower(name)
 	search := 0
 	for search < len(lower) {
@@ -368,7 +368,7 @@ func htmlLikeAttribute(text, name string) string {
 }
 
 func classicASPIncludes(document *SourceDocument) []StructuralDependency {
-	lower := strings.ToLower(document.Text)
+	lower := asciiLowerPreservingBytes(document.Text)
 	var result []StructuralDependency
 	search := 0
 	for search < len(lower) {

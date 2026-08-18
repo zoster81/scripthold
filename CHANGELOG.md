@@ -4,6 +4,16 @@ This file records changes maintained in the `zoster81/scripthold` fork relative 
 
 The upstream baseline for the first fork-specific changes is commit `52665aa080b24f6427e3fc485df76cc0a8ce1238`.
 
+## 3.1.5 - 2026-08-19
+
+### Changed
+
+- Redesigned repository verification around an independent invariant-to-evidence map, fail-closed GitHub evidence tiers, one shared risk-based fuzz manifest, and complementary local validation profiles while preserving the exact-SHA `Release candidate` publication authority and the existing public MCP surface.
+
+### Fixed
+
+- Fixed Unicode-sensitive byte-offset handling in Classic ASP, ASP.NET, and Razor case-insensitive composite scanning by using byte-preserving ASCII syntax matching, preventing malformed or adversarial Unicode input from producing invalid source offsets or panics.
+
 ## 3.1.0 - 2026-08-18
 
 ### Changed

@@ -39,6 +39,24 @@ public class Service extends BaseService {
 	t.Fatal("JScript.NET extends relation missing after structural predicate")
 }
 
+func TestASPNetPageLanguagePreservesOffsetsAcrossUnicodeCaseFolding(t *testing.T) {
+	if got := aspNetPageLanguage("<%@ȺȺȺ Page Language=\"VB\" %>"); got != "vbnet" {
+		t.Fatalf("ASP.NET page language = %q, want vbnet", got)
+	}
+}
+
+func TestRazorDirectiveSearchPreservesOffsetsAcrossUnicodeCaseFolding(t *testing.T) {
+	text := "ȺȺȺ@CoDe { void Run() {} }"
+	document := sourceDocumentForScanner(text)
+	ranges, complete, err := findRazorCodeRanges(context.Background(), document, []string{"code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !complete || len(ranges) != 1 || ranges[0].full.Start != len("ȺȺȺ") {
+		t.Fatalf("Razor ranges complete=%v ranges=%+v", complete, ranges)
+	}
+}
+
 func TestXAMLRequiresBalancedAttributeQuotes(t *testing.T) {
 	text := `<Window x:Class="Demo.Bad' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><Grid x:Name='Root" /></Window>`
 	result, err := (XAMLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))

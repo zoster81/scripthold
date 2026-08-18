@@ -142,7 +142,7 @@ func (ASPNetWebFormsAnalyzer) Analyze(ctx context.Context, document *SourceDocum
 	return result, nil
 }
 func aspNetPageLanguage(text string) string {
-	lower := strings.ToLower(text)
+	lower := asciiLowerPreservingBytes(text)
 	search := 0
 	for search < len(text) {
 		r := strings.Index(lower[search:], "<%@")
@@ -291,6 +291,7 @@ func analyzeRazorFamily(ctx context.Context, document *SourceDocument, options A
 }
 func findRazorCodeRanges(ctx context.Context, document *SourceDocument, directives []string) ([]embeddedCodeRange, bool, error) {
 	masked, complete := maskSimpleDelimited(document.Text, "@*", "*@")
+	lowerMasked := asciiLowerPreservingBytes(masked)
 	var result []embeddedCodeRange
 	search := 0
 	for search < len(masked) {
@@ -300,8 +301,8 @@ func findRazorCodeRanges(ctx context.Context, document *SourceDocument, directiv
 		best := -1
 		kind := ""
 		for _, directive := range directives {
-			needle := "@" + directive
-			relative := strings.Index(strings.ToLower(masked[search:]), strings.ToLower(needle))
+			needle := asciiLowerPreservingBytes("@" + directive)
+			relative := strings.Index(lowerMasked[search:], needle)
 			if relative >= 0 && (best < 0 || search+relative < best) {
 				best = search + relative
 				kind = directive
