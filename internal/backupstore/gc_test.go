@@ -16,10 +16,10 @@ import (
 
 func TestPlanGCDeterministicRetentionFloorPinsAndReferenceCounts(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.RetentionDays = 30
 	limits.MaxVersionsPerTarget = 8
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	now := time.Date(2026, 8, 5, 7, 30, 0, 0, time.UTC)
 	target := filepath.Join(base, "target.txt")
 	otherTarget := filepath.Join(base, "other.txt")
@@ -77,10 +77,10 @@ func TestPlanGCDeterministicRetentionFloorPinsAndReferenceCounts(t *testing.T) {
 func TestPlanGCUsesVersionLimitAfterReopen(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.RetentionDays = 365
 	limits.MaxVersionsPerTarget = 8
-	store := openPhase2TestStore(t, root, limits)
+	store := openBackupTestStore(t, root, limits)
 	now := time.Date(2026, 8, 5, 7, 30, 0, 0, time.UTC)
 	target := filepath.Join(base, "target.txt")
 	captures := make([]CaptureResult, 0, 4)
@@ -115,10 +115,10 @@ func TestPlanGCUsesVersionLimitAfterReopen(t *testing.T) {
 
 func TestApplyGCIsGenerationBoundManifestFirstAndReferenceCounted(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.RetentionDays = 30
 	limits.MaxVersionsPerTarget = 8
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	now := time.Date(2026, 8, 5, 7, 30, 0, 0, time.UTC)
 	target := filepath.Join(base, "target.txt")
 	sharedTarget := filepath.Join(base, "shared.txt")
@@ -177,10 +177,10 @@ func TestApplyGCIsGenerationBoundManifestFirstAndReferenceCounted(t *testing.T) 
 
 func TestApplyGCRejectsStaleGenerationReservationsAndActiveRestore(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.RetentionDays = 30
 	limits.MaxVersionsPerTarget = 8
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	now := time.Date(2026, 8, 5, 7, 30, 0, 0, time.UTC)
 	target := filepath.Join(base, "target.txt")
 	candidate := captureGCFixture(t, store, target, "old", false, now.AddDate(0, 0, -50))
@@ -230,10 +230,10 @@ func TestApplyGCRejectsStaleGenerationReservationsAndActiveRestore(t *testing.T)
 func TestGCFailureAfterManifestTrashPreservesObjectAndRefreshesIndex(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.RetentionDays = 30
 	limits.MaxVersionsPerTarget = 8
-	store := openPhase2TestStore(t, root, limits)
+	store := openBackupTestStore(t, root, limits)
 	now := time.Date(2026, 8, 5, 7, 30, 0, 0, time.UTC)
 	target := filepath.Join(base, "target.txt")
 	candidate := captureGCFixture(t, store, target, "old", false, now.AddDate(0, 0, -50))
@@ -243,9 +243,9 @@ func TestGCFailureAfterManifestTrashPreservesObjectAndRefreshesIndex(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.gcHooks.afterManifestTrash = func(string) error {
+	restoreMove := overrideAfterGCMove(store, "backup manifest", func() error {
 		return operation.New(operation.KindFilesystem, "injected failure after manifest trash")
-	}
+	})
 	result, err := store.ApplyGC(context.Background(), plan)
 	if operation.KindOf(err) != operation.KindFilesystem || result.ManifestsRemoved != 1 || result.ObjectsRemoved != 0 {
 		t.Fatalf("ApplyGC() result=%#v error=%v", result, err)
@@ -262,7 +262,7 @@ func TestGCFailureAfterManifestTrashPreservesObjectAndRefreshesIndex(t *testing.
 	if store.Index().ManifestCount != 1 {
 		t.Fatalf("index was not refreshed after partial manifest phase: %#v", store.Index())
 	}
-	store.gcHooks = gcTestHooks{}
+	restoreMove()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -282,10 +282,10 @@ func TestGCFailureAfterManifestTrashPreservesObjectAndRefreshesIndex(t *testing.
 func TestGCFailureAfterObjectTrashRecoversWithoutLiveReferenceLoss(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.RetentionDays = 30
 	limits.MaxVersionsPerTarget = 8
-	store := openPhase2TestStore(t, root, limits)
+	store := openBackupTestStore(t, root, limits)
 	now := time.Date(2026, 8, 5, 7, 30, 0, 0, time.UTC)
 	target := filepath.Join(base, "target.txt")
 	candidate := captureGCFixture(t, store, target, "old", false, now.AddDate(0, 0, -50))
@@ -295,9 +295,9 @@ func TestGCFailureAfterObjectTrashRecoversWithoutLiveReferenceLoss(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.gcHooks.afterObjectTrash = func(string) error {
+	restoreMove := overrideAfterGCMove(store, "backup object", func() error {
 		return operation.New(operation.KindFilesystem, "injected failure after object trash")
-	}
+	})
 	result, err := store.ApplyGC(context.Background(), plan)
 	if operation.KindOf(err) != operation.KindFilesystem || result.ManifestsRemoved != 1 || result.ObjectsRemoved != 1 {
 		t.Fatalf("ApplyGC() result=%#v error=%v", result, err)
@@ -311,7 +311,7 @@ func TestGCFailureAfterObjectTrashRecoversWithoutLiveReferenceLoss(t *testing.T)
 	if _, err := os.Stat(gcObjectTrashPath(root, candidate.Manifest.ObjectDigest)); err != nil {
 		t.Fatalf("object trash missing: %v", err)
 	}
-	store.gcHooks = gcTestHooks{}
+	restoreMove()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -333,10 +333,10 @@ func TestGCFailureAfterObjectTrashRecoversWithoutLiveReferenceLoss(t *testing.T)
 func TestGCCleanupFailureSurfacesTrashAndStartupCompletesCleanup(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.RetentionDays = 30
 	limits.MaxVersionsPerTarget = 8
-	store := openPhase2TestStore(t, root, limits)
+	store := openBackupTestStore(t, root, limits)
 	now := time.Date(2026, 8, 5, 7, 30, 0, 0, time.UTC)
 	target := filepath.Join(base, "target.txt")
 	candidate := captureGCFixture(t, store, target, "old", false, now.AddDate(0, 0, -50))
@@ -346,12 +346,12 @@ func TestGCCleanupFailureSurfacesTrashAndStartupCompletesCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.gcHooks.beforeTrashDelete = func(kind, _ string) error {
-		if kind == "object" {
+	restoreRemoval := overrideGCTrashRemoval(store, func(path string) error {
+		if strings.HasPrefix(filepath.Base(path), gcObjectTrashPrefix) {
 			return operation.New(operation.KindFilesystem, "injected object cleanup failure")
 		}
 		return nil
-	}
+	})
 	result, err := store.ApplyGC(context.Background(), plan)
 	if operation.KindOf(err) != operation.KindFilesystem || result.ManifestsRemoved != 1 || result.ObjectsRemoved != 1 ||
 		result.TrashCleanupFailures != 1 || result.TrashEntriesRemaining != 1 || result.BytesReclaimed != 0 {
@@ -360,7 +360,7 @@ func TestGCCleanupFailureSurfacesTrashAndStartupCompletesCleanup(t *testing.T) {
 	if _, err := os.Stat(gcObjectTrashPath(root, candidate.Manifest.ObjectDigest)); err != nil {
 		t.Fatalf("object trash missing after cleanup failure: %v", err)
 	}
-	store.gcHooks = gcTestHooks{}
+	restoreRemoval()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestGCCleanupFailureSurfacesTrashAndStartupCompletesCleanup(t *testing.T) {
 
 func TestCaptureAdmissionRejectsActiveGC(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte("capture"), 0o600); err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestCaptureAdmissionRejectsActiveGC(t *testing.T) {
 
 func TestPinnedCaptureDoesNotLeakTargetReservationAccounting(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "pinned", true)
 	store.stateMu.RLock()
 	defer store.stateMu.RUnlock()
@@ -415,7 +415,7 @@ func TestPinnedCaptureDoesNotLeakTargetReservationAccounting(t *testing.T) {
 func TestOpenRecoversRecognizedGCTrashAndPreservesUnknownEntries(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	captured := captureManagementFixture(t, store, target, "trash recovery", false)
 
@@ -438,7 +438,7 @@ func TestOpenRecoversRecognizedGCTrashAndPreservesUnknownEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	store, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestOpenRecoversRecognizedGCTrashAndPreservesUnknownEntries(t *testing.T) {
 func TestOpenPreservesMalformedRecognizedGCTrash(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	manifestTrash := gcManifestTrashPath(root, strings.Repeat("a", 64))
 	if err := os.WriteFile(manifestTrash, []byte("not a manifest\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -480,7 +480,7 @@ func TestOpenPreservesMalformedRecognizedGCTrash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	store, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatalf("Open() rejected uncertain trash instead of preserving it: %v", err)
 	}

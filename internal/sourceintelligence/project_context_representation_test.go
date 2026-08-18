@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestR27Phase14ProjectContextDeeperRelationsAreAlwaysSignatures(t *testing.T) {
+func TestProjectContextDeeperRelationsAreAlwaysSignatures(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -15,14 +15,14 @@ func TestR27Phase14ProjectContextDeeperRelationsAreAlwaysSignatures(t *testing.T
 	aPath := filepath.Join(root, "a.ts")
 	bPath := filepath.Join(root, "b.ts")
 	cPath := filepath.Join(root, "c.ts")
-	a := phase12Facts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A { value() { return 1; } }\n")
-	b := phase12Facts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B { value() { return 2; } }\n")
-	c := phase12Facts(t, TypeScriptAnalyzer{}, cPath, "export class C { value() { return 3; } }\n")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{a, b, c}, phase12ResolverLimits())
+	a := projectResolverFacts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A { value() { return 1; } }\n")
+	b := projectResolverFacts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B { value() { return 2; } }\n")
+	c := projectResolverFacts(t, TypeScriptAnalyzer{}, cPath, "export class C { value() { return 3; } }\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{a, b, c}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := model.PlanContext(context.Background(), []ProjectSelector{phase13PathSelector(a)}, ProjectContextOptions{
+	plan, err := model.PlanContext(context.Background(), []ProjectSelector{queryPathSelector(a)}, ProjectContextOptions{
 		BudgetBytes: 4096, MaxItems: 16, MaxDepth: 2, BodyPolicy: ProjectContextPrefer,
 	})
 	if err != nil {

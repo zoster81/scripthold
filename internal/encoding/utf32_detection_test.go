@@ -28,7 +28,7 @@ func appendUTF32Unit(data []byte, order binary.ByteOrder, unit uint32) []byte {
 	return append(data, encoded[:]...)
 }
 
-func TestPhase4DetectBOMlessUTF32IsContentBased(t *testing.T) {
+func TestDetectBOMlessUTF32IsContentBased(t *testing.T) {
 	content := "title = UTF-32 acceptance\r\nLatin: Città\r\nCyrillic: Привет\r\nCJK: 中文\r\nEmoji: 🌍\r\n"
 	for _, charset := range []string{"utf-32-le", "utf-32-be"} {
 		t.Run(charset, func(t *testing.T) {
@@ -58,7 +58,7 @@ func TestPhase4DetectBOMlessUTF32IsContentBased(t *testing.T) {
 	}
 }
 
-func TestPhase4DetectBOMlessUTF32RejectsMalformedScalars(t *testing.T) {
+func TestDetectBOMlessUTF32RejectsMalformedScalars(t *testing.T) {
 	for _, testCase := range []struct {
 		charset string
 		order   binary.ByteOrder
@@ -83,7 +83,7 @@ func TestPhase4DetectBOMlessUTF32RejectsMalformedScalars(t *testing.T) {
 	}
 }
 
-func TestPhase4DetectBOMlessUTF32RejectsBinaryAndShortAmbiguity(t *testing.T) {
+func TestDetectBOMlessUTF32RejectsBinaryAndShortAmbiguity(t *testing.T) {
 	randomData := make([]byte, 1024)
 	rand.New(rand.NewSource(84)).Read(randomData)
 	tests := [][]byte{
@@ -100,7 +100,7 @@ func TestPhase4DetectBOMlessUTF32RejectsBinaryAndShortAmbiguity(t *testing.T) {
 	}
 }
 
-func TestPhase4DetectUTF32BOMRemainsAuthoritativeOverUTF16Prefix(t *testing.T) {
+func TestDetectUTF32BOMRemainsAuthoritativeOverUTF16Prefix(t *testing.T) {
 	data := append(BOMBytesFor("utf-32-le"), encodeUTF32Fixture(t, "utf-32-le", "A")...)
 	result := Detect(data)
 	if result.Charset != "utf-32-le" || !result.HasBOM || result.Confidence != 100 {
@@ -108,7 +108,7 @@ func TestPhase4DetectUTF32BOMRemainsAuthoritativeOverUTF16Prefix(t *testing.T) {
 	}
 }
 
-func TestPhase4UTF32DetectionDoesNotOverrideUTF16(t *testing.T) {
+func TestUTF32DetectionDoesNotOverrideUTF16(t *testing.T) {
 	content := "ordinary UTF-16 text with enough printable characters\r\nsecond line\r\n"
 	for _, charset := range []string{"utf-16-le", "utf-16-be"} {
 		data := encodeUTF16Fixture(t, charset, content)
@@ -165,7 +165,7 @@ func encodeUTF32FixtureForFuzz(charset, content string) []byte {
 	return encoded
 }
 
-func TestPhase4DetectFromFileBOMlessUTF32AcrossChunkBoundary(t *testing.T) {
+func TestDetectFromFileBOMlessUTF32AcrossChunkBoundary(t *testing.T) {
 	content := bytes.Repeat([]byte("A"), ChunkSize/2+257)
 	for _, charset := range []string{"utf-32-le", "utf-32-be"} {
 		t.Run(charset, func(t *testing.T) {

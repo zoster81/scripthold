@@ -55,7 +55,7 @@ func TestOpenRebuildsMissingAndCorruptDerivedIndex(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			base := canonicalTempDir(t)
 			root := filepath.Join(base, "store")
-			store := openPhase2TestStore(t, root, phase2TestLimits())
+			store := openBackupTestStore(t, root, backupStoreTestLimits())
 			target := filepath.Join(base, "target.txt")
 			if err := os.WriteFile(target, []byte("indexed bytes"), 0o600); err != nil {
 				t.Fatal(err)
@@ -71,7 +71,7 @@ func TestOpenRebuildsMissingAndCorruptDerivedIndex(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			reopened, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+			reopened, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 			if err != nil {
 				t.Fatalf("reopen: %v", err)
 			}
@@ -99,7 +99,7 @@ func TestOpenRejectsHardLinkedInternalFiles(t *testing.T) {
 		t.Run(entry, func(t *testing.T) {
 			base := canonicalTempDir(t)
 			root := filepath.Join(base, "store")
-			store := openPhase2TestStore(t, root, phase2TestLimits())
+			store := openBackupTestStore(t, root, backupStoreTestLimits())
 			target := filepath.Join(base, "target.txt")
 			if err := os.WriteFile(target, []byte("hard-link fixture"), 0o600); err != nil {
 				t.Fatal(err)
@@ -130,7 +130,7 @@ func TestOpenRejectsHardLinkedInternalFiles(t *testing.T) {
 				t.Skipf("hard links unavailable: %v", err)
 			}
 
-			reopened, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+			reopened, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 			if reopened != nil {
 				_ = reopened.Close()
 			}
@@ -147,7 +147,7 @@ func TestOpenRejectsHardLinkedInternalFiles(t *testing.T) {
 func TestOpenRejectsUnexpectedIndexEntry(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestOpenRejectsUnexpectedIndexEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	reopened, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if reopened != nil {
 		_ = reopened.Close()
 	}
@@ -171,7 +171,7 @@ func TestOpenRejectsUnexpectedIndexEntry(t *testing.T) {
 func TestOpenRejectsManifestWithInconsistentContentFingerprint(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte("fingerprint bytes"), 0o600); err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestOpenRejectsManifestWithInconsistentContentFingerprint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	reopened, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if reopened != nil {
 		_ = reopened.Close()
 	}
@@ -216,7 +216,7 @@ func TestOpenRejectsManifestWithInconsistentContentFingerprint(t *testing.T) {
 func TestOpenRejectsMissingReferencedObject(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte("object required"), 0o600); err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func TestOpenRejectsMissingReferencedObject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	reopened, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if reopened != nil {
 		_ = reopened.Close()
 	}
@@ -247,7 +247,7 @@ func TestOpenRejectsMissingReferencedObject(t *testing.T) {
 func TestOpenRejectsTamperedManifestChecksum(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte("manifest bytes"), 0o600); err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestOpenRejectsTamperedManifestChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	reopened, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if reopened != nil {
 		_ = reopened.Close()
 	}
@@ -292,7 +292,7 @@ func TestOpenRejectsTamperedManifestChecksum(t *testing.T) {
 func TestOpenPreservesAndReportsOrphanStagingAndTrashEntries(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestOpenPreservesAndReportsOrphanStagingAndTrashEntries(t *testing.T) {
 		}
 	}
 
-	reopened, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	reopened, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}

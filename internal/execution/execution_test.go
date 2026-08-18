@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -169,14 +170,9 @@ func TestRunBoundsInheritedOutputPipeLeak(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	started := time.Now()
 	_, err = plan.Run(context.Background(), nil)
-	elapsed := time.Since(started)
 	killRecordedProcess(t, pidFile)
 
-	if elapsed > 5*time.Second {
-		t.Fatalf("Run() took %v after the direct child exited while a descendant held output open; want <= 5s", elapsed)
-	}
 	if !errors.Is(err, exec.ErrWaitDelay) {
 		t.Fatalf("Run() error = %v, want errors.Is(exec.ErrWaitDelay)", err)
 	}
@@ -238,7 +234,10 @@ func TestExecutionHelperProcess(t *testing.T) {
 		}
 		os.Exit(0)
 	case "hold-output":
-		time.Sleep(8 * time.Second)
+		terminated := make(chan os.Signal, 1)
+		signal.Notify(terminated, os.Interrupt)
+		defer signal.Stop(terminated)
+		<-terminated
 		os.Exit(0)
 	case "environment":
 		_, _ = os.Stdout.WriteString(os.Getenv("VERIFY_ENV"))

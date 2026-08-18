@@ -508,12 +508,25 @@ type atomicReplaceRetryReport struct {
 type atomicReplaceRetryReporter func(targetPath, stagedPath string, report atomicReplaceRetryReport)
 type atomicReplaceAlternative func(stagedPath, targetPath string, previousErr error) (bool, error)
 
+type atomicReplaceRetryTiming struct {
+	now   func() time.Time
+	sleep func(time.Duration)
+}
+
+func realAtomicReplaceRetryTiming() atomicReplaceRetryTiming {
+	return atomicReplaceRetryTiming{now: time.Now, sleep: time.Sleep}
+}
+
 func commitStagedTargetWithRetry(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error) error {
 	return commitStagedTargetWithRetryObservedAlternative(path, stagedPath, expected, commit, reportAtomicReplaceRetry, tryAlternativeAtomicReplace)
 }
 
 func commitStagedTargetWithRetryObservedAlternative(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error, reporter atomicReplaceRetryReporter, alternative atomicReplaceAlternative) error {
-	started := time.Now()
+	return commitStagedTargetWithRetryTimed(path, stagedPath, expected, commit, reporter, alternative, realAtomicReplaceRetryTiming())
+}
+
+func commitStagedTargetWithRetryTimed(path, stagedPath string, expected *FileSnapshot, commit func(string, string) error, reporter atomicReplaceRetryReporter, alternative atomicReplaceAlternative, timing atomicReplaceRetryTiming) error {
+	started := timing.now()
 	commitAttempts := 1
 	err := commit(stagedPath, path)
 	if err == nil || expected == nil || !expected.Exists || !isRetryableAtomicReplaceError(err) {
@@ -530,15 +543,15 @@ func commitStagedTargetWithRetryObservedAlternative(path, stagedPath string, exp
 			Outcome:        outcome,
 			CommitAttempts: commitAttempts,
 			Attempts:       copied,
-			Elapsed:        time.Since(started),
+			Elapsed:        timing.now().Sub(started),
 		})
 	}
 
 	deadline := started.Add(atomicReplaceRetryWindow)
 	lastErr := err
 	alternativeTried := false
-	for time.Now().Before(deadline) {
-		time.Sleep(atomicReplaceRetryDelay)
+	for timing.now().Before(deadline) {
+		timing.sleep(atomicReplaceRetryDelay)
 		if verifyErr := expected.Verify(path); verifyErr != nil {
 			attempts = append(attempts, atomicReplaceRetryAttempt{Phase: atomicReplaceAttemptVerify, Err: verifyErr})
 			if isRetryableAtomicReplaceError(verifyErr) {

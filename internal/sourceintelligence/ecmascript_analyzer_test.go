@@ -31,7 +31,7 @@ const view = () => (<div>class JSXFake {}</div>);
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.jsx"
-	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ const node = <Widget prop="class TSXFake {}" />;
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.tsx"
-	result, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 512))
+	result, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ const slashClass = /[\/}]/;
 const ratio = total / count;
 function real() { return ratio; }
 `
-	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ function real() { return ratio; }
 }
 func TestECMAScriptAnalyzersMalformedLimitsCancellationAndASI(t *testing.T) {
 	asi := sourceDocumentForScanner("const first = () => 1\nconst second = 2\nfunction third() {}\n")
-	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), asi, phase3AnalyzeOptions(true, 32))
+	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), asi, testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestECMAScriptAnalyzersMalformedLimitsCancellationAndASI(t *testing.T) {
 
 	malformed := sourceDocumentForScanner("class Good {}\nconst broken = `unterminated\n")
 	malformed.Path = "broken.js"
-	partial, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), malformed, phase3AnalyzeOptions(true, 32))
+	partial, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), malformed, testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestECMAScriptAnalyzersMalformedLimitsCancellationAndASI(t *testing.T) {
 		t.Fatalf("malformed recovery lost Good: %v", sortedSymbolQualifiedNames(partial.Analysis.Symbols))
 	}
 
-	limited, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("interface A {}\ninterface B {}\ninterface C {}\n"), phase3AnalyzeOptions(false, 2))
+	limited, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("interface A {}\ninterface B {}\ninterface C {}\n"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestECMAScriptAnalyzersMalformedLimitsCancellationAndASI(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (TypeScriptAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("interface A {}"), phase3AnalyzeOptions(false, 16))
+	_, err = (TypeScriptAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("interface A {}"), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("TypeScript cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}

@@ -237,7 +237,7 @@ func TestLanguageRegistryAcceptsExplicitAmbiguityClasses(t *testing.T) {
 	}
 }
 
-func TestR27CapabilityMatrixCoversApprovedCatalogWithoutAccidentalActivation(t *testing.T) {
+func TestCapabilityMatrixCoversApprovedCatalogWithoutAccidentalActivation(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)

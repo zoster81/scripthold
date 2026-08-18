@@ -87,7 +87,7 @@ func TestHandleReadMultipleFiles_PartialFailure(t *testing.T) {
 	}
 }
 
-func TestHandleReadMultipleFiles_Phase8EncodingStatusAndBoundedSummary(t *testing.T) {
+func TestHandleReadMultipleFilesEncodingStatusAndBoundedSummary(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	goodPath := filepath.Join(tempDir, "good.txt")
@@ -140,7 +140,7 @@ func TestHandleReadMultipleFiles_Phase8EncodingStatusAndBoundedSummary(t *testin
 	}
 }
 
-func TestHandleReadMultipleFiles_Phase8ErrorSummaryYieldsToContentBudget(t *testing.T) {
+func TestHandleReadMultipleFilesErrorSummaryYieldsToContentBudget(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir}, WithConfig(&config.Config{
 		DefaultEncoding: "utf-8",

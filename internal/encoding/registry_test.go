@@ -108,7 +108,7 @@ func TestListEncodings(t *testing.T) {
 	}
 }
 
-func TestPhase4XTextCodecSetIncludingUTF32(t *testing.T) {
+func TestXTextCodecSetIncludingUTF32(t *testing.T) {
 	want := []string{
 		"big5", "euc-jp", "euc-kr", "gb18030", "gbk", "hz-gb-2312",
 		"ibm037", "ibm1047", "ibm1140", "ibm437", "ibm850", "ibm852", "ibm855", "ibm858", "ibm860", "ibm862", "ibm863", "ibm865", "ibm866",
@@ -131,7 +131,7 @@ func TestPhase4XTextCodecSetIncludingUTF32(t *testing.T) {
 	}
 }
 
-func TestPhase3XTextAliasNormalization(t *testing.T) {
+func TestXTextAliasNormalization(t *testing.T) {
 	tests := map[string]string{
 		"CP437":           "ibm437",
 		"IBM00858":        "ibm858",
@@ -155,7 +155,7 @@ func TestPhase3XTextAliasNormalization(t *testing.T) {
 	}
 }
 
-func TestPhase3IncludesEveryXTextCharmapWithStrictByteSemantics(t *testing.T) {
+func TestIncludesEveryXTextCharmapWithStrictByteSemantics(t *testing.T) {
 	if len(charmap.All) != 46 {
 		t.Fatalf("pinned x/text charmap.All contains %d encodings, want 46", len(charmap.All))
 	}
@@ -222,7 +222,7 @@ func TestIndexedAliasesNeverExposeStillUnregisteredOrAmbiguousCodecs(t *testing.
 	}
 }
 
-func TestPhase3LineEndingCodeUnitsComeFromRegistry(t *testing.T) {
+func TestLineEndingCodeUnitsComeFromRegistry(t *testing.T) {
 	for _, item := range ListEncodings() {
 		cr, lf, ok := LineEndingBytes(item.Name)
 		if !ok {
@@ -241,7 +241,7 @@ func TestPhase3LineEndingCodeUnitsComeFromRegistry(t *testing.T) {
 	}
 }
 
-func TestPhase4UTF32CapabilitiesAreFullyExposed(t *testing.T) {
+func TestUTF32CapabilitiesAreFullyExposed(t *testing.T) {
 	for _, name := range []string{"utf-32-le", "utf32be"} {
 		descriptor, ok := LookupDescriptor(name)
 		if !ok {

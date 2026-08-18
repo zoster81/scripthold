@@ -55,7 +55,7 @@ fake = "class StringFake; def nope; end; end"
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.rb"
-	result, err := (RubyAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ fake = "class StringFake; def nope; end; end"
 }
 
 func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
-	partial, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class Good\nend\nclass Broken\n"), phase3AnalyzeOptions(true, 32))
+	partial, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class Good\nend\nclass Broken\n"), testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 		t.Fatalf("malformed Ruby lost Good: %v", sortedSymbolQualifiedNames(partial.Analysis.Symbols))
 	}
 
-	limited, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class A\nend\nclass B\nend\nclass C\nend\n"), phase3AnalyzeOptions(false, 2))
+	limited, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class A\nend\nclass B\nend\nclass C\nend\n"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (RubyAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("class A\nend\n"), phase3AnalyzeOptions(false, 16))
+	_, err = (RubyAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("class A\nend\n"), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("Ruby cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}

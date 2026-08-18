@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 )
 
-func phase7CorpusFixture(t *testing.T, name string) []byte {
+func ambiguityCorpusFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	path := filepath.Join("..", "..", "filetoolsserver", "handler", "testdata", "internet-corpus", name)
 	data, err := os.ReadFile(path)
@@ -20,7 +20,7 @@ func phase7CorpusFixture(t *testing.T, name string) []byte {
 	return data
 }
 
-func requirePhase7Ambiguous(t *testing.T, data []byte) {
+func requireAmbiguousEncoding(t *testing.T, data []byte) {
 	t.Helper()
 	result := Detect(data)
 	if result.Charset != "" || result.Confidence >= MinConfidenceThreshold {
@@ -28,7 +28,7 @@ func requirePhase7Ambiguous(t *testing.T, data []byte) {
 	}
 }
 
-func TestPhase7PinnedHighConfidenceConfusionsBecomeAmbiguous(t *testing.T) {
+func TestPinnedHighConfidenceConfusionsBecomeAmbiguous(t *testing.T) {
 	for _, fixture := range []string{
 		"windows-1251.fixture",
 		"windows-1253.fixture",
@@ -40,12 +40,12 @@ func TestPhase7PinnedHighConfidenceConfusionsBecomeAmbiguous(t *testing.T) {
 		"windows-1257.fixture",
 	} {
 		t.Run(fixture, func(t *testing.T) {
-			requirePhase7Ambiguous(t, phase7CorpusFixture(t, fixture))
+			requireAmbiguousEncoding(t, ambiguityCorpusFixture(t, fixture))
 		})
 	}
 }
 
-func TestPhase7StrongPinnedLegacyEvidenceRemainsTrusted(t *testing.T) {
+func TestStrongPinnedLegacyEvidenceRemainsTrusted(t *testing.T) {
 	tests := map[string]string{
 		"big5.fixture":        "big5",
 		"euc-jp.fixture":      "euc-jp",
@@ -57,7 +57,7 @@ func TestPhase7StrongPinnedLegacyEvidenceRemainsTrusted(t *testing.T) {
 	}
 	for fixture, want := range tests {
 		t.Run(fixture, func(t *testing.T) {
-			result := Detect(phase7CorpusFixture(t, fixture))
+			result := Detect(ambiguityCorpusFixture(t, fixture))
 			if result.Charset != want || result.Confidence < HighConfidenceThreshold {
 				t.Fatalf("Detect = %+v, want trusted %s", result, want)
 			}
@@ -65,7 +65,7 @@ func TestPhase7StrongPinnedLegacyEvidenceRemainsTrusted(t *testing.T) {
 	}
 }
 
-func TestPhase7StatefulSignaturesPrecedeUTF8Fallback(t *testing.T) {
+func TestStatefulSignaturesPrecedeUTF8Fallback(t *testing.T) {
 	tests := map[string]string{
 		"hz-gb-2312.fixture":  "hz-gb-2312",
 		"iso-2022-jp.fixture": "iso-2022-jp",
@@ -73,7 +73,7 @@ func TestPhase7StatefulSignaturesPrecedeUTF8Fallback(t *testing.T) {
 	}
 	for fixture, want := range tests {
 		t.Run(fixture, func(t *testing.T) {
-			result := Detect(phase7CorpusFixture(t, fixture))
+			result := Detect(ambiguityCorpusFixture(t, fixture))
 			if result.Charset != want || result.Confidence < HighConfidenceThreshold {
 				t.Fatalf("Detect = %+v, want trusted %s", result, want)
 			}
@@ -81,7 +81,7 @@ func TestPhase7StatefulSignaturesPrecedeUTF8Fallback(t *testing.T) {
 	}
 }
 
-func TestPhase7StatefulSyntaxAloneIsNotTrusted(t *testing.T) {
+func TestStatefulSyntaxAloneIsNotTrusted(t *testing.T) {
 	tests := [][]byte{
 		[]byte("template syntax ~{ab~} is literal ASCII text\n"),
 		append([]byte("escape example: "), []byte{0x1b, '$', 'B', 'A', 'B', 0x1b, '(', 'B', '\n'}...),
@@ -94,15 +94,15 @@ func TestPhase7StatefulSyntaxAloneIsNotTrusted(t *testing.T) {
 	}
 }
 
-func TestPhase7StatefulVariantsRemainExplicitWhenBaseSyntaxCannotDecode(t *testing.T) {
+func TestStatefulVariantsRemainExplicitWhenBaseSyntaxCannotDecode(t *testing.T) {
 	for _, fixture := range []string{"iso-2022-jp-2.fixture", "iso-2022-jp-3.fixture", "iso-2022-jp-ms.fixture"} {
 		t.Run(fixture, func(t *testing.T) {
-			requirePhase7Ambiguous(t, phase7CorpusFixture(t, fixture))
+			requireAmbiguousEncoding(t, ambiguityCorpusFixture(t, fixture))
 		})
 	}
 }
 
-func TestPhase7GB18030FourByteEvidenceRejectsRevisionGuessing(t *testing.T) {
+func TestGB18030FourByteEvidenceRejectsRevisionGuessing(t *testing.T) {
 	registered, ok := Get("gb18030")
 	if !ok {
 		t.Fatal("gb18030 is not registered")
@@ -115,44 +115,44 @@ func TestPhase7GB18030FourByteEvidenceRejectsRevisionGuessing(t *testing.T) {
 	// Four-byte grammar proves that GBK is wrong, but Scripthold exposes both
 	// generic GB18030 and exact GB18030:2022 semantics. Their revision cannot be
 	// inferred from bytes alone, so auto-detection must require explicit choice.
-	requirePhase7Ambiguous(t, data)
+	requireAmbiguousEncoding(t, data)
 }
 
-func TestPhase7GB18030SubsetDoesNotOverrideGBK(t *testing.T) {
-	data := phase7CorpusFixture(t, "gb18030.fixture")
+func TestGB18030SubsetDoesNotOverrideGBK(t *testing.T) {
+	data := ambiguityCorpusFixture(t, "gb18030.fixture")
 	result := Detect(data)
 	if result.Charset != "gbk" || result.Confidence < HighConfidenceThreshold {
 		t.Fatalf("Detect = %+v, want narrow GBK-compatible result for GB18030 subset", result)
 	}
 }
 
-func TestPhase7ControlHeavyValidUTF8IsBinaryAmbiguous(t *testing.T) {
+func TestControlHeavyValidUTF8IsBinaryAmbiguous(t *testing.T) {
 	data := bytes.Repeat([]byte{0x01}, 32)
 	if !utf8.Valid(data) {
 		t.Fatal("control-heavy fixture must remain syntactically valid UTF-8")
 	}
-	requirePhase7Ambiguous(t, data)
+	requireAmbiguousEncoding(t, data)
 }
 
-func TestPhase7ShortLegacyEvidenceFloor(t *testing.T) {
+func TestShortLegacyEvidenceFloor(t *testing.T) {
 	for _, data := range [][]byte{
 		{0xE9},
 		{0xCF, 0xF0},
 		{0x82, 0xA0},
 	} {
-		requirePhase7Ambiguous(t, data)
+		requireAmbiguousEncoding(t, data)
 	}
 }
 
-func TestPhase7RejectedDetectorLabelsRemainFailClosed(t *testing.T) {
+func TestRejectedDetectorLabelsRemainFailClosed(t *testing.T) {
 	for _, fixture := range []string{"johab.fixture", "euc-tw.fixture"} {
 		t.Run(fixture, func(t *testing.T) {
-			requirePhase7Ambiguous(t, phase7CorpusFixture(t, fixture))
+			requireAmbiguousEncoding(t, ambiguityCorpusFixture(t, fixture))
 		})
 	}
 }
 
-func TestPhase7PinnedCorpusHasNoTrustedTextMismatch(t *testing.T) {
+func TestPinnedCorpusHasNoTrustedTextMismatch(t *testing.T) {
 	type fixture struct {
 		Encoding string `json:"encoding"`
 		File     string `json:"file"`
@@ -177,7 +177,7 @@ func TestPhase7PinnedCorpusHasNoTrustedTextMismatch(t *testing.T) {
 			continue
 		}
 		t.Run(entry.File, func(t *testing.T) {
-			data := phase7CorpusFixture(t, entry.File)
+			data := ambiguityCorpusFixture(t, entry.File)
 			result := Detect(data)
 			if result.Charset == "" || result.Confidence < MinConfidenceThreshold {
 				return
@@ -230,7 +230,7 @@ func TestPhase7PinnedCorpusHasNoTrustedTextMismatch(t *testing.T) {
 	}
 }
 
-func TestPhase7ChunkedStatefulDetectionSurvivesEscapeBoundary(t *testing.T) {
+func TestChunkedStatefulDetectionSurvivesEscapeBoundary(t *testing.T) {
 	registered, ok := Get("iso-2022-jp")
 	if !ok {
 		t.Fatal("iso-2022-jp is not registered")
@@ -262,12 +262,12 @@ func TestPhase7ChunkedStatefulDetectionSurvivesEscapeBoundary(t *testing.T) {
 	}
 }
 
-func FuzzPhase7TrustedDetectionAlwaysStrictlyDecodes(f *testing.F) {
+func FuzzTrustedDetectionAlwaysStrictlyDecodes(f *testing.F) {
 	for _, seed := range [][]byte{
 		[]byte("plain UTF-8 text\n"),
-		phase7CorpusFixtureForFuzz("big5.fixture"),
-		phase7CorpusFixtureForFuzz("iso-2022-jp.fixture"),
-		phase7CorpusFixtureForFuzz("windows-1251.fixture"),
+		ambiguityCorpusFixtureForFuzz("big5.fixture"),
+		ambiguityCorpusFixtureForFuzz("iso-2022-jp.fixture"),
+		ambiguityCorpusFixtureForFuzz("windows-1251.fixture"),
 		bytes.Repeat([]byte{0x01}, 32),
 	} {
 		f.Add(seed)
@@ -305,7 +305,7 @@ func FuzzPhase7TrustedDetectionAlwaysStrictlyDecodes(f *testing.F) {
 	})
 }
 
-func phase7CorpusFixtureForFuzz(name string) []byte {
+func ambiguityCorpusFixtureForFuzz(name string) []byte {
 	path := filepath.Join("..", "..", "filetoolsserver", "handler", "testdata", "internet-corpus", name)
 	data, err := os.ReadFile(path)
 	if err != nil {

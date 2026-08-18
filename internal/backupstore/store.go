@@ -76,10 +76,9 @@ type Store struct {
 	activeRestoreManifests map[string]int
 	activeRestoreObjects   map[string]int
 
-	captureHooks captureTestHooks
-	gcHooks      gcTestHooks
-	closeOnce    sync.Once
-	closeErr     error
+	ops       storeOperations
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Open validates, creates, exclusively locks, and initializes one store.
@@ -114,6 +113,7 @@ func Open(options Options) (_ *Store, err error) {
 		reservedTargets:        make(map[string]int),
 		activeRestoreManifests: make(map[string]int),
 		activeRestoreObjects:   make(map[string]int),
+		ops:                    defaultStoreOperations(),
 	}
 	defer func() {
 		if err != nil {

@@ -1068,12 +1068,12 @@ func TestSessionIDsAreUniqueVisibleASCII(t *testing.T) {
 	}
 }
 
-func TestSSEOnlySessionReleasesCapacityAfterIdleTimeout(t *testing.T) {
+func TestSSEOnlySessionReleasesCapacityAfterIdleExpiry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{Version: "sse-expiry-test", LifecycleContext: ctx})
 	cfg := validTestConfig(1)
-	cfg.SessionTimeout = 40 * time.Millisecond
+	cfg.SessionTimeout = time.Minute
 	unstarted := httptest.NewUnstartedServer(nil)
 	cfg.AllowedHosts = map[string]struct{}{strings.ToLower(unstarted.Listener.Addr().String()): {}}
 	h := NewHandler(cfg, server, nil)
@@ -1104,7 +1104,7 @@ func TestSSEOnlySessionReleasesCapacityAfterIdleTimeout(t *testing.T) {
 		t.Fatalf("legacy SSE status = %d, body %q", sseResponse.StatusCode, readBody(t, sseResponse))
 	}
 
-	time.Sleep(cfg.SessionTimeout + sessionTrackerGrace + 150*time.Millisecond)
+	expireCurrentSession(t, h.sessions, firstSessionID)
 	secondSessionID := legacyInitialize(t, ctx, unstarted.URL+cfg.Path)
 	deleted := legacyRequest(t, ctx, http.MethodDelete, unstarted.URL+cfg.Path, "", secondSessionID)
 	_ = deleted.Body.Close()

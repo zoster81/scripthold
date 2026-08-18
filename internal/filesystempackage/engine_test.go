@@ -23,18 +23,18 @@ func TestEnginePreviewIsReadOnlyAndApplyCommitsAllSevenOperations(t *testing.T) 
 	moveSource := filepath.Join(root, "move-source.txt")
 	deleteFile := filepath.Join(root, "delete-file.txt")
 	deleteDir := filepath.Join(root, "delete-dir")
-	mustWriteR24TestFile(t, copySource, []byte("copy"))
+	mustWritePackageTestFile(t, copySource, []byte("copy"))
 	if err := os.MkdirAll(filepath.Join(copyDirSource, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWriteR24TestFile(t, filepath.Join(copyDirSource, ".hidden"), []byte("hidden"))
-	mustWriteR24TestFile(t, filepath.Join(copyDirSource, ".git", "config"), []byte("git"))
-	mustWriteR24TestFile(t, moveSource, []byte("move"))
-	mustWriteR24TestFile(t, deleteFile, []byte("delete"))
+	mustWritePackageTestFile(t, filepath.Join(copyDirSource, ".hidden"), []byte("hidden"))
+	mustWritePackageTestFile(t, filepath.Join(copyDirSource, ".git", "config"), []byte("git"))
+	mustWritePackageTestFile(t, moveSource, []byte("move"))
+	mustWritePackageTestFile(t, deleteFile, []byte("delete"))
 	if err := os.MkdirAll(filepath.Join(deleteDir, "nested"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWriteR24TestFile(t, filepath.Join(deleteDir, "nested", "gone.txt"), []byte("gone"))
+	mustWritePackageTestFile(t, filepath.Join(deleteDir, "nested", "gone.txt"), []byte("gone"))
 
 	engine := newTestEngine(t, root, testEngineLimits(), captureCurrentFiles)
 	manifest := Manifest{FormatVersion: FormatV1, Operations: []Operation{
@@ -46,7 +46,7 @@ func TestEnginePreviewIsReadOnlyAndApplyCommitsAllSevenOperations(t *testing.T) 
 		{Type: OperationDeleteFile, Path: deleteFile},
 		{Type: OperationDeleteDirectory, Path: deleteDir},
 	}}
-	before := r24TestTreeNames(t, root)
+	before := filesystemPackageTestTreeNames(t, root)
 	preview, err := engine.Preview(context.Background(), manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestEnginePreviewIsReadOnlyAndApplyCommitsAllSevenOperations(t *testing.T) 
 	if preview.PreviewID == "" || preview.Plan.OperationCount != 7 || preview.Plan.BackupCount != 2 {
 		t.Fatalf("unexpected preview: %#v", preview)
 	}
-	if after := r24TestTreeNames(t, root); !reflect.DeepEqual(before, after) {
+	if after := filesystemPackageTestTreeNames(t, root); !reflect.DeepEqual(before, after) {
 		t.Fatalf("preview changed workspace:\nbefore=%v\nafter=%v", before, after)
 	}
 
@@ -108,35 +108,37 @@ func TestEngineStagesAllFeasibleContentBeforeFirstCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.commitHook = func(index int, phase string) error {
-		if index != 0 || phase != "before" {
-			return nil
-		}
-		entries, err := os.ReadDir(root)
-		if err != nil {
-			return err
-		}
-		stagingCount := 0
-		for _, entry := range entries {
-			if strings.HasPrefix(entry.Name(), ".scripthold-r24-file-") {
-				stagingCount++
+	originalPublish := engine.commitOps.publishFile
+	inspected := false
+	engine.commitOps.publishFile = func(staged *filesystem.StagedFile, destination string) error {
+		if !inspected {
+			inspected = true
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				return err
+			}
+			stagingCount := 0
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".scripthold-r24-file-") {
+					stagingCount++
+				}
+			}
+			if stagingCount != 2 {
+				return operation.New(operation.KindConflict, "all file stages were not ready before the first publish")
+			}
+			for _, target := range []string{"first.bin", "second.bin"} {
+				if _, err := os.Stat(filepath.Join(root, target)); !os.IsNotExist(err) {
+					return operation.New(operation.KindConflict, "target appeared before first publish")
+				}
 			}
 		}
-		if stagingCount != 2 {
-			return operation.New(operation.KindConflict, "all file stages were not ready before the first commit")
-		}
-		for _, target := range []string{"first.bin", "second.bin"} {
-			if _, err := os.Stat(filepath.Join(root, target)); !os.IsNotExist(err) {
-				return operation.New(operation.KindConflict, "target appeared before first commit")
-			}
-		}
-		return nil
+		return originalPublish(staged, destination)
 	}
 	output, err := engine.Apply(context.Background(), preview.PreviewID)
 	if err != nil || !output.Applied {
 		t.Fatalf("apply = %#v / %v", output, err)
 	}
-	for _, entry := range r24TestTreeNames(t, root) {
+	for _, entry := range filesystemPackageTestTreeNames(t, root) {
 		if strings.Contains(entry, ".scripthold-r24-file-") {
 			t.Fatalf("staging residue remains after successful apply: %s", entry)
 		}
@@ -153,7 +155,7 @@ func TestEnginePrecommitConflictConsumesCapabilityWithoutMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustWriteR24TestFile(t, target, []byte("racer"))
+	mustWritePackageTestFile(t, target, []byte("racer"))
 	output, err := engine.Apply(context.Background(), preview.PreviewID)
 	if operation.KindOf(err) != operation.KindConflict || output.PartialCommit {
 		t.Fatalf("precommit apply = %#v / %v", output, err)
@@ -176,11 +178,13 @@ func TestEngineMidCommitFailureReturnsDeterministicPartialState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.commitHook = func(index int, phase string) error {
-		if index == 1 && phase == "before" {
+	originalCreate := engine.commitOps.createDirectory
+	second := filepath.Join(root, "second")
+	engine.commitOps.createDirectory = func(path string, mode os.FileMode) error {
+		if path == second {
 			return operation.New(operation.KindFilesystem, "injected second-operation failure")
 		}
-		return nil
+		return originalCreate(path, mode)
 	}
 	output, err := engine.Apply(context.Background(), preview.PreviewID)
 	if operation.KindOf(err) != operation.KindPartialCommit || !output.PartialCommit {
@@ -203,11 +207,13 @@ func TestEnginePostCommitFailureClassifiesCommittedCurrentOperation(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.commitHook = func(index int, phase string) error {
-		if index == 0 && phase == "after" {
-			return operation.New(operation.KindFilesystem, "injected post-commit failure")
+	originalCapture := engine.commitOps.captureObjectIdentity
+	created := filepath.Join(root, "created")
+	engine.commitOps.captureObjectIdentity = func(path string) (filesystem.ObjectIdentity, error) {
+		if path == created {
+			return filesystem.ObjectIdentity{}, operation.New(operation.KindFilesystem, "injected post-commit verification failure")
 		}
-		return nil
+		return originalCapture(path)
 	}
 	output, err := engine.Apply(context.Background(), preview.PreviewID)
 	if operation.KindOf(err) != operation.KindPartialCommit || output.Results[0].State != StateCommitted {
@@ -388,14 +394,14 @@ func mkdirManifest(path string) Manifest {
 	return Manifest{FormatVersion: FormatV1, Operations: []Operation{{Type: OperationMkdir, Path: path}}}
 }
 
-func mustWriteR24TestFile(t *testing.T, path string, data []byte) {
+func mustWritePackageTestFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func r24TestTreeNames(t *testing.T, root string) []string {
+func filesystemPackageTestTreeNames(t *testing.T, root string) []string {
 	t.Helper()
 	var names []string
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {

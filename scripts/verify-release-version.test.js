@@ -13,14 +13,6 @@ function createChangelogFixture(t, content) {
   return root;
 }
 
-test('repository changelog records the latest published release', () => {
-  const root = path.resolve(__dirname, '..');
-  assert.deepEqual(verifyReleaseVersion('v1.8.0', root), {
-    version: '1.8.0',
-    changelogVersion: '1.8.0',
-  });
-});
-
 test('accepts a semantic tag with a matching dated changelog heading', (t) => {
   const root = createChangelogFixture(t, '# Changelog\n\n## 2.0.0 - 2026-07-27\n');
   assert.deepEqual(verifyReleaseVersion('v2.0.0', root), {

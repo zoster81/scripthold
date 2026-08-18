@@ -111,7 +111,7 @@ func TestHandleConvertEncoding_WithBackup(t *testing.T) {
 	}
 }
 
-func TestHandleConvertEncoding_Phase8BatchEncodingStatusAndBoundedSummary(t *testing.T) {
+func TestHandleConvertEncodingBatchEncodingStatusAndBoundedSummary(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	goodPath := filepath.Join(tempDir, "good.txt")

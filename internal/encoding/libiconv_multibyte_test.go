@@ -14,7 +14,7 @@ import (
 	"golang.org/x/text/transform"
 )
 
-var phase6CanonicalNames = []string{
+var multibyteCanonicalNames = []string{
 	"big5-2003",
 	"big5-hkscs-1999",
 	"big5-hkscs-2001",
@@ -38,18 +38,18 @@ var phase6CanonicalNames = []string{
 	"tcvn",
 }
 
-func TestPhase6SelectedMultibyteStatefulEncodingsAreRegistered(t *testing.T) {
-	if len(phase6CanonicalNames) != 21 {
-		t.Fatalf("phase-6 canonical set = %d, want 21", len(phase6CanonicalNames))
+func TestSelectedMultibyteStatefulEncodingsAreRegistered(t *testing.T) {
+	if len(multibyteCanonicalNames) != 21 {
+		t.Fatalf("phase-6 canonical set = %d, want 21", len(multibyteCanonicalNames))
 	}
-	if !sort.StringsAreSorted(phase6CanonicalNames) {
+	if !sort.StringsAreSorted(multibyteCanonicalNames) {
 		t.Fatal("phase-6 canonical names are not sorted")
 	}
-	if slices.Contains(phase6CanonicalNames, "big5-hkscs") {
+	if slices.Contains(multibyteCanonicalNames, "big5-hkscs") {
 		t.Fatal("unversioned big5-hkscs must retain the existing x/text-owned alias semantics")
 	}
 
-	for _, name := range phase6CanonicalNames {
+	for _, name := range multibyteCanonicalNames {
 		descriptor, ok := LookupDescriptor(name)
 		if !ok {
 			t.Errorf("LookupDescriptor(%q) failed", name)
@@ -74,7 +74,7 @@ func TestPhase6SelectedMultibyteStatefulEncodingsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestPhase6RepresentativeAliases(t *testing.T) {
+func TestRepresentativeAliases(t *testing.T) {
 	tests := map[string]string{
 		"EUC-CN":           "euc-cn",
 		"EUCCN":            "euc-cn",
@@ -103,7 +103,7 @@ func TestPhase6RepresentativeAliases(t *testing.T) {
 	}
 }
 
-func TestPhase6DoesNotReplaceExistingXTextCompatibilityAliases(t *testing.T) {
+func TestDoesNotReplaceExistingXTextCompatibilityAliases(t *testing.T) {
 	tests := map[string]string{
 		"big5-hkscs": "big5",
 		"cp932":      "shift_jis",
@@ -123,7 +123,7 @@ func TestPhase6DoesNotReplaceExistingXTextCompatibilityAliases(t *testing.T) {
 	}
 }
 
-func TestPhase6GeneratedBundleMetadata(t *testing.T) {
+func TestGeneratedBundleMetadata(t *testing.T) {
 	if generatedLibiconvMultibyteRevision != "9d19c66d0a1768cffcf497b2db70bf4018b578d7" {
 		t.Fatalf("generated revision = %q", generatedLibiconvMultibyteRevision)
 	}
@@ -156,8 +156,8 @@ func TestPhase6GeneratedBundleMetadata(t *testing.T) {
 			t.Fatalf("%s unexpectedly embeds ISO-2022 full-state decode mappings", spec.CanonicalName)
 		}
 	}
-	wantGeneratedNames := make([]string, 0, len(phase6CanonicalNames)-1)
-	for _, name := range phase6CanonicalNames {
+	wantGeneratedNames := make([]string, 0, len(multibyteCanonicalNames)-1)
+	for _, name := range multibyteCanonicalNames {
 		if name != "gb18030-2022" {
 			wantGeneratedNames = append(wantGeneratedNames, name)
 		}
@@ -167,7 +167,7 @@ func TestPhase6GeneratedBundleMetadata(t *testing.T) {
 	}
 }
 
-func TestPhase6GB180302022DifferentialPatches(t *testing.T) {
+func TestGB180302022DifferentialPatches(t *testing.T) {
 	if len(generatedGB180302022HeaderSHA256) != 64 {
 		t.Fatalf("GB18030:2022 header SHA-256 length = %d", len(generatedGB180302022HeaderSHA256))
 	}
@@ -213,7 +213,7 @@ func TestPhase6GB180302022DifferentialPatches(t *testing.T) {
 	}
 }
 
-func TestPhase10GB180302022TransformerAllocationsDoNotScaleWithInput(t *testing.T) {
+func TestGB180302022TransformerAllocationsDoNotScaleWithInput(t *testing.T) {
 	registered, ok := Get("gb18030-2022")
 	if !ok || registered == nil {
 		t.Fatal("gb18030-2022 is not registered")
@@ -253,7 +253,7 @@ func TestPhase10GB180302022TransformerAllocationsDoNotScaleWithInput(t *testing.
 	}
 }
 
-func TestPhase6GeneratedMappingsAreSemanticallyClosed(t *testing.T) {
+func TestGeneratedMappingsAreSemanticallyClosed(t *testing.T) {
 	for index := range generatedLibiconvMultibyteSpecs {
 		spec := &generatedLibiconvMultibyteSpecs[index]
 		registered, ok := Get(spec.CanonicalName)
@@ -265,7 +265,7 @@ func TestPhase6GeneratedMappingsAreSemanticallyClosed(t *testing.T) {
 
 		for _, entry := range spec.Decode {
 			decoder.Reset()
-			source := unpackPhase6Sequence(entry.Packed, entry.Length)
+			source := unpackMultibyteSequence(entry.Packed, entry.Length)
 			var dst [8]byte
 			nDst, nSrc, err := decoder.Transform(dst[:], source, true)
 			if err != nil {
@@ -274,7 +274,7 @@ func TestPhase6GeneratedMappingsAreSemanticallyClosed(t *testing.T) {
 			if nSrc != len(source) {
 				t.Fatalf("%s decode %x consumed %d/%d bytes", spec.CanonicalName, source, nSrc, len(source))
 			}
-			want := phase6UTF8(entry.Rune1, entry.Rune2)
+			want := encodeRunePairUTF8(entry.Rune1, entry.Rune2)
 			if !bytes.Equal(dst[:nDst], want) {
 				t.Fatalf("%s decode %x = %x, want %x", spec.CanonicalName, source, dst[:nDst], want)
 			}
@@ -327,7 +327,7 @@ func TestPhase6GeneratedMappingsAreSemanticallyClosed(t *testing.T) {
 	}
 }
 
-func TestPhase6DirectCodecsRejectTruncatedSequences(t *testing.T) {
+func TestDirectCodecsRejectTruncatedSequences(t *testing.T) {
 	for index := range generatedLibiconvMultibyteSpecs {
 		spec := &generatedLibiconvMultibyteSpecs[index]
 		if spec.Kind != "direct" {
@@ -344,7 +344,7 @@ func TestPhase6DirectCodecsRejectTruncatedSequences(t *testing.T) {
 			continue
 		}
 		registered, _ := Get(spec.CanonicalName)
-		prefix := unpackPhase6Sequence(selected.Packed, selected.Length-1)
+		prefix := unpackMultibyteSequence(selected.Packed, selected.Length-1)
 		decoder := registered.NewDecoder()
 		var dst [8]byte
 		if nDst, nSrc, err := decoder.Transform(dst[:], prefix, false); err != transform.ErrShortSrc || nDst != 0 || nSrc != 0 {
@@ -357,7 +357,7 @@ func TestPhase6DirectCodecsRejectTruncatedSequences(t *testing.T) {
 	}
 }
 
-func TestPhase6ISO2022RejectsTruncatedEscapeAndZeroByteTags(t *testing.T) {
+func TestISO2022RejectsTruncatedEscapeAndZeroByteTags(t *testing.T) {
 	for index := range generatedLibiconvMultibyteSpecs {
 		spec := &generatedLibiconvMultibyteSpecs[index]
 		if !strings.HasPrefix(spec.Kind, "iso2022-") {
@@ -383,7 +383,7 @@ func TestPhase6ISO2022RejectsTruncatedEscapeAndZeroByteTags(t *testing.T) {
 	}
 }
 
-func TestPhase6StreamingAcrossOneByteChunks(t *testing.T) {
+func TestStreamingAcrossOneByteChunks(t *testing.T) {
 	for index := range generatedLibiconvMultibyteSpecs {
 		spec := &generatedLibiconvMultibyteSpecs[index]
 		var representative multibyteEncodeEntry
@@ -419,7 +419,7 @@ func TestPhase6StreamingAcrossOneByteChunks(t *testing.T) {
 	}
 }
 
-func TestPhase6PairEncoderWaitsAcrossChunks(t *testing.T) {
+func TestPairEncoderWaitsAcrossChunks(t *testing.T) {
 	for index := range generatedLibiconvMultibyteSpecs {
 		spec := &generatedLibiconvMultibyteSpecs[index]
 		if len(spec.PairEncode) == 0 {
@@ -442,7 +442,7 @@ func TestPhase6PairEncoderWaitsAcrossChunks(t *testing.T) {
 	}
 }
 
-func unpackPhase6Sequence(packed uint32, length uint8) []byte {
+func unpackMultibyteSequence(packed uint32, length uint8) []byte {
 	result := make([]byte, length)
 	for index := range result {
 		result[index] = byte(packed >> uint(24-8*index))
@@ -450,7 +450,7 @@ func unpackPhase6Sequence(packed uint32, length uint8) []byte {
 	return result
 }
 
-func phase6UTF8(first, second rune) []byte {
+func encodeRunePairUTF8(first, second rune) []byte {
 	var buffer [8]byte
 	length := utf8.EncodeRune(buffer[:], first)
 	if second != 0 {

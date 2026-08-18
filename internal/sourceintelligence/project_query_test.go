@@ -9,7 +9,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-func TestR27Phase13ProjectQueryDependenciesDependentsTraceImpactAndCycles(t *testing.T) {
+func TestProjectQueryDependenciesDependentsTraceImpactAndCycles(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -18,16 +18,16 @@ func TestR27Phase13ProjectQueryDependenciesDependentsTraceImpactAndCycles(t *tes
 	aPath := filepath.Join(root, "a.ts")
 	bPath := filepath.Join(root, "b.ts")
 	cPath := filepath.Join(root, "c.ts")
-	a := phase12Facts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A extends B {}\n")
-	b := phase12Facts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B extends C {}\n")
-	c := phase12Facts(t, TypeScriptAnalyzer{}, cPath, "import { A } from \"./a\";\nexport class C {}\n")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{c, a, b}, phase12ResolverLimits())
+	a := projectResolverFacts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A extends B {}\n")
+	b := projectResolverFacts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B extends C {}\n")
+	c := projectResolverFacts(t, TypeScriptAnalyzer{}, cPath, "import { A } from \"./a\";\nexport class C {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{c, a, b}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits := phase13QueryLimits()
+	limits := queryLimits()
 
-	dependencies, err := model.QueryRelations(context.Background(), RelationDependencies, phase13PathSelector(a), ProjectSelector{}, nil, limits)
+	dependencies, err := model.QueryRelations(context.Background(), RelationDependencies, queryPathSelector(a), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestR27Phase13ProjectQueryDependenciesDependentsTraceImpactAndCycles(t *tes
 		t.Fatalf("dependencies = %+v", dependencies)
 	}
 
-	dependents, err := model.QueryRelations(context.Background(), RelationDependents, phase13PathSelector(b), ProjectSelector{}, nil, limits)
+	dependents, err := model.QueryRelations(context.Background(), RelationDependents, queryPathSelector(b), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestR27Phase13ProjectQueryDependenciesDependentsTraceImpactAndCycles(t *tes
 		t.Fatalf("dependents = %+v", dependents)
 	}
 
-	trace, err := model.QueryRelations(context.Background(), RelationTrace, phase13PathSelector(a), phase13PathSelector(c), nil, limits)
+	trace, err := model.QueryRelations(context.Background(), RelationTrace, queryPathSelector(a), queryPathSelector(c), nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestR27Phase13ProjectQueryDependenciesDependentsTraceImpactAndCycles(t *tes
 		}
 	}
 
-	impact, err := model.QueryRelations(context.Background(), RelationImpact, phase13PathSelector(c), ProjectSelector{}, nil, limits)
+	impact, err := model.QueryRelations(context.Background(), RelationImpact, queryPathSelector(c), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestR27Phase13ProjectQueryDependenciesDependentsTraceImpactAndCycles(t *tes
 	}
 }
 
-func TestR27Phase13ProjectQueryReferencesDefinitionsInheritanceAndImplementations(t *testing.T) {
+func TestProjectQueryReferencesDefinitionsInheritanceAndImplementations(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -87,19 +87,19 @@ func TestR27Phase13ProjectQueryReferencesDefinitionsInheritanceAndImplementation
 	contractPath := filepath.Join(root, "Contract.java")
 	basePath := filepath.Join(root, "Base.java")
 	implPath := filepath.Join(root, "Impl.java")
-	contract := phase12Facts(t, JavaAnalyzer{}, contractPath, "package demo; public interface Contract {}\n")
-	base := phase12Facts(t, JavaAnalyzer{}, basePath, "package demo; public class Base {}\n")
-	impl := phase12Facts(t, JavaAnalyzer{}, implPath, "package demo; public class Impl extends Base implements Contract {}\n")
-	contractID := phase12SymbolID(t, contract, "demo.Contract")
-	baseID := phase12SymbolID(t, base, "demo.Base")
-	implID := phase12SymbolID(t, impl, "demo.Impl")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{impl, base, contract}, phase12ResolverLimits())
+	contract := projectResolverFacts(t, JavaAnalyzer{}, contractPath, "package demo; public interface Contract {}\n")
+	base := projectResolverFacts(t, JavaAnalyzer{}, basePath, "package demo; public class Base {}\n")
+	impl := projectResolverFacts(t, JavaAnalyzer{}, implPath, "package demo; public class Impl extends Base implements Contract {}\n")
+	contractID := projectSymbolID(t, contract, "demo.Contract")
+	baseID := projectSymbolID(t, base, "demo.Base")
+	implID := projectSymbolID(t, impl, "demo.Impl")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{impl, base, contract}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits := phase13QueryLimits()
+	limits := queryLimits()
 
-	inheritance, err := model.QueryRelations(context.Background(), RelationInheritance, phase13SymbolSelector(impl, implID), ProjectSelector{}, nil, limits)
+	inheritance, err := model.QueryRelations(context.Background(), RelationInheritance, querySymbolSelector(impl, implID), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestR27Phase13ProjectQueryReferencesDefinitionsInheritanceAndImplementation
 		t.Fatalf("inheritance = %+v", inheritance)
 	}
 
-	implementations, err := model.QueryRelations(context.Background(), RelationImplementations, phase13SymbolSelector(contract, contractID), ProjectSelector{}, nil, limits)
+	implementations, err := model.QueryRelations(context.Background(), RelationImplementations, querySymbolSelector(contract, contractID), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestR27Phase13ProjectQueryReferencesDefinitionsInheritanceAndImplementation
 		t.Fatalf("implementations = %+v", implementations)
 	}
 
-	references, err := model.QueryRelations(context.Background(), RelationReferences, phase13SymbolSelector(base, baseID), ProjectSelector{}, nil, limits)
+	references, err := model.QueryRelations(context.Background(), RelationReferences, querySymbolSelector(base, baseID), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestR27Phase13ProjectQueryReferencesDefinitionsInheritanceAndImplementation
 		t.Fatalf("references = %+v", references)
 	}
 
-	baseReference := phase12ReferenceByTarget(t, model.References(), implPath, "Base")
+	baseReference := projectReferenceByTarget(t, model.References(), implPath, "Base")
 	definitions, err := model.QueryRelations(context.Background(), RelationDefinitions, ProjectSelector{
 		Kind: ProjectSelectorPosition, Path: implPath, Position: &baseReference.Range.Start, SourceFingerprint: impl.SourceFingerprint,
 	}, ProjectSelector{}, nil, limits)
@@ -135,16 +135,16 @@ func TestR27Phase13ProjectQueryReferencesDefinitionsInheritanceAndImplementation
 	}
 }
 
-func TestR27Phase13StructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
+func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := filepath.Join("project", "phase13", "search")
-	base := phase12Facts(t, RustAnalyzer{}, filepath.Join(root, "store.rs"), "pub trait Store<T> { fn get(&self) -> T; }\n")
+	base := projectResolverFacts(t, RustAnalyzer{}, filepath.Join(root, "store.rs"), "pub trait Store<T> { fn get(&self) -> T; }\n")
 	itemPath := filepath.Join(root, "item.rs")
-	item := phase12Facts(t, RustAnalyzer{}, itemPath, "use crate::store::Store;\npub struct Item<T> { value: T }\nimpl<T> Store<T> for Item<T> { fn get(&self) -> T { todo!() } }\n")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{item, base}, phase12ResolverLimits())
+	item := projectResolverFacts(t, RustAnalyzer{}, itemPath, "use crate::store::Store;\npub struct Item<T> { value: T }\nimpl<T> Store<T> for Item<T> { fn get(&self) -> T { todo!() } }\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{item, base}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestR27Phase13StructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.
 	}
 }
 
-func TestR27Phase13StructuralSearchTruncatesAfterGlobalOrdering(t *testing.T) {
+func TestStructuralSearchTruncatesAfterGlobalOrdering(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -188,10 +188,10 @@ func TestR27Phase13StructuralSearchTruncatesAfterGlobalOrdering(t *testing.T) {
 	earlyPath := filepath.Join(root, "a.ts")
 	latePath := filepath.Join(root, "z.ts")
 	latestPath := filepath.Join(root, "zz.ts")
-	early := phase12Facts(t, TypeScriptAnalyzer{}, earlyPath, "export class Child extends Base {}\n")
-	late := phase12Facts(t, TypeScriptAnalyzer{}, latePath, "export class Base {}\n")
-	latest := phase12Facts(t, TypeScriptAnalyzer{}, latestPath, "export class Base {}\n")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{latest, late, early}, phase12ResolverLimits())
+	early := projectResolverFacts(t, TypeScriptAnalyzer{}, earlyPath, "export class Child extends Base {}\n")
+	late := projectResolverFacts(t, TypeScriptAnalyzer{}, latePath, "export class Base {}\n")
+	latest := projectResolverFacts(t, TypeScriptAnalyzer{}, latestPath, "export class Base {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{latest, late, early}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,28 +205,28 @@ func TestR27Phase13StructuralSearchTruncatesAfterGlobalOrdering(t *testing.T) {
 	}
 }
 
-func TestR27Phase13ProjectQueryDeterminismLimitsCancellationAndUnsupported(t *testing.T) {
+func TestProjectQueryDeterminismLimitsCancellationAndUnsupported(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := filepath.Join("project", "phase13", "hardening")
-	first := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join(root, "a.ts"), "import { B } from \"./b\";\nexport class A extends B {}\n")
-	second := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join(root, "b.ts"), "export class B {}\n")
-	left, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, second}, phase12ResolverLimits())
+	first := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "a.ts"), "import { B } from \"./b\";\nexport class A extends B {}\n")
+	second := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "b.ts"), "export class B {}\n")
+	left, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, second}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	right, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{second, first}, phase12ResolverLimits())
+	right, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{second, first}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits := phase13QueryLimits()
-	leftResult, err := left.QueryRelations(context.Background(), RelationDependencies, phase13PathSelector(first), ProjectSelector{}, nil, limits)
+	limits := queryLimits()
+	leftResult, err := left.QueryRelations(context.Background(), RelationDependencies, queryPathSelector(first), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightResult, err := right.QueryRelations(context.Background(), RelationDependencies, phase13PathSelector(first), ProjectSelector{}, nil, limits)
+	rightResult, err := right.QueryRelations(context.Background(), RelationDependencies, queryPathSelector(first), ProjectSelector{}, nil, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,41 +234,41 @@ func TestR27Phase13ProjectQueryDeterminismLimitsCancellationAndUnsupported(t *te
 		t.Fatalf("input order changed query output:\nleft=%+v\nright=%+v", leftResult, rightResult)
 	}
 
-	stale := phase13PathSelector(first)
-	stale.SourceFingerprint = phase13ZeroDigest()
+	stale := queryPathSelector(first)
+	stale.SourceFingerprint = queryZeroDigest()
 	if _, err := left.QueryRelations(context.Background(), RelationDependencies, stale, ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindConflict {
 		t.Fatalf("stale selector error = %v kind=%v", err, operation.KindOf(err))
 	}
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := left.QueryRelations(cancelled, RelationDependencies, phase13PathSelector(first), ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindCancelled {
+	if _, err := left.QueryRelations(cancelled, RelationDependencies, queryPathSelector(first), ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("cancel error = %v kind=%v", err, operation.KindOf(err))
 	}
 
 	tooSmall := limits
 	tooSmall.MaxNodes = 1
-	if _, err := left.QueryRelations(context.Background(), RelationTrace, phase13PathSelector(first), phase13PathSelector(second), nil, tooSmall); operation.KindOf(err) != operation.KindLimit {
+	if _, err := left.QueryRelations(context.Background(), RelationTrace, queryPathSelector(first), queryPathSelector(second), nil, tooSmall); operation.KindOf(err) != operation.KindLimit {
 		t.Fatalf("node limit error = %v kind=%v", err, operation.KindOf(err))
 	}
 
-	if _, err := left.QueryRelations(context.Background(), RelationCallers, phase13SymbolSelector(second, phase12SymbolID(t, second, "B")), ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindUnsupported {
+	if _, err := left.QueryRelations(context.Background(), RelationCallers, querySymbolSelector(second, projectSymbolID(t, second, "B")), ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindUnsupported {
 		t.Fatalf("callers error = %v kind=%v", err, operation.KindOf(err))
 	}
 }
 
-func phase13PathSelector(facts ProjectFileFacts) ProjectSelector {
+func queryPathSelector(facts ProjectFileFacts) ProjectSelector {
 	return ProjectSelector{Kind: ProjectSelectorPath, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint}
 }
 
-func phase13SymbolSelector(facts ProjectFileFacts, symbolID string) ProjectSelector {
+func querySymbolSelector(facts ProjectFileFacts, symbolID string) ProjectSelector {
 	return ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SymbolID: symbolID, SourceFingerprint: facts.SourceFingerprint}
 }
 
-func phase13ZeroDigest() string {
+func queryZeroDigest() string {
 	return "0000000000000000000000000000000000000000000000000000000000000000"
 }
 
-func phase13QueryLimits() ProjectQueryLimits {
+func queryLimits() ProjectQueryLimits {
 	return ProjectQueryLimits{MaxResults: 256, MaxNodes: 256, MaxEdges: 1024, MaxDepth: 16}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -40,14 +41,19 @@ func TestSubmitCancellationWhileWaitingForControlLockDoesNotAdmit(t *testing.T) 
 	}
 	defer held.close()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	base, cancel := context.WithCancel(context.Background())
+	ctx := &doneObservedContext{Context: base, observed: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() {
 		_, submitErr := store.Submit(ctx, shellRequest("cancelled-control-lock-admission"))
 		done <- submitErr
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-ctx.observed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Submit() did not enter cancellable control.lock wait")
+	}
 	cancel()
 
 	select {
@@ -70,4 +76,15 @@ func TestSubmitCancellationWhileWaitingForControlLockDoesNotAdmit(t *testing.T) 
 	if queued != 0 {
 		t.Fatalf("queued tasks = %d, want 0 after cancelled admission", queued)
 	}
+}
+
+type doneObservedContext struct {
+	context.Context
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (ctx *doneObservedContext) Done() <-chan struct{} {
+	ctx.once.Do(func() { close(ctx.observed) })
+	return ctx.Context.Done()
 }

@@ -152,28 +152,8 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 		resultFingerprints[index] = prepared.resultFingerprint
 	}
 
-	if h.patchPackageAfterPrepare != nil {
-		if err := h.patchPackageAfterPrepare(); err != nil {
-			wrapped := operation.WrapFilesystem("patch_package_after_prepare", "", err)
-			return errorResultFromError(wrapped), PatchPackageOutput{}, nil
-		}
-	}
-	if err := verifyPatchPackageIdentities(targets, identities); err != nil {
+	if err := h.verifyPatchPackageDryRunSnapshot(ctx, targets, identities, before); err != nil {
 		return errorResultFromError(err), PatchPackageOutput{}, nil
-	}
-	verified, err := h.capturePatchPackageFingerprints(ctx, targets)
-	if err != nil {
-		if operation.KindOf(err) == operation.KindCancelled {
-			return errorResultFromError(err), PatchPackageOutput{}, nil
-		}
-		conflict := operation.Wrap(operation.KindConflict, "patch_package_verify", "", err)
-		return errorResultFromError(conflict), PatchPackageOutput{}, nil
-	}
-	for index := range targets {
-		if verified[index] != before[index] {
-			err := operation.New(operation.KindConflict, fmt.Sprintf("patch package target %d (%s) changed during dryRun", index, targets[index].declared.Path))
-			return errorResultFromError(err), PatchPackageOutput{}, nil
-		}
 	}
 	if manifest.BackupPolicy == editBackupPolicyRequired {
 		requests := patchPackageCaptureRequests(manifest.Label, preparedTargets)
@@ -358,6 +338,28 @@ func openPatchPackageIdentities(targets []validatedPatchPackageTarget) ([]*files
 		}
 	}
 	return identities, nil
+}
+
+func (h *Handler) verifyPatchPackageDryRunSnapshot(ctx context.Context, targets []validatedPatchPackageTarget, identities []*filesystem.FileIdentity, before []string) error {
+	if err := verifyPatchPackageIdentities(targets, identities); err != nil {
+		return err
+	}
+	verified, err := h.capturePatchPackageFingerprints(ctx, targets)
+	if err != nil {
+		if operation.KindOf(err) == operation.KindCancelled {
+			return err
+		}
+		return operation.Wrap(operation.KindConflict, "patch_package_verify", "", err)
+	}
+	if len(verified) != len(before) {
+		return operation.New(operation.KindConflict, "patch package verification fingerprint set is incomplete")
+	}
+	for index := range targets {
+		if verified[index] != before[index] {
+			return operation.New(operation.KindConflict, fmt.Sprintf("patch package target %d (%s) changed during dryRun", index, targets[index].declared.Path))
+		}
+	}
+	return nil
 }
 
 func verifyPatchPackageIdentities(targets []validatedPatchPackageTarget, identities []*filesystem.FileIdentity) error {

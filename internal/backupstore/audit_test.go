@@ -12,7 +12,7 @@ import (
 
 func TestFullAuditDetectsSameSizeObjectCorruption(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	content := []byte("audit object")
 	if err := os.WriteFile(target, content, 0o600); err != nil {
@@ -55,7 +55,7 @@ func TestFullAuditDetectsSameSizeObjectCorruption(t *testing.T) {
 
 func TestAuditHonorsObjectAndByteBounds(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	for index, content := range [][]byte{[]byte("first"), []byte("second")} {
 		target := filepath.Join(base, string(rune('a'+index))+".txt")
 		if err := os.WriteFile(target, content, 0o600); err != nil {
@@ -81,7 +81,7 @@ func TestAuditHonorsObjectAndByteBounds(t *testing.T) {
 
 func TestAuditReportsUnexpectedRootEntryWithoutDeletingIt(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	unexpected := filepath.Join(store.Root(), "unexpected.txt")
 	if err := os.WriteFile(unexpected, []byte("preserve me"), 0o600); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestAuditReportsUnexpectedRootEntryWithoutDeletingIt(t *testing.T) {
 
 func TestAuditRejectsClosedStore(t *testing.T) {
 	base := canonicalTempDir(t)
-	store, err := Open(Options{Directory: filepath.Join(base, "store"), Limits: phase2TestLimits()})
+	store, err := Open(Options{Directory: filepath.Join(base, "store"), Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestAuditRejectsClosedStore(t *testing.T) {
 
 func TestAuditCancellationIsTypedAndReadOnly(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte(strings.Repeat("x", 1024*1024)), 0o600); err != nil {
 		t.Fatal(err)

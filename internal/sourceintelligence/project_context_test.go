@@ -8,7 +8,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-func TestR27Phase14ProjectContextPrioritiesAndBudgetDegradation(t *testing.T) {
+func TestProjectContextPrioritiesAndBudgetDegradation(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -16,15 +16,15 @@ func TestR27Phase14ProjectContextPrioritiesAndBudgetDegradation(t *testing.T) {
 	root := filepath.Join("project", "phase14", "java")
 	basePath := filepath.Join(root, "Base.java")
 	servicePath := filepath.Join(root, "Service.java")
-	base := phase12Facts(t, JavaAnalyzer{}, basePath, "package demo; public class Base { public void base() {} }\n")
-	service := phase12Facts(t, JavaAnalyzer{}, servicePath, "package demo; public class Service extends Base { public int run(int value) { return value + 1; } }\n")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{service, base}, phase12ResolverLimits())
+	base := projectResolverFacts(t, JavaAnalyzer{}, basePath, "package demo; public class Base { public void base() {} }\n")
+	service := projectResolverFacts(t, JavaAnalyzer{}, servicePath, "package demo; public class Service extends Base { public int run(int value) { return value + 1; } }\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{service, base}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID := phase12SymbolID(t, service, "demo.Service.run")
-	serviceID := phase12SymbolID(t, service, "demo.Service")
-	selector := phase13SymbolSelector(service, runID)
+	runID := projectSymbolID(t, service, "demo.Service.run")
+	serviceID := projectSymbolID(t, service, "demo.Service")
+	selector := querySymbolSelector(service, runID)
 
 	plan, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, ProjectContextOptions{
 		BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextPrefer,
@@ -42,7 +42,7 @@ func TestR27Phase14ProjectContextPrioritiesAndBudgetDegradation(t *testing.T) {
 		t.Fatalf("enclosing candidate = %+v", got)
 	}
 
-	run := phase14SymbolByID(t, service, runID)
+	run := contextSymbolByID(t, service, runID)
 	_, _, signature, _ := run.SourceOffsets()
 	if signature == nil {
 		t.Fatal("run signature offsets are missing")
@@ -74,7 +74,7 @@ func TestR27Phase14ProjectContextPrioritiesAndBudgetDegradation(t *testing.T) {
 	}
 }
 
-func TestR27Phase14ProjectContextPositionTargetsDefinitionAndDependencyDepth(t *testing.T) {
+func TestProjectContextPositionTargetsDefinitionAndDependencyDepth(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -83,15 +83,15 @@ func TestR27Phase14ProjectContextPositionTargetsDefinitionAndDependencyDepth(t *
 	aPath := filepath.Join(root, "a.ts")
 	bPath := filepath.Join(root, "b.ts")
 	cPath := filepath.Join(root, "c.ts")
-	a := phase12Facts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A extends B {}\n")
-	b := phase12Facts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B extends C {}\n")
-	c := phase12Facts(t, TypeScriptAnalyzer{}, cPath, "export class C {}\n")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{c, a, b}, phase12ResolverLimits())
+	a := projectResolverFacts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A extends B {}\n")
+	b := projectResolverFacts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B extends C {}\n")
+	c := projectResolverFacts(t, TypeScriptAnalyzer{}, cPath, "export class C {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{c, a, b}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseRef := phase12ReferenceByTarget(t, model.References(), aPath, "B")
-	bID := phase12SymbolID(t, b, "B")
+	baseRef := projectReferenceByTarget(t, model.References(), aPath, "B")
+	bID := projectSymbolID(t, b, "B")
 	positionPlan, err := model.PlanContext(context.Background(), []ProjectSelector{{
 		Kind: ProjectSelectorPosition, Path: aPath, Position: &baseRef.Range.Start, SourceFingerprint: a.SourceFingerprint,
 	}}, ProjectContextOptions{BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly})
@@ -102,28 +102,28 @@ func TestR27Phase14ProjectContextPositionTargetsDefinitionAndDependencyDepth(t *
 		t.Fatalf("position context = %+v", positionPlan)
 	}
 
-	pathPlan, err := model.PlanContext(context.Background(), []ProjectSelector{phase13PathSelector(a)}, ProjectContextOptions{
+	pathPlan, err := model.PlanContext(context.Background(), []ProjectSelector{queryPathSelector(a)}, ProjectContextOptions{
 		BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !phase14HasContextCandidate(pathPlan.Candidates, aPath, ContextTarget, 1) ||
-		!phase14HasContextCandidate(pathPlan.Candidates, bPath, ContextDirectDependency, 3) ||
-		!phase14HasContextCandidate(pathPlan.Candidates, cPath, ContextDeeperRelation, 7) {
+	if !hasContextCandidate(pathPlan.Candidates, aPath, ContextTarget, 1) ||
+		!hasContextCandidate(pathPlan.Candidates, bPath, ContextDirectDependency, 3) ||
+		!hasContextCandidate(pathPlan.Candidates, cPath, ContextDeeperRelation, 7) {
 		t.Fatalf("dependency-depth context = %+v", pathPlan)
 	}
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := model.PlanContext(cancelled, []ProjectSelector{phase13PathSelector(a)}, ProjectContextOptions{
+	if _, err := model.PlanContext(cancelled, []ProjectSelector{queryPathSelector(a)}, ProjectContextOptions{
 		BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
 	}); operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("context cancellation error = %v kind=%v", err, operation.KindOf(err))
 	}
 }
 
-func phase14SymbolByID(t *testing.T, facts ProjectFileFacts, id string) NormalizedSymbol {
+func contextSymbolByID(t *testing.T, facts ProjectFileFacts, id string) NormalizedSymbol {
 	t.Helper()
 	for _, symbol := range facts.Analysis.Analysis.Symbols {
 		if symbol.ID == id {
@@ -134,7 +134,7 @@ func phase14SymbolByID(t *testing.T, facts ProjectFileFacts, id string) Normaliz
 	return NormalizedSymbol{}
 }
 
-func phase14HasContextCandidate(values []ProjectContextCandidate, path string, reason ContextReason, priority int) bool {
+func hasContextCandidate(values []ProjectContextCandidate, path string, reason ContextReason, priority int) bool {
 	for _, value := range values {
 		if value.Entity.Path == path && value.Reason == reason && value.Priority == priority {
 			return true

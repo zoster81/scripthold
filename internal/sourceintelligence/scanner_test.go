@@ -10,7 +10,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-var phase4ScannerLimits = ScannerLimits{
+var scannerTestLimits = ScannerLimits{
 	MaxTokens:     4096,
 	MaxTokenBytes: 16 * 1024,
 	MaxNesting:    128,
@@ -31,7 +31,7 @@ class Real<T> {
 }
 #endif
 `
-	result := scanSourceText(t, text, CSharpScannerProfile(), phase4ScannerLimits)
+	result := scanSourceText(t, text, CSharpScannerProfile(), scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("C# scan incomplete: %+v", result.Diagnostics)
 	}
@@ -59,7 +59,7 @@ func TestScannerVBNetCaseInsensitiveStringsCommentsAndContinuation(t *testing.T)
 		"    sUb Work() : Dim x = 1\r\n" +
 		"    eNd sUb\r\n" +
 		"eNd cLaSs\r\n"
-	result := scanSourceText(t, text, VBNetScannerProfile(), phase4ScannerLimits)
+	result := scanSourceText(t, text, VBNetScannerProfile(), scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("VB.NET scan incomplete: %+v", result.Diagnostics)
 	}
@@ -88,7 +88,7 @@ func TestScannerVBNetMultilineStringLiteral(t *testing.T) {
 		"third\"\n" +
 		"    End Sub\n" +
 		"End Module\n"
-	result := scanSourceText(t, text, VBNetScannerProfile(), phase4ScannerLimits)
+	result := scanSourceText(t, text, VBNetScannerProfile(), scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("VB.NET multiline string scan incomplete: %+v", result.Diagnostics)
 	}
@@ -119,7 +119,7 @@ func TestScannerPythonIndentationTripleRawFStringsAndLogicalLines(t *testing.T) 
 def outside():
     return 1
 `
-	result := scanSourceText(t, text, PythonScannerProfile(), phase4ScannerLimits)
+	result := scanSourceText(t, text, PythonScannerProfile(), scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("Python scan incomplete: %+v", result.Diagnostics)
 	}
@@ -150,7 +150,7 @@ func TestScannerNestedBlockCommentsWhenProfileEnablesThem(t *testing.T) {
 		BlockComments: []BlockCommentRule{{Start: "/*", End: "*/", Nestable: true}},
 	}
 	text := "/* outer /* class Fake */ still comment */ class Real"
-	result := scanSourceText(t, text, profile, phase4ScannerLimits)
+	result := scanSourceText(t, text, profile, scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("nested-comment scan incomplete: %+v", result.Diagnostics)
 	}
@@ -167,7 +167,7 @@ func TestScannerPrefersLongerBlockCommentOverSharedLineCommentPrefix(t *testing.
 		BlockComments: []BlockCommentRule{{Start: "#[", End: "]#", Nestable: true}},
 	}
 	text := "#[\nproc Fake()\n#[ nested proc AlsoFake() ]#\n]#\nproc Real()\n"
-	result := scanSourceText(t, text, profile, phase4ScannerLimits)
+	result := scanSourceText(t, text, profile, scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("shared-prefix block comment scan incomplete: %+v", result.Diagnostics)
 	}
@@ -175,7 +175,7 @@ func TestScannerPrefersLongerBlockCommentOverSharedLineCommentPrefix(t *testing.
 		t.Fatalf("shared-prefix block comment leaked declaration keyword: %v", got)
 	}
 
-	invalid := scanSourceText(t, "#[\nproc Fake()\n", profile, phase4ScannerLimits)
+	invalid := scanSourceText(t, "#[\nproc Fake()\n", profile, scannerTestLimits)
 	if invalid.Complete || !hasScannerDiagnostic(invalid.Diagnostics, "unterminated-comment") {
 		t.Fatalf("unterminated shared-prefix block comment was accepted: %+v", invalid)
 	}
@@ -189,7 +189,7 @@ func TestScannerCSharpInterpolatedExpressionsMaySpanLines(t *testing.T) {
     string b = $"{Format("class Fake { }")}";
     void Work() { }
 }`
-	result := scanSourceText(t, text, CSharpScannerProfile(), phase4ScannerLimits)
+	result := scanSourceText(t, text, CSharpScannerProfile(), scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("C# multiline interpolation scan incomplete: %+v", result.Diagnostics)
 	}
@@ -200,7 +200,7 @@ func TestScannerCSharpInterpolatedExpressionsMaySpanLines(t *testing.T) {
 		t.Fatalf("C# void keywords = %v, want only Work", got)
 	}
 
-	invalid := scanSourceText(t, "class Real { string bad = $\"literal\ntext\"; }", CSharpScannerProfile(), phase4ScannerLimits)
+	invalid := scanSourceText(t, "class Real { string bad = $\"literal\ntext\"; }", CSharpScannerProfile(), scannerTestLimits)
 	if invalid.Complete || !hasScannerDiagnostic(invalid.Diagnostics, "unterminated-string") {
 		t.Fatalf("literal newline in normal interpolated string was accepted: %+v", invalid)
 	}
@@ -220,7 +220,7 @@ func TestScannerMalformedInputReturnsBoundedDiagnostics(t *testing.T) {
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := scanSourceText(t, testCase.text, testCase.profile, phase4ScannerLimits)
+			result := scanSourceText(t, testCase.text, testCase.profile, scannerTestLimits)
 			if result.Complete {
 				t.Fatalf("malformed scan reported complete: %+v", result)
 			}
@@ -257,11 +257,11 @@ func TestScannerLimitsNestingTokensAndTokenBytes(t *testing.T) {
 func TestScannerDeterminismCancellationAndUnicodeBoundary(t *testing.T) {
 	text := "class Δelta { void Café变量() { return; } }"
 	document := sourceDocumentForScanner(text)
-	first, err := ScanSource(context.Background(), document, CSharpScannerProfile(), phase4ScannerLimits)
+	first, err := ScanSource(context.Background(), document, CSharpScannerProfile(), scannerTestLimits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ScanSource(context.Background(), document, CSharpScannerProfile(), phase4ScannerLimits)
+	second, err := ScanSource(context.Background(), document, CSharpScannerProfile(), scannerTestLimits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestScannerDeterminismCancellationAndUnicodeBoundary(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = ScanSource(ctx, document, CSharpScannerProfile(), phase4ScannerLimits)
+	_, err = ScanSource(ctx, document, CSharpScannerProfile(), scannerTestLimits)
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("cancel error = %v, kind=%v", err, operation.KindOf(err))
 	}
@@ -284,7 +284,7 @@ func TestScannerDeterminismCancellationAndUnicodeBoundary(t *testing.T) {
 
 func TestScannerDirectiveOnlyAtLogicalLineStart(t *testing.T) {
 	text := "#if DEBUG\nclass Real { string x = \"#if FAKE\"; }\nvalue # notDirective\n#endif\n"
-	result := scanSourceText(t, text, CSharpScannerProfile(), phase4ScannerLimits)
+	result := scanSourceText(t, text, CSharpScannerProfile(), scannerTestLimits)
 	if countKind(result.Tokens, TokenDirective) != 2 {
 		t.Fatalf("directive count = %d, want 2", countKind(result.Tokens, TokenDirective))
 	}

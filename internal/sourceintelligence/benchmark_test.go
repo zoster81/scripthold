@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func BenchmarkR25CanaryAnalyzers(b *testing.B) {
+func BenchmarkCanaryAnalyzers(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		b.Fatal(err)
@@ -44,7 +44,7 @@ func BenchmarkR25CanaryAnalyzers(b *testing.B) {
 	}
 }
 
-func BenchmarkR25LargeGeneratedGo(b *testing.B) {
+func BenchmarkLargeGeneratedGo(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		b.Fatal(err)

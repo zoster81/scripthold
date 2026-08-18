@@ -105,7 +105,7 @@ func TestLanguageDetectorOrderedEvidenceAndAmbiguity(t *testing.T) {
 	}
 }
 
-func TestR27RealWorldClassicVBExportedFormatsRouteConservatively(t *testing.T) {
+func TestRealWorldClassicVBExportedFormatsRouteConservatively(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestR27RealWorldClassicVBExportedFormatsRouteConservatively(t *testing.T) {
 	}
 }
 
-func TestR27RealWorldSharedLSPExtensionRequiresCommonLispContent(t *testing.T) {
+func TestRealWorldSharedLSPExtensionRequiresCommonLispContent(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestR27RealWorldSharedLSPExtensionRequiresCommonLispContent(t *testing.T) {
 	}
 }
 
-func TestR27RealWorldSharedFExtensionRequiresFortranContent(t *testing.T) {
+func TestRealWorldSharedFExtensionRequiresFortranContent(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestR27RealWorldSharedFExtensionRequiresFortranContent(t *testing.T) {
 	}
 }
 
-func TestR27RealSourceCIncludeDoesNotPromoteFreeBasic(t *testing.T) {
+func TestRealSourceCIncludeDoesNotPromoteFreeBasic(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -468,7 +468,7 @@ func TestLanguageDetectorRejectsSpoofedShebangAndUnknownExplicitLanguage(t *test
 	}
 }
 
-func TestR27DetectorKeepsRazorAndBlazorCanonicalRoutingDistinct(t *testing.T) {
+func TestDetectorKeepsRazorAndBlazorCanonicalRoutingDistinct(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "sourcePolicy": {
+    "independentFromImplementationRegistry": true,
+    "implementationRegistryOracleForbidden": true
+  },
+  "requiredCategories": [
+    "identity-catalog-mcp",
+    "path-security",
+    "encoding-text",
+    "mutation-backup",
+    "durable-tasks",
+    "http-protocol-redaction",
+    "source-intelligence",
+    "release-publication"
+  ],
+  "testGroups": [
+    {"id":"go.cmd-scripthold","kind":"go-package","directory":"cmd/scripthold","classification":"canonical-owner","failureClasses":["deterministic","integration","platform","fuzz"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
+    {"id":"go.filetoolsserver","kind":"go-package","directory":"filetoolsserver","classification":"overlap","failureClasses":["deterministic","integration"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.handler","kind":"go-package","directory":"filetoolsserver/handler","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","integration","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"slow"},
+    {"id":"go.backupstore","kind":"go-package","directory":"internal/backupstore","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"slow"},
+    {"id":"go.concurrency","kind":"go-package","directory":"internal/concurrency","classification":"canonical-owner","failureClasses":["deterministic","race"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.config","kind":"go-package","directory":"internal/config","classification":"canonical-owner","failureClasses":["deterministic","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"fast"},
+    {"id":"go.encoding","kind":"go-package","directory":"internal/encoding","classification":"canonical-owner","failureClasses":["deterministic","fuzz"],"platforms":["all"],"expenseTier":"medium"},
+    {"id":"go.encoding-multibyte-gen","kind":"go-package","directory":"internal/encoding/cmd/libiconv-multibyte-gen","classification":"overlap","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.encoding-singlebyte-gen","kind":"go-package","directory":"internal/encoding/cmd/libiconv-singlebyte-gen","classification":"overlap","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.execution","kind":"go-package","directory":"internal/execution","classification":"canonical-owner","failureClasses":["deterministic","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"fast"},
+    {"id":"go.filesystem","kind":"go-package","directory":"internal/filesystem","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
+    {"id":"go.filesystempackage","kind":"go-package","directory":"internal/filesystempackage","classification":"canonical-owner","failureClasses":["deterministic","race","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
+    {"id":"go.httptransport","kind":"go-package","directory":"internal/httptransport","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","integration"],"platforms":["all","linux"],"expenseTier":"medium"},
+    {"id":"go.operation","kind":"go-package","directory":"internal/operation","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.projectidentity","kind":"go-package","directory":"internal/projectidentity","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.security","kind":"go-package","directory":"internal/security","classification":"canonical-owner","failureClasses":["deterministic","fuzz","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
+    {"id":"go.sourceintelligence","kind":"go-package","directory":"internal/sourceintelligence","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","integration"],"platforms":["all"],"expenseTier":"slow"},
+    {"id":"go.taskstore","kind":"go-package","directory":"internal/taskstore","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
+    {"id":"go.textstream","kind":"go-package","directory":"internal/textstream","classification":"canonical-owner","failureClasses":["deterministic","fuzz"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.toolcatalog","kind":"go-package","directory":"internal/toolcatalog","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.updater","kind":"go-package","directory":"internal/updater","classification":"overlap","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.testarchitecture","kind":"go-package","directory":"testarchitecture","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"node.release-scripts","kind":"node","files":["scripts/generate-server-json.test.js","scripts/prepare-mcpb-assets.test.js","scripts/release-candidate-provenance.test.js","scripts/run-fuzz.test.js","scripts/verify-release-version.test.js"],"classification":"canonical-owner","failureClasses":["deterministic","integration"],"platforms":["all","github"],"expenseTier":"fast"},
+    {"id":"node.ci-policy","kind":"node","files":["scripts/check-markdown-links.test.js","scripts/test-ci-policy.test.js"],"classification":"canonical-owner","failureClasses":["deterministic","external-acceptance"],"platforms":["all","github"],"expenseTier":"fast"}
+  ],
+  "gates": [
+    {"id":"ci.change-classifier","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"name: Select evidence tier","classification":"canonical-owner","failureClasses":["deterministic","external-acceptance"],"platforms":["github","linux"],"expenseTier":"fast","releaseBlocking":true},
+    {"id":"ci.docs-policy","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"name: Policy and documentation","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["github","linux"],"expenseTier":"fast","releaseBlocking":true},
+    {"id":"ci.local-links","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"node scripts/check-markdown-links.js","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["github","linux"],"expenseTier":"fast","releaseBlocking":true},
+    {"id":"ci.linux-regression","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"name: Linux regression","classification":"canonical-owner","failureClasses":["deterministic","integration"],"platforms":["github","linux"],"expenseTier":"slow","releaseBlocking":true},
+    {"id":"ci.targeted-platform","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"run-targeted --failure-class platform --platform","classification":"canonical-owner","failureClasses":["platform"],"platforms":["github","windows","darwin"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.targeted-race","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"run-targeted --failure-class race --platform linux --race","classification":"canonical-owner","failureClasses":["race"],"platforms":["github","linux"],"expenseTier":"slow","releaseBlocking":true},
+    {"id":"ci.modules","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"go mod tidy -diff","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["github","linux"],"expenseTier":"fast","releaseBlocking":true},
+    {"id":"ci.golangci","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"golangci/golangci-lint-action@v9.3.0","classification":"overlap","failureClasses":["deterministic"],"platforms":["github","linux"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.native-race","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"go test -race ./... -count=1","classification":"canonical-owner","failureClasses":["race","platform"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true},
+    {"id":"ci.vet","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"go vet ./...","classification":"overlap","failureClasses":["deterministic"],"platforms":["github","linux"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.native-binary-smoke","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)","classification":"canonical-owner","failureClasses":["integration","platform"],"platforms":["github","windows","linux","darwin"],"expenseTier":"slow","releaseBlocking":true},
+    {"id":"ci.identity-catalog","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"go test ./internal/projectidentity ./internal/toolcatalog -count=1","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["github","linux"],"expenseTier":"fast","releaseBlocking":true},
+    {"id":"ci.node-release-scripts","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"node --test scripts/generate-server-json.test.js","classification":"canonical-owner","failureClasses":["deterministic","integration"],"platforms":["github","linux"],"expenseTier":"fast","releaseBlocking":true},
+    {"id":"ci.staticcheck","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"staticcheck@v0.7.0 ./...","classification":"overlap","failureClasses":["deterministic"],"platforms":["github","linux"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.govulncheck","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"govulncheck@v1.7.0 ./...","classification":"canonical-owner","failureClasses":["deterministic","external-acceptance"],"platforms":["github","linux"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.workflow-lint","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"bash scripts/validate-workflows.sh","classification":"canonical-owner","failureClasses":["deterministic","external-acceptance"],"platforms":["github","linux"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.fuzz-smoke","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"node scripts/run-fuzz.js --profile smoke","classification":"canonical-owner","failureClasses":["fuzz"],"platforms":["github","linux"],"expenseTier":"slow","releaseBlocking":true},
+    {"id":"ci.gitleaks","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"gitleaks/gitleaks-action@v3.0.0","classification":"canonical-owner","failureClasses":["deterministic","external-acceptance"],"platforms":["github","linux"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.cross-build","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"name: Build (${{ matrix.goos }}/${{ matrix.goarch }})","classification":"canonical-owner","failureClasses":["platform"],"platforms":["github","windows","linux","darwin"],"expenseTier":"slow","releaseBlocking":true},
+    {"id":"ci.container-smoke","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"name: Container smoke","classification":"canonical-owner","failureClasses":["integration","platform","external-acceptance"],"platforms":["github","linux"],"expenseTier":"very-slow","releaseBlocking":true},
+    {"id":"ci.release-config","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"args: check","classification":"canonical-owner","failureClasses":["deterministic","external-acceptance"],"platforms":["github","linux"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"ci.release-candidate","kind":"github-workflow","file":".github/workflows/test.yml","anchor":"name: Release candidate","classification":"canonical-owner","failureClasses":["external-acceptance"],"platforms":["github"],"expenseTier":"fast","releaseBlocking":true},
+    {"id":"ci.codeql","kind":"github-workflow","file":".github/workflows/codeql.yml","anchor":"github/codeql-action/analyze@v4.37.7","classification":"overlap","failureClasses":["external-acceptance"],"platforms":["github","linux"],"expenseTier":"slow","releaseBlocking":false},
+    {"id":"release.exact-push-attestation","kind":"github-workflow","file":".github/workflows/release.yml","anchor":"Verify successful exact-commit Test Suite gate","classification":"canonical-owner","failureClasses":["external-acceptance"],"platforms":["github"],"expenseTier":"medium","releaseBlocking":true},
+    {"id":"release.goreleaser","kind":"github-workflow","file":".github/workflows/release.yml","anchor":"Run GoReleaser","classification":"canonical-owner","failureClasses":["integration","platform","external-acceptance"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true},
+    {"id":"release.mcpb","kind":"github-workflow","file":".github/workflows/publish-mcpb-assets.yml","anchor":"Build deterministic MCPB release assets","classification":"canonical-owner","failureClasses":["integration","external-acceptance"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true},
+    {"id":"release.registry","kind":"github-workflow","file":".github/workflows/publish-registry.yml","anchor":"Publish to MCP Registry","classification":"canonical-owner","failureClasses":["integration","external-acceptance"],"platforms":["github"],"expenseTier":"slow","releaseBlocking":true},
+    {"id":"local.focused","kind":"local-private","profile":"Focused","purpose":"Runs only explicitly selected evidence-map test groups, with optional race on selected Go groups, for fast developer diagnosis without claiming release authority.","classification":"supporting-end-to-end","failureClasses":["deterministic","integration","race"],"platforms":["local","windows"],"expenseTier":"medium","releaseBlocking":false},
+    {"id":"local.prepush","kind":"local-private","profile":"PrePush","purpose":"Runs repository policy, full normal regression, static and vulnerability quality checks, shared fuzz smoke, and optional native smoke before push while leaving broad cross-platform race and release-only evidence to GitHub and the Release profile.","classification":"supporting-end-to-end","failureClasses":["deterministic","fuzz","integration","platform","external-acceptance"],"platforms":["local","windows"],"expenseTier":"very-slow","releaseBlocking":false},
+    {"id":"local.release","kind":"local-private","profile":"Release","purpose":"Requires a clean non-diverged main baseline and adds supplemental secret scanning, release configuration validation, six production builds, native and container smoke, plus optional reproducibility without replacing exact-SHA GitHub publication authority.","classification":"supporting-end-to-end","failureClasses":["deterministic","fuzz","platform","integration","external-acceptance"],"platforms":["local","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":false}
+  ],
+  "invariants": [
+    {
+      "id":"identity.public-surface-consistency","category":"identity-catalog-mcp","requirement":"Fork identity, public MCP names/schemas/annotations/prompts and runtime registration remain synchronized; stdio and Streamable HTTP use the same server policy.","canonicalLayer":"project identity plus shared server/catalog boundary",
+      "contracts":[{"path":"docs/PROJECT_DIRECTION.md","role":"product identity contract"},{"path":"docs/MCP_MUTATION_SURFACE.md","role":"public tool and annotation contract"},{"path":"docs/MCP_2026_07_28_ADOPTION.md","role":"shared server and protocol contract"}],
+      "testOwners":["go.projectidentity","go.toolcatalog","go.filetoolsserver","go.handler"],"gateOwners":["ci.identity-catalog","ci.native-race","ci.native-binary-smoke"],"failureClasses":["deterministic","integration"],"platforms":["all"],"expenseTier":"medium","releaseBlocking":true
+    },
+    {
+      "id":"path.authorization-and-traversal","category":"path-security","requirement":"Requested and resolved absolute paths stay within allowed roots by real component boundary; symlink/junction/reparse escapes and uncertain resolution fail closed; recursive traversal stays deterministic and bounded.","canonicalLayer":"security path validation and secure walker",
+      "contracts":[{"path":"docs/SAFE_FILESYSTEM_OPERATIONS.md","role":"filesystem authorization and traversal contract"},{"path":"docs/DEVELOPMENT_CHECKLIST.md","role":"security regression requirements"}],
+      "testOwners":["go.security","go.filesystem","go.handler"],"gateOwners":["ci.native-race","ci.fuzz-smoke"],"failureClasses":["deterministic","fuzz","race","platform"],"platforms":["windows","linux","darwin"],"expenseTier":"medium","releaseBlocking":true
+    },
+    {
+      "id":"encoding.content-trust-and-preservation","category":"encoding-text","requirement":"BOM evidence is authoritative, detection is filename-independent and ambiguity-safe, malformed encodings are rejected, and public operations preserve their documented encoding/BOM/EOL semantics across supported codecs.","canonicalLayer":"encoding detector, streaming text core and handlers",
+      "contracts":[{"path":"docs/GLOBAL_ENCODING_COVERAGE.md","role":"encoding capability, detection and verification contract"},{"path":"docs/VERIFIED_CHANGE_WORKFLOWS.md","role":"verified text mutation contract"}],
+      "testOwners":["go.encoding","go.textstream","go.handler"],"gateOwners":["ci.native-race","ci.fuzz-smoke"],"failureClasses":["deterministic","fuzz","integration"],"platforms":["all"],"expenseTier":"slow","releaseBlocking":true
+    },
+    {
+      "id":"mutation.preview-apply-durability","category":"mutation-backup","requirement":"Read-only previews have no mutation path; apply is previewId-bound and revalidates authorization/identity/fingerprints; commits use durable staging/no-replace semantics and report truthful partial state.","canonicalLayer":"preview/apply handlers plus durable filesystem layer",
+      "contracts":[{"path":"docs/MCP_MUTATION_SURFACE.md","role":"preview/apply capability contract"},{"path":"docs/SAFE_FILESYSTEM_OPERATIONS.md","role":"durable filesystem mutation contract"},{"path":"docs/VERIFIED_CHANGE_WORKFLOWS.md","role":"fingerprint/conflict contract"}],
+      "testOwners":["go.handler","go.filesystem","go.filesystempackage"],"gateOwners":["ci.native-race","ci.fuzz-smoke"],"failureClasses":["deterministic","race","fuzz","integration","platform"],"platforms":["windows","linux","darwin"],"expenseTier":"slow","releaseBlocking":true
+    },
+    {
+      "id":"backup.protected-store-and-recovery","category":"mutation-backup","requirement":"Backup storage remains a separate owner-only immutable authority with one writer; required capture precedes mutation; restore/recovery preserves evidence and never claims false rollback.","canonicalLayer":"backup store and recovery integration",
+      "contracts":[{"path":"docs/PERSISTENT_BACKUP_LIFECYCLE.md","role":"backup lifecycle security/durability contract"},{"path":"docs/BACKUP_RECOVERY.md","role":"offline evidence-preserving recovery contract"}],
+      "testOwners":["go.backupstore","go.handler","go.cmd-scripthold"],"gateOwners":["ci.native-race","ci.native-binary-smoke","ci.fuzz-smoke"],"failureClasses":["deterministic","race","fuzz","platform","integration"],"platforms":["windows","linux","darwin"],"expenseTier":"slow","releaseBlocking":true
+    },
+    {
+      "id":"tasks.durable-bounded-at-most-once","category":"durable-tasks","requirement":"task_run admission is durable/idempotent and returns immediately; execution remains opt-in; started-task recovery is at-most-once; cancellation, process-tree handling, logs and retention remain bounded and explicit.","canonicalLayer":"task store, supervisor, worker, executor and execution policy",
+      "contracts":[{"path":"docs/DURABLE_TASKS.md","role":"durable task lifecycle and execution contract"},{"path":"docs/HTTP_SECURITY.md","role":"HTTP execution dual-opt-in contract"}],
+      "testOwners":["go.taskstore","go.execution","go.config","go.handler","go.cmd-scripthold"],"gateOwners":["ci.native-race","ci.native-binary-smoke","ci.container-smoke","ci.fuzz-smoke"],"failureClasses":["deterministic","race","fuzz","integration","platform"],"platforms":["windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true
+    },
+    {
+      "id":"http.fail-closed-admission-and-redaction","category":"http-protocol-redaction","requirement":"HTTP defaults to loopback; auth, Host and Origin are fail-closed; non-loopback requires TLS/trusted proxy policy; resources are bounded; access logging and credentials do not leak sensitive request/session/path data.","canonicalLayer":"HTTP admission/security middleware",
+      "contracts":[{"path":"docs/HTTP_SECURITY.md","role":"authoritative HTTP threat model and required negative tests"}],
+      "testOwners":["go.httptransport","go.config","go.cmd-scripthold"],"gateOwners":["ci.native-race","ci.container-smoke","ci.fuzz-smoke"],"failureClasses":["deterministic","race","fuzz","integration","external-acceptance"],"platforms":["linux","windows","darwin"],"expenseTier":"slow","releaseBlocking":true
+    },
+    {
+      "id":"protocol.modern-stateless-legacy-stateful","category":"http-protocol-redaction","requirement":"MCP 2026-07-28 HTTP uses stateless semantics while supported legacy versions retain stateful sessions; malformed/unsupported version inputs cannot silently downgrade or consume the wrong authority.","canonicalLayer":"MCP protocol router and shared server",
+      "contracts":[{"path":"docs/MCP_2026_07_28_ADOPTION.md","role":"protocol routing and compatibility contract"}],
+      "testOwners":["go.httptransport","go.filetoolsserver"],"gateOwners":["ci.native-race","ci.container-smoke"],"failureClasses":["deterministic","fuzz","integration"],"platforms":["all"],"expenseTier":"slow","releaseBlocking":true
+    },
+    {
+      "id":"source.readonly-evidence-and-ranges","category":"source-intelligence","requirement":"Source intelligence is read-only, root/encoding confined, ambiguity-safe and deterministic; normalized symbols/ranges/completeness use decoded source coordinates and never overclaim evidence.","canonicalLayer":"source document, detector, analyzers and normalized IR",
+      "contracts":[{"path":"docs/SOURCE_INTELLIGENCE.md","role":"R25 source-navigation contract"},{"path":"docs/MULTILANGUAGE_CODE_INTELLIGENCE.md","role":"R27 provider/evidence contract"},{"path":"internal/sourceintelligence/testdata/provider-contracts.json","role":"independent executable provider/capability contract"}],
+      "testOwners":["go.sourceintelligence","go.handler","go.security","go.encoding"],"gateOwners":["ci.native-race","ci.fuzz-smoke"],"failureClasses":["deterministic","race","fuzz","integration"],"platforms":["all"],"expenseTier":"slow","releaseBlocking":true
+    },
+    {
+      "id":"source.project-index-and-composites","category":"source-intelligence","requirement":"Project relations preserve explicit evidence/resolution state; process-local index generations are fingerprint-bound/coherent; composite providers preserve host coordinates and unsupported regions; resource/cancellation bounds remain enforced.","canonicalLayer":"project model, query engine, index manager and composite segmenters",
+      "contracts":[{"path":"docs/MULTILANGUAGE_CODE_INTELLIGENCE.md","role":"R27 project relation/index/composite/scale contract"}],
+      "testOwners":["go.sourceintelligence","go.handler","go.concurrency"],"gateOwners":["ci.native-race","ci.fuzz-smoke"],"failureClasses":["deterministic","race","fuzz","integration"],"platforms":["all"],"expenseTier":"very-slow","releaseBlocking":true
+    },
+    {
+      "id":"release.fail-closed-evidence-tiers","category":"release-publication","requirement":"Pull requests may use narrower docs or Go evidence only when a rename-aware classifier proves the change set is explicitly covered; unknown, gate-defining, bootstrap and non-PR events fail closed to full qualification, and the aggregate Release candidate rejects missing required evidence.","canonicalLayer":"CI change classifier and release-candidate evidence aggregator",
+      "contracts":[{"path":"docs/DEVELOPMENT_CHECKLIST.md","role":"risk-based verification ladder"},{"path":"docs/PUBLISHING.md","role":"exact-commit release qualification contract"}],
+      "testOwners":["node.ci-policy","go.testarchitecture"],"gateOwners":["ci.change-classifier","ci.docs-policy","ci.gitleaks","ci.release-candidate"],"failureClasses":["deterministic","external-acceptance"],"platforms":["github"],"expenseTier":"fast","releaseBlocking":true
+    },
+    {
+      "id":"release.maintenance-and-native-matrix","category":"release-publication","requirement":"Go-affecting candidate evidence includes Linux regression, mapped platform/race suites, module/catalog/script/static/vulnerability/fuzz checks and secret scanning; exact main qualification additionally preserves broad Windows/Linux/macOS regression/race, native smoke, all six production target builds, container security and GoReleaser configuration checks.","canonicalLayer":"risk-tiered repository verification plus exact-main native CI matrix",
+      "contracts":[{"path":"docs/DEVELOPMENT_CHECKLIST.md","role":"verification ladder"},{"path":"docs/PUBLISHING.md","role":"release candidate requirements"}],
+      "testOwners":["go.projectidentity","go.toolcatalog","node.release-scripts","node.ci-policy","go.cmd-scripthold","go.handler","go.testarchitecture"],"gateOwners":["ci.change-classifier","ci.docs-policy","ci.linux-regression","ci.targeted-platform","ci.targeted-race","ci.modules","ci.identity-catalog","ci.node-release-scripts","ci.workflow-lint","ci.golangci","ci.vet","ci.staticcheck","ci.govulncheck","ci.fuzz-smoke","ci.gitleaks","ci.native-race","ci.native-binary-smoke","ci.cross-build","ci.container-smoke","ci.release-config","ci.release-candidate"],"failureClasses":["deterministic","race","fuzz","platform","integration","external-acceptance"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true
+    },
+    {
+      "id":"release.container-and-fuzz","category":"release-publication","requirement":"Release qualification retains hardened non-root container stdio/direct-TLS HTTP acceptance and risk-based fuzz evidence from one shared manifest; local execution is supplemental to the release-blocking GitHub smoke.","canonicalLayer":"container and fuzz qualification gates",
+      "contracts":[{"path":"docs/HTTP_SECURITY.md","role":"container security acceptance"},{"path":"docs/DEVELOPMENT_CHECKLIST.md","role":"fuzz and release verification"},{"path":"docs/MULTILANGUAGE_CODE_INTELLIGENCE.md","role":"source-intelligence fuzz requirement"},{"path":"testarchitecture/fuzz-manifest.json","role":"single risk-based fuzz source of truth"}],
+      "testOwners":["go.cmd-scripthold","go.httptransport","go.encoding","go.backupstore","go.sourceintelligence","go.security","go.filesystem","go.textstream","go.handler","go.taskstore"],"gateOwners":["ci.container-smoke","ci.fuzz-smoke","local.prepush","local.release","ci.release-candidate"],"failureClasses":["fuzz","integration","platform","external-acceptance"],"platforms":["github","local","linux","windows"],"expenseTier":"very-slow","releaseBlocking":true
+    },
+    {
+      "id":"release.exact-commit-publication","category":"release-publication","requirement":"A public release is tagged only from the exact clean main commit whose push Test Suite/Release candidate passed; GoReleaser then publishes immutable native assets and checksums.","canonicalLayer":"exact-commit release provenance and GoReleaser",
+      "contracts":[{"path":"docs/PUBLISHING.md","role":"immutable publication procedure"}],
+      "testOwners":["node.release-scripts","node.ci-policy","go.cmd-scripthold"],"gateOwners":["ci.gitleaks","ci.release-config","ci.release-candidate","release.exact-push-attestation","release.goreleaser"],"failureClasses":["deterministic","platform","integration","external-acceptance"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true
+    },
+    {
+      "id":"release.github-only-mcpb-registry","category":"release-publication","requirement":"Real MCPB packaging is GitHub-only and checksum-bound to immutable release binaries; exactly six validated bundles feed a fork-owned Registry manifest published with the pinned verified publisher and OIDC.","canonicalLayer":"GitHub MCPB and MCP Registry publication workflows",
+      "contracts":[{"path":"docs/PUBLISHING.md","role":"GitHub-only MCPB and Registry publication contract"},{"path":"docs/PROJECT_DIRECTION.md","role":"fork Registry identity"}],
+      "testOwners":["node.release-scripts","go.toolcatalog"],"gateOwners":["release.mcpb","release.registry"],"failureClasses":["deterministic","integration","external-acceptance"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true
+    },
+    {
+      "id":"release.local-evidence-not-authority","category":"release-publication","requirement":"Private local validation may duplicate or supplement candidate evidence but cannot publish, replace the exact GitHub push attestation, or justify keeping redundant gates without mapped invariant coverage.","canonicalLayer":"local versus GitHub release authority",
+      "contracts":[{"path":"docs/PUBLISHING.md","role":"local verification versus publication boundary"},{"path":"docs/DEVELOPMENT_CHECKLIST.md","role":"explicit authorization and evidence policy"}],
+      "testOwners":["go.testarchitecture"],"gateOwners":["local.focused","local.prepush","local.release","ci.release-candidate"],"failureClasses":["deterministic","race","platform","integration","external-acceptance"],"platforms":["local","github"],"expenseTier":"very-slow","releaseBlocking":false
+    }
+  ]
+}

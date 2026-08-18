@@ -79,7 +79,7 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 		return CaptureResult{}, err
 	}
 
-	stagedPath, stagedDigest, stagedSize, err := store.stageTarget(ctx, request.TargetPath, lstatInfo.Size())
+	stagedPath, stagedDigest, stagedSize, err := store.ops.stageTarget(store, ctx, request.TargetPath, lstatInfo.Size())
 	if err != nil {
 		return CaptureResult{}, err
 	}
@@ -91,11 +91,6 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 		}
 	}()
 
-	if store.captureHooks.afterStage != nil {
-		if hookErr := store.captureHooks.afterStage(); hookErr != nil {
-			return CaptureResult{}, hookErr
-		}
-	}
 	if err := ctx.Err(); err != nil {
 		return CaptureResult{}, operation.Wrap(operation.KindCancelled, "capture_backup", "", err)
 	}
@@ -148,13 +143,7 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 	if installErr != nil {
 		return CaptureResult{}, installErr
 	}
-	if store.captureHooks.beforeManifestCommit != nil {
-		if hookErr := store.captureHooks.beforeManifestCommit(); hookErr != nil {
-			return CaptureResult{}, hookErr
-		}
-	}
-
-	manifest, manifestInstalled, manifestErr := store.commitManifest(Manifest{
+	manifest, manifestInstalled, manifestErr := store.ops.commitManifest(store, Manifest{
 		FormatVersion:      ManifestVersion,
 		StoreFormatVersion: FormatVersion,
 		StoreID:            store.descriptor.StoreID,
@@ -489,12 +478,7 @@ func (store *Store) refreshDerivedIndex(ctx context.Context) error {
 	store.stateMu.Lock()
 	store.index = index
 	store.stateMu.Unlock()
-	if store.captureHooks.beforeIndexPersist != nil {
-		if err := store.captureHooks.beforeIndexPersist(); err != nil {
-			return err
-		}
-	}
-	if err := persistIndex(store.root, index); err != nil {
+	if err := store.ops.persistIndex(store.root, index); err != nil {
 		return err
 	}
 	return nil

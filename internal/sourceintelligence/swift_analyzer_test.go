@@ -45,7 +45,7 @@ let fake = "class StringFake { func nope() {} }"
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.swift"
-	result, err := (SwiftAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (SwiftAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ let fake = "class StringFake { func nope() {} }"
 }
 
 func TestSwiftAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
-	partial, err := (SwiftAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct Good {}\nclass Broken {\n"), phase3AnalyzeOptions(true, 32))
+	partial, err := (SwiftAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct Good {}\nclass Broken {\n"), testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestSwiftAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 		t.Fatalf("malformed Swift lost Good: %v", sortedSymbolQualifiedNames(partial.Analysis.Symbols))
 	}
 
-	limited, err := (SwiftAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct A {}\nstruct B {}\nstruct C {}\n"), phase3AnalyzeOptions(false, 2))
+	limited, err := (SwiftAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct A {}\nstruct B {}\nstruct C {}\n"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestSwiftAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (SwiftAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("struct A {}"), phase3AnalyzeOptions(false, 16))
+	_, err = (SwiftAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("struct A {}"), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("Swift cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}

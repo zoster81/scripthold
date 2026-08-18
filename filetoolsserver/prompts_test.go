@@ -8,7 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestR15ProjectPromptsAvailableOnSharedServer(t *testing.T) {
+func TestProjectPromptsAvailableOnSharedServer(t *testing.T) {
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	serverSession, err := NewServer([]string{t.TempDir()}, nil, nil).Connect(ctx, serverTransport, nil)

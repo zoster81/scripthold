@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestR27CapabilityMatrixDocumentationMatchesRegistry(t *testing.T) {
+func TestCapabilityMatrixDocumentationMatchesRegistry(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -17,6 +17,7 @@ func TestR27CapabilityMatrixDocumentationMatchesRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read capability matrix documentation: %v", err)
 	}
+	assertProviderContractRegistryAndDocumentation(t, loadProviderContractManifest(t), registry, string(actual))
 	if string(actual) != expected {
 		firstMismatch := min(len(actual), len(expected))
 		for index := 0; index < firstMismatch; index++ {

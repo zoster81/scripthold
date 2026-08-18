@@ -20,7 +20,7 @@ func TestCaptureCreatesObjectManifestAndIndex(t *testing.T) {
 	if err := os.WriteFile(target, content, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 
 	result, err := store.Capture(context.Background(), CaptureRequest{
 		TargetPath:      target,
@@ -73,7 +73,7 @@ func TestCaptureCreatesObjectManifestAndIndex(t *testing.T) {
 
 func TestCaptureDeduplicatesIdenticalObjects(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	content := []byte("same exact bytes")
 	var results []CaptureResult
 	for _, name := range []string{"first.txt", "second.txt"} {
@@ -139,7 +139,7 @@ func TestCaptureEnforcesQuotaManifestVersionAndPinLimits(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			base := canonicalTempDir(t)
-			store := openPhase2TestStore(t, filepath.Join(base, "store"), tc.limits)
+			store := openBackupTestStore(t, filepath.Join(base, "store"), tc.limits)
 			firstTarget := filepath.Join(base, "first.txt")
 			if tc.name == "versions per target" {
 				firstTarget = filepath.Join(base, "same.txt")
@@ -182,10 +182,10 @@ func TestCaptureEnforcesQuotaManifestVersionAndPinLimits(t *testing.T) {
 
 func TestPinnedCaptureUsesSeparateQuotaFromUnpinnedTargetVersions(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.MaxVersionsPerTarget = 1
 	limits.MaxPinned = 2
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte("first"), 0o600); err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestPinnedCaptureUsesSeparateQuotaFromUnpinnedTargetVersions(t *testing.T) 
 
 func TestCaptureRejectsCorruptExistingObjectWithoutManifest(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	content := []byte("object bytes")
 	first := filepath.Join(base, "first.txt")
 	if err := os.WriteFile(first, content, 0o600); err != nil {
@@ -251,7 +251,7 @@ func TestCaptureRejectsCorruptExistingObjectWithoutManifest(t *testing.T) {
 func TestCaptureRejectsReplacedStoreRootIdentity(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	moved := filepath.Join(base, "store-moved")
 	if err := os.Rename(root, moved); err != nil {
 		t.Skipf("open store root cannot be renamed on this filesystem: %v", err)
@@ -282,7 +282,7 @@ func TestCaptureRejectsReplacedStoreRootIdentity(t *testing.T) {
 
 func TestCaptureRejectsReplacedInternalObjectDirectory(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	algorithmRoot := filepath.Join(store.Root(), "objects", ObjectAlgorithm)
 	external := filepath.Join(base, "external-objects")
 	if err := os.Mkdir(external, 0o700); err != nil {
@@ -314,13 +314,13 @@ func TestCaptureRejectsReplacedInternalObjectDirectory(t *testing.T) {
 
 func TestCaptureRejectsSameContentPathReplacement(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	content := []byte("same content")
 	if err := os.WriteFile(target, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.captureHooks.afterStage = func() error {
+	overrideAfterCaptureStage(store, func() error {
 		replacement := filepath.Join(base, "replacement.txt")
 		if err := os.WriteFile(replacement, content, 0o600); err != nil {
 			return err
@@ -329,7 +329,7 @@ func TestCaptureRejectsSameContentPathReplacement(t *testing.T) {
 			return err
 		}
 		return os.Rename(replacement, target)
-	}
+	})
 	_, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
 	if operation.KindOf(err) != operation.KindConflict {
 		t.Fatalf("replacement error = %v, want CONFLICT", err)
@@ -341,10 +341,10 @@ func TestCaptureRejectsSameContentPathReplacement(t *testing.T) {
 
 func TestIndexPersistenceFailureReturnsDurableManifestAndAccurateMemoryState(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
-	store.captureHooks.beforeIndexPersist = func() error {
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
+	overrideBeforeIndexPersist(store, func() error {
 		return errors.New("injected index persistence failure")
-	}
+	})
 	target := filepath.Join(base, "target.txt")
 	content := []byte("durable before index failure")
 	if err := os.WriteFile(target, content, 0o600); err != nil {
@@ -369,15 +369,15 @@ func TestIndexPersistenceFailureReturnsDurableManifestAndAccurateMemoryState(t *
 
 func TestManifestFailureAccountsForDurableOrphanObject(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	content := []byte("orphan after manifest failure")
 	if err := os.WriteFile(target, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.captureHooks.beforeManifestCommit = func() error {
+	overrideBeforeManifestCommit(store, func() error {
 		return errors.New("injected manifest failure")
-	}
+	})
 
 	_, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
 	if err == nil || !strings.Contains(err.Error(), "injected manifest failure") {
@@ -398,9 +398,9 @@ func TestManifestFailureAccountsForDurableOrphanObject(t *testing.T) {
 
 func TestConcurrentReservationsPreventQuotaOvercommit(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.MaxTotalBytes = 8
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	firstTarget := filepath.Join(base, "first.txt")
 	secondTarget := filepath.Join(base, "second.txt")
 	if err := os.WriteFile(firstTarget, []byte("12345678"), 0o600); err != nil {
@@ -413,13 +413,13 @@ func TestConcurrentReservationsPreventQuotaOvercommit(t *testing.T) {
 	staged := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	store.captureHooks.afterStage = func() error {
+	overrideAfterCaptureStage(store, func() error {
 		once.Do(func() {
 			close(staged)
 			<-release
 		})
 		return nil
-	}
+	})
 
 	firstDone := make(chan error, 1)
 	go func() {
@@ -443,16 +443,16 @@ func TestConcurrentReservationsPreventQuotaOvercommit(t *testing.T) {
 
 func TestCaptureCancellationLeavesNoCommittedState(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte(strings.Repeat("x", 1024*1024)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	store.captureHooks.afterStage = func() error {
+	overrideAfterCaptureStage(store, func() error {
 		cancel()
 		return nil
-	}
+	})
 	_, err := store.Capture(ctx, CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
 	if !errors.Is(err, context.Canceled) && operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("cancellation error = %v", err)
@@ -462,7 +462,7 @@ func TestCaptureCancellationLeavesNoCommittedState(t *testing.T) {
 	}
 }
 
-func phase2TestLimits() Limits {
+func backupStoreTestLimits() Limits {
 	return Limits{
 		MaxTotalBytes:        16 * 1024 * 1024,
 		MaxObjectBytes:       8 * 1024 * 1024,
@@ -474,7 +474,7 @@ func phase2TestLimits() Limits {
 	}
 }
 
-func openPhase2TestStore(t *testing.T, root string, limits Limits) *Store {
+func openBackupTestStore(t *testing.T, root string, limits Limits) *Store {
 	t.Helper()
 	store, err := Open(Options{Directory: root, Limits: limits})
 	if err != nil {

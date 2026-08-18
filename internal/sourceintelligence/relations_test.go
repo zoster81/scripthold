@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestR27RelationContractVocabulary(t *testing.T) {
+func TestRelationContractVocabulary(t *testing.T) {
 	if got, want := []RelationKind{
 		RelationDependencies, RelationDependents, RelationReferences, RelationDefinitions,
 		RelationInheritance, RelationImplementations, RelationOverrides, RelationCallers,
@@ -30,7 +30,7 @@ func TestR27RelationContractVocabulary(t *testing.T) {
 	}
 }
 
-func TestR27EvidenceStrengthRemainsSeparateFromResolution(t *testing.T) {
+func TestEvidenceStrengthRemainsSeparateFromResolution(t *testing.T) {
 	for _, evidence := range []SymbolEvidence{
 		SymbolEvidenceTextual, SymbolEvidenceLexical, SymbolEvidenceStructural,
 		SymbolEvidenceScopeResolved, SymbolEvidenceProjectResolved, SymbolEvidenceSemantic,
@@ -46,7 +46,7 @@ func TestR27EvidenceStrengthRemainsSeparateFromResolution(t *testing.T) {
 	}
 }
 
-func TestR27ContextPriorityVocabulary(t *testing.T) {
+func TestContextPriorityVocabulary(t *testing.T) {
 	if got, want := []ContextReason{
 		ContextTarget, ContextEnclosing, ContextDirectDependency, ContextDirectRelatedBody,
 		ContextDirectRelatedSignature, ContextReverseOrTypeRelation, ContextDeeperRelation,

@@ -11,7 +11,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-func TestR27Phase15ProjectIndexAnalysisFingerprintIncludesFactAffectingLimits(t *testing.T) {
+func TestProjectIndexAnalysisFingerprintIncludesFactAffectingLimits(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestR27Phase15ProjectIndexAnalysisFingerprintIncludesFactAffectingLimits(t 
 	}
 }
 
-func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
+func TestProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -43,9 +43,9 @@ func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 	root := filepath.Join("project", "phase15")
 	aPath := filepath.Join(root, "a.ts")
 	bPath := filepath.Join(root, "b.ts")
-	aV1 := phase15Facts(t, registry, aPath, "typescript", "export class A {}\n")
-	bV1 := phase15Facts(t, registry, bPath, "typescript", "export class B {}\n")
-	bV2 := phase15Facts(t, registry, bPath, "typescript", "export class B2 {}\n")
+	aV1 := indexFacts(t, registry, aPath, "typescript", "export class A {}\n")
+	bV1 := indexFacts(t, registry, bPath, "typescript", "export class B {}\n")
+	bV2 := indexFacts(t, registry, bPath, "typescript", "export class B2 {}\n")
 
 	manager, err := NewProjectIndexManager(ProjectIndexManagerLimits{MaxProjects: 2, MaxGenerations: 2})
 	if err != nil {
@@ -64,10 +64,10 @@ func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 	refresh := func(analysisFingerprint string, snapshots []ProjectIndexFileSnapshot) ProjectIndexSelection {
 		t.Helper()
 		selection, refreshErr := manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-			ScopeFingerprint:    phase15Digest("scope"),
+			ScopeFingerprint:    indexDigest("scope"),
 			AnalysisFingerprint: analysisFingerprint,
 			Snapshots:           snapshots,
-			ResolverLimits:      phase15ResolverLimits(),
+			ResolverLimits:      indexResolverLimits(),
 			Analyze:             analyze,
 		})
 		if refreshErr != nil {
@@ -80,7 +80,7 @@ func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 		{Path: aPath, SourceFingerprint: aV1.SourceFingerprint},
 		{Path: bPath, SourceFingerprint: bV1.SourceFingerprint},
 	}
-	first := refresh(phase15Digest("analysis-v1"), initialSnapshots)
+	first := refresh(indexDigest("analysis-v1"), initialSnapshots)
 	if first.Evidence.Generation == 0 || first.Evidence.Staleness != IndexCurrent {
 		t.Fatalf("first evidence = %+v", first.Evidence)
 	}
@@ -88,7 +88,7 @@ func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 		t.Fatalf("first calls/stats = %#v / %+v", calls, first.Stats)
 	}
 
-	second := refresh(phase15Digest("analysis-v1"), initialSnapshots)
+	second := refresh(indexDigest("analysis-v1"), initialSnapshots)
 	if second.Evidence != first.Evidence {
 		t.Fatalf("warm evidence changed: first=%+v second=%+v", first.Evidence, second.Evidence)
 	}
@@ -97,7 +97,7 @@ func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 	}
 
 	facts[bPath] = bV2
-	changed := refresh(phase15Digest("analysis-v1"), []ProjectIndexFileSnapshot{
+	changed := refresh(indexDigest("analysis-v1"), []ProjectIndexFileSnapshot{
 		{Path: aPath, SourceFingerprint: aV1.SourceFingerprint},
 		{Path: bPath, SourceFingerprint: bV2.SourceFingerprint},
 	})
@@ -108,7 +108,7 @@ func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 		t.Fatalf("changed calls/stats = %#v / %+v", calls, changed.Stats)
 	}
 
-	configurationChanged := refresh(phase15Digest("analysis-v2"), []ProjectIndexFileSnapshot{
+	configurationChanged := refresh(indexDigest("analysis-v2"), []ProjectIndexFileSnapshot{
 		{Path: aPath, SourceFingerprint: aV1.SourceFingerprint},
 		{Path: bPath, SourceFingerprint: bV2.SourceFingerprint},
 	})
@@ -120,16 +120,16 @@ func TestR27Phase15ProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 	}
 }
 
-func TestR27Phase15ProjectIndexBindingRetentionAndStaleness(t *testing.T) {
+func TestProjectIndexBindingRetentionAndStaleness(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join("project", "phase15", "binding.ts")
 	versions := []ProjectFileFacts{
-		phase15Facts(t, registry, path, "typescript", "export class V1 {}\n"),
-		phase15Facts(t, registry, path, "typescript", "export class V2 {}\n"),
-		phase15Facts(t, registry, path, "typescript", "export class V3 {}\n"),
+		indexFacts(t, registry, path, "typescript", "export class V1 {}\n"),
+		indexFacts(t, registry, path, "typescript", "export class V2 {}\n"),
+		indexFacts(t, registry, path, "typescript", "export class V3 {}\n"),
 	}
 	manager, err := NewProjectIndexManager(ProjectIndexManagerLimits{MaxProjects: 1, MaxGenerations: 2})
 	if err != nil {
@@ -142,10 +142,10 @@ func TestR27Phase15ProjectIndexBindingRetentionAndStaleness(t *testing.T) {
 	}
 	refresh := func(binding ProjectIndexBinding) (ProjectIndexSelection, error) {
 		return manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-			ScopeFingerprint:    phase15Digest("binding-scope"),
-			AnalysisFingerprint: phase15Digest("analysis"),
+			ScopeFingerprint:    indexDigest("binding-scope"),
+			AnalysisFingerprint: indexDigest("analysis"),
 			Snapshots:           []ProjectIndexFileSnapshot{{Path: path, SourceFingerprint: current.SourceFingerprint}},
-			ResolverLimits:      phase15ResolverLimits(),
+			ResolverLimits:      indexResolverLimits(),
 			Binding:             binding,
 			Analyze:             analyze,
 		})
@@ -185,13 +185,13 @@ func TestR27Phase15ProjectIndexBindingRetentionAndStaleness(t *testing.T) {
 	}
 }
 
-func TestR27Phase15ProjectIndexSerializesConcurrentRefreshWithoutDuplicateAnalysis(t *testing.T) {
+func TestProjectIndexSerializesConcurrentRefreshWithoutDuplicateAnalysis(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join("project", "phase15", "concurrent.ts")
-	fact := phase15Facts(t, registry, path, "typescript", "export class Concurrent {}\n")
+	fact := indexFacts(t, registry, path, "typescript", "export class Concurrent {}\n")
 	manager, err := NewProjectIndexManager(ProjectIndexManagerLimits{MaxProjects: 1, MaxGenerations: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -214,10 +214,10 @@ func TestR27Phase15ProjectIndexSerializesConcurrentRefreshWithoutDuplicateAnalys
 		go func() {
 			defer group.Done()
 			selection, refreshErr := manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-				ScopeFingerprint:    phase15Digest("concurrent-scope"),
-				AnalysisFingerprint: phase15Digest("analysis"),
+				ScopeFingerprint:    indexDigest("concurrent-scope"),
+				AnalysisFingerprint: indexDigest("analysis"),
 				Snapshots:           []ProjectIndexFileSnapshot{{Path: path, SourceFingerprint: fact.SourceFingerprint}},
-				ResolverLimits:      phase15ResolverLimits(),
+				ResolverLimits:      indexResolverLimits(),
 				Analyze:             analyze,
 			})
 			if refreshErr != nil {
@@ -250,36 +250,36 @@ func TestR27Phase15ProjectIndexSerializesConcurrentRefreshWithoutDuplicateAnalys
 	}
 }
 
-func TestR27Phase15ProjectIndexUnavailableCoverageAndAtomicAbort(t *testing.T) {
+func TestProjectIndexUnavailableCoverageAndAtomicAbort(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join("project", "phase15", "unavailable.ts")
-	v1 := phase15Facts(t, registry, path, "typescript", "export class Available {}\n")
-	v2 := phase15Facts(t, registry, path, "typescript", "export class Changed {}\n")
+	v1 := indexFacts(t, registry, path, "typescript", "export class Available {}\n")
+	v2 := indexFacts(t, registry, path, "typescript", "export class Changed {}\n")
 	manager, err := NewProjectIndexManager(ProjectIndexManagerLimits{MaxProjects: 1, MaxGenerations: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	analysisFingerprint := phase15Digest("analysis")
+	analysisFingerprint := indexDigest("analysis")
 	analyzeV1 := func(_ context.Context, snapshot ProjectIndexFileSnapshot) (ProjectIndexAnalysisResult, error) {
 		fact := v1
 		return ProjectIndexAnalysisResult{ObservedFingerprint: snapshot.SourceFingerprint, Facts: &fact}, nil
 	}
 	first, err := manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-		ScopeFingerprint: phase15Digest("unavailable-scope"), AnalysisFingerprint: analysisFingerprint,
+		ScopeFingerprint: indexDigest("unavailable-scope"), AnalysisFingerprint: analysisFingerprint,
 		Snapshots:      []ProjectIndexFileSnapshot{{Path: path, SourceFingerprint: v1.SourceFingerprint}},
-		ResolverLimits: phase15ResolverLimits(), Analyze: analyzeV1,
+		ResolverLimits: indexResolverLimits(), Analyze: analyzeV1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	unavailableOptions := ProjectIndexRefreshOptions{
-		ScopeFingerprint: phase15Digest("unavailable-scope"), AnalysisFingerprint: analysisFingerprint,
+		ScopeFingerprint: indexDigest("unavailable-scope"), AnalysisFingerprint: analysisFingerprint,
 		Unavailable:    []ProjectIndexUnavailableFile{{Path: path, Reason: ProjectIndexUnavailable}},
-		ResolverLimits: phase15ResolverLimits(), Analyze: analyzeV1,
+		ResolverLimits: indexResolverLimits(), Analyze: analyzeV1,
 	}
 	unavailable, err := manager.Refresh(context.Background(), registry, unavailableOptions)
 	if err != nil {
@@ -301,9 +301,9 @@ func TestR27Phase15ProjectIndexUnavailableCoverageAndAtomicAbort(t *testing.T) {
 		return ProjectIndexAnalysisResult{ObservedFingerprint: v1.SourceFingerprint, Facts: &fact}, nil
 	}
 	_, err = manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-		ScopeFingerprint: phase15Digest("unavailable-scope"), AnalysisFingerprint: analysisFingerprint,
+		ScopeFingerprint: indexDigest("unavailable-scope"), AnalysisFingerprint: analysisFingerprint,
 		Snapshots:      []ProjectIndexFileSnapshot{{Path: path, SourceFingerprint: v2.SourceFingerprint}},
-		ResolverLimits: phase15ResolverLimits(), Analyze: badAnalyze,
+		ResolverLimits: indexResolverLimits(), Analyze: badAnalyze,
 	})
 	if operation.KindOf(err) != operation.KindConflict {
 		t.Fatalf("TOCTOU refresh error=%v kind=%v", err, operation.KindOf(err))
@@ -317,7 +317,7 @@ func TestR27Phase15ProjectIndexUnavailableCoverageAndAtomicAbort(t *testing.T) {
 	}
 }
 
-func TestR27Phase15ProjectIndexRebuildsRelationsAfterIncrementalChange(t *testing.T) {
+func TestProjectIndexRebuildsRelationsAfterIncrementalChange(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -325,9 +325,9 @@ func TestR27Phase15ProjectIndexRebuildsRelationsAfterIncrementalChange(t *testin
 	root := filepath.Join("project", "phase15", "relations")
 	aPath := filepath.Join(root, "a.ts")
 	bPath := filepath.Join(root, "b.ts")
-	aV1 := phase15Facts(t, registry, aPath, "typescript", "import { B } from \"./b\";\nexport class A extends B {}\n")
-	aV2 := phase15Facts(t, registry, aPath, "typescript", "export class A {}\n")
-	b := phase15Facts(t, registry, bPath, "typescript", "export class B {}\n")
+	aV1 := indexFacts(t, registry, aPath, "typescript", "import { B } from \"./b\";\nexport class A extends B {}\n")
+	aV2 := indexFacts(t, registry, aPath, "typescript", "export class A {}\n")
+	b := indexFacts(t, registry, bPath, "typescript", "export class B {}\n")
 	manager, err := NewProjectIndexManager(ProjectIndexManagerLimits{MaxProjects: 1, MaxGenerations: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -346,8 +346,8 @@ func TestR27Phase15ProjectIndexRebuildsRelationsAfterIncrementalChange(t *testin
 			snapshots = append(snapshots, ProjectIndexFileSnapshot{Path: b.Path, SourceFingerprint: b.SourceFingerprint})
 		}
 		selection, refreshErr := manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-			ScopeFingerprint: phase15Digest("relations-scope"), AnalysisFingerprint: phase15Digest("relations-analysis"),
-			Snapshots: snapshots, ResolverLimits: phase15ResolverLimits(), Analyze: analyze,
+			ScopeFingerprint: indexDigest("relations-scope"), AnalysisFingerprint: indexDigest("relations-analysis"),
+			Snapshots: snapshots, ResolverLimits: indexResolverLimits(), Analyze: analyze,
 		})
 		if refreshErr != nil {
 			t.Fatal(refreshErr)
@@ -375,7 +375,7 @@ func TestR27Phase15ProjectIndexRebuildsRelationsAfterIncrementalChange(t *testin
 	}
 }
 
-func TestR27Phase15ProjectIndexEvictionNeverReusesGenerationIdentity(t *testing.T) {
+func TestProjectIndexEvictionNeverReusesGenerationIdentity(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +385,7 @@ func TestR27Phase15ProjectIndexEvictionNeverReusesGenerationIdentity(t *testing.
 		t.Fatal(err)
 	}
 	path := filepath.Join("project", "phase15", "identity.ts")
-	fact := phase15Facts(t, registry, path, "typescript", "export class Identity {}\n")
+	fact := indexFacts(t, registry, path, "typescript", "export class Identity {}\n")
 	analyze := func(_ context.Context, snapshot ProjectIndexFileSnapshot) (ProjectIndexAnalysisResult, error) {
 		copy := fact
 		return ProjectIndexAnalysisResult{ObservedFingerprint: snapshot.SourceFingerprint, Facts: &copy}, nil
@@ -393,9 +393,9 @@ func TestR27Phase15ProjectIndexEvictionNeverReusesGenerationIdentity(t *testing.
 	refresh := func(scope string) ProjectIndexSelection {
 		t.Helper()
 		selection, refreshErr := manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-			ScopeFingerprint: phase15Digest(scope), AnalysisFingerprint: phase15Digest("identity-analysis"),
+			ScopeFingerprint: indexDigest(scope), AnalysisFingerprint: indexDigest("identity-analysis"),
 			Snapshots:      []ProjectIndexFileSnapshot{{Path: path, SourceFingerprint: fact.SourceFingerprint}},
-			ResolverLimits: phase15ResolverLimits(), Analyze: analyze,
+			ResolverLimits: indexResolverLimits(), Analyze: analyze,
 		})
 		if refreshErr != nil {
 			t.Fatal(refreshErr)
@@ -410,16 +410,16 @@ func TestR27Phase15ProjectIndexEvictionNeverReusesGenerationIdentity(t *testing.
 	}
 	old := first.Evidence.Generation
 	_, err = manager.Refresh(context.Background(), registry, ProjectIndexRefreshOptions{
-		ScopeFingerprint: phase15Digest("scope-one"), AnalysisFingerprint: phase15Digest("identity-analysis"),
+		ScopeFingerprint: indexDigest("scope-one"), AnalysisFingerprint: indexDigest("identity-analysis"),
 		Snapshots:      []ProjectIndexFileSnapshot{{Path: path, SourceFingerprint: fact.SourceFingerprint}},
-		ResolverLimits: phase15ResolverLimits(), Binding: ProjectIndexBinding{Generation: &old, AllowStale: true}, Analyze: analyze,
+		ResolverLimits: indexResolverLimits(), Binding: ProjectIndexBinding{Generation: &old, AllowStale: true}, Analyze: analyze,
 	})
 	if operation.KindOf(err) != operation.KindConflict {
 		t.Fatalf("evicted generation unexpectedly selectable: err=%v kind=%v", err, operation.KindOf(err))
 	}
 }
 
-func phase15Facts(t *testing.T, registry *LanguageRegistry, path, language, text string) ProjectFileFacts {
+func indexFacts(t *testing.T, registry *LanguageRegistry, path, language, text string) ProjectFileFacts {
 	t.Helper()
 	descriptor, ok := registry.Resolve(language)
 	if !ok {
@@ -429,14 +429,14 @@ func phase15Facts(t *testing.T, registry *LanguageRegistry, path, language, text
 	if !ok {
 		t.Fatalf("language %q has no analyzer", language)
 	}
-	return phase12Facts(t, analyzer, path, text)
+	return projectResolverFacts(t, analyzer, path, text)
 }
 
-func phase15ResolverLimits() ProjectResolverLimits {
+func indexResolverLimits() ProjectResolverLimits {
 	return ProjectResolverLimits{MaxFiles: 64, MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096}
 }
 
-func phase15Digest(value string) string {
+func indexDigest(value string) string {
 	digest := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(digest[:])
 }

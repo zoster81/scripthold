@@ -11,7 +11,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-func TestR27Phase12ProjectResolverCrossEcosystemDefinitions(t *testing.T) {
+func TestProjectResolverCrossEcosystemDefinitions(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -69,14 +69,14 @@ func TestR27Phase12ProjectResolverCrossEcosystemDefinitions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			base := phase12Facts(t, test.baseAnalyzer, test.basePath, test.baseSource)
-			child := phase12Facts(t, test.childAnalyzer, test.childPath, test.childSource)
-			baseID := phase12SymbolID(t, base, test.baseQualified)
-			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{child, base}, phase12ResolverLimits())
+			base := projectResolverFacts(t, test.baseAnalyzer, test.basePath, test.baseSource)
+			child := projectResolverFacts(t, test.childAnalyzer, test.childPath, test.childSource)
+			baseID := projectSymbolID(t, base, test.baseQualified)
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{child, base}, projectResolverLimitsForTest())
 			if err != nil {
 				t.Fatal(err)
 			}
-			reference := phase12ReferenceByTarget(t, model.References(), test.childPath, test.target)
+			reference := projectReferenceByTarget(t, model.References(), test.childPath, test.target)
 			if reference.Resolution != ResolutionResolved || reference.Evidence != SymbolEvidenceProjectResolved {
 				t.Fatalf("reference resolution = %s/%s, want resolved/project-resolved: %+v", reference.Resolution, reference.Evidence, reference)
 			}
@@ -95,22 +95,22 @@ func TestR27Phase12ProjectResolverCrossEcosystemDefinitions(t *testing.T) {
 	}
 }
 
-func TestR27Phase12ProjectResolverExplicitAliasAndDependencyAdjacency(t *testing.T) {
+func TestProjectResolverExplicitAliasAndDependencyAdjacency(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
 	basePath := filepath.Join("project", "kotlin", "Baz.kt")
 	childPath := filepath.Join("project", "kotlin", "Child.kt")
-	base := phase12Facts(t, KotlinAnalyzer{}, basePath, "package foo.bar\nopen class Baz\n")
-	child := phase12Facts(t, KotlinAnalyzer{}, childPath, "package app\nimport foo.bar.Baz as Qux\nclass Child : Qux()\n")
-	baseID := phase12SymbolID(t, base, "foo.bar.Baz")
+	base := projectResolverFacts(t, KotlinAnalyzer{}, basePath, "package foo.bar\nopen class Baz\n")
+	child := projectResolverFacts(t, KotlinAnalyzer{}, childPath, "package app\nimport foo.bar.Baz as Qux\nclass Child : Qux()\n")
+	baseID := projectSymbolID(t, base, "foo.bar.Baz")
 
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{base, child}, phase12ResolverLimits())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{base, child}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference := phase12ReferenceByTarget(t, model.References(), childPath, "Qux")
+	reference := projectReferenceByTarget(t, model.References(), childPath, "Qux")
 	if reference.Stage != ProjectResolutionExplicitImport || reference.Resolution != ResolutionResolved || len(reference.Targets) != 1 || reference.Targets[0].SymbolID != baseID {
 		t.Fatalf("alias reference = %+v", reference)
 	}
@@ -125,22 +125,22 @@ func TestR27Phase12ProjectResolverExplicitAliasAndDependencyAdjacency(t *testing
 	}
 }
 
-func TestR27Phase12ProjectResolverSameFilePrecedesBroaderProjectCandidates(t *testing.T) {
+func TestProjectResolverSameFilePrecedesBroaderProjectCandidates(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
 	localPath := filepath.Join("project", "java", "Local.java")
 	otherPath := filepath.Join("project", "java", "Other.java")
-	local := phase12Facts(t, JavaAnalyzer{}, localPath, "package demo; class Base {} class Child extends Base {}\n")
-	other := phase12Facts(t, JavaAnalyzer{}, otherPath, "package other; class Base {}\n")
-	localBaseID := phase12SymbolID(t, local, "demo.Base")
+	local := projectResolverFacts(t, JavaAnalyzer{}, localPath, "package demo; class Base {} class Child extends Base {}\n")
+	other := projectResolverFacts(t, JavaAnalyzer{}, otherPath, "package other; class Base {}\n")
+	localBaseID := projectSymbolID(t, local, "demo.Base")
 
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{other, local}, phase12ResolverLimits())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{other, local}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference := phase12ReferenceByTarget(t, model.References(), localPath, "Base")
+	reference := projectReferenceByTarget(t, model.References(), localPath, "Base")
 	if reference.Stage != ProjectResolutionSameFile || reference.Evidence != SymbolEvidenceScopeResolved || reference.Resolution != ResolutionResolved {
 		t.Fatalf("same-file reference = %+v", reference)
 	}
@@ -149,21 +149,21 @@ func TestR27Phase12ProjectResolverSameFilePrecedesBroaderProjectCandidates(t *te
 	}
 }
 
-func TestR27Phase12ProjectResolverKeepsBroadAmbiguityExplicit(t *testing.T) {
+func TestProjectResolverKeepsBroadAmbiguityExplicit(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "one.ts"), "export class Base {}\n")
-	second := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "two.ts"), "export class Base {}\n")
+	first := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "one.ts"), "export class Base {}\n")
+	second := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "two.ts"), "export class Base {}\n")
 	childPath := filepath.Join("project", "ts", "child.ts")
-	child := phase12Facts(t, TypeScriptAnalyzer{}, childPath, "export class Child extends Base {}\n")
+	child := projectResolverFacts(t, TypeScriptAnalyzer{}, childPath, "export class Child extends Base {}\n")
 
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{child, second, first}, phase12ResolverLimits())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{child, second, first}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference := phase12ReferenceByTarget(t, model.References(), childPath, "Base")
+	reference := projectReferenceByTarget(t, model.References(), childPath, "Base")
 	if reference.Stage != ProjectResolutionProject || reference.Resolution != ResolutionAmbiguous || reference.Evidence != SymbolEvidenceStructural || len(reference.Targets) != 2 {
 		t.Fatalf("ambiguous reference = %+v", reference)
 	}
@@ -172,15 +172,15 @@ func TestR27Phase12ProjectResolverKeepsBroadAmbiguityExplicit(t *testing.T) {
 	}
 }
 
-func TestR27Phase12ProjectResolverDependencyExternalAndDeterministic(t *testing.T) {
+func TestProjectResolverDependencyExternalAndDeterministic(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "one.ts"), "import { Local } from \"./local\";\nimport { missing } from \"./missing\";\nimport thing from \"external-package\";\nexport class One {}\n")
-	second := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "local.ts"), "export class Local {}\n")
-	unrelated := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "other.ts"), "export class missing {}\n")
-	limits := phase12ResolverLimits()
+	first := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "one.ts"), "import { Local } from \"./local\";\nimport { missing } from \"./missing\";\nimport thing from \"external-package\";\nexport class One {}\n")
+	second := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "local.ts"), "export class Local {}\n")
+	unrelated := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "other.ts"), "export class missing {}\n")
+	limits := projectResolverLimitsForTest()
 	left, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, second, unrelated}, limits)
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +206,7 @@ func TestR27Phase12ProjectResolverDependencyExternalAndDeterministic(t *testing.
 	}
 }
 
-func TestR27Phase12ProjectResolverFilteringDoesNotMutateSharedIndexSlice(t *testing.T) {
+func TestProjectResolverFilteringDoesNotMutateSharedIndexSlice(t *testing.T) {
 	input := []projectSymbolRecord{{pathKey: "first"}, {pathKey: "second"}}
 	filtered := excludePath(input, "first")
 	if len(filtered) != 1 || filtered[0].pathKey != "second" {
@@ -217,54 +217,54 @@ func TestR27Phase12ProjectResolverFilteringDoesNotMutateSharedIndexSlice(t *test
 	}
 }
 
-func TestR27Phase12ProjectResolverMalformedGenericSpellingFailsClosed(t *testing.T) {
+func TestProjectResolverMalformedGenericSpellingFailsClosed(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := phase12Facts(t, JavaAnalyzer{}, filepath.Join("project", "java", "Base.java"), "class Base {}\n")
+	base := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "java", "Base.java"), "class Base {}\n")
 	childPath := filepath.Join("project", "java", "Child.java")
-	child := phase12Facts(t, JavaAnalyzer{}, childPath, "class Child extends Base {}\n")
+	child := projectResolverFacts(t, JavaAnalyzer{}, childPath, "class Child extends Base {}\n")
 	if len(child.Analysis.Relations) != 1 {
 		t.Fatalf("child relations = %+v", child.Analysis.Relations)
 	}
 	child.Analysis.Relations[0].Target = "Base<"
 
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{base, child}, phase12ResolverLimits())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{base, child}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference := phase12ReferenceByTarget(t, model.References(), childPath, "Base<")
+	reference := projectReferenceByTarget(t, model.References(), childPath, "Base<")
 	if reference.Resolution != ResolutionUnresolved || reference.Stage != ProjectResolutionNone || len(reference.Targets) != 0 {
 		t.Fatalf("malformed generic reference resolved unexpectedly: %+v", reference)
 	}
 }
 
-func TestR27Phase12ProjectResolverCandidateLimitFailsClosed(t *testing.T) {
+func TestProjectResolverCandidateLimitFailsClosed(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	child := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "child.ts"), "export class Child extends Base {}\n")
-	first := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "one.ts"), "export class Base {}\n")
-	second := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "two.ts"), "export class Base {}\n")
-	third := phase12Facts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "three.ts"), "export class Base {}\n")
-	limits := phase12ResolverLimits()
+	child := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "child.ts"), "export class Child extends Base {}\n")
+	first := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "one.ts"), "export class Base {}\n")
+	second := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "two.ts"), "export class Base {}\n")
+	third := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "ts", "three.ts"), "export class Base {}\n")
+	limits := projectResolverLimitsForTest()
 	limits.MaxCandidatesPerResolution = 2
 	if _, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{child, first, second, third}, limits); operation.KindOf(err) != operation.KindLimit {
 		t.Fatalf("candidate limit error = %v kind=%v", err, operation.KindOf(err))
 	}
 }
 
-func TestR27Phase12ProjectResolverLimitsCancellationAndDuplicatePath(t *testing.T) {
+func TestProjectResolverLimitsCancellationAndDuplicatePath(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := phase12Facts(t, JavaAnalyzer{}, filepath.Join("project", "java", "A.java"), "class A {}\n")
-	second := phase12Facts(t, JavaAnalyzer{}, filepath.Join("project", "java", "B.java"), "class B {}\n")
+	first := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "java", "A.java"), "class A {}\n")
+	second := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "java", "B.java"), "class B {}\n")
 
-	limits := phase12ResolverLimits()
+	limits := projectResolverLimitsForTest()
 	limits.MaxFiles = 1
 	if _, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, second}, limits); operation.KindOf(err) != operation.KindLimit {
 		t.Fatalf("file limit error = %v kind=%v", err, operation.KindOf(err))
@@ -272,24 +272,24 @@ func TestR27Phase12ProjectResolverLimitsCancellationAndDuplicatePath(t *testing.
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := BuildProjectModel(ctx, registry, []ProjectFileFacts{first}, phase12ResolverLimits()); operation.KindOf(err) != operation.KindCancelled {
+	if _, err := BuildProjectModel(ctx, registry, []ProjectFileFacts{first}, projectResolverLimitsForTest()); operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("cancellation error = %v kind=%v", err, operation.KindOf(err))
 	}
 
 	duplicate := second
 	duplicate.Path = first.Path
-	if _, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, duplicate}, phase12ResolverLimits()); operation.KindOf(err) != operation.KindInvalidInput {
+	if _, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, duplicate}, projectResolverLimitsForTest()); operation.KindOf(err) != operation.KindInvalidInput {
 		t.Fatalf("duplicate path error = %v kind=%v", err, operation.KindOf(err))
 	}
 }
 
-func phase12Facts(t *testing.T, analyzer SourceAnalyzer, path, text string) ProjectFileFacts {
+func projectResolverFacts(t *testing.T, analyzer SourceAnalyzer, path, text string) ProjectFileFacts {
 	t.Helper()
 	document := sourceDocumentForScanner(text)
 	document.Path = path
 	sum := sha256.Sum256([]byte(text))
 	document.SourceFingerprint = hex.EncodeToString(sum[:])
-	result, err := analyzer.Analyze(context.Background(), document, phase3AnalyzeOptions(false, 512))
+	result, err := analyzer.Analyze(context.Background(), document, testAnalyzeOptions(false, 512))
 	if err != nil {
 		t.Fatalf("analyze %s: %v", path, err)
 	}
@@ -299,7 +299,7 @@ func phase12Facts(t *testing.T, analyzer SourceAnalyzer, path, text string) Proj
 	return ProjectFileFacts{Path: path, Language: analyzer.Language(), SourceFingerprint: document.SourceFingerprint, Analysis: result}
 }
 
-func phase12SymbolID(t *testing.T, facts ProjectFileFacts, qualifiedName string) string {
+func projectSymbolID(t *testing.T, facts ProjectFileFacts, qualifiedName string) string {
 	t.Helper()
 	for _, symbol := range facts.Analysis.Analysis.Symbols {
 		if symbol.QualifiedName == qualifiedName {
@@ -310,7 +310,7 @@ func phase12SymbolID(t *testing.T, facts ProjectFileFacts, qualifiedName string)
 	return ""
 }
 
-func phase12ReferenceByTarget(t *testing.T, references []ProjectReference, sourcePath, target string) ProjectReference {
+func projectReferenceByTarget(t *testing.T, references []ProjectReference, sourcePath, target string) ProjectReference {
 	t.Helper()
 	for _, reference := range references {
 		if reference.Source.Path == sourcePath && reference.TargetSpelling == target {
@@ -321,6 +321,6 @@ func phase12ReferenceByTarget(t *testing.T, references []ProjectReference, sourc
 	return ProjectReference{}
 }
 
-func phase12ResolverLimits() ProjectResolverLimits {
+func projectResolverLimitsForTest() ProjectResolverLimits {
 	return ProjectResolverLimits{MaxFiles: 128, MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096}
 }

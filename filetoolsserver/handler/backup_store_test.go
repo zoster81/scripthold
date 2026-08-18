@@ -91,7 +91,7 @@ func TestHandleBackupStoreReadOnlyActions(t *testing.T) {
 	}
 }
 
-func TestHandleBackupStoreDeprecatedReadBridgeMatchesR23Surface(t *testing.T) {
+func TestHandleBackupStoreDeprecatedReadBridgeMatchesSurface(t *testing.T) {
 	fixture := newBackupStoreHandlerFixture(t)
 	target := filepath.Join(fixture.publicRoot, "public.txt")
 	capture := fixture.capture(t, target, "public backup bytes", true)

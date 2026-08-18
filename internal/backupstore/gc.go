@@ -133,11 +133,6 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 		if err := ctx.Err(); err != nil {
 			return result, operation.Wrap(operation.KindCancelled, "trash_backup_manifest", "", err)
 		}
-		if store.gcHooks.beforeManifestTrash != nil {
-			if hookErr := store.gcHooks.beforeManifestTrash(candidate.BackupID); hookErr != nil {
-				return result, hookErr
-			}
-		}
 		source := manifestPath(store.root, candidate.BackupID)
 		info, statErr := os.Lstat(source)
 		if statErr != nil {
@@ -148,7 +143,7 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 			return result, operation.New(operation.KindConflict, "backup manifest changed after GC dry run")
 		}
 		destination := gcManifestTrashPath(store.root, candidate.BackupID)
-		moved, moveErr := moveGCEntry(source, destination, info, "backup manifest")
+		moved, moveErr := store.ops.moveGCEntry(source, destination, info, "backup manifest")
 		if moved {
 			durableStateChanged = true
 			result.ManifestsRemoved++
@@ -156,11 +151,6 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 		}
 		if moveErr != nil {
 			return result, moveErr
-		}
-		if store.gcHooks.afterManifestTrash != nil {
-			if hookErr := store.gcHooks.afterManifestTrash(candidate.BackupID); hookErr != nil {
-				return result, hookErr
-			}
 		}
 	}
 
@@ -179,11 +169,6 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 		if err := ctx.Err(); err != nil {
 			return result, operation.Wrap(operation.KindCancelled, "trash_backup_object", "", err)
 		}
-		if store.gcHooks.beforeObjectTrash != nil {
-			if hookErr := store.gcHooks.beforeObjectTrash(candidate.Digest); hookErr != nil {
-				return result, hookErr
-			}
-		}
 		source := objectPath(store.root, candidate.Digest)
 		info, statErr := os.Lstat(source)
 		if statErr != nil {
@@ -193,7 +178,7 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 			return result, verifyErr
 		}
 		destination := gcObjectTrashPath(store.root, candidate.Digest)
-		moved, moveErr := moveGCEntry(source, destination, info, "backup object")
+		moved, moveErr := store.ops.moveGCEntry(source, destination, info, "backup object")
 		if moved {
 			durableStateChanged = true
 			result.ObjectsRemoved++
@@ -202,23 +187,11 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 		if moveErr != nil {
 			return result, moveErr
 		}
-		if store.gcHooks.afterObjectTrash != nil {
-			if hookErr := store.gcHooks.afterObjectTrash(candidate.Digest); hookErr != nil {
-				return result, hookErr
-			}
-		}
 	}
 
 	for index := range trash {
 		entry := &trash[index]
-		if store.gcHooks.beforeTrashDelete != nil {
-			if hookErr := store.gcHooks.beforeTrashDelete(entry.kind, entry.id); hookErr != nil {
-				result.TrashCleanupFailures++
-				err = errors.Join(err, hookErr)
-				continue
-			}
-		}
-		removed, removeErr := removeGCTrashEntry(entry.path)
+		removed, removeErr := store.ops.removeGCTrashEntry(entry.path)
 		entry.removed = removed
 		if removed && entry.kind == "object" {
 			if !addNonNegativeInt64(&result.BytesReclaimed, entry.bytes) {

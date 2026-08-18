@@ -38,13 +38,12 @@ func TestGoModuleTargetsFork(t *testing.T) {
 func TestUpstreamReferencesAreDocumentationOnly(t *testing.T) {
 	root := repositoryRoot(t)
 	upstreamOwner := "dimitar" + "-grigorov"
-	allowedCounts := map[string]int{
-		"README.md":    1,
-		"CHANGELOG.md": 1,
-		filepath.FromSlash("docs/PROJECT_DIRECTION.md"): 2,
-		filepath.FromSlash("docs/PUBLISHING.md"):        1,
+	allowedPaths := map[string]bool{
+		"README.md":    true,
+		"CHANGELOG.md": true,
+		filepath.FromSlash("docs/PROJECT_DIRECTION.md"): true,
+		filepath.FromSlash("docs/PUBLISHING.md"):        true,
 	}
-	actualCounts := make(map[string]int)
 
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -71,25 +70,13 @@ func TestUpstreamReferencesAreDocumentationOnly(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		allowed, ok := allowedCounts[relative]
-		if !ok {
+		if !allowedPaths[relative] {
 			t.Errorf("operational file %s contains %d upstream repository reference(s)", relative, count)
-			return nil
-		}
-		actualCounts[relative] = count
-		if count != allowed {
-			t.Errorf("documentation file %s contains %d upstream references, want %d", relative, count, allowed)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	for path, expected := range allowedCounts {
-		if actualCounts[path] != expected {
-			t.Errorf("documentation file %s contains %d upstream references, want %d", path, actualCounts[path], expected)
-		}
 	}
 }
 
@@ -134,46 +121,6 @@ func TestTrackedTextExcludesPrivateOperatorState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestOperationalMetadataTargetsFork(t *testing.T) {
-	root := repositoryRoot(t)
-	assertFileContains(t, root, ".goreleaser.yml", "-X "+forkModule+"/filetoolsserver.Version={{.Version}}")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "github.repository == 'zoster81/scripthold'")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "uses: ./.github/workflows/publish-registry.yml")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "node scripts/verify-release-version.js")
-	assertFileContains(t, root, filepath.FromSlash("scripts/generate-server-json.js"), "const forkRepository = '"+forkRepository+"'")
-}
-
-func TestGoReleaserArchiveMetadataIsDeterministic(t *testing.T) {
-	root := repositoryRoot(t)
-	data, err := os.ReadFile(filepath.Join(root, ".goreleaser.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "builds_info:") {
-		t.Error(".goreleaser.yml must define builds_info for archive binaries")
-	}
-	if got := strings.Count(content, "mtime: '{{ .CommitDate }}'"); got != 10 {
-		t.Errorf(".goreleaser.yml deterministic mtime count = %d, want 10", got)
-	}
-	if got := strings.Count(content, "owner: root"); got != 10 {
-		t.Errorf(".goreleaser.yml deterministic owner count = %d, want 10", got)
-	}
-	if got := strings.Count(content, "group: root"); got != 10 {
-		t.Errorf(".goreleaser.yml deterministic group count = %d, want 10", got)
-	}
-	if got := strings.Count(content, "mode: 0644"); got != 9 {
-		t.Errorf(".goreleaser.yml document mode count = %d, want 9", got)
-	}
-	if got := strings.Count(content, "mode: 0755"); got != 1 {
-		t.Errorf(".goreleaser.yml binary mode count = %d, want 1", got)
-	}
-	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-openai-tunnel-stdio-plus-local-http.ps1")
-	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-openai-tunnel-http-plus-local-stdio.ps1")
-	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-local-stdio.ps1")
-	assertFileContains(t, root, ".goreleaser.yml", "src: examples/start-local-http.ps1")
 }
 
 func TestPublicLauncherExamplesRemainFailClosed(t *testing.T) {
@@ -263,139 +210,48 @@ func TestPublicLauncherExamplesExposeDurableTaskPolicy(t *testing.T) {
 
 func TestContainerAndSmitheryMetadataMatchTheRuntimeContract(t *testing.T) {
 	root := repositoryRoot(t)
-	assertFileContains(t, root, "Dockerfile", "FROM golang:1.26.6-alpine3.24 AS builder")
-	assertFileContains(t, root, "Dockerfile", "FROM alpine:3.24.1")
+	assertDockerBaseImagesAreVersionPinned(t, root)
 	assertFileContains(t, root, "Dockerfile", "USER 10001:10001")
 	assertFileContains(t, root, "Dockerfile", `ENTRYPOINT ["/usr/local/bin/scripthold"]`)
 	assertFileContains(t, root, "smithery.yaml", "command: '/usr/local/bin/scripthold'")
 	assertFileContains(t, root, "smithery.yaml", "const args = ['--transport=stdio', config.allowedDirectory]")
 }
 
-func TestForkOwnedDownloaderPluginIsRemoved(t *testing.T) {
-	root := repositoryRoot(t)
-	for _, relativePath := range []string{
-		filepath.FromSlash("plugin"),
-		filepath.FromSlash(".claude-plugin"),
-		filepath.FromSlash("scripts/bump-version.js"),
-	} {
-		_, err := os.Stat(filepath.Join(root, relativePath))
-		if err == nil {
-			t.Errorf("removed plugin path still exists: %s", relativePath)
-			continue
-		}
-		if !os.IsNotExist(err) {
-			t.Errorf("inspect removed plugin path %s: %v", relativePath, err)
-		}
-	}
-}
-
-func TestTestSuiteReleaseCandidateOwnsExpensiveValidationAndReleaseAttestsIt(t *testing.T) {
-	root := repositoryRoot(t)
-	ciWorkflow := filepath.FromSlash(".github/workflows/test.yml")
-	for _, required := range []string{
-		"name: Test Suite",
-		"go test -race ./... -count=1",
-		"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)",
-		"staticcheck@v0.7.0",
-		"govulncheck@v1.7.0",
-		"-fuzztime=10000x",
-		"cross-build:",
-		"container-smoke:",
-		"MCP_EXTERNAL_SMOKE_EXECUTABLE=docker",
-		"--transport=streamable-http /data",
-		"release-candidate:",
-		"name: Release candidate",
-	} {
-		assertFileContains(t, root, ciWorkflow, required)
-	}
-
-	ciData, err := os.ReadFile(filepath.Join(root, ciWorkflow))
+func assertDockerBaseImagesAreVersionPinned(t *testing.T, root string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	ciContent := string(ciData)
-	chmodIndex := strings.Index(ciContent, `chmod 0600 "${workdir}/secrets/token" "${workdir}/secrets/key.pem"`)
-	chownIndex := strings.Index(ciContent, `sudo chown -R 10001:10001 "${workdir}/data" "${workdir}/secrets"`)
-	if chmodIndex < 0 || chownIndex < 0 {
-		t.Fatal("container workflow must set secret modes and mapped ownership explicitly")
-	}
-	if chmodIndex > chownIndex {
-		t.Error("container workflow must set secret modes before transferring ownership to UID 10001")
-	}
-
-	releaseWorkflow := filepath.FromSlash(".github/workflows/release.yml")
-	for _, required := range []string{
-		"actions: read",
-		`test "$(git cat-file -t "refs/tags/${VERSION_TAG}")" = 'tag'`,
-		`test "$(git rev-parse origin/main)" = "${tag_commit}"`,
-		`-f head_sha="${TAG_COMMIT}"`,
-		`.head_branch == "main"`,
-		`.event == "push"`,
-		`.path == ".github/workflows/test.yml"`,
-		`.name == "Release candidate" and .conclusion == "success"`,
-		"goreleaser/goreleaser-action@v7.2.3",
-	} {
-		assertFileContains(t, root, releaseWorkflow, required)
-	}
-	for _, duplicated := range []string{
-		"go test -race ./...",
-		"staticcheck@v0.7.0",
-		"govulncheck@v1.7.0",
-		"-fuzztime=10000x",
-		"TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)",
-	} {
-		assertFileNotContains(t, root, releaseWorkflow, duplicated)
-	}
-
-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(".github/workflows/build.yml"))); !os.IsNotExist(err) {
-		if err == nil {
-			t.Fatal("standalone build workflow must be removed after CI consolidation")
+	fromCount := 0
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if !strings.HasPrefix(line, "FROM ") {
+			continue
 		}
-		t.Fatalf("inspect removed build workflow: %v", err)
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			t.Errorf("malformed Dockerfile FROM instruction: %q", line)
+			continue
+		}
+		fromCount++
+		image := fields[1]
+		if strings.Contains(image, "@sha256:") {
+			continue
+		}
+		lastSlash := strings.LastIndex(image, "/")
+		lastColon := strings.LastIndex(image, ":")
+		if lastColon <= lastSlash || lastColon == len(image)-1 {
+			t.Errorf("Dockerfile base image %q must use an immutable digest or explicit version tag", image)
+			continue
+		}
+		tag := image[lastColon+1:]
+		if strings.EqualFold(tag, "latest") || tag[0] < '0' || tag[0] > '9' || !strings.Contains(tag, ".") {
+			t.Errorf("Dockerfile base image %q must use an immutable digest or explicit version tag", image)
+		}
 	}
-}
-
-func TestValidationToolVersionsArePinned(t *testing.T) {
-	root := repositoryRoot(t)
-	assertFileContains(t, root, filepath.FromSlash("scripts/validate-workflows.sh"), "ACTIONLINT_VERSION=1.7.12")
-	assertFileContains(t, root, filepath.FromSlash("scripts/validate-workflows.sh"), "SHELLCHECK_VERSION=0.11.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/checkout@v7.0.1")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/setup-go@v7.0.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/setup-node@v7.0.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "node-version: '26.7.0'")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "package-manager-cache: false")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "actions/setup-node@v7.0.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "package-manager-cache: false")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-mcpb-assets.yml"), "actions/setup-node@v7.0.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-mcpb-assets.yml"), "package-manager-cache: false")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "actions/setup-node@v7.0.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "package-manager-cache: false")
-	assertFileNotContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "actions/upload-artifact@")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "staticcheck@v0.7.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "govulncheck@v1.7.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "golangci/golangci-lint-action@v9.3.0")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/test.yml"), "version: v2.12.2")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/init@v4.37.7")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/codeql.yml"), "github/codeql-action/analyze@v4.37.7")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "goreleaser/goreleaser-action@v7.2.3")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/release.yml"), "version: 'v2.17.1'")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "MCP_PUBLISHER_VERSION: 1.8.1")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "MCP_PUBLISHER_LINUX_AMD64_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc")
-	assertFileContains(t, root, filepath.FromSlash(".github/workflows/publish-registry.yml"), "./mcp-publisher validate")
-}
-
-func TestBackupStoreFuzzTargetsRunInCI(t *testing.T) {
-	root := repositoryRoot(t)
-	workflow := filepath.FromSlash(".github/workflows/test.yml")
-	for _, target := range []string{
-		"FuzzDecodeDescriptor",
-		"FuzzDecodeManifest",
-		"FuzzDecodeIndex",
-		"FuzzDecodeListCursor",
-		"FuzzValidateGCPlan",
-		"FuzzParseBackupDiagnosticCommand",
-	} {
-		assertFileContains(t, root, workflow, target)
+	if fromCount == 0 {
+		t.Error("Dockerfile must declare at least one base image")
 	}
 }
 

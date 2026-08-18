@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/backupstore"
+	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/security"
 )
@@ -201,11 +202,12 @@ func TestEngineDestinationRaceAfterStagingNeverOverwrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.commitHook = func(index int, phase string) error {
-		if index == 0 && phase == "before" {
-			return os.WriteFile(target, []byte("racer"), 0o600)
+	originalPublish := engine.commitOps.publishFile
+	engine.commitOps.publishFile = func(staged *filesystem.StagedFile, destination string) error {
+		if err := os.WriteFile(target, []byte("racer"), 0o600); err != nil {
+			return err
 		}
-		return nil
+		return originalPublish(staged, destination)
 	}
 	output, err := engine.Apply(context.Background(), preview.PreviewID)
 	if operation.KindOf(err) != operation.KindPartialCommit || !output.PartialCommit {
@@ -227,8 +229,13 @@ func TestEngineCancellationAfterFirstCommitReportsPartialState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.commitHook = func(index int, phase string) error {
-		if index == 0 && phase == "after" {
+	originalCreate := engine.commitOps.createDirectory
+	first := filepath.Join(root, "first")
+	engine.commitOps.createDirectory = func(path string, mode os.FileMode) error {
+		if err := originalCreate(path, mode); err != nil {
+			return err
+		}
+		if path == first {
 			cancel()
 		}
 		return nil

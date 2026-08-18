@@ -12,7 +12,7 @@ import (
 	xencoding "golang.org/x/text/encoding"
 )
 
-var phase5CanonicalNames = []string{
+var singleByteCanonicalNames = []string{
 	"atarist",
 	"gb-1988-80",
 	"georgian-academy",
@@ -103,18 +103,18 @@ var phase5CanonicalNames = []string{
 	"viscii",
 }
 
-func TestPhase5SelectedSingleByteMappingsAreRegistered(t *testing.T) {
-	if len(phase5CanonicalNames) != 88 {
-		t.Fatalf("phase-5 canonical set = %d, want 88", len(phase5CanonicalNames))
+func TestSelectedSingleByteMappingsAreRegistered(t *testing.T) {
+	if len(singleByteCanonicalNames) != 88 {
+		t.Fatalf("phase-5 canonical set = %d, want 88", len(singleByteCanonicalNames))
 	}
-	if !sort.StringsAreSorted(phase5CanonicalNames) {
+	if !sort.StringsAreSorted(singleByteCanonicalNames) {
 		t.Fatal("phase-5 canonical names are not sorted")
 	}
-	if slices.Contains(phase5CanonicalNames, "iso-8859-11") || slices.Contains(phase5CanonicalNames, "tis-620") {
+	if slices.Contains(singleByteCanonicalNames, "iso-8859-11") || slices.Contains(singleByteCanonicalNames, "tis-620") {
 		t.Fatal("phase-5 set must not replace existing x/text-owned aliases")
 	}
 
-	for _, name := range phase5CanonicalNames {
+	for _, name := range singleByteCanonicalNames {
 		descriptor, ok := LookupDescriptor(name)
 		if !ok {
 			t.Errorf("LookupDescriptor(%q) failed", name)
@@ -135,7 +135,7 @@ func TestPhase5SelectedSingleByteMappingsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestPhase5GeneratedSingleByteMapsAreExhaustiveAndStrict(t *testing.T) {
+func TestGeneratedSingleByteMapsAreExhaustiveAndStrict(t *testing.T) {
 	if generatedLibiconvRevision != "9d19c66d0a1768cffcf497b2db70bf4018b578d7" {
 		t.Fatalf("generated libiconv revision = %q", generatedLibiconvRevision)
 	}
@@ -194,12 +194,12 @@ func TestPhase5GeneratedSingleByteMapsAreExhaustiveAndStrict(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Equal(generatedNames, phase5CanonicalNames) {
-		t.Fatalf("generated canonical set = %v, want %v", generatedNames, phase5CanonicalNames)
+	if !slices.Equal(generatedNames, singleByteCanonicalNames) {
+		t.Fatalf("generated canonical set = %v, want %v", generatedNames, singleByteCanonicalNames)
 	}
 }
 
-func TestPhase5SingleByteStreamingAcrossOneByteChunks(t *testing.T) {
+func TestSingleByteStreamingAcrossOneByteChunks(t *testing.T) {
 	const text = "ΑΒΓ\n"
 	encodedReader, err := NewEncoderReader(&oneByteReader{data: []byte(text)}, "ibm737")
 	if err != nil {
@@ -222,7 +222,7 @@ func TestPhase5SingleByteStreamingAcrossOneByteChunks(t *testing.T) {
 	}
 }
 
-func TestPhase5SingleByteEncoderRejectsMalformedUTF8(t *testing.T) {
+func TestSingleByteEncoderRejectsMalformedUTF8(t *testing.T) {
 	registered, ok := Get("ibm737")
 	if !ok {
 		t.Fatal("ibm737 is not registered")
@@ -232,7 +232,7 @@ func TestPhase5SingleByteEncoderRejectsMalformedUTF8(t *testing.T) {
 	}
 }
 
-func TestPhase5RepresentativeSourceAliases(t *testing.T) {
+func TestRepresentativeSourceAliases(t *testing.T) {
 	tests := map[string]string{
 		"CP737":             "ibm737",
 		"IBM-273":           "ibm273",

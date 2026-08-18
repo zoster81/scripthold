@@ -79,6 +79,10 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 
 Run checks from focused to broad and record exact outcomes.
 
+GitHub CI applies fail-closed evidence tiers to pull requests. Documentation-only changes run repository policy, generated capability/documentation drift, local Markdown-link validation, release/script policy tests, and secret scanning. Go-only changes add the normal Linux regression suite, evidence-map-derived Windows/macOS platform tests and race-sensitive package tests, module verification, static/vulnerability analysis, and the canonical risk-based fuzz smoke. Changes to workflows, scripts, test architecture, build/release/configuration metadata, fixtures, or any unclassified path require full qualification. Pushes to `main`/`master`, manual runs, classifier bootstrap, and classification failures also require full qualification.
+
+The complete exact-commit gate retains broad normal regression across Linux/Windows/macOS, broad race coverage on all three native runners, native binary smoke, six-target cross-builds, hardened container smoke, workflow validation, Gitleaks, GoReleaser configuration validation, static/vulnerability analysis, and canonical fuzz evidence. The `Release candidate` aggregator must fail when any evidence required by the selected tier is missing or unsuccessful.
+
 ### Focused checks
 
 - [ ] affected package tests;
@@ -109,7 +113,7 @@ Run checks from focused to broad and record exact outcomes.
 
 ### Repository and documentation checks
 
-- [ ] Node release-script tests where release metadata is relevant;
+- [ ] Node release-script and CI-policy tests where release or workflow metadata is relevant;
 - [ ] JSON/YAML parsing for changed structured files;
 - [ ] PowerShell parsing for changed `.ps1` files;
 - [ ] actionlint/ShellCheck for workflow or shell changes;
@@ -167,7 +171,7 @@ Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. This 
 
 - [ ] release-scoped milestone complete;
 - [ ] exact clean commit and dated changelog entry verified;
-- [ ] complete push-event `Test Suite` (`.github/workflows/test.yml`) `Release candidate` gate passes on the exact pushed SHA;
+- [ ] complete **full-tier** push-event `Test Suite` (`.github/workflows/test.yml`) `Release candidate` gate passes on the exact pushed SHA; pull-request tier evidence is never publication authority;
 - [ ] annotated tag resolves to that same commit;
 - [ ] normal GoReleaser publication succeeds;
 - [ ] GitHub-only MCPB and Registry workflows succeed;

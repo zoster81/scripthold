@@ -191,14 +191,6 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 		}
 		staged[index] = replacement
 	}
-	if h.patchPackageAfterStage != nil {
-		if err := h.patchPackageAfterStage(); err != nil {
-			failure := operation.WrapFilesystem("patch_package_after_stage", "", err)
-			failure = h.joinPatchPackageStagingCleanup(failure, staged)
-			return errorResultFromError(failure), PatchPackageOutput{}, nil
-		}
-	}
-
 	actualFingerprints := make([]string, len(prepared.targets))
 	for index := range prepared.targets {
 		target := &prepared.targets[index]

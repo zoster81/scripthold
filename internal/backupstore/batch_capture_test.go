@@ -14,9 +14,9 @@ import (
 
 func TestPreflightCaptureBatchIsConservativeAndSideEffectFree(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.MaxTotalBytes = 8
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	content := []byte("12345678")
 	requests := make([]CaptureRequest, 2)
 	for index, name := range []string{"first.txt", "second.txt"} {
@@ -43,7 +43,7 @@ func TestPreflightCaptureBatchIsConservativeAndSideEffectFree(t *testing.T) {
 
 func TestCaptureBatchCommitsOrderedManifests(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	requests := make([]CaptureRequest, 2)
 	contents := [][]byte{[]byte("alpha"), []byte("beta")}
 	for index, name := range []string{"first.txt", "second.txt"} {
@@ -82,9 +82,9 @@ func TestCaptureBatchCommitsOrderedManifests(t *testing.T) {
 
 func TestCaptureBatchReturnsDurablePrefixAndReleasesRemainingReservations(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.MaxManifests = 3
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	requests := make([]CaptureRequest, 2)
 	for index, name := range []string{"first.txt", "second.txt"} {
 		path := filepath.Join(base, name)
@@ -94,18 +94,18 @@ func TestCaptureBatchReturnsDurablePrefixAndReleasesRemainingReservations(t *tes
 		requests[index] = CaptureRequest{TargetPath: path, SourceOperation: SourceOperationPatchPackage}
 	}
 	var commits atomic.Int32
-	store.captureHooks.beforeManifestCommit = func() error {
+	restoreCommit := overrideBeforeManifestCommit(store, func() error {
 		if commits.Add(1) == 2 {
 			return errors.New("injected second manifest failure")
 		}
 		return nil
-	}
+	})
 
 	results, err := store.CaptureBatch(context.Background(), requests)
 	if err == nil || len(results) != 1 || results[0].Manifest.BackupID == "" {
 		t.Fatalf("CaptureBatch() results/error = %#v / %v", results, err)
 	}
-	store.captureHooks.beforeManifestCommit = nil
+	restoreCommit()
 	third := filepath.Join(base, "third.txt")
 	if err := os.WriteFile(third, []byte("third"), 0o600); err != nil {
 		t.Fatal(err)
@@ -121,9 +121,9 @@ func TestCaptureBatchReturnsDurablePrefixAndReleasesRemainingReservations(t *tes
 
 func TestCaptureBatchReservationBlocksConcurrentOvercommit(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.MaxTotalBytes = 8
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	requests := make([]CaptureRequest, 2)
 	for index, name := range []string{"first.txt", "second.txt"} {
 		path := filepath.Join(base, name)
@@ -140,13 +140,13 @@ func TestCaptureBatchReservationBlocksConcurrentOvercommit(t *testing.T) {
 	staged := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	store.captureHooks.afterStage = func() error {
+	overrideAfterCaptureStage(store, func() error {
 		once.Do(func() {
 			close(staged)
 			<-release
 		})
 		return nil
-	}
+	})
 	batchDone := make(chan error, 1)
 	go func() {
 		_, err := store.CaptureBatch(context.Background(), requests)
@@ -170,7 +170,7 @@ func TestCaptureBatchReservationBlocksConcurrentOvercommit(t *testing.T) {
 func TestPreflightCaptureBatchRejectsReplacedStoreRootIdentity(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	moved := filepath.Join(base, "store-moved")
 	if err := os.Rename(root, moved); err != nil {
 		t.Skipf("open store root cannot be renamed on this filesystem: %v", err)
@@ -200,7 +200,7 @@ func TestPreflightCaptureBatchRejectsReplacedStoreRootIdentity(t *testing.T) {
 
 func TestCaptureBatchRejectsDuplicateTargets(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	if err := os.WriteFile(target, []byte("alpha"), 0o600); err != nil {
 		t.Fatal(err)

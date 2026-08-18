@@ -68,7 +68,7 @@ func TestNewDecoderReaderPreservesMultibyteSequencesAcrossReads(t *testing.T) {
 	}
 }
 
-func TestPhase3LegacyDecodersRejectMalformedInput(t *testing.T) {
+func TestLegacyDecodersRejectMalformedInput(t *testing.T) {
 	tests := []struct {
 		charset string
 		data    []byte
@@ -105,7 +105,7 @@ func TestPhase3LegacyDecodersRejectMalformedInput(t *testing.T) {
 	}
 }
 
-func TestPhase3GB18030AllowsLegitimateReplacementRune(t *testing.T) {
+func TestGB18030AllowsLegitimateReplacementRune(t *testing.T) {
 	registered, ok := Get("gb18030")
 	if !ok {
 		t.Fatal("gb18030 is not registered")

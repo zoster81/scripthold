@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 
 func TestStatusReportsVerifiedBoundedStateWithoutStorePath(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "status bytes", true)
 
 	status, err := store.Status(context.Background())
@@ -27,8 +28,8 @@ func TestStatusReportsVerifiedBoundedStateWithoutStorePath(t *testing.T) {
 	if status.ManifestCount != 1 || status.ObjectCount != 1 || status.PinnedCount != 1 || status.TotalObjectBytes != int64(len("status bytes")) {
 		t.Fatalf("status counts = %#v", status)
 	}
-	if status.Limits != phase2TestLimits() {
-		t.Fatalf("status limits = %#v, want %#v", status.Limits, phase2TestLimits())
+	if status.Limits != backupStoreTestLimits() {
+		t.Fatalf("status limits = %#v, want %#v", status.Limits, backupStoreTestLimits())
 	}
 	encoded := status.String()
 	if strings.Contains(encoded, store.Root()) || strings.Contains(encoded, filepath.Join(store.Root(), "objects")) {
@@ -38,28 +39,27 @@ func TestStatusReportsVerifiedBoundedStateWithoutStorePath(t *testing.T) {
 
 func TestListIsGenerationBoundFilteredAndCursorProtected(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	firstPath := filepath.Join(base, "first.txt")
 	secondPath := filepath.Join(base, "second.txt")
 	first := captureManagementFixture(t, store, firstPath, "first", false)
-	time.Sleep(time.Millisecond)
 	second := captureManagementFixture(t, store, secondPath, "second", true)
-	time.Sleep(time.Millisecond)
 	third := captureManagementFixture(t, store, firstPath, "third", false)
+	newestFirst := newestFirstManagementCaptures(first, second, third)
 
 	page, err := store.List(context.Background(), ListOptions{Limit: 1})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(page.Items) != 1 || page.Items[0].BackupID != third.Manifest.BackupID || page.NextCursor == "" {
-		t.Fatalf("first page = %#v", page)
+	if len(page.Items) != 1 || page.Items[0].BackupID != newestFirst[0].Manifest.BackupID || page.NextCursor == "" {
+		t.Fatalf("first page = %#v, want newest backup %s", page, newestFirst[0].Manifest.BackupID)
 	}
 	next, err := store.List(context.Background(), ListOptions{Limit: 1, Cursor: page.NextCursor})
 	if err != nil {
 		t.Fatalf("next List() error = %v", err)
 	}
-	if len(next.Items) != 1 || next.Items[0].BackupID != second.Manifest.BackupID {
-		t.Fatalf("second page = %#v", next)
+	if len(next.Items) != 1 || next.Items[0].BackupID != newestFirst[1].Manifest.BackupID {
+		t.Fatalf("second page = %#v, want backup %s", next, newestFirst[1].Manifest.BackupID)
 	}
 
 	pinned := true
@@ -75,8 +75,9 @@ func TestListIsGenerationBoundFilteredAndCursorProtected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("target List() error = %v", err)
 	}
-	if len(filtered.Items) != 2 || filtered.Items[0].BackupID != third.Manifest.BackupID || filtered.Items[1].BackupID != first.Manifest.BackupID {
-		t.Fatalf("target page = %#v", filtered)
+	firstPathNewest := newestFirstManagementCaptures(first, third)
+	if len(filtered.Items) != 2 || filtered.Items[0].BackupID != firstPathNewest[0].Manifest.BackupID || filtered.Items[1].BackupID != firstPathNewest[1].Manifest.BackupID {
+		t.Fatalf("target page = %#v, want backups %s then %s", filtered, firstPathNewest[0].Manifest.BackupID, firstPathNewest[1].Manifest.BackupID)
 	}
 
 	tampered := page.NextCursor[:len(page.NextCursor)-1] + differentCursorCharacter(page.NextCursor[len(page.NextCursor)-1])
@@ -95,7 +96,7 @@ func TestListIsGenerationBoundFilteredAndCursorProtected(t *testing.T) {
 
 func TestListVisibilityPredicateRunsOutsideStoreTransaction(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "visible", false)
 
 	result := make(chan error, 1)
@@ -121,14 +122,13 @@ func TestListVisibilityPredicateRunsOutsideStoreTransaction(t *testing.T) {
 
 func TestListVisibilityPredicateAndScopeAreCursorBound(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	visiblePath := filepath.Join(base, "visible.txt")
 	hiddenPath := filepath.Join(base, "hidden.txt")
-	visible := captureManagementFixture(t, store, visiblePath, "visible", false)
-	time.Sleep(time.Millisecond)
+	visibleFirst := captureManagementFixture(t, store, visiblePath, "visible", false)
 	captureManagementFixture(t, store, hiddenPath, "hidden", false)
-	time.Sleep(time.Millisecond)
-	captureManagementFixture(t, store, visiblePath, "visible second", false)
+	visibleSecond := captureManagementFixture(t, store, visiblePath, "visible second", false)
+	visibleNewestFirst := newestFirstManagementCaptures(visibleFirst, visibleSecond)
 
 	visibleOnly := func(path string) bool { return path == visiblePath }
 	page, err := store.List(context.Background(), ListOptions{
@@ -151,8 +151,8 @@ func TestListVisibilityPredicateAndScopeAreCursorBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next.Items) != 1 || next.Items[0].BackupID != visible.Manifest.BackupID {
-		t.Fatalf("visible next page = %#v", next)
+	if len(next.Items) != 1 || next.Items[0].BackupID != visibleNewestFirst[1].Manifest.BackupID {
+		t.Fatalf("visible next page = %#v, want backup %s", next, visibleNewestFirst[1].Manifest.BackupID)
 	}
 	if _, err := store.List(context.Background(), ListOptions{
 		Limit:           1,
@@ -166,15 +166,19 @@ func TestListVisibilityPredicateAndScopeAreCursorBound(t *testing.T) {
 
 func TestListCursorUsesLastReturnedManifestInsteadOfVisibleOffset(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
-	oldestPath := filepath.Join(base, "oldest.txt")
-	middlePath := filepath.Join(base, "middle.txt")
-	newestPath := filepath.Join(base, "newest.txt")
-	oldest := captureManagementFixture(t, store, oldestPath, "oldest", false)
-	time.Sleep(time.Millisecond)
-	captureManagementFixture(t, store, middlePath, "middle", false)
-	time.Sleep(time.Millisecond)
-	captureManagementFixture(t, store, newestPath, "newest", false)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
+	firstPath := filepath.Join(base, "first.txt")
+	secondPath := filepath.Join(base, "second.txt")
+	thirdPath := filepath.Join(base, "third.txt")
+	captures := newestFirstManagementCaptures(
+		captureManagementFixture(t, store, firstPath, "first", false),
+		captureManagementFixture(t, store, secondPath, "second", false),
+		captureManagementFixture(t, store, thirdPath, "third", false),
+	)
+	newest := captures[0]
+	oldest := captures[2]
+	newestPath := newest.Manifest.TargetPath
+	oldestPath := oldest.Manifest.TargetPath
 
 	visible := map[string]bool{newestPath: true, oldestPath: true}
 	predicate := func(path string) bool { return visible[path] }
@@ -204,7 +208,7 @@ func TestListCursorUsesLastReturnedManifestInsteadOfVisibleOffset(t *testing.T) 
 
 func TestInspectAuthorizesOutsideTransactionBeforeObjectHash(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	capture := captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "authorization before hash", false)
 	object := objectPath(store.Root(), capture.Manifest.ObjectDigest)
 	corrupt := []byte(strings.ToUpper("authorization before hash"))
@@ -242,7 +246,7 @@ func TestInspectAuthorizesOutsideTransactionBeforeObjectHash(t *testing.T) {
 
 func TestInspectReturnsVerifiedMetadataWithoutBytes(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	content := "inspect secret bytes"
 	capture := captureManagementFixture(t, store, filepath.Join(base, "target.txt"), content, false)
 
@@ -275,8 +279,8 @@ func TestInspectReturnsVerifiedMetadataWithoutBytes(t *testing.T) {
 
 func TestManagementOperationsValidateBoundsAndIdentifiers(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	limits := backupStoreTestLimits()
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 
 	if _, err := store.List(context.Background(), ListOptions{Limit: maxListPageSize + 1}); operation.KindOf(err) != operation.KindLimit {
 		t.Fatalf("oversized list error = %v, want LIMIT", err)
@@ -309,6 +313,17 @@ func captureManagementFixture(t *testing.T, store *Store, target, content string
 		t.Fatalf("Capture(%s) error = %v", filepath.Base(target), err)
 	}
 	return result
+}
+
+func newestFirstManagementCaptures(captures ...CaptureResult) []CaptureResult {
+	ordered := append([]CaptureResult(nil), captures...)
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].Manifest.CreatedAt != ordered[j].Manifest.CreatedAt {
+			return ordered[i].Manifest.CreatedAt > ordered[j].Manifest.CreatedAt
+		}
+		return ordered[i].Manifest.BackupID > ordered[j].Manifest.BackupID
+	})
+	return ordered
 }
 
 func differentCursorCharacter(value byte) string {

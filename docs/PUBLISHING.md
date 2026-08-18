@@ -13,7 +13,7 @@ This document is the maintainer procedure for publishing semantic releases from 
 
 ## Release ownership boundaries
 
-A public release is created only from an exact clean commit that has passed the complete push-event `Test Suite` `Release candidate` gate.
+A public release is created only from an exact clean commit that has passed the complete **full-tier** push-event `Test Suite` `Release candidate` gate. Pull-request evidence tiers are review acceleration only and never publication authority.
 
 Local maintainers may prepare source, run tests, build ordinary release-candidate binaries, and run deterministic GoReleaser snapshots. They must not create or simulate GitHub-owned MCPB release outputs.
 
@@ -42,7 +42,7 @@ The following actions remain explicit maintainer decisions and are never inciden
    ```
 
 5. Verify the exact clean commit locally with the applicable release-candidate checks. `goreleaser check`, release-script tests, workflow validation, secret scanning, six-target compilation, native/container smoke, and deterministic snapshot comparison belong here when required by the release scope.
-6. Push `main` and require the `Test Suite` workflow's `Release candidate` job to succeed on that exact push-event SHA.
+6. Push `main` and require the `Test Suite` workflow's full-tier `Release candidate` job to succeed on that exact push-event SHA. Push events are always classified as full qualification; a narrower pull-request result cannot satisfy this release gate.
 7. Create and push an **annotated** tag on that same commit:
 
    ```bash
@@ -59,7 +59,7 @@ The following actions remain explicit maintainer decisions and are never inciden
 9. GoReleaser publishes the normal release assets: six raw binaries, six platform archives, and `checksums.txt`, with the documentation/support files configured by `.goreleaser.yml`.
 10. GitHub then runs the MCPB and Registry workflows in order. Those workflows verify the immutable release/tag inputs and published checksums before producing their GitHub-only outputs.
 
-The tag-triggered Release workflow attests the already-completed exact-commit Test Suite gate instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser.
+The tag-triggered Release workflow attests the already-completed exact-commit Test Suite gate instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser. That attested push gate already includes Gitleaks and `goreleaser check` in addition to the full native/platform/security evidence.
 
 ## GitHub-only MCPB boundary
 
@@ -160,7 +160,7 @@ Before tagging:
 - [ ] deterministic GoReleaser snapshot gate passes when required;
 - [ ] Gitleaks and `git diff --check` pass;
 - [ ] no credentials, private paths, local process state, or generated release output are tracked;
-- [ ] the exact pushed commit's `Release candidate` job is `success`.
+- [ ] the exact pushed commit's **full-tier** `Release candidate` job is `success`; no pull-request tier result is substituted for it.
 
 After tagging:
 

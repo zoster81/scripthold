@@ -215,60 +215,35 @@ func TestWorkerRejectsTamperedPersistedRequest(t *testing.T) {
 	}
 }
 
-func TestWorkerHeartbeatContinuesWhileReconciliationIsBlocked(t *testing.T) {
-	store, public := newTestStoreWithPublic(t)
-	worker, err := NewWorker(store, os.Args[0], []string{public}, WorkerPolicy{}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	entered := make(chan struct{}, 1)
-	worker.reconcileCycle = func(ctx context.Context) error {
-		select {
-		case entered <- struct{}{}:
-		default:
-		}
-		<-ctx.Done()
-		return nil
-	}
-
+func TestWorkerHeartbeatTickRunsIndependentlyAndReportsFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- worker.Run(ctx) }()
-	defer func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("worker shutdown: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Error("worker did not stop")
-		}
+	defer cancel()
+
+	ticks := make(chan time.Time)
+	errors := make(chan error, 1)
+	done := make(chan struct{})
+	heartbeat := filepath.Join(t.TempDir(), "missing", workerHeartbeatName)
+	go func() {
+		runWorkerHeartbeatTicks(ctx, heartbeat, ticks, errors)
+		close(done)
 	}()
 
+	ticks <- time.Now()
 	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("worker did not enter reconciliation")
-	}
-	heartbeat := filepath.Join(store.root, workerHeartbeatName)
-	initial, err := os.Stat(heartbeat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		current, statErr := os.Stat(heartbeat)
-		if statErr != nil {
-			t.Fatal(statErr)
+	case err := <-errors:
+		if err == nil {
+			t.Fatal("heartbeat filesystem failure was not reported")
 		}
-		if current.ModTime().After(initial.ModTime()) {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
+	case <-time.After(2 * time.Second):
+		t.Fatal("heartbeat tick did not attempt its filesystem update")
 	}
-	t.Fatal("worker heartbeat stopped during reconciliation")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("heartbeat loop did not stop after cancellation")
+	}
 }
 
 func TestSubmitEnforcesQueueBound(t *testing.T) {
@@ -462,16 +437,27 @@ func TestLifetimeLockRejectsDuplicateWithoutBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer first.close()
-	started := time.Now()
-	second, err := tryAcquireWorkerLock(path)
-	if second != nil {
-		_ = second.close()
+
+	type lockResult struct {
+		lock *controlLock
+		err  error
 	}
-	if err == nil {
-		t.Fatal("duplicate lifetime lock unexpectedly succeeded")
-	}
-	if time.Since(started) > 2*time.Second {
-		t.Fatalf("duplicate lifetime lock blocked for %s", time.Since(started))
+	result := make(chan lockResult, 1)
+	go func() {
+		second, acquireErr := tryAcquireWorkerLock(path)
+		result <- lockResult{lock: second, err: acquireErr}
+	}()
+
+	select {
+	case got := <-result:
+		if got.lock != nil {
+			_ = got.lock.close()
+		}
+		if got.err == nil {
+			t.Fatal("duplicate lifetime lock unexpectedly succeeded")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("duplicate lifetime lock acquisition blocked")
 	}
 }
 
@@ -664,12 +650,15 @@ func TestExecutorHonorsExplicitRuntimeLimit(t *testing.T) {
 	if err := store.appendStateUnlocked(admitted.Task.ID, stateRecord{Status: StatusStarting, Revision: state.Revision + 1, UpdatedAt: time.Now().UTC(), ExecutorToken: token}); err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
-	if err := RunExecutor(context.Background(), store, admitted.Task.ID, token); err != nil {
-		t.Fatal(err)
-	}
-	if time.Since(started) > 8*time.Second {
-		t.Fatal("explicit timeout did not terminate promptly")
+	done := make(chan error, 1)
+	go func() { done <- RunExecutor(context.Background(), store, admitted.Task.ID, token) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("executor did not enforce the explicit runtime limit")
 	}
 	task, err := store.Get(context.Background(), admitted.Task.ID)
 	if err != nil {

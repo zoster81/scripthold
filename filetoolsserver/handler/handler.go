@@ -121,8 +121,6 @@ type Handler struct {
 	verifyGitExecutable            func() (string, error)
 	verifyGitRun                   func(context.Context, verificationGitRequest) (execution.Result, error)
 	replaceFile                    func(string, []byte, filesystem.ReplaceOptions) error
-	patchPackageAfterPrepare       func() error
-	patchPackageAfterStage         func() error
 	sourceIndexOnce                sync.Once
 	sourceIndex                    *sourceintelligence.ProjectIndexManager
 	sourceIndexInitErr             error

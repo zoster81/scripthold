@@ -169,19 +169,14 @@ func fingerprintRegularFileAggregate(size int64, digest [sha256.Size]byte) strin
 // deterministic canonical records. A second complete pass must reproduce the
 // same aggregate before success, detecting practical file and directory changes.
 func FingerprintPaths(ctx context.Context, paths []string, options FingerprintOptions) (FingerprintResult, error) {
-	return fingerprintPathsWithHook(ctx, paths, options, nil)
-}
-
-func fingerprintPathsWithHook(ctx context.Context, paths []string, options FingerprintOptions, afterFirstPass func() error) (FingerprintResult, error) {
 	first, err := fingerprintPathsOnce(ctx, paths, options)
 	if err != nil {
 		return FingerprintResult{}, err
 	}
-	if afterFirstPass != nil {
-		if err := afterFirstPass(); err != nil {
-			return FingerprintResult{}, err
-		}
-	}
+	return verifyFingerprintPaths(ctx, paths, options, first)
+}
+
+func verifyFingerprintPaths(ctx context.Context, paths []string, options FingerprintOptions, first FingerprintResult) (FingerprintResult, error) {
 	verifyOptions := options
 	verifyOptions.IncludeEntries = false
 	verifyOptions.MaxEntryDetails = 0

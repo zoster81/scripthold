@@ -11,6 +11,7 @@ import (
 
 	"github.com/zoster81/scripthold/internal/config"
 	"github.com/zoster81/scripthold/internal/filesystem"
+	"github.com/zoster81/scripthold/internal/operation"
 )
 
 func TestHandlePatchPackageInspectAndDryRun(t *testing.T) {
@@ -210,12 +211,24 @@ func TestHandlePatchPackageDryRunRejectsStaleAndChangedState(t *testing.T) {
 	}
 
 	manifest.Targets[0].ExpectedFingerprint = fingerprintRegularFileForTest(t, path)
-	h.patchPackageAfterPrepare = func() error {
-		return os.WriteFile(path, []byte("changed"), 0644)
+	targets, err := h.validatePatchPackageManifest(context.Background(), manifest)
+	if err != nil {
+		t.Fatal(err)
 	}
-	result, _, err = h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: "dryRun", Manifest: manifest})
-	if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeConflict {
-		t.Fatalf("changed result=%+v err=%v", result, err)
+	identities, err := openPatchPackageIdentities(targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePatchPackageIdentities(identities)
+	before, err := h.capturePatchPackageFingerprints(context.Background(), targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("changed"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.verifyPatchPackageDryRunSnapshot(context.Background(), targets, identities, before); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("changed verification error=%v, want CONFLICT", err)
 	}
 }
 
@@ -235,15 +248,27 @@ func TestHandlePatchPackageDryRunRejectsSameContentPathReplacement(t *testing.T)
 		}},
 	}
 	h := NewHandler([]string{root})
-	h.patchPackageAfterPrepare = func() error {
-		if err := os.Rename(path, displaced); err != nil {
-			return err
-		}
-		return os.WriteFile(path, original, 0644)
+	targets, err := h.validatePatchPackageManifest(context.Background(), manifest)
+	if err != nil {
+		t.Fatal(err)
 	}
-	result, _, err := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: "dryRun", Manifest: manifest})
-	if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeConflict {
-		t.Fatalf("same-content replacement result=%+v err=%v", result, err)
+	identities, err := openPatchPackageIdentities(targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePatchPackageIdentities(identities)
+	before, err := h.capturePatchPackageFingerprints(context.Background(), targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, displaced); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.verifyPatchPackageDryRunSnapshot(context.Background(), targets, identities, before); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("same-content replacement verification error=%v, want CONFLICT", err)
 	}
 }
 

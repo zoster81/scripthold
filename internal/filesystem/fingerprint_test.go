@@ -360,16 +360,22 @@ func TestFingerprintPathsDetectsChangesBetweenPasses(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = fingerprintPathsWithHook(context.Background(), []string{path}, FingerprintOptions{
+		options := FingerprintOptions{
 			ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 			RespectGitignore:    true,
 			MaxEntries:          100,
-		}, func() error {
-			if err := os.WriteFile(path, []byte("modified"), 0644); err != nil {
-				return err
-			}
-			return os.Chtimes(path, info.ModTime(), info.ModTime())
-		})
+		}
+		first, err := fingerprintPathsOnce(context.Background(), []string{path}, options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("modified"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+			t.Fatal(err)
+		}
+		_, err = verifyFingerprintPaths(context.Background(), []string{path}, options, first)
 		if operation.KindOf(err) != operation.KindConflict {
 			t.Fatalf("concurrent file change error = %v, kind=%s", err, operation.KindOf(err))
 		}
@@ -378,13 +384,19 @@ func TestFingerprintPathsDetectsChangesBetweenPasses(t *testing.T) {
 	t.Run("directory entry added", func(t *testing.T) {
 		root := t.TempDir()
 		writeFingerprintFixture(t, filepath.Join(root, "first.txt"), "first")
-		_, err := fingerprintPathsWithHook(context.Background(), []string{root}, FingerprintOptions{
+		options := FingerprintOptions{
 			ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 			RespectGitignore:    true,
 			MaxEntries:          100,
-		}, func() error {
-			return os.WriteFile(filepath.Join(root, "second.txt"), []byte("second"), 0644)
-		})
+		}
+		first, err := fingerprintPathsOnce(context.Background(), []string{root}, options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "second.txt"), []byte("second"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		_, err = verifyFingerprintPaths(context.Background(), []string{root}, options, first)
 		if operation.KindOf(err) != operation.KindConflict {
 			t.Fatalf("directory change error = %v, kind=%s", err, operation.KindOf(err))
 		}
@@ -394,13 +406,19 @@ func TestFingerprintPathsDetectsChangesBetweenPasses(t *testing.T) {
 		root := t.TempDir()
 		path := filepath.Join(root, "required.txt")
 		writeFingerprintFixture(t, path, "required")
-		_, err := fingerprintPathsWithHook(context.Background(), []string{path}, FingerprintOptions{
+		options := FingerprintOptions{
 			ResolvedAllowedDirs: security.ResolveAllowedDirs([]string{root}),
 			RespectGitignore:    true,
 			MaxEntries:          100,
-		}, func() error {
-			return os.Remove(path)
-		})
+		}
+		first, err := fingerprintPathsOnce(context.Background(), []string{path}, options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		_, err = verifyFingerprintPaths(context.Background(), []string{path}, options, first)
 		if operation.KindOf(err) != operation.KindConflict {
 			t.Fatalf("removed file error = %v, kind=%s", err, operation.KindOf(err))
 		}

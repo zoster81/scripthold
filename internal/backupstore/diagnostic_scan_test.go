@@ -14,7 +14,7 @@ import (
 func TestDiagnosticStoreDiagnoseHealthyStoreWithoutMutation(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "backup-store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	target := filepath.Join(base, "private-target.txt")
 	if err := os.WriteFile(target, []byte("healthy diagnostic bytes\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestDiagnosticStoreDiagnoseHealthyStoreWithoutMutation(t *testing.T) {
 	}
 	before := snapshotDiagnosticTree(t, root)
 
-	diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: phase2TestLimits()})
+	diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestDiagnosticStoreDiagnoseHealthyStoreWithoutMutation(t *testing.T) {
 
 func TestDiagnosticStoreDiagnoseReportsMissingIndexWithoutRebuilding(t *testing.T) {
 	root := filepath.Join(canonicalTempDir(t), "backup-store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestDiagnosticStoreDiagnoseReportsMissingIndexWithoutRebuilding(t *testing.
 	}
 	before := snapshotDiagnosticTree(t, root)
 
-	diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: phase2TestLimits()})
+	diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestDiagnosticStoreDiagnoseFailSoftDescriptorAndLayout(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := filepath.Join(canonicalTempDir(t), "backup-store")
-			store := openPhase2TestStore(t, root, phase2TestLimits())
+			store := openBackupTestStore(t, root, backupStoreTestLimits())
 			if err := store.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -133,7 +133,7 @@ func TestDiagnosticStoreDiagnoseFailSoftDescriptorAndLayout(t *testing.T) {
 			}
 			before := snapshotDiagnosticTree(t, root)
 
-			diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: phase2TestLimits()})
+			diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: backupStoreTestLimits()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -207,7 +207,7 @@ func TestDiagnosticStoreDiagnoseMapsManifestAndMissingObjectIssues(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			base := canonicalTempDir(t)
 			root := filepath.Join(base, "backup-store")
-			store := openPhase2TestStore(t, root, phase2TestLimits())
+			store := openBackupTestStore(t, root, backupStoreTestLimits())
 			target := filepath.Join(base, "target.txt")
 			captured := captureManagementFixture(t, store, target, "diagnostic issue bytes", false)
 			if err := store.Close(); err != nil {
@@ -216,7 +216,7 @@ func TestDiagnosticStoreDiagnoseMapsManifestAndMissingObjectIssues(t *testing.T)
 			tc.mutate(t, root, captured)
 			before := snapshotDiagnosticTree(t, root)
 
-			diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: phase2TestLimits()})
+			diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: backupStoreTestLimits()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -273,7 +273,7 @@ func TestDiagnosticLayoutSnapshotDetectsDirectoryReplacement(t *testing.T) {
 func TestDiagnosticStoreDiagnoseQuickAndFullIntegrity(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "backup-store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	captured := captureManagementFixture(t, store, target, "original object bytes", false)
 	if err := store.Close(); err != nil {
@@ -288,7 +288,7 @@ func TestDiagnosticStoreDiagnoseQuickAndFullIntegrity(t *testing.T) {
 	}
 	before := snapshotDiagnosticTree(t, root)
 
-	quickStore, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: phase2TestLimits()})
+	quickStore, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestDiagnosticStoreDiagnoseQuickAndFullIntegrity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fullStore, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: phase2TestLimits()})
+	fullStore, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,14 +327,14 @@ func TestDiagnosticStoreDiagnoseQuickAndFullIntegrity(t *testing.T) {
 func TestDiagnosticStoreDiagnoseLimitsCancellationAndDeterminism(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "backup-store")
-	store := openPhase2TestStore(t, root, phase2TestLimits())
+	store := openBackupTestStore(t, root, backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	_ = captureManagementFixture(t, store, target, "bounded diagnostic bytes", false)
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: phase2TestLimits()})
+	diagnostic, err := OpenExistingForDiagnosis(DiagnosticOpenOptions{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}

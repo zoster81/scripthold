@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestR27Phase14ProjectContextPreservesDeeperDependencyEvidence(t *testing.T) {
+func TestProjectContextPreservesDeeperDependencyEvidence(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -15,10 +15,10 @@ func TestR27Phase14ProjectContextPreservesDeeperDependencyEvidence(t *testing.T)
 	aPath := filepath.Join(root, "a.ts")
 	bPath := filepath.Join(root, "b.ts")
 	cPath := filepath.Join(root, "c.ts")
-	a := phase12Facts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A {}\n")
-	b := phase12Facts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B {}\n")
-	c := phase12Facts(t, TypeScriptAnalyzer{}, cPath, "export class C {}\n")
-	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{a, b, c}, phase12ResolverLimits())
+	a := projectResolverFacts(t, TypeScriptAnalyzer{}, aPath, "import { B } from \"./b\";\nexport class A {}\n")
+	b := projectResolverFacts(t, TypeScriptAnalyzer{}, bPath, "import { C } from \"./c\";\nexport class B {}\n")
+	c := projectResolverFacts(t, TypeScriptAnalyzer{}, cPath, "export class C {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{a, b, c}, projectResolverLimitsForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestR27Phase14ProjectContextPreservesDeeperDependencyEvidence(t *testing.T)
 	ambiguous.Resolution = ResolutionAmbiguous
 	model.dependenciesBySource[bKey][0] = ambiguous
 
-	plan, err := model.PlanContext(context.Background(), []ProjectSelector{phase13PathSelector(a)}, ProjectContextOptions{
+	plan, err := model.PlanContext(context.Background(), []ProjectSelector{queryPathSelector(a)}, ProjectContextOptions{
 		BudgetBytes: 4096, MaxItems: 16, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
 	})
 	if err != nil {

@@ -27,7 +27,7 @@ const char *text = "struct Fake { int Nope(); };";
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.c"
-	result, err := (CAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (CAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ const char* raw = R"tag(class RawFake { void Nope(); })tag";
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.cpp"
-	result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ const char* raw = R"tag(class RawFake { void Nope(); })tag";
 func TestCFamilyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	malformed := sourceDocumentForScanner("struct Good { int x; };\nint broken( {\n")
 	malformed.Path = "broken.c"
-	result, err := (CAnalyzer{}).Analyze(context.Background(), malformed, phase3AnalyzeOptions(true, 32))
+	result, err := (CAnalyzer{}).Analyze(context.Background(), malformed, testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestCFamilyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 		t.Fatalf("malformed recovery lost Good: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 	}
 
-	limitedResult, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct A {}; struct B {}; struct C {};\n"), phase3AnalyzeOptions(false, 2))
+	limitedResult, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct A {}; struct B {}; struct C {};\n"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,13 +157,13 @@ func TestCFamilyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (CPPAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("class A {};"), phase3AnalyzeOptions(false, 16))
+	_, err = (CPPAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("class A {};"), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("C++ cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}
 }
 
-func phase3AnalyzeOptions(signatures bool, maxSymbols int) AnalyzeOptions {
+func testAnalyzeOptions(signatures bool, maxSymbols int) AnalyzeOptions {
 	return AnalyzeOptions{IncludeSignatures: signatures, MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: maxSymbols, MaxSignatureBytes: 8192, MaxDiagnostics: 64}}
 }
 
@@ -203,7 +203,7 @@ T Box<T>::get() const { return T{}; }
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "qualified.cpp"
-	result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 128))
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ struct Hooks {
     void (*on_event)(int);
 };
 `
-	result, err := (CAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+	result, err := (CAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,41 +259,4 @@ struct Hooks {
 			t.Fatalf("function pointer overclaimed as callable declaration: %+v", symbol)
 		}
 	}
-}
-
-func FuzzR27Phase3AnalyzersNoPanic(f *testing.F) {
-	seeds := []struct {
-		text     string
-		selector uint8
-	}{
-		{"#include <stdio.h>\nstruct Point { int x; };\nint work(int x) { return x; }\n", 0},
-		{"namespace Demo { template <class T> class Box { public: T get() const; }; }\n", 1},
-		{"package demo; public class Box<T> { public T get() { return null; } }\n", 2},
-		{"package demo\ndata class Box<T>(val value: T) { fun get(): T = value }\n", 3},
-		{"int (*callback)(int);\n", 0},
-		{"class Real {}; const char* raw = R\"tag(class Fake {})tag\";\n", 1},
-	}
-	for _, seed := range seeds {
-		f.Add(seed.text, seed.selector)
-	}
-	f.Fuzz(func(t *testing.T, text string, selector uint8) {
-		analyzers := []SourceAnalyzer{CAnalyzer{}, CPPAnalyzer{}, JavaAnalyzer{}, KotlinAnalyzer{}}
-		analyzer := analyzers[int(selector)%len(analyzers)]
-		document := sourceDocumentForScanner(text)
-		result, err := analyzer.Analyze(context.Background(), document, phase3AnalyzeOptions(false, 128))
-		if err != nil {
-			if kind := operation.KindOf(err); kind != operation.KindInvalidInput && kind != operation.KindLimit {
-				t.Fatalf("unexpected %s fuzz error: %v kind=%v", analyzer.Language(), err, kind)
-			}
-			return
-		}
-		if len(result.Analysis.Symbols) > 128 {
-			t.Fatalf("%s fuzz result exceeded symbol bound: %d", analyzer.Language(), len(result.Analysis.Symbols))
-		}
-		for _, symbol := range result.Analysis.Symbols {
-			if symbol.Name == "" || symbol.QualifiedName == "" || symbol.DeclarationRange.Start.Line <= 0 || symbol.DeclarationRange.Start.Column <= 0 {
-				t.Fatalf("%s fuzz emitted invalid symbol: %+v", analyzer.Language(), symbol)
-			}
-		}
-	})
 }

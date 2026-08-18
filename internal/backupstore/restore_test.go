@@ -15,7 +15,7 @@ import (
 
 func TestOpenRestoreSourceReadsAndStagesExactVerifiedBytes(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	target := filepath.Join(base, "target.txt")
 	content := []byte("restore source bytes\r\n")
 	if err := os.WriteFile(target, content, 0o640); err != nil {
@@ -73,7 +73,7 @@ func TestOpenRestoreSourceReadsAndStagesExactVerifiedBytes(t *testing.T) {
 
 func TestOpenRestoreSourceAuthorizesBeforeObjectHash(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	capture := captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "authorization first", false)
 	object := objectPath(store.Root(), capture.Manifest.ObjectDigest)
 	corrupt := []byte(strings.ToUpper("authorization first"))
@@ -99,7 +99,7 @@ func TestOpenRestoreSourceAuthorizesBeforeObjectHash(t *testing.T) {
 
 func TestOpenRestoreSourceRejectsCorruptObject(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	capture := captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "verified restore", false)
 	object := objectPath(store.Root(), capture.Manifest.ObjectDigest)
 	corrupt := []byte(strings.ToUpper("verified restore"))
@@ -120,7 +120,7 @@ func TestOpenRestoreSourceRejectsCorruptObject(t *testing.T) {
 
 func TestRestoreSourceDetectsManifestChangeAfterOpen(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	capture := captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "stable restore bytes", false)
 	source, err := store.OpenRestoreSource(context.Background(), capture.Manifest.BackupID, RestoreSourceOptions{})
 	if err != nil {
@@ -146,7 +146,7 @@ func TestRestoreSourceDetectsManifestChangeAfterOpen(t *testing.T) {
 
 func TestRestoreSourceDetectsObjectChangeAfterOpen(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	capture := captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "stable restore bytes", false)
 	source, err := store.OpenRestoreSource(context.Background(), capture.Manifest.BackupID, RestoreSourceOptions{})
 	if err != nil {
@@ -172,7 +172,7 @@ func TestRestoreSourceDetectsObjectChangeAfterOpen(t *testing.T) {
 
 func TestRestoreSourceBoundsCancellationAndClose(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	capture := captureManagementFixture(t, store, filepath.Join(base, "target.txt"), "bounded restore", false)
 	source, err := store.OpenRestoreSource(context.Background(), capture.Manifest.BackupID, RestoreSourceOptions{})
 	if err != nil {
@@ -205,9 +205,9 @@ func TestRestoreSourceBoundsCancellationAndClose(t *testing.T) {
 
 func TestRestorePlanTTLUsesConfiguredLimit(t *testing.T) {
 	base := canonicalTempDir(t)
-	limits := phase2TestLimits()
+	limits := backupStoreTestLimits()
 	limits.PlanTTLSeconds = 37
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), limits)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
 	if got := store.RestorePlanTTL(); got != 37*time.Second {
 		t.Fatalf("RestorePlanTTL() = %v, want 37s", got)
 	}
@@ -215,7 +215,7 @@ func TestRestorePlanTTLUsesConfiguredLimit(t *testing.T) {
 
 func TestOpenRestoreSourceRejectsMissingAndMalformedIdentifiers(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	for _, backupID := range []string{"invalid", strings.Repeat("a", 64)} {
 		_, err := store.OpenRestoreSource(context.Background(), backupID, RestoreSourceOptions{})
 		if operation.KindOf(err) != operation.KindInvalidInput {

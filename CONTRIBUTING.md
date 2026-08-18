@@ -44,9 +44,12 @@ golangci-lint run ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
-# Integration and release-script tests
-go run test_server.go
-node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/verify-release-version.test.js
+# Release-script and CI-policy tests
+node --test scripts/check-markdown-links.test.js scripts/test-ci-policy.test.js scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-candidate-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
+node scripts/check-markdown-links.js
+
+# Risk-based bounded fuzz smoke (shared with GitHub CI)
+node scripts/run-fuzz.js --profile smoke
 
 # Requires Bash and network access to download pinned tools
 bash scripts/validate-workflows.sh

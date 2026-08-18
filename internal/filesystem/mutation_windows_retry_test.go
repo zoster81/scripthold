@@ -4,7 +4,6 @@ package filesystem
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -48,29 +47,47 @@ func TestReplaceFileRetriesTransientWindowsDeleteShareContention(t *testing.T) {
 	}
 }
 
-func TestReplaceFileRepeatedTransientWindowsDeleteShareContention(t *testing.T) {
+func TestAtomicReplaceRetryPolicyRetriesDeterministically(t *testing.T) {
 	root := t.TempDir()
-	for attempt := 0; attempt < 16; attempt++ {
-		target := filepath.Join(root, fmt.Sprintf("target-%02d.txt", attempt))
-		if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
-			t.Fatal(err)
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureSnapshotWithDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	timing := newAtomicReplaceRetryTestTiming()
+	commitCalls := 0
+	err = commitStagedTargetWithRetryTimed(
+		target,
+		filepath.Join(root, "staged.txt"),
+		&expected,
+		func(string, string) error {
+			commitCalls++
+			if commitCalls < 5 {
+				return windows.ERROR_ACCESS_DENIED
+			}
+			return nil
+		},
+		nil,
+		nil,
+		timing.policy(),
+	)
+	if err != nil {
+		t.Fatalf("deterministic retry policy failed: %v", err)
+	}
+	if commitCalls != 5 {
+		t.Fatalf("commit calls = %d, want 5", commitCalls)
+	}
+	if len(timing.sleeps) != 4 {
+		t.Fatalf("retry sleeps = %d, want 4", len(timing.sleeps))
+	}
+	for index, delay := range timing.sleeps {
+		if delay != atomicReplaceRetryDelay {
+			t.Fatalf("retry sleep[%d] = %v, want %v", index, delay, atomicReplaceRetryDelay)
 		}
-		expected, err := CaptureSnapshotWithDigest(target)
-		if err != nil {
-			t.Fatal(err)
-		}
-		handle := openWithoutDeleteShare(t, target)
-		released := make(chan struct{})
-		go func(handle windows.Handle, delay time.Duration) {
-			time.Sleep(delay)
-			_ = windows.CloseHandle(handle)
-			close(released)
-		}(handle, time.Duration(10+(attempt%4)*10)*time.Millisecond)
-		if err := ReplaceFile(target, []byte("after\n"), ReplaceOptions{Mode: 0o644, Expected: &expected}); err != nil {
-			<-released
-			t.Fatalf("attempt %d: ReplaceFile() failed after transient contention: %v", attempt, err)
-		}
-		<-released
 	}
 }
 
@@ -189,7 +206,8 @@ func TestAlternativeAtomicReplaceFailureDoesNotShortenClassicRetry(t *testing.T)
 
 	commitCalls := 0
 	alternativeCalls := 0
-	err = commitStagedTargetWithRetryObservedAlternative(
+	timing := newAtomicReplaceRetryTestTiming()
+	err = commitStagedTargetWithRetryTimed(
 		target,
 		filepath.Join(root, "staged.txt"),
 		&expected,
@@ -205,6 +223,7 @@ func TestAlternativeAtomicReplaceFailureDoesNotShortenClassicRetry(t *testing.T)
 			alternativeCalls++
 			return true, windows.ERROR_INVALID_NAME
 		},
+		timing.policy(),
 	)
 	if err != nil {
 		t.Fatalf("classic retry should recover after alternative failure: %v", err)
@@ -229,7 +248,8 @@ func TestAlternativeAtomicReplaceRunsOnlyAfterExpectedSnapshotRevalidation(t *te
 
 	commitCalls := 0
 	alternativeCalls := 0
-	err = commitStagedTargetWithRetryObservedAlternative(
+	timing := newAtomicReplaceRetryTestTiming()
+	err = commitStagedTargetWithRetryTimed(
 		target,
 		filepath.Join(root, "staged.txt"),
 		&expected,
@@ -248,6 +268,7 @@ func TestAlternativeAtomicReplaceRunsOnlyAfterExpectedSnapshotRevalidation(t *te
 			alternativeCalls++
 			return true, nil
 		},
+		timing.policy(),
 	)
 	if err == nil || !errors.Is(err, ErrConcurrentModification) {
 		t.Fatalf("error = %v, want ErrConcurrentModification", err)
@@ -257,7 +278,7 @@ func TestAlternativeAtomicReplaceRunsOnlyAfterExpectedSnapshotRevalidation(t *te
 	}
 }
 
-func TestReplaceFileRetryRevalidatesExpectedSnapshot(t *testing.T) {
+func TestAtomicReplaceRetryRevalidatesExpectedSnapshotDeterministically(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target.txt")
 	if err := os.WriteFile(target, []byte("before\n"), 0o644); err != nil {
@@ -268,19 +289,31 @@ func TestReplaceFileRetryRevalidatesExpectedSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handle := openWithoutDeleteShare(t, target)
-	released := make(chan struct{})
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		_ = os.WriteFile(target, []byte("external\n"), 0o644)
-		_ = windows.CloseHandle(handle)
-		close(released)
-	}()
-
-	err = ReplaceFile(target, []byte("replacement\n"), ReplaceOptions{Mode: 0o644, Expected: &expected})
-	<-released
-	if err == nil {
-		t.Fatal("ReplaceFile() succeeded after the expected target changed during retry")
+	timing := newAtomicReplaceRetryTestTiming()
+	commitCalls := 0
+	err = commitStagedTargetWithRetryTimed(
+		target,
+		filepath.Join(root, "staged.txt"),
+		&expected,
+		func(string, string) error {
+			commitCalls++
+			if commitCalls == 1 {
+				if writeErr := os.WriteFile(target, []byte("external\n"), 0o644); writeErr != nil {
+					t.Fatal(writeErr)
+				}
+				return windows.ERROR_ACCESS_DENIED
+			}
+			return nil
+		},
+		nil,
+		nil,
+		timing.policy(),
+	)
+	if err == nil || !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("error = %v, want ErrConcurrentModification", err)
+	}
+	if commitCalls != 1 {
+		t.Fatalf("commit calls = %d, want 1 before revalidation abort", commitCalls)
 	}
 	payload, readErr := os.ReadFile(target)
 	if readErr != nil {
@@ -288,6 +321,25 @@ func TestReplaceFileRetryRevalidatesExpectedSnapshot(t *testing.T) {
 	}
 	if got, want := string(payload), "external\n"; got != want {
 		t.Fatalf("target = %q, want concurrent content %q", got, want)
+	}
+}
+
+type atomicReplaceRetryTestTiming struct {
+	nowValue time.Time
+	sleeps   []time.Duration
+}
+
+func newAtomicReplaceRetryTestTiming() *atomicReplaceRetryTestTiming {
+	return &atomicReplaceRetryTestTiming{nowValue: time.Unix(1, 0)}
+}
+
+func (timing *atomicReplaceRetryTestTiming) policy() atomicReplaceRetryTiming {
+	return atomicReplaceRetryTiming{
+		now: func() time.Time { return timing.nowValue },
+		sleep: func(delay time.Duration) {
+			timing.sleeps = append(timing.sleeps, delay)
+			timing.nowValue = timing.nowValue.Add(delay)
+		},
 	}
 }
 

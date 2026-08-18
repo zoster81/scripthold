@@ -41,7 +41,7 @@ TXT;
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.php"
-	result, err := (PHPAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (PHPAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ TXT;
 
 func TestPHPAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	malformed := sourceDocumentForScanner("<?php class Good {}\n$doc = <<<TXT\nunterminated\n")
-	partial, err := (PHPAnalyzer{}).Analyze(context.Background(), malformed, phase3AnalyzeOptions(true, 32))
+	partial, err := (PHPAnalyzer{}).Analyze(context.Background(), malformed, testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestPHPAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 		t.Fatalf("malformed PHP lost Good: %v", sortedSymbolQualifiedNames(partial.Analysis.Symbols))
 	}
 
-	limited, err := (PHPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("<?php class A {} class B {} class C {}"), phase3AnalyzeOptions(false, 2))
+	limited, err := (PHPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("<?php class A {} class B {} class C {}"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestPHPAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (PHPAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("<?php class A {}"), phase3AnalyzeOptions(false, 16))
+	_, err = (PHPAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("<?php class A {}"), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("PHP cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}

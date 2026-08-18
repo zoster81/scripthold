@@ -261,7 +261,7 @@ func TestHandleGrep_CP1251Encoding(t *testing.T) {
 	}
 }
 
-func TestHandleGrep_Phase8ReportsBoundedEncodingSkips(t *testing.T) {
+func TestHandleGrepReportsBoundedEncodingSkips(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 
@@ -313,7 +313,7 @@ func TestHandleGrep_Phase8ReportsBoundedEncodingSkips(t *testing.T) {
 	}
 }
 
-func TestHandleGrep_Phase8MalformedExplicitEncodingIsVisible(t *testing.T) {
+func TestHandleGrepMalformedExplicitEncodingIsVisible(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	goodPath := filepath.Join(tempDir, "a-good.txt")
@@ -343,7 +343,7 @@ func TestHandleGrep_Phase8MalformedExplicitEncodingIsVisible(t *testing.T) {
 	}
 }
 
-func TestHandleGrep_Phase8EncodingSkipsVisibleInAllOutputModes(t *testing.T) {
+func TestHandleGrepEncodingSkipsVisibleInAllOutputModes(t *testing.T) {
 	for _, mode := range []string{"content", "files_with_matches", "count"} {
 		t.Run(mode, func(t *testing.T) {
 			tempDir := t.TempDir()
@@ -371,7 +371,7 @@ func TestHandleGrep_Phase8EncodingSkipsVisibleInAllOutputModes(t *testing.T) {
 	}
 }
 
-func TestHandleGrep_Phase8DiagnosticsYieldToMatchOutputBudget(t *testing.T) {
+func TestHandleGrepDiagnosticsYieldToMatchOutputBudget(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir}, WithConfig(&config.Config{
 		DefaultEncoding: "utf-8",
@@ -401,7 +401,7 @@ func TestHandleGrep_Phase8DiagnosticsYieldToMatchOutputBudget(t *testing.T) {
 	}
 }
 
-func TestHandleGrep_Phase8CancellationIsTerminal(t *testing.T) {
+func TestHandleGrepCancellationIsTerminal(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 	path := filepath.Join(tempDir, "cancel.txt")

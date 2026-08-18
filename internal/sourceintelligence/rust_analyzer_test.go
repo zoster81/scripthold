@@ -37,7 +37,7 @@ const RAW: &str = r###"struct RawFake; fn hidden() {}"###;
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.rs"
-	result, err := (RustAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 512))
+	result, err := (RustAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ pub struct Good {
 #[cfg(feature = "x")]
 pub fn work() {}
 `
-	result, err := (RustAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+	result, err := (RustAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ pub fn work() {}
 	}
 
 	malformed := sourceDocumentForScanner("struct Good {}\nconst RAW: &str = r#\"unterminated\n")
-	partial, err := (RustAnalyzer{}).Analyze(context.Background(), malformed, phase3AnalyzeOptions(true, 32))
+	partial, err := (RustAnalyzer{}).Analyze(context.Background(), malformed, testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ pub fn work() {}
 		t.Fatalf("malformed Rust did not report partial coverage: %+v", partial.Analysis)
 	}
 
-	limited, err := (RustAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct A {}\nstruct B {}\nstruct C {}\n"), phase3AnalyzeOptions(false, 2))
+	limited, err := (RustAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("struct A {}\nstruct B {}\nstruct C {}\n"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ pub fn work() {}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (RustAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("struct A {}"), phase3AnalyzeOptions(false, 16))
+	_, err = (RustAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("struct A {}"), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("Rust cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}

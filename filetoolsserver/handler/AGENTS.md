@@ -53,7 +53,6 @@ Keep fixtures generic and content-based. A test filename must not imply special 
 ```bash
 go test ./filetoolsserver/handler -count=1
 go test ./filetoolsserver ./internal/toolcatalog -count=1
-go run test_server.go
 go test ./... -count=1
 git diff --check
 ```

@@ -9,7 +9,7 @@ import (
 
 func TestFilesystemPackagePreflightIsSideEffectFreeAndCapturePersistsProvenance(t *testing.T) {
 	base := canonicalTempDir(t)
-	store := openPhase2TestStore(t, filepath.Join(base, "store"), phase2TestLimits())
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
 	targets := []string{filepath.Join(base, "first.txt"), filepath.Join(base, "second.txt")}
 	for index, target := range targets {
 		if err := os.WriteFile(target, []byte{byte('a' + index)}, 0o600); err != nil {

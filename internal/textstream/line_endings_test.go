@@ -107,7 +107,7 @@ func TestUTF16LineEndingReaderPreservesCodeUnitsAcrossReads(t *testing.T) {
 	}
 }
 
-func TestPhase4UTF32LineEndingReaderPreservesCodeUnitsAcrossReads(t *testing.T) {
+func TestUTF32LineEndingReaderPreservesCodeUnitsAcrossReads(t *testing.T) {
 	for _, testCase := range []struct {
 		name         string
 		littleEndian bool
@@ -137,7 +137,7 @@ func TestPhase4UTF32LineEndingReaderPreservesCodeUnitsAcrossReads(t *testing.T) 
 	}
 }
 
-func TestPhase4UTF32LineEndingReaderRejectsTruncatedUnit(t *testing.T) {
+func TestUTF32LineEndingReaderRejectsTruncatedUnit(t *testing.T) {
 	reader, err := NewUTF32LineEndingReader(bytes.NewReader([]byte{'a', 0, 0}), "lf", true)
 	if err != nil {
 		t.Fatal(err)

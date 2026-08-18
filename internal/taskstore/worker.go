@@ -34,13 +34,12 @@ var (
 )
 
 type Worker struct {
-	store          *Store
-	executable     string
-	policy         WorkerPolicy
-	logger         *slog.Logger
-	startedAt      time.Time
-	suspectSince   map[string]time.Time
-	reconcileCycle func(context.Context) error
+	store        *Store
+	executable   string
+	policy       WorkerPolicy
+	logger       *slog.Logger
+	startedAt    time.Time
+	suspectSince map[string]time.Time
 }
 
 func NewWorker(store *Store, executable string, allowedDirectories []string, policy WorkerPolicy, logger *slog.Logger) (*Worker, error) {
@@ -60,9 +59,7 @@ func NewWorker(store *Store, executable string, allowedDirectories []string, pol
 	if logger == nil {
 		logger = slog.Default()
 	}
-	worker := &Worker{store: store, executable: executable, policy: policy, logger: logger, startedAt: time.Now(), suspectSince: make(map[string]time.Time)}
-	worker.reconcileCycle = worker.reconcile
-	return worker, nil
+	return &Worker{store: store, executable: executable, policy: policy, logger: logger, startedAt: time.Now(), suspectSince: make(map[string]time.Time)}, nil
 }
 
 func (worker *Worker) Run(ctx context.Context) error {
@@ -78,28 +75,14 @@ func (worker *Worker) Run(ctx context.Context) error {
 	heartbeatContext, stopHeartbeat := context.WithCancel(ctx)
 	heartbeatErrors := make(chan error, 1)
 	defer stopHeartbeat()
-	go func() {
-		ticker := time.NewTicker(workerHeartbeatInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-heartbeatContext.Done():
-				return
-			case <-ticker.C:
-				if err := touch(heartbeatPath); err != nil {
-					heartbeatErrors <- err
-					return
-				}
-			}
-		}
-	}()
+	go runWorkerHeartbeat(heartbeatContext, heartbeatPath, heartbeatErrors)
 	worker.logger.Info("task worker started", "maxConcurrency", worker.store.limits.MaxConcurrency, "maxQueued", worker.store.limits.MaxQueued)
 	ticker := time.NewTicker(workerPollInterval)
 	defer ticker.Stop()
 	retentionTicker := time.NewTicker(time.Minute)
 	defer retentionTicker.Stop()
 	for {
-		if err := worker.reconcileCycle(ctx); err != nil {
+		if err := worker.reconcile(ctx); err != nil {
 			worker.logger.Error("task worker reconciliation failed", "error", err)
 		}
 		select {
@@ -120,6 +103,26 @@ func (worker *Worker) Run(ctx context.Context) error {
 type queuedCandidate struct {
 	request persistedRequest
 	state   stateRecord
+}
+
+func runWorkerHeartbeat(ctx context.Context, heartbeatPath string, errors chan<- error) {
+	ticker := time.NewTicker(workerHeartbeatInterval)
+	defer ticker.Stop()
+	runWorkerHeartbeatTicks(ctx, heartbeatPath, ticker.C, errors)
+}
+
+func runWorkerHeartbeatTicks(ctx context.Context, heartbeatPath string, ticks <-chan time.Time, errors chan<- error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			if err := touch(heartbeatPath); err != nil {
+				errors <- err
+				return
+			}
+		}
+	}
 }
 
 func (worker *Worker) reconcile(ctx context.Context) error {

@@ -1,0 +1,216 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "smoke": {
+      "fuzzTime": "10000x"
+    },
+    "qualification": {
+      "fuzzTime": "100000x"
+    }
+  },
+  "targets": [
+    {
+      "id": "backup-diagnostic-command",
+      "package": "./cmd/scripthold",
+      "target": "FuzzParseBackupDiagnosticCommand",
+      "riskCategories": ["command-task-parsing"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "backup-recovery-command",
+      "package": "./cmd/scripthold",
+      "target": "FuzzParseBackupRecoveryCommand",
+      "riskCategories": ["command-task-parsing"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "handler-unified-patch",
+      "package": "./filetoolsserver/handler",
+      "target": "FuzzUnifiedPatch",
+      "riskCategories": ["handler-patch-fuzzy"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "handler-fuzzy-match",
+      "package": "./filetoolsserver/handler",
+      "target": "FuzzFuzzyMatch",
+      "riskCategories": ["handler-patch-fuzzy"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "backup-descriptor-format",
+      "package": "./internal/backupstore",
+      "target": "FuzzDecodeDescriptor",
+      "riskCategories": ["backup-format"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "backup-manifest-format",
+      "package": "./internal/backupstore",
+      "target": "FuzzDecodeManifest",
+      "riskCategories": ["backup-format"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "backup-index-format",
+      "package": "./internal/backupstore",
+      "target": "FuzzDecodeIndex",
+      "riskCategories": ["backup-format"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "backup-list-cursor-format",
+      "package": "./internal/backupstore",
+      "target": "FuzzDecodeListCursor",
+      "riskCategories": ["backup-format"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "backup-gc-plan",
+      "package": "./internal/backupstore",
+      "target": "FuzzValidateGCPlan",
+      "riskCategories": ["backup-gc"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "backup-recovery-plan-format",
+      "package": "./internal/backupstore",
+      "target": "FuzzDecodeRecoveryPlan",
+      "riskCategories": ["backup-recovery"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "backup-recovery-state-format",
+      "package": "./internal/backupstore",
+      "target": "FuzzDecodeRecoveryState",
+      "riskCategories": ["backup-recovery"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "backup-recovery-report-format",
+      "package": "./internal/backupstore",
+      "target": "FuzzDecodeRecoveryReport",
+      "riskCategories": ["backup-recovery"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "encoding-decoder-stream",
+      "package": "./internal/encoding",
+      "target": "FuzzDecoderReaderChunkInvariance",
+      "riskCategories": ["encoding-stream"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "encoding-utf16-validation",
+      "package": "./internal/encoding",
+      "target": "FuzzDetectUTF16Validation",
+      "riskCategories": ["encoding-detection"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "encoding-utf32-validation",
+      "package": "./internal/encoding",
+      "target": "FuzzDetectUTF32Validation",
+      "riskCategories": ["encoding-detection"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "encoding-trusted-detection",
+      "package": "./internal/encoding",
+      "target": "FuzzTrustedDetectionAlwaysStrictlyDecodes",
+      "riskCategories": ["encoding-detection"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "filesystem-ignore-rules",
+      "package": "./internal/filesystem",
+      "target": "FuzzParseIgnoreRules",
+      "riskCategories": ["filesystem-ignore"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "http-host-normalization",
+      "package": "./internal/httptransport",
+      "target": "FuzzNormalizeHostValue",
+      "riskCategories": ["http-host-origin-proxy"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "http-origin-normalization",
+      "package": "./internal/httptransport",
+      "target": "FuzzNormalizeOrigin",
+      "riskCategories": ["http-host-origin-proxy"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "http-trusted-proxy-client",
+      "package": "./internal/httptransport",
+      "target": "FuzzTrustedProxyClientAddress",
+      "riskCategories": ["http-host-origin-proxy"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "http-protocol-version",
+      "package": "./internal/httptransport",
+      "target": "FuzzClassifyProtocolVersion",
+      "riskCategories": ["http-protocol-jsonrpc"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "http-jsonrpc-roundtrip",
+      "package": "./internal/httptransport",
+      "target": "FuzzJSONRPCMessageRoundTrip",
+      "riskCategories": ["http-protocol-jsonrpc"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "path-containment",
+      "package": "./internal/security",
+      "target": "FuzzIsPathWithinAllowedDirectories",
+      "riskCategories": ["path-security"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "path-normalization",
+      "package": "./internal/security",
+      "target": "FuzzNormalizePath",
+      "riskCategories": ["path-security"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "source-provider-analyzers",
+      "package": "./internal/sourceintelligence",
+      "target": "FuzzProviderAnalyzersNoPanic",
+      "riskCategories": ["source-intelligence"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "source-scanner-primitives",
+      "package": "./internal/sourceintelligence",
+      "target": "FuzzScannerPrimitiveProfiles",
+      "riskCategories": ["source-intelligence"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "source-scanner-no-panic",
+      "package": "./internal/sourceintelligence",
+      "target": "FuzzScannerNoPanic",
+      "riskCategories": ["source-intelligence"],
+      "profiles": ["qualification"]
+    },
+    {
+      "id": "task-request-validation",
+      "package": "./internal/taskstore",
+      "target": "FuzzValidateRequest",
+      "riskCategories": ["command-task-parsing"],
+      "profiles": ["smoke", "qualification"]
+    },
+    {
+      "id": "textstream-line-roundtrip",
+      "package": "./internal/textstream",
+      "target": "FuzzScanLinesRoundTrip",
+      "riskCategories": ["encoding-stream"],
+      "profiles": ["smoke", "qualification"]
+    }
+  ]
+}

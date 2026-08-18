@@ -252,20 +252,6 @@ type GCResult struct {
 	TrashEntriesRemaining int    `json:"trashEntriesRemaining"`
 }
 
-type captureTestHooks struct {
-	afterStage           func() error
-	beforeManifestCommit func() error
-	beforeIndexPersist   func() error
-}
-
-type gcTestHooks struct {
-	beforeManifestTrash func(string) error
-	afterManifestTrash  func(string) error
-	beforeObjectTrash   func(string) error
-	afterObjectTrash    func(string) error
-	beforeTrashDelete   func(string, string) error
-}
-
 func utcTimestamp(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
 }

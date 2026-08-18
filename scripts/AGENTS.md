@@ -32,7 +32,8 @@ Use `set -euo pipefail`, quote expansions, use temporary directories with cleanu
 ## Verification
 
 ```bash
-node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/verify-release-version.test.js
+node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-candidate-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
+node scripts/run-fuzz.js --profile smoke
 bash scripts/validate-workflows.sh
 go test ./internal/projectidentity ./internal/toolcatalog -count=1
 git diff --check

@@ -222,7 +222,7 @@ func createRecoveryScanStore(t *testing.T, contents ...[]byte) (string, []Manife
 	t.Helper()
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "store")
-	store, err := Open(Options{Directory: root, Limits: phase2TestLimits()})
+	store, err := Open(Options{Directory: root, Limits: backupStoreTestLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}

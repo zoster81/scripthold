@@ -64,11 +64,11 @@ type ApplyOutput struct {
 
 // Engine owns R24 one-shot capabilities and apply orchestration.
 type Engine struct {
-	planner    *Planner
-	limits     Limits
-	capture    BackupCaptureFunc
-	previews   *filesystemPackagePreviewStore
-	commitHook func(index int, phase string) error
+	planner   *Planner
+	limits    Limits
+	capture   BackupCaptureFunc
+	previews  *filesystemPackagePreviewStore
+	commitOps commitOperations
 }
 
 func NewEngine(planner *Planner, limits Limits, capture BackupCaptureFunc) (*Engine, error) {
@@ -80,7 +80,8 @@ func NewEngine(planner *Planner, limits Limits, capture BackupCaptureFunc) (*Eng
 	}
 	return &Engine{
 		planner: planner, limits: limits, capture: capture,
-		previews: newFilesystemPackagePreviewStore(limits.MaxPreviews, limits.MaxPreviewBytes, time.Duration(limits.PreviewTTLSeconds)*time.Second),
+		previews:  newFilesystemPackagePreviewStore(limits.MaxPreviews, limits.MaxPreviewBytes, time.Duration(limits.PreviewTTLSeconds)*time.Second),
+		commitOps: defaultCommitOperations(),
 	}, nil
 }
 
@@ -176,20 +177,7 @@ func (engine *Engine) Apply(ctx context.Context, previewID string) (ApplyOutput,
 			}
 			return engine.failBeforeMutation(ctx, prepared, output, operation.Wrap(operation.KindCancelled, "apply_filesystem_package", preparedOperationPath(item), err))
 		}
-		if engine.commitHook != nil {
-			if hookErr := engine.commitHook(item.Index, "before"); hookErr != nil {
-				cleanup := cleanupStagedPackage(staged)
-				output.CleanupResidue = cleanup
-				if len(succeeded) > 0 || len(cleanup) > 0 {
-					return engine.failWithPartialState(ctx, prepared, output, succeeded, item.Index, hookErr)
-				}
-				return engine.failBeforeMutation(ctx, prepared, output, hookErr)
-			}
-		}
 		err := engine.commitOperation(ctx, item, staged[item.Index], proof, treeOptions, createdDirectories)
-		if err == nil && engine.commitHook != nil {
-			err = engine.commitHook(item.Index, "after")
-		}
 		if err != nil {
 			cleanup := cleanupStagedPackage(staged)
 			output.CleanupResidue = cleanup
@@ -252,10 +240,10 @@ func (engine *Engine) commitOperation(ctx context.Context, item PreparedOperatio
 		if err := verifyPreparedIdentity(item.ImmediateParentPath, parentIdentity, "mkdir destination parent"); err != nil {
 			return err
 		}
-		if err := filesystem.CreateDirectoryExactNoReplace(item.Path.ResolvedPath, defaultR24DirectoryMode); err != nil {
+		if err := engine.commitOps.createDirectory(item.Path.ResolvedPath, defaultR24DirectoryMode); err != nil {
 			return err
 		}
-		identity, err := filesystem.CaptureObjectIdentity(item.Path.ResolvedPath)
+		identity, err := engine.commitOps.captureObjectIdentity(item.Path.ResolvedPath)
 		if err != nil || !identity.IsDirectory() {
 			if err == nil {
 				err = operation.New(operation.KindConflict, "mkdir result is not a real directory")
@@ -276,7 +264,7 @@ func (engine *Engine) commitOperation(ctx context.Context, item PreparedOperatio
 		if item.Operation.Type == OperationCopyFile {
 			destination = item.Destination.ResolvedPath
 		}
-		if err := staged.file.PublishNoReplace(destination); err != nil {
+		if err := engine.commitOps.publishFile(staged.file, destination); err != nil {
 			return err
 		}
 		if err := verifyPreparedIdentity(item.ImmediateParentPath, parentIdentity, "file destination parent"); err != nil {
@@ -291,7 +279,7 @@ func (engine *Engine) commitOperation(ctx context.Context, item PreparedOperatio
 		if err := verifyPreparedIdentity(item.ImmediateParentPath, parentIdentity, "directory destination parent"); err != nil {
 			return err
 		}
-		if err := staged.directory.PublishNoReplace(item.Destination.ResolvedPath); err != nil {
+		if err := engine.commitOps.publishDirectory(staged.directory, item.Destination.ResolvedPath); err != nil {
 			return err
 		}
 		if err := verifyPreparedIdentity(item.ImmediateParentPath, parentIdentity, "directory destination parent"); err != nil {
@@ -310,7 +298,7 @@ func (engine *Engine) commitOperation(ctx context.Context, item PreparedOperatio
 		if err := verifyPreparedIdentity(item.ImmediateParentPath, parentIdentity, "move destination parent"); err != nil {
 			return err
 		}
-		return filesystem.MovePreparedNativeNoReplace(item.Source.ResolvedPath, item.Destination.ResolvedPath, item.SourceIdentity, item.SourceParentIdentity, parentIdentity)
+		return engine.commitOps.movePrepared(item.Source.ResolvedPath, item.Destination.ResolvedPath, item.SourceIdentity, item.SourceParentIdentity, parentIdentity)
 
 	case OperationDeleteFile:
 		return DeletePreparedFile(ctx, item, proof)

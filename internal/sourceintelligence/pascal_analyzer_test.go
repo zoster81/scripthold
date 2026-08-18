@@ -52,7 +52,7 @@ end;
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.pp"
-	result, err := (PascalAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (PascalAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ end.
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "fixture.dpr"
-	result, err := (DelphiAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 512))
+	result, err := (DelphiAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ end.
 }
 
 func TestPascalDelphiMalformedLimitsAndCancellation(t *testing.T) {
-	partial, err := (PascalAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("program Good;\ntype\n  TGood = class\n  end;\n  TBroken = class\n"), phase3AnalyzeOptions(true, 32))
+	partial, err := (PascalAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("program Good;\ntype\n  TGood = class\n  end;\n  TBroken = class\n"), testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestPascalDelphiMalformedLimitsAndCancellation(t *testing.T) {
 		t.Fatalf("malformed Pascal did not report partial coverage: %+v", partial.Analysis)
 	}
 
-	limited, err := (DelphiAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("unit U;\ninterface\ntype\n  A = class end;\n  B = class end;\n  C = class end;\nimplementation\nend.\n"), phase3AnalyzeOptions(false, 2))
+	limited, err := (DelphiAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("unit U;\ninterface\ntype\n  A = class end;\n  B = class end;\n  C = class end;\nimplementation\nend.\n"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestPascalDelphiMalformedLimitsAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (DelphiAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("unit U; interface implementation end."), phase3AnalyzeOptions(false, 16))
+	_, err = (DelphiAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("unit U; interface implementation end."), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("Delphi cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}

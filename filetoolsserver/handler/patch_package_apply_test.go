@@ -458,8 +458,16 @@ func TestPatchPackageExternalChangeAfterStagingReturnsUnknownPartialCommit(t *te
 	h := NewHandler([]string{root})
 	manifest := patchPackageManifestForApplyTest(t, []patchPackageApplyFixture{{path: path, oldText: "alpha", newText: "omega"}})
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
-	h.patchPackageAfterStage = func() error {
-		return os.WriteFile(path, []byte("external"), 0644)
+	originalStage := h.patchPackageStageReplacement
+	h.patchPackageStageReplacement = func(ctx context.Context, targetPath string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+		replacement, stageErr := originalStage(ctx, targetPath, data, mode)
+		if stageErr != nil {
+			return replacement, stageErr
+		}
+		if writeErr := os.WriteFile(path, []byte("external"), 0644); writeErr != nil {
+			return replacement, writeErr
+		}
+		return replacement, nil
 	}
 	result, output, err := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionApply, PreviewID: dryRun.PreviewID})
 	if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodePartialCommit {
@@ -515,9 +523,13 @@ func TestPatchPackageCancellationAfterStagingLeavesTargetsUnchanged(t *testing.T
 	manifest := patchPackageManifestForApplyTest(t, []patchPackageApplyFixture{{path: path, oldText: "alpha", newText: "omega"}})
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
 	ctx, cancel := context.WithCancel(context.Background())
-	h.patchPackageAfterStage = func() error {
-		cancel()
-		return nil
+	originalStage := h.patchPackageStageReplacement
+	h.patchPackageStageReplacement = func(stageCtx context.Context, targetPath string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+		replacement, stageErr := originalStage(stageCtx, targetPath, data, mode)
+		if stageErr == nil {
+			cancel()
+		}
+		return replacement, stageErr
 	}
 	result, output, err := h.HandlePatchPackage(ctx, nil, PatchPackageInput{Action: patchPackageActionApply, PreviewID: dryRun.PreviewID})
 	if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeCancelled || output.CommittedCount != 0 {

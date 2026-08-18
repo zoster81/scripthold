@@ -19,8 +19,124 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: Select evidence tier
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.classify.outputs.tier }}
+      reason: ${{ steps.classify.outputs.reason }}
+      race_matrix: ${{ steps.classify.outputs.race_matrix }}
+      platform_matrix: ${{ steps.classify.outputs.platform_matrix }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '26.7.0'
+          package-manager-cache: false
+
+      - name: Select fail-closed evidence tier
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          force_full() {
+            {
+              printf '%s\n' 'tier=full'
+              printf '%s\n' 'reason=non-PR, bootstrap, or untrusted policy change requires full qualification'
+              printf '%s\n' 'race_matrix=[{"os":"ubuntu-latest","scope":"full"},{"os":"windows-latest","scope":"full"},{"os":"macos-latest","scope":"full"}]'
+              printf '%s\n' 'platform_matrix=[{"os":"windows-latest","platform":"windows","scope":"full"},{"os":"macos-latest","platform":"darwin","scope":"full"}]'
+            } >> "${GITHUB_OUTPUT}"
+          }
+
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            force_full
+            exit 0
+          fi
+
+          if [[ ! "${BASE_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            force_full
+            exit 0
+          fi
+
+          policy_script="${RUNNER_TEMP}/test-ci-policy.js"
+          if ! git cat-file -e "${BASE_SHA}:scripts/test-ci-policy.js" 2>/dev/null; then
+            force_full
+            exit 0
+          fi
+          git show "${BASE_SHA}:scripts/test-ci-policy.js" > "${policy_script}"
+          GITHUB_EVENT_NAME=pull_request node "${policy_script}" classify
+
+  policy:
+    name: Policy and documentation
+    needs: classify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '26.7.0'
+          package-manager-cache: false
+
+      - name: Verify repository identity and catalog
+        run: go test ./internal/projectidentity ./internal/toolcatalog -count=1
+
+      - name: Verify test architecture
+        run: go test ./testarchitecture -count=1
+
+      - name: Verify generated capability documentation
+        run: go test ./internal/sourceintelligence -run '^TestCapabilityMatrixDocumentationMatchesRegistry$' -count=1
+
+      - name: Test evidence-tier and Markdown-link policy
+        run: node --test scripts/check-markdown-links.test.js scripts/test-ci-policy.test.js
+
+      - name: Test release and fuzz orchestration scripts
+        run: node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-candidate-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
+
+      - name: Validate local Markdown links
+        run: node scripts/check-markdown-links.js
+
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository history and candidate tree
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: '8.30.0'
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+
   verify-modules:
     name: Verify modules
+    needs: classify
+    if: needs.classify.outputs.tier != 'docs'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -38,10 +154,12 @@ jobs:
           go mod tidy -diff
           go mod verify
 
-  golangci-lint:
-    name: golangci-lint
+  linux-regression:
+    name: Linux regression
+    needs: classify
+    if: needs.classify.outputs.tier != 'docs'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -52,15 +170,133 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      - name: Run normal regression suite
+        run: go test ./... -count=1
+
+  platform-tests:
+    name: Platform tests (${{ matrix.os }}, ${{ matrix.scope }})
+    needs: classify
+    if: needs.classify.outputs.tier != 'docs'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.classify.outputs.platform_matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run full platform regression
+        if: matrix.scope == 'full'
+        run: go test ./... -count=1
+
+      - name: Run mapped platform regression
+        if: matrix.scope == 'targeted'
+        shell: bash
+        env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
+        run: node scripts/test-ci-policy.js run-targeted --failure-class platform --platform "${TARGET_PLATFORM}"
+
+  race:
+    name: Race (${{ matrix.os }}, ${{ matrix.scope }})
+    needs: classify
+    if: needs.classify.outputs.tier != 'docs'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.classify.outputs.race_matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run full race suite
+        if: matrix.scope == 'full'
+        run: go test -race ./... -count=1
+
+      - name: Run mapped race suite
+        if: matrix.scope == 'targeted'
+        run: node scripts/test-ci-policy.js run-targeted --failure-class race --platform linux --race
+
+  static-analysis:
+    name: Static and vulnerability analysis
+    needs: classify
+    if: needs.classify.outputs.tier != 'docs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run go vet
+        run: go vet ./...
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.12.2
           args: --timeout=5m
 
-  test:
-    name: Test (${{ matrix.os }})
-    timeout-minutes: 30
+      - name: Run staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+      - name: Lint GitHub Actions workflows
+        if: needs.classify.outputs.tier == 'full'
+        run: bash scripts/validate-workflows.sh
+
+  fuzz:
+    name: Deterministic fuzz smoke
+    needs: classify
+    if: needs.classify.outputs.tier != 'docs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '26.7.0'
+          package-manager-cache: false
+
+      - name: Run risk-based fuzz smoke
+        run: node scripts/run-fuzz.js --profile smoke
+
+  native-smoke:
+    name: Native binary smoke (${{ matrix.os }})
+    needs: classify
+    if: needs.classify.outputs.tier == 'full'
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -75,12 +311,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-
-      - name: Run tests with race detector
-        run: go test -race ./... -count=1
-
-      - name: Run go vet
-        run: go vet ./...
 
       - name: Build and smoke-test native binary
         shell: bash
@@ -101,76 +331,10 @@ jobs:
           export MCP_EXTERNAL_SMOKE_EXPECTED_ROOT='{TEMP_ROOT}'
           go test ./cmd/scripthold -run '^TestExternal(StdioBinarySmoke|DurableTaskLifecycle|TaskSupervisorRecovery)$' -count=1 -v
 
-      - name: Test all server operations
-        run: go run test_server.go
-
-  analysis:
-    name: Static and workflow analysis
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
-        with:
-          node-version: '26.7.0'
-          package-manager-cache: false
-
-      - name: Verify catalog and documentation identity
-        run: go test ./internal/projectidentity ./internal/toolcatalog -count=1
-
-      - name: Test release scripts
-        run: node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/verify-release-version.test.js
-
-      - name: Run staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
-
-      - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-
-      - name: Lint GitHub Actions workflows
-        run: bash scripts/validate-workflows.sh
-
-  fuzz:
-    name: Deterministic fuzz smoke
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-
-      - name: Run bounded fuzz smoke tests
-        run: |
-          go test ./internal/encoding -run '^$' -fuzz '^FuzzDetectUTF16Validation$' -fuzztime=10000x
-          go test ./internal/encoding -run '^$' -fuzz '^FuzzDecoderReaderChunkInvariance$' -fuzztime=10000x
-          go test ./internal/textstream -run '^$' -fuzz '^FuzzScanLinesRoundTrip$' -fuzztime=10000x
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeHostValue$' -fuzztime=10000x
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzNormalizeOrigin$' -fuzztime=10000x
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzTrustedProxyClientAddress$' -fuzztime=10000x
-          go test ./internal/httptransport -run '^$' -fuzz '^FuzzJSONRPCMessageRoundTrip$' -fuzztime=10000x
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeDescriptor$' -fuzztime=10000x
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeManifest$' -fuzztime=10000x
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeIndex$' -fuzztime=10000x
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzDecodeListCursor$' -fuzztime=10000x
-          go test ./internal/backupstore -run '^$' -fuzz '^FuzzValidateGCPlan$' -fuzztime=10000x
-          go test ./cmd/scripthold -run '^$' -fuzz '^FuzzParseBackupDiagnosticCommand$' -fuzztime=10000x
-
   cross-build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: classify
+    if: needs.classify.outputs.tier == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -221,6 +385,8 @@ jobs:
 
   container-smoke:
     name: Container smoke
+    needs: classify
+    if: needs.classify.outputs.tier == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -330,18 +496,63 @@ jobs:
           docker stop --time 20 "${container}" >/dev/null
           test "$(docker inspect --format '{{.State.ExitCode}}' "${container}")" = "0"
 
+  release-config:
+    name: Release configuration
+    needs: classify
+    if: needs.classify.outputs.tier == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Check GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          distribution: goreleaser
+          version: 'v2.17.1'
+          args: check
+
   release-candidate:
     name: Release candidate
+    if: ${{ always() }}
     needs:
+      - classify
+      - policy
+      - gitleaks
       - verify-modules
-      - golangci-lint
-      - test
-      - analysis
+      - linux-regression
+      - platform-tests
+      - race
+      - static-analysis
       - fuzz
+      - native-smoke
       - cross-build
       - container-smoke
+      - release-config
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Attest exact commit gate
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '26.7.0'
+          package-manager-cache: false
+
+      - name: Attest required evidence for exact commit
+        env:
+          CI_EVIDENCE_TIER: ${{ needs.classify.outputs.tier }}
+          CI_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: node scripts/test-ci-policy.js verify
+
+      - name: Record exact commit gate
         run: echo "Release candidate verified for ${GITHUB_SHA}"

@@ -39,6 +39,10 @@ func TestConcurrentHTTPLoadKeepsAdmissionStateBounded(t *testing.T) {
 
 	var active atomic.Int64
 	var maximum atomic.Int64
+	entered := make(chan struct{}, concurrency)
+	release := make(chan struct{})
+	var holdFirstWave atomic.Bool
+	holdFirstWave.Store(true)
 	handler.legacyMCPHandler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		current := active.Add(1)
 		defer active.Add(-1)
@@ -50,13 +54,18 @@ func TestConcurrentHTTPLoadKeepsAdmissionStateBounded(t *testing.T) {
 		}
 		_, _ = io.Copy(io.Discard, request.Body)
 		_ = request.Body.Close()
-		time.Sleep(2 * time.Millisecond)
+		if holdFirstWave.Load() {
+			entered <- struct{}{}
+			<-release
+		}
 		w.WriteHeader(http.StatusAccepted)
 	})
 
 	var accepted atomic.Int64
 	var rejected atomic.Int64
 	var unexpected atomic.Int64
+	firstRejected := make(chan struct{})
+	var rejectionOnce sync.Once
 	var wait sync.WaitGroup
 	wait.Add(requestCount)
 	start := make(chan struct{})
@@ -73,12 +82,27 @@ func TestConcurrentHTTPLoadKeepsAdmissionStateBounded(t *testing.T) {
 				accepted.Add(1)
 			case http.StatusTooManyRequests:
 				rejected.Add(1)
+				rejectionOnce.Do(func() { close(firstRejected) })
 			default:
 				unexpected.Add(1)
 			}
 		}()
 	}
 	close(start)
+	for index := 0; index < concurrency; index++ {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d of %d handler slots became active", index, concurrency)
+		}
+	}
+	select {
+	case <-firstRejected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("load did not exercise the admission rejection path while all handler slots were occupied")
+	}
+	holdFirstWave.Store(false)
+	close(release)
 	wait.Wait()
 
 	if unexpected.Load() != 0 {

@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-func BenchmarkR22Phase10ReadTextFileBoundedOutputAcrossEncodingClasses(b *testing.B) {
-	for _, testCase := range phase10EncodingClasses {
+func BenchmarkReadTextFileBoundedOutputAcrossEncodingClasses(b *testing.B) {
+	for _, testCase := range encodingCoverageClasses {
 		testCase := testCase
-		encodedLine, ok := phase9TryEncode(testCase.encoding, testCase.text+"\n", false)
+		encodedLine, ok := tryEncodeEncodingMatrix(testCase.encoding, testCase.text+"\n", false)
 		if !ok {
 			b.Fatalf("encode %s benchmark line", testCase.encoding)
 		}

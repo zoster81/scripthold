@@ -29,7 +29,7 @@ record Pair(int left, int right) implements Serializable {}
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "Box.java"
-	result, err := (JavaAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (JavaAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ const val Answer: Int = 42
 `
 	document := sourceDocumentForScanner(text)
 	document.Path = "Box.kt"
-	result, err := (KotlinAnalyzer{}).Analyze(context.Background(), document, phase3AnalyzeOptions(true, 256))
+	result, err := (KotlinAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ const val Answer: Int = 42
 func TestJVMAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	malformed := sourceDocumentForScanner("class Good { int x; }\nclass Broken { String s = \"unterminated\n")
 	malformed.Path = "Broken.java"
-	result, err := (JavaAnalyzer{}).Analyze(context.Background(), malformed, phase3AnalyzeOptions(true, 32))
+	result, err := (JavaAnalyzer{}).Analyze(context.Background(), malformed, testAnalyzeOptions(true, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestJVMAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 		t.Fatalf("malformed recovery lost Good: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 	}
 
-	limitedResult, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class A {}\nclass B {}\nclass C {}\n"), phase3AnalyzeOptions(false, 2))
+	limitedResult, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class A {}\nclass B {}\nclass C {}\n"), testAnalyzeOptions(false, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestJVMAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = (JavaAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("class A {}"), phase3AnalyzeOptions(false, 16))
+	_, err = (JavaAnalyzer{}).Analyze(ctx, sourceDocumentForScanner("class A {}"), testAnalyzeOptions(false, 16))
 	if operation.KindOf(err) != operation.KindCancelled {
 		t.Fatalf("Java cancellation error=%v kind=%v", err, operation.KindOf(err))
 	}
@@ -165,7 +165,7 @@ public class Service {
     private int count;
 }
 `
-	result, err := (JavaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), phase3AnalyzeOptions(true, 64))
+	result, err := (JavaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}

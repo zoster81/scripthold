@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestR25ConformanceCorpusAcrossEncodings(t *testing.T) {
+func TestConformanceCorpusAcrossEncodings(t *testing.T) {
 	tests := []struct {
 		name      string
 		language  string
@@ -104,7 +104,7 @@ func TestR25ConformanceCorpusAcrossEncodings(t *testing.T) {
 	}
 }
 
-func TestR25LargeGeneratedSourcesRespectSymbolLimits(t *testing.T) {
+func TestCanaryLargeGeneratedSourcesRespectSymbolLimits(t *testing.T) {
 	cases := []struct {
 		language string
 		text     string
@@ -135,7 +135,7 @@ func TestR25LargeGeneratedSourcesRespectSymbolLimits(t *testing.T) {
 	}
 }
 
-func TestR25AnalyzerRegistryCoverageIsMechanicallyConsistent(t *testing.T) {
+func TestAnalyzerRegistryCoverageIsMechanicallyConsistent(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
