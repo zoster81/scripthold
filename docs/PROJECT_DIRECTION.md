@@ -16,7 +16,7 @@ Scripthold is a secure local-workspace MCP runtime for web, desktop, and CLI age
 
 The maintained product includes:
 
-- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the current `3.1.0` release, plus 3 guided prompts;
+- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the current `3.1.5` release, plus 3 guided prompts;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, missing-ancestor, and Windows path-alias validation;
 - 168 registered text encodings with content-based detection intentionally narrower than explicit codec support;
 - bounded native read-only source intelligence through `source_symbols` and `source_query`, with 101 active approved R27 providers, evidence-qualified detection, capability-specific project relations, bounded task context, coherent process-local indexing, decoded-source coordinates, and no external parser/compiler/LSP runtime dependency;
@@ -33,7 +33,7 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-Scripthold `3.1.0` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active approved source-intelligence providers across 103 registry rows. It preserves the R23-R27 public surface shipped in `3.0.0` and adds the completed R28 engine-hygiene work without changing the MCP tool surface. R27 completed on 2026-08-16 with capability-specific project relations, bounded structural search/context, and coherent process-local incremental indexing, while Dockerfile and Make remain auxiliary inactive metadata.
+Scripthold `3.1.5` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active approved source-intelligence providers across 103 registry rows. It preserves the R23-R27 public surface shipped in `3.0.0`, the R28 engine-hygiene work first shipped in `3.1.0`, and the completed verification-architecture maintenance work without changing the MCP tool surface. R27 completed on 2026-08-16 with capability-specific project relations, bounded structural search/context, and coherent process-local incremental indexing, while Dockerfile and Make remain auxiliary inactive metadata.
 
 The current development surface remains native Go and fail-closed: source intelligence does not execute project code or depend on external parser/compiler/LSP runtimes, ambiguous language routing is reported instead of guessed, and persistent on-disk source indexing is not enabled. No milestone after R28 is active by default.
 

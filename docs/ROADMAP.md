@@ -4,12 +4,12 @@ This document is the authoritative source for **current and future milestone sta
 
 ## Current state
 
-- Current public release: **Scripthold `3.1.0`**, published on 2026-08-18.
+- Current public release: **Scripthold `3.1.5`**, published on 2026-08-19.
 - Public surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
-- The `3.1.0` GitHub Release, GitHub-only MCPB publication, and MCP Registry publication are complete; publication remains separate from operator deployment.
+- The `3.1.5` GitHub Release, GitHub-only MCPB publication, and MCP Registry publication are complete; publication remains separate from operator deployment.
 - R21-R28 are complete. R23-R27 shipped together in `3.0.0`; R28 shipped in `3.1.0` without changing the public MCP surface.
 - **R27 completed on 2026-08-16.** Phases 0-18 are complete.
-- **R28 completed and shipped on 2026-08-18.** Engine hygiene source work, release qualification, GitHub publication, GitHub-only MCPB publication, and MCP Registry publication are complete; R29-R33 remain planned and no later release-scoped milestone is active by default.
+- **R28 completed and shipped on 2026-08-18 in `3.1.0`.** The subsequent test/build/CI architecture optimization completed before R29 and shipped as maintenance release `3.1.5` on 2026-08-19 without changing the public MCP surface; R29-R33 remain planned and no later release-scoped milestone is active by default.
 - The completed R24, R25, and R26 contracts and verification records are in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), and [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md).
 - Publication does not imply deployment. Operator-specific deployment, rollback, and runtime state are governed separately by [PUBLISHING.md](PUBLISHING.md) and private operational procedures.
 
