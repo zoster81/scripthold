@@ -25,7 +25,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `ENGINE_HYGIENE.md`: completed R28 contract and verification record for evidence-driven compatibility consolidation, dead/test-only cleanup, bounded source organization, and measured performance work.
 - `LANGUAGE_CAPABILITIES.md`: deterministic R27 capability projection rendered from the native language registry; update the registry/renderer and keep the byte-for-byte drift test green rather than editing support claims independently.
 
-Keep operational details in their proper source instead of duplicating them across documents. The completed R26-R28 contracts remain authoritative history unless maintainers explicitly revise them; current milestone state belongs in `ROADMAP.md`, while completed milestone evidence belongs in the subsystem contracts and `ROADMAP_HISTORY.md`.
+Keep operational details in their proper source instead of duplicating them across documents. Current milestone state belongs in `ROADMAP.md`; completed technical contracts remain authoritative unless explicitly revised, while concise historical outcomes belong in `ROADMAP_HISTORY.md` and release-specific changes in `CHANGELOG.md`.
 
 ## Portability rules
 

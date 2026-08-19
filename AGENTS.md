@@ -30,7 +30,7 @@ Do not copy private workstation state, local process details, credentials, or op
 - Mechanically verified R27 language capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
-Link to these documents instead of duplicating their detailed content. R28 is complete and no later release-scoped milestone is active by default. Before later milestone work, read the completed R25-R28 contracts together with the roadmap and explicitly activate the intended milestone; completed requirements remain authoritative history unless maintainers deliberately revise them.
+Link to these documents instead of duplicating their detailed content. Current milestone state belongs only in `docs/ROADMAP.md`; completed subsystem contracts remain authoritative unless maintainers deliberately revise them. Before milestone work, read the roadmap and the contracts relevant to the affected subsystem, then explicitly activate the intended milestone when required.
 
 ## Repository map
 

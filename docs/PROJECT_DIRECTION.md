@@ -33,11 +33,9 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-Scripthold `3.1.5` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active approved source-intelligence providers across 103 registry rows. It preserves the R23-R27 public surface shipped in `3.0.0`, the R28 engine-hygiene work first shipped in `3.1.0`, and the completed verification-architecture maintenance work without changing the MCP tool surface. R27 completed on 2026-08-16 with capability-specific project relations, bounded structural search/context, and coherent process-local incremental indexing, while Dockerfile and Make remain auxiliary inactive metadata.
+Scripthold `3.1.5` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active source-intelligence providers. The current development surface remains native Go and fail closed: source intelligence does not execute project code or depend on external parser/compiler/LSP runtimes, ambiguous routing is reported rather than guessed, and persistent on-disk source indexing is not enabled.
 
-The current development surface remains native Go and fail-closed: source intelligence does not execute project code or depend on external parser/compiler/LSP runtimes, ambiguous language routing is reported instead of guessed, and persistent on-disk source indexing is not enabled. No milestone after R28 is active by default.
-
-Current milestone state belongs in [ROADMAP.md](ROADMAP.md); completed history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md); release changes in [CHANGELOG.md](../CHANGELOG.md); and subsystem contracts in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md), [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md), [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md), and [ENGINE_HYGIENE.md](ENGINE_HYGIENE.md). Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
+Current/future milestone state belongs in [ROADMAP.md](ROADMAP.md), concise completed history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and detailed behavior in the subsystem contracts. Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
 
 ## Supported transports
 

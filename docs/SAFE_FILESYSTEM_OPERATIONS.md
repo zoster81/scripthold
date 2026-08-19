@@ -1,63 +1,14 @@
-# Safe Filesystem Operations Design
+# Safe Filesystem Operations Contract
 
 ## Status
 
-**COMPLETE — R24.** The implementation and verification gate completed on 2026-08-13. Local focused/adversarial, normal/race, vet, Staticcheck, govulncheck, source MCP smoke, documentation/security, and six-target compilation gates pass. Activated-candidate connector acceptance verified exact 34-tool discovery, absence of the four superseded simple tools, successful `mkdir` plus raw-byte `createFile`, one-shot replay rejection, exact content verification, and backup-before-loss `deleteDirectory` cleanup. The exact push-event CI gate then passed native Windows, Ubuntu Linux, and macOS full race/regression suites, native binary/server smoke, static/workflow analysis, deterministic fuzzing, container smoke, all six cross-builds, and the aggregate `Release candidate` job. R25-R27 were outside this completed scope and were not activated by R24 completion.
+R24 is **COMPLETE**. This document defines the final `filesystem_package` / `filesystem_package_apply` contract shipped in Scripthold `3.0.0`.
 
-R24 exists to remove routine dependence on `task_run` shell/script fallback for ordinary filesystem namespace changes. The public workflow is now fixed as read-only `filesystem_package` plus mutating `filesystem_package_apply`, with versioned manifest format `filesystem-package-v1`. The capability model, operation family, compatibility boundary, and implementation sequence below are approved.
+## Scope
 
-## Problem
+R24 replaces routine shell/script fallback for ordinary workspace namespace changes with one bounded declarative preview/apply workflow. `filesystem-package-v1` supports exactly seven operation types: `mkdir`, raw-byte `createFile`, `copyFile`, exact `copyDirectory`, native same-volume `move`, `deleteFile`, and exact `deleteDirectory`.
 
-Before R24 surface activation, the R23 baseline deliberately supported a narrow set of safe filesystem operations:
-
-- `create_directory` creates directories recursively;
-- `copy_file` copies one regular file without replacement;
-- `move_file` moves or renames one file or directory without replacement;
-- `delete_file` deletes one file only;
-- `write_whole_file`, `edit_file`, and `patch_package` mutate text under their own encoding-aware contracts;
-- `patch_package` edits existing regular files but intentionally does not create, delete, move, or rename them.
-
-This leaves ordinary repository-maintenance tasks such as recursive directory copy/delete, coordinated renames, file creation plus deletion, or a bounded refactor involving several namespace changes without a typed dedicated workflow. Falling back to an arbitrary shell command weakens reviewability and can bypass Scripthold's path confinement, deterministic preflight, conflict checks, durable mutation primitives, backup policy, and structured partial-state evidence.
-
-R24 provides a typed filesystem-change package rather than turning shell execution into the normal mutation path.
-
-## Goals
-
-R24 will provide a bounded, declarative, preview/apply workflow that can safely coordinate common filesystem namespace changes, including:
-
-- create directories;
-- create files from explicitly supplied bounded content where the operation contract supports it;
-- copy regular files;
-- recursively copy real directories under explicit limits;
-- move or rename files;
-- move or rename directories;
-- delete regular files;
-- recursively delete real directories after enumerating the complete approved scope;
-- coordinate several such operations in one ordered package;
-- keep every R24 v1 destination no-replace; overwrite/replace is intentionally outside the R24 v1 surface;
-- preserve R23's one-shot preparation capability: read-only preview returns `previewId`, apply accepts only that identifier;
-- bind every source, destination, destructive target, and relevant parent namespace to the prepared state;
-- expose deterministic planned effects and structured verification evidence;
-- preserve allowed-root, symlink, junction, reparse-point, hard-link, missing-ancestor, and protected-root rules;
-- require persistent backup before every irreversible loss of existing regular-file bytes;
-- preserve stdio and Streamable HTTP equivalence.
-
-## Non-goals
-
-R24 will not:
-
-- accept arbitrary shell commands, scripts, glob-expanded command strings, or executable names;
-- become a generic build/deployment engine;
-- modify files outside configured allowed roots;
-- follow directory symlinks, junctions, or reparse points as recursive copy/delete shortcuts;
-- claim whole-package atomicity when the operating system cannot provide it;
-- claim automatic rollback unless a future separately reviewed transaction design can prove it;
-- overwrite or replace an existing destination in R24 v1, whether inspected or not;
-- recursively delete a tree whose exact bounded scope was not prepared and approved;
-- make Git history changes, commits, pushes, tags, branches, releases, or deployment actions part of a filesystem package;
-- replace text-aware editing when encoding/BOM/line-ending preservation is required;
-- expose the persistent backup store as an ordinary filesystem root.
-
+The contract is no-replace, approval-bound, deterministic, and fail closed. It preserves allowed-root/link/reparse/protected-root rules, binds prepared source/destination/parent state, requires persistent backup before irreversible regular-file-byte loss, reports actual partial state rather than claiming whole-package atomicity, and never falls back to arbitrary shell execution. Text-aware mutation remains on the dedicated encoding-aware edit/write surfaces.
 ## Approved workflow
 
 The canonical R24 workflow is:
@@ -331,7 +282,7 @@ The existing internal filesystem primitives behind the removed tools remain reus
 
 Text/encoding-aware tools such as `write_whole_file`, `edit_file`, `patch_package`, `convert_encoding`, and their R23 apply partners remain separate because they provide materially different contracts rather than duplicate namespace operations.
 
-R24 may add the stable public error category `UNSUPPORTED` where needed for safe pre-mutation rejection such as cross-filesystem moves or platform namespace guarantees that cannot be implemented without weakening the contract. No compatibility path may reintroduce a mixed read-only/mutation annotation problem solved by R23.
+R24 uses the stable public `UNSUPPORTED` category for safe pre-mutation rejection such as cross-filesystem moves or platform namespace guarantees that cannot be implemented without weakening the contract. No compatibility path may reintroduce the mixed read-only/mutation annotation problem solved by R23.
 
 ## Implementation architecture
 
@@ -356,200 +307,6 @@ The complete approved recursive set is retained inside the capability. Preview o
 ### Metadata contract
 
 R24 v1 exposes no caller-controlled permission, owner, ACL, xattr, alternate-stream, sparse-file, compression, timestamp, or hard-link options. Copy/move operations must preserve exact file bytes. Native move keeps the metadata semantics of the platform rename primitive. Copy may preserve additional metadata only where the implementation already has a safe cross-platform contract and tests prove it; public documentation must otherwise make no such promise. `mkdir` and `createFile` use the existing secure creation policy without adding a metadata mini-language.
-
-## Sequential TDD implementation plan
-
-Every phase follows the same rule: add the smallest focused failing test first, confirm that it fails for the intended reason, implement the smallest coherent behavior, rerun the focused tests, then run the directly affected regression packages. Review the diff before advancing. A later phase must not paper over a failing invariant from an earlier one.
-
-### Phase 0 — activation and baseline
-
-When maintainers explicitly start implementation:
-
-1. mark only R24 `ACTIVE` in the roadmap; R25-R27 remain `PLANNED`;
-2. read the repository/scoped `AGENTS.md` files for every affected subtree plus this document, `VERIFIED_CHANGE_WORKFLOWS.md`, `PERSISTENT_BACKUP_LIFECYCLE.md`, `MCP_MUTATION_SURFACE.md`, and `DEVELOPMENT_CHECKLIST.md`;
-3. inspect current R23 handlers, tool catalog, config limits, filesystem mutation primitives, security path resolver, backup batch capture, operation errors, and tests before choosing new types;
-4. preserve unrelated working-tree changes and establish focused baseline tests for the existing filesystem/security/backup behavior;
-5. do not change release, tag, deployment, launcher, or runtime state as part of R24 implementation.
-
-Exit criterion: the implementation session has an evidence-based module map and no R24 code has been written before applicable guides/contracts were read.
-
-### Phase 1 — freeze the public contract with failing tests
-
-Add strict contract tests before implementation for:
-
-- `filesystem-package-v1` and exactly the seven approved operation types/field sets;
-- invalid Base64, missing fields, unknown fields/types, empty/oversized manifests, and path/content bounds;
-- read-only `filesystem_package` annotations and mutating `filesystem_package_apply` annotations;
-- `filesystem_package_apply` accepting only required `previewId` and rejecting every override field;
-- absence of public `create_directory`, `copy_file`, `move_file`, and `delete_file` after R24 surface activation;
-- presence of `UNSUPPORTED` if a new public error category is required;
-- tool-catalog/runtime/schema drift and serialized catalog budget.
-
-Freeze dedicated hard limits for operation count, manifest bytes, recursive entries, recursive depth, aggregate source bytes, staging bytes, preview count, retained preview bytes, TTL, and output. Reuse existing global per-file/output/backup limits where appropriate instead of multiplying knobs without need. Defaults and hard ceilings must be documented and tested before the tools are publicly registered.
-
-Exit criterion: the intended R24 surface is precisely test-defined and failing only because implementation is absent.
-
-### Phase 2 — path evidence, directory identity, and volume detection
-
-Extend existing security/filesystem primitives only as required to support:
-
-- existing and missing destination authorization through the nearest existing ancestor;
-- retained parent/root identity sufficient to detect replacement between preview and apply;
-- regular-file and real-directory identity on supported platforms;
-- platform-aware canonical comparison and alias detection;
-- filesystem/volume identity for same-volume move and recursive-boundary checks.
-
-Focused tests cover `..`, lexical aliases, Windows case behavior, symlinks, junctions/reparse points, missing ancestors, parent replacement, protected roots, same-object aliases, and injected identity failures.
-
-Exit criterion: callers can safely bind existing objects and expected-missing paths without yet performing package mutation.
-
-### Phase 3 — exact recursive scope engine
-
-Build the smallest mutation-specific exact-tree enumerator on top of reusable traversal primitives. It must:
-
-- walk in deterministic lexical order;
-- include hidden names and `.git`;
-- ignore `.gitignore` filtering;
-- never follow or silently skip link-like entries;
-- reject unsupported special entries;
-- reject nested filesystem/volume boundaries;
-- fail, never prune, on entry/depth/byte/output/capability limits;
-- retain deterministic entry evidence and aggregate tree fingerprint;
-- support cancellation and repeated enumeration/revalidation.
-
-Use streamed hashing and bounded memory. Tests cover empty/deep/large bounded trees, Unicode names, hard links, link/reparse entries, special files, nested volumes through an injectable volume provider, mutation during enumeration, cancellation, and deterministic repeated results.
-
-Exit criterion: preview can produce and later revalidate an exact recursive scope without mutating disk.
-
-### Phase 4 — manifest planner and conflict model
-
-Implement strict manifest decoding and a read-only planner that:
-
-- authorizes every operand before mutation;
-- validates exact source/target types and expected missing destinations;
-- rejects duplicate spellings, canonical aliases, same-object aliases, source/destination self-overlap, recursive self-copy, protected roots, and destructive overlap;
-- permits only the approved intra-package dependency: an earlier `mkdir` may create a parent for later destinations;
-- rejects later operations that consume earlier created/copied/moved outputs or otherwise require a general virtual transaction graph;
-- enumerates recursive source/delete scopes and binds fingerprints/identities;
-- constructs the backup requirement set;
-- computes deterministic operation/effect output under limits.
-
-Exit criterion: `filesystem_package` planning logic is fully read-only and can reject unsafe/unsupported packages before capability creation.
-
-### Phase 5 — persistent backup preflight integration
-
-Add the R24 source-operation category to the existing backup schema if required, without creating a second backup format. Preview uses `PreflightCaptureBatch` or the equivalent authoritative read-only admission path for every regular file that a destructive package must capture.
-
-Tests cover unconfigured/unavailable store, insufficient quota, duplicate content, recursive aggregate admission, mismatched source operation/path/fingerprint, no backup for empty-directory delete or no-replace create/copy/move, and proof that preview creates no backup object or manifest.
-
-Exit criterion: every destructive plan either has a complete admissible backup set or fails read-only.
-
-### Phase 6 — durable creation/copy staging primitives
-
-Implement only the missing durable primitives required by the planner:
-
-- exact single-directory creation without implicit recursion;
-- exact-byte file staging for `createFile`;
-- streamed regular-file staging/copy;
-- staged recursive directory construction under a random restricted staging name on the destination filesystem;
-- file/directory sync where the platform contract requires it;
-- fingerprint verification of staged bytes/tree before publish;
-- no-replace final installation for files and directories;
-- bounded cleanup that never broadens into an unsafe recursive deletion of an unverified path.
-
-Directory copy must be prepared completely before final destination publication where the platform can provide the required no-replace namespace primitive. If a supported platform cannot meet the no-replace/durability contract safely, fail `UNSUPPORTED` rather than silently weakening it.
-
-Injectable failures must cover read, create, write, close, sync, metadata step if any, rename/publish, cleanup, destination race, source mutation, cancellation, and staging tamper.
-
-Exit criterion: `mkdir`, `createFile`, `copyFile`, and `copyDirectory` have reusable safe primitives but are not yet exposed through a mutating MCP handler.
-
-### Phase 7 — exact destructive delete with mandatory backup
-
-Implement destructive operations in this order:
-
-1. revalidate the complete approved target/scope;
-2. durably capture and verify the complete required backup batch;
-3. revalidate the destructive scope again after backup capture;
-4. delete only the prepared entries, regular files before their parents and directories children-before-parent;
-5. never use an unbounded `RemoveAll`-style operation for the approved workspace tree;
-6. sync affected parent namespaces where required;
-7. verify actual final absence or classify the remaining state.
-
-A newly appeared descendant, replaced entry, changed identity/content, or missing expected entry causes conflict rather than expanding the deletion set. Tests inject a new descendant during apply and prove it is not swept into deletion. Also cover backup failure, quota race, permission failure, mid-delete failure, cancellation, non-empty parent due to concurrent insertion, and post-failure evidence.
-
-Exit criterion: `deleteFile` and `deleteDirectory` cannot irreversibly lose approved regular-file bytes without a verified persistent backup and cannot delete scope added after preview.
-
-### Phase 8 — native move and remaining simple operations
-
-Wire `mkdir`, `createFile`, `copyFile`, and native `move` through the same planner evidence. Move must:
-
-- accept regular files and real directories only;
-- remain no-replace;
-- require the source in preview pre-state;
-- bind source, destination missing state, and relevant parents;
-- prove same filesystem/volume where possible;
-- reject cross-filesystem behavior as `UNSUPPORTED` before namespace mutation;
-- never fall back to copy-plus-delete or shell execution.
-
-Tests cover file/directory moves, destination race, source replacement including same-content/different-identity replacement, parent replacement, aliases, cancellation, and injected platform rename failures.
-
-Exit criterion: all seven operation types have focused safe primitives and planner coverage.
-
-### Phase 9 — package capability and apply executor
-
-Reuse the R23 capability pattern rather than inventing a new approval mechanism. The cache must be process-local, cryptographically unguessable, non-listable, count/byte/TTL bounded, restart-invalidated, kind-bound, and one-shot. Concurrent claims must yield exactly one owner.
-
-Apply order is:
-
-1. atomically claim/consume `previewId`;
-2. revalidate current authorization and all prepared path/object evidence;
-3. revalidate all recursive scopes and expected missing destinations;
-4. perform and verify the complete required backup capture set;
-5. complete and verify all feasible content/tree staging before the first visible namespace mutation;
-6. commit operations in manifest order, with an earlier approved `mkdir` available to later destinations;
-7. verify each resulting state;
-8. on any failure after possible durable progress, inspect bounded actual state and classify every operation as `committed`, `unchanged`, `partially_committed`, or `unknown` (plus bounded target evidence where useful);
-9. return `PARTIAL_COMMIT` whenever durable progress occurred or final intended state cannot be established; never claim automatic rollback.
-
-Worst-case apply response size must be checked before the first mutation. Cleanup residue that cannot be safely removed is reported as evidence rather than hidden by aggressive deletion.
-
-Exit criterion: replay, expiry, eviction, restart, wrong-kind token, concurrent apply, pre-commit conflict, mid-commit failure, and post-state classification are all deterministic and tested.
-
-### Phase 10 — MCP surface replacement
-
-Add the two handlers and authoritative catalog entries, then remove the four superseded public registrations/catalog entries together. Update server construction, schemas, annotations, README, `TOOLS.md`, migration documentation, roadmap/status text where appropriate, and schema/catalog drift tests in the same coherent change.
-
-Verify that no internal code path for `filesystem_package` or its apply handler invokes arbitrary shell/script execution. Existing low-level Go primitives may remain even when their old MCP wrappers are removed.
-
-Exit criterion: discovery exposes one read-only package-preparation tool and one `previewId`-only apply tool, with no duplicate public create/copy/move/delete tools.
-
-### Phase 11 — adversarial and platform regression matrix
-
-Before declaring implementation complete, run focused adversarial tests for:
-
-- source/destination/parent replacement at every preview/apply boundary;
-- new/removed/replaced recursive descendants;
-- Windows symlink/junction/reparse and case aliases;
-- Unix symlink and device/inode replacement behavior;
-- hard-link alias cases;
-- nested-volume and cross-volume rejection;
-- cancellation during enumerate/hash/backup/stage/commit/delete/verify;
-- injected read/write/close/sync/rename/remove/cleanup failures;
-- backup-store quota/admission/capture failures;
-- staging tamper and destination races;
-- concurrent capability claims;
-- output/capability/entry/depth/byte hard limits;
-- stdio/HTTP schema equivalence and connector-level preview/apply smoke.
-
-Use injected platform/volume/failure seams where real CI topology cannot deterministically reproduce the condition. Native platform tests remain required for the actual namespace primitives.
-
-Exit criterion: no safety property depends on a race being too unlikely to test.
-
-### Phase 12 — completion gate and handoff
-
-Review the complete diff and confirm no unrelated files changed. Run all focused package tests first, then the repository gates applicable under `DEVELOPMENT_CHECKLIST.md`, including formatting, `go mod verify`, full normal tests, vet, Staticcheck, govulncheck, race where the configured toolchain supports it, required Node/release-script checks that do not create MCPB artifacts, source smoke, documentation/link/catalog validation, `git diff --check`, and final Git status. Run platform compile/tests required by the changed filesystem primitives.
-
-R24 implementation is complete only after the functional completion gate below and these verification gates pass. Completion of R24 does not itself authorize commit, push, tag, release, launcher changes, deployment, or runtime restart; those remain separate explicit maintainer actions.
 
 ## Required tests
 
@@ -656,4 +413,4 @@ R24 is complete only when:
 
 ## Relationship to later milestones
 
-R24 provides safe workspace mutation primitives. It does not implement source-code understanding. R25/R27 may use R24 for prepared filesystem refactors, but source intelligence cannot weaken R24's path, backup, preview/apply, or partial-state contracts.
+R24 provides safe workspace mutation primitives and does not implement source-code understanding. R25/R27 later added read-only source intelligence; those capabilities do not weaken R24's path, backup, preview/apply, or partial-state contracts.

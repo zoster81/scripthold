@@ -1,54 +1,16 @@
-# MCP Mutation Surface and Backup UX Design
+# MCP Mutation Surface and Backup UX Contract
 
 ## Status
 
-**COMPLETE — R23.** The compatibility decision is fixed and the current source tree implements the split described here. On 2026-08-12 the source-side verification gate and connector-level acceptance both completed successfully. Connector discovery exposed the historical preparation/review tools separately from six `previewId`-only apply tools, and operational smoke confirmed side-effect-free edit preview, exact prepared apply, replay rejection, and rejection of the removed direct-edit form. [`TOOLS.md`](../TOOLS.md) documents the released `3.0.0` surface; at R23 completion, `2.2.0` was still the current public release.
+R23 is **COMPLETE** and shipped in Scripthold `3.0.0`. This document defines the final separation between read-only preparation/review and explicitly mutating apply authority.
 
-R23 intentionally changed the public MCP surface according to the compatibility decision below. The contract was documented and tested before publication and shipped in Scripthold `3.0.0`; release publication and operator deployment remain separate explicitly governed actions.
+## Scope
 
-## Problem
+R23 removed mixed MCP tools whose static annotations could not truthfully represent both preview and mutation. Read-only preparation now lives on handlers that cannot mutate public state; corresponding apply tools accept only an unguessable one-shot `previewId` and cannot resubmit or alter paths, edits, encoding, writable authorization, or backup policy.
 
-Several current tools combine read-only actions and mutating actions behind one MCP tool definition. MCP annotations are static per tool, so a tool that can mutate must be advertised conservatively even when a particular request is only a preview or inspection.
+Apply revalidates current authorization, identity/fingerprints, prepared bytes, capability state, and required backup policy before mutation. Replay, expiry, restart, conflict, cancellation, partial-state, encoding/BOM/EOL, and durable commit guarantees remain fail closed. This split improves MCP annotation truthfulness without bypassing approval for genuine mutations or turning `task_run` into an editing path.
 
-The clearest examples are:
-
-- `edit_file`: `preview` is read-only while `direct` and `apply` can mutate;
-- `patch_package`: `inspect`, `dryRun`, and `verify` are read-only while `apply` mutates;
-- `backup_store`: status/review/audit/restore-preview/GC-preview actions are read-only while restore/GC apply actions mutate;
-- `manage_bom`: detection is read-only while add/strip mutate;
-- `convert_encoding`: dry-run is read-only while normal conversion mutates.
-
-This mixed surface can cause an MCP host or connector to treat a harmless preparation request as destructive. When callers then fall back to shell or scripts merely to edit files, they can bypass Scripthold's encoding preservation, path validation, fingerprints, conflict detection, durable staging, backup integration, and post-commit verification.
-
-R23 addresses the avoidable classification problem. It does **not** attempt to bypass legitimate approval or safety policy for an actual mutation.
-
-## Goals
-
-R23 will:
-
-- expose read-only preparation through tools whose handlers are physically incapable of filesystem mutation;
-- expose mutation through separately annotated apply tools;
-- preserve the one-shot capability model: preview prepares exact result bytes and returns an unguessable `previewId`, while apply accepts only that identifier;
-- ensure an apply cannot resubmit or alter path, patch text, replacement text, encoding, writable authorization, or backup policy;
-- revalidate authorization, file identity, fingerprints, prepared bytes, and current state immediately before mutation;
-- retain the existing fail-closed conflict/replay/expiry/restart behavior;
-- make persistent backup history and comparison easier to inspect without starting a restore;
-- provide an operator-configurable default persistent-backup policy for eligible approved mutations, with the exact public configuration name finalized during implementation design;
-- reduce script fallback for ordinary file mutation without weakening MCP annotations or filesystem security;
-- preserve stdio and Streamable HTTP equivalence.
-
-## Non-goals
-
-R23 will not:
-
-- mark a genuinely mutating tool as read-only or non-destructive merely to avoid client approval;
-- guarantee that a client will never request confirmation or reject a true apply operation;
-- turn `task_run` into a preferred file-edit path;
-- provide arbitrary command execution through a file-operation tool;
-- claim automatic rollback for multi-file partial commits;
-- make backup history equivalent to transactional undo;
-- implement recursive directory mutation or general filesystem refactoring; that belongs to R24;
-- implement source-code symbol indexing; that belongs to R25.
+R24 later applied the same preparation/apply discipline to namespace operations; R25/R27 source intelligence remains read-only; R26 backup recovery retains a separate offline authority.
 
 ## Approved preview/apply contract
 
@@ -202,16 +164,6 @@ R23 is complete only when:
 7. connector smoke testing confirms that read-only preview operations are no longer classified as destructive merely because their corresponding apply capability exists;
 8. any intentional public API break has migration and changelog documentation before release.
 
-## Source-side verification record
+## Subsequent evolution
 
-The 2026-08-12 non-runtime gate completed successfully with the compatibility split, backup UX, catalog/runtime/schema/documentation synchronization, the 168-encoding R23 mutation-integrity matrix, complete normal and race test suites, Go vet, Staticcheck, govulncheck, deterministic encoding fuzz checks, six-target temporary cross-builds, source-based MCP smoke, local-link/control-character/catalog checks, Gitleaks, and diff validation. Temporary cross-build outputs were removed after compilation. No release, tag, deployment, launcher, or active runtime was changed.
-
-Connector-level acceptance completed on 2026-08-12 against the candidate surface. Discovery showed the separated preparation/review and apply schemas, while operational smoke confirmed that edit preview remained side-effect-free, `edit_file_apply` consumed the prepared capability, replay failed, and the removed `edit_file` direct mutation form was rejected without changing the target. The R23 completion gate is therefore satisfied. Release publication, tagging, and operator deployment remain separate explicitly governed actions.
-## Follow-on milestones
-
-R23 deliberately establishes the capability pattern reused by R24 and later work:
-
-- **R24 — Safe filesystem operations (COMPLETE):** governed by [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), with typed preview/apply packages for coordinated create/copy/move/delete/directory operations without arbitrary shell commands; local verification, activated-candidate connector acceptance, native Windows/Linux/macOS regression suites, and the exact push-event `Release candidate` gate all pass;
-- **R25 — Source intelligence foundation (COMPLETE):** governed by [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), with language-neutral bounded `source_symbols` navigation, native Go/C#/VB.NET/Python canaries, and Classic ASP composite segmentation/delegation;
-- **R26 — Backup recovery:** governed by [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md), with separately reviewed offline evidence-preserving repair/salvage beyond the current diagnostic-only command;
-- **R27 — Broad multi-language code intelligence:** governed by [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md), with mandatory broad language coverage plus references, implementations, dependency/call relationships, and incremental indexing after the common symbol model is stable.
+R23 established the preview/apply capability pattern reused by later completed work. R24 applied it to safe filesystem packages, R25/R27 added read-only source intelligence without mutation authority, and R26 added a separate offline evidence-preserving recovery boundary for the protected backup store. Their current contracts live in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md), [SOURCE_INTELLIGENCE.md](SOURCE_INTELLIGENCE.md), [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md), and [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md).
