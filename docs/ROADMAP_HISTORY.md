@@ -45,5 +45,6 @@ This document is the concise public history of completed milestones. Current/fut
 | `3.0.0` | 2026-08-17 | Published R23-R27: separated mutation authority, safe filesystem packages, backup recovery, and the completed 101-provider source-intelligence surface. |
 | `3.1.0` | 2026-08-18 | Published R28 engine hygiene without changing the public MCP surface. |
 | `3.1.5` | 2026-08-19 | Published the completed pre-R29 test/build/CI architecture redesign and qualification hardening, including Unicode-safe composite source offsets, again without changing the public MCP surface. |
+| `3.1.6` | 2026-08-19 | Maintenance hardening release that removed CodeQL-reported integer narrowing and allocation-size overflow patterns without changing the public MCP surface. |
 
 Publication and private deployment remain separate operations. Exact commits, workflow runs, asset checksums, and release-by-release user-visible details remain available through Git, GitHub Releases/Actions, and [CHANGELOG.md](../CHANGELOG.md) rather than being duplicated here.

@@ -4,7 +4,7 @@ This file records changes maintained in the `zoster81/scripthold` fork relative 
 
 The upstream baseline for the first fork-specific changes is commit `52665aa080b24f6427e3fc485df76cc0a8ce1238`.
 
-## Unreleased
+## 3.1.6 - 2026-08-19
 
 ### Fixed
 

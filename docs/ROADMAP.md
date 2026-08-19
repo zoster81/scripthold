@@ -4,7 +4,7 @@ This document is the authoritative source for **current and future milestone sta
 
 ## Current state
 
-- Current public release: **Scripthold `3.1.5`**, published on 2026-08-19.
+- Current public release: **Scripthold `3.1.6`**, published on 2026-08-19.
 - Public surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
 - R1-R28 are complete. The pre-R29 test/build/CI architecture optimization is also complete and shipped in `3.1.5` without changing the public MCP surface.
 - R29-R33 remain `PLANNED`. No release-scoped milestone is active until maintainers explicitly activate one.

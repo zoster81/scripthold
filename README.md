@@ -21,7 +21,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 Scripthold detects encodings from bytes and decoded-text evidence rather than filenames, presents text to the MCP client as UTF-8, and preserves or deliberately converts encoding, BOM, and line endings through bounded-memory and durable filesystem operations.
 
-- **36 tools and 3 guided prompts** over one authoritative catalog in Scripthold `3.1.5`.
+- **36 tools and 3 guided prompts** over one authoritative catalog in Scripthold `3.1.6`.
 - **168 registered encodings**, including UTF-32 LE/BE and broad portable legacy coverage; automatic detection remains intentionally more conservative than explicit codec support.
 - **101 active source-intelligence providers** across programming languages, dialects, DSLs, document/config formats, and composites, with capability-specific evidence and fail-closed ambiguity.
 - **Secure filesystem boundaries** with resolved-root containment, deterministic traversal, Windows reparse/junction handling, staged mutation, conflict detection, and no-replace creation.
@@ -36,7 +36,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 ## Current release and development state
 
-**Scripthold `3.1.5`** is the current public release. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers over the same stdio and Streamable HTTP surface. `source_symbols` provides bounded declaration/navigation workflows; `source_query` adds structural search, supported project relations, fingerprint-verified context, and coherent process-local index generations. Capability claims remain provider-specific and fail closed where evidence is insufficient.
+**Scripthold `3.1.6`** is the current public release. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers over the same stdio and Streamable HTTP surface. `source_symbols` provides bounded declaration/navigation workflows; `source_query` adds structural search, supported project relations, fingerprint-verified context, and coherent process-local index generations. Capability claims remain provider-specific and fail closed where evidence is insufficient.
 
 R1-R28 and the subsequent pre-R29 verification-architecture maintenance program are complete. No release-scoped milestone is currently active; R29-R33 remain planned. See [CHANGELOG.md](CHANGELOG.md) for release changes, [docs/ROADMAP.md](docs/ROADMAP.md) for current/future work, [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md) for concise engineering history, and the subsystem contracts for detailed behavior.
 
@@ -108,7 +108,7 @@ The detailed schemas, outputs, limits, and examples are authoritative in [TOOLS.
 
 ### Encoding support
 
-`list_encodings` is authoritative for canonical names, aliases, and capability metadata. Scripthold `3.1.5` exposes 168 canonical read/write encodings across Unicode, IBM/DOS/EBCDIC, ISO-8859, Windows, classic Mac/KOI8/other single-byte families, and East Asian/stateful multibyte families.
+`list_encodings` is authoritative for canonical names, aliases, and capability metadata. Scripthold `3.1.6` exposes 168 canonical read/write encodings across Unicode, IBM/DOS/EBCDIC, ISO-8859, Windows, classic Mac/KOI8/other single-byte families, and East Asian/stateful multibyte families.
 
 The production runtime remains pure Go. Additional mappings and state machines derived from pinned GNU libiconv evidence are checked in and require no libiconv/GCC dependency during ordinary build or execution. UTF-32 LE/BE are full text encodings with strict scalar validation; generic byte-order-unspecified `utf-32` remains intentionally rejected. See [docs/GLOBAL_ENCODING_COVERAGE.md](docs/GLOBAL_ENCODING_COVERAGE.md) for the completed R22 contract.
 

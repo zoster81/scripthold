@@ -16,7 +16,7 @@ Scripthold is a secure local-workspace MCP runtime for web, desktop, and CLI age
 
 The maintained product includes:
 
-- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the current `3.1.5` release, plus 3 guided prompts;
+- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the current `3.1.6` release, plus 3 guided prompts;
 - process-wide allowed-directory policy with symlink, junction, reparse-point, missing-ancestor, and Windows path-alias validation;
 - 168 registered text encodings with content-based detection intentionally narrower than explicit codec support;
 - bounded native read-only source intelligence through `source_symbols` and `source_query`, with 101 active approved R27 providers, evidence-qualified detection, capability-specific project relations, bounded task context, coherent process-local indexing, decoded-source coordinates, and no external parser/compiler/LSP runtime dependency;
@@ -33,7 +33,7 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-Scripthold `3.1.5` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active source-intelligence providers. The current development surface remains native Go and fail closed: source intelligence does not execute project code or depend on external parser/compiler/LSP runtimes, ambiguous routing is reported rather than guessed, and persistent on-disk source indexing is not enabled.
+Scripthold `3.1.6` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active source-intelligence providers. The current development surface remains native Go and fail closed: source intelligence does not execute project code or depend on external parser/compiler/LSP runtimes, ambiguous routing is reported rather than guessed, and persistent on-disk source indexing is not enabled.
 
 Current/future milestone state belongs in [ROADMAP.md](ROADMAP.md), concise completed history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and detailed behavior in the subsystem contracts. Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
 
