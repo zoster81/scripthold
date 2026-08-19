@@ -277,6 +277,20 @@ func TestInspectReturnsVerifiedMetadataWithoutBytes(t *testing.T) {
 	}
 }
 
+func TestEncodeListCursorRejectsOversizedPayload(t *testing.T) {
+	store := &Store{descriptor: Descriptor{StoreID: strings.Repeat("a", 64)}}
+	_, err := store.encodeListCursor(listCursorPayload{
+		Version:        listCursorVersion,
+		Generation:     strings.Repeat("b", 64),
+		FilterHash:     strings.Repeat("c", 64),
+		AfterCreatedAt: strings.Repeat("x", maxListCursorPayloadBytes),
+		AfterBackupID:  strings.Repeat("d", 64),
+	})
+	if operation.KindOf(err) != operation.KindLimit {
+		t.Fatalf("oversized encoded cursor error = %v, want LIMIT", err)
+	}
+}
+
 func TestManagementOperationsValidateBoundsAndIdentifiers(t *testing.T) {
 	base := canonicalTempDir(t)
 	limits := backupStoreTestLimits()

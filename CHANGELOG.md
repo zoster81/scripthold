@@ -4,6 +4,12 @@ This file records changes maintained in the `zoster81/scripthold` fork relative 
 
 The upstream baseline for the first fork-specific changes is commit `52665aa080b24f6427e3fc485df76cc0a8ce1238`.
 
+## Unreleased
+
+### Fixed
+
+- Hardened integer-size handling reported by CodeQL: native-width configuration values are parsed directly as `int` without narrowing from `int64`, and backup-list cursor construction rejects oversized serialized payloads before bounded HMAC/Base64 assembly, avoiding overflow-prone allocation arithmetic without changing the public MCP surface.
+
 ## 3.1.5 - 2026-08-19
 
 ### Changed

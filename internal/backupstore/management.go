@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	defaultListPageSize = 50
-	maxListPageSize     = 100
-	maxListCursorBytes  = 2048
-	listCursorVersion   = "backup-list-cursor-v1"
+	defaultListPageSize       = 50
+	maxListPageSize           = 100
+	maxListCursorBytes        = 2048
+	maxListCursorDecodedBytes = maxListCursorBytes / 4 * 3
+	maxListCursorPayloadBytes = maxListCursorDecodedBytes - sha256.Size
+	listCursorVersion         = "backup-list-cursor-v1"
 )
 
 // StoreStatus is the redacted verified state returned by the internal
@@ -387,10 +389,13 @@ func (store *Store) encodeListCursor(payload listCursorPayload) (string, error) 
 	if err != nil {
 		return "", operation.New(operation.KindFilesystem, "backup list cursor could not be encoded")
 	}
+	if len(data) > maxListCursorPayloadBytes {
+		return "", operation.New(operation.KindLimit, "backup list cursor exceeds the maximum encoded size")
+	}
 	mac := hmac.New(sha256.New, store.cursorKey())
 	_, _ = mac.Write(data)
 	tag := mac.Sum(nil)
-	encoded := make([]byte, 0, len(data)+len(tag))
+	encoded := make([]byte, 0, maxListCursorDecodedBytes)
 	encoded = append(encoded, data...)
 	encoded = append(encoded, tag...)
 	cursor := base64.RawURLEncoding.EncodeToString(encoded)

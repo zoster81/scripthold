@@ -504,8 +504,15 @@ func parsePositiveInt64(value string, fallback, maximum int64) (int64, error) {
 }
 
 func parsePositiveInt(value string, fallback, maximum int) (int, error) {
-	parsed, err := parsePositiveInt64(value, int64(fallback), int64(maximum))
-	return int(parsed), err
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 || parsed > maximum {
+		return 0, fmt.Errorf("expected an integer in 1..%d", maximum)
+	}
+	return parsed, nil
 }
 
 func parseDuration(value string, fallback, minimum, maximum time.Duration) (time.Duration, error) {

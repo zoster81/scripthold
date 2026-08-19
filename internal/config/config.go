@@ -509,12 +509,12 @@ func boundedNonNegativeIntEnvironment(getenv func(string) string, name string, f
 	if value == "" {
 		return fallback
 	}
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || parsed < 0 || int64(int(parsed)) != parsed || parsed > int64(maximum) {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 || parsed > maximum {
 		slog.Warn("invalid bounded non-negative integer environment value, using fallback", "name", name, "value", value, "maximum", maximum, "fallback", fallback)
 		return fallback
 	}
-	return int(parsed)
+	return parsed
 }
 
 func int64Environment(getenv func(string) string, name string, fallback int64) int64 {
@@ -529,12 +529,12 @@ func intEnvironment(getenv func(string) string, name string, fallback int) int {
 	if value == "" {
 		return fallback
 	}
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || parsed <= 0 || int64(int(parsed)) != parsed {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
 		slog.Warn("invalid positive integer environment value, using fallback", "name", name, "value", value, "fallback", fallback)
 		return fallback
 	}
-	return int(parsed)
+	return parsed
 }
 
 func boundedInt64Environment(getenv func(string) string, name string, fallback, maximum int64) int64 {
