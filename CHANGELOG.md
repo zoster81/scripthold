@@ -4,6 +4,16 @@ This file records changes maintained in the `zoster81/scripthold` fork relative 
 
 The upstream baseline for the first fork-specific changes is commit `52665aa080b24f6427e3fc485df76cc0a8ce1238`.
 
+## Unreleased
+
+### Added
+
+- Completed R29 logging and diagnostics lifecycle in source: process-wide redacted server diagnostics are separated from HTTP/security access logging, MCP SDK logging, and durable-task stdout/stderr; optional startup-configured file logging adds bounded multi-process writer ownership, deterministic rotation, gzip compression, age retention, aggregate-size enforcement, stale-active recovery, and failure-safe degradation to stderr without changing the public MCP tool/prompt surface.
+
+### Changed
+
+- Hardened tool lifecycle logging to emit stable categories, tool names, and error codes without human-readable failure text, raw Go errors, panic values, stacks, or clear filesystem paths; HTTP now receives that category-only `ToolLogger` independently from its access logger while the command runtime leaves the MCP SDK logger disconnected from R29 diagnostics.
+
 ## 3.1.6 - 2026-08-19
 
 ### Fixed

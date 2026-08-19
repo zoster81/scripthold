@@ -9,13 +9,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/zoster81/scripthold/filetoolsserver"
 	"github.com/zoster81/scripthold/filetoolsserver/handler"
 	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/diagnostics"
 	"github.com/zoster81/scripthold/internal/security"
 	"github.com/zoster81/scripthold/internal/taskstore"
 )
@@ -30,8 +30,6 @@ func main() {
 }
 
 func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
-	configureLogging(stderr, getenv)
-
 	// Keep the legacy exported version synchronized for existing embedders while
 	// the explicit server options remain authoritative for this process.
 	filetoolsserver.Version = version
@@ -40,6 +38,16 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		fmt.Fprintln(stdout, version)
 		return 0
 	}
+
+	diagnosticManager, err := diagnostics.Open(stderr, getenv, diagnosticRole(args))
+	if err != nil {
+		fmt.Fprintln(stderr, "Error: diagnostics logging configuration is invalid or unavailable")
+		return 1
+	}
+	defer diagnosticManager.Close()
+	previousLogger := slog.Default()
+	slog.SetDefault(diagnosticManager.Server())
+	defer slog.SetDefault(previousLogger)
 	if len(args) > 0 && args[0] == "task-worker" {
 		return runTaskWorkerCommand(ctx, args[1:], stderr, getenv)
 	}
@@ -88,7 +96,7 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	selection, err := selectRunner(options.transport, getenv, applicationConfig.Limits.MaxSessions)
+	selection, err := selectRunnerWithAccessLogger(options.transport, getenv, applicationConfig.Limits.MaxSessions, diagnosticManager.HTTPAccess())
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
@@ -126,6 +134,7 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		ProtectedDirectories:   protectedDirectories,
 		BackupStore:            store,
 		TaskStore:              tasks,
+		ToolLogger:             diagnosticManager.Server(),
 		Config:                 applicationConfig,
 		ExecutionPolicy:        selection.executionPolicy,
 		EnableClientRoots:      selection.enableClientRoots,
@@ -296,16 +305,18 @@ func backupStoreLimits(limits config.BackupLimits) backupstore.Limits {
 	}
 }
 
-func configureLogging(stderr io.Writer, getenv func(string) string) {
-	// Protocol output remains reserved for stdout; all logs use stderr.
-	level := slog.LevelInfo
-	switch strings.ToLower(strings.TrimSpace(getenv("MCP_LOG_LEVEL"))) {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
+func diagnosticRole(args []string) string {
+	if len(args) == 0 {
+		return "server"
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level})))
+	switch args[0] {
+	case "task-worker":
+		return "task-worker"
+	case "task-supervisor":
+		return "task-supervisor"
+	case "_task-exec":
+		return "task-exec"
+	default:
+		return "server"
+	}
 }

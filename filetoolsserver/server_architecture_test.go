@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +17,36 @@ import (
 	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/config"
 )
+
+func TestBuildServerSeparatesSDKAndToolLoggers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var sdkLogs bytes.Buffer
+	var toolLogs bytes.Buffer
+	sdkLogger := slog.New(slog.NewTextHandler(&sdkLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	toolLogger := slog.New(slog.NewTextHandler(&toolLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	server := BuildServer(ServerOptions{
+		Version:            "logger-separation-test",
+		AllowedDirectories: []string{t.TempDir()},
+		Logger:             sdkLogger,
+		ToolLogger:         toolLogger,
+		Config:             config.Load(),
+		EnableClientRoots:  false,
+		LifecycleContext:   ctx,
+	})
+	session := connectTestClient(t, ctx, server, "logger-separation")
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_allowed_directories"})
+	if err != nil || result.IsError {
+		t.Fatalf("list_allowed_directories result=%#v err=%v", result, err)
+	}
+	if output := toolLogs.String(); !strings.Contains(output, "tool_call_start") || !strings.Contains(output, "tool_call_success") {
+		t.Fatalf("tool logger did not receive tool lifecycle events: %s", output)
+	}
+	if output := sdkLogs.String(); strings.Contains(output, "tool_call_start") || strings.Contains(output, "tool_call_success") {
+		t.Fatalf("SDK logger received tool lifecycle events: %s", output)
+	}
+}
 
 func TestBuildServerErrorsIncludeStructuredDiagnostics(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -27,6 +27,7 @@ Do not copy private workstation state, local process details, credentials, or op
 - Completed R26 backup-recovery contract and verification record: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
 - Completed R27 broad multi-language code-intelligence contract and verification record: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
 - Completed R28 engine-hygiene contract and verification record: [`docs/ENGINE_HYGIENE.md`](docs/ENGINE_HYGIENE.md)
+- Completed R29 logging/diagnostics lifecycle contract and verification record: [`docs/LOGGING_DIAGNOSTICS.md`](docs/LOGGING_DIAGNOSTICS.md)
 - Mechanically verified R27 language capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
@@ -43,6 +44,7 @@ Link to these documents instead of duplicating their detailed content. Current m
 - `internal/filesystempackage`: transport-independent R24 filesystem-package manifest, planner, one-shot capability, revalidation, apply orchestration, and partial-state classification.
 - `internal/backupstore`: dedicated internal backup-store authority, format, locking, integrity, recovery, restore, and garbage-collection primitives.
 - `internal/httptransport`: secured native Streamable HTTP listener, admission, sessions, and lifecycle.
+- `internal/diagnostics`: process-wide redacted server/access diagnostics plus bounded optional file retention and multi-process ownership.
 - `internal/operation`: transport-independent error categories.
 - `internal/concurrency`: bounded deterministic worker coordination.
 - `internal/textstream`: incremental decoding consumers, bounded line framing, and streaming line-ending transforms.

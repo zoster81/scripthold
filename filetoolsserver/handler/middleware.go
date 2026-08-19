@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,7 +15,7 @@ func WithRecovery[In, Out any](handler mcp.ToolHandlerFor[In, Out]) mcp.ToolHand
 	return func(ctx context.Context, req *mcp.CallToolRequest, args In) (result *mcp.CallToolResult, output Out, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("panic recovered in tool handler", "panic", r, "stack", string(debug.Stack()))
+				slog.Error("tool_handler_panic")
 				result = errorResultWithCode(ErrCodeInternal, fmt.Sprintf("internal error: panic in tool handler: %v", r))
 			}
 		}()
@@ -35,15 +34,13 @@ func WithLogging[In, Out any](logger *slog.Logger, toolName string, handler mcp.
 		result, output, err := handler(ctx, req, args)
 
 		if err != nil {
-			logger.Error("tool_call_error", "tool", toolName, "error", err)
+			logger.Error("tool_call_error", "tool", toolName)
 		} else if result != nil && result.IsError {
-			var errMsg string
-			if len(result.Content) > 0 {
-				if tc, ok := result.Content[0].(*mcp.TextContent); ok {
-					errMsg = tc.Text
-				}
+			errorCode := ErrCodeOperationFailed
+			if value, ok := result.Meta[ErrorCodeMetaKey].(string); ok && value != "" {
+				errorCode = value
 			}
-			logger.Warn("tool_call_failed", "tool", toolName, "message", errMsg)
+			logger.Warn("tool_call_failed", "tool", toolName, "errorCode", errorCode)
 		} else {
 			logger.Debug("tool_call_success", "tool", toolName)
 		}

@@ -23,6 +23,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - `BACKUP_RECOVERY.md`: completed R26 contract and verification record for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
 - `MULTILANGUAGE_CODE_INTELLIGENCE.md`: completed R27 contract and verification record for broad multi-language source intelligence, capability reporting, relationships, and incremental indexing.
 - `ENGINE_HYGIENE.md`: completed R28 contract and verification record for evidence-driven compatibility consolidation, dead/test-only cleanup, bounded source organization, and measured performance work.
+- `LOGGING_DIAGNOSTICS.md`: completed R29 contract and verification record for redacted process-wide diagnostics, HTTP/access separation, bounded file retention, and multi-process lifecycle/failure handling.
 - `LANGUAGE_CAPABILITIES.md`: deterministic R27 capability projection rendered from the native language registry; update the registry/renderer and keep the byte-for-byte drift test green rather than editing support claims independently.
 
 Keep operational details in their proper source instead of duplicating them across documents. Current milestone state belongs in `ROADMAP.md`; completed technical contracts remain authoritative unless explicitly revised, while concise historical outcomes belong in `ROADMAP_HISTORY.md` and release-specific changes in `CHANGELOG.md`.

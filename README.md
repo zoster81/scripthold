@@ -38,7 +38,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 **Scripthold `3.1.6`** is the current public release. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers over the same stdio and Streamable HTTP surface. `source_symbols` provides bounded declaration/navigation workflows; `source_query` adds structural search, supported project relations, fingerprint-verified context, and coherent process-local index generations. Capability claims remain provider-specific and fail closed where evidence is insufficient.
 
-R1-R28 and the subsequent pre-R29 verification-architecture maintenance program are complete. No release-scoped milestone is currently active; R29-R33 remain planned. See [CHANGELOG.md](CHANGELOG.md) for release changes, [docs/ROADMAP.md](docs/ROADMAP.md) for current/future work, [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md) for concise engineering history, and the subsystem contracts for detailed behavior.
+R1-R29 and the pre-R29 verification-architecture maintenance program are complete in current source. R29 logging/diagnostics lifecycle work is not yet part of the `3.1.6` public release; R30-R33 remain planned and no release-scoped milestone is currently active. See [CHANGELOG.md](CHANGELOG.md) for release changes, [docs/ROADMAP.md](docs/ROADMAP.md) for current/future work, [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md) for concise engineering history, and the subsystem contracts for detailed behavior.
 
 ## Quality and security
 
@@ -214,7 +214,7 @@ The mounted directory must be accessible to UID/GID `10001`. HTTP containers sho
 - `task_run` is disabled by default. Script tasks validate/fingerprint the script and execute an owner-only matching snapshot; shell tasks validate the logical shell name before durable admission, confine only the working directory, and otherwise run with the executor identity's operating-system permissions.
 - HTTP adds authentication, Host/Origin, proxy/TLS, resource, logging, and execution boundaries; it is not a replacement for operating-system isolation.
 
-Detailed contracts: [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), [R24 safe filesystem operations](docs/SAFE_FILESYSTEM_OPERATIONS.md), [R25 source intelligence](docs/SOURCE_INTELLIGENCE.md), [R26 backup recovery](docs/BACKUP_RECOVERY.md), and [durable tasks](docs/DURABLE_TASKS.md).
+Detailed contracts: [logging and diagnostics](docs/LOGGING_DIAGNOSTICS.md), [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), [R24 safe filesystem operations](docs/SAFE_FILESYSTEM_OPERATIONS.md), [R25 source intelligence](docs/SOURCE_INTELLIGENCE.md), [R26 backup recovery](docs/BACKUP_RECOVERY.md), and [durable tasks](docs/DURABLE_TASKS.md).
 
 ## Configuration
 
@@ -255,6 +255,11 @@ The most important process-wide variables are summarized below. Subsystem docume
 | `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES` | Maximum aggregate retained preview state. | `134217728` |
 | `MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS` | Filesystem-package preview lifetime. | `900` |
 | `MCP_MEMORY_THRESHOLD` | Deprecated fallback for file/output byte limits. | unset |
+| `MCP_LOG_LEVEL` | Startup diagnostic level: `debug`, `info`, `warn`, or `error`. | `info` |
+| `MCP_LOG_DIR` | Existing absolute directory enabling bounded diagnostic files; unset keeps stderr-only logging. | unset |
+| `MCP_LOG_MAX_FILE_BYTES` | Maximum bytes per active/plain diagnostic file before rotation. | `8388608` |
+| `MCP_LOG_MAX_TOTAL_BYTES` | Aggregate diagnostic storage ceiling; must be at least four times the per-file limit. | `134217728` |
+| `MCP_LOG_RETENTION_DAYS` | Maximum diagnostic archive retention age. | `7` |
 | `MCP_HTTP_ADDR` | HTTP listen address. | `127.0.0.1:8765` |
 | `MCP_HTTP_PATH` | MCP endpoint path. | `/mcp` |
 | `MCP_HTTP_TOKEN_FILE` / `MCP_HTTP_TOKEN` | Mutually exclusive HTTP bearer-token sources. | unset |
@@ -275,7 +280,7 @@ The most important process-wide variables are summarized below. Subsystem docume
 | `MCP_ENABLE_SHELL` | Authorizes unrestricted `task_run kind=shell`. | disabled |
 | `MCP_ENABLE_EXECUTION` | Authorizes both task kinds. | disabled |
 
-Backup limits, task-store limits, edit/package preview limits, and the full HTTP configuration contract are documented in [docs/PERSISTENT_BACKUP_LIFECYCLE.md](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md), [TOOLS.md](TOOLS.md), and [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md).
+Diagnostic logging, backup limits, task-store limits, edit/package preview limits, and the full HTTP configuration contract are documented in [docs/LOGGING_DIAGNOSTICS.md](docs/LOGGING_DIAGNOSTICS.md), [docs/PERSISTENT_BACKUP_LIFECYCLE.md](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md), [TOOLS.md](TOOLS.md), and [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md).
 
 ## Typical uses
 

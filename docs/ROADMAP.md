@@ -6,8 +6,8 @@ This document is the authoritative source for **current and future milestone sta
 
 - Current public release: **Scripthold `3.1.6`**, published on 2026-08-19.
 - Public surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
-- R1-R28 are complete. The pre-R29 test/build/CI architecture optimization is also complete and shipped in `3.1.5` without changing the public MCP surface.
-- R29-R33 remain `PLANNED`. No release-scoped milestone is active until maintainers explicitly activate one.
+- R1-R29 are complete. The pre-R29 test/build/CI architecture optimization is also complete and shipped in `3.1.5` without changing the public MCP surface.
+- R30-R33 remain `PLANNED`. No release-scoped milestone is active until maintainers explicitly activate one.
 - Publication and deployment are separate operator actions; public milestone state never implies a private runtime change.
 
 ## Operating rules
@@ -23,7 +23,7 @@ This document is the authoritative source for **current and future milestone sta
 
 ## Completed milestones
 
-R1-R28 are complete. Their concise outcomes and release checkpoints are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The most recent subsystem contracts are:
+R1-R29 are complete. Their concise outcomes and release checkpoints are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The most recent subsystem contracts are:
 
 - R23 — [MCP mutation surface](MCP_MUTATION_SURFACE.md)
 - R24 — [safe filesystem operations](SAFE_FILESYSTEM_OPERATIONS.md)
@@ -31,18 +31,11 @@ R1-R28 are complete. Their concise outcomes and release checkpoints are recorded
 - R26 — [backup recovery](BACKUP_RECOVERY.md)
 - R27 — [broad multi-language code intelligence](MULTILANGUAGE_CODE_INTELLIGENCE.md)
 - R28 — [engine hygiene](ENGINE_HYGIENE.md)
+- R29 — [logging and diagnostics lifecycle](LOGGING_DIAGNOSTICS.md)
 
 ## Planned 3.x milestones
 
-The intended planning order is R29 -> R30 -> R31 -> R32 -> R33. Version mapping may change before activation if scope changes materially; architectural boundaries require explicit review rather than being inferred from a version number.
-
-### R29 — Logging and diagnostics lifecycle
-
-Centralize process-wide server diagnostics while keeping server logs, HTTP/security access logging, and durable-task stdout/stderr (`task_logs`) distinct.
-
-Logging policy remains startup/operator authority only. File logging must be storage-bounded through deterministic rotation, compression, retention, and aggregate-size limits. Multi-process ownership, redaction, permission/rename/compression failures, and cleanup must fail safely without corrupting normal product state.
-
-Completion requires lifecycle/failure/concurrency tests, bounded-retention evidence, and security-redaction regressions.
+The intended planning order is R30 -> R31 -> R32 -> R33. Version mapping may change before activation if scope changes materially; architectural boundaries require explicit review rather than being inferred from a version number.
 
 ### R30 — Documentation intelligence
 

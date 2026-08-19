@@ -67,6 +67,7 @@ type ServerOptions struct {
 	BackupStore            handler.BackupStoreReader
 	TaskStore              handler.TaskStore
 	Logger                 *slog.Logger
+	ToolLogger             *slog.Logger
 	Config                 *config.Config
 	ExecutionPolicy        *handler.ExecutionPolicy
 	EnableClientRoots      bool
@@ -100,7 +101,11 @@ func BuildServer(options ServerOptions) *mcp.Server {
 		handlerOptions = append(handlerOptions, handler.WithExecutionPolicy(*options.ExecutionPolicy))
 	}
 	h := handler.NewHandler(options.AllowedDirectories, handlerOptions...)
-	logger := options.Logger
+	sdkLogger := options.Logger
+	logger := options.ToolLogger
+	if logger == nil {
+		logger = options.Logger
+	}
 	impl := &mcp.Implementation{
 		Name:    "scripthold",
 		Version: version,
@@ -108,7 +113,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	serverOpts := &mcp.ServerOptions{
 		Instructions:            serverInstructions,
-		Logger:                  logger,
+		Logger:                  sdkLogger,
 		InitializedHandler:      createInitializedHandler(lifecycleCtx, h, version, options.EnableClientRoots),
 		RootsListChangedHandler: createRootsListChangedHandler(h, options.EnableClientRoots),
 	}

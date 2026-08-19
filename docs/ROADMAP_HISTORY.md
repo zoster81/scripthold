@@ -34,6 +34,7 @@ This document is the concise public history of completed milestones. Current/fut
 | R26 | Offline evidence-preserving backup recovery into a separate fully audited destination; see [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md). |
 | R27 | Broad native source intelligence: 101 active providers, `source_query`, project relations, structural search, bounded context, graphs, and coherent process-local index generations; see [MULTILANGUAGE_CODE_INTELLIGENCE.md](MULTILANGUAGE_CODE_INTELLIGENCE.md) and [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md). |
 | R28 | Evidence-driven engine hygiene: compatibility consolidation, dead/test-only cleanup, responsibility-oriented source organization, and measured performance review without gratuitous public behavior changes; see [ENGINE_HYGIENE.md](ENGINE_HYGIENE.md). |
+| R29 | Centralized redacted process diagnostics with separate HTTP/access and durable-task output boundaries, optional bounded rotation/compression/retention, and multi-process failure-safe file ownership; see [LOGGING_DIAGNOSTICS.md](LOGGING_DIAGNOSTICS.md). |
 
 ## Release checkpoints
 

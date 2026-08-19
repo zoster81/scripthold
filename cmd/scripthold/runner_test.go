@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -106,6 +107,26 @@ func TestSelectRunnerHTTPRequiresDualExecutionOptIn(t *testing.T) {
 	}
 	if !selection.executionPolicy.AllowRunScript || selection.executionPolicy.AllowShell {
 		t.Fatalf("tool-specific dual policy = %#v", selection.executionPolicy)
+	}
+}
+
+func TestSelectRunnerHTTPUsesExplicitAccessLogger(t *testing.T) {
+	values := map[string]string{
+		httptransport.EnvToken:   testHTTPToken(),
+		httptransport.EnvAddress: "127.0.0.1:8765",
+		httptransport.EnvPath:    "/mcp",
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	selection, err := selectRunnerWithAccessLogger(transportStreamableHTTP, func(name string) string { return values[name] }, 7, logger)
+	if err != nil {
+		t.Fatalf("selectRunnerWithAccessLogger() error = %v", err)
+	}
+	runner, ok := selection.runner.(httptransport.Runner)
+	if !ok {
+		t.Fatalf("HTTP runner type = %T", selection.runner)
+	}
+	if runner.Logger != logger {
+		t.Fatal("HTTP runner did not retain the explicit access logger")
 	}
 }
 

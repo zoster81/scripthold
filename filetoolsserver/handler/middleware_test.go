@@ -41,8 +41,13 @@ func TestWithRecovery_NoPanic(t *testing.T) {
 }
 
 func TestWithRecovery_Panic(t *testing.T) {
+	original := slog.Default()
+	defer slog.SetDefault(original)
+	var logBuffer bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuffer, nil)))
+
 	handler := func(ctx context.Context, req *mcp.CallToolRequest, input testInput) (*mcp.CallToolResult, testOutput, error) {
-		panic("test panic")
+		panic("test panic secret")
 	}
 
 	wrapped := WithRecovery(handler)
@@ -53,6 +58,9 @@ func TestWithRecovery_Panic(t *testing.T) {
 	}
 	if result == nil || !result.IsError {
 		t.Error("expected error result")
+	}
+	if output := logBuffer.String(); !strings.Contains(output, "tool_handler_panic") || strings.Contains(output, "test panic secret") {
+		t.Fatalf("panic diagnostic leaked panic data: %s", output)
 	}
 }
 
@@ -101,8 +109,9 @@ func TestWithLogging_ToolError(t *testing.T) {
 
 	handler := func(ctx context.Context, req *mcp.CallToolRequest, input testInput) (*mcp.CallToolResult, testOutput, error) {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: "something went wrong"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "something went wrong at C:\\private\\secret.txt"}},
 			IsError: true,
+			Meta:    map[string]any{ErrorCodeMetaKey: ErrCodeAccessDenied},
 		}, testOutput{}, nil
 	}
 
@@ -113,8 +122,11 @@ func TestWithLogging_ToolError(t *testing.T) {
 	if !strings.Contains(logOutput, "tool_call_failed") {
 		t.Error("expected tool_call_failed log")
 	}
-	if !strings.Contains(logOutput, "something went wrong") {
-		t.Error("expected error message in log")
+	if !strings.Contains(logOutput, ErrCodeAccessDenied) {
+		t.Error("expected stable error code in log")
+	}
+	if strings.Contains(logOutput, "something went wrong") || strings.Contains(logOutput, "secret.txt") {
+		t.Fatalf("tool failure log leaked human error data: %s", logOutput)
 	}
 }
 

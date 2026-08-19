@@ -354,7 +354,7 @@ Logs must not contain:
 
 Session identifiers may be represented only by a short one-way fingerprint when correlation is necessary. Error logging must use stable categories and redact path-bearing details at the HTTP access layer.
 
-The existing tool middleware can log human-readable failure messages that may include filesystem paths. The HTTP path therefore keeps the handler `Logger` nil unless category-only path-redacted tool logging is used. The HTTP access logger and SDK logger remain separate from any verbose local diagnostic logger.
+R29 routes HTTP tool lifecycle events through the category-only redacted `ToolLogger`; human-readable tool failure text, raw Go errors, panic values, stacks, and clear paths are not logged. The HTTP access logger remains a distinct `http_access` channel, and the MCP SDK logger remains separate and disabled in the command runtime. See [LOGGING_DIAGNOSTICS.md](LOGGING_DIAGNOSTICS.md).
 
 ## SDK integration constraints
 
@@ -370,7 +370,7 @@ The pinned `github.com/modelcontextprotocol/go-sdk` provides a stateful Streamab
 - populate authenticated principal information in context for legacy SDK session binding;
 - implement an outer bounded session-admission tracker because legacy SDK session storage is internal, while stateless traffic bypasses that tracker;
 - use one idempotent lifecycle record per admitted session to prevent capacity leaks or double release;
-- keep the R11 handler logger disabled for HTTP until category-only path-redacted logging exists;
+- route handler lifecycle logging only through the R29 category-only redacted `ToolLogger`, separate from the HTTP access logger and MCP SDK logger;
 - coordinate HTTP shutdown without relying on the SDK's unexported test-only close-all helper.
 
 No SDK fork is required. Any future dependency or SDK-architecture change must preserve these requirements through explicit review and verification.

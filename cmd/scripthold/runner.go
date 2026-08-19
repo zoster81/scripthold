@@ -108,6 +108,15 @@ func selectRunner(
 	getenv func(string) string,
 	maxSessions int,
 ) (runnerSelection, error) {
+	return selectRunnerWithAccessLogger(transport, getenv, maxSessions, slog.Default())
+}
+
+func selectRunnerWithAccessLogger(
+	transport transportName,
+	getenv func(string) string,
+	maxSessions int,
+	accessLogger *slog.Logger,
+) (runnerSelection, error) {
 	switch transport {
 	case transportStdio:
 		disableModernDiscovery, err := parseStdioLegacyHandshake(getenv(envStdioLegacyHandshake))
@@ -133,7 +142,7 @@ func selectRunner(
 		return runnerSelection{
 			runner: httptransport.Runner{
 				Config: httpConfig,
-				Logger: slog.Default(),
+				Logger: accessLogger,
 			},
 			enableClientRoots: false,
 			executionPolicy:   executionPolicy,
