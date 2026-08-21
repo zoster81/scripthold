@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -166,6 +168,102 @@ func TestEngineRecoverDoesNotReplayStartedOperation(t *testing.T) {
 	}
 	if observed.Status != StatusInterrupted {
 		t.Fatalf("lost started operation = %+v, want interrupted", observed)
+	}
+}
+
+func TestEngineRecoverKeepsStartedOperationWhenHeartbeatAdvancesPastObservationSnapshot(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{
+		Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}, OriginPaths: []string{public},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkStarting(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+
+	observationSnapshot := time.Now().UTC()
+	heartbeatPath := filepath.Join(store.operationDir(operation.OperationID), heartbeatName)
+	advancedHeartbeat := observationSnapshot.Add(time.Second)
+	if err := os.Chtimes(heartbeatPath, advancedHeartbeat, advancedHeartbeat); err != nil {
+		t.Fatal(err)
+	}
+	nowCalls := 0
+	store.now = func() time.Time {
+		nowCalls++
+		if nowCalls == 1 {
+			return observationSnapshot
+		}
+		return observationSnapshot.Add(2 * time.Second)
+	}
+
+	launches := 0
+	engine := newEngineWithLauncher(store, func(string) error {
+		launches++
+		return nil
+	})
+	if err := engine.Recover(context.Background(), []string{public}); err != nil {
+		t.Fatal(err)
+	}
+	if launches != 0 {
+		t.Fatalf("live started operation was relaunched %d times", launches)
+	}
+	observed, err := store.Get(operation.OperationID, []string{public})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status != StatusRunning || !observed.Started {
+		t.Fatalf("live started operation = %+v, want running", observed)
+	}
+}
+
+func TestEngineRecoverRejectsHeartbeatFarAheadOfObservationSnapshot(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{
+		Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}, OriginPaths: []string{public},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkStarting(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+
+	observationSnapshot := time.Now().UTC()
+	heartbeatPath := filepath.Join(store.operationDir(operation.OperationID), heartbeatName)
+	implausibleHeartbeat := observationSnapshot.Add(executorStaleAfter + time.Second)
+	if err := os.Chtimes(heartbeatPath, implausibleHeartbeat, implausibleHeartbeat); err != nil {
+		t.Fatal(err)
+	}
+	nowCalls := 0
+	store.now = func() time.Time {
+		nowCalls++
+		if nowCalls == 1 {
+			return observationSnapshot
+		}
+		return observationSnapshot.Add(2 * time.Second)
+	}
+
+	engine := newEngineWithLauncher(store, func(string) error {
+		t.Fatal("started operation with implausible heartbeat must never be replayed")
+		return nil
+	})
+	if err := engine.Recover(context.Background(), []string{public}); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := store.Get(operation.OperationID, []string{public})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status != StatusInterrupted || observed.ErrorCode != "EXECUTOR_LOST" {
+		t.Fatalf("implausible future heartbeat operation = %+v, want interrupted", observed)
 	}
 }
 

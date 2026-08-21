@@ -280,6 +280,40 @@ func TestStoreCancelBeforeStartIsTerminal(t *testing.T) {
 	}
 }
 
+func TestStoreGetKeepsStartedOperationWhenHeartbeatAdvancesPastObservationSnapshot(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+
+	observationSnapshot := time.Now().UTC()
+	heartbeatPath := filepath.Join(store.operationDir(operation.OperationID), heartbeatName)
+	advancedHeartbeat := observationSnapshot.Add(time.Second)
+	if err := os.Chtimes(heartbeatPath, advancedHeartbeat, advancedHeartbeat); err != nil {
+		t.Fatal(err)
+	}
+	nowCalls := 0
+	store.now = func() time.Time {
+		nowCalls++
+		if nowCalls == 1 {
+			return observationSnapshot
+		}
+		return observationSnapshot.Add(2 * time.Second)
+	}
+
+	observed, err := store.GetContext(context.Background(), operation.OperationID, []string{public})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status != StatusRunning || !observed.Started {
+		t.Fatalf("live started operation = %+v, want running", observed)
+	}
+}
+
 func TestStoreMarksLostStartedExecutorInterruptedWithoutReplay(t *testing.T) {
 	store, public := newDeferredTestStore(t)
 	operation, err := store.Admit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})

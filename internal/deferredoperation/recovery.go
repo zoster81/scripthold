@@ -146,18 +146,28 @@ func stateStaleAt(state stateRecord, now time.Time) bool {
 	return age > executorStaleAfter
 }
 
-func (store *Store) executorHeartbeatFresh(operationID string, state stateRecord, now time.Time) bool {
+func (store *Store) executorHeartbeatFresh(operationID string, state stateRecord, observation time.Time) bool {
 	info, err := os.Stat(filepath.Join(store.operationDir(operationID), heartbeatName))
 	if err == nil {
-		age := now.Sub(info.ModTime())
-		return age >= 0 && age <= executorStaleAfter
+		modifiedAt := info.ModTime()
+		if modifiedAt.After(observation) {
+			// The executor may refresh its heartbeat after the caller captured its
+			// observation time. Refresh the clock once instead of classifying a
+			// live executor as lost or accepting an arbitrarily future timestamp.
+			observation = store.now().UTC()
+		}
+		return timestampFreshAt(modifiedAt, observation)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return false
 	}
 	// Claim writes the running state immediately before the first heartbeat. A
 	// short grace avoids declaring a live just-started executor lost in that gap.
-	age := now.Sub(state.UpdatedAt)
+	return timestampFreshAt(state.UpdatedAt, observation)
+}
+
+func timestampFreshAt(timestamp, observation time.Time) bool {
+	age := observation.Sub(timestamp)
 	return age >= 0 && age <= executorStaleAfter
 }
 
