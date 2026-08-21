@@ -83,6 +83,17 @@ const (
 	EnvTaskMaxTerminal          = "MCP_TASK_MAX_TERMINAL"
 	EnvTaskMaxTotalBytes        = "MCP_TASK_MAX_TOTAL_BYTES"
 
+	EnvDeferredStoreDir          = "MCP_DEFERRED_STORE_DIR"
+	EnvCallMaxSyncSeconds        = "MCP_CALL_MAX_SYNC_SECONDS"
+	EnvDeferredSyncWaitSeconds   = "MCP_DEFERRED_SYNC_WAIT_SECONDS"
+	EnvDeferredMaxRuntimeSeconds = "MCP_DEFERRED_MAX_RUNTIME_SECONDS"
+	EnvDeferredMaxConcurrency    = "MCP_DEFERRED_MAX_CONCURRENCY"
+	EnvDeferredMaxQueued         = "MCP_DEFERRED_MAX_QUEUED"
+	EnvDeferredRetentionSeconds  = "MCP_DEFERRED_RETENTION_SECONDS"
+	EnvDeferredMaxTotalBytes     = "MCP_DEFERRED_MAX_TOTAL_BYTES"
+	EnvMaxInlineResponseBytes    = "MCP_MAX_INLINE_RESPONSE_BYTES"
+	EnvResponseChunkBytes        = "MCP_RESPONSE_CHUNK_BYTES"
+
 	DefaultEncoding                           = "utf-8"
 	DefaultMaxFileBytes                       = int64(64 * 1024 * 1024)
 	DefaultMaxDecodedCharacters               = 16 * 1024 * 1024
@@ -203,6 +214,26 @@ const (
 	HardMaxTaskRetentionDays     = 3650
 	HardMaxTaskTerminal          = 1_000_000
 	HardMaxTaskTotalBytes        = int64(1 << 40)
+
+	DefaultCallMaxSyncSeconds        = 45
+	DefaultDeferredSyncWaitSeconds   = 15
+	DefaultDeferredMaxRuntimeSeconds = 300
+	DefaultDeferredMaxConcurrency    = 4
+	DefaultDeferredMaxQueued         = 64
+	DefaultDeferredRetentionSeconds  = 60 * 60
+	DefaultDeferredMaxTotalBytes     = int64(512 * 1024 * 1024)
+	DefaultMaxInlineResponseBytes    = int64(4 * 1024 * 1024)
+	DefaultResponseChunkBytes        = 1024 * 1024
+
+	HardMaxCallMaxSyncSeconds        = 60
+	HardMaxDeferredSyncWaitSeconds   = 30
+	HardMaxDeferredMaxRuntimeSeconds = 60 * 60
+	HardMaxDeferredMaxConcurrency    = 32
+	HardMaxDeferredMaxQueued         = 10_000
+	HardMaxDeferredRetentionSeconds  = 7 * 24 * 60 * 60
+	HardMaxDeferredMaxTotalBytes     = int64(1 << 40)
+	HardMaxInlineResponseBytes       = int64(8 * 1024 * 1024)
+	HardMaxResponseChunkBytes        = 2 * 1024 * 1024
 )
 
 // Limits contains server-wide hard limits. Request-level limits may be lower
@@ -285,6 +316,24 @@ type BackupConfig struct {
 	Limits        BackupLimits
 }
 
+// ReliabilityConfig bounds synchronous MCP request lifetime and wire-safe
+// response sizing independently from tool-specific execution/output ceilings.
+type ReliabilityConfig struct {
+	StoreDir                  string
+	MaxSynchronousSeconds     int
+	DeferredSyncWaitSeconds   int
+	DeferredMaxRuntimeSeconds int
+	DeferredMaxConcurrency    int
+	DeferredMaxQueued         int
+	DeferredRetentionSeconds  int
+	DeferredMaxTotalBytes     int64
+	MaxInlineResponseBytes    int64
+	ResponseChunkBytes        int
+}
+
+// Enabled reports whether durable deferred-operation ownership is configured.
+func (cfg ReliabilityConfig) Enabled() bool { return cfg.StoreDir != "" }
+
 // TaskConfig controls the durable asynchronous execution subsystem. The
 // store remains disabled until an operator explicitly supplies StoreDir.
 type TaskConfig struct {
@@ -314,6 +363,7 @@ type Config struct {
 	Source          SourceConfig
 	Backup          BackupConfig
 	Tasks           TaskConfig
+	Reliability     ReliabilityConfig
 }
 
 // Load reads configuration from the process environment with conservative defaults.
@@ -406,6 +456,18 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 			MaxTerminal:          DefaultTaskMaxTerminal,
 			MaxTotalBytes:        DefaultTaskMaxTotalBytes,
 		},
+		Reliability: ReliabilityConfig{
+			StoreDir:                  getenv(EnvDeferredStoreDir),
+			MaxSynchronousSeconds:     DefaultCallMaxSyncSeconds,
+			DeferredSyncWaitSeconds:   DefaultDeferredSyncWaitSeconds,
+			DeferredMaxRuntimeSeconds: DefaultDeferredMaxRuntimeSeconds,
+			DeferredMaxConcurrency:    DefaultDeferredMaxConcurrency,
+			DeferredMaxQueued:         DefaultDeferredMaxQueued,
+			DeferredRetentionSeconds:  DefaultDeferredRetentionSeconds,
+			DeferredMaxTotalBytes:     DefaultDeferredMaxTotalBytes,
+			MaxInlineResponseBytes:    DefaultMaxInlineResponseBytes,
+			ResponseChunkBytes:        DefaultResponseChunkBytes,
+		},
 	}
 
 	if enc := getenv(EnvDefaultEncoding); enc != "" {
@@ -489,6 +551,22 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Tasks.RetentionDays = boundedIntEnvironment(getenv, EnvTaskRetentionDays, cfg.Tasks.RetentionDays, HardMaxTaskRetentionDays)
 	cfg.Tasks.MaxTerminal = boundedIntEnvironment(getenv, EnvTaskMaxTerminal, cfg.Tasks.MaxTerminal, HardMaxTaskTerminal)
 	cfg.Tasks.MaxTotalBytes = boundedInt64Environment(getenv, EnvTaskMaxTotalBytes, cfg.Tasks.MaxTotalBytes, HardMaxTaskTotalBytes)
+
+	cfg.Reliability.MaxSynchronousSeconds = boundedIntEnvironment(getenv, EnvCallMaxSyncSeconds, cfg.Reliability.MaxSynchronousSeconds, HardMaxCallMaxSyncSeconds)
+	cfg.Reliability.DeferredSyncWaitSeconds = boundedIntEnvironment(getenv, EnvDeferredSyncWaitSeconds, cfg.Reliability.DeferredSyncWaitSeconds, HardMaxDeferredSyncWaitSeconds)
+	cfg.Reliability.DeferredMaxRuntimeSeconds = boundedIntEnvironment(getenv, EnvDeferredMaxRuntimeSeconds, cfg.Reliability.DeferredMaxRuntimeSeconds, HardMaxDeferredMaxRuntimeSeconds)
+	cfg.Reliability.DeferredMaxConcurrency = boundedIntEnvironment(getenv, EnvDeferredMaxConcurrency, cfg.Reliability.DeferredMaxConcurrency, HardMaxDeferredMaxConcurrency)
+	cfg.Reliability.DeferredMaxQueued = boundedIntEnvironment(getenv, EnvDeferredMaxQueued, cfg.Reliability.DeferredMaxQueued, HardMaxDeferredMaxQueued)
+	cfg.Reliability.DeferredRetentionSeconds = boundedIntEnvironment(getenv, EnvDeferredRetentionSeconds, cfg.Reliability.DeferredRetentionSeconds, HardMaxDeferredRetentionSeconds)
+	cfg.Reliability.DeferredMaxTotalBytes = boundedInt64Environment(getenv, EnvDeferredMaxTotalBytes, cfg.Reliability.DeferredMaxTotalBytes, HardMaxDeferredMaxTotalBytes)
+	cfg.Reliability.MaxInlineResponseBytes = boundedInt64Environment(getenv, EnvMaxInlineResponseBytes, cfg.Reliability.MaxInlineResponseBytes, HardMaxInlineResponseBytes)
+	cfg.Reliability.ResponseChunkBytes = boundedIntEnvironment(getenv, EnvResponseChunkBytes, cfg.Reliability.ResponseChunkBytes, HardMaxResponseChunkBytes)
+	if cfg.Reliability.DeferredSyncWaitSeconds >= cfg.Reliability.MaxSynchronousSeconds {
+		cfg.Reliability.DeferredSyncWaitSeconds = DefaultDeferredSyncWaitSeconds
+	}
+	if int64(cfg.Reliability.ResponseChunkBytes) >= cfg.Reliability.MaxInlineResponseBytes {
+		cfg.Reliability.ResponseChunkBytes = DefaultResponseChunkBytes
+	}
 	return cfg
 }
 

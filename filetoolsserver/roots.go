@@ -28,8 +28,12 @@ func createDiscoveryMiddleware(h *handler.Handler, enableClientRoots, disableMod
 		params *mcp.InitializeParams
 		result *mcp.InitializeResult
 	}
+	type legacyInitializeState struct {
+		gate   chan struct{}
+		cached *legacyInitialize
+	}
 	var legacyMu sync.Mutex
-	legacyBySession := make(map[*mcp.ServerSession]legacyInitialize)
+	legacyBySession := make(map[*mcp.ServerSession]*legacyInitializeState)
 
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -38,13 +42,25 @@ func createDiscoveryMiddleware(h *handler.Handler, enableClientRoots, disableMod
 				params, paramsOK := req.GetParams().(*mcp.InitializeParams)
 				if sessionOK && paramsOK {
 					legacyMu.Lock()
-					cached, repeated := legacyBySession[session]
-					if repeated && reflect.DeepEqual(cached.params, params) {
-						result := *cached.result
-						legacyMu.Unlock()
-						return &result, nil
+					state := legacyBySession[session]
+					if state == nil {
+						state = &legacyInitializeState{gate: make(chan struct{}, 1)}
+						legacyBySession[session] = state
 					}
 					legacyMu.Unlock()
+
+					select {
+					case state.gate <- struct{}{}:
+						defer func() { <-state.gate }()
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+
+					repeated := state.cached != nil
+					if repeated && reflect.DeepEqual(state.cached.params, params) {
+						result := *state.cached.result
+						return &result, nil
+					}
 
 					result, err := next(ctx, method, req)
 					if err != nil || repeated {
@@ -54,9 +70,7 @@ func createDiscoveryMiddleware(h *handler.Handler, enableClientRoots, disableMod
 					if ok {
 						paramsCopy := *params
 						resultCopy := *initialized
-						legacyMu.Lock()
-						legacyBySession[session] = legacyInitialize{params: &paramsCopy, result: &resultCopy}
-						legacyMu.Unlock()
+						state.cached = &legacyInitialize{params: &paramsCopy, result: &resultCopy}
 					}
 					return result, nil
 				}

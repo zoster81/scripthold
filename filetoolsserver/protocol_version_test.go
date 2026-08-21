@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,171 @@ import (
 	"github.com/zoster81/scripthold/internal/config"
 	"github.com/zoster81/scripthold/internal/security"
 )
+
+func TestLegacyHandshakeSerializesConcurrentEquivalentInitialize(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	middleware := createDiscoveryMiddleware(nil, true, true)
+	session := &mcp.ServerSession{}
+	params := &mcp.InitializeParams{
+		ProtocolVersion: legacyProtocolVersion,
+		Capabilities:    &mcp.ClientCapabilities{},
+		ClientInfo:      &mcp.Implementation{Name: "openai-tunnel", Version: "test"},
+	}
+	request := func() mcp.Request {
+		return &mcp.ServerRequest[*mcp.InitializeParams]{Session: session, Params: params}
+	}
+
+	var calls atomic.Int32
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	next := middleware(func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if calls.Add(1) == 1 {
+			close(firstEntered)
+			select {
+			case <-releaseFirst:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return &mcp.InitializeResult{ProtocolVersion: legacyProtocolVersion}, nil
+	})
+
+	results := make(chan error, 3)
+	go func() {
+		_, err := next(ctx, methodInitialize, request())
+		results <- err
+	}()
+	select {
+	case <-firstEntered:
+	case <-ctx.Done():
+		t.Fatal("first initialize did not enter the underlying handler")
+	}
+	for range 2 {
+		go func() {
+			_, err := next(ctx, methodInitialize, request())
+			results <- err
+		}()
+	}
+	// Give the equivalent requests a chance to race with the blocked first call.
+	time.Sleep(20 * time.Millisecond)
+	close(releaseFirst)
+	for range 3 {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatalf("concurrent initialize failed: %v", err)
+			}
+		case <-ctx.Done():
+			t.Fatal("concurrent initialize did not complete")
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("underlying initialize calls = %d, want 1", got)
+	}
+}
+
+func TestLegacyHandshakeDoesNotSerializeDifferentSessions(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	middleware := createDiscoveryMiddleware(nil, true, true)
+	params := &mcp.InitializeParams{
+		ProtocolVersion: legacyProtocolVersion,
+		Capabilities:    &mcp.ClientCapabilities{},
+		ClientInfo:      &mcp.Implementation{Name: "openai-tunnel", Version: "test"},
+	}
+	firstSession := &mcp.ServerSession{}
+	secondSession := &mcp.ServerSession{}
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondDone := make(chan error, 1)
+
+	next := middleware(func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if req.GetSession() == firstSession {
+			select {
+			case <-firstEntered:
+			default:
+				close(firstEntered)
+			}
+			select {
+			case <-releaseFirst:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return &mcp.InitializeResult{ProtocolVersion: legacyProtocolVersion}, nil
+	})
+
+	go func() {
+		_, _ = next(ctx, methodInitialize, &mcp.ServerRequest[*mcp.InitializeParams]{Session: firstSession, Params: params})
+	}()
+	select {
+	case <-firstEntered:
+	case <-ctx.Done():
+		t.Fatal("first session initialize did not enter the underlying handler")
+	}
+	go func() {
+		_, err := next(ctx, methodInitialize, &mcp.ServerRequest[*mcp.InitializeParams]{Session: secondSession, Params: params})
+		secondDone <- err
+	}()
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatalf("second session initialize failed: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("different session was serialized behind the blocked first session")
+	}
+	close(releaseFirst)
+}
+
+func TestLegacyHandshakeHandlesConcurrentEquivalentInitializeRequests(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	server := BuildServer(ServerOptions{
+		Version:                "legacy-concurrent-initialize-test",
+		AllowedDirectories:     []string{t.TempDir()},
+		Config:                 config.Load(),
+		EnableClientRoots:      true,
+		DisableModernDiscovery: true,
+		LifecycleContext:       ctx,
+	})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = serverSession.Close() })
+	connection, err := clientTransport.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+
+	params := `{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"openai-tunnel","version":"test"}}`
+	for id := int64(1); id <= 3; id++ {
+		request, decodeErr := jsonrpc.DecodeMessage([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"initialize","params":%s}`, id, params)))
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if writeErr := connection.Write(ctx, request); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	for range 3 {
+		message, readErr := connection.Read(ctx)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		response, ok := message.(*jsonrpc.Response)
+		if !ok || response.Error != nil {
+			t.Fatalf("concurrent initialize response = %#v", message)
+		}
+	}
+}
 
 func TestLegacyHandshakeMakesEquivalentRepeatedInitializeIdempotent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

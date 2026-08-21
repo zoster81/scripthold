@@ -15,6 +15,7 @@ import (
 	"github.com/zoster81/scripthold/filetoolsserver/handler"
 	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/deferredoperation"
 	"github.com/zoster81/scripthold/internal/diagnostics"
 	"github.com/zoster81/scripthold/internal/security"
 	"github.com/zoster81/scripthold/internal/taskstore"
@@ -56,6 +57,9 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	}
 	if len(args) > 0 && args[0] == "_task-exec" {
 		return runTaskExecutorCommand(ctx, args[1:], stderr, getenv)
+	}
+	if len(args) > 0 && args[0] == "_deferred-exec" {
+		return runDeferredExecutorCommand(ctx, args[1:], stderr)
 	}
 
 	diagnosticOptions, diagnosticCommand, err := parseBackupDiagnosticCommand(args)
@@ -103,6 +107,8 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	}
 	var store *backupstore.Store
 	var tasks *taskstore.Store
+	var deferredStore *deferredoperation.Store
+	var deferredEngine *deferredoperation.Engine
 	protectedDirectories := []string(nil)
 	if applicationConfig.Backup.Enabled() {
 		store, err = backupstore.Open(backupstore.Options{
@@ -127,6 +133,45 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		}
 		protectedDirectories = append(protectedDirectories, tasks.Root())
 	}
+	if applicationConfig.Reliability.Enabled() {
+		otherPrivateRoots := make([]string, 0, 2)
+		if store != nil {
+			otherPrivateRoots = append(otherPrivateRoots, store.Root())
+		}
+		if tasks != nil {
+			otherPrivateRoots = append(otherPrivateRoots, tasks.Root())
+		}
+		deferredStore, err = deferredoperation.Initialize(
+			applicationConfig.Reliability.StoreDir,
+			normalized,
+			otherPrivateRoots,
+			deferredStoreLimits(applicationConfig.Reliability, applicationConfig.Limits.MaxOutputBytes),
+		)
+		if err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			if store != nil {
+				_ = store.Close()
+			}
+			return 1
+		}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			fmt.Fprintln(stderr, "Error: deferred operation executable is unavailable")
+			if store != nil {
+				_ = store.Close()
+			}
+			return 1
+		}
+		deferredEngine, err = deferredoperation.NewEngine(deferredStore, executable)
+		if err != nil {
+			fmt.Fprintln(stderr, "Error: deferred operation engine is unavailable")
+			if store != nil {
+				_ = store.Close()
+			}
+			return 1
+		}
+		protectedDirectories = append(protectedDirectories, deferredStore.Root())
+	}
 
 	server := filetoolsserver.BuildServer(filetoolsserver.ServerOptions{
 		Version:                version,
@@ -134,6 +179,7 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		ProtectedDirectories:   protectedDirectories,
 		BackupStore:            store,
 		TaskStore:              tasks,
+		DeferredEngine:         deferredEngine,
 		ToolLogger:             diagnosticManager.Server(),
 		Config:                 applicationConfig,
 		ExecutionPolicy:        selection.executionPolicy,
@@ -170,16 +216,33 @@ func taskStoreLimits(cfg config.TaskConfig) taskstore.Limits {
 }
 
 func validatePrivateStoreSeparation(cfg *config.Config) error {
-	if cfg == nil || !cfg.Tasks.Enabled() || !cfg.Backup.Enabled() {
+	if cfg == nil {
 		return nil
 	}
-	taskRoot, taskErr := filepath.Abs(cfg.Tasks.StoreDir)
-	backupRoot, backupErr := filepath.Abs(cfg.Backup.StoreDir)
-	if taskErr != nil || backupErr != nil {
-		return errors.New("private store paths are invalid")
+	roots := make([]string, 0, 3)
+	if cfg.Tasks.Enabled() {
+		roots = append(roots, cfg.Tasks.StoreDir)
 	}
-	if security.PathsOverlap(taskRoot, backupRoot) {
-		return errors.New("task store and backup store must be separate non-overlapping directories")
+	if cfg.Backup.Enabled() {
+		roots = append(roots, cfg.Backup.StoreDir)
+	}
+	if cfg.Reliability.Enabled() {
+		roots = append(roots, cfg.Reliability.StoreDir)
+	}
+	absolute := make([]string, len(roots))
+	for index, root := range roots {
+		value, err := filepath.Abs(root)
+		if err != nil {
+			return errors.New("private store paths are invalid")
+		}
+		absolute[index] = filepath.Clean(value)
+	}
+	for first := 0; first < len(absolute); first++ {
+		for second := first + 1; second < len(absolute); second++ {
+			if security.PathsOverlap(absolute[first], absolute[second]) {
+				return errors.New("private stores must use separate non-overlapping directories")
+			}
+		}
 	}
 	return nil
 }
@@ -293,6 +356,46 @@ func runTaskExecutorCommand(ctx context.Context, args []string, stderr io.Writer
 	return 0
 }
 
+func deferredStoreLimits(cfg config.ReliabilityConfig, maxOutputBytes int64) deferredoperation.Limits {
+	maxResultBytes := maxOutputBytes
+	if maxResultBytes > 0 && maxResultBytes <= (1<<62) {
+		maxResultBytes *= 2
+	}
+	if maxResultBytes <= 0 || maxResultBytes > cfg.DeferredMaxTotalBytes {
+		maxResultBytes = cfg.DeferredMaxTotalBytes
+	}
+	return deferredoperation.Limits{
+		MaxConcurrency:    cfg.DeferredMaxConcurrency,
+		MaxQueued:         cfg.DeferredMaxQueued,
+		MaxRuntimeSeconds: cfg.DeferredMaxRuntimeSeconds,
+		RetentionSeconds:  cfg.DeferredRetentionSeconds,
+		MaxTerminal:       max(64, cfg.DeferredMaxQueued),
+		MaxTotalBytes:     cfg.DeferredMaxTotalBytes,
+		MaxResultBytes:    maxResultBytes,
+		MaxChunkBytes:     cfg.ResponseChunkBytes,
+	}
+}
+
+func runDeferredExecutorCommand(ctx context.Context, args []string, stderr io.Writer) int {
+	if len(args) != 2 || !deferredoperation.ValidOperationID(args[1]) {
+		fmt.Fprintln(stderr, "Error: invalid internal deferred executor invocation")
+		return 1
+	}
+	store, err := deferredoperation.OpenExecutor(args[0])
+	if err != nil {
+		fmt.Fprintln(stderr, "Error: deferred operation store is unavailable")
+		return 1
+	}
+	if err := store.Execute(ctx, args[1], filetoolsserver.ExecuteDeferredOperation); err != nil {
+		if errors.Is(err, deferredoperation.ErrTerminal) || errors.Is(err, deferredoperation.ErrAlreadyStarted) {
+			return 0
+		}
+		fmt.Fprintln(stderr, "Deferred operation executor failed")
+		return 1
+	}
+	return 0
+}
+
 func backupStoreLimits(limits config.BackupLimits) backupstore.Limits {
 	return backupstore.Limits{
 		MaxTotalBytes:        limits.MaxTotalBytes,
@@ -316,6 +419,8 @@ func diagnosticRole(args []string) string {
 		return "task-supervisor"
 	case "_task-exec":
 		return "task-exec"
+	case "_deferred-exec":
+		return "deferred-exec"
 	default:
 		return "server"
 	}

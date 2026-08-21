@@ -10,10 +10,12 @@ import (
 
 	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/deferredoperation"
 	"github.com/zoster81/scripthold/internal/execution"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/filesystempackage"
 	"github.com/zoster81/scripthold/internal/operation"
+	"github.com/zoster81/scripthold/internal/responsecontinuation"
 	"github.com/zoster81/scripthold/internal/security"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 	"github.com/zoster81/scripthold/internal/taskstore"
@@ -105,6 +107,8 @@ type Handler struct {
 	backupGCPlanner                BackupStoreGCPlanner
 	backupGCApplier                BackupStoreGCApplier
 	taskStore                      TaskStore
+	deferredOperations             *deferredoperation.Store
+	responseContinuations          *responsecontinuation.Store
 	editPreviews                   *editPreviewStore
 	restorePreviews                *restorePreviewStore
 	gcPreviews                     *gcPreviewStore
@@ -199,6 +203,21 @@ func WithBackupStore(store BackupStoreReader) Option {
 			h.protectedRequestedDirs = mergeUniqueDirectories(h.protectedRequestedDirs, requested)
 			h.protectedDirs = mergeUniqueDirectories(h.protectedDirs, resolved)
 		}
+	}
+}
+
+// WithDeferredOperationStore configures the durable read-only operation store.
+func WithDeferredOperationStore(store *deferredoperation.Store) Option {
+	return func(h *Handler) {
+		h.deferredOperations = store
+	}
+}
+
+// WithResponseContinuationStore configures the bounded retained-result store
+// used only to retrieve MCP responses that exceeded the inline wire budget.
+func WithResponseContinuationStore(store *responsecontinuation.Store) Option {
+	return func(h *Handler) {
+		h.responseContinuations = store
 	}
 }
 

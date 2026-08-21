@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -147,6 +148,59 @@ func TestWithLogging_NilLogger(t *testing.T) {
 	}
 	if result == nil {
 		t.Error("expected non-nil result")
+	}
+}
+
+func TestWithCallDeadline_BoundsCooperativeHandler(t *testing.T) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input testInput) (*mcp.CallToolResult, testOutput, error) {
+		<-ctx.Done()
+		return nil, testOutput{}, ctx.Err()
+	}
+
+	started := time.Now()
+	wrapped := WithCallDeadline(25*time.Millisecond, handler)
+	result, _, err := wrapped(context.Background(), &mcp.CallToolRequest{}, testInput{})
+	if err != nil {
+		t.Fatalf("deadline wrapper returned transport error: %v", err)
+	}
+	if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeTimeout {
+		t.Fatalf("deadline result=%+v, want %s", result, ErrCodeTimeout)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("deadline wrapper took %s", elapsed)
+	}
+}
+
+func TestWithCallDeadline_PreservesEarlierCallerDeadline(t *testing.T) {
+	callerCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input testInput) (*mcp.CallToolResult, testOutput, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 100*time.Millisecond {
+			t.Fatalf("handler did not retain the earlier caller deadline")
+		}
+		<-ctx.Done()
+		return nil, testOutput{}, ctx.Err()
+	}
+
+	wrapped := WithCallDeadline(time.Second, handler)
+	result, _, err := wrapped(callerCtx, &mcp.CallToolRequest{}, testInput{})
+	if err != nil {
+		t.Fatalf("deadline wrapper returned transport error: %v", err)
+	}
+	if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeCancelled {
+		t.Fatalf("caller cancellation result=%+v, want %s", result, ErrCodeCancelled)
+	}
+}
+
+func TestWithCallDeadline_PreservesFastResult(t *testing.T) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input testInput) (*mcp.CallToolResult, testOutput, error) {
+		return &mcp.CallToolResult{}, testOutput{Result: "ok"}, nil
+	}
+	wrapped := WithCallDeadline(time.Second, handler)
+	result, output, err := wrapped(context.Background(), &mcp.CallToolRequest{}, testInput{})
+	if err != nil || result == nil || result.IsError || output.Result != "ok" {
+		t.Fatalf("fast result=%+v output=%+v err=%v", result, output, err)
 	}
 }
 

@@ -3,9 +3,11 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -45,6 +47,39 @@ func WithLogging[In, Out any](logger *slog.Logger, toolName string, handler mcp.
 			logger.Debug("tool_call_success", "tool", toolName)
 		}
 
+		return result, output, err
+	}
+}
+
+// WithCallDeadline gives every tool invocation an internal synchronous ceiling.
+// It never detaches the handler: cancellation remains cooperative so mutating
+// operations cannot continue invisibly after the caller receives a timeout.
+func WithCallDeadline[In, Out any](maximum time.Duration, handler mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	if maximum <= 0 {
+		return handler
+	}
+	return func(ctx context.Context, req *mcp.CallToolRequest, input In) (*mcp.CallToolResult, Out, error) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		internalDeadline := true
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= maximum {
+			internalDeadline = false
+		}
+		callCtx := ctx
+		cancel := func() {}
+		if internalDeadline {
+			callCtx, cancel = context.WithTimeout(ctx, maximum)
+		}
+		defer cancel()
+
+		result, output, err := handler(callCtx, req, input)
+		if internalDeadline && errors.Is(callCtx.Err(), context.DeadlineExceeded) && (err != nil || result == nil || result.IsError) {
+			return errorResultWithCode(ErrCodeTimeout, "tool call exceeded the synchronous execution deadline"), output, nil
+		}
+		if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			return errorResultWithCode(ErrCodeCancelled, "operation cancelled"), output, nil
+		}
 		return result, output, err
 	}
 }

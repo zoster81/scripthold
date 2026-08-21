@@ -914,6 +914,26 @@ Without `force`, successful results and offline failures are cached for 30 minut
 
 The checker is notification-only: it never downloads, replaces, installs, or restarts the MCP server. It requires at least one published GitHub Release in the fork; if the fork has no release, the GitHub endpoint returns no latest version and the checker remains silent.
 
+### deferred_operation
+
+Observe or cancel work represented by a high-entropy `operationId`, and retrieve completed results in bounded UTF-8 segments. The same compact compatibility surface serves two reliability paths:
+
+- **Oversized completed responses:** every tool is checked against a conservative encoded-response safety budget before the transport boundary. An otherwise completed response that is too large is retained in a bounded process-local response store and the original call returns a compact handle instead of attempting one oversized response. This path never re-executes the tool.
+- **Durable long-running read-only operations:** when `MCP_DEFERRED_STORE_DIR` is configured, eligible calls are durably admitted before expensive execution begins and are owned by an independent helper process rather than the frontend request. The initial eligible set is `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols`. `source_query` remains synchronous because its returned process-local index binding must stay reusable by subsequent frontend requests.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | `get` or `cancel` | yes | Observe/read a handle, or request cooperative cancellation of a durable running operation. |
+| `operationId` | string | yes | Non-enumerable 256-bit-random handle returned by the original call. |
+| `offset` | integer | no | UTF-8 byte offset returned as `nextOffset` by the preceding completed-result segment; defaults to `0`. |
+| `limitBytes` | integer | no | Requested result segment size; values above the configured chunk ceiling are clamped. |
+
+`get` reports the operation state plus `started`, `exposed`, `resultAvailable`, `originalIsError`, stable `errorCode`, result byte counts, and `pollAfterMs` while durable work remains active. For a completed result, continue with `offset=nextOffset` until `complete=true`; the retained bytes encode the finalized MCP tool result and structured output, preserving tool-level `isError` semantics rather than turning a completed tool error into an infrastructure failure.
+
+Durable operation state lives in a separate owner-only store with bounded queue, concurrency, runtime, retention, terminal count, result bytes, and aggregate bytes. Current allowed roots are revalidated before recovered execution and before result retrieval. A pre-start stale operation may be relaunched after recovery; once the durable `started` marker exists, executor loss becomes `interrupted` and the invocation is never replayed automatically. `cancel` is meaningful only for durable operations; oversized-response handles are already complete and have no background execution to cancel.
+
+The global `MCP_CALL_MAX_SYNC_SECONDS` cooperative deadline still applies to every public tool, including tools that are not eligible for independent execution. The native negotiated MCP `io.modelcontextprotocol/tasks` adapter is not yet implemented; `deferred_operation` is the current compatibility surface for the unreleased reliability work.
+
 ## Durable Task Execution
 
 Scripthold executes shell commands and supported scripts as persistent asynchronous tasks. The MCP request records work and returns immediately; an independent supervisor, worker, and per-task executor own the queue and process lifecycle. See [Durable task execution](docs/DURABLE_TASKS.md) for the persistence, recovery, security, and retention contract.

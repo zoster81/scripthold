@@ -96,6 +96,8 @@ MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stat
 - [`list_encodings`](TOOLS.md#list_encodings) — authoritative runtime encoding inventory.
 - [`list_allowed_directories`](TOOLS.md#list_allowed_directories) — report process-authorized roots.
 - [`check_for_updates`](TOOLS.md#check_for_updates) — notification-only fork release check.
+- [`deferred_operation`](TOOLS.md#deferred_operation) - retrieve bounded segments of an oversized retained MCP result.
+
 ### Durable task execution
 
 - [`task_run`](TOOLS.md#task_run) — durably enqueue idempotent shell or script work.
@@ -276,6 +278,16 @@ The most important process-wide variables are summarized below. Subsystem docume
 | `MCP_BACKUP_STORE_DIR` | Enables the dedicated persistent backup store. | unset |
 | `MCP_BACKUP_DEFAULT_POLICY` | Default persistent pre-state policy for approval-bound edit/package/BOM/encoding mutations: `disabled` or `required`. | `disabled` |
 | `MCP_TASK_STORE_DIR` | Enables the owner-only durable task registry. | unset |
+| `MCP_DEFERRED_STORE_DIR` | Enables the separate owner-only durable store for eligible long-running read-only MCP operations. | unset |
+| `MCP_CALL_MAX_SYNC_SECONDS` | Global cooperative ceiling for one synchronous MCP tool call; bounded below the external transport TTL. | `45` |
+| `MCP_DEFERRED_SYNC_WAIT_SECONDS` | Frontend observation window for an eligible independently owned read-only operation before returning its handle. | `15` |
+| `MCP_DEFERRED_MAX_RUNTIME_SECONDS` | Global deferred-operation runtime ceiling; stricter tool-specific limits remain authoritative. | `300` |
+| `MCP_DEFERRED_MAX_CONCURRENCY` | Maximum concurrently executing deferred operations. | `4` |
+| `MCP_DEFERRED_MAX_QUEUED` | Maximum queued deferred operations. | `64` |
+| `MCP_DEFERRED_RETENTION_SECONDS` | Terminal deferred-operation retention window. | `3600` |
+| `MCP_DEFERRED_MAX_TOTAL_BYTES` | Aggregate durable deferred-operation store ceiling. | `536870912` |
+| `MCP_MAX_INLINE_RESPONSE_BYTES` | Conservative encoded response-size threshold before Scripthold returns a retained-result handle instead of one large response. | `4194304` |
+| `MCP_RESPONSE_CHUNK_BYTES` | Maximum retained-result bytes returned by one `deferred_operation` segment, further clamped against the inline-response threshold. | `1048576` |
 | `MCP_ENABLE_RUN_SCRIPT` | Authorizes `task_run kind=script`. | disabled |
 | `MCP_ENABLE_SHELL` | Authorizes unrestricted `task_run kind=shell`. | disabled |
 | `MCP_ENABLE_EXECUTION` | Authorizes both task kinds. | disabled |

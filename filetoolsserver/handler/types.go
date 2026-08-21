@@ -232,6 +232,7 @@ const (
 	ErrCodePartialCommit     = "PARTIAL_COMMIT"
 	ErrCodeUnsupported       = "UNSUPPORTED"
 	ErrCodeCancelled         = "CANCELLED"
+	ErrCodeTimeout           = "TIMEOUT"
 	ErrCodeLimit             = "LIMIT"
 	ErrCodeIO                = "IO_ERROR"
 	ErrCodeInternal          = "INTERNAL_ERROR"

@@ -291,6 +291,17 @@
       }
     },
     {
+      "name": "deferred_operation",
+      "title": "Read Deferred Operation",
+      "description": "Retrieve bounded segments of a retained oversized MCP result by operation ID.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "task_run",
       "title": "Run Durable Task",
       "description": "Queue a durable asynchronous shell or script task with idempotency, locks, and optional deadline.",

@@ -13,6 +13,7 @@ The upstream baseline for the first fork-specific changes is commit `52665aa080b
 ### Changed
 
 - Hardened tool lifecycle logging to emit stable categories, tool names, and error codes without human-readable failure text, raw Go errors, panic values, stacks, or clear filesystem paths; HTTP now receives that category-only `ToolLogger` independently from its access logger while the command runtime leaves the MCP SDK logger disconnected from R29 diagnostics.
+- Hardened connector reliability in unreleased source: all MCP tool calls now have a bounded cooperative synchronous deadline; oversized completed responses are retained behind bounded `deferred_operation` retrieval; an optional separate durable deferred-operation store gives `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols` independent pre-admitted execution ownership with bounded recovery/no-replay semantics; concurrent equivalent legacy `initialize` requests are serialized per session. `source_query` remains synchronous because its returned index binding is process-local, and native negotiated MCP Tasks support remains pending.
 
 ## 3.1.6 - 2026-08-19
 

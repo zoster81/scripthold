@@ -88,6 +88,33 @@ func TestBackupStoreLimitsPreserveConfiguredValues(t *testing.T) {
 	}
 }
 
+func TestDeferredStoreLimitsPreserveConfiguredValues(t *testing.T) {
+	configured := config.ReliabilityConfig{
+		DeferredMaxConcurrency:    3,
+		DeferredMaxQueued:         12,
+		DeferredMaxRuntimeSeconds: 240,
+		DeferredRetentionSeconds:  1800,
+		DeferredMaxTotalBytes:     256 * 1024 * 1024,
+		ResponseChunkBytes:        512 * 1024,
+	}
+	mapped := deferredStoreLimits(configured, 16*1024*1024)
+	if mapped.MaxConcurrency != 3 || mapped.MaxQueued != 12 || mapped.MaxRuntimeSeconds != 240 ||
+		mapped.RetentionSeconds != 1800 || mapped.MaxTotalBytes != 256*1024*1024 ||
+		mapped.MaxResultBytes != 32*1024*1024 || mapped.MaxChunkBytes != 512*1024 {
+		t.Fatalf("mapped deferred limits = %#v", mapped)
+	}
+}
+
+func TestValidatePrivateStoreSeparationRejectsDeferredOverlap(t *testing.T) {
+	base := canonicalBackupTestTempDir(t)
+	cfg := config.LoadFromEnvironment(func(string) string { return "" })
+	cfg.Tasks.StoreDir = filepath.Join(base, "tasks")
+	cfg.Reliability.StoreDir = filepath.Join(cfg.Tasks.StoreDir, "deferred")
+	if err := validatePrivateStoreSeparation(cfg); err == nil || !strings.Contains(err.Error(), "private stores") {
+		t.Fatalf("deferred/task overlap error = %v", err)
+	}
+}
+
 func TestRunCommandRejectsOverlappingBackupStoreBeforeStartup(t *testing.T) {
 	publicRoot := canonicalBackupTestTempDir(t)
 	storeDir := filepath.Join(publicRoot, "backups")

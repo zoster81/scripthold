@@ -21,6 +21,16 @@ This document is the authoritative source for **current and future milestone sta
 - Every milestone uses the reusable engineering checks in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md).
 - Move completed implementation detail to the relevant contract or [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md); do not accumulate historical execution logs here.
 
+## Active maintenance gate - connector reliability
+
+Urgent connector reliability work currently preempts the suspended feature roadmap without activating a new release-scoped milestone. The gate is **IN PROGRESS** and addresses two independent request-path failure classes: synchronous tool calls that approach an external transport TTL, and completed MCP responses large enough to be rejected by an intermediary before delivery.
+
+Current unreleased source applies a bounded cooperative synchronous deadline to every MCP tool call and retains oversized completed results behind bounded `deferred_operation` retrieval. When an operator configures the separate deferred-operation store, `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols` are durably admitted before expensive execution and owned independently from the frontend request. Recovery may relaunch only work that never crossed the durable started boundary; a lost executor after that boundary becomes `interrupted` without automatic replay. Current filesystem roots are revalidated before recovered execution and result retrieval.
+
+`source_query` remains synchronous because its returned index binding is process-local and must remain usable by follow-up requests. User-file mutations, preview/capability-producing operations, and the existing durable task API are excluded from automatic deferral. Native negotiated MCP Tasks support, multi-client/real-world stress qualification, complete repository verification, and release/deployment decisions remain outstanding completion gates.
+
+Source Intelligence real-world requalification remains paused while this maintenance gate is active.
+
 ## Completed milestones
 
 R1-R29 are complete. Their concise outcomes and release checkpoints are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The most recent subsystem contracts are:
