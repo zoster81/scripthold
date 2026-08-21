@@ -20,9 +20,7 @@ func (store *Store) Execute(ctx context.Context, operationID string, execute fun
 	if store == nil || !ValidOperationID(operationID) || execute == nil {
 		return ErrInvalidInput
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	slot, err := store.acquireExecutionSlot(ctx, operationID)
 	if err != nil {
 		return err

@@ -48,7 +48,7 @@
     {
       "name": "grep_text_files",
       "title": "Grep Text Files",
-      "description": "Search decoded text by regex with bounded paging, filters, and context.",
+      "description": "Search decoded text by regex with bounded paging, filters, and context. Slow calls may hand off through Tasks or deferred_operation.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -75,7 +75,7 @@
     {
       "name": "tree",
       "title": "Tree (Compact)",
-      "description": "Return a bounded secure tree with filters and optional encoding labels.",
+      "description": "Return a bounded secure tree with filters and optional encoding labels. Slow calls may hand off through Tasks or deferred_operation.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -84,7 +84,7 @@
     {
       "name": "search_files",
       "title": "Search Files",
-      "description": "Find paths recursively by glob with secure traversal, limits, and sorting.",
+      "description": "Find paths recursively by glob with secure traversal, limits, and sorting. Slow calls may hand off through Tasks or deferred_operation.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -93,7 +93,7 @@
     {
       "name": "source_symbols",
       "title": "Navigate Source Symbols",
-      "description": "Navigate bounded source declarations with outline, digest, find, and fingerprint-bound show operations.",
+      "description": "Navigate bounded source declarations with outline, digest, find, and fingerprint-bound show operations. Slow calls may hand off through Tasks or deferred_operation.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -113,7 +113,7 @@
     {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
-      "description": "Compute deterministic SHA-256 fingerprints for files or directory trees.",
+      "description": "Compute deterministic SHA-256 fingerprints for files or directory trees. Slow calls may hand off through Tasks or deferred_operation.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -292,12 +292,12 @@
     },
     {
       "name": "deferred_operation",
-      "title": "Read Deferred Operation",
-      "description": "Retrieve bounded segments of a retained oversized MCP result by operation ID.",
+      "title": "Manage Deferred Operation",
+      "description": "Observe or cancel durable deferred work, or read retained oversized-result segments, by operation ID.",
       "annotations": {
-        "readOnlyHint": true,
+        "readOnlyHint": false,
         "idempotentHint": true,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "openWorldHint": false
       }
     },

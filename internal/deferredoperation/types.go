@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	FormatVersion      = "scripthold-deferred-operation-store-v1"
-	maxStateRecords    = 32
-	executorStaleAfter = 15 * time.Second
+	FormatVersion        = "scripthold-deferred-operation-store-v1"
+	maxStateRecords      = 32
+	executorStaleAfter   = 15 * time.Second
+	storeLockWaitMaximum = 30 * time.Second
 )
 
 var (

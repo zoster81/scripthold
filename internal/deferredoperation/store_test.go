@@ -110,6 +110,119 @@ func TestStoreAdmissionLifecycleAndChunkRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStoreGetDoesNotExposeStartedBeforeRunningState(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkStarting(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMarkerExclusive(filepath.Join(store.operationDir(operation.OperationID), startedName)); err != nil {
+		t.Fatal(err)
+	}
+
+	observed, err := store.Get(operation.OperationID, []string{public})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status != StatusStarting || observed.Started || observed.StartedAt != nil {
+		t.Fatalf("in-progress claim became externally started: %+v", observed)
+	}
+}
+
+func TestStoreGetWaitsForClaimTransitionPublication(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkStarting(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+
+	lock, err := acquireStoreLock(context.Background(), filepath.Join(store.root, controlName), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if lock != nil {
+			_ = lock.close()
+		}
+	}()
+	if err := writeMarkerExclusive(filepath.Join(store.operationDir(operation.OperationID), startedName)); err != nil {
+		t.Fatal(err)
+	}
+
+	type getResult struct {
+		operation Operation
+		err       error
+	}
+	resultCh := make(chan getResult, 1)
+	go func() {
+		observed, getErr := store.Get(operation.OperationID, []string{public})
+		resultCh <- getResult{operation: observed, err: getErr}
+	}()
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("Get observed a state transition before publication completed: operation=%+v err=%v", result.operation, result.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	current, err := store.latestState(operation.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := store.now().UTC()
+	started := now
+	running := stateRecord{Status: StatusRunning, Revision: current.Revision + 1, UpdatedAt: now, StartedAt: &started}
+	if err := store.writeStateExclusive(operation.OperationID, running); err != nil {
+		t.Fatal(err)
+	}
+	if err := touch(filepath.Join(store.operationDir(operation.OperationID), heartbeatName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.close(); err != nil {
+		t.Fatal(err)
+	}
+	lock = nil
+
+	select {
+	case result := <-resultCh:
+		if result.err != nil || result.operation.Status != StatusRunning || !result.operation.Started || result.operation.StartedAt == nil {
+			t.Fatalf("coherent Get result = %+v err=%v", result.operation, result.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Get did not resume after state publication completed")
+	}
+}
+
+func TestStoreContextResultReadersAcceptNilContext(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"ok":true}`)
+	if _, err := store.Complete(operation.OperationID, payload, ResultMetadata{}); err != nil {
+		t.Fatal(err)
+	}
+	var nilContext context.Context
+	read, _, err := store.ReadResultContext(nilContext, operation.OperationID, []string{public})
+	if err != nil || string(read) != string(payload) {
+		t.Fatalf("nil-context read result = %q err=%v", read, err)
+	}
+	chunk, err := store.ResultChunkContext(nilContext, operation.OperationID, []string{public}, 0, 0)
+	if err != nil || !chunk.Complete || chunk.Data != string(payload) {
+		t.Fatalf("nil-context result chunk = %+v err=%v", chunk, err)
+	}
+}
+
 func TestStoreResultVisibilityRevalidatesCurrentRoots(t *testing.T) {
 	store, public := newDeferredTestStore(t)
 	origin := filepath.Join(public, "source.txt")
@@ -168,9 +281,7 @@ func TestStoreCancelBeforeStartIsTerminal(t *testing.T) {
 }
 
 func TestStoreMarksLostStartedExecutorInterruptedWithoutReplay(t *testing.T) {
-	now := time.Now().UTC()
 	store, public := newDeferredTestStore(t)
-	store.now = func() time.Time { return now }
 	operation, err := store.Admit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +289,12 @@ func TestStoreMarksLostStartedExecutorInterruptedWithoutReplay(t *testing.T) {
 	if _, err := store.Claim(context.Background(), operation.OperationID); err != nil {
 		t.Fatal(err)
 	}
-	now = now.Add(executorStaleAfter + time.Second)
+	heartbeat, err := os.Stat(filepath.Join(store.operationDir(operation.OperationID), heartbeatName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := heartbeat.ModTime().UTC().Add(executorStaleAfter + time.Second)
+	store.now = func() time.Time { return now }
 	observed, err := store.Get(operation.OperationID, []string{public})
 	if err != nil {
 		t.Fatal(err)

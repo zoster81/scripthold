@@ -63,9 +63,7 @@ func (engine *Engine) Recover(ctx context.Context, currentAllowedDirectories []s
 	if engine == nil || engine.store == nil || engine.launch == nil {
 		return ErrDisabled
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	operationIDs, err := engine.store.prepareRecovery(ctx, currentAllowedDirectories)
 	if err != nil {
 		return err
@@ -88,9 +86,7 @@ func (engine *Engine) Recover(ctx context.Context, currentAllowedDirectories []s
 // yet" so stdio clients using negotiated MCP roots cannot lose admitted work
 // during startup before roots/list completes.
 func (engine *Engine) RunRecoveryLoop(ctx context.Context, currentAllowedDirectories func() []string, report func(error)) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	ticker := time.NewTicker(recoveryPollInterval)
 	defer ticker.Stop()
 	engine.runRecoveryLoop(ctx, currentAllowedDirectories, ticker.C, report)
@@ -130,9 +126,7 @@ func (engine *Engine) Submit(ctx context.Context, request Request) (Operation, e
 	if engine == nil || engine.store == nil || engine.launch == nil {
 		return Operation{}, ErrDisabled
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	operation, err := engine.store.Admit(ctx, request)
 	if err != nil {
 		return Operation{}, err
@@ -158,12 +152,10 @@ func (engine *Engine) Wait(ctx context.Context, operationID string, currentAllow
 	if engine == nil || engine.store == nil || !ValidOperationID(operationID) || maximum < 0 {
 		return Operation{}, false, ErrInvalidInput
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	deadline := time.Now().Add(maximum)
 	for {
-		operation, err := engine.store.Get(operationID, currentAllowedDirectories)
+		operation, err := engine.store.GetContext(ctx, operationID, currentAllowedDirectories)
 		if err != nil {
 			return Operation{}, false, err
 		}

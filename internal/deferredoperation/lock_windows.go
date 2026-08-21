@@ -13,14 +13,12 @@ import (
 type storeLock struct{ handle windows.Handle }
 
 func acquireStoreLock(ctx context.Context, path string, wait bool) (*storeLock, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	ptr, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(storeLockWaitMaximum)
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err

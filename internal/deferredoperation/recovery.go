@@ -23,14 +23,12 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 	if store == nil {
 		return nil, ErrDisabled
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	currentAllowed, err := security.NormalizeAllowedDirs(currentAllowedDirectories)
 	if err != nil || len(currentAllowed) == 0 {
 		return nil, ErrAccessDenied
 	}
-	lock, err := acquireStoreLock(ctx, filepath.Join(store.root, controlName), true)
+	lock, err := store.acquireControlLock(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -52,13 +50,9 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 			continue
 		}
 		operationID := entry.Name()
-		request, requestErr := store.readRequest(operationID)
-		if requestErr != nil {
-			return nil, requestErr
-		}
-		state, stateErr := store.latestState(operationID)
-		if stateErr != nil {
-			return nil, stateErr
+		request, state, readErr := store.readOperationLocked(operationID)
+		if readErr != nil {
+			return nil, readErr
 		}
 		if state.Status.Terminal() {
 			continue

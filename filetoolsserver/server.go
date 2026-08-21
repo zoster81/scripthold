@@ -2,6 +2,7 @@ package filetoolsserver
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -118,6 +119,11 @@ func BuildServer(options ServerOptions) *mcp.Server {
 		Retention:     time.Hour,
 	}, time.Now)
 
+	var deferredStore *deferredoperation.Store
+	if options.DeferredEngine != nil {
+		deferredStore = options.DeferredEngine.Store()
+	}
+
 	handlerOptions := []handler.Option{
 		handler.WithConfig(cfg),
 		handler.WithProtectedDirectories(protectedDirectories),
@@ -126,7 +132,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 		handler.WithResponseContinuationStore(responseStore),
 	}
 	if options.DeferredEngine != nil {
-		handlerOptions = append(handlerOptions, handler.WithDeferredOperationStore(options.DeferredEngine.Store()))
+		handlerOptions = append(handlerOptions, handler.WithDeferredOperationStore(deferredStore))
 	}
 	if options.ExecutionPolicy != nil {
 		handlerOptions = append(handlerOptions, handler.WithExecutionPolicy(*options.ExecutionPolicy))
@@ -162,7 +168,19 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	server := mcp.NewServer(impl, serverOpts)
 	registerProjectPrompts(server)
 
+	tasksEnabled := deferredStore != nil
+	if tasksEnabled {
+		adapter := nativeTasksAdapter{store: deferredStore, allowedDirectories: h.ResolvedAllowedDirs}
+		if err := registerNativeTasks(server, adapter); err != nil {
+			panic(fmt.Sprintf("register native MCP tasks: %v", err))
+		}
+	}
+
 	server.AddReceivingMiddleware(createDiscoveryMiddleware(h, options.EnableClientRoots, options.DisableModernDiscovery))
+	if tasksEnabled {
+		server.AddReceivingMiddleware(createNativeTasksDiscoveryMiddleware())
+		server.AddReceivingMiddleware(createNativeTasksMiddleware(deferredStore, h.ResolvedAllowedDirs))
+	}
 	// Repair array/object args some MCP clients send as JSON-encoded strings.
 	server.AddReceivingMiddleware(handler.RepairStringifiedArrayArgs)
 

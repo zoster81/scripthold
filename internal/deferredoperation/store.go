@@ -57,7 +57,7 @@ func Initialize(root string, publicAllowedDirectories, otherPrivateRoots []strin
 	if err := createSecureDirectory(store.operationsRoot); err != nil {
 		return nil, err
 	}
-	lock, err := acquireStoreLock(context.Background(), filepath.Join(clean, controlName), true)
+	lock, err := store.acquireControlLock(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +127,24 @@ func (store *Store) Limits() Limits {
 		return Limits{}
 	}
 	return store.limits
+}
+
+// acquireControlLock serializes durable state/marker publication and coherent observation.
+func (store *Store) acquireControlLock(ctx context.Context) (*storeLock, error) {
+	return acquireStoreLock(nonNilContext(ctx), filepath.Join(store.root, controlName), true)
+}
+
+// readOperationLocked reads one immutable request and its latest state while the caller owns the control lock.
+func (store *Store) readOperationLocked(operationID string) (persistedRequest, stateRecord, error) {
+	request, err := store.readRequest(operationID)
+	if err != nil {
+		return persistedRequest{}, stateRecord{}, err
+	}
+	state, err := store.latestState(operationID)
+	if err != nil {
+		return persistedRequest{}, stateRecord{}, err
+	}
+	return request, state, nil
 }
 
 func normalizeLimits(limits Limits) (Limits, error) {
@@ -236,9 +254,7 @@ func (store *Store) Admit(ctx context.Context, request Request) (Operation, erro
 	if store == nil {
 		return Operation{}, ErrDisabled
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if err := validateRequest(request, store.limits); err != nil {
 		return Operation{}, err
 	}
@@ -254,7 +270,7 @@ func (store *Store) Admit(ctx context.Context, request Request) (Operation, erro
 		}
 		request.OriginPaths[index] = validated
 	}
-	lock, err := acquireStoreLock(ctx, filepath.Join(store.root, controlName), true)
+	lock, err := store.acquireControlLock(ctx)
 	if err != nil {
 		return Operation{}, err
 	}
@@ -327,19 +343,13 @@ func (store *Store) Claim(ctx context.Context, operationID string) (Claim, error
 	if store == nil || !ValidOperationID(operationID) {
 		return Claim{}, ErrInvalidInput
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	lock, err := acquireStoreLock(ctx, filepath.Join(store.root, controlName), true)
+	ctx = nonNilContext(ctx)
+	lock, err := store.acquireControlLock(ctx)
 	if err != nil {
 		return Claim{}, err
 	}
 	defer lock.close()
-	request, err := store.readRequest(operationID)
-	if err != nil {
-		return Claim{}, err
-	}
-	current, err := store.latestState(operationID)
+	request, current, err := store.readOperationLocked(operationID)
 	if err != nil {
 		return Claim{}, err
 	}
@@ -379,16 +389,12 @@ func (store *Store) Complete(operationID string, payload []byte, metadata Result
 	if store == nil || !ValidOperationID(operationID) || len(payload) == 0 || !utf8.Valid(payload) || int64(len(payload)) > store.limits.MaxResultBytes {
 		return Operation{}, ErrCapacity
 	}
-	lock, err := acquireStoreLock(context.Background(), filepath.Join(store.root, controlName), true)
+	lock, err := store.acquireControlLock(context.Background())
 	if err != nil {
 		return Operation{}, err
 	}
 	defer lock.close()
-	request, err := store.readRequest(operationID)
-	if err != nil {
-		return Operation{}, err
-	}
-	current, err := store.latestState(operationID)
+	request, current, err := store.readOperationLocked(operationID)
 	if err != nil {
 		return Operation{}, err
 	}
@@ -413,16 +419,12 @@ func (store *Store) Fail(operationID string, status Status, code, message string
 	if store == nil || !ValidOperationID(operationID) || (status != StatusFailed && status != StatusTimedOut && status != StatusCancelled && status != StatusInterrupted) {
 		return Operation{}, ErrInvalidInput
 	}
-	lock, err := acquireStoreLock(context.Background(), filepath.Join(store.root, controlName), true)
+	lock, err := store.acquireControlLock(context.Background())
 	if err != nil {
 		return Operation{}, err
 	}
 	defer lock.close()
-	request, err := store.readRequest(operationID)
-	if err != nil {
-		return Operation{}, err
-	}
-	current, err := store.latestState(operationID)
+	request, current, err := store.readOperationLocked(operationID)
 	if err != nil {
 		return Operation{}, err
 	}
@@ -439,36 +441,30 @@ func (store *Store) Fail(operationID string, status Status, code, message string
 }
 
 func (store *Store) MarkExposed(ctx context.Context, operationID string, currentAllowedDirectories []string) (Operation, error) {
-	if _, err := store.Get(operationID, currentAllowedDirectories); err != nil {
+	if _, err := store.GetContext(ctx, operationID, currentAllowedDirectories); err != nil {
 		return Operation{}, err
 	}
 	path := filepath.Join(store.operationDir(operationID), exposedName)
 	if err := writeMarkerExclusive(path); err != nil && !errors.Is(err, os.ErrExist) {
 		return Operation{}, err
 	}
-	return store.Get(operationID, currentAllowedDirectories)
+	return store.GetContext(ctx, operationID, currentAllowedDirectories)
 }
 
 func (store *Store) Cancel(ctx context.Context, operationID string, currentAllowedDirectories []string) (Operation, error) {
 	if store == nil || !ValidOperationID(operationID) {
 		return Operation{}, ErrInvalidInput
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if err := store.validateVisibility(operationID, currentAllowedDirectories); err != nil {
 		return Operation{}, err
 	}
-	lock, err := acquireStoreLock(ctx, filepath.Join(store.root, controlName), true)
+	lock, err := store.acquireControlLock(ctx)
 	if err != nil {
 		return Operation{}, err
 	}
 	defer lock.close()
-	request, err := store.readRequest(operationID)
-	if err != nil {
-		return Operation{}, err
-	}
-	current, err := store.latestState(operationID)
+	request, current, err := store.readOperationLocked(operationID)
 	if err != nil {
 		return Operation{}, err
 	}
@@ -492,20 +488,29 @@ func (store *Store) Cancel(ctx context.Context, operationID string, currentAllow
 }
 
 func (store *Store) Get(operationID string, currentAllowedDirectories []string) (Operation, error) {
+	return store.GetContext(context.Background(), operationID, currentAllowedDirectories)
+}
+
+func (store *Store) GetContext(ctx context.Context, operationID string, currentAllowedDirectories []string) (Operation, error) {
 	if store == nil || !ValidOperationID(operationID) {
 		return Operation{}, ErrInvalidInput
+	}
+	ctx = nonNilContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return Operation{}, err
 	}
 	if err := store.validateVisibility(operationID, currentAllowedDirectories); err != nil {
 		return Operation{}, err
 	}
-	if err := store.reconcileLostExecutor(operationID); err != nil {
-		return Operation{}, err
-	}
-	request, err := store.readRequest(operationID)
+	lock, err := store.acquireControlLock(ctx)
 	if err != nil {
 		return Operation{}, err
 	}
-	state, err := store.latestState(operationID)
+	defer lock.close()
+	if err := store.reconcileLostExecutorLocked(operationID); err != nil {
+		return Operation{}, err
+	}
+	request, state, err := store.readOperationLocked(operationID)
 	if err != nil {
 		return Operation{}, err
 	}
@@ -516,9 +521,17 @@ func (store *Store) Get(operationID string, currentAllowedDirectories []string) 
 // configured per-result bound. It is used by a frontend that observed a fast
 // completion during the synchronous grace window.
 func (store *Store) ReadResult(operationID string, currentAllowedDirectories []string) ([]byte, Operation, error) {
-	operation, err := store.Get(operationID, currentAllowedDirectories)
+	return store.ReadResultContext(context.Background(), operationID, currentAllowedDirectories)
+}
+
+func (store *Store) ReadResultContext(ctx context.Context, operationID string, currentAllowedDirectories []string) ([]byte, Operation, error) {
+	ctx = nonNilContext(ctx)
+	operation, err := store.GetContext(ctx, operationID, currentAllowedDirectories)
 	if err != nil {
 		return nil, Operation{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, operation, err
 	}
 	if operation.Status != StatusCompleted || !operation.ResultAvailable || operation.TotalBytes <= 0 || operation.TotalBytes > store.limits.MaxResultBytes {
 		return nil, operation, ErrResultMissing
@@ -545,8 +558,16 @@ func (store *Store) ReadResult(operationID string, currentAllowedDirectories []s
 }
 
 func (store *Store) ResultChunk(operationID string, currentAllowedDirectories []string, offset int64, limitBytes int) (Chunk, error) {
-	operation, err := store.Get(operationID, currentAllowedDirectories)
+	return store.ResultChunkContext(context.Background(), operationID, currentAllowedDirectories, offset, limitBytes)
+}
+
+func (store *Store) ResultChunkContext(ctx context.Context, operationID string, currentAllowedDirectories []string, offset int64, limitBytes int) (Chunk, error) {
+	ctx = nonNilContext(ctx)
+	operation, err := store.GetContext(ctx, operationID, currentAllowedDirectories)
 	if err != nil {
+		return Chunk{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return Chunk{}, err
 	}
 	if operation.Status != StatusCompleted || !operation.ResultAvailable {
@@ -616,19 +637,13 @@ func (store *Store) transition(ctx context.Context, operationID string, build fu
 	if store == nil || !ValidOperationID(operationID) {
 		return Operation{}, ErrInvalidInput
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	lock, err := acquireStoreLock(ctx, filepath.Join(store.root, controlName), true)
+	ctx = nonNilContext(ctx)
+	lock, err := store.acquireControlLock(ctx)
 	if err != nil {
 		return Operation{}, err
 	}
 	defer lock.close()
-	request, err := store.readRequest(operationID)
-	if err != nil {
-		return Operation{}, err
-	}
-	current, err := store.latestState(operationID)
+	request, current, err := store.readOperationLocked(operationID)
 	if err != nil {
 		return Operation{}, err
 	}
@@ -662,20 +677,23 @@ func (store *Store) validateVisibility(operationID string, currentAllowedDirecto
 	return nil
 }
 
-func (store *Store) reconcileLostExecutor(operationID string) error {
+func (store *Store) reconcileLostExecutorLocked(operationID string) error {
 	state, err := store.latestState(operationID)
 	if err != nil || state.Status.Terminal() || (state.Status != StatusRunning && state.Status != StatusStarting) || !fileExists(filepath.Join(store.operationDir(operationID), startedName)) {
 		return err
 	}
-	if store.executorHeartbeatFresh(operationID, state, store.now().UTC()) {
+	now := store.now().UTC()
+	if store.executorHeartbeatFresh(operationID, state, now) {
 		return nil
 	}
-	_, err = store.Fail(operationID, StatusInterrupted, "EXECUTOR_LOST", "deferred executor heartbeat was lost; operation was not rerun")
-	return err
+	return store.writeRecoveryTerminal(operationID, state, StatusInterrupted, "EXECUTOR_LOST", "deferred executor heartbeat was lost; operation was not rerun", now)
 }
 
 func (store *Store) operationFrom(request persistedRequest, state stateRecord) Operation {
 	resultAvailable := state.Status == StatusCompleted && fileExists(filepath.Join(store.operationDir(request.OperationID), resultName))
+	// The marker is the no-replay barrier, but Started is externally observable
+	// only after the matching running-state transition has been persisted.
+	started := state.StartedAt != nil && fileExists(filepath.Join(store.operationDir(request.OperationID), startedName))
 	operation := Operation{
 		OperationID:     request.OperationID,
 		Tool:            request.Request.Tool,
@@ -685,7 +703,7 @@ func (store *Store) operationFrom(request persistedRequest, state stateRecord) O
 		StartedAt:       state.StartedAt,
 		FinishedAt:      state.FinishedAt,
 		Revision:        state.Revision,
-		Started:         fileExists(filepath.Join(store.operationDir(request.OperationID), startedName)),
+		Started:         started,
 		Exposed:         fileExists(filepath.Join(store.operationDir(request.OperationID), exposedName)),
 		CancelRequested: fileExists(filepath.Join(store.operationDir(request.OperationID), cancelName)),
 		ResultAvailable: resultAvailable,

@@ -38,7 +38,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 **Scripthold `3.1.6`** is the current public release. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers over the same stdio and Streamable HTTP surface. `source_symbols` provides bounded declaration/navigation workflows; `source_query` adds structural search, supported project relations, fingerprint-verified context, and coherent process-local index generations. Capability claims remain provider-specific and fail closed where evidence is insufficient.
 
-R1-R29 and the pre-R29 verification-architecture maintenance program are complete in current source. R29 logging/diagnostics lifecycle work is not yet part of the `3.1.6` public release; R30-R33 remain planned and no release-scoped milestone is currently active. See [CHANGELOG.md](CHANGELOG.md) for release changes, [docs/ROADMAP.md](docs/ROADMAP.md) for current/future work, [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md) for concise engineering history, and the subsystem contracts for detailed behavior.
+R1-R29 and the pre-R29 verification-architecture maintenance program are complete in current source. R29 logging/diagnostics lifecycle work is not yet part of the `3.1.6` public release; R30-R33 remain planned and no release-scoped milestone is currently active. Connector-reliability maintenance is complete in current unreleased source: every MCP tool call has a bounded cooperative synchronous deadline, oversized completed responses are retained behind bounded `deferred_operation` retrieval, and an explicitly configured deferred-operation store gives `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols` independent durable execution ownership before the frontend wait window. `source_query` remains synchronous because its returned index binding is process-local. When the durable deferred-operation store is configured, modern `2026-07-28` requests that opt into `io.modelcontextprotocol/tasks` can observe that same durable work through native `tools/call` task results plus `tasks/get`, `tasks/update`, and `tasks/cancel`; legacy sessions continue to use `deferred_operation`. See [CHANGELOG.md](CHANGELOG.md) for release changes, [docs/ROADMAP.md](docs/ROADMAP.md) for current/future work, [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md) for concise engineering history, and the subsystem contracts for detailed behavior.
 
 ## Quality and security
 
@@ -96,7 +96,7 @@ MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stat
 - [`list_encodings`](TOOLS.md#list_encodings) — authoritative runtime encoding inventory.
 - [`list_allowed_directories`](TOOLS.md#list_allowed_directories) — report process-authorized roots.
 - [`check_for_updates`](TOOLS.md#check_for_updates) — notification-only fork release check.
-- [`deferred_operation`](TOOLS.md#deferred_operation) - retrieve bounded segments of an oversized retained MCP result.
+- [`deferred_operation`](TOOLS.md#deferred_operation) - observe/cancel durable deferred work or retrieve bounded segments of an oversized retained MCP result.
 
 ### Durable task execution
 

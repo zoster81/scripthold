@@ -18,6 +18,7 @@ type fakeDeferredEngine struct {
 	store       *deferredoperation.Store
 	executeNow  bool
 	releaseWork <-chan struct{}
+	started     chan<- string
 }
 
 func (engine *fakeDeferredEngine) Store() *deferredoperation.Store { return engine.store }
@@ -51,6 +52,12 @@ func (engine *fakeDeferredEngine) Submit(ctx context.Context, request deferredop
 		for time.Now().Before(deadline) {
 			observed, getErr := engine.store.Get(operation.OperationID, request.AllowedDirectories)
 			if getErr == nil && observed.Started {
+				if engine.started != nil {
+					select {
+					case engine.started <- observed.OperationID:
+					default:
+					}
+				}
 				return observed, nil
 			}
 			time.Sleep(5 * time.Millisecond)
@@ -91,7 +98,7 @@ func newDeferredFingerprintFixture(t *testing.T) (*handler.Handler, *config.Conf
 	cfg.Reliability.DeferredSyncWaitSeconds = 0
 	cfg.Reliability.DeferredMaxRuntimeSeconds = 30
 	store, err := deferredoperation.Initialize(filepath.Join(t.TempDir(), "deferred"), []string{public}, nil, deferredoperation.Limits{
-		MaxConcurrency: 2, MaxQueued: 4, MaxRuntimeSeconds: 30, RetentionSeconds: 3600,
+		MaxConcurrency: 4, MaxQueued: 8, MaxRuntimeSeconds: 30, RetentionSeconds: 3600,
 		MaxTerminal: 8, MaxTotalBytes: 16 * 1024 * 1024, MaxResultBytes: 4 * 1024 * 1024, MaxChunkBytes: 64 * 1024,
 	})
 	if err != nil {

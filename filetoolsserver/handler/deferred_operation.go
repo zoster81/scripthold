@@ -92,7 +92,7 @@ func (h *Handler) handleDurableDeferredOperation(ctx context.Context, action, op
 	if action == "cancel" {
 		operation, err = h.deferredOperations.Cancel(ctx, operationID, h.ResolvedAllowedDirs())
 	} else {
-		operation, err = h.deferredOperations.Get(operationID, h.ResolvedAllowedDirs())
+		operation, err = h.deferredOperations.GetContext(ctx, operationID, h.ResolvedAllowedDirs())
 	}
 	if err != nil {
 		switch {
@@ -127,7 +127,7 @@ func (h *Handler) handleDurableDeferredOperation(ctx context.Context, action, op
 	if operation.Status != deferredoperation.StatusCompleted || !operation.ResultAvailable {
 		return output, true, &mcp.CallToolResult{}
 	}
-	chunk, err := h.deferredOperations.ResultChunk(operationID, h.ResolvedAllowedDirs(), int64(offset), limitBytes)
+	chunk, err := h.deferredOperations.ResultChunkContext(ctx, operationID, h.ResolvedAllowedDirs(), int64(offset), limitBytes)
 	if err != nil {
 		if errors.Is(err, deferredoperation.ErrInvalidInput) {
 			return DeferredOperationOutput{}, true, errorResultWithCode(ErrCodeInvalidInput, "deferred operation request is invalid")

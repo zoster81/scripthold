@@ -58,22 +58,22 @@ func deferredReadOnlyHandler[In, Out any](toolName string, h *handler.Handler, c
 		}
 		observed, finished, waitErr := engine.Wait(ctx, operation.OperationID, allowed, time.Duration(cfg.Reliability.DeferredSyncWaitSeconds)*time.Second)
 		if waitErr != nil {
-			_, _ = engine.Store().Cancel(context.Background(), operation.OperationID, allowed)
+			cancelDeferredBestEffort(engine.Store(), operation.OperationID, allowed)
 			if errors.Is(waitErr, context.Canceled) || errors.Is(waitErr, context.DeadlineExceeded) {
 				return compactDeferredError(handler.ErrCodeCancelled, "read-only operation was cancelled before handoff"), map[string]any{"errorCode": handler.ErrCodeCancelled}, nil
 			}
 			return compactDeferredError(handler.ErrCodeOperationFailed, "deferred read-only operation could not be observed"), map[string]any{"errorCode": handler.ErrCodeOperationFailed}, nil
 		}
 		if finished {
-			return completedDeferredReadOnly[Out](engine.Store(), observed, allowed)
+			return completedDeferredReadOnly[Out](ctx, engine.Store(), observed, allowed)
 		}
 		if !observed.Started {
-			_, _ = engine.Store().Cancel(context.Background(), operation.OperationID, allowed)
+			cancelDeferredBestEffort(engine.Store(), operation.OperationID, allowed)
 			return compactDeferredError(handler.ErrCodeOperationFailed, "deferred executor did not start within the synchronous handoff window"), map[string]any{"errorCode": handler.ErrCodeOperationFailed}, nil
 		}
 		observed, err = engine.Store().MarkExposed(ctx, operation.OperationID, allowed)
 		if err != nil {
-			_, _ = engine.Store().Cancel(context.Background(), operation.OperationID, allowed)
+			cancelDeferredBestEffort(engine.Store(), operation.OperationID, allowed)
 			return compactDeferredError(handler.ErrCodeOperationFailed, "deferred read-only operation could not be exposed safely"), map[string]any{"errorCode": handler.ErrCodeOperationFailed}, nil
 		}
 		return &mcp.CallToolResult{Meta: mcp.Meta{"operationId": observed.OperationID, "deferred": true}}, deferredHandoffOutput{
@@ -83,7 +83,16 @@ func deferredReadOnlyHandler[In, Out any](toolName string, h *handler.Handler, c
 	}
 }
 
-func completedDeferredReadOnly[Out any](store *deferredoperation.Store, operation deferredoperation.Operation, allowed []string) (*mcp.CallToolResult, any, error) {
+func cancelDeferredBestEffort(store *deferredoperation.Store, operationID string, allowed []string) {
+	if store == nil {
+		return
+	}
+	// Cleanup must outlive the frontend request context so an abandoned handoff
+	// still records a cooperative cancellation request when possible.
+	_, _ = store.Cancel(context.Background(), operationID, allowed)
+}
+
+func completedDeferredReadOnly[Out any](ctx context.Context, store *deferredoperation.Store, operation deferredoperation.Operation, allowed []string) (*mcp.CallToolResult, any, error) {
 	if operation.Status != deferredoperation.StatusCompleted {
 		code := operation.ErrorCode
 		if code == "" {
@@ -95,7 +104,7 @@ func completedDeferredReadOnly[Out any](store *deferredoperation.Store, operatio
 		}
 		return compactDeferredError(code, message), map[string]any{"operationId": operation.OperationID, "status": operation.Status, "errorCode": code}, nil
 	}
-	payload, _, err := store.ReadResult(operation.OperationID, allowed)
+	payload, _, err := store.ReadResultContext(ctx, operation.OperationID, allowed)
 	if err != nil {
 		return compactDeferredError(handler.ErrCodeOperationFailed, "deferred read-only result could not be read"), map[string]any{"errorCode": handler.ErrCodeOperationFailed}, nil
 	}

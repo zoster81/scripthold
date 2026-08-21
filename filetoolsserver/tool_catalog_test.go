@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +69,20 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	}
 	if byName["write_whole_file"] == nil {
 		t.Fatal("runtime must expose write_whole_file")
+	}
+
+	deferredDefinition := toolcatalog.Must("deferred_operation")
+	if deferredDefinition.Annotations.ReadOnlyHint || !deferredDefinition.Annotations.IdempotentHint || deferredDefinition.Annotations.DestructiveHint == nil || !*deferredDefinition.Annotations.DestructiveHint {
+		t.Fatalf("deferred_operation annotations do not describe cancel authority: %#v", deferredDefinition.Annotations)
+	}
+	if !strings.Contains(deferredDefinition.Description, "cancel") || !strings.Contains(deferredDefinition.Description, "oversized") {
+		t.Fatalf("deferred_operation description does not describe both reliability paths: %q", deferredDefinition.Description)
+	}
+	for _, name := range []string{"fingerprint_paths", "grep_text_files", "search_files", "tree", "source_symbols"} {
+		definition := toolcatalog.Must(name)
+		if !strings.Contains(definition.Description, "deferred_operation") || !strings.Contains(definition.Description, "Tasks") {
+			t.Fatalf("eligible tool %q does not disclose possible async handoff: %q", name, definition.Description)
+		}
 	}
 
 	for _, definition := range definitions {

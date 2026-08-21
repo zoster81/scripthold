@@ -3,7 +3,7 @@ package deferredoperation
 import (
 	"context"
 	"encoding/json"
-	"sync"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -126,34 +126,53 @@ func TestExecuteBoundsCrossProcessConcurrency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var active atomic.Int32
-	var peak atomic.Int32
-	release := make(chan struct{})
-	var wg sync.WaitGroup
-	for _, id := range []string{first.OperationID, second.OperationID} {
-		wg.Add(1)
-		go func(operationID string) {
-			defer wg.Done()
-			_ = store.Execute(context.Background(), operationID, func(ctx context.Context, request Request) ([]byte, ResultMetadata, error) {
-				current := active.Add(1)
-				for {
-					old := peak.Load()
-					if current <= old || peak.CompareAndSwap(old, current) {
-						break
-					}
-				}
-				<-release
-				active.Add(-1)
-				return []byte(`{"ok":true}`), ResultMetadata{}, nil
-			})
-		}(id)
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- store.Execute(context.Background(), first.OperationID, func(context.Context, Request) ([]byte, ResultMetadata, error) {
+			close(firstStarted)
+			<-releaseFirst
+			return []byte(`{"ok":true}`), ResultMetadata{}, nil
+		})
+	}()
+	select {
+	case <-firstStarted:
+	case <-time.After(30 * time.Second):
+		close(releaseFirst)
+		t.Fatal("first executor did not acquire the only execution slot")
 	}
-	time.Sleep(250 * time.Millisecond)
-	if got := peak.Load(); got != 1 {
-		close(release)
-		wg.Wait()
-		t.Fatalf("peak concurrency = %d, want 1", got)
+
+	var secondCalls atomic.Int32
+	secondCtx, cancelSecond := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	err = store.Execute(secondCtx, second.OperationID, func(context.Context, Request) ([]byte, ResultMetadata, error) {
+		secondCalls.Add(1)
+		return []byte(`{"ok":true}`), ResultMetadata{}, nil
+	})
+	cancelSecond()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		close(releaseFirst)
+		<-firstDone
+		t.Fatalf("second execution while slot occupied = %v, want context deadline exceeded", err)
 	}
-	close(release)
-	wg.Wait()
+	if calls := secondCalls.Load(); calls != 0 {
+		close(releaseFirst)
+		<-firstDone
+		t.Fatalf("second execution entered callback %d times while only slot was occupied", calls)
+	}
+
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first execution failed: %v", err)
+	}
+	if err := store.Execute(context.Background(), second.OperationID, func(context.Context, Request) ([]byte, ResultMetadata, error) {
+		secondCalls.Add(1)
+		return []byte(`{"ok":true}`), ResultMetadata{}, nil
+	}); err != nil {
+		t.Fatalf("second execution after slot release failed: %v", err)
+	}
+	if calls := secondCalls.Load(); calls != 1 {
+		t.Fatalf("second execution callback calls = %d, want 1", calls)
+	}
 }

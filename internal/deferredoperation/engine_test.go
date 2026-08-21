@@ -11,9 +11,11 @@ import (
 
 func TestEngineSubmitStartsIndependentWorkAndFastWaitCompletes(t *testing.T) {
 	store, public := newDeferredTestStore(t)
+	started := make(chan struct{})
 	engine := newEngineWithLauncher(store, func(operationID string) error {
 		go func() {
 			_ = store.Execute(context.Background(), operationID, func(context.Context, Request) ([]byte, ResultMetadata, error) {
+				close(started)
 				return []byte(`{"ok":true}`), ResultMetadata{}, nil
 			})
 		}()
@@ -22,6 +24,11 @@ func TestEngineSubmitStartsIndependentWorkAndFastWaitCompletes(t *testing.T) {
 	operation, err := engine.Submit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor did not start")
 	}
 	observed, finished, err := engine.Wait(context.Background(), operation.OperationID, []string{public}, time.Second)
 	if err != nil {
@@ -35,17 +42,25 @@ func TestEngineSubmitStartsIndependentWorkAndFastWaitCompletes(t *testing.T) {
 func TestEngineSlowWaitReturnsRunningWithoutOwningExecution(t *testing.T) {
 	store, public := newDeferredTestStore(t)
 	release := make(chan struct{})
+	started := make(chan struct{})
 	engine := newEngineWithLauncher(store, func(operationID string) error {
 		go func() {
 			_ = store.Execute(context.Background(), operationID, func(context.Context, Request) ([]byte, ResultMetadata, error) {
+				close(started)
 				<-release
 				return []byte(`{"ok":true}`), ResultMetadata{}, nil
 			})
 		}()
-		return nil
+		select {
+		case <-started:
+			return nil
+		case <-time.After(30 * time.Second):
+			return errors.New("executor did not start")
+		}
 	})
 	operation, err := engine.Submit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
 	if err != nil {
+		close(release)
 		t.Fatal(err)
 	}
 	observed, finished, err := engine.Wait(context.Background(), operation.OperationID, []string{public}, 100*time.Millisecond)
