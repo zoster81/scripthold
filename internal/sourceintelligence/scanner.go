@@ -213,6 +213,15 @@ func (scanner *sourceScanner) run() error {
 			}
 			continue
 		}
+		if scanner.profile.BackslashEscapesOutsideStrings && scanner.text[scanner.at] == '\\' {
+			escapedNewline := scanner.at+1 < len(scanner.text) && isNewlineStart(scanner.text[scanner.at+1])
+			scanner.consumeBackslashEscape()
+			if escapedNewline {
+				scanner.continued = true
+			}
+			scanner.lineStart = false
+			continue
+		}
 		if match, ok := scanner.stringRuleAt(scanner.at); ok {
 			if err := scanner.scanString(match); err != nil {
 				return err
@@ -595,6 +604,9 @@ func (scanner *sourceScanner) scanOperator() error {
 	if isOperatorRune(r) {
 		for scanner.at < len(scanner.text) {
 			next, nextSize := utf8.DecodeRuneInString(scanner.text[scanner.at:])
+			if scanner.profile.BackslashEscapesOutsideStrings && next == '\\' {
+				break
+			}
 			if !isOperatorRune(next) || isDelimiterOrPunctuation(next) {
 				break
 			}

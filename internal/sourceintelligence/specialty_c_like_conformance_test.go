@@ -74,6 +74,387 @@ func TestSpecialtyCLikeConformanceAcrossEncodingsAndDeterminism(t *testing.T) {
 	}
 }
 
+func TestALQuotedObjectNamesRemainStructural(t *testing.T) {
+	text := "namespace Contoso.App;\n" +
+		"pageextension 50104 \"Customer Card Ext\" extends \"Customer Card\"\n" +
+		"{\n" +
+		"    trigger OnOpenPage()\n" +
+		"    begin\n" +
+		"    end;\n" +
+		"}\n"
+	result, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("quoted AL object analysis incomplete: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Contoso.App.Customer Card Ext", "Contoso.App.Customer Card Ext.OnOpenPage"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("quoted AL object missing %q; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	if len(result.Relations) != 1 || result.Relations[0].Kind != "extends" || result.Relations[0].Source != "Contoso.App.Customer Card Ext" || result.Relations[0].Target != "Customer Card" {
+		t.Fatalf("quoted AL extension relation=%+v", result.Relations)
+	}
+}
+
+func TestALConditionalBranchesPreserveStructureAndDeclarations(t *testing.T) {
+	t.Run("shared structural closings", func(t *testing.T) {
+		text := "namespace Contoso.App;\n" +
+			"pageextension 50104 CustomerCardExt extends \"Customer Card\"\n" +
+			"{\n" +
+			"    layout\n" +
+			"    {\n" +
+			"#if FEATURE\n" +
+			"        addlast(General)\n" +
+			"        {\n" +
+			"            group(FeatureGroup)\n" +
+			"            {\n" +
+			"#else\n" +
+			"        addlast(General)\n" +
+			"        {\n" +
+			"            group(FallbackGroup)\n" +
+			"            {\n" +
+			"#endif\n" +
+			"                field(SharedField; Rec.SharedField)\n" +
+			"                {\n" +
+			"                    ApplicationArea = All;\n" +
+			"                }\n" +
+			"            }\n" +
+			"        }\n" +
+			"    }\n" +
+			"    trigger OnOpenPage()\n" +
+			"    begin\n" +
+			"    end;\n" +
+			"}\n"
+		options := testAnalyzeOptions(true, 128)
+		options.MaxNesting = 5
+		result, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+			t.Fatalf("conditional AL structure incomplete: %+v", result.Analysis)
+		}
+		byName := symbolsByQualifiedName(result.Analysis.Symbols)
+		for _, name := range []string{"Contoso.App.CustomerCardExt", "Contoso.App.CustomerCardExt.OnOpenPage"} {
+			if _, ok := byName[name]; !ok {
+				t.Fatalf("conditional AL structure missing %q; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+	})
+
+	t.Run("all source branches remain visible", func(t *testing.T) {
+		text := "namespace Contoso.App;\n" +
+			"#if FEATURE\n" +
+			"codeunit 50110 FeatureUnit { procedure FeatureOnly() begin end; }\n" +
+			"#elif LEGACY\n" +
+			"codeunit 50111 LegacyUnit { procedure LegacyOnly() begin end; }\n" +
+			"#else\n" +
+			"codeunit 50112 FallbackUnit { procedure FallbackOnly() begin end; }\n" +
+			"#endif\n"
+		result, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+			t.Fatalf("conditional AL branch union incomplete: %+v", result.Analysis)
+		}
+		byName := symbolsByQualifiedName(result.Analysis.Symbols)
+		for _, name := range []string{
+			"Contoso.App.FeatureUnit", "Contoso.App.FeatureUnit.FeatureOnly",
+			"Contoso.App.LegacyUnit", "Contoso.App.LegacyUnit.LegacyOnly",
+			"Contoso.App.FallbackUnit", "Contoso.App.FallbackUnit.FallbackOnly",
+		} {
+			if _, ok := byName[name]; !ok {
+				t.Fatalf("conditional AL branch union missing %q; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+	})
+
+	t.Run("nested branches remain visible", func(t *testing.T) {
+		text := "namespace Contoso.App;\n" +
+			"#if OUTER\n" +
+			"codeunit 50120 OuterUnit { procedure OuterOnly() begin end; }\n" +
+			"#if INNER\n" +
+			"codeunit 50121 InnerUnit { procedure InnerOnly() begin end; }\n" +
+			"#else\n" +
+			"codeunit 50122 InnerFallbackUnit { procedure InnerFallbackOnly() begin end; }\n" +
+			"#endif\n" +
+			"#else\n" +
+			"codeunit 50123 OuterFallbackUnit { procedure OuterFallbackOnly() begin end; }\n" +
+			"#endif\n"
+		result, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+			t.Fatalf("nested conditional AL analysis incomplete: %+v", result.Analysis)
+		}
+		byName := symbolsByQualifiedName(result.Analysis.Symbols)
+		for _, name := range []string{
+			"Contoso.App.OuterUnit", "Contoso.App.OuterUnit.OuterOnly",
+			"Contoso.App.InnerUnit", "Contoso.App.InnerUnit.InnerOnly",
+			"Contoso.App.InnerFallbackUnit", "Contoso.App.InnerFallbackUnit.InnerFallbackOnly",
+			"Contoso.App.OuterFallbackUnit", "Contoso.App.OuterFallbackUnit.OuterFallbackOnly",
+		} {
+			if _, ok := byName[name]; !ok {
+				t.Fatalf("nested conditional AL analysis missing %q; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+	})
+
+	t.Run("malformed directives fail closed", func(t *testing.T) {
+		text := "namespace Contoso.App;\n#if FEATURE\ncodeunit 50130 BrokenConditional { }\n"
+		result, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+			t.Fatalf("unterminated AL conditional was overclaimed: %+v", result.Analysis)
+		}
+		found := false
+		for _, diagnostic := range result.Analysis.Diagnostics {
+			if diagnostic.Code == "al-conditional-directive" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("unterminated AL conditional missing explicit diagnostic: %+v", result.Analysis.Diagnostics)
+		}
+	})
+}
+
+func TestALConditionalGroupsShareGlobalSymbolState(t *testing.T) {
+	text := "namespace Contoso.App;\n" +
+		"report 50150 DemoReport\n" +
+		"{\n" +
+		"    dataset\n" +
+		"    {\n" +
+		"#if not CLEAN28\n" +
+		"        dataitem(LegacyContainer; Integer)\n" +
+		"        {\n" +
+		"#endif\n" +
+		"            dataitem(SharedItem; Integer)\n" +
+		"            {\n" +
+		"            }\n" +
+		"#if not CLEAN28\n" +
+		"        }\n" +
+		"#else\n" +
+		"        dataitem(CleanOnly; Integer)\n" +
+		"        {\n" +
+		"        }\n" +
+		"#endif\n" +
+		"    }\n" +
+		"}\n"
+	result, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("repeated AL conditional symbol produced impossible structural variant: %+v", result.Analysis)
+	}
+}
+
+func TestALFieldNamesFollowTheDeclaredNameSlot(t *testing.T) {
+	text := "namespace Contoso.App;\n" +
+		"page 50100 \"Demo Page\"\n" +
+		"{\n" +
+		"    layout\n" +
+		"    {\n" +
+		"        area(content)\n" +
+		"        {\n" +
+		"            field(Space; ' ') { ApplicationArea = All; }\n" +
+		"            field(\"Customer Name\"; Rec.Name) { ApplicationArea = All; }\n" +
+		"        }\n" +
+		"    }\n" +
+		"}\n" +
+		"table 50101 \"Demo Table\"\n" +
+		"{\n" +
+		"    fields\n" +
+		"    {\n" +
+		"        field(1; \"Customer Name\"; Text[100]) { }\n" +
+		"    }\n" +
+		"}\n"
+	result, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid AL field declarations were incomplete: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{
+		"Contoso.App.Demo Page.Space",
+		"Contoso.App.Demo Page.Customer Name",
+		"Contoso.App.Demo Table.Customer Name",
+	} {
+		symbol, ok := byName[name]
+		if !ok || symbol.Kind != SymbolKindField {
+			t.Fatalf("AL field missing %q; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, wrong := range []string{"Contoso.App.Demo Page.Rec", "Contoso.App.Demo Page.Name"} {
+		if _, ok := byName[wrong]; ok {
+			t.Fatalf("AL field source expression leaked as declaration %q", wrong)
+		}
+	}
+}
+
+func TestALConditionalPathPreservesErrorKinds(t *testing.T) {
+	text := "#if FEATURE\ncodeunit 50140 ConditionalUnit { }\n#endif\n"
+
+	invalid := testAnalyzeOptions(true, 64)
+	invalid.Limits.MaxSymbols = 0
+	if _, err := (ALAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), invalid); operation.KindOf(err) != operation.KindInvalidInput {
+		t.Fatalf("conditional AL invalid options kind=%v err=%v", operation.KindOf(err), err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (ALAnalyzer{}).Analyze(ctx, sourceDocumentForScanner(text), testAnalyzeOptions(true, 64)); operation.KindOf(err) != operation.KindCancelled {
+		t.Fatalf("conditional AL cancellation kind=%v err=%v", operation.KindOf(err), err)
+	}
+}
+
+func TestALConditionalExpressionParserUsesDocumentedOperators(t *testing.T) {
+	expression, err := alConditionalDirectiveExpression("#if not CLEAN28 and (FEATURE or FALLBACK) // comment", "#if")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name       string
+		assignment map[string]bool
+		want       bool
+	}{
+		{name: "feature", assignment: map[string]bool{"clean28": false, "feature": true, "fallback": false}, want: true},
+		{name: "fallback", assignment: map[string]bool{"clean28": false, "feature": false, "fallback": true}, want: true},
+		{name: "neither", assignment: map[string]bool{"clean28": false, "feature": false, "fallback": false}, want: false},
+		{name: "clean", assignment: map[string]bool{"clean28": true, "feature": true, "fallback": true}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := alConditionalEvaluate(expression, tc.assignment) == alConditionalTrue
+			if got != tc.want {
+				t.Fatalf("conditional expression = %v want %v", got, tc.want)
+			}
+		})
+	}
+	if _, err := alConditionalDirectiveExpression("#if FEATURE xor OTHER", "#if"); err == nil {
+		t.Fatal("unsupported AL conditional operator was accepted")
+	}
+}
+
+func TestALConditionalVariantPlanningIsBoundedAndFailClosed(t *testing.T) {
+	condition := func(index int) *alConditionalExpr {
+		return &alConditionalExpr{kind: alConditionalExprSymbol, symbol: fmt.Sprintf("feature_%d", index)}
+	}
+	independent := make([]alConditionalGroup, 100)
+	for index := range independent {
+		independent[index] = alConditionalGroup{
+			openOffset:   index,
+			parentGroup:  -1,
+			parentBranch: -1,
+			branches: []alConditionalBranch{
+				{start: index * 2, end: index*2 + 1, condition: condition(index)},
+				{start: index*2 + 1, end: index*2 + 2, elseBranch: true},
+			},
+		}
+	}
+	variants, issue := alConditionalVariantSelections(independent)
+	if issue != nil {
+		t.Fatalf("independent conditional groups unexpectedly exceeded variant budget: %+v", issue)
+	}
+	if len(variants) != 2 {
+		t.Fatalf("independent conditional groups produced %d variants, want 2", len(variants))
+	}
+
+	nested := make([]alConditionalGroup, alConditionalVariantLimit)
+	for index := range nested {
+		parent := index - 1
+		nested[index] = alConditionalGroup{
+			openOffset:   index,
+			parentGroup:  parent,
+			parentBranch: 0,
+			branches: []alConditionalBranch{
+				{start: index * 2, end: index*2 + 1, condition: condition(index)},
+				{start: index*2 + 1, end: index*2 + 2, elseBranch: true},
+			},
+		}
+	}
+	variants, issue = alConditionalVariantSelections(nested)
+	if issue == nil || !strings.Contains(issue.message, "more than 32 structural variants") {
+		t.Fatalf("pathological nested conditionals did not fail closed: variants=%d issue=%+v", len(variants), issue)
+	}
+}
+
+func TestALConditionalMergeIsIncrementalBoundedAndConflictAware(t *testing.T) {
+	limits := SymbolBuilderLimits{MaxSymbols: 2, MaxSignatureBytes: 128, MaxDiagnostics: 8}
+	merge := newALConditionalMerge(limits)
+	symbol := func(id string, offset int) NormalizedSymbol {
+		return NormalizedSymbol{ID: id, Name: id, QualifiedName: id, declarationOffsets: OffsetRange{Start: offset, End: offset + 1}, nameOffsets: OffsetRange{Start: offset, End: offset + 1}}
+	}
+	dependency := func(value string, line int) StructuralDependency {
+		return StructuralDependency{Kind: StructuralDependencyImport, Value: value, Range: Range{Start: Position{Line: line, Column: 1}, End: Position{Line: line, Column: 2}}, Evidence: SymbolEvidenceStructural}
+	}
+	relation := func(source string, line int) StructuralRelation {
+		return StructuralRelation{Kind: "extends", Source: source, Target: "Base", Range: Range{Start: Position{Line: line, Column: 1}, End: Position{Line: line, Column: 2}}, Evidence: SymbolEvidenceStructural}
+	}
+	merge.add(AnalyzerResult{
+		Analysis:     AnalysisResult{CoverageComplete: true, Symbols: []NormalizedSymbol{symbol("b", 10), symbol("a", 0)}},
+		Dependencies: []StructuralDependency{dependency("one", 1), dependency("two", 2)},
+		Relations:    []StructuralRelation{relation("One", 1), relation("Two", 2)},
+	})
+	merge.add(AnalyzerResult{
+		Analysis:     AnalysisResult{CoverageComplete: true, Symbols: []NormalizedSymbol{symbol("c", 20)}},
+		Dependencies: []StructuralDependency{dependency("three", 3)},
+		Relations:    []StructuralRelation{relation("Three", 3)},
+	})
+	result := merge.finish()
+	if len(result.Analysis.Symbols) != 2 || len(result.Dependencies) != 2 || len(result.Relations) != 2 {
+		t.Fatalf("bounded AL merge sizes symbols=%d dependencies=%d relations=%d", len(result.Analysis.Symbols), len(result.Dependencies), len(result.Relations))
+	}
+	if !result.Analysis.Truncated || result.Analysis.CoverageComplete {
+		t.Fatalf("bounded AL merge did not fail closed: %+v", result.Analysis)
+	}
+	codes := map[string]bool{}
+	for _, diagnostic := range result.Analysis.Diagnostics {
+		codes[diagnostic.Code] = true
+	}
+	for _, code := range []string{"symbol-limit", "dependency-limit", "relation-limit"} {
+		if !codes[code] {
+			t.Fatalf("bounded AL merge missing %s diagnostic: %+v", code, result.Analysis.Diagnostics)
+		}
+	}
+	if result.Analysis.Symbols[0].ID != "a" || result.Analysis.Symbols[1].ID != "b" {
+		t.Fatalf("bounded AL merge symbol order=%v", []string{result.Analysis.Symbols[0].ID, result.Analysis.Symbols[1].ID})
+	}
+
+	conflict := newALConditionalMerge(SymbolBuilderLimits{MaxSymbols: 4, MaxSignatureBytes: 128, MaxDiagnostics: 4})
+	first := symbol("same", 0)
+	second := first
+	second.Name = "different"
+	conflict.add(AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true, Symbols: []NormalizedSymbol{first}}})
+	conflict.add(AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true, Symbols: []NormalizedSymbol{second}}})
+	conflictResult := conflict.finish()
+	if conflictResult.Analysis.CoverageComplete {
+		t.Fatalf("conflicting AL variant symbol was overclaimed: %+v", conflictResult.Analysis)
+	}
+	foundConflict := false
+	for _, diagnostic := range conflictResult.Analysis.Diagnostics {
+		if diagnostic.Code == "al-conditional-symbol-conflict" {
+			foundConflict = true
+			break
+		}
+	}
+	if !foundConflict {
+		t.Fatalf("conflicting AL variant symbol missing diagnostic: %+v", conflictResult.Analysis.Diagnostics)
+	}
+}
+
 func TestDetectionKeepsSharedHeadersAmbiguousAndRoutesDistinctFormats(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

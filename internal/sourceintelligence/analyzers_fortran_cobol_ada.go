@@ -361,11 +361,10 @@ func phase9COBOLLooksFreeForm(text string) bool {
 		for end < len(text) && text[end] != '\r' && text[end] != '\n' {
 			end++
 		}
-		trimmed := strings.TrimSpace(text[start:end])
-		if trimmed != "" && !strings.HasPrefix(trimmed, "*>") {
-			leading := len(text[start:end]) - len(strings.TrimLeft(text[start:end], " \t"))
-			upper := strings.ToUpper(trimmed)
-			return leading < 7 && (strings.HasPrefix(upper, "IDENTIFICATION ") || strings.HasPrefix(upper, "PROGRAM-ID.") || strings.HasPrefix(upper, "ENVIRONMENT ") || strings.HasPrefix(upper, "DATA ") || strings.HasPrefix(upper, "PROCEDURE "))
+		line := text[start:end]
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "*>") && phase9COBOLFreeFormLineEvidence(line) {
+			return true
 		}
 		if end >= len(text) {
 			break
@@ -377,6 +376,54 @@ func phase9COBOLLooksFreeForm(text string) bool {
 		}
 	}
 	return false
+}
+
+func phase9COBOLFreeFormLineEvidence(line string) bool {
+	if !phase9COBOLFixedPrefixCompatible(line) {
+		first := strings.TrimLeft(line, " \t")
+		leading := len(line) - len(first)
+		if leading < 7 {
+			return true
+		}
+	}
+	if utf8.RuneCountInString(line) <= 72 {
+		return false
+	}
+	codeStart := scalarColumnOffset(line, 8)
+	codeEnd := scalarColumnOffset(line, 73)
+	if codeStart >= codeEnd {
+		return false
+	}
+	_, fullComplete := phase9COBOLStripInlineComment(line)
+	_, fixedComplete := phase9COBOLStripInlineComment(line[codeStart:codeEnd])
+	return fullComplete && !fixedComplete
+}
+
+func phase9COBOLFixedPrefixCompatible(line string) bool {
+	if utf8.RuneCountInString(line) < 7 {
+		return false
+	}
+	for column := 1; column <= 6; column++ {
+		offset := scalarColumnOffset(line, column)
+		if offset >= len(line) {
+			return false
+		}
+		r, _ := utf8.DecodeRuneInString(line[offset:])
+		if r != ' ' && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	indicatorOffset := scalarColumnOffset(line, 7)
+	if indicatorOffset >= len(line) {
+		return false
+	}
+	indicator, _ := utf8.DecodeRuneInString(line[indicatorOffset:])
+	switch indicator {
+	case ' ', '*', '/', 'D', 'd', '-':
+		return true
+	default:
+		return false
+	}
 }
 
 func cobolFixedComment(line string) bool {
@@ -430,14 +477,19 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, document, AdaScannerProfile(), options.MaxNesting)
+	scanDocument, err := phase9MaskAdaCharacterLiterals(ctx, document)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, AdaScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	phase9ApplyScanDiagnostics(builder, scan, "ada")
 	dependencies := []StructuralDependency{}
 	var scopes []phase9Scope
-	for _, line := range lines {
+	for lineIndex := range lines {
+		line := lines[lineIndex]
 		if len(line.Tokens) == 0 {
 			continue
 		}
@@ -462,8 +514,11 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if first == "end" {
 			if len(scopes) > 0 && len(line.Tokens) > 1 {
 				closing := line.Tokens[1].Text
+				if name, _, _, ok := phase9AdaSelectedName(line.Tokens, 1); ok {
+					closing = name
+				}
 				current := scopes[len(scopes)-1]
-				if strings.EqualFold(closing, "package") || strings.EqualFold(closing, phase9QualifiedTail(current.parent.QualifiedName)) {
+				if strings.EqualFold(closing, "package") || strings.EqualFold(closing, current.parent.QualifiedName) || strings.EqualFold(closing, phase9QualifiedTail(current.parent.QualifiedName)) {
 					scopes = scopes[:len(scopes)-1]
 				}
 			}
@@ -475,13 +530,13 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "body") {
 				nameStart = 2
 			}
-			nameIndex := phase9FirstIdentifier(line.Tokens, nameStart)
-			if nameIndex < 0 {
+			name, nameIndex, nameEnd, ok := phase9AdaSelectedName(line.Tokens, nameStart)
+			if !ok {
 				continue
 			}
-			symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: line.Tokens[nameIndex].Text, Parent: parent,
-				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if ok && phase9AdaPackageOpensScope(line.Tokens, nameIndex) {
+			symbol, added := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: name, Parent: parent,
+				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+			if added && phase9AdaPackageOpensScope(line.Tokens, nameEnd-1, phase9AdaNextTokens(lines, lineIndex+1)) {
 				scopes = append(scopes, phase9Scope{label: "package", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 			}
 			continue
@@ -506,18 +561,100 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9AdaPackageOpensScope(tokens []Token, nameIndex int) bool {
-	for index := nameIndex + 1; index < len(tokens); index++ {
+func phase9MaskAdaCharacterLiterals(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
+	if document == nil || !strings.Contains(document.Text, "'") {
+		return document, nil
+	}
+	masked := []byte(document.Text)
+	changed := false
+	for index := 0; index < len(document.Text); {
+		if index&0x3fff == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		if document.Text[index] != '\'' || index+1 >= len(document.Text) {
+			_, size := utf8.DecodeRuneInString(document.Text[index:])
+			if size <= 0 {
+				size = 1
+			}
+			index += size
+			continue
+		}
+		value, size := utf8.DecodeRuneInString(document.Text[index+1:])
+		if value == utf8.RuneError && size == 0 {
+			index++
+			continue
+		}
+		closeAt := index + 1 + size
+		if value == '\n' || value == '\r' || closeAt >= len(document.Text) || document.Text[closeAt] != '\'' {
+			index++
+			continue
+		}
+		for offset := index; offset <= closeAt; offset++ {
+			masked[offset] = ' '
+		}
+		changed = true
+		index = closeAt + 1
+	}
+	if !changed {
+		return document, nil
+	}
+	clone := *document
+	clone.Text = string(masked)
+	clone.lineStarts = buildLineStarts(clone.Text)
+	return &clone, nil
+}
+
+func phase9AdaSelectedName(tokens []Token, start int) (string, int, int, bool) {
+	nameStart := phase9FirstIdentifier(tokens, start)
+	if nameStart < 0 {
+		return "", 0, 0, false
+	}
+	nameEnd := nameStart + 1
+	for nameEnd+1 < len(tokens) && tokens[nameEnd].Text == "." && tokens[nameEnd+1].Kind == TokenIdentifier {
+		nameEnd += 2
+	}
+	name := tokenRangeText(tokens, nameStart, nameEnd)
+	return name, nameStart, nameEnd, name != ""
+}
+
+func phase9AdaNextTokens(lines []LogicalLine, start int) []Token {
+	for index := max(start, 0); index < len(lines); index++ {
+		if phase9LineEndToken(lines[index].Tokens) > 0 {
+			return lines[index].Tokens
+		}
+	}
+	return nil
+}
+
+func phase9AdaPackageOpensScope(tokens []Token, nameIndex int, nextTokens []Token) bool {
+	end := phase9LineEndToken(tokens)
+	hasIs := false
+	for index := nameIndex + 1; index < end; index++ {
 		switch strings.ToLower(tokens[index].Text) {
 		case "renames":
 			return false
-		case "new":
-			if index > nameIndex+1 && strings.EqualFold(tokens[index-1].Text, "is") {
+		case "is":
+			hasIs = true
+		case "new", "separate":
+			if hasIs {
 				return false
 			}
 		case ";":
 			return true
 		}
+	}
+	nextEnd := phase9LineEndToken(nextTokens)
+	if nextEnd == 0 {
+		return true
+	}
+	if hasIs && (strings.EqualFold(nextTokens[0].Text, "new") || strings.EqualFold(nextTokens[0].Text, "separate")) {
+		return false
+	}
+	if !hasIs && strings.EqualFold(nextTokens[0].Text, "is") && nextEnd > 1 &&
+		(strings.EqualFold(nextTokens[1].Text, "new") || strings.EqualFold(nextTokens[1].Text, "separate")) {
+		return false
 	}
 	return true
 }

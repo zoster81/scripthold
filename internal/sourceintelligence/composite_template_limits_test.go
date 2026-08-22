@@ -82,6 +82,22 @@ func TestDotNetCompositeAggregateRegionBudgetAndMalformedClient(t *testing.T) {
 	}
 }
 
+func TestBladeInlinePHPDirectiveDoesNotOpenBlock(t *testing.T) {
+	text := "@php($selectedOption = old('x') ?? $cartRule->x)\n<div>{{ $selectedOption }}</div>\n"
+	result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("inline Blade @php directive lowered coverage: %+v", result.Analysis)
+	}
+	for _, diagnostic := range result.Analysis.Diagnostics {
+		if diagnostic.Code == "blade-unterminated-region" {
+			t.Fatalf("inline Blade @php directive was treated as a block opening: %+v", diagnostic)
+		}
+	}
+}
+
 func TestUnterminatedCompositeRegionsLowerCoverage(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

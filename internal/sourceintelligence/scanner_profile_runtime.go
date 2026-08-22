@@ -25,7 +25,9 @@ func normalizeScannerProfile(profile ScannerProfile) ScannerProfile {
 	if profile.Identifier == (IdentifierPolicy{}) {
 		profile.Identifier = DefaultIdentifierPolicy()
 	}
-	if len(profile.Delimiters) == 0 {
+	if profile.DisableDelimiterTracking {
+		profile.Delimiters = nil
+	} else if len(profile.Delimiters) == 0 {
 		profile.Delimiters = defaultDelimiterRules()
 	} else {
 		profile.Delimiters = append([]DelimiterRule(nil), profile.Delimiters...)

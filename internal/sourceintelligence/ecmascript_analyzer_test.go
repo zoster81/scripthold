@@ -126,6 +126,27 @@ const node = <Widget prop="class TSXFake {}" />;
 	}
 }
 
+func TestTypeScriptAnalyzerClassPropertyNamedTypeIsNotTypeAlias(t *testing.T) {
+	text := `class File {
+    public type: typeof File.TYPE_CREATE;
+    static TYPE_CREATE: 'create';
+}
+`
+	result, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if symbol, ok := byName["File.type"]; !ok || symbol.Kind != SymbolKindProperty {
+		t.Fatalf("File.type = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.Kind == SymbolKindAlias && symbol.Name == "File" {
+			t.Fatalf("class property named type produced false alias: %+v", symbol)
+		}
+	}
+}
+
 func TestJavaScriptAnalyzerRegexLiteralsDoNotCorruptDelimiterState(t *testing.T) {
 	text := `const closeBrace = /}/g;
 const openBrace = /\{/;

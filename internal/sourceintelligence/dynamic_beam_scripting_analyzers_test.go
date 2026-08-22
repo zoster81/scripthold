@@ -200,6 +200,140 @@ func TestRealWorldShellMultilineQuotedStringsRemainOpaque(t *testing.T) {
 	}
 }
 
+func TestBashCasePatternsDoNotCreateDelimiterDiagnostics(t *testing.T) {
+	text := "case \"$1\" in\n  start|stop) : ;;\n  *) : ;;\nesac\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Bash case patterns reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "real") {
+		t.Fatalf("real function missing after Bash case statement: %v", names)
+	}
+}
+
+func TestBashInlineCaseAfterElifMasksPatternClosers(t *testing.T) {
+	text := "check() {\n  if false; then :\n  elif case \"$line\" in *'='*) true;; *) false;; esac; then\n    :\n  fi\n}\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid inline Bash case after elif reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "check") || !containsSortedString(names, "real") {
+		t.Fatalf("Bash functions missing around inline case after elif: %v", names)
+	}
+}
+
+func TestBashCasePatternEscapesRemainOpaque(t *testing.T) {
+	text := "case \"$mirror\" in\n  *\\`* | *\\\\* | *\\'* | *\\(* | *' '* ) : ;;\nesac\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Bash escaped case pattern reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "real") {
+		t.Fatalf("real function missing after escaped Bash case pattern: %v", names)
+	}
+}
+
+func TestBashCasePatternsWithEscapedQuotesRemainOpaque(t *testing.T) {
+	text := "case \"$value\" in\n  *[\\\\\\\"\\']*) : ;;\nesac\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Bash escaped-quote case pattern reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "real") {
+		t.Fatalf("real function missing after escaped-quote case pattern: %v", names)
+	}
+}
+
+func TestBashDoubleQuotedCommandSubstitutionKeepsInnerQuotesNested(t *testing.T) {
+	text := "read_conf() {\n  value=\"$(\n    eval \"$(grep \"^key *=\" \"$file\")\"\n    eval \"printf \\\"%s\\\" \\\"\\$key\\\"\"\n  )\"\n}\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Bash quoted command substitution reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "read_conf") || !containsSortedString(names, "real") {
+		t.Fatalf("Bash functions missing around quoted command substitution: %v", names)
+	}
+}
+
+func TestBashDoubleQuotedStringSupportsMultipleCommandSubstitutions(t *testing.T) {
+	text := "command_info() {\n  INFO=\"$(which \"${COMMAND}\") ($(type \"${COMMAND}\" | command awk '{ $1=$2=$3=$4=\"\" ;print }' | command sed -e 's/^\\ *//g' -Ee \"s/\\`|'//g\"))\"\n}\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Bash string with multiple command substitutions reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "command_info") || !containsSortedString(names, "real") {
+		t.Fatalf("Bash functions missing around multiple command substitutions: %v", names)
+	}
+}
+
+func TestBashComplexParameterExpansionPatternRemainsOpaque(t *testing.T) {
+	text := "extract() {\n  txtvalue_old=${response#*{\\\"name\\\":\\\"\"$_sub_domain\"\\\",\\\"ttl\\\":20,\\\"type\\\":\\\"TXT\\\",\\\"content\\\":\\\"}\n  txtvalue_old=${txtvalue_old%%\\\"*}\n}\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Bash parameter-expansion pattern reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "extract") || !containsSortedString(names, "real") {
+		t.Fatalf("Bash functions missing around parameter expansion: %v", names)
+	}
+}
+
+func TestBashMalformedParameterExpansionRemainsIncomplete(t *testing.T) {
+	text := "good() { :; }\nvalue=${broken\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+		t.Fatalf("malformed Bash parameter expansion was hidden: %+v", result.Analysis)
+	}
+}
+
+func TestBashMalformedQuotedCommandSubstitutionRemainsIncomplete(t *testing.T) {
+	text := "good() { :; }\nvalue=\"$(printf '%s' \"broken\"\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+		t.Fatalf("malformed Bash command substitution was hidden: %+v", result.Analysis)
+	}
+}
+
+func TestBashHeredocLexicalHazardsStayOpaque(t *testing.T) {
+	text := "cat <<'EOF'\n\"$(unterminated\n*\\`* | *\\'*\nEOF\nvalue=\"$(printf \"%s\" \"$name\")\"\nreal() { :; }\n"
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("opaque Bash heredoc disrupted later valid source: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "real") {
+		t.Fatalf("real function missing after opaque heredoc: %v", names)
+	}
+}
+
 func TestDynamicBEAMScriptingCapabilityCeilings(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

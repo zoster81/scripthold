@@ -682,49 +682,426 @@ func phase8SkipQuoted(text string, start int, delimiter string, backslashEscapes
 
 func maskAutoHotkeyCodeStrings(text string) (string, bool) {
 	result := []byte(text)
+	maskAutoHotkeyEscapedStructural(text, result)
+	maskAutoHotkeyBracketHotkeys(text, result)
+	maskAutoHotkeyContinuationSections(text, result)
+	maskAutoHotkeyLegacyRawAssignments(text, result)
+
 	complete := true
 	for lineStart := 0; lineStart < len(text); {
 		lineEnd, next := phase8LineBounds(text, lineStart)
-		line := text[lineStart:lineEnd]
+		line := string(result[lineStart:lineEnd])
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			lineStart = next
 			continue
 		}
 		for at := lineStart; at < lineEnd; at++ {
-			if text[at] == ';' {
+			if result[at] == ';' {
 				break
 			}
-			if text[at] != '"' {
+			quote := result[at]
+			if quote != '"' && quote != '\'' {
 				continue
 			}
-			start := at
-			closed := false
-			at++
-			for at < lineEnd {
-				if text[at] == '`' && at+1 < lineEnd {
-					at += 2
-					continue
-				}
-				if text[at] == '"' {
-					if at+1 < lineEnd && text[at+1] == '"' {
-						at += 2
-						continue
-					}
-					at++
-					closed = true
-					break
-				}
-				at++
+			if quote == '\'' && (!autoHotkeySingleQuoteStarts(result, lineStart, at) || autoHotkeyApostropheHotkey(result, lineStart, at, lineEnd)) {
+				continue
 			}
-			phase8MaskRange(result, start, at)
+			end, closed := autoHotkeyQuoteEnd(result, at, lineEnd, quote)
+			if !closed {
+				if continuedEnd, ok := autoHotkeyContinuedQuoteEnd(text, result, next, quote); ok {
+					end, closed = continuedEnd, true
+				}
+			}
+			phase8MaskRange(result, at, end)
 			if !closed {
 				complete = false
 			}
-			at--
+			at = end - 1
 		}
 		lineStart = next
 	}
+	maskAutoHotkeyLegacyCommandBraceTransitions(text, result)
 	return string(result), complete
+}
+
+func maskAutoHotkeyLegacyCommandBraceTransitions(text string, result []byte) {
+	for lineStart := 0; lineStart < len(text); {
+		lineEnd, next := phase8LineBounds(text, lineStart)
+		at := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
+		if at >= lineEnd || !autoHotkeyLegacyIdentifierStart(result[at]) {
+			lineStart = next
+			continue
+		}
+		at++
+		for at < lineEnd && autoHotkeyLegacyIdentifierContinue(result[at]) {
+			at++
+		}
+		for at < lineEnd && (result[at] == ' ' || result[at] == '\t') {
+			at++
+		}
+		if at >= lineEnd || result[at] != ',' {
+			lineStart = next
+			continue
+		}
+		for cursor := at + 1; cursor+1 < lineEnd; cursor++ {
+			if result[cursor] == ';' {
+				break
+			}
+			if result[cursor] == '}' && result[cursor+1] == '{' {
+				phase8MaskRange(result, cursor, cursor+2)
+				cursor++
+			}
+		}
+		lineStart = next
+	}
+}
+
+func maskAutoHotkeyEscapedStructural(text string, result []byte) {
+	for lineStart := 0; lineStart < len(text); {
+		lineEnd, next := phase8LineBounds(text, lineStart)
+		for at := lineStart; at+1 < lineEnd; at++ {
+			if result[at] != '`' {
+				continue
+			}
+			if autoHotkeyStructuralEscapeTarget(result[at+1]) {
+				phase8MaskRange(result, at, at+2)
+			}
+			at++
+		}
+		lineStart = next
+	}
+}
+
+func autoHotkeyStructuralEscapeTarget(value byte) bool {
+	switch value {
+	case '\'', '"', ';', '(', ')', '[', ']', '{', '}':
+		return true
+	default:
+		return false
+	}
+}
+
+func maskAutoHotkeyBracketHotkeys(text string, result []byte) {
+	for lineStart := 0; lineStart < len(text); {
+		lineEnd, next := phase8LineBounds(text, lineStart)
+		at := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
+		for at < lineEnd {
+			switch result[at] {
+			case '<', '>', '!', '^', '+', '#', '*', '~', '$':
+				at++
+			default:
+				goto key
+			}
+		}
+	key:
+		if at+2 < lineEnd && (result[at] == '[' || result[at] == ']') && result[at+1] == ':' && result[at+2] == ':' {
+			result[at] = ' '
+		}
+		lineStart = next
+	}
+}
+
+func maskAutoHotkeyLegacyRawAssignments(text string, result []byte) {
+	for lineStart := 0; lineStart < len(text); {
+		lineEnd, next := phase8LineBounds(text, lineStart)
+		at := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
+		if at < lineEnd && result[at] != ';' && result[at] != '#' {
+			if equal := autoHotkeyLegacyAssignmentEqual(result, at, lineEnd); equal >= 0 {
+				rhs := autoHotkeyHorizontalStart(result, equal+1, lineEnd)
+				if autoHotkeyLegacyRawCloser(result, rhs, lineEnd) || autoHotkeyLegacyRawQuoteColon(result, rhs, lineEnd) {
+					phase8MaskRange(result, equal+1, lineEnd)
+				}
+			}
+		}
+		lineStart = next
+	}
+}
+
+func autoHotkeyLegacyAssignmentEqual(data []byte, start, end int) int {
+	if start >= end || !autoHotkeyLegacyIdentifierStart(data[start]) {
+		return -1
+	}
+	at := start + 1
+	for at < end && autoHotkeyLegacyIdentifierContinue(data[at]) {
+		at++
+	}
+	for at < end && (data[at] == ' ' || data[at] == '\t') {
+		at++
+	}
+	if at >= end || data[at] != '=' || at+1 >= end || data[at+1] == '=' || data[at+1] == '>' {
+		return -1
+	}
+	return at
+}
+
+func autoHotkeyLegacyRawQuoteColon(data []byte, start, end int) bool {
+	if start >= end || data[start] != '"' {
+		return false
+	}
+	quoteEnd, closed := autoHotkeyQuoteEnd(data, start, end, '"')
+	if !closed {
+		return false
+	}
+	at := autoHotkeyHorizontalStart(data, quoteEnd, end)
+	return at < end && data[at] == ':'
+}
+
+func autoHotkeyLegacyRawCloser(data []byte, start, end int) bool {
+	stack := make([]byte, 0, 4)
+	for at := start; at < end; at++ {
+		if data[at] == '`' && at+1 < end {
+			at++
+			continue
+		}
+		if data[at] == ';' {
+			break
+		}
+		if data[at] == '"' || data[at] == '\'' {
+			quoteEnd, closed := autoHotkeyQuoteEnd(data, at, end, data[at])
+			if closed {
+				at = quoteEnd - 1
+				continue
+			}
+		}
+		switch data[at] {
+		case '(', '[', '{':
+			stack = append(stack, data[at])
+		case ')', ']', '}':
+			if len(stack) == 0 || !autoHotkeyDelimiterMatches(stack[len(stack)-1], data[at]) {
+				return true
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	return false
+}
+
+func autoHotkeyDelimiterMatches(open, close byte) bool {
+	return open == '(' && close == ')' || open == '[' && close == ']' || open == '{' && close == '}'
+}
+
+func autoHotkeyLegacyIdentifierStart(value byte) bool {
+	return value == '_' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func autoHotkeyLegacyIdentifierContinue(value byte) bool {
+	return autoHotkeyLegacyIdentifierStart(value) || value >= '0' && value <= '9'
+}
+
+func maskAutoHotkeyContinuationSections(text string, result []byte) {
+	previousStart, previousEnd := -1, -1
+	for lineStart := 0; lineStart < len(text); {
+		lineEnd, next := phase8LineBounds(text, lineStart)
+		trimmedStart := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
+		if autoHotkeyContinuationHeader(result, trimmedStart, lineEnd) {
+			quoteStart, quote, quoted := -1, byte(0), false
+			if previousStart >= 0 {
+				quoteStart, quote, quoted = autoHotkeyUnclosedLineQuote(result, previousStart, previousEnd)
+			}
+			maskEnd, closeLineEnd, closeNext, ok := autoHotkeyContinuationClose(text, result, next, quote, quoted)
+			if ok {
+				maskStart := lineStart
+				if quoted {
+					maskStart = quoteStart
+				}
+				phase8MaskRange(result, maskStart, maskEnd)
+				previousStart, previousEnd = maskEnd, closeLineEnd
+				lineStart = closeNext
+				continue
+			}
+		}
+		previousStart, previousEnd = lineStart, lineEnd
+		lineStart = next
+	}
+}
+
+func autoHotkeyContinuationHeader(data []byte, start, end int) bool {
+	if start >= end || data[start] != '(' {
+		return false
+	}
+	rest := strings.TrimSpace(string(data[start+1 : end]))
+	if comment := strings.IndexByte(rest, ';'); comment >= 0 {
+		rest = strings.TrimSpace(rest[:comment])
+	}
+	if rest == "" {
+		return true
+	}
+	for _, option := range strings.Fields(rest) {
+		lower := strings.ToLower(option)
+		switch {
+		case strings.HasPrefix(lower, "join"):
+		case lower == "ltrim", lower == "ltrim0", lower == "rtrim", lower == "rtrim0":
+		case lower == "comments", lower == "comment", lower == "com", lower == "c":
+		case lower == "quotes", lower == "q", lower == "%", lower == ",", lower == "`":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func autoHotkeyContinuationClose(text string, data []byte, start int, quote byte, quoted bool) (int, int, int, bool) {
+	for lineStart := start; lineStart < len(text); {
+		lineEnd, next := phase8LineBounds(text, lineStart)
+		at := autoHotkeyHorizontalStart(data, lineStart, lineEnd)
+		if at < lineEnd && data[at] == ')' {
+			if !quoted {
+				return lineEnd, lineEnd, next, true
+			}
+			for at++; at < lineEnd; at++ {
+				if data[at] == '`' && at+1 < lineEnd {
+					at++
+					continue
+				}
+				if data[at] != quote {
+					continue
+				}
+				if at+1 < lineEnd && data[at+1] == quote {
+					at++
+					continue
+				}
+				return at + 1, lineEnd, next, true
+			}
+		}
+		lineStart = next
+	}
+	return 0, 0, 0, false
+}
+
+func autoHotkeyUnclosedLineQuote(data []byte, lineStart, lineEnd int) (int, byte, bool) {
+	for at := lineStart; at < lineEnd; at++ {
+		if data[at] == ';' {
+			return -1, 0, false
+		}
+		quote := data[at]
+		if quote != '"' && quote != '\'' {
+			continue
+		}
+		if quote == '\'' && !autoHotkeySingleQuoteStarts(data, lineStart, at) {
+			continue
+		}
+		end, closed := autoHotkeyQuoteEnd(data, at, lineEnd, quote)
+		if !closed {
+			return at, quote, true
+		}
+		at = end - 1
+	}
+	return -1, 0, false
+}
+
+func autoHotkeyQuoteEnd(data []byte, start, lineEnd int, quote byte) (int, bool) {
+	at := start + 1
+	for at < lineEnd {
+		if data[at] == '`' && at+1 < lineEnd {
+			at += 2
+			continue
+		}
+		if data[at] == quote {
+			if at+1 < lineEnd && data[at+1] == quote {
+				at += 2
+				continue
+			}
+			return at + 1, true
+		}
+		at++
+	}
+	return lineEnd, false
+}
+
+func autoHotkeyContinuedQuoteEnd(text string, data []byte, lineStart int, quote byte) (int, bool) {
+	for lineStart < len(data) {
+		lineEnd, next := phase8LineBounds(text, lineStart)
+		at := autoHotkeyHorizontalStart(data, lineStart, lineEnd)
+		if !autoHotkeyExpressionContinuationStart(data, at, lineEnd) {
+			return 0, false
+		}
+		for at < lineEnd {
+			if data[at] == '`' && at+1 < lineEnd {
+				at += 2
+				continue
+			}
+			if data[at] == quote {
+				if at+1 < lineEnd && data[at+1] == quote {
+					at += 2
+					continue
+				}
+				return at + 1, true
+			}
+			at++
+		}
+		lineStart = next
+	}
+	return 0, false
+}
+
+func autoHotkeyExpressionContinuationStart(data []byte, start, end int) bool {
+	if start >= end {
+		return false
+	}
+	if start+1 < end && (data[start] == '+' && data[start+1] == '+' || data[start] == '-' && data[start+1] == '-') {
+		return false
+	}
+	switch data[start] {
+	case ',', '.', '+', '-', '*', '/', '%', '&', '|', '^', '!', '~', '?', ':', '=', '<', '>':
+		return true
+	}
+	for _, word := range []string{"and", "or", "not"} {
+		if end-start < len(word) || !strings.EqualFold(string(data[start:start+len(word)]), word) {
+			continue
+		}
+		if start+len(word) == end || data[start+len(word)] == ' ' || data[start+len(word)] == '\t' {
+			return true
+		}
+	}
+	return false
+}
+
+func autoHotkeyApostropheHotkey(data []byte, lineStart, at, lineEnd int) bool {
+	if at+2 >= lineEnd || data[at+1] != ':' || data[at+2] != ':' {
+		return false
+	}
+	start := autoHotkeyHorizontalStart(data, lineStart, at)
+	for i := start; i < at; i++ {
+		switch data[i] {
+		case '<', '>', '!', '^', '+', '#', '*', '~', '$':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func autoHotkeySingleQuoteStarts(data []byte, lineStart, at int) bool {
+	if at <= lineStart {
+		return true
+	}
+	if data[at-1] == '%' && autoHotkeyLegacyPercentDereferenceEndsAt(data, lineStart, at-1) {
+		return false
+	}
+	switch data[at-1] {
+	case ' ', '\t', '(', '[', '{', ',', '=', '>', '<', '!', '?', ':', '+', '-', '*', '/', '%', '&', '|', '^', '~':
+		return true
+	default:
+		return false
+	}
+}
+
+func autoHotkeyLegacyPercentDereferenceEndsAt(data []byte, lineStart, percent int) bool {
+	if percent <= lineStart || percent >= len(data) || data[percent] != '%' {
+		return false
+	}
+	start := percent - 1
+	for start >= lineStart && autoHotkeyLegacyIdentifierContinue(data[start]) {
+		start--
+	}
+	return start >= lineStart && data[start] == '%' && start+1 < percent && autoHotkeyLegacyIdentifierStart(data[start+1])
+}
+
+func autoHotkeyHorizontalStart(data []byte, start, end int) int {
+	for start < end && (data[start] == ' ' || data[start] == '\t') {
+		start++
+	}
+	return start
 }
 
 func phase8StaticDependencyTarget(text string, tokens []Token) (string, int, int, bool) {

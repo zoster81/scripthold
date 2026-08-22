@@ -48,7 +48,46 @@ func reprojectAnalyzerSymbols(ctx context.Context, host *SourceDocument, source 
 	if source.Analysis.Truncated {
 		builder.MarkTruncated()
 	}
-	return builder.Result(), nil
+	result := builder.Result()
+	if len(source.Analysis.Diagnostics) > 0 {
+		origin, err := host.PositionAtUTF8Offset(delta)
+		if err != nil {
+			return AnalysisResult{}, err
+		}
+		limit := max(1, options.Limits.MaxDiagnostics)
+		for _, diagnostic := range source.Analysis.Diagnostics {
+			if len(result.Diagnostics) >= limit {
+				result.DiagnosticsTruncated = true
+				result.CoverageComplete = false
+				break
+			}
+			if diagnostic.Range != nil {
+				value := reprojectDiagnosticRange(*diagnostic.Range, origin)
+				diagnostic.Range = &value
+			}
+			result.Diagnostics = append(result.Diagnostics, diagnostic)
+		}
+	}
+	if source.Analysis.DiagnosticsTruncated {
+		result.DiagnosticsTruncated = true
+		result.CoverageComplete = false
+	}
+	return result, nil
+}
+
+func reprojectDiagnosticRange(value Range, origin Position) Range {
+	return Range{
+		Start: reprojectDiagnosticPosition(value.Start, origin),
+		End:   reprojectDiagnosticPosition(value.End, origin),
+	}
+}
+
+func reprojectDiagnosticPosition(value Position, origin Position) Position {
+	position := Position{Line: value.Line + origin.Line - 1, Column: value.Column}
+	if value.Line == 1 {
+		position.Column += origin.Column - 1
+	}
+	return position
 }
 
 func mergeAnalysisSymbols(base *AnalysisResult, extra AnalysisResult) {

@@ -265,6 +265,9 @@ func (parser *jvmParser) typeDeclarationAt(start, end int) (keyword, declaration
 		if parser.kotlin && text == "enum" && cursor+1 < end && parser.token(cursor+1, "class") {
 			return cursor + 1, declarationStart, "enum-class", true
 		}
+		if parser.kotlin && text == "fun" && cursor+1 < end && parser.token(cursor+1, "interface") {
+			return cursor + 1, declarationStart, "fun-interface", true
+		}
 		if _, modifier := modifiers[text]; modifier {
 			prefixes = append(prefixes, text)
 			cursor++
@@ -334,7 +337,7 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 	}
 	kind := SymbolKindClass
 	switch nativeKind {
-	case "interface":
+	case "interface", "fun-interface":
 		kind = SymbolKindInterface
 	case "enum", "enum-class":
 		kind = SymbolKindEnum
@@ -437,13 +440,76 @@ func (parser *jvmParser) collectKotlinTypeHeader(source string, start, end, nest
 	if colon < 0 {
 		return
 	}
-	for _, part := range splitTokenRangeAt(parser.tokens, colon+1, end, ",", nesting) {
-		target := normalizedTypeSpelling(parser.tokens, part[0], part[1], nil)
+	parts, balanced := splitKotlinSupertypeRangeAt(parser.tokens, colon+1, end, nesting)
+	if !balanced {
+		parser.builder.MarkIncomplete()
+	}
+	for _, part := range parts {
+		targetEnd := parser.kotlinSupertypeTypeEnd(part[0], part[1], nesting)
+		target := normalizedTypeSpelling(parser.tokens, part[0], targetEnd, nil)
 		for strings.HasSuffix(target, "()") {
 			target = strings.TrimSuffix(target, "()")
 		}
 		parser.addRelation("supertype", source, target, part[0], part[1])
 	}
+}
+
+func (parser *jvmParser) kotlinSupertypeTypeEnd(start, end, nesting int) int {
+	for index := start; index < end; index++ {
+		if parser.tokens[index].Text != "(" || parser.tokens[index].Nesting != nesting+1 {
+			continue
+		}
+		previous := previousStructuralToken(parser.tokens, index-1, start)
+		if previous < start {
+			continue
+		}
+		close := parser.pairs[index]
+		if close <= index || close >= end {
+			continue
+		}
+		if nextStructuralToken(parser.tokens, close+1, end) >= end {
+			return index
+		}
+	}
+	return end
+}
+
+func splitKotlinSupertypeRangeAt(tokens []Token, start, end, nesting int) ([][2]int, bool) {
+	var result [][2]int
+	partStart := start
+	genericDepth := 0
+	delegated := false
+	for index := start; index < end; index++ {
+		if tokens[index].Nesting != nesting {
+			continue
+		}
+		text := tokens[index].Text
+		if genericDepth == 0 && text == "by" {
+			delegated = true
+			continue
+		}
+		if !delegated && text != "" {
+			if strings.Trim(text, "<") == "" {
+				genericDepth += len(text)
+				continue
+			}
+			if genericDepth > 0 && strings.Trim(text, ">") == "" {
+				genericDepth -= min(genericDepth, len(text))
+				continue
+			}
+		}
+		if text == "," && genericDepth == 0 {
+			if partStart < index {
+				result = append(result, [2]int{partStart, index})
+			}
+			partStart = index + 1
+			delegated = false
+		}
+	}
+	if partStart < end {
+		result = append(result, [2]int{partStart, end})
+	}
+	return result, genericDepth == 0
 }
 
 func (parser *jvmParser) addKotlinPrimaryConstructor(parent *SymbolParent, owner string, open, close int) {

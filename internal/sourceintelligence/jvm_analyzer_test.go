@@ -125,6 +125,85 @@ const val Answer: Int = 42
 	}
 }
 
+func TestKotlinAnalyzerGenericSupertypeCommaDoesNotSplitRelation(t *testing.T) {
+	text := `package demo
+class Empty
+abstract class Generic<A, B>
+class Child : Generic<Empty, Empty>(), Runnable
+class NestedChild : Generic<Map<String, Pair<Int, Int>>, Empty>()
+`
+	result, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Kotlin generic supertype analysis partial: %+v", result.Analysis)
+	}
+	if !hasStructuralRelation(result.Relations, "supertype", "demo.Child", "Generic<Empty,Empty>") ||
+		!hasStructuralRelation(result.Relations, "supertype", "demo.Child", "Runnable") ||
+		!hasStructuralRelation(result.Relations, "supertype", "demo.NestedChild", "Generic<Map<String,Pair<Int,Int>>,Empty>") {
+		t.Fatalf("Kotlin generic supertypes = %+v", result.Relations)
+	}
+}
+
+func TestKotlinAnalyzerSupertypeConstructorArgumentsAreNotPartOfTarget(t *testing.T) {
+	text := `package demo
+open class Base(value: Int)
+interface Other
+class InlineChild : Base(value = 1), Other
+class MultilineChild : Base(
+    value = 2,
+), Other
+`
+	result, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Kotlin constructor-argument supertype analysis partial: %+v", result.Analysis)
+	}
+	for _, source := range []string{"demo.InlineChild", "demo.MultilineChild"} {
+		if !hasStructuralRelation(result.Relations, "supertype", source, "Base") ||
+			!hasStructuralRelation(result.Relations, "supertype", source, "Other") {
+			t.Fatalf("Kotlin constructor-argument supertypes for %s = %+v", source, result.Relations)
+		}
+	}
+}
+
+func TestKotlinAnalyzerFunInterfaceCoexistsWithSameNameFactory(t *testing.T) {
+	text := `package demo
+fun SizeResolver(value: Int): SizeResolver = error("unused")
+fun interface SizeResolver {
+    fun size(): Int
+}
+class ConstraintsSizeResolver : SizeResolver {
+    override fun size(): Int = 1
+}
+`
+	result, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var functionFound, interfaceFound bool
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.QualifiedName != "demo.SizeResolver" {
+			continue
+		}
+		switch symbol.Kind {
+		case SymbolKindFunction:
+			functionFound = true
+		case SymbolKindInterface:
+			interfaceFound = true
+		}
+	}
+	if !functionFound || !interfaceFound {
+		t.Fatalf("same-name factory/interface symbols missing: %+v", result.Analysis.Symbols)
+	}
+	if !hasStructuralRelation(result.Relations, "supertype", "demo.ConstraintsSizeResolver", "SizeResolver") {
+		t.Fatalf("fun-interface supertype relation missing: %+v", result.Relations)
+	}
+}
+
 func TestJVMAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	malformed := sourceDocumentForScanner("class Good { int x; }\nclass Broken { String s = \"unterminated\n")
 	malformed.Path = "Broken.java"

@@ -11,6 +11,36 @@ import (
 	"testing"
 )
 
+func TestReprojectAnalyzerSymbolsPreservesDiagnostics(t *testing.T) {
+	prefix := "host prefix\n"
+	host := sourceDocumentForScanner(prefix + "int value;\n")
+	source := AnalyzerResult{Analysis: AnalysisResult{
+		CoverageComplete: false,
+		Diagnostics: []AnalysisDiagnostic{{
+			Code: "cpp-conditional-preprocessor", Message: "conditional preprocessing is not evaluated", Severity: DiagnosticWarning,
+			Range: &Range{Start: Position{Line: 1, Column: 2}, End: Position{Line: 1, Column: 5}},
+		}},
+		DiagnosticsTruncated: true,
+	}}
+	analysis, err := reprojectAnalyzerSymbols(context.Background(), host, source, testAnalyzeOptions(false, 16), "cpp-cli", AnalyzerCPPCLI, "region", len(prefix), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.CoverageComplete {
+		t.Fatal("partial source became complete during reprojection")
+	}
+	if len(analysis.Diagnostics) != 1 || analysis.Diagnostics[0].Code != "cpp-conditional-preprocessor" {
+		t.Fatalf("reprojected diagnostics = %+v", analysis.Diagnostics)
+	}
+	wantRange := Range{Start: Position{Line: 2, Column: 2}, End: Position{Line: 2, Column: 5}}
+	if analysis.Diagnostics[0].Range == nil || *analysis.Diagnostics[0].Range != wantRange {
+		t.Fatalf("reprojected diagnostic range = %+v want %+v", analysis.Diagnostics[0].Range, wantRange)
+	}
+	if !analysis.DiagnosticsTruncated {
+		t.Fatal("diagnosticsTruncated was lost during reprojection")
+	}
+}
+
 func TestConformanceCorpusAcrossEncodings(t *testing.T) {
 	tests := []struct {
 		name      string

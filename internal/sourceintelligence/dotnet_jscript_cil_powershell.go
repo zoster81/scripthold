@@ -88,7 +88,7 @@ func analyzeJScriptNetBody(ctx context.Context, host *SourceDocument, options An
 	}
 	text := masked[start:end]
 	sub := &SourceDocument{Path: host.Path + "#jscript-net", Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
-	source, err := (JavaScriptAnalyzer{}).Analyze(ctx, sub, options)
+	source, err := analyzeECMAScriptDialect(ctx, sub, options, false, true)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}

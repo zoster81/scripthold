@@ -84,11 +84,12 @@ func GroovyScannerProfile() ScannerProfile {
 
 func ShellScannerProfile(name string) ScannerProfile {
 	return ScannerProfile{
-		Name:                         name,
-		Keywords:                     []string{"case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select", "then", "until", "while"},
-		Identifier:                   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$", ExtraContinue: "$-"},
-		LineComments:                 []string{"#"},
-		LineCommentRequiresWordStart: true,
+		Name:                           name,
+		Keywords:                       []string{"case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select", "then", "until", "while"},
+		Identifier:                     IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$", ExtraContinue: "$-"},
+		LineComments:                   []string{"#"},
+		LineCommentRequiresWordStart:   true,
+		BackslashEscapesOutsideStrings: true,
 		Strings: []StringRule{
 			{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
 			{Prefixes: []string{""}, Delimiter: "'", Multiline: true},

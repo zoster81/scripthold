@@ -109,6 +109,172 @@ func TestRealSourceAutoHotkeySemicolonInsideCommandArgument(t *testing.T) {
 	requireRealSourceComplete(t, AutoHotkeyAnalyzer{}, text)
 }
 
+func TestRealSourceAutoHotkeyOpaqueStringAndContinuationForms(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+	}{
+		{
+			name: "legacy-command-apostrophe",
+			text: "MsgBox, Don't hide this\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "legacy-command-expanded-variable-apostrophes",
+			text: "MsgBox, 64, %AppName%, %t_Lang161%`n`n'%SchedDate%'\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "single-quoted-string",
+			text: "value := 'quoted \" text { [ ( still data'\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "single-quoted-continuation-string",
+			text: "get_identify_regex() => '\n" +
+				"(\n" +
+				"opaque regex data { [ ( \"\n" +
+				")'\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "double-quoted-continuation-string",
+			text: "mcode := \"\n" +
+				"(LTrim Join\n" +
+				"ABC{[()]}DEF\n" +
+				")\"\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "legacy-continuation-section",
+			text: "Script =\n" +
+				"(\n" +
+				"#define PmcName \"Pulover's Macro Creator\"\n" +
+				"opaque text { [ (\n" +
+				")\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "parenthesized-expression-is-not-continuation-section",
+			text: "outer() {\n" +
+				"  Call(\n" +
+				"    (flag ? 1 : 2)\n" +
+				"  )\n" +
+				"}\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "block-comment-parenthesis-is-not-continuation-section",
+			text: "class UIA {\n" +
+				"  /*\n" +
+				"  (comment text)\n" +
+				"  */\n" +
+				"  method() {\n" +
+				"    Call(\n" +
+				"      1\n" +
+				"    )\n" +
+				"  }\n" +
+				"}\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "legacy-assignment-regex-payload",
+			text: "pattern=iS)^\\t*global Value:=\"(.+?)\"\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "multiline-expression-string-continuation",
+			text: "SetOnlyList := \"GoHome,GoBack,GoForward\n" +
+				"    ,Navigate,Focus,Click\"\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "apostrophe-hotkey-label",
+			text: "'::\n" +
+				"<!'::\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "single-quoted-colon-string-remains-a-string",
+			text: "value := '::'\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "modulo-before-single-quoted-string-remains-a-string",
+			text: "value := 5 % 'opaque { [ ('\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "v2-equality-expression-remains-structural",
+			text: "outer() {\n" +
+				"  x = Call(\n" +
+				"    1\n" +
+				"  )\n" +
+				"}\n" +
+				"helper() { return }\n",
+		}, {
+			name: "chained-single-quoted-continuations",
+			text: "assert_match pattern, '\n" +
+				"(\n" +
+				"first\n" +
+				")', ['\n" +
+				"(\n" +
+				"second\n" +
+				")']\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "quoted-continuation-closing-line-content",
+			text: "value := '(?>\n" +
+				"(Join|\n" +
+				"body\n" +
+				"))'\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "spaced-legacy-raw-assignment",
+			text: "pattern = iS)\"name\": \".*\"\n" +
+				"other = \"name\": \".*\"\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "legacy-command-backtick-escaped-quotes",
+			text: "MsgBox, 35, title, text`\"%CurrentFileName%`\"\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "quoted-literal-backtick",
+			text: "value := \"``\"\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "square-bracket-hotkey-labels",
+			text: "[::sendinput, x\n" +
+				"+[::sendinput, y\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "v2-array-remains-structural",
+			text: "value := [1, 2]\n" +
+				"helper() { return }\n",
+		},
+		{
+			name: "legacy-command-raw-brace-transition",
+			text: "StringReplace, sKey, tKey, +, Shift Down}{\n" +
+				"StringReplace, sKey, sKey, !, Alt Down}{\n" +
+				"helper() { return }\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := requireRealSourceComplete(t, AutoHotkeyAnalyzer{}, tc.text)
+			if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "helper") {
+				t.Fatalf("AutoHotkey helper declaration missing after opaque data: %v", names)
+			}
+		})
+	}
+}
+
 func TestRealSourceLispCharacterLiteralsAndMultilineStrings(t *testing.T) {
 	t.Run("clojure", func(t *testing.T) {
 		text := "(def semi (int \\;))\n(def doc \"line one\nline two\")\n"

@@ -57,8 +57,6 @@ var (
 	phase11JSPBlock            = regexp.MustCompile(`(?is)<%[!@=]?(.*?)%>`)
 	phase11EJSBlock            = regexp.MustCompile(`(?is)<%[-_=#]?(.*?)[-_]?%>`)
 	phase11PercentOpen         = regexp.MustCompile(`(?is)<%`)
-	phase11BladePHP            = regexp.MustCompile(`(?is)@php\b(.*?)@endphp\b`)
-	phase11BladePHPOpen        = regexp.MustCompile(`(?is)@php\b`)
 	phase11BladeSection        = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*\)`)
 	phase11BladeDependency     = regexp.MustCompile(`(?i)@(extends|include)\s*\(\s*["']([^"']+)["']\s*\)`)
 	phase11TemplateDecl        = regexp.MustCompile(`(?i)\{%[-+]?\s*(block|macro)\s+([A-Za-z_][A-Za-z0-9_-]*)`)
@@ -136,8 +134,7 @@ func (BladeAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
 	probe := phase10MaskDelimitedRegions(document.Text, [][2]string{{"<!--", "-->"}, {"{{--", "--}}"}})
-	regions := phase11RegexRegions(probe, phase11BladePHP, "blade-php", "php", 2, 3)
-	complete := phase11OpeningsCovered(probe, regions, phase11BladePHPOpen)
+	regions, complete := phase11BladePHPRegions(probe)
 	result, err := analyzePhase11DelimitedHost(ctx, document, options, "blade", AnalyzerBlade, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
@@ -409,6 +406,63 @@ func phase11TagRegions(text string, pattern *regexp.Regexp, kind string, languag
 		regions = append(regions, phase11EmbeddedRegion{kind: kind, language: language(attrs), full: OffsetRange{Start: match[0], End: match[1]}, content: OffsetRange{Start: match[4], End: match[5]}})
 	}
 	return regions
+}
+
+func phase11BladePHPRegions(text string) ([]phase11EmbeddedRegion, bool) {
+	const openDirective = "@php"
+	const closeDirective = "@endphp"
+	lower := asciiLowerPreservingBytes(text)
+	regions := make([]phase11EmbeddedRegion, 0)
+	complete := true
+	for search := 0; search < len(lower); {
+		relative := strings.Index(lower[search:], openDirective)
+		if relative < 0 {
+			break
+		}
+		start := search + relative
+		openEnd := start + len(openDirective)
+		if openEnd < len(lower) && isASCIIIdentifierByte(lower[openEnd]) {
+			search = openEnd
+			continue
+		}
+		cursor := openEnd
+		for cursor < len(lower) && (lower[cursor] == ' ' || lower[cursor] == '\t') {
+			cursor++
+		}
+		if cursor < len(lower) && lower[cursor] == '(' {
+			search = cursor + 1
+			continue
+		}
+
+		closeStart, closeEnd, found := phase11BladeEndPHP(lower, openEnd, closeDirective)
+		if !found {
+			complete = false
+			break
+		}
+		regions = append(regions, phase11EmbeddedRegion{
+			kind: "blade-php", language: "php",
+			full:    OffsetRange{Start: start, End: closeEnd},
+			content: OffsetRange{Start: openEnd, End: closeStart},
+		})
+		search = closeEnd
+	}
+	return regions, complete
+}
+
+func phase11BladeEndPHP(text string, search int, directive string) (int, int, bool) {
+	for search < len(text) {
+		relative := strings.Index(text[search:], directive)
+		if relative < 0 {
+			return 0, 0, false
+		}
+		start := search + relative
+		end := start + len(directive)
+		if end == len(text) || !isASCIIIdentifierByte(text[end]) {
+			return start, end, true
+		}
+		search = end
+	}
+	return 0, 0, false
 }
 
 func phase11RegexRegions(text string, pattern *regexp.Regexp, kind, language string, contentStartIndex, contentEndIndex int) []phase11EmbeddedRegion {

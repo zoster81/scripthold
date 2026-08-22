@@ -30,6 +30,10 @@ var ecmaModifiers = map[string]struct{}{
 }
 
 func analyzeECMAScript(ctx context.Context, document *SourceDocument, options AnalyzeOptions, typescript bool) (AnalyzerResult, error) {
+	return analyzeECMAScriptDialect(ctx, document, options, typescript, false)
+}
+
+func analyzeECMAScriptDialect(ctx context.Context, document *SourceDocument, options AnalyzeOptions, typescript, memberFunctionKeyword bool) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -87,7 +91,7 @@ func analyzeECMAScript(ctx context.Context, document *SourceDocument, options An
 	}
 	parser := &ecmaParser{
 		ctx: ctx, document: document, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil),
-		builder: builder, typescript: typescript,
+		builder: builder, typescript: typescript, memberFunctionKeyword: memberFunctionKeyword,
 	}
 	parser.parseScope(0, len(scan.Tokens), nil, false, "")
 	if err := ctx.Err(); err != nil {
@@ -97,15 +101,16 @@ func analyzeECMAScript(ctx context.Context, document *SourceDocument, options An
 }
 
 type ecmaParser struct {
-	ctx          context.Context
-	document     *SourceDocument
-	tokens       []Token
-	pairs        map[int]int
-	builder      *SymbolBuilder
-	typescript   bool
-	dependencies []StructuralDependency
-	relations    []StructuralRelation
-	stopped      bool
+	ctx                   context.Context
+	document              *SourceDocument
+	tokens                []Token
+	pairs                 map[int]int
+	builder               *SymbolBuilder
+	typescript            bool
+	memberFunctionKeyword bool
+	dependencies          []StructuralDependency
+	relations             []StructuralRelation
+	stopped               bool
 }
 
 func (parser *ecmaParser) parseScope(start, end int, parent *SymbolParent, members bool, owner string) {
@@ -131,31 +136,31 @@ func (parser *ecmaParser) parseScope(start, end int, parent *SymbolParent, membe
 		if semantic >= end {
 			return
 		}
-		if parser.token(semantic, "class") {
+		if !members && parser.token(semantic, "class") {
 			index = parser.parseClass(index, semantic, end, parent)
 			continue
 		}
-		if parser.typescript && parser.token(semantic, "interface") {
+		if parser.typescript && !members && parser.token(semantic, "interface") {
 			index = parser.parseInterface(index, semantic, end, parent)
 			continue
 		}
-		if parser.typescript && parser.token(semantic, "type") {
+		if parser.typescript && !members && parser.token(semantic, "type") {
 			index = parser.parseTypeAlias(index, semantic, end, parent)
 			continue
 		}
-		if parser.typescript && parser.token(semantic, "enum") {
+		if parser.typescript && !members && parser.token(semantic, "enum") {
 			index = parser.parseEnum(index, semantic, end, parent)
 			continue
 		}
-		if parser.typescript && (parser.token(semantic, "namespace") || parser.token(semantic, "module")) {
+		if parser.typescript && !members && (parser.token(semantic, "namespace") || parser.token(semantic, "module")) {
 			index = parser.parseNamespace(index, semantic, end, parent)
 			continue
 		}
-		if parser.token(semantic, "function") {
+		if (!members || parser.memberFunctionKeyword) && parser.token(semantic, "function") {
 			index = parser.parseFunction(index, semantic, end, parent, members)
 			continue
 		}
-		if parser.token(semantic, "const") || parser.token(semantic, "let") || parser.token(semantic, "var") {
+		if !members && (parser.token(semantic, "const") || parser.token(semantic, "let") || parser.token(semantic, "var")) {
 			index = parser.parseVariable(index, semantic, end, parent)
 			continue
 		}
@@ -612,7 +617,7 @@ func (parser *ecmaParser) parseMember(declarationStart, semantic, end int, paren
 		}
 		return parser.parseConstructor(declarationStart, nameIndex, paren, end, parent, owner), true
 	}
-	if parser.tokens[nameIndex].Kind != TokenIdentifier {
+	if parser.tokens[nameIndex].Kind != TokenIdentifier && parser.tokens[nameIndex].Kind != TokenKeyword {
 		return declarationStart + 1, false
 	}
 	paren := parser.findParen(nameIndex+1, end, base)

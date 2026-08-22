@@ -75,6 +75,44 @@ func TestLegacyFormatsPreserveFixedAndFreeStructure(t *testing.T) {
 	})
 }
 
+func TestCOBOLFreeFormDetectionHandlesRealWorldSignals(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "statement-before-division",
+			text: "move \"/\" to routing-pattern.\nIDENTIFICATION DIVISION.\nPROGRAM-ID. ROUTES.\n",
+			want: "ROUTES",
+		},
+		{
+			name: "compiler-directive-first",
+			text: ">>IF GCVERSION >= 32\n>>END-IF\nIDENTIFICATION DIVISION.\nPROGRAM-ID. DECODE.\n",
+			want: "DECODE",
+		},
+		{
+			name: "literal-crosses-fixed-margin",
+			text: "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. WEBGAME.\n       PROCEDURE DIVISION.\n           CALL \"setElementProperty\" USING \".loading-message\" \"innerHTML\" \"Press Any Key To Start\".\n",
+			want: "WEBGAME",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (COBOLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.name+".cob", tc.text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Fatalf("valid free-form COBOL reported partial: %+v", result.Analysis.Diagnostics)
+			}
+			if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)[tc.want]; !ok {
+				t.Fatalf("missing COBOL program %s: %v", tc.want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
 func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 	t.Run("matlab-transpose-and-control-scopes", func(t *testing.T) {
 		text := "classdef Worker\n  methods\n    function out = first(obj, data)\n      value = data';\n      if value\n        out = value;\n      end\n    end\n    function out = second(obj, x)\n      out = x;\n    end\n  end\nend\n"

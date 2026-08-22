@@ -185,6 +185,7 @@ func TestRealWorldCOBOLFixedLiteralContinuations(t *testing.T) {
 
 func TestRealWorldAdaPackageInstantiationsAndRenamesDoNotOpenScopes(t *testing.T) {
 	text := "package Vector_Inst is new Ada.Containers.Vectors (Index_Type => Natural, Element_Type => Integer);\n" +
+		"package Split_Inst is\n  new Ada.Containers.Vectors (Index_Type => Natural, Element_Type => Integer);\n" +
 		"package IO_Alias renames Ada.Text_IO;\n" +
 		"package Normal is\n  procedure Nested;\nend Normal;\n" +
 		"procedure Top_Level;\n"
@@ -196,14 +197,88 @@ func TestRealWorldAdaPackageInstantiationsAndRenamesDoNotOpenScopes(t *testing.T
 		t.Fatalf("valid Ada package forms reported partial: %+v", result.Analysis)
 	}
 	byName := symbolsByQualifiedName(result.Analysis.Symbols)
-	for _, name := range []string{"Vector_Inst", "IO_Alias", "Normal", "Normal.Nested", "Top_Level"} {
+	for _, name := range []string{"Vector_Inst", "Split_Inst", "IO_Alias", "Normal", "Normal.Nested", "Top_Level"} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 		}
 	}
-	for _, wrong := range []string{"Vector_Inst.IO_Alias", "Vector_Inst.IO_Alias.Normal", "Normal.Top_Level"} {
+	for _, wrong := range []string{"Vector_Inst.IO_Alias", "Split_Inst.IO_Alias", "Split_Inst.Normal", "Vector_Inst.IO_Alias.Normal", "Normal.Top_Level"} {
 		if _, ok := byName[wrong]; ok {
 			t.Fatalf("non-scope Ada package form leaked parent %s; symbols=%v", wrong, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldAdaPackageBodyStubsDoNotOpenScopes(t *testing.T) {
+	text := "package body Conversion is separate;\n" +
+		"package body Split_Conversion is\n  separate;\n" +
+		"procedure Top_Level;\n"
+	result, err := (AdaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid Ada package body stubs reported partial coverage: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Conversion", "Split_Conversion", "Top_Level"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, wrong := range []string{"Conversion.Split_Conversion", "Conversion.Top_Level", "Split_Conversion.Top_Level"} {
+		if _, ok := byName[wrong]; ok {
+			t.Fatalf("Ada package body stub leaked scope %s; symbols=%v", wrong, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldAdaCharacterLiteralsDoNotAffectDelimiterCoverage(t *testing.T) {
+	text := "package Demo is\n" +
+		"  function Last_Is_Close (Value : String) return Boolean\n" +
+		"    is (Value (Value'Last) = ')');\n" +
+		"  function Is_Open (Value : Character) return Boolean\n" +
+		"    is (Value = '(');\n" +
+		"end Demo;\n"
+	result, err := (AdaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid Ada character literals reported partial coverage: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Demo", "Demo.Last_Is_Close", "Demo.Is_Open"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldAdaChildPackageNamesPreserveQualifiedScope(t *testing.T) {
+	text := "package Alire.Cache is\n" +
+		"  package Item_Sets is\n" +
+		"    procedure Nested;\n" +
+		"  end Item_Sets;\n" +
+		"  procedure Path;\n" +
+		"end Alire.Cache;\n" +
+		"procedure Top_Level;\n"
+	result, err := (AdaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid Ada child package reported partial coverage: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Alire.Cache", "Alire.Cache.Item_Sets", "Alire.Cache.Item_Sets.Nested", "Alire.Cache.Path", "Top_Level"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, wrong := range []string{"Alire", "Alire.Item_Sets", "Alire.Cache.Top_Level"} {
+		if _, ok := byName[wrong]; ok {
+			t.Fatalf("Ada child package produced wrong scope %s; symbols=%v", wrong, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 		}
 	}
 }

@@ -527,6 +527,10 @@ func (p *nimParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 }
 
 func (ALAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
+	return analyzeALSource(ctx, document, options)
+}
+
+func analyzeALVariant(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -671,12 +675,18 @@ func (p *alParser) parseScope(start, end int, parent *SymbolParent, members bool
 }
 
 func (p *alParser) object(start, keyword, end int, parent *SymbolParent, kind SymbolKind) int {
-	nameIndex := nextIdentifierToken(p.tokens, keyword+1, end)
-	if nameIndex >= 0 && p.tokens[nameIndex].Kind == TokenNumber {
-		nameIndex = nextIdentifierToken(p.tokens, nameIndex+1, end)
-	}
+	nameIndex := alObjectNameToken(p.tokens, keyword+1, end)
 	if nameIndex < 0 {
 		return keyword + 1
+	}
+	name := alTokenValue(p.tokens[nameIndex])
+	if name == "" {
+		return keyword + 1
+	}
+	nameRange := OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}
+	if p.tokens[nameIndex].Kind == TokenString && len(p.tokens[nameIndex].Text) >= 2 {
+		nameRange.Start++
+		nameRange.End--
 	}
 	depth := p.tokens[keyword].Nesting
 	open := -1
@@ -699,9 +709,9 @@ func (p *alParser) object(start, keyword, end int, parent *SymbolParent, kind Sy
 	}
 	native := strings.ToLower(p.tokens[keyword].Text)
 	symbol, ok := p.add(SymbolSpec{
-		Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent,
+		Kind: kind, NativeKind: native, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[close].EndOffset},
-		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
+		NameRange:   nameRange,
 		Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[open].StartOffset},
 		Body:        &OffsetRange{Start: p.tokens[open].StartOffset, End: p.tokens[close].EndOffset},
 		Evidence:    SymbolEvidenceStructural,
@@ -786,18 +796,7 @@ func (p *alParser) field(start, end int, parent *SymbolParent) (int, bool) {
 	if close <= paren {
 		return start + 1, false
 	}
-	semicolonCount := 0
-	nameIndex := -1
-	for i := paren + 1; i < close; i++ {
-		if p.tokens[i].Text == ";" {
-			semicolonCount++
-			continue
-		}
-		if semicolonCount == 1 && (p.tokens[i].Kind == TokenIdentifier || p.tokens[i].Kind == TokenString) {
-			nameIndex = i
-			break
-		}
-	}
+	nameIndex := alFieldNameToken(p.tokens, paren, close)
 	if nameIndex < 0 {
 		return close + 1, false
 	}
@@ -816,6 +815,71 @@ func (p *alParser) field(start, end int, parent *SymbolParent) (int, bool) {
 		NameRange:   nameRange, Evidence: SymbolEvidenceStructural,
 	})
 	return close + 1, true
+}
+
+func alFieldNameToken(tokens []Token, paren, close int) int {
+	if paren < 0 || close <= paren || close > len(tokens) {
+		return -1
+	}
+	depth := tokens[paren].Nesting
+	firstSemicolon := -1
+	secondSemicolon := -1
+	for index := paren + 1; index < close; index++ {
+		if tokens[index].Text != ";" || tokens[index].Nesting != depth {
+			continue
+		}
+		if firstSemicolon < 0 {
+			firstSemicolon = index
+			continue
+		}
+		secondSemicolon = index
+		break
+	}
+	if firstSemicolon < 0 {
+		return -1
+	}
+	first := alFieldSlotToken(tokens, paren+1, firstSemicolon)
+	if first < 0 {
+		return -1
+	}
+	if tokens[first].Kind == TokenNumber {
+		if secondSemicolon <= firstSemicolon {
+			return -1
+		}
+		return alNameToken(tokens, firstSemicolon+1, secondSemicolon)
+	}
+	return alNameToken(tokens, paren+1, firstSemicolon)
+}
+
+func alFieldSlotToken(tokens []Token, start, end int) int {
+	for index := start; index < end; index++ {
+		switch tokens[index].Kind {
+		case TokenNumber, TokenIdentifier, TokenString:
+			return index
+		}
+	}
+	return -1
+}
+
+func alNameToken(tokens []Token, start, end int) int {
+	for index := start; index < end; index++ {
+		if tokens[index].Kind == TokenIdentifier || tokens[index].Kind == TokenString {
+			return index
+		}
+	}
+	return -1
+}
+
+func alObjectNameToken(tokens []Token, start, end int) int {
+	for index := start; index < end; index++ {
+		if tokens[index].Text == "{" || tokens[index].Text == ";" || strings.EqualFold(tokens[index].Text, "extends") {
+			return -1
+		}
+		if tokens[index].Kind == TokenIdentifier || tokens[index].Kind == TokenString {
+			return index
+		}
+	}
+	return -1
 }
 
 func alTokenValue(token Token) string {
