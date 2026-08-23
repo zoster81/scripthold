@@ -4,7 +4,7 @@
 
 [![Test Suite](https://github.com/zoster81/scripthold/actions/workflows/test.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/test.yml?query=branch%3Amain)
 [![CodeQL](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml?query=branch%3Amain)
-[![golangci-lint](https://img.shields.io/badge/golangci--lint-v2.12.2-4C8EDA?logo=go&logoColor=white)](.golangci.yml)
+[![golangci-lint](https://img.shields.io/badge/golangci--lint-v2.13.1-4C8EDA?logo=go&logoColor=white)](.golangci.yml)
 [![Go](https://img.shields.io/github/go-mod/go-version/zoster81/scripthold?logo=go)](go.mod)
 [![Release](https://img.shields.io/github/v/release/zoster81/scripthold)](https://github.com/zoster81/scripthold/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/github/license/zoster81/scripthold)](LICENSE)

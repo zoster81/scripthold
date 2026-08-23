@@ -1,16 +1,13 @@
 module github.com/zoster81/scripthold
 
-go 1.26.6
+go 1.27.0
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
-	golang.org/x/text v0.41.0
-)
-
-require (
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/wlynxg/chardet v1.0.5
 	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.41.0
 )
 
 require (

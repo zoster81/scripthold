@@ -160,11 +160,12 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	}
 
 	serverOpts := &mcp.ServerOptions{
-		Instructions:            serverInstructions,
-		Logger:                  sdkLogger,
-		InitializedHandler:      createInitializedHandler(lifecycleCtx, h, version, options.EnableClientRoots),
-		RootsListChangedHandler: createRootsListChangedHandler(h, options.EnableClientRoots),
+		Instructions:       serverInstructions,
+		Logger:             sdkLogger,
+		InitializedHandler: createInitializedHandler(lifecycleCtx, h, version, options.EnableClientRoots),
 	}
+	//lint:ignore SA1019 R20 intentionally preserves legacy stdio roots during the MCP deprecation window.
+	serverOpts.RootsListChangedHandler = createRootsListChangedHandler(h, options.EnableClientRoots)
 	server := mcp.NewServer(impl, serverOpts)
 	registerProjectPrompts(server)
 
