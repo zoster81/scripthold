@@ -635,7 +635,7 @@ func (p *phase7BraceParser) parseScope(start, end int, parent *SymbolParent, mem
 			continue
 		}
 		if keyword, ok := p.typeKeyword(i, end); ok {
-			i = p.parseType(i, keyword, end, parent)
+			i = p.parseType(i, keyword, end, parent, members, owner)
 			continue
 		}
 		if native, ok := p.policy.explicitFuncs[p.lower(p.tokens[i].Text)]; ok {
@@ -670,13 +670,26 @@ func (p *phase7BraceParser) typeKeyword(start, end int) (int, bool) {
 	return -1, false
 }
 
-func (p *phase7BraceParser) parseType(start, keyword, end int, parent *SymbolParent) int {
+func (p *phase7BraceParser) parseType(start, keyword, end int, parent *SymbolParent, members bool, owner string) int {
+	depth := p.tokens[keyword].Nesting
+	native := p.lower(p.tokens[keyword].Text)
+	if p.policy.language == "d" && (native == "struct" || native == "union") {
+		open := nextStructuralToken(p.tokens, keyword+1, end)
+		if open < end && p.tokens[open].Text == "{" && p.tokens[open].Nesting == depth+1 {
+			close := p.pairs[open]
+			if close <= open || close >= end {
+				p.builder.MarkIncomplete()
+				return end
+			}
+			p.parseScope(open+1, close, parent, members, owner)
+			return close + 1
+		}
+	}
 	nameIndex := nextIdentifierToken(p.tokens, keyword+1, end)
 	if nameIndex < 0 {
 		p.builder.MarkIncomplete()
 		return keyword + 1
 	}
-	depth := p.tokens[keyword].Nesting
 	open := -1
 	semicolon := -1
 	for i := nameIndex + 1; i < end; i++ {
@@ -703,7 +716,6 @@ func (p *phase7BraceParser) parseType(start, keyword, end int, parent *SymbolPar
 		p.builder.MarkIncomplete()
 		return end
 	}
-	native := p.lower(p.tokens[keyword].Text)
 	kind := p.policy.typeKinds[native]
 	if override := p.policy.typeNative[native]; override != "" {
 		native = override

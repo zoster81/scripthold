@@ -83,7 +83,7 @@ func GroovyScannerProfile() ScannerProfile {
 }
 
 func ShellScannerProfile(name string) ScannerProfile {
-	return ScannerProfile{
+	profile := ScannerProfile{
 		Name:                           name,
 		Keywords:                       []string{"case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select", "then", "until", "while"},
 		Identifier:                     IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$", ExtraContinue: "$-"},
@@ -100,6 +100,14 @@ func ShellScannerProfile(name string) ScannerProfile {
 			{Operator: "<<", AllowQuotedDelimiter: true},
 		},
 	}
+	if name == "shell" {
+		profile.Delimiters = POSIXShellDelimiterRules()
+	}
+	return profile
+}
+
+func POSIXShellDelimiterRules() []DelimiterRule {
+	return []DelimiterRule{{Open: "(", Close: ")"}, {Open: "{", Close: "}"}}
 }
 
 func TclScannerProfile() ScannerProfile {

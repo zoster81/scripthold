@@ -38,6 +38,8 @@ func (ScalaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	scanDocument := document
 	masked := maskScalaTripleQuotedStrings(document.Text)
+	var interpolationExpressions []OffsetRange
+	masked, interpolationExpressions = maskScalaInterpolatedStrings(masked)
 	masked = maskScalaSymbolLiterals(masked)
 	if masked != document.Text {
 		clone := *document
@@ -71,7 +73,7 @@ func (ScalaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			braceCloses[scan.Tokens[openIndex].StartOffset] = scan.Tokens[closeIndex]
 		}
 	}
-	parser := &scalaParser{ctx: ctx, document: document, lines: lines, builder: builder, braceCloses: braceCloses}
+	parser := &scalaParser{ctx: ctx, document: document, lines: lines, builder: builder, braceCloses: braceCloses, interpolationExpressions: interpolationExpressions}
 	parser.parseRange(0, len(lines), nil, "")
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_scala_source", document.Path, err)
@@ -80,15 +82,16 @@ func (ScalaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 }
 
 type scalaParser struct {
-	ctx          context.Context
-	document     *SourceDocument
-	lines        []LogicalLine
-	builder      *SymbolBuilder
-	braceCloses  map[int]Token
-	packageRoot  *SymbolParent
-	dependencies []StructuralDependency
-	relations    []StructuralRelation
-	stopped      bool
+	ctx                      context.Context
+	document                 *SourceDocument
+	lines                    []LogicalLine
+	builder                  *SymbolBuilder
+	braceCloses              map[int]Token
+	interpolationExpressions []OffsetRange
+	packageRoot              *SymbolParent
+	dependencies             []StructuralDependency
+	relations                []StructuralRelation
+	stopped                  bool
 }
 
 func (parser *scalaParser) parseRange(start, end int, parent *SymbolParent, parentKind string) {
@@ -122,8 +125,12 @@ func (parser *scalaParser) parseRange(start, end int, parent *SymbolParent, pare
 		}
 		scopeEnd, body := parser.scope(index, end, keywordIndex, nativeKind)
 		declarationEnd := line.EndOffset
+		signatureEnd := line.EndOffset
 		if body != nil {
 			declarationEnd = body.End
+			if body.Start < signatureEnd {
+				signatureEnd = body.Start
+			}
 		}
 		nameToken := line.Tokens[nameIndex]
 		modifiers := scalaModifiers(line.Tokens[:keywordIndex])
@@ -131,7 +138,7 @@ func (parser *scalaParser) parseRange(start, end int, parent *SymbolParent, pare
 			Kind: kind, NativeKind: nativeKind, Name: nameToken.Text, Parent: rootParent,
 			Declaration: OffsetRange{Start: line.StartOffset, End: declarationEnd},
 			NameRange:   OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset},
-			Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Body: body,
+			Signature:   &OffsetRange{Start: line.StartOffset, End: signatureEnd}, Body: body,
 			Visibility: scalaVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
 		})
 		if operation.KindOf(err) == operation.KindLimit {
@@ -214,8 +221,9 @@ func (parser *scalaParser) parseImport(line LogicalLine) {
 
 func (parser *scalaParser) scope(index, end, keywordIndex int, nativeKind string) (int, *OffsetRange) {
 	line := parser.lines[index]
-	for _, token := range line.Tokens[keywordIndex+1:] {
-		if token.Text != "{" {
+	for tokenIndex := keywordIndex + 1; tokenIndex < len(line.Tokens); tokenIndex++ {
+		token := line.Tokens[tokenIndex]
+		if token.Text != "{" || scalaOffsetInRanges(token.StartOffset, parser.interpolationExpressions) || !scalaDeclarationOwnsBrace(nativeKind, line.Tokens, keywordIndex, tokenIndex) {
 			continue
 		}
 		close, ok := parser.braceCloses[token.StartOffset]
@@ -230,15 +238,16 @@ func (parser *scalaParser) scope(index, end, keywordIndex int, nativeKind string
 		body := &OffsetRange{Start: token.StartOffset, End: close.EndOffset}
 		return scopeEnd, body
 	}
-	if index+1 < end && parser.lines[index+1].Indent > line.Indent {
+	lineIndent := scalaPhysicalIndent(parser.document.Text, line.StartOffset)
+	if index+1 < end && scalaPhysicalIndent(parser.document.Text, parser.lines[index+1].StartOffset) > lineIndent {
 		scopeEnd := index + 1
-		for scopeEnd < end && parser.lines[scopeEnd].Indent > line.Indent {
+		for scopeEnd < end && scalaPhysicalIndent(parser.document.Text, parser.lines[scopeEnd].StartOffset) > lineIndent {
 			scopeEnd++
 		}
 		body := &OffsetRange{Start: parser.lines[index+1].StartOffset, End: parser.lines[scopeEnd-1].EndOffset}
 		return scopeEnd, body
 	}
-	if (nativeKind == "class" || nativeKind == "trait" || nativeKind == "object" || nativeKind == "enum") && scalaLineHasToken(line.Tokens, ":") {
+	if (nativeKind == "class" || nativeKind == "trait" || nativeKind == "object" || nativeKind == "enum") && scalaLineHasTokenAtNesting(line.Tokens, ":", line.Tokens[keywordIndex].Nesting) {
 		parser.builder.MarkIncomplete()
 		_ = parser.builder.AddDiagnostic(DiagnosticSpec{
 			Code: "scala-empty-scope", Message: "declaration has no indented or braced body",
@@ -248,6 +257,26 @@ func (parser *scalaParser) scope(index, end, keywordIndex int, nativeKind string
 	return index + 1, nil
 }
 
+func scalaDeclarationOwnsBrace(nativeKind string, tokens []Token, keywordIndex, openIndex int) bool {
+	switch nativeKind {
+	case "val", "var", "type":
+		return false
+	case "def":
+		previous := previousStructuralToken(tokens, openIndex-1, keywordIndex)
+		if previous < keywordIndex {
+			return false
+		}
+		if tokens[previous].Text == "=" {
+			return true
+		}
+		if tokens[previous].Text != ")" {
+			return false
+		}
+		return !scalaLineHasTokenAtNesting(tokens[keywordIndex+1:openIndex], "=", tokens[keywordIndex].Nesting)
+	default:
+		return true
+	}
+}
 func (parser *scalaParser) collectTypeRelations(source string, tokens []Token, start int) {
 	for index := start; index < len(tokens); index++ {
 		kind := ""
@@ -375,219 +404,4 @@ func scalaVisibility(modifiers []string) Visibility {
 		}
 	}
 	return VisibilityPublic
-}
-
-func maskScalaTripleQuotedStrings(text string) string {
-	masked := []byte(text)
-	for at := 0; at+2 < len(text); {
-		if text[at] != '"' || text[at+1] != '"' || text[at+2] != '"' || at > 0 && text[at-1] == '"' {
-			at++
-			continue
-		}
-		cursor := at + 3
-		closed := false
-		for cursor+2 < len(text) {
-			if text[cursor] != '"' {
-				cursor++
-				continue
-			}
-			runEnd := cursor
-			for runEnd < len(text) && text[runEnd] == '"' {
-				runEnd++
-			}
-			if runEnd-cursor >= 3 {
-				phase8MaskRange(masked, at, runEnd)
-				at = runEnd
-				closed = true
-				break
-			}
-			cursor = runEnd
-		}
-		if !closed {
-			at += 3
-		}
-	}
-	return string(masked)
-}
-
-func maskScalaSymbolLiterals(text string) string {
-	masked := []byte(text)
-	for at := 0; at < len(text); at++ {
-		if text[at] != '\'' || at+1 >= len(text) || !isScalaSymbolIdentifierByte(text[at+1]) {
-			continue
-		}
-		end := at + 2
-		for end < len(text) && isScalaSymbolIdentifierByte(text[end]) {
-			end++
-		}
-		if end < len(text) && text[end] == '\'' {
-			continue
-		}
-		phase8MaskRange(masked, at, end)
-		at = end - 1
-	}
-	return string(masked)
-}
-
-func isScalaSymbolIdentifierByte(value byte) bool {
-	return value == '_' || value == '$' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
-}
-
-func scalaTokenEqual(token Token, value string) bool { return token.Text == value }
-
-func scalaLineHasToken(tokens []Token, value string) bool {
-	for _, token := range tokens {
-		if token.Text == value {
-			return true
-		}
-	}
-	return false
-}
-
-func scalaHeaderEnd(tokens []Token, start int) int {
-	end := len(tokens)
-	for index := start; index < len(tokens); index++ {
-		switch tokens[index].Text {
-		case ":", "{", "=":
-			return index
-		}
-	}
-	return end
-}
-
-// FlowAnalyzer reuses the proven typed-ECMAScript structural parser only after
-// normalizing Flow-only syntax with byte-length-preserving masking. It does not
-// claim TypeScript namespace/module semantics or Flow type checking.
-type FlowAnalyzer struct{}
-
-func (FlowAnalyzer) ID() AnalyzerID   { return AnalyzerFlow }
-func (FlowAnalyzer) Language() string { return "flow" }
-
-func (FlowAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if document == nil {
-		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_flow_source", document.Path, err)
-	}
-	masked := maskFlowOnlyKeywords(document.Text)
-	clone := *document
-	clone.Text = masked
-	clone.lineStarts = buildLineStarts(masked)
-	source, err := (TypeScriptAnalyzer{}).Analyze(ctx, &clone, options)
-	if err != nil {
-		return AnalyzerResult{}, err
-	}
-	filtered := source
-	filtered.Analysis.Symbols = filtered.Analysis.Symbols[:0]
-	for _, symbol := range source.Analysis.Symbols {
-		if symbol.NativeKind == "namespace" || symbol.NativeKind == "module" {
-			continue
-		}
-		filtered.Analysis.Symbols = append(filtered.Analysis.Symbols, symbol)
-	}
-	analysis, err := reprojectAnalyzerSymbols(ctx, document, filtered, options, "flow", AnalyzerFlow, "", 0, nil)
-	if err != nil {
-		return AnalyzerResult{}, err
-	}
-	for _, diagnostic := range source.Analysis.Diagnostics {
-		if strings.HasPrefix(diagnostic.Code, "typescript-") {
-			diagnostic.Code = "flow-" + strings.TrimPrefix(diagnostic.Code, "typescript-")
-		}
-		if options.Limits.MaxDiagnostics > 0 && len(analysis.Diagnostics) >= options.Limits.MaxDiagnostics {
-			analysis.DiagnosticsTruncated = true
-			analysis.CoverageComplete = false
-			break
-		}
-		analysis.Diagnostics = append(analysis.Diagnostics, diagnostic)
-	}
-	if source.Analysis.DiagnosticsTruncated {
-		analysis.DiagnosticsTruncated = true
-		analysis.CoverageComplete = false
-	}
-	for index := range analysis.Symbols {
-		symbol := &analysis.Symbols[index]
-		if symbol.Kind != SymbolKindType && symbol.Kind != SymbolKindAlias {
-			continue
-		}
-		declaration, _, _, _ := symbol.SourceOffsets()
-		if declaration.Start < 0 || declaration.End > len(document.Text) || declaration.End <= declaration.Start {
-			continue
-		}
-		if strings.Contains(document.Text[declaration.Start:declaration.End], "opaque type") {
-			symbol.NativeKind = "opaque-type"
-		}
-	}
-	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
-}
-
-func maskFlowOnlyKeywords(text string) string {
-	bytes := []byte(text)
-	for index := 0; index+len("opaque") <= len(bytes); index++ {
-		if string(bytes[index:index+len("opaque")]) != "opaque" {
-			continue
-		}
-		if index > 0 && isFlowIdentifierByte(bytes[index-1]) {
-			continue
-		}
-		end := index + len("opaque")
-		if end < len(bytes) && isFlowIdentifierByte(bytes[end]) {
-			continue
-		}
-		next := end
-		for next < len(bytes) && isFlowWhitespace(bytes[next]) {
-			next++
-		}
-		if next+len("type") > len(bytes) || string(bytes[next:next+len("type")]) != "type" {
-			continue
-		}
-		typeEnd := next + len("type")
-		if typeEnd < len(bytes) && isFlowIdentifierByte(bytes[typeEnd]) {
-			continue
-		}
-		for cursor := index; cursor < end; cursor++ {
-			bytes[cursor] = ' '
-		}
-		index = end - 1
-	}
-	return string(bytes)
-}
-
-func isFlowIdentifierByte(value byte) bool {
-	return value == '_' || value == '$' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
-}
-
-func isFlowWhitespace(value byte) bool {
-	switch value {
-	case ' ', '\t', '\r', '\n':
-		return true
-	default:
-		return false
-	}
-}
-
-// ScalaScannerProfile covers the declaration-oriented Scala 2/3 lexical subset
-// used by the Phase 16 recognizer. Newlines remain visible even inside braces so
-// brace-owned and indentation-owned declarations can share one logical-line pass.
-func ScalaScannerProfile() ScannerProfile {
-	return ScannerProfile{
-		Name: "scala",
-		Keywords: []string{
-			"abstract", "case", "class", "def", "derives", "enum", "export", "extends", "final", "given", "implicit", "import", "inline", "lazy", "object", "opaque", "open", "override", "package", "private", "protected", "sealed", "trait", "transparent", "type", "val", "var", "with",
-		},
-		Identifier:   DefaultIdentifierPolicy(),
-		LineComments: []string{"//"},
-		BlockComments: []BlockCommentRule{
-			{Start: "/*", End: "*/", Nestable: true},
-		},
-		Strings: []StringRule{
-			{Prefixes: []string{"s", "f", "raw", ""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true},
-			{Prefixes: []string{"s", "f", "raw", ""}, Delimiter: "\"", BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
-		},
-		Indentation: true,
-	}
 }

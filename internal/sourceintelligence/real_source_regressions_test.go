@@ -355,3 +355,457 @@ func TestRealSourcePowerShellNestedHereStringsInsideInterpolation(t *testing.T) 
 		t.Fatalf("PowerShell function missing after nested here-string: %v", names)
 	}
 }
+
+func TestRealSourceAstroSelfClosingScriptDoesNotCaptureLaterScript(t *testing.T) {
+	text := `---
+const id = "analytics";
+---
+{id && <script is:inline src={` + "`" + `https://example.test/tag.js?id=${id}` + "`" + `} />}
+<script is:inline>
+window.analytics = { enabled: true };
+</script>
+`
+	requireRealSourceComplete(t, AstroAnalyzer{}, text)
+}
+
+func TestRealSourceASPNetWebFormsServerCommentIsOpaque(t *testing.T) {
+	text := `<%@ Page Language="C#" %>
+<%-- Styling the "Copy: Button Box --%>
+<script runat="server">
+public void Real() { }
+</script>
+`
+	requireRealSourceComplete(t, ASPNetWebFormsAnalyzer{}, text)
+}
+
+func TestRealSourceBlazorRenderFragmentMarkupIsOpaqueToCSharp(t *testing.T) {
+	text := `@code {
+    private string Prefix { get; set; } = "demo";
+    private void SetIcon()
+    {
+        RenderFragment item = @<span class="@($"{Prefix}-item")">value</span>;
+        @* punctuation in Razor comment :) *@
+    }
+}
+`
+	requireRealSourceComplete(t, BlazorAnalyzer{}, text)
+}
+
+func TestRealSourceBlazorRenderFragmentBlocksAreOpaqueToCSharp(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+	}{
+		{
+			name: "explicit-ul-fragment",
+			text: `@code {
+    private void Show()
+    {
+        Service.Add(
+            @<ul>
+                <li>Here's a <strong>bold item</strong></li>
+            </ul>
+        );
+    }
+}
+`,
+		},
+		{
+			name: "text-fragment",
+			text: `@code {
+    RenderFragment<string> Build = version =>
+        @<text>
+            <Widget Anchor="@($"get-started/{version}")">Install</Widget>
+            <ul>
+                <li>Via Visual Studio's package manager.</li>
+                <li>By editing your application's project file.</li>
+            </ul>
+        </text>;
+}
+`,
+		},
+		{
+			name: "line-leading-markup-lambda-body",
+			text: `@code {
+    RenderFragment<bool> Build = value => builder =>
+    {
+        <Grid Rows="@(new List<int>
+            {
+                1,
+                2
+            })">
+            <Cell Text="@value" />
+        </Grid>
+    };
+}
+`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			requireRealSourceComplete(t, BlazorAnalyzer{}, tc.text)
+		})
+	}
+}
+
+func TestRealSourceBlazorMarkupMaskingRemainsFailClosed(t *testing.T) {
+	t.Run("csharp-generic-and-comparison", func(t *testing.T) {
+		text := `@code {
+    private List<int> Items { get; } = new();
+    private bool Less(int left, int right) => left < right;
+}
+`
+		result := requireRealSourceComplete(t, BlazorAnalyzer{}, text)
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		for _, want := range []string{"Items", "Less"} {
+			if !containsSortedString(names, want) {
+				t.Fatalf("Blazor C# declaration %q missing after markup masking: %v", want, names)
+			}
+		}
+	})
+	t.Run("unterminated-markup-remains-partial", func(t *testing.T) {
+		text := `@code {
+    private void Build()
+    {
+        @<div>
+            broken
+    }
+}
+`
+		result, err := (BlazorAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.CoverageComplete {
+			t.Fatalf("unterminated Blazor markup unexpectedly reported complete: %+v", result.Analysis)
+		}
+	})
+}
+
+func TestRealSourceDOrdinaryStringMaySpanPhysicalLines(t *testing.T) {
+	text := `void real()
+{
+    auto files = "
+        one.d two.d
+        three.d
+    ";
+}
+`
+	requireRealSourceComplete(t, DAnalyzer{}, text)
+}
+
+func TestRealSourceDartRawStringsDoNotUseBackslashEscapes(t *testing.T) {
+	text := `void real(String value) {
+  final escaped = value.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
+}
+`
+	requireRealSourceComplete(t, DartAnalyzer{}, text)
+}
+
+func TestRealSourceDAnonymousUnionInsideStruct(t *testing.T) {
+	text := `struct Request
+{
+    int prefix;
+    union
+    {
+        int command;
+        ubyte[5] header;
+    }
+    int suffix;
+}
+`
+	result := requireRealSourceComplete(t, DAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Request", "Request.command", "Request.header", "Request.prefix", "Request.suffix"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("D anonymous-union declaration %q missing: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceEJSSplitControlFlowSharesOneJavaScriptProjection(t *testing.T) {
+	text := `<main>
+<% if (items.length) { %>
+  <span><%= items[0] %></span>
+<% } else { %>
+  <span>empty</span>
+<% } %>
+</main>
+`
+	requireRealSourceComplete(t, EJSAnalyzer{}, text)
+}
+
+func TestRealSourceScalaTypedConstructorColonIsNotBodyColon(t *testing.T) {
+	text := `package demo
+case class Record(name: String, count: Int) extends Product
+final class Failure(cause: Throwable) extends Exception(cause)
+`
+	requireRealSourceComplete(t, ScalaAnalyzer{}, text)
+}
+
+func TestRealSourceScalaUnterminatedColonBodyRemainsPartial(t *testing.T) {
+	text := `class Broken:
+`
+	result, err := (ScalaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete {
+		t.Fatalf("unterminated Scala colon body unexpectedly reported complete: %+v", result.Analysis)
+	}
+}
+
+func TestRealSourcePOSIXShellCasePatternsAreNotDelimiterClosers(t *testing.T) {
+	text := `pick() {
+    case "$1" in
+        alpha | beta) printf '%s\\n' ok ;;
+        *) printf '%s\\n' fallback ;;
+    esac
+}
+`
+	requireRealSourceComplete(t, ShellAnalyzer{}, text)
+}
+
+func TestRealSourcePOSIXShellParenthesizedCasePattern(t *testing.T) {
+	text := `pick() {
+    case "$1" in
+        ( alpha | beta ) printf '%s\\n' ok ;;
+        ( * ) printf '%s\\n' fallback ;;
+    esac
+}
+`
+	requireRealSourceComplete(t, ShellAnalyzer{}, text)
+}
+
+func TestRealSourceScalaInterpolatedExpressionMaySpanLines(t *testing.T) {
+	text := `object Demo {
+  def value(names: List[String]): String =
+    s"names = [${names.mkString("\\\"", "\\\", \\\"", "\\\"")}]"
+  def other(flag: Boolean): String =
+    s"/${if (flag) { "yes" }
+    else { "no" }}/done"
+}
+`
+	requireRealSourceComplete(t, ScalaAnalyzer{}, text)
+}
+
+func TestRealSourceScalaNestedColonBodyUsesPhysicalIndentation(t *testing.T) {
+	text := `object Outer {
+  object Inner:
+    private var value: Int = 0
+    def get: Int = value
+}
+`
+	requireRealSourceComplete(t, ScalaAnalyzer{}, text)
+}
+
+func TestRealSourceScalaInitializerBracesAreNotDeclarationBodies(t *testing.T) {
+	text := `object Demo {
+  val mapped = List(1, 2).map { value => value + 1 }
+  def plural(values: List[Int]) = s"${values.size}${if (values.size == 1) "" else "s"}"
+  def block(value: Int) = {
+    value + 1
+  }
+}
+`
+	result, err := (ScalaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Scala initializer source reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	mapped, mappedOK := byName["Demo.mapped"]
+	plural, pluralOK := byName["Demo.plural"]
+	block, blockOK := byName["Demo.block"]
+	if !mappedOK || !pluralOK || !blockOK {
+		t.Fatalf("Scala declarations missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if mapped.BodyRange != nil {
+		t.Fatalf("val initializer lambda became declaration body: %+v", mapped.BodyRange)
+	}
+	if plural.BodyRange != nil {
+		t.Fatalf("interpolation expression became method body: %+v", plural.BodyRange)
+	}
+	if block.BodyRange == nil {
+		t.Fatalf("real braced method body was not recognized: %+v", block)
+	}
+}
+
+func TestRealSourceScalaOrdinaryStringsEndingLikeInterpolatorPrefixesStayOpaque(t *testing.T) {
+	text := `object Json {
+  def append(c: Char, sb: StringBuilder): Unit = c match {
+    case '\f' => sb.append("\\f")
+    case '\n' => sb.append("\\n")
+    case _ => sb.append("application/vnd.github.v3.raw")
+  }
+}
+`
+	requireRealSourceComplete(t, ScalaAnalyzer{}, text)
+}
+
+func TestRealSourceScalaCustomInterpolatorExpressionMaySpanLines(t *testing.T) {
+	text := `object Demo {
+  def value(flag: Boolean): String =
+    em"prefix ${if (flag) { "yes" }
+    else { "" }} suffix"
+}
+`
+	requireRealSourceComplete(t, ScalaAnalyzer{}, text)
+}
+
+func TestRealSourceScalaDefInitializerLambdaIsNotMethodBody(t *testing.T) {
+	text := `object Demo {
+  def lookup: Int = List(1).collectFirst { case value => value }.get
+  def block: Int = {
+    1
+  }
+}
+`
+	result, err := (ScalaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Scala def initializer source reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	lookup, lookupOK := byName["Demo.lookup"]
+	block, blockOK := byName["Demo.block"]
+	if !lookupOK || !blockOK {
+		t.Fatalf("Scala declarations missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if lookup.BodyRange != nil {
+		t.Fatalf("def initializer lambda became method body: %+v", lookup.BodyRange)
+	}
+	if block.BodyRange == nil {
+		t.Fatalf("direct braced method body was not recognized: %+v", block)
+	}
+}
+func TestRealSourceScalaTripleQuotesInsideLineCommentsStayOpaque(t *testing.T) {
+	text := `class InitializeListener {
+//  private val system = ConfigFactory.parseString("""
+//    |akka {
+//    |  daemonic = on
+//    |}
+//  """.stripMargin)
+
+  override def contextInitialized(): Unit = {
+    ()
+  }
+}
+`
+	requireRealSourceComplete(t, ScalaAnalyzer{}, text)
+}
+
+func TestRealSourceScalaSameLineDeclarationAfterBracedDef(t *testing.T) {
+	text := `object Sym {
+  def nextSymId = { value += 1; value }; private var value = 0
+}
+`
+	result, err := (ScalaAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Scala same-line declaration source reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	nextSymID, ok := byName["Sym.nextSymId"]
+	if !ok {
+		t.Fatalf("Scala method missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if nextSymID.BodyRange == nil || nextSymID.SignatureRange == nil {
+		t.Fatalf("Scala method ranges missing: %+v", nextSymID)
+	}
+	if nextSymID.SignatureRange.End.Line > nextSymID.BodyRange.Start.Line ||
+		(nextSymID.SignatureRange.End.Line == nextSymID.BodyRange.Start.Line && nextSymID.SignatureRange.End.Column > nextSymID.BodyRange.Start.Column) {
+		t.Fatalf("Scala signature extends into/past body: signature=%+v body=%+v", nextSymID.SignatureRange, nextSymID.BodyRange)
+	}
+}
+
+func TestRealSourceGraphQLHashInsideDirectiveStringIsNotAComment(t *testing.T) {
+	text := `type View implements Node {
+  fields(orderBy: FieldOrder = {field: POSITION, direction: ASC}): FieldConnection
+    @deprecated(reason: "View#fields remains available")
+}
+`
+	requireRealSourceComplete(t, GraphQLAnalyzer{}, text)
+}
+
+func TestRealSourceGraphQLDescriptionQuotedFragmentDoesNotPoisonDirectiveString(t *testing.T) {
+	text := `"""
+See "[guide](docs#anchor)" for details.
+"""
+type View {
+  value: String @deprecated(reason: "View#value remains available")
+}
+`
+	result, err := (GraphQLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid GraphQL description/directive source reported partial: %+v", result.Analysis)
+	}
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "View") {
+		t.Fatalf("GraphQL description/directive masking hid following type: %v", names)
+	}
+}
+
+func TestRealSourcePOSIXShellArithmeticShiftsAreNotHeredocs(t *testing.T) {
+	text := `hash_value() {
+    value=$(( (1 << 16) + ($1 >> 2) ))
+    printf '%s\\n' "$value"
+}
+`
+	requireRealSourceComplete(t, ShellAnalyzer{}, text)
+}
+
+func TestRealSourcePOSIXShellBracketCommandIsNotStructuralDelimiter(t *testing.T) {
+	text := `install_test() {
+    if ! extern -pv [ >/dev/null && testcmd=$(extern -pv test); then
+        ln -s $testcmd $HOME/bin/[
+        if $HOME/bin/[ 1 -eq 1 ] 2>/dev/null; then
+            PATH=$PATH command rm $HOME/bin/[
+        fi
+    fi
+}
+`
+	requireRealSourceComplete(t, ShellAnalyzer{}, text)
+}
+
+func TestRealSourcePOSIXShellNegatedCaseCommandIsRecognized(t *testing.T) {
+	text := `probe() {
+    { ! : || ! case x in x) ;; esac; } && exit 1
+}
+`
+	requireRealSourceComplete(t, ShellAnalyzer{}, text)
+}
+
+func TestRealSourcePOSIXShellNestedCaseMayStartCaseArmBody(t *testing.T) {
+	text := `check_range() {
+    case $2 in
+        @*) case ${2#@} in (*[!0-9-]*) return 1; esac ;;
+        *) case $2 in (*[!0-9]*) return 1; esac ;;
+    esac
+}
+`
+	requireRealSourceComplete(t, ShellAnalyzer{}, text)
+}
+func TestRealSourceTOMLArraysOfTablesAndMultilineArrays(t *testing.T) {
+	text := `[tool.demo]
+commands = [
+  ["mypy"],
+  ["pyright", "--verifytypes", "demo"],
+]
+
+[[tool.demo.overrides]]
+module = "first"
+
+[[tool.demo.overrides]]
+module = "second"
+`
+	requireRealSourceComplete(t, TOMLAnalyzer{}, text)
+}

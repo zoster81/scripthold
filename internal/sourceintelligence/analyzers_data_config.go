@@ -145,8 +145,7 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	source := phase10MaskComments(document.Text, []string{"#"}, "", "")
-	source = phase10MaskStrings(source, false, true, true)
+	source := maskGraphQLSource(document.Text)
 	if match := phase10GraphQLSchema.FindStringIndex(source); match != nil {
 		nameStart := match[0]
 		phase10AddSymbol(builder, SymbolKindSchema, "schema", "schema", nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: nameStart, End: nameStart + len("schema")})

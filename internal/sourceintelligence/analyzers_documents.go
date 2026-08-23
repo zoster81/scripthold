@@ -422,8 +422,9 @@ func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 }
 
 var (
-	phase10TOMLSection = regexp.MustCompile(`^\[([^\[\]]+)\]$`)
-	phase10TOMLKey     = regexp.MustCompile(`^([A-Za-z0-9_.-]+)[ \t]*=`)
+	phase10TOMLSection    = regexp.MustCompile(`^\[([^\[\]]+)\]$`)
+	phase10TOMLArrayTable = regexp.MustCompile(`^\[\[([^\[\]]+)\]\]$`)
+	phase10TOMLKey        = regexp.MustCompile(`^([A-Za-z0-9_.-]+)[ \t]*=`)
 )
 
 func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -433,6 +434,27 @@ func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	}
 	sections := map[string]SymbolParent{}
 	var current *SymbolParent
+	multilineArrayDepth := 0
+	addSection := func(line phase10Line, trimmed string, match []int, nativeKind string) {
+		full := strings.TrimSpace(trimmed[match[2]:match[3]])
+		name := full
+		var parent *SymbolParent
+		if dot := strings.LastIndex(full, "."); dot >= 0 {
+			if p, ok := sections[full[:dot]]; ok {
+				v := p
+				parent = &v
+				name = full[dot+1:]
+			}
+		}
+		trimStart := line.start + strings.Index(line.text, trimmed)
+		nameOffset := strings.LastIndex(trimmed, name)
+		symbol, ok := phase10AddSymbol(builder, SymbolKindSection, nativeKind, name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
+		if ok {
+			value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+			sections[full] = value
+			current = &value
+		}
+	}
 	for _, line := range phase10Lines(document.Text) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -441,38 +463,75 @@ func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if trimmed == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "[") && phase10TOMLSection.FindStringSubmatchIndex(trimmed) == nil {
-			phase10Diagnostic(builder, "toml-malformed-section", "TOML section header is malformed", line.start, line.end)
+		if multilineArrayDepth > 0 {
+			multilineArrayDepth += phase10TOMLBracketDelta(trimmed)
+			if multilineArrayDepth < 0 {
+				multilineArrayDepth = 0
+			}
+			continue
+		}
+		if match := phase10TOMLArrayTable.FindStringSubmatchIndex(trimmed); match != nil {
+			addSection(line, trimmed, match, "array-table")
 			continue
 		}
 		if match := phase10TOMLSection.FindStringSubmatchIndex(trimmed); match != nil {
-			full := strings.TrimSpace(trimmed[match[2]:match[3]])
-			name := full
-			var parent *SymbolParent
-			if dot := strings.LastIndex(full, "."); dot >= 0 {
-				if p, ok := sections[full[:dot]]; ok {
-					v := p
-					parent = &v
-					name = full[dot+1:]
-				}
-			}
-			trimStart := line.start + strings.Index(line.text, trimmed)
-			nameOffset := strings.LastIndex(trimmed, name)
-			symbol, ok := phase10AddSymbol(builder, SymbolKindSection, "section", name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
-			if ok {
-				value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-				sections[full] = value
-				current = &value
-			}
+			addSection(line, trimmed, match, "section")
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") {
+			phase10Diagnostic(builder, "toml-malformed-section", "TOML section header is malformed", line.start, line.end)
 			continue
 		}
 		if match := phase10TOMLKey.FindStringSubmatchIndex(trimmed); match != nil {
 			name := trimmed[match[2]:match[3]]
 			trimStart := line.start + strings.Index(line.text, trimmed)
 			phase10AddSymbol(builder, SymbolKindKey, "key", name, current, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + match[2], End: trimStart + match[3]})
+			if equals := strings.IndexByte(trimmed, '='); equals >= 0 {
+				value := strings.TrimSpace(trimmed[equals+1:])
+				if strings.HasPrefix(value, "[") {
+					multilineArrayDepth = phase10TOMLBracketDelta(value)
+					if multilineArrayDepth < 0 {
+						multilineArrayDepth = 0
+					}
+				}
+			}
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+func phase10TOMLBracketDelta(text string) int {
+	depth := 0
+	quote := byte(0)
+	escaped := false
+	for index := 0; index < len(text); index++ {
+		value := text[index]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if quote == '"' && value == '\\' {
+				escaped = true
+				continue
+			}
+			if value == quote {
+				quote = 0
+			}
+			continue
+		}
+		if value == '"' || value == '\'' {
+			quote = value
+			continue
+		}
+		switch value {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		}
+	}
+	return depth
 }
 
 var phase10MarkdownHeading = regexp.MustCompile(`^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$`)

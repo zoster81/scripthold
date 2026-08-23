@@ -184,6 +184,14 @@ func shiftOffsetRange(value OffsetRange, delta int) OffsetRange {
 }
 
 func segmentClassicASP(path, text, pageLanguage string) ([]aspSegment, bool) {
+	return segmentASPSource(path, text, pageLanguage, false)
+}
+
+func segmentASPNetWebForms(path, text, pageLanguage string) ([]aspSegment, bool) {
+	return segmentASPSource(path, text, pageLanguage, true)
+}
+
+func segmentASPSource(path, text, pageLanguage string, allowServerComments bool) ([]aspSegment, bool) {
 	lower := asciiLowerPreservingBytes(text)
 	var segments []aspSegment
 	position := 0
@@ -207,6 +215,19 @@ func segmentClassicASP(path, text, pageLanguage string) ([]aspSegment, bool) {
 		}
 		if next > position {
 			add("host", "html", position, next, position, next, true)
+		}
+		if allowServerComments && next == aspIndex && strings.HasPrefix(lower[aspIndex:], "<%--") {
+			closeRelative := strings.Index(lower[aspIndex+4:], "--%>")
+			if closeRelative < 0 {
+				add("server-comment", "aspnet-webforms", aspIndex, len(text), aspIndex+4, len(text), true)
+				incomplete = true
+				break
+			}
+			closeStart := aspIndex + 4 + closeRelative
+			end := closeStart + len("--%>")
+			add("server-comment", "aspnet-webforms", aspIndex, end, aspIndex+4, closeStart, true)
+			position = end
+			continue
 		}
 		if next == scriptIndex {
 			openEndRelative := strings.Index(lower[scriptIndex:], ">")

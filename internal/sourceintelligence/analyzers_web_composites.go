@@ -107,10 +107,13 @@ func (JSPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 }
 
 func (EJSAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
+	if document == nil {
+		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
+	}
 	probe := phase11MaskHostComments(document.Text)
 	regions := phase11RegexRegions(probe, phase11EJSBlock, "ejs-js", "javascript", 2, 3)
 	complete := phase11OpeningsCovered(probe, regions, phase11PercentOpen)
-	result, err := analyzePhase11DelimitedHost(ctx, document, options, "ejs", AnalyzerEJS, regions)
+	result, err := analyzePhase11EJSHost(ctx, document, options, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -124,6 +127,66 @@ func (EJSAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		phase11MarkPartial(&result.Analysis, options.Limits, false, "ejs-unterminated-region", "EJS region is not terminated")
 	}
 	return result, nil
+}
+
+func analyzePhase11EJSHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []phase11EmbeddedRegion) (AnalyzerResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	allRegions := regions
+	retainedRegions, regionsTruncated := phase11CapRegions(regions, options.Limits.MaxSymbols)
+	maskedHost, err := phase11MaskRanges(document.Text, phase11FullRanges(allRegions))
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
+	host, err := phase11AnalyzeMasked(ctx, document, maskedHost, options, "ejs", AnalyzerEJS, "host-html", "html")
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	result.Analysis = phase11MergeAnalysis(result.Analysis, host.Analysis, options.Limits)
+	phase11AppendDependencies(&result, host.Dependencies, options.Limits)
+	phase11AppendRelations(&result, host.Relations, options.Limits)
+
+	for index, region := range retainedRegions {
+		public, rangeErr := sourceRegionForOffsets(document, fmt.Sprintf("ejs-js-%d", index+1), region.kind, region.language, region.full.Start, region.full.End, true)
+		if rangeErr != nil {
+			return AnalyzerResult{}, rangeErr
+		}
+		result.Regions = append(result.Regions, public)
+	}
+
+	executable := make([]OffsetRange, 0, len(allRegions))
+	for _, region := range allRegions {
+		if phase11EJSRegionExecutable(document.Text, region) {
+			executable = append(executable, region.content)
+		}
+	}
+	if len(executable) > 0 {
+		projection, projectionErr := MaskOutsideRanges(document.Text, executable)
+		if projectionErr != nil {
+			return AnalyzerResult{}, projectionErr
+		}
+		embedded, analyzeErr := phase11AnalyzeMasked(ctx, document, projection, options, "ejs", AnalyzerEJS, "ejs-scriptlets", "javascript")
+		if analyzeErr != nil {
+			return AnalyzerResult{}, analyzeErr
+		}
+		result.Analysis = phase11MergeAnalysis(result.Analysis, embedded.Analysis, options.Limits)
+		phase11AppendDependencies(&result, embedded.Dependencies, options.Limits)
+		phase11AppendRelations(&result, embedded.Relations, options.Limits)
+	}
+	if regionsTruncated {
+		phase11MarkPartial(&result.Analysis, options.Limits, true, "ejs-region-limit", "EJS region retention limit reached")
+	}
+	return result, nil
+}
+
+func phase11EJSRegionExecutable(text string, region phase11EmbeddedRegion) bool {
+	if region.full.Start < 0 || region.full.Start >= len(text) || region.content.Start < region.full.Start || region.content.Start > len(text) {
+		return false
+	}
+	tail := text[region.full.Start:]
+	return !strings.HasPrefix(tail, "<%#") && !strings.HasPrefix(tail, "<%%")
 }
 
 func (BladeAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -396,16 +459,32 @@ func phase11LanguageSupported(language string) bool {
 }
 
 func phase11TagRegions(text string, pattern *regexp.Regexp, kind string, language func(string) string) []phase11EmbeddedRegion {
-	matches := pattern.FindAllStringSubmatchIndex(text, -1)
-	regions := make([]phase11EmbeddedRegion, 0, len(matches))
-	for _, match := range matches {
+	regions := make([]phase11EmbeddedRegion, 0, 8)
+	for search := 0; search < len(text); {
+		match := pattern.FindStringSubmatchIndex(text[search:])
+		if match == nil {
+			break
+		}
+		start := search + match[0]
+		end := search + match[1]
+		contentStart := search + match[4]
+		if phase11SelfClosingTagOpening(text[start:contentStart]) {
+			search = contentStart
+			continue
+		}
 		attrs := ""
 		if match[2] >= 0 {
-			attrs = text[match[2]:match[3]]
+			attrs = text[search+match[2] : search+match[3]]
 		}
-		regions = append(regions, phase11EmbeddedRegion{kind: kind, language: language(attrs), full: OffsetRange{Start: match[0], End: match[1]}, content: OffsetRange{Start: match[4], End: match[5]}})
+		regions = append(regions, phase11EmbeddedRegion{kind: kind, language: language(attrs), full: OffsetRange{Start: start, End: end}, content: OffsetRange{Start: contentStart, End: search + match[5]}})
+		search = end
 	}
 	return regions
+}
+
+func phase11SelfClosingTagOpening(opening string) bool {
+	close := strings.LastIndexByte(opening, '>')
+	return close >= 0 && strings.HasSuffix(strings.TrimSpace(opening[:close]), "/")
 }
 
 func phase11BladePHPRegions(text string) ([]phase11EmbeddedRegion, bool) {
@@ -806,6 +885,9 @@ func phase11OpeningsCovered(text string, regions []phase11EmbeddedRegion, openin
 	regionIndex := 0
 	for _, location := range locations {
 		start := location[0]
+		if closeRelative := strings.IndexByte(text[start:], '>'); closeRelative >= 0 && phase11SelfClosingTagOpening(text[start:start+closeRelative+1]) {
+			continue
+		}
 		for regionIndex < len(regions) && regions[regionIndex].full.End <= start {
 			regionIndex++
 		}

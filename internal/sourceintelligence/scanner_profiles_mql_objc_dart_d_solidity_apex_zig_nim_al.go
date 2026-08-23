@@ -29,10 +29,14 @@ func DartScannerProfile() ScannerProfile {
 		LineComments:  []string{"//"},
 		BlockComments: []BlockCommentRule{{Start: "/*", End: "*/"}},
 		Strings: []StringRule{
-			{Prefixes: []string{"r", ""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true, CaseInsensitivePrefix: true},
-			{Prefixes: []string{"r", ""}, Delimiter: "'''", Multiline: true, BackslashEscapes: true, CaseInsensitivePrefix: true},
-			{Prefixes: []string{"r", ""}, Delimiter: "\"", BackslashEscapes: true, CaseInsensitivePrefix: true},
-			{Prefixes: []string{"r", ""}, Delimiter: "'", BackslashEscapes: true, CaseInsensitivePrefix: true},
+			{Prefixes: []string{"r"}, Delimiter: "\"\"\"", Multiline: true, CaseInsensitivePrefix: true},
+			{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true},
+			{Prefixes: []string{"r"}, Delimiter: "'''", Multiline: true, CaseInsensitivePrefix: true},
+			{Prefixes: []string{""}, Delimiter: "'''", Multiline: true, BackslashEscapes: true},
+			{Prefixes: []string{"r"}, Delimiter: "\"", CaseInsensitivePrefix: true},
+			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
+			{Prefixes: []string{"r"}, Delimiter: "'", CaseInsensitivePrefix: true},
+			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
 		},
 	}
 }
@@ -50,7 +54,8 @@ func DScannerProfile() ScannerProfile {
 			{Start: "/*", End: "*/"},
 		},
 		Strings: []StringRule{
-			{Prefixes: []string{"r", "x", ""}, Delimiter: "\"", BackslashEscapes: true},
+			{Prefixes: []string{"r"}, Delimiter: "\"", Multiline: true},
+			{Prefixes: []string{"x", ""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
 			{Prefixes: []string{""}, Delimiter: "`", Multiline: true},
 			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
 		},

@@ -83,7 +83,7 @@ func (ASPNetWebFormsAnalyzer) Analyze(ctx context.Context, document *SourceDocum
 		return AnalyzerResult{}, err
 	}
 	pageLanguage := aspNetPageLanguage(document.Text)
-	segments, incomplete := segmentClassicASP(document.Path, document.Text, pageLanguage)
+	segments, incomplete := segmentASPNetWebForms(document.Path, document.Text, pageLanguage)
 	if incomplete {
 		builder.MarkIncomplete()
 	}
@@ -229,6 +229,14 @@ func analyzeRazorFamily(ctx context.Context, document *SourceDocument, options A
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	commentMasked, _ := maskSimpleDelimited(document.Text, "@*", "*@")
+	memberDocument := document
+	if masked := maskRazorCSharpOpaque(document.Text); masked != document.Text {
+		clone := *document
+		clone.Text = masked
+		clone.lineStarts = buildLineStarts(masked)
+		memberDocument = &clone
+	}
 	if !complete {
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unterminated-region", Message: "embedded Razor/Blazor code or comment region is not terminated", Severity: DiagnosticWarning, AffectsCoverage: true})
@@ -254,7 +262,12 @@ func analyzeRazorFamily(ctx context.Context, document *SourceDocument, options A
 		if remaining > 0 {
 			regionOptions.Limits.MaxSymbols = remaining
 		}
-		analysis, err := analyzeCSharpMemberRegion(ctx, document, regionOptions, item.content.Start, item.content.End, "csharp", analyzer, regionID)
+		if !razorMarkupRangeComplete(commentMasked, item.content.Start, item.content.End) {
+			builder.MarkIncomplete()
+			value := item.content
+			_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unterminated-markup", Message: "Razor markup inside embedded C# is not terminated within the code region", Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true})
+		}
+		analysis, err := analyzeCSharpMemberRegion(ctx, memberDocument, regionOptions, item.content.Start, item.content.End, "csharp", analyzer, regionID)
 		if err != nil {
 			return AnalyzerResult{}, err
 		}
@@ -290,7 +303,8 @@ func analyzeRazorFamily(ctx context.Context, document *SourceDocument, options A
 	return result, nil
 }
 func findRazorCodeRanges(ctx context.Context, document *SourceDocument, directives []string) ([]embeddedCodeRange, bool, error) {
-	masked, complete := maskSimpleDelimited(document.Text, "@*", "*@")
+	commentMasked, complete := maskSimpleDelimited(document.Text, "@*", "*@")
+	masked := maskRazorMarkupBlocks(commentMasked)
 	lowerMasked := asciiLowerPreservingBytes(masked)
 	var result []embeddedCodeRange
 	search := 0
@@ -345,6 +359,225 @@ func findRazorCodeRanges(ctx context.Context, document *SourceDocument, directiv
 	sort.Slice(result, func(i, j int) bool { return result[i].full.Start < result[j].full.Start })
 	return result, complete, nil
 }
+func maskRazorCSharpOpaque(text string) string {
+	masked, _ := maskSimpleDelimited(text, "@*", "*@")
+	return maskRazorMarkupBlocks(masked)
+}
+
+func maskRazorMarkupBlocks(text string) string {
+	masked := []byte(text)
+	for at := 0; at < len(text); {
+		maskStart, tagStart, ok := razorMarkupStart(text, at)
+		if !ok {
+			at++
+			continue
+		}
+		end, ok := razorMarkupElementEnd(text, tagStart)
+		if !ok {
+			at = tagStart + 1
+			continue
+		}
+		for index := maskStart; index < end; index++ {
+			if masked[index] != '\r' && masked[index] != '\n' {
+				masked[index] = ' '
+			}
+		}
+		at = end
+	}
+	return string(masked)
+}
+
+func razorMarkupStart(text string, at int) (int, int, bool) {
+	if at < 0 || at >= len(text) {
+		return 0, 0, false
+	}
+	if text[at] == '@' && at+1 < len(text) && text[at+1] == '<' {
+		if _, _, closing, _, ok := razorMarkupTagAt(text, at+1); ok && !closing {
+			return at, at + 1, true
+		}
+	}
+	if text[at] != '<' || !razorMarkupLineLeading(text, at) {
+		return 0, 0, false
+	}
+	if _, _, closing, _, ok := razorMarkupTagAt(text, at); ok && !closing {
+		return at, at, true
+	}
+	return 0, 0, false
+}
+
+func razorMarkupLineLeading(text string, at int) bool {
+	for index := at - 1; index >= 0 && text[index] != '\r' && text[index] != '\n'; index-- {
+		if text[index] != ' ' && text[index] != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+func razorMarkupRangeComplete(text string, start, end int) bool {
+	if start < 0 || end < start || end > len(text) {
+		return false
+	}
+	for at := start; at < end; {
+		_, tagStart, ok := razorMarkupStart(text, at)
+		if !ok {
+			at++
+			continue
+		}
+		elementEnd, ok := razorMarkupElementEnd(text, tagStart)
+		if !ok || elementEnd > end {
+			return false
+		}
+		at = elementEnd
+	}
+	return true
+}
+
+func razorMarkupElementEnd(text string, tagStart int) (int, bool) {
+	name, openingEnd, closing, selfClosing, ok := razorMarkupTagAt(text, tagStart)
+	if !ok || closing {
+		return 0, false
+	}
+	if selfClosing {
+		return openingEnd, true
+	}
+	depth := 1
+	for search := openingEnd; search < len(text); {
+		relative := strings.IndexByte(text[search:], '<')
+		if relative < 0 {
+			return 0, false
+		}
+		start := search + relative
+		if strings.HasPrefix(text[start:], "<!--") {
+			endRelative := strings.Index(text[start+4:], "-->")
+			if endRelative < 0 {
+				return 0, false
+			}
+			search = start + 4 + endRelative + 3
+			continue
+		}
+		candidate, end, isClosing, isSelfClosing, valid := razorMarkupTagAt(text, start)
+		if !valid {
+			search = start + 1
+			continue
+		}
+		if strings.EqualFold(candidate, name) {
+			if isClosing {
+				depth--
+				if depth == 0 {
+					return end, true
+				}
+			} else if !isSelfClosing {
+				depth++
+			}
+		}
+		search = end
+	}
+	return 0, false
+}
+
+func razorMarkupTagAt(text string, start int) (string, int, bool, bool, bool) {
+	if start < 0 || start >= len(text) || text[start] != '<' {
+		return "", 0, false, false, false
+	}
+	cursor := start + 1
+	closing := false
+	if cursor < len(text) && text[cursor] == '/' {
+		closing = true
+		cursor++
+	}
+	if cursor >= len(text) || !razorMarkupTagNameStart(text[cursor]) {
+		return "", 0, false, false, false
+	}
+	nameStart := cursor
+	cursor++
+	for cursor < len(text) && razorMarkupTagNameContinue(text[cursor]) {
+		cursor++
+	}
+	name := text[nameStart:cursor]
+	quote := byte(0)
+	var razorClosers []byte
+	var razorQuote byte
+	for cursor < len(text) {
+		ch := text[cursor]
+		if len(razorClosers) > 0 {
+			if razorQuote != 0 {
+				if ch == '\\' && cursor+1 < len(text) {
+					cursor += 2
+					continue
+				}
+				if ch == razorQuote {
+					razorQuote = 0
+				}
+				cursor++
+				continue
+			}
+			if ch == '"' || ch == '\'' {
+				razorQuote = ch
+				cursor++
+				continue
+			}
+			switch ch {
+			case '(', '[', '{':
+				closer := byte(')')
+				if ch == '[' {
+					closer = ']'
+				} else if ch == '{' {
+					closer = '}'
+				}
+				razorClosers = append(razorClosers, closer)
+				cursor++
+				continue
+			}
+			if ch == razorClosers[len(razorClosers)-1] {
+				razorClosers = razorClosers[:len(razorClosers)-1]
+				cursor++
+				continue
+			}
+			cursor++
+			continue
+		}
+		if quote != 0 {
+			if ch == '@' && cursor+1 < len(text) && (text[cursor+1] == '(' || text[cursor+1] == '{') {
+				closer := byte(')')
+				if text[cursor+1] == '{' {
+					closer = '}'
+				}
+				razorClosers = append(razorClosers, closer)
+				cursor += 2
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			cursor++
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			quote = ch
+			cursor++
+			continue
+		}
+		if ch == '>' {
+			back := cursor - 1
+			for back > start && (text[back] == ' ' || text[back] == '\t' || text[back] == '\r' || text[back] == '\n') {
+				back--
+			}
+			return name, cursor + 1, closing, !closing && text[back] == '/', true
+		}
+		cursor++
+	}
+	return "", 0, false, false, false
+}
+
+func razorMarkupTagNameStart(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func razorMarkupTagNameContinue(value byte) bool {
+	return razorMarkupTagNameStart(value) || value >= '0' && value <= '9' || value == '-' || value == '_' || value == ':' || value == '.'
+}
+
 func maskSimpleDelimited(text, open, close string) (string, bool) {
 	bytes := []byte(text)
 	complete := true
