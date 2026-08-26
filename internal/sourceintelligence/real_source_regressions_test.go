@@ -1179,6 +1179,24 @@ func TestRealSourceNimNumericSuffixAndQuotedIdentifier(t *testing.T) {
 	}
 }
 
+func TestRealSourceNimStrategicIndentationAllowsContinuationLevels(t *testing.T) {
+	text := "proc classify(value: int) =\n" +
+		"  case value\n" +
+		"  of 1, 2,\n" +
+		"       3:\n" +
+		"    discard\n" +
+		"  else:\n" +
+		"    discard\n" +
+		"  if value > 0 and\n" +
+		"      value < 10:\n" +
+		"    discard\n" +
+		"proc after() = discard\n"
+	result := requireRealSourceComplete(t, NimAnalyzer{}, text)
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "classify") || !containsSortedString(names, "after") {
+		t.Fatalf("Nim declarations missing after continuation indentation: %v", names)
+	}
+}
+
 func TestRealSourceTwigCompositeSymbolsStayOrdered(t *testing.T) {
 	text := "{% macro input(name) %}<input name=\"{{ name }}\">{% endmacro %}\n<div id=\"later\"></div>\n"
 	result := requireRealSourceComplete(t, TwigAnalyzer{}, text)

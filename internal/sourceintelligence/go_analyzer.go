@@ -540,11 +540,11 @@ func (analysis *goDocumentAnalysis) add(spec SymbolSpec) (NormalizedSymbol, bool
 	return symbol, true
 }
 
-func (analysis *goDocumentAnalysis) addDiscard(spec SymbolSpec) bool {
+func (analysis *goDocumentAnalysis) addDiscard(spec SymbolSpec) {
 	if analysis.symbolsStopped || analysis.checkContext() != nil {
-		return false
+		return
 	}
-	return analysis.handleAddError(analysis.builder.addDiscard(spec))
+	analysis.handleAddError(analysis.builder.addDiscard(spec))
 }
 
 func (analysis *goDocumentAnalysis) handleAddError(err error) bool {

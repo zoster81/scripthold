@@ -17,11 +17,13 @@ type StringRule struct {
 	LineContinuation               string
 	AllowMissingContinuationPrefix bool
 	BackslashEscapes               bool
+	EscapePrefix                   string
 	DoubledDelimiterEscape         bool
 	CaseInsensitivePrefix          bool
 	Interpolated                   bool
 	InterpolationMarker            string
 	InterpolationOpen              string
+	InterpolationClose             string
 	DoubledBraceEscape             bool
 	RejectDoubledBraces            bool
 }

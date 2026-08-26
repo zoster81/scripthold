@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -515,6 +516,17 @@ func validOffsetRange(value OffsetRange, textLength int) bool {
 }
 
 func normalizeModifiers(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	if len(values) == 1 {
+		normalized := strings.ToLower(strings.TrimSpace(values[0]))
+		if normalized == "" {
+			return nil
+		}
+		return []string{normalized}
+	}
+
 	seen := make(map[string]struct{}, len(values))
 	result := make([]string, 0, len(values))
 	for _, value := range values {
@@ -533,30 +545,43 @@ func normalizeModifiers(values []string) []string {
 }
 
 func deterministicSymbolID(path, language string, symbol NormalizedSymbol, disambiguator string) string {
-	hash := sha256.New()
-	parts := []string{
-		path,
-		language,
-		string(symbol.Kind),
-		symbol.NativeKind,
-		symbol.Name,
-		symbol.QualifiedName,
-		symbol.ParentID,
-		symbol.ParentQualifiedName,
-		symbol.RegionID,
-		fmt.Sprintf("%d", symbol.declarationOffsets.Start),
-		fmt.Sprintf("%d", symbol.declarationOffsets.End),
-		fmt.Sprintf("%d", symbol.nameOffsets.Start),
-		fmt.Sprintf("%d", symbol.nameOffsets.End),
-		strings.TrimSpace(disambiguator),
-	}
+	var payloadBuffer [1024]byte
+	payload := payloadBuffer[:0]
 	var length [8]byte
-	for _, part := range parts {
+	appendBytes := func(part []byte) {
 		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write([]byte(part))
+		payload = append(payload, length[:]...)
+		payload = append(payload, part...)
 	}
-	return hex.EncodeToString(hash.Sum(nil))
+	appendString := func(part string) {
+		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
+		payload = append(payload, length[:]...)
+		payload = append(payload, part...)
+	}
+	appendInteger := func(value int) {
+		var digits [20]byte
+		appendBytes(strconv.AppendInt(digits[:0], int64(value), 10))
+	}
+
+	appendString(path)
+	appendString(language)
+	appendString(string(symbol.Kind))
+	appendString(symbol.NativeKind)
+	appendString(symbol.Name)
+	appendString(symbol.QualifiedName)
+	appendString(symbol.ParentID)
+	appendString(symbol.ParentQualifiedName)
+	appendString(symbol.RegionID)
+	appendInteger(symbol.declarationOffsets.Start)
+	appendInteger(symbol.declarationOffsets.End)
+	appendInteger(symbol.nameOffsets.Start)
+	appendInteger(symbol.nameOffsets.End)
+	appendString(strings.TrimSpace(disambiguator))
+
+	digest := sha256.Sum256(payload)
+	var encoded [sha256.Size * 2]byte
+	hex.Encode(encoded[:], digest[:])
+	return string(encoded[:])
 }
 
 // AddDiagnostic appends one bounded normalized diagnostic. Coverage is lowered

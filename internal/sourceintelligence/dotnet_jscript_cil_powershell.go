@@ -368,7 +368,7 @@ type PowerShellAnalyzer struct{}
 func (PowerShellAnalyzer) ID() AnalyzerID   { return AnalyzerPowerShell }
 func (PowerShellAnalyzer) Language() string { return "powershell" }
 func PowerShellScannerProfile() ScannerProfile {
-	return ScannerProfile{Name: "powershell", Keywords: []string{"class", "enum", "filter", "function", "module", "using"}, Identifier: IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$@", ExtraContinue: "$@-?"}, LineComments: []string{"#"}, BlockComments: []BlockCommentRule{{Start: "<#", End: "#>"}}, Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true}, {Prefixes: []string{""}, Delimiter: "'", DoubledDelimiterEscape: true}}}
+	return ScannerProfile{Name: "powershell", Keywords: []string{"class", "enum", "filter", "function", "module", "using"}, Identifier: IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$@", ExtraContinue: "$@-?"}, LineComments: []string{"#"}, BlockComments: []BlockCommentRule{{Start: "<#", End: "#>"}}, Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, EscapePrefix: "`", Interpolated: true, InterpolationOpen: "$(", InterpolationClose: ")"}, {Prefixes: []string{""}, Delimiter: "'", Multiline: true, DoubledDelimiterEscape: true}}}
 }
 func (PowerShellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	if ctx == nil {
@@ -660,9 +660,6 @@ func maskPowerShellHereStrings(ctx context.Context, text string) (string, []Scan
 		}
 		changed = true
 		at = end
-		if at < len(text) {
-			at = nextPhysicalLine(text, at)
-		}
 	}
 	if !changed {
 		return text, diagnostics, nil
@@ -686,9 +683,10 @@ func powerShellHereStringEnd(ctx context.Context, text string, cursor int, quote
 			lineEnd += cursor
 		}
 		line := text[cursor:lineEnd]
-		candidate := strings.TrimSpace(line)
-		if interpolationDepth == 0 && ((quote == '"' && candidate == "\"@") || (quote == '\'' && candidate == "'@")) {
-			return lineEnd, true, nil
+		if interpolationDepth == 0 {
+			if terminatorEnd, ok := powerShellHereStringTerminatorEnd(line, quote); ok {
+				return cursor + terminatorEnd, true, nil
+			}
 		}
 		if quote == '"' {
 			if interpolationDepth > 0 {
@@ -703,7 +701,7 @@ func powerShellHereStringEnd(ctx context.Context, text string, cursor int, quote
 					if !ok {
 						return len(text), false, nil
 					}
-					cursor = nextPhysicalLine(text, nestedEnd)
+					cursor = nestedEnd
 					interpolationState = powerShellLineLexState{}
 					continue
 				}
@@ -716,6 +714,21 @@ func powerShellHereStringEnd(ctx context.Context, text string, cursor int, quote
 		cursor = nextPhysicalLine(text, lineEnd)
 	}
 	return len(text), false, nil
+}
+
+func powerShellHereStringTerminatorEnd(line string, quote byte) (int, bool) {
+	start := 0
+	for start < len(line) && isHorizontalSpace(line[start]) {
+		start++
+	}
+	if start+2 > len(line) || line[start] != quote || line[start+1] != '@' {
+		return 0, false
+	}
+	end := start + 2
+	if end < len(line) && !isHorizontalSpace(line[end]) {
+		return 0, false
+	}
+	return end, true
 }
 
 func powerShellInterpolationDepth(line string, depth int, state *powerShellLineLexState) int {

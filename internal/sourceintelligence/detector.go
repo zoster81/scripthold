@@ -120,6 +120,7 @@ var (
 	rubyContentMarker          = regexp.MustCompile(`(?m)^\s*(?:module|class|def|require(?:_relative)?)\b`)
 	swiftContentMarker         = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+(?:(?:class|struct|enum|protocol|func|var|let|typealias)[ \t]+)?[A-Za-z_]|(?:(?:public|private|fileprivate|internal|open|final)[ \t]+)*(?:protocol|extension)[ \t]+[A-Za-z_]|func[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:<[^\r\n>]*>[ \t]*)?\(|init[!?]?[ \t]*\(|deinit\b|(?:associatedtype|typealias)[ \t]+[A-Za-z_]|(?:let|var)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:)`)
 	delphiContentMarker        = regexp.MustCompile(`(?im)\b(?:class|record)\s+helper\s+for\b`)
+	classicASPContentMarker    = regexp.MustCompile(`(?is)<%(?:@|=|\s)`)
 	classicVBMetadataMarker    = regexp.MustCompile(`(?im)^[ \t]*Attribute[ \t]+VB_Name[ \t]*=[ \t]*"[^"\r\n]+"`)
 	vb6DesignerContentMarker   = regexp.MustCompile(`(?im)^[ \t]*Begin[ \t]+VB\.(?:Form|UserControl)[ \t]+[A-Za-z_][A-Za-z0-9_]*`)
 	vbscriptContentMarker      = regexp.MustCompile(`(?im)^[ \t]*(?:(?:public|private)[ \t]+)?(?:class|sub|function)[ \t]+[A-Za-z_][A-Za-z0-9_]*`)
@@ -623,7 +624,7 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		pattern  *regexp.Regexp
 		detail   string
 	}{
-		{language: "classic-asp", pattern: regexp.MustCompile(`(?is)<%(?:@|=|\s)`), detail: "asp-server-block"},
+		{language: "classic-asp", pattern: classicASPContentMarker, detail: "asp-server-block"},
 		{language: "go", pattern: goContentMarker, detail: "go-package"},
 		{language: "csharp", pattern: csharpContentMarker, detail: "csharp-declaration"},
 		{language: "vbnet", pattern: vbnetContentMarker, detail: "vbnet-declaration"},

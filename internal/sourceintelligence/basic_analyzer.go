@@ -239,6 +239,27 @@ func (p *basicParser) freeBasicTypeAlias(tokens []Token, semantic int) bool {
 	return false
 }
 
+func (p *basicParser) freeBasicScopeOpen(tokens []Token, semantic int, first string) (label string, open, handled bool) {
+	if !p.policy.freeBasic {
+		return "", false, false
+	}
+	switch first {
+	case "type":
+		if strings.EqualFold(tokens[semantic+1].Text, "as") {
+			return "", false, true
+		}
+	case "namespace", "operator":
+		return first, true, true
+	case "constructor", "destructor":
+		name := tokens[semantic+1]
+		if name.Kind != TokenIdentifier && name.Kind != TokenKeyword {
+			return "", false, true
+		}
+		return first, true, true
+	}
+	return "", false, false
+}
+
 func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 	if len(tokens) == 0 {
 		return "", false
@@ -256,6 +277,9 @@ func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 	}
 	if semantic+1 >= len(tokens) || tokens[semantic+1].Text == "=" {
 		return "", false
+	}
+	if label, open, handled := p.freeBasicScopeOpen(tokens, semantic, first); handled {
+		return label, open
 	}
 	if p.policy.pureBasic {
 		switch first {
@@ -280,28 +304,12 @@ func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 		return "type", true
 	case "enum":
 		return "enum", true
-	case "namespace":
-		if p.policy.freeBasic {
-			return "namespace", true
-		}
 	case "sub":
 		return "sub", true
 	case "function":
 		return "function", true
 	case "property":
 		return "property", true
-	case "constructor":
-		if p.policy.freeBasic {
-			return "constructor", true
-		}
-	case "destructor":
-		if p.policy.freeBasic {
-			return "destructor", true
-		}
-	case "operator":
-		if p.policy.freeBasic {
-			return "operator", true
-		}
 	}
 	return "", false
 }
@@ -614,7 +622,7 @@ func (p *basicParser) addTypeField(line basicLine, parent *SymbolParent) bool {
 		return false
 	}
 	first := line.tokens[semantic]
-	if first.Kind != TokenIdentifier {
+	if first.Kind != TokenIdentifier && !(p.policy.freeBasic && first.Kind == TokenKeyword && strings.EqualFold(first.Text, "type")) {
 		return false
 	}
 	for _, tok := range line.tokens {

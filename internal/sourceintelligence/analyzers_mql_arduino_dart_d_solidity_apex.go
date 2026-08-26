@@ -956,7 +956,7 @@ func (p *phase7BraceParser) collectTypeRelations(source string, start, end, dept
 }
 
 func (p *phase7BraceParser) addRelationParts(kind, source string, start, end, depth int) {
-	for _, part := range splitTokenRangeAt(p.tokens, start, end, ",", depth) {
+	for _, part := range splitCommaTokenRangeAt(p.tokens, start, end, depth) {
 		left, right := part[0], part[1]
 		for left < right {
 			text := p.lower(p.tokens[left].Text)

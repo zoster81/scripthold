@@ -43,6 +43,33 @@ func TestConditionalSelectionsMatchLegacyPacking(t *testing.T) {
 	}
 }
 
+func TestConditionalSelectionsRejectMalformedParentGraphs(t *testing.T) {
+	cases := []struct {
+		name   string
+		groups []conditionalGroup
+	}{
+		{
+			name: "out-of-range-parent",
+			groups: []conditionalGroup{{
+				parentGroup: 3, parentBranch: 0, branches: []conditionalBranch{{}, {}},
+			}},
+		},
+		{
+			name: "cyclic-parent",
+			groups: []conditionalGroup{{
+				parentGroup: 0, parentBranch: 0, branches: []conditionalBranch{{}, {}},
+			}},
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if selections, ok := conditionalSelections(testCase.groups); ok || selections != nil {
+				t.Fatalf("conditionalSelections() = (%v, %t), want bounded rejection", selections, ok)
+			}
+		})
+	}
+}
+
 func legacyConditionalSelections(groups []conditionalGroup) ([][]int, bool) {
 	if len(groups) == 0 {
 		return [][]int{{}}, true

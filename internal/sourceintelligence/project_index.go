@@ -221,7 +221,7 @@ func (manager *ProjectIndexManager) Refresh(ctx context.Context, registry *Langu
 	if err := validateProjectIndexBinding(options.Binding); err != nil {
 		return ProjectIndexSelection{}, err
 	}
-	snapshots, unavailable, err := normalizeProjectIndexInputs(options.Snapshots, options.Unavailable, options.ResolverLimits.MaxFiles)
+	snapshots, snapshotKeys, unavailable, err := normalizeProjectIndexInputs(options.Snapshots, options.Unavailable, options.ResolverLimits.MaxFiles)
 	if err != nil {
 		return ProjectIndexSelection{}, err
 	}
@@ -242,17 +242,53 @@ func (manager *ProjectIndexManager) Refresh(ctx context.Context, registry *Langu
 	if len(state.generations) > 0 {
 		latest = state.generations[0]
 	}
+	if projectIndexCanReuseCurrent(latest, options.AnalysisFingerprint, snapshots, snapshotKeys, unavailable, options.SelectionTruncated) {
+		return projectIndexSelection(state.generations, latest, options.Binding, ProjectIndexRefreshStats{ReusedFiles: len(snapshots)})
+	}
+
+	files, stats, changed, err := refreshProjectIndexFiles(ctx, latest, snapshots, snapshotKeys, unavailable, options)
+	if err != nil {
+		return ProjectIndexSelection{}, err
+	}
+	currentGeneration := latest
+	if changed {
+		currentGeneration, err = manager.buildProjectIndexGeneration(ctx, registry, files, unavailable, snapshots, snapshotKeys, options)
+		if err != nil {
+			return ProjectIndexSelection{}, err
+		}
+		state.generations = append([]*projectIndexGeneration{currentGeneration}, state.generations...)
+		if len(state.generations) > manager.limits.MaxGenerations {
+			state.generations = state.generations[:manager.limits.MaxGenerations]
+		}
+	}
+	return projectIndexSelection(state.generations, currentGeneration, options.Binding, stats)
+}
+
+func projectIndexCanReuseCurrent(latest *projectIndexGeneration, analysisFingerprint string, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, unavailable []ProjectIndexUnavailableFile, truncated bool) bool {
+	if latest == nil || latest.analysisFingerprint != analysisFingerprint || len(snapshots) != len(latest.files) || latest.coverage.Truncated != truncated || !equivalentProjectIndexUnavailable(unavailable, latest.unavailable) {
+		return false
+	}
+	for index, snapshot := range snapshots {
+		previous := latest.files[snapshotKeys[index]]
+		if previous == nil || previous.facts == nil || previous.snapshot.Path != snapshot.Path || previous.snapshot.SourceFingerprint != snapshot.SourceFingerprint {
+			return false
+		}
+	}
+	return true
+}
+
+func refreshProjectIndexFiles(ctx context.Context, latest *projectIndexGeneration, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, unavailable []ProjectIndexUnavailableFile, options ProjectIndexRefreshOptions) (map[string]*indexedProjectFile, ProjectIndexRefreshStats, bool, error) {
 	forceAnalyze := latest == nil || latest.analysisFingerprint != options.AnalysisFingerprint
 	files := make(map[string]*indexedProjectFile, len(snapshots))
 	stats := ProjectIndexRefreshStats{}
 	changed := forceAnalyze || latest == nil || len(snapshots) != lenGenerationFiles(latest) ||
 		!equivalentProjectIndexUnavailable(unavailable, generationUnavailable(latest)) ||
 		(latest != nil && latest.coverage.Truncated != options.SelectionTruncated)
-	for _, snapshot := range snapshots {
+	for index, snapshot := range snapshots {
 		if err := ctx.Err(); err != nil {
-			return ProjectIndexSelection{}, operation.Wrap(operation.KindCancelled, "refresh_project_index", snapshot.Path, err)
+			return nil, ProjectIndexRefreshStats{}, false, operation.Wrap(operation.KindCancelled, "refresh_project_index", snapshot.Path, err)
 		}
-		key := projectPathKey(snapshot.Path)
+		key := snapshotKeys[index]
 		if !forceAnalyze && latest != nil {
 			if previous, ok := latest.files[key]; ok && previous.facts != nil && previous.snapshot.Path == snapshot.Path && previous.snapshot.SourceFingerprint == snapshot.SourceFingerprint {
 				files[key] = previous
@@ -263,16 +299,16 @@ func (manager *ProjectIndexManager) Refresh(ctx context.Context, registry *Langu
 
 		analysis, analyzeErr := options.Analyze(ctx, snapshot)
 		if analyzeErr != nil {
-			return ProjectIndexSelection{}, analyzeErr
+			return nil, ProjectIndexRefreshStats{}, false, analyzeErr
 		}
 		stats.AnalyzedFiles++
 		if analysis.ObservedFingerprint != snapshot.SourceFingerprint {
-			return ProjectIndexSelection{}, operation.Wrap(operation.KindConflict, "refresh_project_index", snapshot.Path, fmt.Errorf("source changed between fingerprint and analysis"))
+			return nil, ProjectIndexRefreshStats{}, false, operation.Wrap(operation.KindConflict, "refresh_project_index", snapshot.Path, fmt.Errorf("source changed between fingerprint and analysis"))
 		}
 		current := &indexedProjectFile{snapshot: snapshot}
 		if analysis.Facts != nil {
 			if projectPathKey(analysis.Facts.Path) != key || analysis.Facts.Path != snapshot.Path || analysis.Facts.SourceFingerprint != snapshot.SourceFingerprint {
-				return ProjectIndexSelection{}, operation.Wrap(operation.KindConflict, "refresh_project_index", snapshot.Path, fmt.Errorf("analysis result does not match the requested source snapshot"))
+				return nil, ProjectIndexRefreshStats{}, false, operation.Wrap(operation.KindConflict, "refresh_project_index", snapshot.Path, fmt.Errorf("analysis result does not match the requested source snapshot"))
 			}
 			cloned := cloneProjectFileFactsForIndex(*analysis.Facts)
 			current.facts = &cloned
@@ -282,42 +318,41 @@ func (manager *ProjectIndexManager) Refresh(ctx context.Context, registry *Langu
 			changed = true
 		}
 	}
+	return files, stats, changed, nil
+}
 
-	currentGeneration := latest
-	if changed {
-		facts := make([]ProjectFileFacts, 0, len(files))
-		for _, snapshot := range snapshots {
-			current := files[projectPathKey(snapshot.Path)]
-			if current != nil && current.facts != nil {
-				facts = append(facts, *current.facts)
-			}
-		}
-		model, buildErr := BuildProjectModel(ctx, registry, facts, options.ResolverLimits)
-		if buildErr != nil {
-			return ProjectIndexSelection{}, buildErr
-		}
-		fingerprint := projectIndexGenerationFingerprint(options.ScopeFingerprint, options.AnalysisFingerprint, files, unavailable, options.SelectionTruncated)
-		generation, allocationErr := manager.allocateGeneration()
-		if allocationErr != nil {
-			return ProjectIndexSelection{}, allocationErr
-		}
-		currentGeneration = &projectIndexGeneration{
-			evidence:            IndexEvidence{Generation: generation, Fingerprint: fingerprint, Staleness: IndexCurrent},
-			analysisFingerprint: options.AnalysisFingerprint,
-			files:               files,
-			unavailable:         unavailable,
-			model:               model,
-			coverage:            projectIndexGenerationCoverage(files, unavailable, options.SelectionTruncated),
-		}
-		state.generations = append([]*projectIndexGeneration{currentGeneration}, state.generations...)
-		if len(state.generations) > manager.limits.MaxGenerations {
-			state.generations = state.generations[:manager.limits.MaxGenerations]
+func (manager *ProjectIndexManager) buildProjectIndexGeneration(ctx context.Context, registry *LanguageRegistry, files map[string]*indexedProjectFile, unavailable []ProjectIndexUnavailableFile, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, options ProjectIndexRefreshOptions) (*projectIndexGeneration, error) {
+	facts := make([]ProjectFileFacts, 0, len(files))
+	for index := range snapshots {
+		current := files[snapshotKeys[index]]
+		if current != nil && current.facts != nil {
+			facts = append(facts, *current.facts)
 		}
 	}
-	if currentGeneration == nil {
+	model, err := BuildProjectModel(ctx, registry, facts, options.ResolverLimits)
+	if err != nil {
+		return nil, err
+	}
+	fingerprint := projectIndexGenerationFingerprint(options.ScopeFingerprint, options.AnalysisFingerprint, files, unavailable, options.SelectionTruncated)
+	generation, err := manager.allocateGeneration()
+	if err != nil {
+		return nil, err
+	}
+	return &projectIndexGeneration{
+		evidence:            IndexEvidence{Generation: generation, Fingerprint: fingerprint, Staleness: IndexCurrent},
+		analysisFingerprint: options.AnalysisFingerprint,
+		files:               files,
+		unavailable:         unavailable,
+		model:               model,
+		coverage:            projectIndexGenerationCoverage(files, unavailable, options.SelectionTruncated),
+	}, nil
+}
+
+func projectIndexSelection(generations []*projectIndexGeneration, current *projectIndexGeneration, binding ProjectIndexBinding, stats ProjectIndexRefreshStats) (ProjectIndexSelection, error) {
+	if current == nil {
 		return ProjectIndexSelection{}, operation.New(operation.KindUnknown, "project index refresh produced no generation")
 	}
-	selected, stale, err := selectProjectIndexGeneration(state.generations, currentGeneration, options.Binding)
+	selected, stale, err := selectProjectIndexGeneration(generations, current, binding)
 	if err != nil {
 		return ProjectIndexSelection{}, err
 	}
@@ -379,45 +414,79 @@ func (manager *ProjectIndexManager) allocateGeneration() (uint64, error) {
 	return manager.nextGeneration, nil
 }
 
-func normalizeProjectIndexInputs(snapshotInput []ProjectIndexFileSnapshot, unavailableInput []ProjectIndexUnavailableFile, maxFiles int) ([]ProjectIndexFileSnapshot, []ProjectIndexUnavailableFile, error) {
+type projectIndexSnapshotOrder struct {
+	snapshots []ProjectIndexFileSnapshot
+	keys      []string
+}
+
+func (order projectIndexSnapshotOrder) Len() int           { return len(order.snapshots) }
+func (order projectIndexSnapshotOrder) Less(i, j int) bool { return order.keys[i] < order.keys[j] }
+func (order projectIndexSnapshotOrder) Swap(i, j int) {
+	order.snapshots[i], order.snapshots[j] = order.snapshots[j], order.snapshots[i]
+	order.keys[i], order.keys[j] = order.keys[j], order.keys[i]
+}
+
+type projectIndexUnavailableOrder struct {
+	files []ProjectIndexUnavailableFile
+	keys  []string
+}
+
+func (order projectIndexUnavailableOrder) Len() int { return len(order.files) }
+func (order projectIndexUnavailableOrder) Less(i, j int) bool {
+	if order.keys[i] != order.keys[j] {
+		return order.keys[i] < order.keys[j]
+	}
+	return order.files[i].Reason < order.files[j].Reason
+}
+func (order projectIndexUnavailableOrder) Swap(i, j int) {
+	order.files[i], order.files[j] = order.files[j], order.files[i]
+	order.keys[i], order.keys[j] = order.keys[j], order.keys[i]
+}
+
+func normalizeProjectIndexInputs(snapshotInput []ProjectIndexFileSnapshot, unavailableInput []ProjectIndexUnavailableFile, maxFiles int) ([]ProjectIndexFileSnapshot, []string, []ProjectIndexUnavailableFile, error) {
 	if maxFiles <= 0 {
-		return nil, nil, operation.New(operation.KindInvalidInput, "project resolver file limit must be positive")
+		return nil, nil, nil, operation.New(operation.KindInvalidInput, "project resolver file limit must be positive")
 	}
 	if len(snapshotInput)+len(unavailableInput) > maxFiles {
-		return nil, nil, operation.Wrap(operation.KindLimit, "refresh_project_index", "", fmt.Errorf("file count %d exceeds limit %d", len(snapshotInput)+len(unavailableInput), maxFiles))
+		return nil, nil, nil, operation.Wrap(operation.KindLimit, "refresh_project_index", "", fmt.Errorf("file count %d exceeds limit %d", len(snapshotInput)+len(unavailableInput), maxFiles))
 	}
+
 	snapshots := append([]ProjectIndexFileSnapshot(nil), snapshotInput...)
-	sort.Slice(snapshots, func(i, j int) bool { return projectPathKey(snapshots[i].Path) < projectPathKey(snapshots[j].Path) })
-	seen := make(map[string]struct{}, len(snapshotInput)+len(unavailableInput))
-	for _, snapshot := range snapshots {
+	snapshotKeys := make([]string, len(snapshots))
+	for index, snapshot := range snapshots {
 		if strings.TrimSpace(snapshot.Path) == "" || !validProjectFingerprint(snapshot.SourceFingerprint) {
-			return nil, nil, operation.New(operation.KindInvalidInput, "project index snapshots require path and lowercase SHA-256 source fingerprint")
+			return nil, nil, nil, operation.New(operation.KindInvalidInput, "project index snapshots require path and lowercase SHA-256 source fingerprint")
 		}
-		key := projectPathKey(snapshot.Path)
+		snapshotKeys[index] = projectPathKey(snapshot.Path)
+	}
+	sort.Sort(projectIndexSnapshotOrder{snapshots: snapshots, keys: snapshotKeys})
+
+	seen := make(map[string]struct{}, len(snapshotInput)+len(unavailableInput))
+	for index, snapshot := range snapshots {
+		key := snapshotKeys[index]
 		if _, exists := seen[key]; exists {
-			return nil, nil, operation.Wrap(operation.KindInvalidInput, "refresh_project_index", snapshot.Path, fmt.Errorf("duplicate project index path"))
+			return nil, nil, nil, operation.Wrap(operation.KindInvalidInput, "refresh_project_index", snapshot.Path, fmt.Errorf("duplicate project index path"))
 		}
 		seen[key] = struct{}{}
 	}
+
 	unavailable := append([]ProjectIndexUnavailableFile(nil), unavailableInput...)
-	sort.Slice(unavailable, func(i, j int) bool {
-		left, right := projectPathKey(unavailable[i].Path), projectPathKey(unavailable[j].Path)
-		if left != right {
-			return left < right
-		}
-		return unavailable[i].Reason < unavailable[j].Reason
-	})
-	for _, current := range unavailable {
+	unavailableKeys := make([]string, len(unavailable))
+	for index, current := range unavailable {
 		if strings.TrimSpace(current.Path) == "" || !validProjectIndexUnavailableReason(current.Reason) {
-			return nil, nil, operation.New(operation.KindInvalidInput, "project index unavailable inputs require path and supported reason")
+			return nil, nil, nil, operation.New(operation.KindInvalidInput, "project index unavailable inputs require path and supported reason")
 		}
-		key := projectPathKey(current.Path)
+		unavailableKeys[index] = projectPathKey(current.Path)
+	}
+	sort.Sort(projectIndexUnavailableOrder{files: unavailable, keys: unavailableKeys})
+	for index, current := range unavailable {
+		key := unavailableKeys[index]
 		if _, exists := seen[key]; exists {
-			return nil, nil, operation.Wrap(operation.KindInvalidInput, "refresh_project_index", current.Path, fmt.Errorf("duplicate project index path"))
+			return nil, nil, nil, operation.Wrap(operation.KindInvalidInput, "refresh_project_index", current.Path, fmt.Errorf("duplicate project index path"))
 		}
 		seen[key] = struct{}{}
 	}
-	return snapshots, unavailable, nil
+	return snapshots, snapshotKeys, unavailable, nil
 }
 
 func validProjectIndexUnavailableReason(reason ProjectIndexUnavailableReason) bool {

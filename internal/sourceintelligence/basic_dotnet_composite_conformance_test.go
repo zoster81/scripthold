@@ -164,6 +164,82 @@ func TestOpaqueAndDynamicBoundariesDoNotLeakDeclarations(t *testing.T) {
 	}
 }
 
+func TestPowerShellNativeQuotedStringsAndHereStringTrailingArguments(t *testing.T) {
+	text := "function Before {}\n" +
+		"$path = \"C:\\tools\\\"\n" +
+		"$escaped = \"say `\"hello`\"\"\n" +
+		"$multi = \"alpha\nfunction Hidden-InMultilineString {}\nbeta\"\n" +
+		"Write-Host @\"\nfunction Hidden-InHereString {}\n\"@ -ForegroundColor Red\n" +
+		"function After {}\n"
+	result, err := (PowerShellAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid PowerShell native string forms reported partial: %+v", result.Analysis)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Before", "After"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("PowerShell declaration %q missing: %v", want, names)
+		}
+	}
+	for _, forbidden := range []string{"Hidden-InMultilineString", "Hidden-InHereString"} {
+		if containsSortedString(names, forbidden) {
+			t.Fatalf("PowerShell string leaked declaration %q: %v", forbidden, names)
+		}
+	}
+
+	broken, err := (PowerShellAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("function Before {}\n$value = \"unterminated"), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broken.Analysis.CoverageComplete || !hasAnalysisDiagnostic(broken.Analysis.Diagnostics, "powershell-unterminated-string") {
+		t.Fatalf("genuinely unterminated PowerShell string did not fail closed: %+v", broken.Analysis)
+	}
+}
+
+func TestPowerShellExpandableStringSubexpressionPreservesOuterCallDelimiters(t *testing.T) {
+	text := "function Before {}\n" +
+		"$level = 2\n" +
+		"$title = 'Demo'\n" +
+		"$sb.AppendLine(\"$(\"#\" * $level) $($title)\")\n" +
+		"function After {}\n"
+	result, err := (PowerShellAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("PowerShell expandable-string subexpression reported partial: %+v", result.Analysis)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Before", "After"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("PowerShell declaration %q missing after expandable string: %v", want, names)
+		}
+	}
+}
+
+func TestPowerShellExpandableStringSubexpressionHonorsBacktickEscapes(t *testing.T) {
+	text := "function Before {}\n" +
+		"$query = 'demo'\n" +
+		"Write-Host \"Installed apps$(if($query) { `\" matching '$query'`\"}):\"\n" +
+		"function After {}\n"
+	result, err := (PowerShellAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("PowerShell interpolation backtick escapes reported partial: %+v", result.Analysis)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Before", "After"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("PowerShell declaration %q missing after interpolation escapes: %v", want, names)
+		}
+	}
+}
+
 func TestRealWorldFSharpCompilerDirectivesAreIndentationNeutral(t *testing.T) {
 	text := "type Service() =\n" +
 		"    member _.Run() =\n" +

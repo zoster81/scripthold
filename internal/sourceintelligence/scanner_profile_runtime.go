@@ -150,6 +150,9 @@ func stringPrefixAt(text string, offset int, prefix string, insensitive bool) bo
 }
 
 func (scanner *sourceScanner) delimiterAt(offset int) (matchedDelimiter, bool) {
+	if offset >= len(scanner.text) || !scanner.delimiterStartBytes[scanner.text[offset]] {
+		return matchedDelimiter{}, false
+	}
 	if len(scanner.delimiters) > 0 {
 		top := scanner.delimiters[len(scanner.delimiters)-1]
 		if strings.HasPrefix(scanner.text[offset:], top.close) {

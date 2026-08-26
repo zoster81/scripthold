@@ -91,6 +91,35 @@ func TestOpaqueRegionsDoNotEmitDeclarations(t *testing.T) {
 	}
 }
 
+func TestSCSSSelectorMaskingPreservesCommentsOffsetsAndNestedCommas(t *testing.T) {
+	text := "// .fake-comment { color: red; }\n" +
+		"input[type=\"text\"]:focus,\n" +
+		"input[type=\"color\"]:focus,\n" +
+		"button:not(.primary, .secondary) { color: red; }\n"
+	doc := sourceDocumentForScanner(text)
+	doc.Path = "selectors.scss"
+	result, err := (SCSSAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid SCSS selector list reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, want := range []string{
+		"input[type=\"text\"]:focus",
+		"input[type=\"color\"]:focus",
+		"button:not(.primary, .secondary)",
+	} {
+		if symbol, ok := byName[want]; !ok || symbol.Kind != SymbolKindSelector {
+			t.Fatalf("SCSS selector %q=%+v exists=%v symbols=%v", want, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	if _, ok := byName["// .fake-comment"]; ok {
+		t.Fatalf("SCSS line comment leaked as selector: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
 func TestMalformedStructuredDocumentsAreIncomplete(t *testing.T) {
 	tests := []struct {
 		name     string

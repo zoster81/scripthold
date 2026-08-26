@@ -74,8 +74,8 @@ func conditionalSelections(groups []conditionalGroup) ([][]int, bool) {
 			choices = append(choices, conditionalChoice{group: groupID, branch: branchID})
 			parentGroup := group.parentGroup
 			parentBranch := group.parentBranch
-			for parentGroup >= 0 {
-				if parentGroup >= len(groups) || parentBranch < 0 || parentBranch >= len(groups[parentGroup].branches) {
+			for depth := 0; parentGroup >= 0; depth++ {
+				if depth >= len(groups) || parentGroup >= len(groups) || parentBranch < 0 || parentBranch >= len(groups[parentGroup].branches) {
 					return nil, false
 				}
 				choices = append(choices, conditionalChoice{group: parentGroup, branch: parentBranch})

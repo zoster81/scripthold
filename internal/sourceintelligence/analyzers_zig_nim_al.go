@@ -408,7 +408,7 @@ func nimNameToken(token Token) (string, OffsetRange) {
 	return name, OffsetRange{Start: token.StartOffset, End: end}
 }
 func (p *nimParser) importLine(line LogicalLine) {
-	for _, part := range splitTokenRangeAt(line.Tokens, 1, len(line.Tokens), ",", line.Tokens[0].Nesting) {
+	for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, len(line.Tokens), line.Tokens[0].Nesting) {
 		if part[0] >= part[1] {
 			continue
 		}

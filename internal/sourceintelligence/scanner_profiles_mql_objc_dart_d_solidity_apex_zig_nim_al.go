@@ -117,7 +117,8 @@ func NimScannerProfile() ScannerProfile {
 			{Prefixes: []string{"fmt", "f", "r", ""}, Delimiter: "\"", BackslashEscapes: true, CaseInsensitivePrefix: true},
 			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
 		},
-		Indentation: true,
+		Indentation:         true,
+		AllowNonStackDedent: true,
 	}
 }
 

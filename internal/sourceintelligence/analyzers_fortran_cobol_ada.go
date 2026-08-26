@@ -651,7 +651,7 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 			return
 		}
 		if second == "subroutine" || second == "function" {
-			phase9ParseFortranProcedure(document, builder, tokens, start, end, 1, parent, scopes)
+			phase9ParseFortranProcedure(builder, tokens, start, end, 1, parent, scopes)
 			return
 		}
 	}
@@ -695,7 +695,7 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 			*scopes = append(*scopes, phase9Scope{label: "type", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
 	default:
-		phase9ParseFortranProcedure(document, builder, tokens, start, end, -1, parent, scopes)
+		phase9ParseFortranProcedure(builder, tokens, start, end, -1, parent, scopes)
 	}
 }
 
@@ -718,7 +718,7 @@ func phase9FortranCompactEndLabel(token string) (string, bool) {
 	}
 }
 
-func phase9ParseFortranProcedure(document *SourceDocument, builder *SymbolBuilder, tokens []Token, start, end, keyword int, parent *SymbolParent, scopes *[]phase9Scope) {
+func phase9ParseFortranProcedure(builder *SymbolBuilder, tokens []Token, start, end, keyword int, parent *SymbolParent, scopes *[]phase9Scope) {
 	if keyword < 0 {
 		for index := 0; index < len(tokens); index++ {
 			lower := strings.ToLower(tokens[index].Text)
@@ -1032,7 +1032,7 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		first := strings.ToLower(line.Tokens[0].Text)
 		if first == "with" {
 			end := phase9LineEndToken(line.Tokens)
-			for _, part := range splitTokenRangeAt(line.Tokens, 1, end, ",", line.Tokens[0].Nesting) {
+			for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, end, line.Tokens[0].Nesting) {
 				partEnd := part[1]
 				for partEnd > part[0] && line.Tokens[partEnd-1].Text == ";" {
 					partEnd--

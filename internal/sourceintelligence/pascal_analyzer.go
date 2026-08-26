@@ -261,7 +261,7 @@ func (p *pascalParser) parseUses(tokens []Token, start, nesting int) bool {
 			break
 		}
 	}
-	for _, part := range splitTokenRangeAt(tokens, start, end, ",", nesting) {
+	for _, part := range splitCommaTokenRangeAt(tokens, start, end, nesting) {
 		partStart := part[0]
 		partEnd := part[1]
 		for partStart < partEnd && tokens[partStart].Kind == TokenString {
@@ -381,7 +381,7 @@ func (p *pascalParser) collectPascalTypeRelations(source, kindWord string, token
 	if close <= open {
 		return
 	}
-	for index, part := range splitTokenRangeAt(tokens, open+1, close, ",", tokens[open].Nesting) {
+	for index, part := range splitCommaTokenRangeAt(tokens, open+1, close, tokens[open].Nesting) {
 		target := tokenRangeText(tokens, part[0], part[1])
 		kind := "implements"
 		if kindWord == "interface" || index == 0 {
@@ -398,7 +398,7 @@ func (p *pascalParser) parseTypeField(line LogicalLine, scope *pascalScope) bool
 		return false
 	}
 	added := false
-	for _, part := range splitTokenRangeAt(tokens, 0, colon, ",", tokens[0].Nesting) {
+	for _, part := range splitCommaTokenRangeAt(tokens, 0, colon, tokens[0].Nesting) {
 		nameIndex := nextIdentifierToken(tokens, part[0], part[1])
 		if nameIndex < 0 {
 			continue
@@ -535,7 +535,7 @@ func (p *pascalParser) parseVarDeclaration(line LogicalLine) {
 	if colon <= 0 {
 		return
 	}
-	for _, part := range splitTokenRangeAt(tokens, 0, colon, ",", tokens[0].Nesting) {
+	for _, part := range splitCommaTokenRangeAt(tokens, 0, colon, tokens[0].Nesting) {
 		nameIndex := nextIdentifierToken(tokens, part[0], part[1])
 		if nameIndex < 0 {
 			continue

@@ -45,6 +45,21 @@ func TestScannerProfileIdentifierDelimiterAndDirectivePolicies(t *testing.T) {
 	}
 }
 
+func TestScannerDelimiterDispatchPreservesUTF8Delimiters(t *testing.T) {
+	profile := ScannerProfile{
+		Name:       "utf8-delimiters",
+		Delimiters: []DelimiterRule{{Open: "«", Close: "»"}},
+	}
+	result := scanSourceText(t, "«value»\n", profile, scannerTestLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("UTF-8 delimiter scan reported partial: %+v", result.Diagnostics)
+	}
+	pairs := PairDelimiterTokens(result.Tokens, profile.Delimiters)
+	if len(pairs) != 2 {
+		t.Fatalf("UTF-8 delimiter pair map entries = %d, want 2 tokens=%+v", len(pairs), result.Tokens)
+	}
+}
+
 func TestScannerDirectiveBackslashContinuationsStayOpaque(t *testing.T) {
 	for _, testCase := range []struct {
 		name string
@@ -109,6 +124,71 @@ func TestScannerBackslashEscapedPhysicalNewlinesHandleCRLFAtomically(t *testing.
 	result := scanSourceText(t, "$\"alpha\\\r\nbeta\"\r\n", interpolated, scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("interpolated escaped CRLF reported partial: %+v", result.Diagnostics)
+	}
+}
+
+func TestScannerCustomEscapePrefixPreservesQuotedStringBoundaries(t *testing.T) {
+	profile := ScannerProfile{
+		Name:    "custom-escape-prefix",
+		Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, EscapePrefix: "`"}},
+	}
+	text := "value = \"C:\\tools\\\"\nquoted = \"say `\"hello`\"\"\nmultiline = \"alpha\nbeta\"\n"
+	result := scanSourceText(t, text, profile, scannerTestLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("custom escape-prefix strings reported partial: %+v", result.Diagnostics)
+	}
+	if countKind(result.Tokens, TokenString) != 3 {
+		t.Fatalf("custom escape-prefix string count=%d want 3 tokens=%+v", countKind(result.Tokens, TokenString), result.Tokens)
+	}
+}
+
+func TestScannerStringDispatchPreservesCaseInsensitivePrefixes(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		text   string
+	}{
+		{name: "ascii", prefix: "r", text: `R"value"`},
+		{name: "unicode", prefix: "é", text: `É"value"`},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			profile := ScannerProfile{
+				Name: "case-insensitive-string-prefix",
+				Strings: []StringRule{{
+					Prefixes:              []string{testCase.prefix},
+					Delimiter:             "\"",
+					CaseInsensitivePrefix: true,
+				}},
+			}
+			result := scanSourceText(t, testCase.text, profile, scannerTestLimits)
+			if !result.Complete || len(result.Diagnostics) != 0 {
+				t.Fatalf("case-insensitive string prefix reported partial: %+v", result.Diagnostics)
+			}
+			if countKind(result.Tokens, TokenString) != 1 {
+				t.Fatalf("case-insensitive string count=%d want 1 tokens=%+v", countKind(result.Tokens, TokenString), result.Tokens)
+			}
+		})
+	}
+}
+
+func TestScannerCustomInterpolationClosePreservesParenthesizedExpressions(t *testing.T) {
+	profile := ScannerProfile{
+		Name: "custom-interpolation-close",
+		Strings: []StringRule{{
+			Prefixes:           []string{""},
+			Delimiter:          "\"",
+			Interpolated:       true,
+			InterpolationOpen:  "$(",
+			InterpolationClose: ")",
+		}},
+	}
+	result := scanSourceText(t, "call(\"$(\"inner\")\")\n", profile, scannerTestLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("custom interpolation closer reported partial: %+v", result.Diagnostics)
+	}
+	if countKind(result.Tokens, TokenString) != 1 {
+		t.Fatalf("custom interpolation string count=%d want 1 tokens=%+v", countKind(result.Tokens, TokenString), result.Tokens)
 	}
 }
 

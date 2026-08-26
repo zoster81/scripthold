@@ -112,7 +112,11 @@ func analyzePhase10CSS(ctx context.Context, document *SourceDocument, options An
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	structural := phase10MaskComments(document.Text, nil, "/*", "*/")
+	var lineCommentMarkers []string
+	if scss {
+		lineCommentMarkers = []string{"//"}
+	}
+	structural := phase10MaskComments(document.Text, lineCommentMarkers, "/*", "*/")
 	if scss {
 		for _, match := range phase10SCSSVariable.FindAllStringSubmatchIndex(structural, -1) {
 			name := document.Text[match[2]:match[3]]
@@ -149,17 +153,15 @@ func phase10CSSSelectors(ctx context.Context, builder *SymbolBuilder, document *
 		segmentStart++
 		raw := strings.TrimSpace(source[segmentStart:open])
 		if raw != "" && !strings.HasPrefix(raw, "@") && !strings.Contains(raw, ": ") {
-			for _, selector := range strings.Split(raw, ",") {
-				selector = strings.TrimSpace(selector)
-				if selector == "" || strings.Contains(selector, "\n") && strings.Contains(selector, ":") {
+			for _, span := range phase10CSSSelectorSpans(source[segmentStart:open]) {
+				selector := source[span.Start:span.End]
+				if strings.Contains(selector, "\n") && strings.Contains(selector, ":") {
 					continue
 				}
-				index := strings.Index(source[segmentStart:open], selector)
-				if index >= 0 {
-					nameStart := segmentStart + index
-					name := document.Text[nameStart : nameStart+len(selector)]
-					phase10AddSymbol(builder, SymbolKindSelector, "selector", name, nil, OffsetRange{Start: nameStart, End: open}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
-				}
+				nameStart := segmentStart + span.Start
+				nameEnd := segmentStart + span.End
+				name := document.Text[nameStart:nameEnd]
+				phase10AddSymbol(builder, SymbolKindSelector, "selector", name, nil, OffsetRange{Start: nameStart, End: open}, OffsetRange{Start: nameStart, End: nameEnd})
 			}
 		}
 		if err := ctx.Err(); err != nil {
@@ -167,6 +169,61 @@ func phase10CSSSelectors(ctx context.Context, builder *SymbolBuilder, document *
 			return
 		}
 		start = open + 1
+	}
+}
+
+func phase10CSSSelectorSpans(segment string) []OffsetRange {
+	spans := make([]OffsetRange, 0, 4)
+	start := 0
+	parenDepth := 0
+	bracketDepth := 0
+	appendSpan := func(end int) {
+		left, right := start, end
+		for left < right && phase10CSSWhitespace(segment[left]) {
+			left++
+		}
+		for right > left && phase10CSSWhitespace(segment[right-1]) {
+			right--
+		}
+		if left < right {
+			spans = append(spans, OffsetRange{Start: left, End: right})
+		}
+	}
+	for index := 0; index < len(segment); index++ {
+		switch segment[index] {
+		case '\\':
+			if index+1 < len(segment) {
+				index++
+			}
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+		case ',':
+			if parenDepth == 0 && bracketDepth == 0 {
+				appendSpan(index)
+				start = index + 1
+			}
+		}
+	}
+	appendSpan(len(segment))
+	return spans
+}
+
+func phase10CSSWhitespace(value byte) bool {
+	switch value {
+	case ' ', '\t', '\r', '\n', '\f':
+		return true
+	default:
+		return false
 	}
 }
 

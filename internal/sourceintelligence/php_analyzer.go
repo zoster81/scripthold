@@ -227,7 +227,7 @@ func (p *phpParser) parseUse(keyword, end int) int {
 	if p.token(start, "function") || p.token(start, "const") {
 		start = p.skipTrivia(start+1, semicolon)
 	}
-	for _, part := range splitTokenRangeAt(p.tokens, start, semicolon, ",", p.tokens[keyword].Nesting) {
+	for _, part := range splitCommaTokenRangeAt(p.tokens, start, semicolon, p.tokens[keyword].Nesting) {
 		valueEnd := part[1]
 		for index := part[0]; index < part[1]; index++ {
 			if p.token(index, "as") {
@@ -340,7 +340,7 @@ func (p *phpParser) collectTypeRelations(source string, start, end, nesting int,
 				break
 			}
 		}
-		parts := splitTokenRangeAt(p.tokens, index+1, clauseEnd, ",", nesting)
+		parts := splitCommaTokenRangeAt(p.tokens, index+1, clauseEnd, nesting)
 		if nativeKind == "class" && kind == "extends" && len(parts) > 1 {
 			parts = parts[:1]
 		}
@@ -357,7 +357,7 @@ func (p *phpParser) parseTraitUse(keyword, end int, parent *SymbolParent) int {
 		return p.skipStatement(keyword, end)
 	}
 	if parent != nil {
-		for _, part := range splitTokenRangeAt(p.tokens, keyword+1, semicolon, ",", p.tokens[keyword].Nesting) {
+		for _, part := range splitCommaTokenRangeAt(p.tokens, keyword+1, semicolon, p.tokens[keyword].Nesting) {
 			p.addRelation("uses-trait", parent.QualifiedName, tokenRangeText(p.tokens, part[0], part[1]), part[0], part[1])
 		}
 	}

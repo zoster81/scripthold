@@ -69,6 +69,52 @@ func TestRealWorldFreeBasicTypeAliasesDoNotOpenScopes(t *testing.T) {
 	}
 }
 
+func TestRealWorldFreeBasicDelegatingConstructorCallDoesNotOpenScope(t *testing.T) {
+	text := "Type DynamicArrayList\n" +
+		"  Declare Constructor()\n" +
+		"  Declare Constructor(ByVal count As Integer)\n" +
+		"End Type\n" +
+		"Constructor DynamicArrayList()\n" +
+		"End Constructor\n" +
+		"Constructor DynamicArrayList(ByVal count As Integer)\n" +
+		"  Constructor()\n" +
+		"End Constructor\n" +
+		"Function After() As Integer\n" +
+		"End Function\n"
+	result, err := (FreeBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("delegating FreeBASIC Constructor() call opened a false scope: %+v", result.Analysis)
+	}
+	if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)["After"]; !ok {
+		t.Fatalf("declaration after delegating constructor call was lost: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealWorldFreeBasicTypeNamedFieldDoesNotOpenScope(t *testing.T) {
+	text := "Type Lump\n" +
+		"  type As Integer\n" +
+		"  length As Integer\n" +
+		"End Type\n" +
+		"Function After() As Integer\n" +
+		"End Function\n"
+	result, err := (FreeBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("FreeBASIC field named type opened a false TYPE scope: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Lump", "Lump.type", "Lump.length", "After"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestRealWorldClassicBasicDeclareLibraryPrototypesDoNotOpenScopes(t *testing.T) {
 	text := "Declare Library \"\"\n" +
 		"    Function powf! (ByVal base!, ByVal exponent!)\n" +

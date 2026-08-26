@@ -67,11 +67,11 @@ func tokenRangeText(tokens []Token, start, end int) string {
 	return builder.String()
 }
 
-func splitTokenRangeAt(tokens []Token, start, end int, separator string, nesting int) [][2]int {
+func splitCommaTokenRangeAt(tokens []Token, start, end, nesting int) [][2]int {
 	var result [][2]int
 	partStart := start
 	for index := start; index < end; index++ {
-		if tokens[index].Text == separator && tokens[index].Nesting == nesting {
+		if tokens[index].Text == "," && tokens[index].Nesting == nesting {
 			if partStart < index {
 				result = append(result, [2]int{partStart, index})
 			}

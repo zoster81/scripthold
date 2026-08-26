@@ -424,7 +424,7 @@ func (parser *jvmParser) collectJavaTypeRelations(source string, start, end, nes
 				break
 			}
 		}
-		for _, part := range splitTokenRangeAt(parser.tokens, clauseStart, clauseEnd, ",", nesting) {
+		for _, part := range splitCommaTokenRangeAt(parser.tokens, clauseStart, clauseEnd, nesting) {
 			target := normalizedTypeSpelling(parser.tokens, part[0], part[1], nil)
 			parser.addRelation(kind, source, target, part[0], part[1])
 		}
@@ -543,7 +543,7 @@ func (parser *jvmParser) addKotlinPrimaryConstructor(parent *SymbolParent, owner
 }
 
 func (parser *jvmParser) addKotlinPrimaryProperties(parent *SymbolParent, start, end int) {
-	for _, part := range splitTokenRangeAt(parser.tokens, start, end, ",", parser.tokens[start-1].Nesting) {
+	for _, part := range splitCommaTokenRangeAt(parser.tokens, start, end, parser.tokens[start-1].Nesting) {
 		marker := -1
 		for index := part[0]; index < part[1]; index++ {
 			if parser.token(index, "val") || parser.token(index, "var") {

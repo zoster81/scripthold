@@ -81,20 +81,23 @@ type matchedStringRule struct {
 }
 
 type sourceScanner struct {
-	ctx             context.Context
-	document        *SourceDocument
-	text            string
-	profile         ScannerProfile
-	limits          ScannerLimits
-	keywords        map[string]struct{}
-	result          ScanResult
-	at              int
-	lineStart       bool
-	pendingIndent   bool
-	continued       bool
-	delimiters      []delimiterEntry
-	pendingHereDocs []pendingHereDoc
-	indentStack     []int
+	ctx                   context.Context
+	document              *SourceDocument
+	text                  string
+	profile               ScannerProfile
+	limits                ScannerLimits
+	keywords              map[string]struct{}
+	stringStartBytes      [256]bool
+	stringStartUnfiltered bool
+	delimiterStartBytes   [256]bool
+	result                ScanResult
+	at                    int
+	lineStart             bool
+	pendingIndent         bool
+	continued             bool
+	delimiters            []delimiterEntry
+	pendingHereDocs       []pendingHereDoc
+	indentStack           []int
 }
 
 // ScanSource performs bounded lexical scanning over one already-decoded source document.
@@ -140,6 +143,8 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 	if err := scanner.validateProfile(); err != nil {
 		return ScanResult{}, err
 	}
+	scanner.initializeStringDispatch()
+	scanner.initializeDelimiterDispatch()
 	if err := scanner.run(); err != nil {
 		return ScanResult{}, err
 	}
@@ -185,6 +190,21 @@ func (scanner *sourceScanner) validateProfile() error {
 		}
 		if strings.ContainsAny(rule.LineContinuation, "\r\n") {
 			return operation.New(operation.KindInvalidInput, "string line continuation must not contain a newline")
+		}
+		if strings.ContainsAny(rule.EscapePrefix, "\r\n") {
+			return operation.New(operation.KindInvalidInput, "string escape prefix must not contain a newline")
+		}
+		if rule.InterpolationOpen != "" && !utf8.ValidString(rule.InterpolationOpen) {
+			return operation.New(operation.KindInvalidInput, "string interpolation opener must be valid UTF-8")
+		}
+		if rule.InterpolationClose != "" && (!utf8.ValidString(rule.InterpolationClose) || utf8.RuneCountInString(rule.InterpolationClose) != 1) {
+			return operation.New(operation.KindInvalidInput, "string interpolation closer must be one valid UTF-8 rune")
+		}
+		if rule.Interpolated || rule.InterpolationMarker != "" || rule.InterpolationOpen != "" || rule.InterpolationClose != "" {
+			_, nestingOpen, close := stringInterpolationDelimiters(rule)
+			if nestingOpen == close {
+				return operation.New(operation.KindInvalidInput, "string interpolation open and close delimiters must be distinct")
+			}
 		}
 		if rule.Multiline && rule.LineContinuation != "" {
 			return operation.New(operation.KindInvalidInput, "multiline strings cannot require a line continuation marker")
@@ -495,8 +515,8 @@ func (scanner *sourceScanner) consumeString(match matchedStringRule, start int) 
 	return scanner.consumeOpaqueString(match, start)
 }
 
-func (scanner *sourceScanner) consumeBackslashEscape() {
-	scanner.at++
+func (scanner *sourceScanner) consumeEscapePrefix(prefix string) {
+	scanner.at += len(prefix)
 	if scanner.at >= len(scanner.text) {
 		return
 	}
@@ -508,12 +528,20 @@ func (scanner *sourceScanner) consumeBackslashEscape() {
 	scanner.at += size
 }
 
+func (scanner *sourceScanner) consumeBackslashEscape() {
+	scanner.consumeEscapePrefix("\\")
+}
+
 func (scanner *sourceScanner) consumeOpaqueString(match matchedStringRule, start int) error {
 	for scanner.at < len(scanner.text) {
 		if scanner.at&4095 == 0 {
 			if err := scanner.checkContext(); err != nil {
 				return err
 			}
+		}
+		if match.rule.EscapePrefix != "" && strings.HasPrefix(scanner.text[scanner.at:], match.rule.EscapePrefix) {
+			scanner.consumeEscapePrefix(match.rule.EscapePrefix)
+			continue
 		}
 		if match.rule.BackslashEscapes && scanner.text[scanner.at] == '\\' {
 			scanner.consumeBackslashEscape()
@@ -573,11 +601,22 @@ func (scanner *sourceScanner) consumeStringLineContinuation(marker string, allow
 	return true
 }
 
-func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule, start int) error {
-	interpolationOpen := match.rule.InterpolationOpen
-	if interpolationOpen == "" {
-		interpolationOpen = "{"
+func stringInterpolationDelimiters(rule StringRule) (open, nestingOpen, close string) {
+	open = rule.InterpolationOpen
+	if open == "" {
+		open = "{"
 	}
+	close = rule.InterpolationClose
+	if close == "" {
+		close = "}"
+	}
+	_, size := utf8.DecodeLastRuneInString(open)
+	nestingOpen = open[len(open)-size:]
+	return open, nestingOpen, close
+}
+
+func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule, start int) error {
+	interpolationOpen, interpolationNestingOpen, interpolationClose := stringInterpolationDelimiters(match.rule)
 	interpolationDepth := 0
 	for scanner.at < len(scanner.text) {
 		if scanner.at&4095 == 0 {
@@ -586,6 +625,10 @@ func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule,
 			}
 		}
 		if interpolationDepth == 0 {
+			if match.rule.EscapePrefix != "" && strings.HasPrefix(scanner.text[scanner.at:], match.rule.EscapePrefix) {
+				scanner.consumeEscapePrefix(match.rule.EscapePrefix)
+				continue
+			}
 			if match.rule.BackslashEscapes && scanner.text[scanner.at] == '\\' {
 				scanner.consumeBackslashEscape()
 				continue
@@ -626,6 +669,10 @@ func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule,
 			continue
 		}
 
+		if match.rule.EscapePrefix != "" && strings.HasPrefix(scanner.text[scanner.at:], match.rule.EscapePrefix) {
+			scanner.consumeEscapePrefix(match.rule.EscapePrefix)
+			continue
+		}
 		if prefix := scanner.lineCommentPrefixAt(scanner.at); prefix != "" {
 			scanner.skipLineComment(prefix)
 			continue
@@ -643,20 +690,21 @@ func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule,
 			}
 			continue
 		}
-		switch scanner.text[scanner.at] {
-		case '{':
+		if strings.HasPrefix(scanner.text[scanner.at:], interpolationNestingOpen) {
 			interpolationDepth++
 			if interpolationDepth > scanner.limits.MaxNesting {
 				return scanner.limitError("interpolation nesting", interpolationDepth, scanner.limits.MaxNesting)
 			}
-			scanner.at++
-		case '}':
-			interpolationDepth--
-			scanner.at++
-		default:
-			_, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
-			scanner.at += size
+			scanner.at += len(interpolationNestingOpen)
+			continue
 		}
+		if strings.HasPrefix(scanner.text[scanner.at:], interpolationClose) {
+			interpolationDepth--
+			scanner.at += len(interpolationClose)
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
+		scanner.at += size
 	}
 	scanner.addDiagnostic("unterminated-string", "string literal is not terminated", start, len(scanner.text))
 	return nil
@@ -798,7 +846,42 @@ func (scanner *sourceScanner) blockCommentRuleAt(offset int) (BlockCommentRule, 
 	return best, found
 }
 
+func (scanner *sourceScanner) initializeStringDispatch() {
+	for _, rule := range scanner.profile.Strings {
+		for _, prefix := range rule.Prefixes {
+			if prefix == "" {
+				scanner.stringStartBytes[rule.Delimiter[0]] = true
+				continue
+			}
+			if rule.CaseInsensitivePrefix && prefix[0] >= utf8.RuneSelf {
+				scanner.stringStartUnfiltered = true
+				return
+			}
+			scanner.stringStartBytes[prefix[0]] = true
+			if !rule.CaseInsensitivePrefix {
+				continue
+			}
+			switch first := prefix[0]; {
+			case first >= 'a' && first <= 'z':
+				scanner.stringStartBytes[first-'a'+'A'] = true
+			case first >= 'A' && first <= 'Z':
+				scanner.stringStartBytes[first-'A'+'a'] = true
+			}
+		}
+	}
+}
+
+func (scanner *sourceScanner) initializeDelimiterDispatch() {
+	for _, rule := range scanner.profile.Delimiters {
+		scanner.delimiterStartBytes[rule.Open[0]] = true
+		scanner.delimiterStartBytes[rule.Close[0]] = true
+	}
+}
+
 func (scanner *sourceScanner) stringRuleAt(offset int) (matchedStringRule, bool) {
+	if offset >= len(scanner.text) || !scanner.stringStartUnfiltered && !scanner.stringStartBytes[scanner.text[offset]] {
+		return matchedStringRule{}, false
+	}
 	for _, rule := range scanner.profile.Strings {
 		for _, prefix := range rule.Prefixes {
 			prefixEnd := offset + len(prefix)

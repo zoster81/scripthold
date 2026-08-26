@@ -167,7 +167,7 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
 		if first == "using" || first == "import" {
-			for _, part := range splitTokenRangeAt(line.Tokens, 1, len(line.Tokens), ",", line.Tokens[0].Nesting) {
+			for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, len(line.Tokens), line.Tokens[0].Nesting) {
 				name := phase9FirstIdentifier(line.Tokens, part[0])
 				if name >= part[0] && name < part[1] {
 					phase9AddDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[name].Text, line.Tokens[name].StartOffset, line.Tokens[name].EndOffset)
