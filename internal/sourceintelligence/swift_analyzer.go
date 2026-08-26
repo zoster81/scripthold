@@ -315,30 +315,7 @@ func (p *swiftParser) collectTypeRelations(source, nativeKind string, start, end
 }
 
 func swiftSplitTypeList(tokens []Token, start, end, nesting int) [][2]int {
-	var result [][2]int
-	partStart := start
-	angle := 0
-	for index := start; index < end; index++ {
-		switch tokens[index].Text {
-		case "<":
-			angle++
-		case ">":
-			if angle > 0 {
-				angle--
-			}
-		case ",":
-			if angle == 0 && tokens[index].Nesting == nesting {
-				if partStart < index {
-					result = append(result, [2]int{partStart, index})
-				}
-				partStart = index + 1
-			}
-		}
-	}
-	if partStart < end {
-		result = append(result, [2]int{partStart, end})
-	}
-	return result
+	return splitTypeTokenRange(tokens, start, end, nesting)
 }
 
 func (p *swiftParser) parseFunction(declarationStart, keyword, end int, parent *SymbolParent, member bool) int {

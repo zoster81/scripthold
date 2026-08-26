@@ -190,6 +190,84 @@ func TestRealWorldFSharpCompilerDirectivesAreIndentationNeutral(t *testing.T) {
 	}
 }
 
+func TestRealWorldFSharpAllowsNonStackContinuationDedents(t *testing.T) {
+	text := `type Service() =
+    static member val Unit =
+            Gen.constant ()
+            |> ignore
+        with get
+    member _.Run() =
+        1
+
+let compute
+        (model: int) =
+    model
+
+let top value = value
+`
+	result, err := (FSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid F# continuation/property indentation reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Service", "Service.Run", "compute", "top"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldFSharpCharacterLiteralsDoNotConflictWithTypeParameters(t *testing.T) {
+	text := `let quote = '\"'
+let letter = 'x'
+let generic<'T> (value: 'T) = value
+let after value = value
+`
+	result, err := (FSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid F# character/type-parameter syntax reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"quote", "letter", "generic", "after"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldFSharpMultiplySymbolicKeywordDoesNotOpenComment(t *testing.T) {
+	text := `let multiply = (*)
+let after value = value
+`
+	result, err := (FSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("F# (*) symbolic keyword reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"multiply", "after"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+
+	broken, err := (FSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("let before = 1\n(* unterminated\nlet hidden = 2\n"), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broken.Analysis.CoverageComplete || len(broken.Analysis.Diagnostics) == 0 {
+		t.Fatalf("unterminated F# block comment was not fail-closed: %+v", broken.Analysis)
+	}
+}
+
 func TestMalformedAndCancellationBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

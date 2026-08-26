@@ -17,6 +17,9 @@ type providerContractManifest struct {
 	SchemaVersion              int                `json:"schemaVersion"`
 	ReviewedAgainst            []string           `json:"reviewedAgainst"`
 	ActiveBaselineCapabilities []string           `json:"activeBaselineCapabilities"`
+	HierarchyLanguages         []string           `json:"hierarchyLanguages"`
+	SignatureLanguages         []string           `json:"signatureLanguages"`
+	DependencyLanguages        []string           `json:"dependencyLanguages"`
 	CompositeLanguages         []string           `json:"compositeLanguages"`
 	ProjectResolvedLanguages   []string           `json:"projectResolvedLanguages"`
 	ImplementationLanguages    []string           `json:"implementationLanguages"`
@@ -70,6 +73,9 @@ func assertProviderContractRegistryAndDocumentation(t testing.TB, manifest provi
 	}
 	documentedRows := capabilityDocumentationRows(documentation)
 	baselineCapabilities := stringSetForProviderContract(t, "activeBaselineCapabilities", manifest.ActiveBaselineCapabilities)
+	hierarchyLanguages := stringSetForProviderContract(t, "hierarchyLanguages", manifest.HierarchyLanguages)
+	signatureLanguages := stringSetForProviderContract(t, "signatureLanguages", manifest.SignatureLanguages)
+	dependencyLanguages := stringSetForProviderContract(t, "dependencyLanguages", manifest.DependencyLanguages)
 	compositeLanguages := stringSetForProviderContract(t, "compositeLanguages", manifest.CompositeLanguages)
 	projectResolvedLanguages := stringSetForProviderContract(t, "projectResolvedLanguages", manifest.ProjectResolvedLanguages)
 	implementationLanguages := stringSetForProviderContract(t, "implementationLanguages", manifest.ImplementationLanguages)
@@ -129,6 +135,24 @@ func assertProviderContractRegistryAndDocumentation(t testing.TB, manifest provi
 					t.Fatalf("capability documentation row for %q is missing baseline capability %q", contract.Language, capability)
 				}
 			}
+			if got, want := descriptor.Capabilities.Hierarchy, hierarchyLanguages[contract.Language]; got != want {
+				t.Fatalf("contract language %q hierarchy capability=%v, want %v", contract.Language, got, want)
+			}
+			if got, want := documentationRowHasCapability(row, "hier"), hierarchyLanguages[contract.Language]; got != want {
+				t.Fatalf("capability documentation row for %q hierarchy capability=%v, want %v", contract.Language, got, want)
+			}
+			if got, want := descriptor.Capabilities.Signatures, signatureLanguages[contract.Language]; got != want {
+				t.Fatalf("contract language %q signature capability=%v, want %v", contract.Language, got, want)
+			}
+			if got, want := documentationRowHasCapability(row, "sig"), signatureLanguages[contract.Language]; got != want {
+				t.Fatalf("capability documentation row for %q signature capability=%v, want %v", contract.Language, got, want)
+			}
+			if got, want := descriptor.Capabilities.Dependencies, dependencyLanguages[contract.Language]; got != want {
+				t.Fatalf("contract language %q dependency capability=%v, want %v", contract.Language, got, want)
+			}
+			if got, want := documentationRowHasCapability(row, "dep"), dependencyLanguages[contract.Language]; got != want {
+				t.Fatalf("capability documentation row for %q dependency capability=%v, want %v", contract.Language, got, want)
+			}
 			if got, want := descriptor.Capabilities.Composite, compositeLanguages[contract.Language]; got != want {
 				t.Fatalf("contract language %q composite=%v, want %v", contract.Language, got, want)
 			}
@@ -171,6 +195,9 @@ func assertProviderContractRegistryAndDocumentation(t testing.TB, manifest provi
 		t.Fatalf("registry contains languages absent from independent provider contract: %v", registryOnly)
 	}
 	for label, values := range map[string]map[string]bool{
+		"hierarchyLanguages":       hierarchyLanguages,
+		"signatureLanguages":       signatureLanguages,
+		"dependencyLanguages":      dependencyLanguages,
 		"compositeLanguages":       compositeLanguages,
 		"projectResolvedLanguages": projectResolvedLanguages,
 		"implementationLanguages":  implementationLanguages,

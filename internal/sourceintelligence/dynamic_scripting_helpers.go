@@ -74,7 +74,7 @@ func (s *phase8State) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	return symbol, true
 }
 
-func (s *phase8State) addDependency(kind StructuralDependencyKind, value string, start, end int) {
+func (s *phase8State) addImportDependency(value string, start, end int) {
 	value = strings.TrimSpace(value)
 	if value == "" || start < 0 || end <= start || end > len(s.document.Text) {
 		return
@@ -83,7 +83,7 @@ func (s *phase8State) addDependency(kind StructuralDependencyKind, value string,
 	if err != nil {
 		return
 	}
-	s.dependencies = appendUniqueDependencies(s.dependencies, []StructuralDependency{{Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}})
+	s.dependencies = appendUniqueDependencies(s.dependencies, []StructuralDependency{{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}})
 }
 
 func (s *phase8State) addRelation(kind, source, target string, start, end int) {
@@ -306,7 +306,7 @@ func maskPerlQuoteLikeOperators(result []byte) {
 			at = phase8PerlLineEnd(result, at)
 			continue
 		case '\'', '"':
-			at = phase8PerlOrdinaryStringEnd(result, at)
+			at = phase8OrdinaryStringEnd(result, at)
 			continue
 		case '/':
 			if phase8PerlSlashRegexStart(result, at) {
@@ -539,7 +539,7 @@ func phase8PerlLineEnd(text []byte, at int) int {
 	return at
 }
 
-func phase8PerlOrdinaryStringEnd(text []byte, start int) int {
+func phase8OrdinaryStringEnd(text []byte, start int) int {
 	quote := text[start]
 	for at := start + 1; at < len(text); at++ {
 		if text[at] == '\\' {
@@ -560,36 +560,58 @@ func maskLuaLongBrackets(text string) (string, bool) {
 	result := []byte(text)
 	complete := true
 	for at := 0; at < len(text); {
-		start := at
-		if strings.HasPrefix(text[at:], "--[") {
-			start = at + 2
-		}
-		if start >= len(text) || text[start] != '[' {
-			at++
+		switch {
+		case strings.HasPrefix(text[at:], "--"):
+			if end, matched, terminated := luaLongBracketEnd(text, at+2); matched {
+				phase8MaskRange(result, at, end)
+				if !terminated {
+					complete = false
+					return string(result), complete
+				}
+				at = end
+				continue
+			}
+			lineEnd, _ := phase8LineBounds(text, at)
+			at = lineEnd
 			continue
-		}
-		eq := 0
-		cursor := start + 1
-		for cursor < len(text) && text[cursor] == '=' {
-			eq++
-			cursor++
-		}
-		if cursor >= len(text) || text[cursor] != '[' {
-			at++
+		case text[at] == '\'' || text[at] == '"':
+			at = phase8OrdinaryStringEnd(result, at)
 			continue
+		case text[at] == '[':
+			if end, matched, terminated := luaLongBracketEnd(text, at); matched {
+				phase8MaskRange(result, at, end)
+				if !terminated {
+					complete = false
+					return string(result), complete
+				}
+				at = end
+				continue
+			}
 		}
-		close := "]" + strings.Repeat("=", eq) + "]"
-		endRelative := strings.Index(text[cursor+1:], close)
-		if endRelative < 0 {
-			phase8MaskRange(result, at, len(text))
-			complete = false
-			break
-		}
-		end := cursor + 1 + endRelative + len(close)
-		phase8MaskRange(result, at, end)
-		at = end
+		at++
 	}
 	return string(result), complete
+}
+
+func luaLongBracketEnd(text string, start int) (end int, matched bool, terminated bool) {
+	if start < 0 || start >= len(text) || text[start] != '[' {
+		return start, false, false
+	}
+	eq := 0
+	cursor := start + 1
+	for cursor < len(text) && text[cursor] == '=' {
+		eq++
+		cursor++
+	}
+	if cursor >= len(text) || text[cursor] != '[' {
+		return start, false, false
+	}
+	close := "]" + strings.Repeat("=", eq) + "]"
+	endRelative := strings.Index(text[cursor+1:], close)
+	if endRelative < 0 {
+		return len(text), true, false
+	}
+	return cursor + 1 + endRelative + len(close), true, true
 }
 
 func maskGroovySlashyStrings(text string) (string, bool) {

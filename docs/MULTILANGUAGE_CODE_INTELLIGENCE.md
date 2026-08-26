@@ -7,6 +7,7 @@ R27 is **COMPLETE**. This document defines the final broad native source-intelli
 R27 uses Scripthold-owned Go scanners, recognizers, structural parsers, composite segmenters, and project resolvers plus standard-library facilities where available. Ordinary source-intelligence requests do not depend on external parser engines, downloaded grammars, compiler frontends, language-server runtimes, project execution, or hidden network activity.
 
 The final public surface preserves `source_symbols` and adds the strict read-only `source_query` `search`, `relations`, and `context` operations. The provider catalog has 101 active analyzers across 103 registry rows; capability claims remain provider-specific, evidence-qualified, bounded, deterministic, and fail closed where analysis cannot prove a relationship.
+
 ## Product outcome
 
 R27 turns Scripthold from a filesystem/text-aware MCP server with source outlines into a **broad source-code intelligence layer** useful across heterogeneous real-world repositories.
@@ -192,7 +193,15 @@ Allowed native implementation strategies include:
 
 Do not introduce Tree-sitter, Babel, OpenRewrite, language-server runtimes, compiler frontends, downloaded grammars, or analogous parsing engines merely to accelerate R27 coverage. External projects may inform algorithms and tests but are not dependencies. If a future maintainer wants to change this native-only foundation, that is a new explicit architecture decision requiring documentation and roadmap revision before implementation.
 
-Quality is evaluated per language and per capability, not by the number of language names a registry can accept.
+Quality is evaluated per language and per capability, not by the number of language names a registry can accept. A capability claim is valid only when the analyzer has a realizable native output path for that evidence and real-project qualification can witness it on applicable source. Project-count thresholds never substitute for missing hierarchy, signature, dependency, inheritance, or stronger evidence, and qualification tooling must not synthesize such evidence merely to close a provider target.
+
+### Lexical and composite coherence
+
+Native analyzers must preserve lexical context before applying structural recognizers. Opaque strings, comments, regex literals, template literals, heredocs, and language-specific long-string forms cannot start new structural syntax while another opaque family owns the same bytes. Any masking step must preserve byte offsets and physical line endings so diagnostics, symbols, and host-coordinate reprojection remain valid.
+
+Interpolated strings and template literals may contain nested strings, comments, regex literals, delimiters, or nested templates. Shared scanner profiles must model the actual interpolation opener used by the language, honor cancellation, and apply the same bounded nesting policy as the surrounding analysis rather than terminating at the first delimiter-shaped byte sequence.
+
+Composite regions are retained as independently addressable `SourceRegion` values, but region boundaries do not imply independent language scopes. When the host format permits one embedded language scope to span several regions, an analyzer may construct one offset-preserving virtual view for that language while retaining original host coordinates and region identity. JSP execution scriptlets, EJS scriptlets, PHP/HTML PHP regions, and Blade `@php ... @endphp` regions use this rule where valid Java/JavaScript/PHP scope crosses host-region boundaries. PHP/HTML closing-tag segmentation is lexical-context-aware so `?>` inside strings, block comments, heredocs, or nowdocs does not terminate a PHP region; PHP line comments retain the language-defined closing-tag behavior. Directives or host-only syntax must not be promoted into the embedded language merely because they share delimiters.
 
 ## External process / language-server boundary
 
@@ -317,6 +326,8 @@ Hard limits are required for:
 - background work, if any.
 
 Expected complexity should be documented per provider/capability. Result limits must not silently imply complete coverage.
+
+Internal index layouts must avoid retaining redundant large symbol records merely for secondary lookup keys. Project-level secondary symbol indexes reference canonical per-file records, while provider-specific preallocation is permitted only from already-proven bounded structure (for example, Go AST declaration counts) and must remain clamped by the configured symbol limit. These optimizations must not weaken generation immutability, defensive public results, deterministic ordering, or stale-source checks.
 
 ## Cancellation and concurrency
 

@@ -101,8 +101,8 @@ func CaptureRegularFileSnapshotBounded(ctx context.Context, path string, maxByte
 		return FileSnapshot{}, err
 	}
 
-	buffer := make([]byte, 128*1024)
 	remaining := session.Size()
+	buffer := make([]byte, min(int64(128*1024), remaining))
 	for remaining > 0 {
 		if err := ctx.Err(); err != nil {
 			return FileSnapshot{}, operation.Wrap(operation.KindCancelled, "fingerprint_regular_file", path, err)

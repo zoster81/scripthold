@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -193,13 +194,190 @@ func getLeadingWhitespace(s string) string {
 	return s // entire string is whitespace
 }
 
+const (
+	unifiedDiffContextLines         = 3
+	boundedUnifiedDiffMaxWindowByte = 512 * 1024
+)
+
 func createUnifiedDiff(original, modified, filepath string) string {
+	if diff, ok := createBoundedUnifiedDiff(original, modified, filepath); ok {
+		return diff
+	}
+	return createUnifiedDiffFull(original, modified, filepath)
+}
+
+func createBoundedUnifiedDiff(original, modified, filepath string) (string, bool) {
+	if original == modified {
+		return "", true
+	}
+
+	commonLimit := min(len(original), len(modified))
+	commonPrefix := 0
+	for commonPrefix < commonLimit && original[commonPrefix] == modified[commonPrefix] {
+		commonPrefix++
+	}
+	changeLineStart := 0
+	if commonPrefix > 0 {
+		if newline := strings.LastIndexByte(original[:commonPrefix], '\n'); newline >= 0 {
+			changeLineStart = newline + 1
+		}
+	}
+
+	maxSuffix := min(len(original)-commonPrefix, len(modified)-commonPrefix)
+	commonSuffix := 0
+	for commonSuffix < maxSuffix && original[len(original)-1-commonSuffix] == modified[len(modified)-1-commonSuffix] {
+		commonSuffix++
+	}
+	oldSuffixStart := len(original) - commonSuffix
+	newSuffixStart := len(modified) - commonSuffix
+	if commonSuffix > 0 && !bothLineStarts(original, oldSuffixStart, modified, newSuffixStart) {
+		newline := strings.IndexByte(original[oldSuffixStart:], '\n')
+		if newline < 0 {
+			oldSuffixStart = len(original)
+			newSuffixStart = len(modified)
+		} else {
+			oldSuffixStart += newline + 1
+			newSuffixStart += newline + 1
+		}
+	}
+
+	windowStart := unifiedDiffContextStart(original, changeLineStart, unifiedDiffContextLines)
+	oldWindowEnd := unifiedDiffContextEnd(original, oldSuffixStart, unifiedDiffContextLines)
+	newWindowEnd := unifiedDiffContextEnd(modified, newSuffixStart, unifiedDiffContextLines)
+	if oldWindowEnd-windowStart+newWindowEnd-windowStart > boundedUnifiedDiffMaxWindowByte {
+		return "", false
+	}
+
+	oldLineOffset := strings.Count(original[:windowStart], "\n")
+	newLineOffset := strings.Count(modified[:windowStart], "\n")
+	diff := createUnifiedDiffFull(original[windowStart:oldWindowEnd], modified[windowStart:newWindowEnd], filepath)
+	adjusted, ok := adjustUnifiedDiffHunkOffsets(diff, oldLineOffset, newLineOffset)
+	if !ok {
+		return "", false
+	}
+	return adjusted, true
+}
+
+func bothLineStarts(left string, leftOffset int, right string, rightOffset int) bool {
+	leftStart := leftOffset == 0 || leftOffset > 0 && left[leftOffset-1] == '\n'
+	rightStart := rightOffset == 0 || rightOffset > 0 && right[rightOffset-1] == '\n'
+	return leftStart && rightStart
+}
+
+func unifiedDiffContextStart(text string, lineStart, contextLines int) int {
+	position := min(max(lineStart, 0), len(text))
+	for range contextLines {
+		if position == 0 {
+			break
+		}
+		searchEnd := position - 1
+		newline := strings.LastIndexByte(text[:searchEnd], '\n')
+		if newline < 0 {
+			position = 0
+			break
+		}
+		position = newline + 1
+	}
+	return position
+}
+
+func unifiedDiffContextEnd(text string, lineStart, contextLines int) int {
+	position := min(max(lineStart, 0), len(text))
+	for range contextLines {
+		if position >= len(text) {
+			break
+		}
+		newline := strings.IndexByte(text[position:], '\n')
+		if newline < 0 {
+			return len(text)
+		}
+		position += newline + 1
+	}
+	return position
+}
+
+func adjustUnifiedDiffHunkOffsets(diff string, oldOffset, newOffset int) (string, bool) {
+	if diff == "" || oldOffset == 0 && newOffset == 0 {
+		return diff, true
+	}
+	var output strings.Builder
+	output.Grow(len(diff) + 32)
+	for start := 0; start < len(diff); {
+		lineEnd := strings.IndexByte(diff[start:], '\n')
+		hasNewline := lineEnd >= 0
+		if hasNewline {
+			lineEnd += start
+		} else {
+			lineEnd = len(diff)
+		}
+		line := diff[start:lineEnd]
+		if strings.HasPrefix(line, "@@ -") {
+			adjusted, ok := adjustUnifiedDiffHunkHeader(line, oldOffset, newOffset)
+			if !ok {
+				return "", false
+			}
+			output.WriteString(adjusted)
+		} else {
+			output.WriteString(line)
+		}
+		if hasNewline {
+			output.WriteByte('\n')
+			start = lineEnd + 1
+		} else {
+			start = lineEnd
+		}
+	}
+	return output.String(), true
+}
+
+func adjustUnifiedDiffHunkHeader(line string, oldOffset, newOffset int) (string, bool) {
+	if !strings.HasPrefix(line, "@@ -") {
+		return "", false
+	}
+	oldStart, oldEnd, ok := parseUnifiedDiffLineNumber(line, 4)
+	if !ok {
+		return "", false
+	}
+	plusRelative := strings.Index(line[oldEnd:], " +")
+	if plusRelative < 0 {
+		return "", false
+	}
+	plus := oldEnd + plusRelative
+	newNumberAt := plus + 2
+	newStart, newEnd, ok := parseUnifiedDiffLineNumber(line, newNumberAt)
+	if !ok {
+		return "", false
+	}
+	var output strings.Builder
+	output.Grow(len(line) + 24)
+	output.WriteString(line[:4])
+	output.WriteString(strconv.Itoa(oldStart + oldOffset))
+	output.WriteString(line[oldEnd:newNumberAt])
+	output.WriteString(strconv.Itoa(newStart + newOffset))
+	output.WriteString(line[newEnd:])
+	return output.String(), true
+}
+
+func parseUnifiedDiffLineNumber(line string, start int) (int, int, bool) {
+	if start < 0 || start >= len(line) || line[start] < '0' || line[start] > '9' {
+		return 0, start, false
+	}
+	value := 0
+	end := start
+	for end < len(line) && line[end] >= '0' && line[end] <= '9' {
+		value = value*10 + int(line[end]-'0')
+		end++
+	}
+	return value, end, true
+}
+
+func createUnifiedDiffFull(original, modified, filepath string) string {
 	diff := difflib.UnifiedDiff{
 		A:        difflib.SplitLines(original),
 		B:        difflib.SplitLines(modified),
 		FromFile: filepath,
 		ToFile:   filepath,
-		Context:  3,
+		Context:  unifiedDiffContextLines,
 	}
 	text, _ := difflib.GetUnifiedDiffString(diff)
 	return text

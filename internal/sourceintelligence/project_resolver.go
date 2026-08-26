@@ -20,12 +20,13 @@ import (
 type ProjectResolutionStage string
 
 const (
-	ProjectResolutionSameFile         ProjectResolutionStage = "same-file"
-	ProjectResolutionSameModule       ProjectResolutionStage = "same-module"
-	ProjectResolutionExplicitImport   ProjectResolutionStage = "explicit-import"
-	ProjectResolutionDependencyExport ProjectResolutionStage = "dependency-export"
-	ProjectResolutionProject          ProjectResolutionStage = "project"
-	ProjectResolutionNone             ProjectResolutionStage = "none"
+	ProjectResolutionSameFile          ProjectResolutionStage = "same-file"
+	ProjectResolutionSameModule        ProjectResolutionStage = "same-module"
+	ProjectResolutionExplicitImport    ProjectResolutionStage = "explicit-import"
+	ProjectResolutionExplicitReference ProjectResolutionStage = "explicit-reference"
+	ProjectResolutionDependencyExport  ProjectResolutionStage = "dependency-export"
+	ProjectResolutionProject           ProjectResolutionStage = "project"
+	ProjectResolutionNone              ProjectResolutionStage = "none"
 )
 
 // ProjectFileFacts is the immutable per-file input consumed by the Phase 12
@@ -96,8 +97,8 @@ type ProjectModel struct {
 	filesByStem            map[string][]string
 	fileOrder              []string
 	symbolsByFile          map[string][]projectSymbolRecord
-	symbolsByQualified     map[string][]projectSymbolRecord
-	symbolsByName          map[string][]projectSymbolRecord
+	symbolsByQualified     map[string][]*projectSymbolRecord
+	symbolsByName          map[string][]*projectSymbolRecord
 	dependencies           []ProjectDependency
 	dependenciesBySource   map[string][]ProjectDependency
 	dependentsByTarget     map[string][]ProjectDependency
@@ -138,8 +139,8 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		files:                  make(map[string]projectFileRecord, len(input)),
 		filesByStem:            make(map[string][]string, len(input)),
 		symbolsByFile:          make(map[string][]projectSymbolRecord),
-		symbolsByQualified:     make(map[string][]projectSymbolRecord),
-		symbolsByName:          make(map[string][]projectSymbolRecord),
+		symbolsByQualified:     make(map[string][]*projectSymbolRecord),
+		symbolsByName:          make(map[string][]*projectSymbolRecord),
 		dependenciesBySource:   make(map[string][]ProjectDependency),
 		dependentsByTarget:     make(map[string][]ProjectDependency),
 		definitionsByReference: make(map[string][]RelationEntity),
@@ -204,6 +205,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 func (model *ProjectModel) buildSymbolTables(ctx context.Context, registry *LanguageRegistry) error {
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
+		records := make([]projectSymbolRecord, 0, len(file.facts.Analysis.Analysis.Symbols))
 		for _, symbol := range file.facts.Analysis.Analysis.Symbols {
 			if err := ctx.Err(); err != nil {
 				return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
@@ -217,24 +219,30 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, registry *Lang
 				continue
 			}
 			entity := relationEntityForSymbol(symbol, file.facts.SourceFingerprint)
-			record := projectSymbolRecord{
+			records = append(records, projectSymbolRecord{
 				symbol: symbol, entity: entity, pathKey: pathKey, languageID: descriptor.ID,
 				qualifiedKey: projectSymbolLookupKey(descriptor, symbol.QualifiedName),
 				nameKey:      projectSymbolLookupKey(descriptor, symbol.Name),
-			}
-			model.symbolsByFile[pathKey] = append(model.symbolsByFile[pathKey], record)
-			model.symbolsByQualified[descriptor.ID+"\x00"+record.qualifiedKey] = append(model.symbolsByQualified[descriptor.ID+"\x00"+record.qualifiedKey], record)
-			model.symbolsByName[descriptor.ID+"\x00"+record.nameKey] = append(model.symbolsByName[descriptor.ID+"\x00"+record.nameKey], record)
+			})
+		}
+
+		// Sort before publishing pointers: sorting after indexing would move values
+		// inside the backing array and make index keys reference the wrong records.
+		sortProjectSymbolRecords(records)
+		model.symbolsByFile[pathKey] = records
+		for index := range records {
+			record := &records[index]
+			qualifiedIndex := record.languageID + "\x00" + record.qualifiedKey
+			nameIndex := record.languageID + "\x00" + record.nameKey
+			model.symbolsByQualified[qualifiedIndex] = append(model.symbolsByQualified[qualifiedIndex], record)
+			model.symbolsByName[nameIndex] = append(model.symbolsByName[nameIndex], record)
 		}
 	}
-	for key := range model.symbolsByFile {
-		sortProjectSymbolRecords(model.symbolsByFile[key])
-	}
 	for key := range model.symbolsByQualified {
-		sortProjectSymbolRecords(model.symbolsByQualified[key])
+		sortProjectSymbolRecordPointers(model.symbolsByQualified[key])
 	}
 	for key := range model.symbolsByName {
-		sortProjectSymbolRecords(model.symbolsByName[key])
+		sortProjectSymbolRecordPointers(model.symbolsByName[key])
 	}
 	return nil
 }
@@ -251,13 +259,21 @@ func (model *ProjectModel) buildDependencies(ctx context.Context, registry *Lang
 			if err != nil {
 				return err
 			}
+			stage := ProjectResolutionExplicitImport
+			if dependency.Kind == StructuralDependencyReference {
+				stage = ProjectResolutionExplicitReference
+			}
 			resolved := ProjectDependency{
 				Source:     RelationEntity{Path: file.facts.Path, Language: file.languageID, SourceFingerprint: file.facts.SourceFingerprint, Range: cloneRangeValue(dependency.Range)},
-				Dependency: dependency, Targets: targets, Stage: ProjectResolutionExplicitImport, Evidence: dependency.Evidence,
+				Dependency: dependency, Targets: targets, Stage: stage, Evidence: dependency.Evidence,
 			}
 			switch len(targets) {
 			case 0:
-				resolved.Resolution = ResolutionExternal
+				if dependency.Kind == StructuralDependencyReference {
+					resolved.Resolution = ResolutionUnresolved
+				} else {
+					resolved.Resolution = ResolutionExternal
+				}
 			case 1:
 				resolved.Resolution = ResolutionResolved
 				resolved.Evidence = SymbolEvidenceProjectResolved
@@ -287,6 +303,9 @@ func (model *ProjectModel) resolveDependencyTargets(file projectFileRecord, desc
 	if value == "" {
 		return nil, nil
 	}
+	if dependency.Kind == StructuralDependencyReference {
+		return model.resolveReferenceDependencyTargets(file, descriptor, value, maxCandidates)
+	}
 	pathLike := dependencyLooksPathLike(value, dependency.Kind)
 	pathMatches := model.dependencyPathMatches(file, dependency)
 	if len(pathMatches) > 0 {
@@ -303,28 +322,46 @@ func (model *ProjectModel) resolveDependencyTargets(file projectFileRecord, desc
 	qualified := model.symbolsByQualified[descriptor.ID+"\x00"+normalized]
 	if dependencyLooksQualified(value) {
 		if len(qualified) > 0 {
-			return boundedUniqueEntities(fileEntitiesForSymbols(model, qualified), maxCandidates, "dependency", file.facts.Path)
+			return boundedUniqueEntities(fileEntitiesForSymbolPointers(model, qualified), maxCandidates, "dependency", file.facts.Path)
 		}
 		leaf := projectDependencyLeaf(value)
 		if leaf != "" {
 			records := model.symbolsByName[descriptor.ID+"\x00"+projectSymbolLookupKey(descriptor, leaf)]
 			if len(records) > 0 {
-				return boundedUniqueEntities(fileEntitiesForSymbols(model, records), maxCandidates, "dependency", file.facts.Path)
+				return boundedUniqueEntities(fileEntitiesForSymbolPointers(model, records), maxCandidates, "dependency", file.facts.Path)
 			}
 		}
 		return nil, nil
 	}
 
-	moduleRecords := make([]projectSymbolRecord, 0, len(qualified))
+	moduleRecords := make([]*projectSymbolRecord, 0, len(qualified))
 	for _, record := range qualified {
 		if isModuleLikeSymbol(record.symbol.Kind) {
 			moduleRecords = append(moduleRecords, record)
 		}
 	}
 	if len(moduleRecords) > 0 {
-		return boundedUniqueEntities(fileEntitiesForSymbols(model, moduleRecords), maxCandidates, "dependency", file.facts.Path)
+		return boundedUniqueEntities(fileEntitiesForSymbolPointers(model, moduleRecords), maxCandidates, "dependency", file.facts.Path)
 	}
 	return nil, nil
+}
+
+func (model *ProjectModel) resolveReferenceDependencyTargets(file projectFileRecord, descriptor LanguageDescriptor, value string, maxCandidates int) ([]RelationEntity, error) {
+	normalized := projectSymbolLookupKey(descriptor, value)
+	if normalized == "" {
+		return nil, nil
+	}
+	var records []*projectSymbolRecord
+	if dependencyLooksQualified(value) {
+		records = model.targetableRecordPointers(model.symbolsByQualified[descriptor.ID+"\x00"+normalized])
+	} else {
+		records = model.targetableRecordPointers(model.symbolsByName[descriptor.ID+"\x00"+normalized])
+	}
+	records = excludePathPointers(records, file.pathKey)
+	if len(records) == 0 {
+		return nil, nil
+	}
+	return boundedUniqueEntities(fileEntitiesForSymbolPointers(model, records), maxCandidates, "dependency", file.facts.Path)
 }
 
 func (model *ProjectModel) dependencyPathMatches(file projectFileRecord, dependency StructuralDependency) []RelationEntity {
@@ -442,33 +479,33 @@ func (model *ProjectModel) resolveRelationTargets(file projectFileRecord, descri
 	}
 	if parent != "" {
 		qualified := parent + "." + target
-		candidates := model.targetableRecords(model.symbolsByQualified[descriptor.ID+"\x00"+qualified])
-		candidates = excludePath(candidates, file.pathKey)
+		candidates := model.targetableRecordPointers(model.symbolsByQualified[descriptor.ID+"\x00"+qualified])
+		candidates = excludePathPointers(candidates, file.pathKey)
 		if len(candidates) > 0 {
-			entities, err := boundedUniqueEntities(symbolEntities(candidates), maxCandidates, "reference", file.facts.Path)
+			entities, err := boundedUniqueEntities(symbolEntitiesFromPointers(candidates), maxCandidates, "reference", file.facts.Path)
 			return entities, ProjectResolutionSameModule, err
 		}
 	}
 
 	if candidates := model.explicitImportCandidates(file, descriptor, relation.Target); len(candidates) > 0 {
-		entities, err := boundedUniqueEntities(symbolEntities(candidates), maxCandidates, "reference", file.facts.Path)
+		entities, err := boundedUniqueEntities(symbolEntitiesFromPointers(candidates), maxCandidates, "reference", file.facts.Path)
 		return entities, ProjectResolutionExplicitImport, err
 	}
 	if candidates := model.dependencyExportCandidates(file, descriptor, target); len(candidates) > 0 {
-		entities, err := boundedUniqueEntities(symbolEntities(candidates), maxCandidates, "reference", file.facts.Path)
+		entities, err := boundedUniqueEntities(symbolEntitiesFromPointers(candidates), maxCandidates, "reference", file.facts.Path)
 		return entities, ProjectResolutionDependencyExport, err
 	}
 
-	var candidates []projectSymbolRecord
+	var candidates []*projectSymbolRecord
 	if strings.Contains(target, ".") {
-		candidates = model.targetableRecords(model.symbolsByQualified[descriptor.ID+"\x00"+target])
+		candidates = model.targetableRecordPointers(model.symbolsByQualified[descriptor.ID+"\x00"+target])
 	} else {
-		candidates = model.targetableRecords(model.symbolsByName[descriptor.ID+"\x00"+target])
+		candidates = model.targetableRecordPointers(model.symbolsByName[descriptor.ID+"\x00"+target])
 	}
 	if len(candidates) == 0 {
 		return nil, ProjectResolutionNone, nil
 	}
-	entities, err := boundedUniqueEntities(symbolEntities(candidates), maxCandidates, "reference", file.facts.Path)
+	entities, err := boundedUniqueEntities(symbolEntitiesFromPointers(candidates), maxCandidates, "reference", file.facts.Path)
 	return entities, ProjectResolutionProject, err
 }
 
@@ -483,7 +520,7 @@ func (model *ProjectModel) sameFileCandidates(file projectFileRecord, descriptor
 	return model.targetableRecords(filterRecordsByName(model.symbolsByFile[file.pathKey], descriptor.ID, target))
 }
 
-func (model *ProjectModel) explicitImportCandidates(file projectFileRecord, descriptor LanguageDescriptor, rawTarget string) []projectSymbolRecord {
+func (model *ProjectModel) explicitImportCandidates(file projectFileRecord, descriptor LanguageDescriptor, rawTarget string) []*projectSymbolRecord {
 	target := projectSymbolLookupKey(descriptor, rawTarget)
 	for _, dependency := range file.facts.Analysis.Dependencies {
 		binding := strings.TrimSpace(dependency.Alias)
@@ -494,16 +531,18 @@ func (model *ProjectModel) explicitImportCandidates(file projectFileRecord, desc
 			continue
 		}
 		dependencyValue := projectSymbolLookupKey(descriptor, dependency.Value)
-		if records := model.targetableRecords(model.symbolsByQualified[descriptor.ID+"\x00"+dependencyValue]); len(records) > 0 {
+		if records := model.targetableRecordPointers(model.symbolsByQualified[descriptor.ID+"\x00"+dependencyValue]); len(records) > 0 {
 			return records
 		}
-		var records []projectSymbolRecord
+		var records []*projectSymbolRecord
 		for _, edge := range model.dependenciesBySource[file.pathKey] {
 			if edge.Dependency.Value != dependency.Value || edge.Dependency.Alias != dependency.Alias {
 				continue
 			}
 			for _, targetFile := range edge.Targets {
-				for _, record := range model.symbolsByFile[projectPathKey(targetFile.Path)] {
+				fileRecords := model.symbolsByFile[projectPathKey(targetFile.Path)]
+				for index := range fileRecords {
+					record := &fileRecords[index]
 					if record.languageID == descriptor.ID && isRelationEndpointKind(record.symbol.Kind) && record.nameKey == projectSymbolLookupKey(descriptor, projectDependencyLeaf(dependency.Value)) {
 						records = append(records, record)
 					}
@@ -511,21 +550,23 @@ func (model *ProjectModel) explicitImportCandidates(file projectFileRecord, desc
 			}
 		}
 		if len(records) > 0 {
-			sortProjectSymbolRecords(records)
+			sortProjectSymbolRecordPointers(records)
 			return records
 		}
 	}
 	return nil
 }
 
-func (model *ProjectModel) dependencyExportCandidates(file projectFileRecord, descriptor LanguageDescriptor, target string) []projectSymbolRecord {
-	seen := make(map[string]projectSymbolRecord)
+func (model *ProjectModel) dependencyExportCandidates(file projectFileRecord, descriptor LanguageDescriptor, target string) []*projectSymbolRecord {
+	seen := make(map[string]*projectSymbolRecord)
 	for _, dependency := range model.dependenciesBySource[file.pathKey] {
 		if dependency.Resolution != ResolutionResolved && dependency.Resolution != ResolutionAmbiguous {
 			continue
 		}
 		for _, targetFile := range dependency.Targets {
-			for _, record := range model.symbolsByFile[projectPathKey(targetFile.Path)] {
+			fileRecords := model.symbolsByFile[projectPathKey(targetFile.Path)]
+			for index := range fileRecords {
+				record := &fileRecords[index]
 				if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
 					continue
 				}
@@ -535,16 +576,26 @@ func (model *ProjectModel) dependencyExportCandidates(file projectFileRecord, de
 			}
 		}
 	}
-	result := make([]projectSymbolRecord, 0, len(seen))
+	result := make([]*projectSymbolRecord, 0, len(seen))
 	for _, record := range seen {
 		result = append(result, record)
 	}
-	sortProjectSymbolRecords(result)
+	sortProjectSymbolRecordPointers(result)
 	return result
 }
 
 func (model *ProjectModel) targetableRecords(records []projectSymbolRecord) []projectSymbolRecord {
 	result := make([]projectSymbolRecord, 0, len(records))
+	for _, record := range records {
+		if isRelationEndpointKind(record.symbol.Kind) {
+			result = append(result, record)
+		}
+	}
+	return result
+}
+
+func (model *ProjectModel) targetableRecordPointers(records []*projectSymbolRecord) []*projectSymbolRecord {
+	result := make([]*projectSymbolRecord, 0, len(records))
 	for _, record := range records {
 		if isRelationEndpointKind(record.symbol.Kind) {
 			result = append(result, record)
@@ -616,7 +667,7 @@ func (model *ProjectModel) fileEntity(pathKey string) RelationEntity {
 	return RelationEntity{Path: file.facts.Path, Language: file.languageID, SourceFingerprint: file.facts.SourceFingerprint}
 }
 
-func fileEntitiesForSymbols(model *ProjectModel, records []projectSymbolRecord) []RelationEntity {
+func fileEntitiesForSymbolPointers(model *ProjectModel, records []*projectSymbolRecord) []RelationEntity {
 	seen := make(map[string]RelationEntity)
 	for _, record := range records {
 		seen[record.pathKey] = model.fileEntity(record.pathKey)
@@ -625,6 +676,14 @@ func fileEntitiesForSymbols(model *ProjectModel, records []projectSymbolRecord) 
 }
 
 func symbolEntities(records []projectSymbolRecord) []RelationEntity {
+	result := make([]RelationEntity, 0, len(records))
+	for _, record := range records {
+		result = append(result, record.entity)
+	}
+	return result
+}
+
+func symbolEntitiesFromPointers(records []*projectSymbolRecord) []RelationEntity {
 	result := make([]RelationEntity, 0, len(records))
 	for _, record := range records {
 		result = append(result, record.entity)
@@ -672,6 +731,19 @@ func sortRelationEntities(values []RelationEntity) {
 }
 
 func sortProjectSymbolRecords(values []projectSymbolRecord) {
+	sort.Slice(values, func(i, j int) bool {
+		left, right := values[i], values[j]
+		if left.entity.Path != right.entity.Path {
+			return left.entity.Path < right.entity.Path
+		}
+		if left.entity.QualifiedName != right.entity.QualifiedName {
+			return left.entity.QualifiedName < right.entity.QualifiedName
+		}
+		return left.entity.SymbolID < right.entity.SymbolID
+	})
+}
+
+func sortProjectSymbolRecordPointers(values []*projectSymbolRecord) {
 	sort.Slice(values, func(i, j int) bool {
 		left, right := values[i], values[j]
 		if left.entity.Path != right.entity.Path {
@@ -757,6 +829,16 @@ func filterRecordsByName(values []projectSymbolRecord, languageID, name string) 
 
 func excludePath(values []projectSymbolRecord, pathKey string) []projectSymbolRecord {
 	result := make([]projectSymbolRecord, 0, len(values))
+	for _, value := range values {
+		if value.pathKey != pathKey {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func excludePathPointers(values []*projectSymbolRecord, pathKey string) []*projectSymbolRecord {
+	result := make([]*projectSymbolRecord, 0, len(values))
 	for _, value := range values {
 		if value.pathKey != pathKey {
 			result = append(result, value)

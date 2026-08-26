@@ -108,6 +108,9 @@ func (p *pascalParser) parse(lines []LogicalLine) {
 		}
 		p.parseLine(line)
 	}
+	if p.mode == "uses" && !p.stopped {
+		_ = p.builder.AddDiagnostic(DiagnosticSpec{Code: p.language + "-unterminated-uses", Message: "Pascal uses clause is not terminated", Severity: DiagnosticWarning, AffectsCoverage: true})
+	}
 	if len(p.scopes) > 0 && !p.stopped {
 		_ = p.builder.AddDiagnostic(DiagnosticSpec{Code: p.language + "-unterminated-scope", Message: "Pascal source contains one or more declarations without a matching end", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
@@ -118,6 +121,12 @@ func (p *pascalParser) parseLine(line LogicalLine) {
 	first := 0
 	word := strings.ToLower(tokens[first].Text)
 
+	if p.mode == "uses" {
+		if p.parseUses(tokens, first, tokens[first].Nesting) {
+			p.mode = ""
+		}
+		return
+	}
 	if p.handleEndOrBegin(tokens) {
 		return
 	}
@@ -137,8 +146,11 @@ func (p *pascalParser) parseLine(line LogicalLine) {
 		return
 	}
 	if word == "uses" {
-		p.parseUses(tokens, first)
-		p.mode = ""
+		if p.parseUses(tokens, first+1, tokens[first].Nesting) {
+			p.mode = ""
+		} else {
+			p.mode = "uses"
+		}
 		return
 	}
 	if scope := p.currentType(); scope != nil {
@@ -201,7 +213,7 @@ func (p *pascalParser) handleEndOrBegin(tokens []Token) bool {
 	}
 	first := strings.ToLower(tokens[0].Text)
 	if first == "begin" {
-		if len(p.scopes) > 0 && p.scopes[len(p.scopes)-1].kind == "routine" {
+		if len(p.scopes) > 0 && pascalRoutineScope(p.scopes[len(p.scopes)-1].kind) {
 			p.scopes[len(p.scopes)-1].beginDepth++
 		}
 		return true
@@ -213,7 +225,7 @@ func (p *pascalParser) handleEndOrBegin(tokens []Token) bool {
 		return true
 	}
 	top := &p.scopes[len(p.scopes)-1]
-	if top.kind == "routine" && top.beginDepth > 1 {
+	if pascalRoutineScope(top.kind) && top.beginDepth > 1 {
 		top.beginDepth--
 		return true
 	}
@@ -239,29 +251,41 @@ func (p *pascalParser) parseModule(line LogicalLine, keyword int, nativeKind str
 	}
 }
 
-func (p *pascalParser) parseUses(tokens []Token, keyword int) {
+func (p *pascalParser) parseUses(tokens []Token, start, nesting int) bool {
 	end := len(tokens)
-	for end > keyword+1 && tokens[end-1].Text == ";" {
-		end--
-	}
-	for _, part := range splitTokenRangeAt(tokens, keyword+1, end, ",", tokens[keyword].Nesting) {
-		start := part[0]
-		last := part[1] - 1
-		for start <= last && tokens[start].Kind == TokenString {
-			start++
+	terminated := false
+	for index := start; index < len(tokens); index++ {
+		if tokens[index].Text == ";" && tokens[index].Nesting == nesting {
+			end = index
+			terminated = true
+			break
 		}
-		if start > last {
+	}
+	for _, part := range splitTokenRangeAt(tokens, start, end, ",", nesting) {
+		partStart := part[0]
+		partEnd := part[1]
+		for partStart < partEnd && tokens[partStart].Kind == TokenString {
+			partStart++
+		}
+		for index := partStart; index < partEnd; index++ {
+			if strings.EqualFold(tokens[index].Text, "in") {
+				partEnd = index
+				break
+			}
+		}
+		if partStart >= partEnd {
 			continue
 		}
-		value := tokenRangeText(tokens, start, last+1)
+		value := tokenRangeText(tokens, partStart, partEnd)
 		if value == "" {
 			continue
 		}
-		rangeValue, err := p.document.RangeFromUTF8Offsets(tokens[start].StartOffset, tokens[last].EndOffset)
+		rangeValue, err := p.document.RangeFromUTF8Offsets(tokens[partStart].StartOffset, tokens[partEnd-1].EndOffset)
 		if err == nil {
 			p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
 		}
 	}
+	return terminated
 }
 
 func (p *pascalParser) parseTypeDeclaration(line LogicalLine) {
@@ -294,6 +318,15 @@ func (p *pascalParser) parseTypeDeclaration(line LogicalLine) {
 		return
 	}
 	kindWord := strings.ToLower(tokens[rhs].Text)
+	if kindWord == "class" {
+		next := nextStructuralToken(tokens, rhs+1, len(tokens))
+		if next < len(tokens) && strings.EqualFold(tokens[next].Text, "of") {
+			p.add(SymbolSpec{Kind: SymbolKindAlias, NativeKind: "class-reference", Name: name, Parent: parent,
+				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset},
+				Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Modifiers: sectionModifiers, Evidence: SymbolEvidenceStructural})
+			return
+		}
+	}
 	if kindWord != "class" && kindWord != "record" && kindWord != "interface" && kindWord != "object" {
 		p.add(SymbolSpec{Kind: SymbolKindAlias, NativeKind: "type-alias", Name: name, Parent: parent,
 			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset},
@@ -333,7 +366,7 @@ func (p *pascalParser) parseTypeDeclaration(line LogicalLine) {
 	} else {
 		p.collectPascalTypeRelations(symbol.QualifiedName, kindWord, tokens, rhs+1)
 	}
-	if !pascalContainsFold(tokens, "end") {
+	if !pascalContainsFold(tokens, "end") && !pascalEndsWithSemicolon(tokens) {
 		p.scopes = append(p.scopes, pascalScope{kind: "type", parent: typeParent, owner: symbol.Name, visibility: VisibilityPublic})
 	}
 }
@@ -395,6 +428,18 @@ func (p *pascalParser) parseProperty(line LogicalLine, keyword int, parent *Symb
 func (p *pascalParser) parseRoutine(line LogicalLine, keyword int, member bool) {
 	tokens := line.Tokens
 	kindWord := strings.ToLower(tokens[keyword].Text)
+	if p.delphi && (kindWord == "procedure" || kindWord == "function") && pascalAnonymousRoutineStart(tokens, keyword) {
+		parent := SymbolParent{}
+		if current := p.currentDeclarationParent(); current != nil {
+			parent = *current
+		}
+		beginDepth := 0
+		if pascalContainsFold(tokens[keyword+1:], "begin") {
+			beginDepth = 1
+		}
+		p.scopes = append(p.scopes, pascalScope{kind: "anonymous-routine", parent: parent, visibility: VisibilityPublic, beginDepth: beginDepth})
+		return
+	}
 	nameStart := nextIdentifierToken(tokens, keyword+1, len(tokens))
 	if nameStart < 0 {
 		p.markMalformed(line, p.language+"-routine-name", "Pascal routine declaration has no name")
@@ -559,6 +604,15 @@ func (p *pascalParser) sectionModifiers() []string {
 	return []string{p.section}
 }
 
+func pascalRoutineScope(kind string) bool {
+	return kind == "routine" || kind == "anonymous-routine"
+}
+
+func pascalAnonymousRoutineStart(tokens []Token, keyword int) bool {
+	next := nextStructuralToken(tokens, keyword+1, len(tokens))
+	return next >= len(tokens) || tokens[next].Text == "(" || strings.EqualFold(tokens[next].Text, "begin")
+}
+
 func (p *pascalParser) isRoutineKeyword(value string) bool {
 	switch value {
 	case "procedure", "function", "constructor", "destructor":
@@ -588,6 +642,11 @@ func pascalFindFold(tokens []Token, text string, start int) int {
 
 func pascalContainsFold(tokens []Token, text string) bool {
 	return pascalFindFold(tokens, text, 0) >= 0
+}
+
+func pascalEndsWithSemicolon(tokens []Token) bool {
+	last := previousStructuralToken(tokens, len(tokens)-1, 0)
+	return last >= 0 && tokens[last].Text == ";"
 }
 
 func pascalQualifiedNameEnd(tokens []Token, start int) int {

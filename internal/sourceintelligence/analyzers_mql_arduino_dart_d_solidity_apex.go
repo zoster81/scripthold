@@ -8,8 +8,8 @@ import (
 )
 
 // MQL4Analyzer and MQL5Analyzer deliberately keep distinct provider identities.
-// They reuse only the declaration-safe C++ structural subset and add MQL-specific
-// dependency/input evidence without pretending to evaluate the preprocessor.
+// They reuse only the declaration-safe C++ structural subset, add MQL-specific
+// evidence, and resolve only deterministic predefined dialect macros.
 type MQL4Analyzer struct{}
 type MQL5Analyzer struct{}
 
@@ -35,20 +35,56 @@ func analyzeMQL(ctx context.Context, document *SourceDocument, options AnalyzeOp
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_mql_source", document.Path, err)
 	}
-	source, err := (CPPAnalyzer{}).Analyze(ctx, document, options)
+	scannerLimits := ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: 2048}
+	scan, err := ScanSource(ctx, document, MQLScannerProfile(language), scannerLimits)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	projectionDocument := document
+	if projected, changed := projectMQLDialectConditionals(document.Text, scan.Tokens, language); changed {
+		clone := *document
+		clone.Text = projected
+		clone.lineStarts = buildLineStarts(projected)
+		projectionDocument = &clone
+		scan, err = ScanSource(ctx, projectionDocument, MQLScannerProfile(language), scannerLimits)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+	}
+	interfaceNameOffsets := make(map[int]struct{})
+	analysisDocument := projectionDocument
+	if projected, changed := projectMQLForCPP(projectionDocument.Text, scan.Tokens, language, interfaceNameOffsets); changed {
+		clone := *projectionDocument
+		clone.Text = projected
+		clone.lineStarts = buildLineStarts(projected)
+		analysisDocument = &clone
+	}
+	// MQL resolves only predefined dialect conditionals; unknown/user macro state must retain single-pass C++ fail-closed delimiter semantics.
+	source, err := analyzeCFamilySingle(ctx, analysisDocument, options, true)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	interfaceIDs := make(map[string]struct{})
 	for index := range source.Analysis.Symbols {
 		symbol := &source.Analysis.Symbols[index]
-		if symbol.Kind != SymbolKindVariable && symbol.Kind != SymbolKindConstant {
-			continue
-		}
-		declaration, _, _, _ := symbol.SourceOffsets()
+		declaration, nameRange, _, _ := symbol.SourceOffsets()
 		if declaration.Start < 0 || declaration.End > len(document.Text) || declaration.End <= declaration.Start {
 			continue
 		}
-		prefix := strings.ToLower(strings.TrimSpace(document.Text[declaration.Start:declaration.End]))
+		declarationText := strings.TrimSpace(document.Text[declaration.Start:declaration.End])
+		if symbol.Kind == SymbolKindClass {
+			if _, ok := interfaceNameOffsets[nameRange.Start]; ok {
+				symbol.Kind = SymbolKindInterface
+				symbol.NativeKind = "interface"
+				symbol.Visibility = VisibilityPublic
+				interfaceIDs[symbol.ID] = struct{}{}
+				continue
+			}
+		}
+		if symbol.Kind != SymbolKindVariable && symbol.Kind != SymbolKindConstant {
+			continue
+		}
+		prefix := strings.ToLower(declarationText)
 		switch {
 		case strings.HasPrefix(prefix, "input "):
 			symbol.NativeKind = "input-variable"
@@ -61,47 +97,200 @@ func analyzeMQL(ctx context.Context, document *SourceDocument, options AnalyzeOp
 			symbol.Modifiers = append(symbol.Modifiers, "extern")
 		}
 	}
+	for index := range source.Analysis.Symbols {
+		symbol := &source.Analysis.Symbols[index]
+		if _, ok := interfaceIDs[symbol.ParentID]; ok {
+			symbol.Visibility = VisibilityPublic
+		}
+	}
 	analysis, err := reprojectAnalyzerSymbols(ctx, document, source, options, language, analyzer, "", 0, nil)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	copyPhase7AdapterDiagnostics(&analysis, source.Analysis, language, options.Limits.MaxDiagnostics)
+	relabelPhase7AdapterDiagnostics(&analysis, language)
 	dependencies := append([]StructuralDependency(nil), source.Dependencies...)
-	imports, conditional, err := collectMQLDirectives(ctx, document, language)
-	if err != nil {
-		return AnalyzerResult{}, err
-	}
+	imports := collectMQLDirectives(document, scan.Tokens)
 	dependencies = appendUniqueDependencies(dependencies, imports)
-	if conditional {
-		builder := NewSymbolBuilder(document, SymbolBuilderOptions{Context: ctx, Language: language, Analyzer: string(analyzer), IncludeSignatures: options.IncludeSignatures, MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits})
-		_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-conditional-preprocessor", Message: "conditional preprocessing is not evaluated; declarations may depend on macro state", Severity: DiagnosticWarning, AffectsCoverage: true})
-		analysis.CoverageComplete = false
-		for _, diagnostic := range builder.Result().Diagnostics {
-			appendPhase7Diagnostic(&analysis, diagnostic, options.Limits.MaxDiagnostics)
-		}
-	}
 	return AnalyzerResult{Analysis: analysis, Dependencies: dependencies, Relations: source.Relations}, nil
 }
 
-func collectMQLDirectives(ctx context.Context, document *SourceDocument, language string) ([]StructuralDependency, bool, error) {
-	scan, err := ScanSource(ctx, document, MQLScannerProfile(language), ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: 2048})
-	if err != nil {
-		return nil, false, err
+type mqlDialectConditionalFrame struct {
+	opener      Token
+	elseToken   Token
+	endifToken  Token
+	activeFirst bool
+	hasElse     bool
+	hasElif     bool
+	malformed   bool
+	known       bool
+}
+
+func projectMQLDialectConditionals(text string, tokens []Token, language string) (string, bool) {
+	var stack []*mqlDialectConditionalFrame
+	var completed []mqlDialectConditionalFrame
+	for _, token := range tokens {
+		if token.Kind != TokenDirective {
+			continue
+		}
+		keyword, rest := cFamilyDirectiveKeywordAndRest(token.Text)
+		switch keyword {
+		case "#if":
+			stack = append(stack, &mqlDialectConditionalFrame{opener: token})
+		case "#ifdef", "#ifndef":
+			active, known := mqlDialectConditionalValue(keyword, rest, language)
+			stack = append(stack, &mqlDialectConditionalFrame{opener: token, activeFirst: active, known: known})
+		case "#elif":
+			if len(stack) > 0 {
+				stack[len(stack)-1].hasElif = true
+			}
+		case "#else":
+			if len(stack) > 0 {
+				frame := stack[len(stack)-1]
+				if frame.hasElse {
+					frame.malformed = true
+				} else {
+					frame.hasElse = true
+					frame.elseToken = token
+				}
+			}
+		case "#endif":
+			if len(stack) == 0 {
+				continue
+			}
+			frame := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			frame.endifToken = token
+			if frame.known && !frame.hasElif && !frame.malformed {
+				completed = append(completed, *frame)
+			}
+		}
 	}
+	if len(completed) == 0 {
+		return text, false
+	}
+	projected := []byte(text)
+	for _, frame := range completed {
+		phase8MaskRange(projected, frame.opener.StartOffset, frame.opener.EndOffset)
+		if frame.hasElse {
+			phase8MaskRange(projected, frame.elseToken.StartOffset, frame.elseToken.EndOffset)
+		}
+		phase8MaskRange(projected, frame.endifToken.StartOffset, frame.endifToken.EndOffset)
+		if frame.activeFirst {
+			if frame.hasElse {
+				phase8MaskRange(projected, frame.elseToken.EndOffset, frame.endifToken.StartOffset)
+			}
+		} else {
+			inactiveEnd := frame.endifToken.StartOffset
+			if frame.hasElse {
+				inactiveEnd = frame.elseToken.StartOffset
+			}
+			phase8MaskRange(projected, frame.opener.EndOffset, inactiveEnd)
+		}
+	}
+	return string(projected), true
+}
+
+func mqlDialectConditionalValue(keyword, rest, language string) (bool, bool) {
+	rest = strings.TrimSpace(rest)
+	if comment := strings.Index(rest, "//"); comment >= 0 {
+		rest = strings.TrimSpace(rest[:comment])
+	}
+	if comment := strings.Index(rest, "/*"); comment >= 0 {
+		rest = strings.TrimSpace(rest[:comment])
+	}
+	var defined bool
+	switch rest {
+	case "__MQL4__":
+		defined = language == "mql4"
+	case "__MQL5__":
+		defined = language == "mql5"
+	case "__MQL__":
+		defined = true
+	case "__cplusplus":
+		defined = false
+	default:
+		return false, false
+	}
+	if keyword == "#ifndef" {
+		defined = !defined
+	}
+	return defined, true
+}
+
+func projectMQLForCPP(text string, tokens []Token, language string, interfaceNameOffsets map[int]struct{}) (string, bool) {
+	var projected []byte
+	ensureProjection := func() {
+		if projected == nil {
+			projected = []byte(text)
+		}
+	}
+	for index := 0; index < len(tokens); index++ {
+		token := tokens[index]
+		if language == "mql5" && index+2 < len(tokens) && token.Nesting == 0 && strings.EqualFold(token.Text, "input") {
+			lineEnd, _ := phase8LineBounds(text, token.StartOffset)
+			group := tokens[index+1]
+			label := tokens[index+2]
+			if group.StartOffset < lineEnd && label.StartOffset < lineEnd && strings.EqualFold(group.Text, "group") && label.Kind == TokenString {
+				ensureProjection()
+				phase8MaskRange(projected, token.StartOffset, lineEnd)
+				index += 2
+				continue
+			}
+		}
+		nameIndex, ok := mqlInterfaceNameToken(tokens, index)
+		if !ok {
+			continue
+		}
+		if interfaceNameOffsets != nil {
+			interfaceNameOffsets[tokens[nameIndex].StartOffset] = struct{}{}
+		}
+		ensureProjection()
+		copy(projected[token.StartOffset:token.EndOffset], "class")
+		for offset := token.StartOffset + len("class"); offset < token.EndOffset; offset++ {
+			projected[offset] = ' '
+		}
+	}
+	if projected == nil {
+		return text, false
+	}
+	return string(projected), true
+}
+
+func mqlInterfaceNameToken(tokens []Token, index int) (int, bool) {
+	if index < 0 || index >= len(tokens) {
+		return 0, false
+	}
+	keyword := tokens[index]
+	if keyword.Nesting != 0 || !strings.EqualFold(keyword.Text, "interface") {
+		return 0, false
+	}
+	name := nextStructuralToken(tokens, index+1, len(tokens))
+	if name >= len(tokens) || tokens[name].Kind != TokenIdentifier {
+		return 0, false
+	}
+	for cursor := name + 1; cursor < len(tokens); cursor++ {
+		token := tokens[cursor]
+		if token.Kind == TokenEOF {
+			return 0, false
+		}
+		if token.Text == ";" && token.Nesting == keyword.Nesting {
+			return 0, false
+		}
+		if token.Text == "{" && token.Nesting == keyword.Nesting+1 {
+			return name, true
+		}
+	}
+	return 0, false
+}
+
+func collectMQLDirectives(document *SourceDocument, tokens []Token) []StructuralDependency {
 	var result []StructuralDependency
-	conditional := false
-	for _, token := range scan.Tokens {
+	for _, token := range tokens {
 		if token.Kind != TokenDirective {
 			continue
 		}
 		trimmed := strings.TrimSpace(token.Text)
 		lower := strings.ToLower(trimmed)
-		for _, prefix := range []string{"#if", "#ifdef", "#ifndef", "#elif", "#else", "#endif"} {
-			if lower == prefix || strings.HasPrefix(lower, prefix+" ") || strings.HasPrefix(lower, prefix+"\t") {
-				conditional = true
-				break
-			}
-		}
 		if !strings.HasPrefix(lower, "#import") {
 			continue
 		}
@@ -115,7 +304,7 @@ func collectMQLDirectives(ctx context.Context, document *SourceDocument, languag
 			result = append(result, StructuralDependency{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
 		}
 	}
-	return result, conditional, nil
+	return result
 }
 
 func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDependency {
@@ -169,30 +358,17 @@ func (ArduinoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	copyPhase7AdapterDiagnostics(&analysis, source.Analysis, "arduino", options.Limits.MaxDiagnostics)
+	relabelPhase7AdapterDiagnostics(&analysis, "arduino")
 	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
 }
 
-func copyPhase7AdapterDiagnostics(target *AnalysisResult, source AnalysisResult, language string, maxDiagnostics int) {
-	for _, diagnostic := range source.Diagnostics {
+func relabelPhase7AdapterDiagnostics(target *AnalysisResult, language string) {
+	for index := range target.Diagnostics {
+		diagnostic := &target.Diagnostics[index]
 		if strings.HasPrefix(diagnostic.Code, "cpp-") {
 			diagnostic.Code = language + strings.TrimPrefix(diagnostic.Code, "cpp")
 		}
-		appendPhase7Diagnostic(target, diagnostic, maxDiagnostics)
 	}
-	if source.DiagnosticsTruncated {
-		target.DiagnosticsTruncated = true
-		target.CoverageComplete = false
-	}
-}
-
-func appendPhase7Diagnostic(target *AnalysisResult, diagnostic AnalysisDiagnostic, maxDiagnostics int) {
-	if maxDiagnostics > 0 && len(target.Diagnostics) >= maxDiagnostics {
-		target.DiagnosticsTruncated = true
-		target.CoverageComplete = false
-		return
-	}
-	target.Diagnostics = append(target.Diagnostics, diagnostic)
 }
 
 // Dart/D/Solidity/Apex use one bounded brace parser with explicit per-language

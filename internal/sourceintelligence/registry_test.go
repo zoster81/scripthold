@@ -2,8 +2,61 @@ package sourceintelligence
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
+
+func TestDefaultLanguageRegistryIsSharedAndImmutableThroughLookups(t *testing.T) {
+	first, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatal("default registry was rebuilt instead of reusing the immutable process-wide instance")
+	}
+
+	descriptor, ok := first.Resolve("golang")
+	if !ok || descriptor.ID != "go" || len(descriptor.Aliases) == 0 || len(descriptor.Extensions) == 0 {
+		t.Fatalf("unexpected Go descriptor: %+v", descriptor)
+	}
+	descriptor.Aliases[0] = "mutated"
+	descriptor.Extensions[0] = ".mutated"
+	fresh, ok := second.Lookup("go")
+	if !ok || fresh.Aliases[0] == "mutated" || fresh.Extensions[0] == ".mutated" {
+		t.Fatalf("lookup mutation escaped into cached registry: %+v", fresh)
+	}
+
+	const workers = 32
+	failures := make(chan string, workers)
+	var group sync.WaitGroup
+	for range workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for range 100 {
+				resolved, ok := first.Resolve("golang")
+				if !ok || resolved.ID != "go" {
+					failures <- "concurrent Resolve lost Go"
+					return
+				}
+				resolved.Extensions[0] = ".local-mutation"
+			}
+		}()
+	}
+	group.Wait()
+	close(failures)
+	for failure := range failures {
+		t.Fatal(failure)
+	}
+	fresh, _ = first.Lookup("go")
+	if len(fresh.Extensions) == 0 || fresh.Extensions[0] != ".go" {
+		t.Fatalf("concurrent descriptor mutation changed cached registry: %+v", fresh)
+	}
+}
 
 func TestDefaultLanguageRegistryCompletedProvidersAndFutureShapes(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()

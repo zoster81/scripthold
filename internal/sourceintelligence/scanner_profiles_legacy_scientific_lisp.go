@@ -10,9 +10,11 @@ func FortranScannerProfile() ScannerProfile {
 		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true},
 		LineComments: []string{"!"},
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"", DoubledDelimiterEscape: true},
-			{Prefixes: []string{""}, Delimiter: "'", DoubledDelimiterEscape: true},
+			{Prefixes: []string{""}, Delimiter: "\"", LineContinuation: "&", AllowMissingContinuationPrefix: true, DoubledDelimiterEscape: true},
+			{Prefixes: []string{""}, Delimiter: "'", LineContinuation: "&", AllowMissingContinuationPrefix: true, DoubledDelimiterEscape: true},
 		},
+		DirectiveRules:       []DirectiveRule{{Prefix: "#", BackslashContinuesLine: true}},
+		Directives:           true,
 		ExplicitContinuation: "&",
 	}
 }
@@ -79,8 +81,9 @@ func JuliaScannerProfile() ScannerProfile {
 		BlockComments: []BlockCommentRule{{Start: "#=", End: "=#", Nestable: true}},
 		Strings: []StringRule{
 			{Prefixes: []string{"raw", ""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true},
-			{Prefixes: []string{"raw", ""}, Delimiter: "\"", BackslashEscapes: true},
+			{Prefixes: []string{"raw", ""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
 		},
+		ImplicitContinuation: true,
 	}
 }
 

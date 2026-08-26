@@ -25,6 +25,16 @@ func TestCancellationAcrossNewProviders(t *testing.T) {
 	}
 }
 
+func TestPHPHTMLEOFRegionStillReportsMalformedPHP(t *testing.T) {
+	result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.php", `<?php function load() {`), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+		t.Fatalf("malformed PHP inside EOF region reported complete: %+v", result.Analysis)
+	}
+}
+
 func TestCompositeRegionOutputIsBounded(t *testing.T) {
 	const declarations = 1200
 	var vue strings.Builder
@@ -105,9 +115,9 @@ func TestUnterminatedCompositeRegionsLowerCoverage(t *testing.T) {
 		text     string
 	}{
 		{"vue-script", VueAnalyzer{}, `<script>function load() {}`},
-		{"php", PHPHTMLAnalyzer{}, `<?php function load() {}`},
 		{"jinja", JinjaAnalyzer{}, `{% macro render() %`},
-		{"blade", BladeAnalyzer{}, `@php function load() {}`},
+		{"blade-directive", BladeAnalyzer{}, `@php function load() {}`},
+		{"blade-raw-php", BladeAnalyzer{}, `<?php function load() {}`},
 		{"ejs", EJSAnalyzer{}, `<% function load() {}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

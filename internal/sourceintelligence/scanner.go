@@ -10,7 +10,10 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-const ScannerMaxDiagnostics = 64
+const (
+	ScannerMaxDiagnostics            = 64
+	scannerInitialTokenCapacityLimit = 32 * 1024
+)
 
 // TokenKind is a language-neutral lexical category.
 type TokenKind string
@@ -117,13 +120,16 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 	}
 
 	scanner := &sourceScanner{
-		ctx:           ctx,
-		document:      document,
-		text:          document.Text,
-		profile:       profile,
-		limits:        limits,
-		keywords:      make(map[string]struct{}, len(profile.Keywords)),
-		result:        ScanResult{Complete: true},
+		ctx:      ctx,
+		document: document,
+		text:     document.Text,
+		profile:  profile,
+		limits:   limits,
+		keywords: make(map[string]struct{}, len(profile.Keywords)),
+		result: ScanResult{
+			Complete: true,
+			Tokens:   make([]Token, 0, initialScannerTokenCapacity(len(document.Text), limits.MaxTokens)),
+		},
 		lineStart:     true,
 		pendingIndent: profile.Indentation,
 		indentStack:   []int{0},
@@ -140,9 +146,30 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 	return scanner.result, nil
 }
 
+func initialScannerTokenCapacity(textBytes, maxTokens int) int {
+	if maxTokens <= 0 {
+		return 0
+	}
+	capacity := textBytes/4 + 1
+	capacity = min(capacity, scannerInitialTokenCapacityLimit, maxTokens)
+	return max(capacity, 1)
+}
+
 func (scanner *sourceScanner) validateProfile() error {
 	if err := scanner.validateR27Profile(); err != nil {
 		return err
+	}
+	for _, exception := range scanner.profile.LineCommentExceptions {
+		valid := false
+		for _, prefix := range scanner.profile.LineComments {
+			if len(exception) > len(prefix) && strings.HasPrefix(exception, prefix) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return operation.New(operation.KindInvalidInput, "line comment exceptions must extend a configured line comment prefix")
+		}
 	}
 	for _, comment := range scanner.profile.BlockComments {
 		if comment.Start == "" || comment.End == "" {
@@ -155,6 +182,12 @@ func (scanner *sourceScanner) validateProfile() error {
 		}
 		if rule.RepeatedDelimiterMin > 0 && len(rule.Delimiter) != 1 {
 			return operation.New(operation.KindInvalidInput, "repeated string delimiter must be one byte")
+		}
+		if strings.ContainsAny(rule.LineContinuation, "\r\n") {
+			return operation.New(operation.KindInvalidInput, "string line continuation must not contain a newline")
+		}
+		if rule.Multiline && rule.LineContinuation != "" {
+			return operation.New(operation.KindInvalidInput, "multiline strings cannot require a line continuation marker")
 		}
 	}
 	return nil
@@ -188,8 +221,8 @@ func (scanner *sourceScanner) run() error {
 			continue
 		}
 		if scanner.lineStart {
-			if _, ok := scanner.directiveRuleAt(scanner.at); ok {
-				if err := scanner.scanDirective(); err != nil {
+			if rule, ok := scanner.directiveRuleAt(scanner.at); ok {
+				if err := scanner.scanDirective(rule); err != nil {
 					return err
 				}
 				continue
@@ -340,7 +373,14 @@ indentationDone:
 			}
 		}
 		if columns != scanner.indentStack[len(scanner.indentStack)-1] {
-			scanner.addDiagnostic("inconsistent-indentation", "indentation does not match an earlier level", start, scanner.at)
+			if scanner.profile.AllowNonStackDedent {
+				scanner.indentStack = append(scanner.indentStack, columns)
+				if err := scanner.emitSynthetic(TokenIndent, scanner.at, len(scanner.indentStack)-1); err != nil {
+					return err
+				}
+			} else {
+				scanner.addDiagnostic("inconsistent-indentation", "indentation does not match an earlier level", start, scanner.at)
+			}
 		}
 	}
 	scanner.pendingIndent = false
@@ -348,16 +388,11 @@ indentationDone:
 }
 
 func (scanner *sourceScanner) scanNewline() error {
-	start := scanner.at
-	if scanner.text[scanner.at] == '\r' && scanner.at+1 < len(scanner.text) && scanner.text[scanner.at+1] == '\n' {
-		scanner.at += 2
-	} else {
-		scanner.at++
-	}
+	start, end := scanner.consumePhysicalNewline()
 	suppressed := scanner.continued || scanner.profile.ImplicitContinuation && len(scanner.delimiters) > 0
 	scanner.continued = false
 	if !suppressed {
-		if err := scanner.emit(TokenNewline, start, scanner.at); err != nil {
+		if err := scanner.emit(TokenNewline, start, end); err != nil {
 			return err
 		}
 	}
@@ -371,10 +406,31 @@ func (scanner *sourceScanner) scanNewline() error {
 	return nil
 }
 
-func (scanner *sourceScanner) scanDirective() error {
+func (scanner *sourceScanner) consumePhysicalNewline() (int, int) {
 	start := scanner.at
-	for scanner.at < len(scanner.text) && !isNewlineStart(scanner.text[scanner.at]) {
+	if scanner.text[scanner.at] == '\r' && scanner.at+1 < len(scanner.text) && scanner.text[scanner.at+1] == '\n' {
+		scanner.at += 2
+	} else {
 		scanner.at++
+	}
+	return start, scanner.at
+}
+
+func (scanner *sourceScanner) scanDirective(rule DirectiveRule) error {
+	start := scanner.at
+	for {
+		for scanner.at < len(scanner.text) && !isNewlineStart(scanner.text[scanner.at]) {
+			if scanner.at&4095 == 0 {
+				if err := scanner.checkContext(); err != nil {
+					return err
+				}
+			}
+			scanner.at++
+		}
+		if scanner.at >= len(scanner.text) || !rule.BackslashContinuesLine || scanner.at <= start || scanner.text[scanner.at-1] != '\\' {
+			break
+		}
+		scanner.consumePhysicalNewline()
 	}
 	scanner.lineStart = false
 	return scanner.emit(TokenDirective, start, scanner.at)
@@ -433,7 +489,7 @@ func (scanner *sourceScanner) scanString(match matchedStringRule) error {
 
 func (scanner *sourceScanner) consumeString(match matchedStringRule, start int) error {
 	scanner.at += match.openingBytes
-	if match.rule.InterpolationMarker != "" && strings.Contains(match.prefix, match.rule.InterpolationMarker) {
+	if match.rule.Interpolated || match.rule.InterpolationMarker != "" && strings.Contains(match.prefix, match.rule.InterpolationMarker) {
 		return scanner.consumeInterpolatedString(match, start)
 	}
 	return scanner.consumeOpaqueString(match, start)
@@ -472,6 +528,9 @@ func (scanner *sourceScanner) consumeOpaqueString(match matchedStringRule, start
 			return nil
 		}
 		if !match.rule.Multiline && isNewlineStart(scanner.text[scanner.at]) {
+			if scanner.consumeStringLineContinuation(match.rule.LineContinuation, match.rule.AllowMissingContinuationPrefix) {
+				continue
+			}
 			scanner.addDiagnostic("unterminated-string", "string literal reaches a physical line ending", start, scanner.at)
 			return nil
 		}
@@ -482,7 +541,43 @@ func (scanner *sourceScanner) consumeOpaqueString(match matchedStringRule, start
 	return nil
 }
 
+func (scanner *sourceScanner) consumeStringLineContinuation(marker string, allowMissingPrefix bool) bool {
+	if marker == "" || scanner.at >= len(scanner.text) || !isNewlineStart(scanner.text[scanner.at]) {
+		return false
+	}
+	before := scanner.at
+	for before > 0 && isHorizontalSpace(scanner.text[before-1]) {
+		before--
+	}
+	markerStart := before - len(marker)
+	if markerStart < 0 || scanner.text[markerStart:before] != marker {
+		return false
+	}
+	next := scanner.at
+	if scanner.text[next] == '\r' && next+1 < len(scanner.text) && scanner.text[next+1] == '\n' {
+		next += 2
+	} else {
+		next++
+	}
+	for next < len(scanner.text) && isHorizontalSpace(scanner.text[next]) {
+		next++
+	}
+	if next+len(marker) > len(scanner.text) || scanner.text[next:next+len(marker)] != marker {
+		if !allowMissingPrefix {
+			return false
+		}
+		scanner.at = next
+		return true
+	}
+	scanner.at = next + len(marker)
+	return true
+}
+
 func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule, start int) error {
+	interpolationOpen := match.rule.InterpolationOpen
+	if interpolationOpen == "" {
+		interpolationOpen = "{"
+	}
 	interpolationDepth := 0
 	for scanner.at < len(scanner.text) {
 		if scanner.at&4095 == 0 {
@@ -504,15 +599,25 @@ func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule,
 				return nil
 			}
 			if strings.HasPrefix(scanner.text[scanner.at:], "{{") || strings.HasPrefix(scanner.text[scanner.at:], "}}") {
-				scanner.at += 2
-				continue
+				if match.rule.DoubledBraceEscape {
+					scanner.at += 2
+					continue
+				}
+				if match.rule.RejectDoubledBraces {
+					scanner.addDiagnostic("invalid-interpolation-brace", "doubled braces are not valid in this interpolated string", scanner.at, scanner.at+2)
+					scanner.at += 2
+					continue
+				}
 			}
-			if scanner.text[scanner.at] == '{' {
+			if strings.HasPrefix(scanner.text[scanner.at:], interpolationOpen) {
 				interpolationDepth = 1
-				scanner.at++
+				scanner.at += len(interpolationOpen)
 				continue
 			}
 			if !match.rule.Multiline && isNewlineStart(scanner.text[scanner.at]) {
+				if scanner.consumeStringLineContinuation(match.rule.LineContinuation, match.rule.AllowMissingContinuationPrefix) {
+					continue
+				}
 				scanner.addDiagnostic("unterminated-string", "string literal reaches a physical line ending", start, scanner.at)
 				return nil
 			}
@@ -648,6 +753,11 @@ func (scanner *sourceScanner) addDiagnostic(code, message string, start, end int
 }
 
 func (scanner *sourceScanner) lineCommentPrefixAt(offset int) string {
+	for _, exception := range scanner.profile.LineCommentExceptions {
+		if strings.HasPrefix(scanner.text[offset:], exception) {
+			return ""
+		}
+	}
 	if scanner.profile.LineCommentRequiresWordStart && !scanner.lineCommentStartsWord(offset) {
 		return ""
 	}

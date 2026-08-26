@@ -718,3 +718,48 @@ func TestApplyEdits_NoMatchNoHintWhenNothingMatches(t *testing.T) {
 		t.Errorf("no hint expected when no lines match, got: %s", err.Error())
 	}
 }
+
+func TestBoundedUnifiedDiffDeclinesWideChangeWindow(t *testing.T) {
+	middle := strings.Repeat("middle payload\n", 50_000)
+	original := "first\n" + middle + "last\n"
+	modified := "FIRST\n" + middle + "LAST\n"
+	if _, ok := createBoundedUnifiedDiff(original, modified, "sample.txt"); ok {
+		t.Fatal("bounded diff accepted changes spanning more than its bounded window")
+	}
+	if got, want := createUnifiedDiff(original, modified, "sample.txt"), createUnifiedDiffFull(original, modified, "sample.txt"); got != want {
+		t.Fatal("fallback diff differs from the original full diff")
+	}
+}
+
+func TestBoundedUnifiedDiffMatchesFullDiff(t *testing.T) {
+	lines := func(values ...string) string { return strings.Join(values, "\n") + "\n" }
+	base := lines("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+	cases := []struct {
+		name     string
+		original string
+		modified string
+	}{
+		{name: "replace middle", original: base, modified: strings.Replace(base, "four\n", "FOUR\n", 1)},
+		{name: "replace end", original: base, modified: strings.TrimSuffix(base, "nine\n") + "NINE\n"},
+		{name: "insert start", original: base, modified: "before\n" + base},
+		{name: "delete start", original: "before\n" + base, modified: base},
+		{name: "insert middle", original: base, modified: strings.Replace(base, "five\n", "inserted\nfive\n", 1)},
+		{name: "delete middle", original: strings.Replace(base, "five\n", "remove\nfive\n", 1), modified: base},
+		{name: "no final newline", original: strings.TrimSuffix(base, "\n"), modified: strings.TrimSuffix(strings.Replace(base, "nine\n", "NINE\n", 1), "\n")},
+		{name: "multiple changes", original: base, modified: strings.Replace(strings.Replace(base, "two\n", "TWO\n", 1), "eight\n", "EIGHT\n", 1)},
+		{name: "insert after large prefix", original: strings.Repeat("prefix\n", 1000) + base, modified: strings.Repeat("prefix\n", 1000) + strings.Replace(base, "five\n", "inserted\nfive\n", 1)},
+		{name: "delete after large prefix", original: strings.Repeat("prefix\n", 1000) + strings.Replace(base, "five\n", "remove\nfive\n", 1), modified: strings.Repeat("prefix\n", 1000) + base},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, ok := createBoundedUnifiedDiff(testCase.original, testCase.modified, "sample.txt")
+			if !ok {
+				t.Fatal("bounded diff unexpectedly declined a small localized input")
+			}
+			want := createUnifiedDiffFull(testCase.original, testCase.modified, "sample.txt")
+			if got != want {
+				t.Fatalf("bounded diff differs from full diff\n--- got ---\n%s\n--- want ---\n%s", got, want)
+			}
+		})
+	}
+}

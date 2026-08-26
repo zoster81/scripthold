@@ -16,9 +16,10 @@ type matchedDelimiter struct {
 }
 
 type pendingHereDoc struct {
-	delimiter        string
-	stripLeadingTabs bool
-	openingOffset    int
+	delimiter              string
+	stripLeadingTabs       bool
+	stripLeadingWhitespace bool
+	openingOffset          int
 }
 
 func normalizeScannerProfile(profile ScannerProfile) ScannerProfile {
@@ -246,7 +247,7 @@ func (scanner *sourceScanner) hereDocOpeningAt(offset int) (HereDocRule, int, bo
 
 func (scanner *sourceScanner) scanHereDocOpening(rule HereDocRule, operatorBytes int) error {
 	start := scanner.at
-	delimiter, ok := parseHereDocDelimiter(scanner.text, scanner.at+operatorBytes, rule.AllowQuotedDelimiter)
+	delimiter, ok := parseHereDocDelimiter(scanner.text, scanner.at+operatorBytes, rule)
 	if !ok {
 		scanner.at += operatorBytes
 		scanner.lineStart = false
@@ -255,20 +256,24 @@ func (scanner *sourceScanner) scanHereDocOpening(rule HereDocRule, operatorBytes
 	if len(scanner.pendingHereDocs)+1 > scanner.limits.MaxNesting {
 		return scanner.limitError("pending heredocs", len(scanner.pendingHereDocs)+1, scanner.limits.MaxNesting)
 	}
-	scanner.pendingHereDocs = append(scanner.pendingHereDocs, pendingHereDoc{delimiter: delimiter, stripLeadingTabs: rule.StripLeadingTabs, openingOffset: start})
+	scanner.pendingHereDocs = append(scanner.pendingHereDocs, pendingHereDoc{
+		delimiter: delimiter, stripLeadingTabs: rule.StripLeadingTabs, stripLeadingWhitespace: rule.StripLeadingWhitespace, openingOffset: start,
+	})
 	scanner.at += operatorBytes
 	scanner.lineStart = false
 	return scanner.emit(TokenOperator, start, scanner.at)
 }
 
-func parseHereDocDelimiter(text string, offset int, allowQuoted bool) (string, bool) {
-	for offset < len(text) && isHorizontalSpace(text[offset]) {
-		offset++
+func parseHereDocDelimiter(text string, offset int, rule HereDocRule) (string, bool) {
+	if !rule.RequireAdjacentDelimiter {
+		for offset < len(text) && isHorizontalSpace(text[offset]) {
+			offset++
+		}
 	}
-	if offset >= len(text) || isNewlineStart(text[offset]) {
+	if offset >= len(text) || isNewlineStart(text[offset]) || rule.RequireAdjacentDelimiter && isHorizontalSpace(text[offset]) {
 		return "", false
 	}
-	if allowQuoted && (text[offset] == '\'' || text[offset] == '"') {
+	if rule.AllowQuotedDelimiter && (text[offset] == '\'' || text[offset] == '"') {
 		quote := text[offset]
 		end := strings.IndexByte(text[offset+1:], quote)
 		if end < 0 {
@@ -276,6 +281,22 @@ func parseHereDocDelimiter(text string, offset int, allowQuoted bool) (string, b
 		}
 		value := text[offset+1 : offset+1+end]
 		return value, value != ""
+	}
+	if rule.RequireIdentifierDelimiter {
+		start := offset
+		value, size := utf8.DecodeRuneInString(text[offset:])
+		if !identifierStart(DefaultIdentifierPolicy(), value) {
+			return "", false
+		}
+		offset += size
+		for offset < len(text) {
+			value, size = utf8.DecodeRuneInString(text[offset:])
+			if !identifierContinue(DefaultIdentifierPolicy(), value) {
+				break
+			}
+			offset += size
+		}
+		return text[start:offset], true
 	}
 	start := offset
 	for offset < len(text) && !isHorizontalSpace(text[offset]) && !isNewlineStart(text[offset]) && !strings.ContainsRune(";|&()<>", rune(text[offset])) {
@@ -305,7 +326,11 @@ func (scanner *sourceScanner) consumePendingHereDocs() error {
 				lineEnd++
 			}
 			candidateStart := lineStart
-			if heredoc.stripLeadingTabs {
+			if heredoc.stripLeadingWhitespace {
+				for candidateStart < lineEnd && isHorizontalSpace(scanner.text[candidateStart]) {
+					candidateStart++
+				}
+			} else if heredoc.stripLeadingTabs {
 				for candidateStart < lineEnd && scanner.text[candidateStart] == '\t' {
 					candidateStart++
 				}
@@ -322,10 +347,9 @@ func (scanner *sourceScanner) consumePendingHereDocs() error {
 				}
 				scanner.at = lineEnd
 				if scanner.at < len(scanner.text) {
-					if scanner.text[scanner.at] == '\r' && scanner.at+1 < len(scanner.text) && scanner.text[scanner.at+1] == '\n' {
-						scanner.at += 2
-					} else {
-						scanner.at++
+					newlineStart, newlineEnd := scanner.consumePhysicalNewline()
+					if err := scanner.emit(TokenNewline, newlineStart, newlineEnd); err != nil {
+						return err
 					}
 				}
 				scanner.lineStart = true

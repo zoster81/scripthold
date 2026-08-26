@@ -69,6 +69,92 @@ func TestRealWorldFreeBasicTypeAliasesDoNotOpenScopes(t *testing.T) {
 	}
 }
 
+func TestRealWorldClassicBasicDeclareLibraryPrototypesDoNotOpenScopes(t *testing.T) {
+	text := "Declare Library \"\"\n" +
+		"    Function powf! (ByVal base!, ByVal exponent!)\n" +
+		"End Declare\n" +
+		"Sub Run()\n" +
+		"End Sub\n"
+	result, err := (ClassicBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid QB64 DECLARE LIBRARY source reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"powf", "Run"} {
+		if symbol, ok := byName[name]; !ok || symbol.Kind != SymbolKindFunction {
+			t.Fatalf("missing top-level function %s: symbol=%+v exists=%v symbols=%v", name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	if _, ok := byName["powf.Run"]; ok {
+		t.Fatalf("DECLARE LIBRARY prototype leaked a false function scope: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+
+	malformed, err := (ClassicBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("Function Missing()\nDim value\n"), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if malformed.Analysis.CoverageComplete {
+		t.Fatalf("ordinary function without END FUNCTION must remain incomplete: %+v", malformed.Analysis)
+	}
+
+	unterminatedDeclare, err := (ClassicBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("Declare Library \"\"\nFunction Native! (ByVal value!)\n"), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unterminatedDeclare.Analysis.CoverageComplete {
+		t.Fatalf("DECLARE LIBRARY without END DECLARE must remain incomplete: %+v", unterminatedDeclare.Analysis)
+	}
+}
+
+func TestRealWorldClassicBasicDeclareDynamicLibraryPrototypesDoNotOpenScopes(t *testing.T) {
+	text := "Declare Dynamic Library \"kernel32\"\n" +
+		"Function WinSetErrorMode~& Alias \"SetErrorMode\" (ByVal mode As _Unsigned Long)\n" +
+		"Function WinGetStdHandle& Alias \"GetStdHandle\" (ByVal handle As Long)\n" +
+		"End Declare\n" +
+		"Sub Run()\n" +
+		"End Sub\n"
+	result, err := (ClassicBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid QB64 DECLARE DYNAMIC LIBRARY source reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"WinSetErrorMode", "WinGetStdHandle", "Run"} {
+		if symbol, ok := byName[name]; !ok || symbol.Kind != SymbolKindFunction {
+			t.Fatalf("missing top-level function %s: symbol=%+v exists=%v symbols=%v", name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, falseName := range []string{"WinSetErrorMode.WinGetStdHandle", "WinGetStdHandle.Run"} {
+		if _, ok := byName[falseName]; ok {
+			t.Fatalf("DECLARE DYNAMIC LIBRARY prototype leaked false scope %s: %v", falseName, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldBasicDimSharedModifierUsesDeclaredName(t *testing.T) {
+	text := "Dim Shared counter As Integer\nSub Run()\nDim Shared localCache As Long\nEnd Sub\n"
+	result, err := (ClassicBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"counter", "Run.localCache"} {
+		if symbol, ok := byName[name]; !ok || symbol.Kind != SymbolKindVariable {
+			t.Fatalf("missing DIM SHARED variable %s: symbol=%+v exists=%v symbols=%v", name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, falseName := range []string{"Shared", "Run.Shared"} {
+		if _, ok := byName[falseName]; ok {
+			t.Fatalf("DIM SHARED produced false modifier symbol %s: %v", falseName, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestRealWorldVBDesignerKeywordAssignmentsDoNotOpenScopes(t *testing.T) {
 	text := "VERSION 5.00\r\n" +
 		"Begin {C0E45035-5775-11D0-B388-00A0C9055D8E} DataEnvironment1\r\n" +

@@ -101,6 +101,107 @@ fake = "class StringFake; def nope; end; end"
 	}
 }
 
+func TestRubyAnalyzerAssignmentConditionalExpressionsPreserveScopeBalance(t *testing.T) {
+	text := `class Service
+  def value(flag)
+    result = if flag
+               :yes
+             else
+               :no
+             end
+    result
+  end
+end
+`
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Ruby assignment conditional expression made analysis partial: %+v", result.Analysis)
+	}
+	if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Service.value"]; !ok || symbol.Kind != SymbolKindMethod {
+		t.Fatalf("Service.value = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRubyAnalyzerCompoundAssignmentConditionalExpressionsPreserveScopeBalance(t *testing.T) {
+	text := `class Service
+  def memo(flag)
+    @memo ||= if flag
+                :yes
+              else
+                :no
+              end
+  end
+end
+`
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Ruby compound-assignment conditional expression made analysis partial: %+v", result.Analysis)
+	}
+	if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Service.memo"]; !ok || symbol.Kind != SymbolKindMethod {
+		t.Fatalf("Service.memo = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRubyAnalyzerHeredocsRemainOpaqueAndPreserveScopeBalance(t *testing.T) {
+	text := `class Service
+  def fail!(condition)
+    raise <<-MESSAGE unless condition
+Heredoc body may contain unmatched delimiters: ) ] }
+class HeredocFake
+    MESSAGE
+  end
+
+  def after
+  end
+end
+`
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Ruby heredoc made analysis partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if symbol, ok := byName["Service.fail!"]; !ok || symbol.Kind != SymbolKindMethod {
+		t.Fatalf("Service.fail! = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if symbol, ok := byName["Service.after"]; !ok || symbol.Kind != SymbolKindMethod {
+		t.Fatalf("Service.after = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if _, exists := byName["Service.HeredocFake"]; exists {
+		t.Fatalf("heredoc body leaked declaration: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRubyAnalyzerShiftOperatorsAreNotHeredocs(t *testing.T) {
+	text := `class Service
+  def decorate(value)
+    values = []
+    values << value
+    values <<= 1
+    super << :_prefixes
+  end
+end
+`
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Ruby shift operators were misclassified as heredocs: %+v", result.Analysis)
+	}
+	if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Service.decorate"]; !ok || symbol.Kind != SymbolKindMethod {
+		t.Fatalf("Service.decorate = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
 func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	partial, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class Good\nend\nclass Broken\n"), testAnalyzeOptions(true, 32))
 	if err != nil {

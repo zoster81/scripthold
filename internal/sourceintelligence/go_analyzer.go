@@ -38,6 +38,7 @@ func (GoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options
 	}
 	fileSet := token.NewFileSet()
 	file, parseErr := parser.ParseFile(fileSet, document.Path, document.Text, parser.AllErrors|parser.ParseComments)
+	builder.reserveSymbols(goSymbolCapacityHint(file, options.Limits.MaxSymbols))
 	analysis := &goDocumentAnalysis{
 		ctx: ctx, document: document, fileSet: fileSet, file: file, builder: builder,
 		typeParents: make(map[string]SymbolParent), dependencyCap: options.Limits.MaxSymbols,
@@ -59,6 +60,102 @@ func (GoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options
 		return AnalyzerResult{}, err
 	}
 	return analysis.result(), nil
+}
+
+func goSymbolCapacityHint(file *ast.File, maximum int) int {
+	if file == nil || maximum <= 0 {
+		return 0
+	}
+	count := 0
+	add := func(amount int) bool {
+		if amount <= 0 {
+			return false
+		}
+		count += amount
+		if count >= maximum {
+			count = maximum
+			return true
+		}
+		return false
+	}
+	if file.Name != nil && file.Package.IsValid() && add(1) {
+		return count
+	}
+	for _, declaration := range file.Decls {
+		switch concrete := declaration.(type) {
+		case *ast.FuncDecl:
+			if concrete != nil && concrete.Name != nil && concrete.Name.Name != "_" && add(1) {
+				return count
+			}
+		case *ast.GenDecl:
+			if concrete == nil {
+				continue
+			}
+			switch concrete.Tok {
+			case token.TYPE:
+				for _, rawSpec := range concrete.Specs {
+					typeSpec, ok := rawSpec.(*ast.TypeSpec)
+					if !ok || typeSpec.Name == nil || typeSpec.Name.Name == "_" {
+						continue
+					}
+					if add(1) {
+						return count
+					}
+					var fields *ast.FieldList
+					switch typed := typeSpec.Type.(type) {
+					case *ast.StructType:
+						fields = typed.Fields
+					case *ast.InterfaceType:
+						fields = typed.Methods
+					}
+					if add(goFieldSymbolCapacityHint(fields, maximum-count)) {
+						return count
+					}
+				}
+			case token.CONST, token.VAR:
+				for _, rawSpec := range concrete.Specs {
+					valueSpec, ok := rawSpec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for _, name := range valueSpec.Names {
+						if name != nil && name.Name != "_" && add(1) {
+							return count
+						}
+					}
+				}
+			}
+		}
+	}
+	return count
+}
+
+func goFieldSymbolCapacityHint(fields *ast.FieldList, maximum int) int {
+	if fields == nil || maximum <= 0 {
+		return 0
+	}
+	count := 0
+	for _, field := range fields.List {
+		if field == nil {
+			continue
+		}
+		if len(field.Names) == 0 {
+			identifier := embeddedIdentifier(field.Type)
+			if identifier != nil && identifier.Name != "_" {
+				count++
+			}
+		} else {
+			for _, name := range field.Names {
+				if name != nil && name.Name != "_" {
+					count++
+				}
+			}
+		}
+		if count >= maximum {
+			return maximum
+		}
+	}
+	return count
 }
 
 type goDocumentAnalysis struct {
@@ -273,7 +370,7 @@ func (analysis *goDocumentAnalysis) emitStructField(field *ast.Field, parent *Sy
 			analysis.recordInvalidASTRange("embedded field name", &declaration)
 			return
 		}
-		analysis.add(SymbolSpec{Kind: SymbolKindField, NativeKind: "embedded-field", Name: identifier.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(identifier.Name), Modifiers: []string{"embedded"}, Evidence: SymbolEvidenceStructural})
+		analysis.addDiscard(SymbolSpec{Kind: SymbolKindField, NativeKind: "embedded-field", Name: identifier.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(identifier.Name), Modifiers: []string{"embedded"}, Evidence: SymbolEvidenceStructural})
 		return
 	}
 	for _, name := range field.Names {
@@ -285,7 +382,7 @@ func (analysis *goDocumentAnalysis) emitStructField(field *ast.Field, parent *Sy
 			analysis.recordInvalidASTRange("field name", &declaration)
 			continue
 		}
-		analysis.add(SymbolSpec{Kind: SymbolKindField, NativeKind: "field", Name: name.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(name.Name), Evidence: SymbolEvidenceStructural})
+		analysis.addDiscard(SymbolSpec{Kind: SymbolKindField, NativeKind: "field", Name: name.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(name.Name), Evidence: SymbolEvidenceStructural})
 		if analysis.symbolsStopped {
 			return
 		}
@@ -311,7 +408,7 @@ func (analysis *goDocumentAnalysis) emitInterfaceField(field *ast.Field, parent 
 			analysis.recordInvalidASTRange("embedded interface name", &declaration)
 			return
 		}
-		analysis.add(SymbolSpec{Kind: SymbolKindField, NativeKind: "embedded-interface", Name: identifier.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(identifier.Name), Modifiers: []string{"embedded"}, Evidence: SymbolEvidenceStructural})
+		analysis.addDiscard(SymbolSpec{Kind: SymbolKindField, NativeKind: "embedded-interface", Name: identifier.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(identifier.Name), Modifiers: []string{"embedded"}, Evidence: SymbolEvidenceStructural})
 		return
 	}
 	for _, name := range field.Names {
@@ -327,7 +424,7 @@ func (analysis *goDocumentAnalysis) emitInterfaceField(field *ast.Field, parent 
 		if _, ok := field.Type.(*ast.FuncType); ok {
 			kind, nativeKind = SymbolKindMethod, "interface-method"
 		}
-		analysis.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(name.Name), Evidence: SymbolEvidenceStructural})
+		analysis.addDiscard(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name.Name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &declaration, Visibility: goVisibility(name.Name), Evidence: SymbolEvidenceStructural})
 		if analysis.symbolsStopped {
 			return
 		}
@@ -374,7 +471,7 @@ func (analysis *goDocumentAnalysis) emitValueDecl(declaration *ast.GenDecl) {
 				analysis.recordInvalidASTRange(nativeKind+" name", &declarationRange)
 				continue
 			}
-			analysis.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name.Name, Parent: &analysis.packageParent, Declaration: declarationRange, NameRange: nameRange, Signature: &declarationRange, Visibility: goVisibility(name.Name), Evidence: SymbolEvidenceStructural})
+			analysis.addDiscard(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name.Name, Parent: &analysis.packageParent, Declaration: declarationRange, NameRange: nameRange, Signature: &declarationRange, Visibility: goVisibility(name.Name), Evidence: SymbolEvidenceStructural})
 			if analysis.symbolsStopped {
 				return
 			}
@@ -429,7 +526,7 @@ func (analysis *goDocumentAnalysis) emitFuncDecl(declaration *ast.FuncDecl) {
 			modifiers = append(modifiers, "value-receiver")
 		}
 	}
-	analysis.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: declaration.Name.Name, Parent: &parent, Declaration: declarationRange, NameRange: nameRange, Signature: &signature, Body: body, Visibility: goVisibility(declaration.Name.Name), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
+	analysis.addDiscard(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: declaration.Name.Name, Parent: &parent, Declaration: declarationRange, NameRange: nameRange, Signature: &signature, Body: body, Visibility: goVisibility(declaration.Name.Name), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 }
 
 func (analysis *goDocumentAnalysis) add(spec SymbolSpec) (NormalizedSymbol, bool) {
@@ -437,16 +534,30 @@ func (analysis *goDocumentAnalysis) add(spec SymbolSpec) (NormalizedSymbol, bool
 		return NormalizedSymbol{}, false
 	}
 	symbol, err := analysis.builder.Add(spec)
+	if !analysis.handleAddError(err) {
+		return NormalizedSymbol{}, false
+	}
+	return symbol, true
+}
+
+func (analysis *goDocumentAnalysis) addDiscard(spec SymbolSpec) bool {
+	if analysis.symbolsStopped || analysis.checkContext() != nil {
+		return false
+	}
+	return analysis.handleAddError(analysis.builder.addDiscard(spec))
+}
+
+func (analysis *goDocumentAnalysis) handleAddError(err error) bool {
 	if operation.KindOf(err) == operation.KindLimit {
 		analysis.symbolsStopped = true
-		return NormalizedSymbol{}, false
+		return false
 	}
 	if err != nil {
 		analysis.builder.MarkIncomplete()
 		_ = analysis.builder.AddDiagnostic(DiagnosticSpec{Code: "go-normalize", Message: err.Error(), Severity: DiagnosticError, AffectsCoverage: true})
-		return NormalizedSymbol{}, false
+		return false
 	}
-	return symbol, true
+	return true
 }
 
 func (analysis *goDocumentAnalysis) addParseDiagnostics(parseErr error) {

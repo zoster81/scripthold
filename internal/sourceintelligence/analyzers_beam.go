@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type ElixirAnalyzer struct{}
@@ -27,7 +29,7 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	masked := maskElixirSigils(document.Text)
+	masked := maskElixirCharacterLiterals(maskElixirSigils(document.Text))
 	scan, err := state.scan(options, ElixirScannerProfile(), masked)
 	if err != nil {
 		return AnalyzerResult{}, err
@@ -43,67 +45,40 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		}
 		return nil
 	}
-	for _, line := range BuildLogicalLines(scan.Tokens, LogicalLineProfile{}) {
+	lines := BuildLogicalLines(scan.Tokens, LogicalLineProfile{})
+	for lineIndex, line := range lines {
 		if state.stopped || len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
-		if pending != nil && elixirHasDoToken(line.Tokens) {
-			if elixirOpensBlock(line.Tokens) {
-				scopes = append(scopes, *pending)
-			}
-			pending = nil
-		}
-		if first == "end" {
-			if len(scopes) == 0 {
-				value := OffsetRange{Start: line.StartOffset, End: line.EndOffset}
-				_ = state.builder.AddDiagnostic(DiagnosticSpec{Code: "elixir-unmatched-end", Message: "Elixir end has no matching structural block", Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true})
-				continue
-			}
-			scopes = scopes[:len(scopes)-1]
-			continue
-		}
+		var declarationScope *elixirScope
 		switch first {
 		case "defmodule":
 			start := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
-			if start < 0 {
-				continue
-			}
-			end := start + 1
-			for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
-				end += 2
-			}
-			name := tokenRangeText(line.Tokens, start, end)
-			if name == "" {
-				continue
-			}
-			symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "defmodule", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[start].StartOffset, End: line.Tokens[end-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if ok {
-				parent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-				scope := elixirScope{kind: "module", parent: parent}
-				if elixirOpensBlock(line.Tokens) {
-					scopes = append(scopes, scope)
-				} else if elixirLineHasUnclosedDelimiter(line.Tokens) {
-					pending = &scope
+			if start >= 0 {
+				end := start + 1
+				for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
+					end += 2
+				}
+				name := tokenRangeText(line.Tokens, start, end)
+				if name != "" {
+					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "defmodule", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[start].StartOffset, End: line.Tokens[end-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+					if ok {
+						parent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+						scope := elixirScope{kind: "module", parent: parent}
+						declarationScope = &scope
+					}
 				}
 			}
-			continue
 		case "def", "defp", "defmacro", "defmacrop", "defguard", "defguardp":
 			idx := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
-			if idx < 0 {
-				continue
+			if idx >= 0 {
+				tok := line.Tokens[idx]
+				if _, ok := state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: tok.Text, Parent: currentModule(), Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
+					scope := elixirScope{kind: "callable"}
+					declarationScope = &scope
+				}
 			}
-			tok := line.Tokens[idx]
-			native := first
-			kind := SymbolKindFunction
-			state.add(SymbolSpec{Kind: kind, NativeKind: native, Name: tok.Text, Parent: currentModule(), Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if elixirOpensBlock(line.Tokens) {
-				scopes = append(scopes, elixirScope{kind: "callable"})
-			} else if elixirLineHasUnclosedDelimiter(line.Tokens) {
-				scope := elixirScope{kind: "callable"}
-				pending = &scope
-			}
-			continue
 		case "alias", "import", "require", "use":
 			start := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
 			if start >= 0 {
@@ -113,13 +88,15 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 				}
 				value := tokenRangeText(line.Tokens, start, end)
 				if value != "" {
-					state.addDependency(StructuralDependencyImport, value, line.Tokens[start].StartOffset, line.Tokens[end-1].EndOffset)
+					state.addImportDependency(value, line.Tokens[start].StartOffset, line.Tokens[end-1].EndOffset)
 				}
 			}
-			continue
 		}
-		if elixirAnonymousBlock(first, line.Tokens) {
-			scopes = append(scopes, elixirScope{kind: "block"})
+
+		consumedDeclaration := elixirApplyStructuralTokens(line.Tokens, declarationScope, &pending, &scopes, state.builder)
+		if declarationScope != nil && !consumedDeclaration && (elixirLineHasUnclosedDelimiter(line.Tokens) || elixirNextLineOpensGuard(lines, lineIndex)) {
+			scope := *declarationScope
+			pending = &scope
 		}
 	}
 	if (len(scopes) > 0 || pending != nil) && !state.stopped {
@@ -128,11 +105,12 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	return state.result()
 }
 
-func elixirHasDoToken(tokens []Token) bool {
-	for _, token := range tokens {
-		if strings.EqualFold(token.Text, "do") {
-			return true
+func elixirNextLineOpensGuard(lines []LogicalLine, lineIndex int) bool {
+	for next := lineIndex + 1; next < len(lines); next++ {
+		if len(lines[next].Tokens) == 0 {
+			continue
 		}
+		return strings.EqualFold(lines[next].Tokens[0].Text, "when") && elixirOpensBlock(lines[next].Tokens)
 	}
 	return false
 }
@@ -151,41 +129,131 @@ func elixirLineHasUnclosedDelimiter(tokens []Token) bool {
 }
 
 func elixirOpensBlock(tokens []Token) bool {
-	for i := 0; i < len(tokens); i++ {
-		if !strings.EqualFold(tokens[i].Text, "do") {
-			continue
+	for index := range tokens {
+		if elixirStructuralKeywordToken(tokens, index, "do") {
+			return true
 		}
-		if i+1 < len(tokens) && tokens[i+1].Text == ":" {
-			return false
-		}
-		return true
 	}
 	return false
 }
 
-func elixirAnonymousBlock(first string, tokens []Token) bool {
-	fnDepth := 0
-	for _, token := range tokens {
-		switch strings.ToLower(token.Text) {
-		case "fn":
-			fnDepth++
-		case "end":
-			if fnDepth > 0 {
-				fnDepth--
-			}
-		}
-	}
-	if fnDepth > 0 {
-		return true
-	}
-	if !elixirOpensBlock(tokens) {
+func elixirStructuralKeywordToken(tokens []Token, index int, value string) bool {
+	if index < 0 || index >= len(tokens) || !strings.EqualFold(tokens[index].Text, value) {
 		return false
 	}
-	switch first {
-	case "case", "cond", "defimpl", "defprotocol", "for", "if", "receive", "try", "unless", "with", "quote":
+	if index > 0 && tokens[index-1].Text == ":" && tokens[index-1].EndOffset == tokens[index].StartOffset {
+		return false
+	}
+	if index+1 < len(tokens) && tokens[index+1].Text == ":" && tokens[index].EndOffset == tokens[index+1].StartOffset {
+		return false
+	}
+	return true
+}
+
+func elixirApplyStructuralTokens(tokens []Token, declarationScope *elixirScope, pending **elixirScope, scopes *[]elixirScope, builder *SymbolBuilder) bool {
+	consumedDeclaration := false
+	for index := range tokens {
+		switch strings.ToLower(tokens[index].Text) {
+		case "fn":
+			if elixirStructuralKeywordToken(tokens, index, "fn") {
+				*scopes = append(*scopes, elixirScope{kind: "block"})
+			}
+		case "do":
+			if !elixirStructuralKeywordToken(tokens, index, "do") {
+				if pending != nil && *pending != nil && index+1 < len(tokens) && tokens[index+1].Text == ":" && tokens[index].EndOffset == tokens[index+1].StartOffset {
+					*pending = nil
+				}
+				continue
+			}
+			if declarationScope != nil && !consumedDeclaration {
+				*scopes = append(*scopes, *declarationScope)
+				consumedDeclaration = true
+				continue
+			}
+			if pending != nil && *pending != nil {
+				*scopes = append(*scopes, **pending)
+				*pending = nil
+				continue
+			}
+			*scopes = append(*scopes, elixirScope{kind: "block"})
+		case "end":
+			if !elixirStructuralKeywordToken(tokens, index, "end") {
+				continue
+			}
+			if len(*scopes) == 0 {
+				value := OffsetRange{Start: tokens[index].StartOffset, End: tokens[index].EndOffset}
+				_ = builder.AddDiagnostic(DiagnosticSpec{Code: "elixir-unmatched-end", Message: "Elixir end has no matching structural block", Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true})
+				continue
+			}
+			*scopes = (*scopes)[:len(*scopes)-1]
+		}
+	}
+	return consumedDeclaration
+}
+
+func maskElixirCharacterLiterals(text string) string {
+	masked := []byte(text)
+	for at := 0; at < len(text); {
+		switch text[at] {
+		case '#':
+			_, next := phase8LineBounds(text, at)
+			at = next
+			continue
+		case '\'', '"':
+			end, ok := erlangQuotedLiteralEnd(text, at)
+			if !ok {
+				return string(masked)
+			}
+			at = end
+			continue
+		case '?':
+			if elixirQuestionMarkStartsCharacter(text, at) {
+				if end, ok := elixirCharacterLiteralEnd(text, at); ok {
+					phase8MaskRange(masked, at, end)
+					at = end
+					continue
+				}
+			}
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		if size <= 0 {
+			size = 1
+		}
+		at += size
+	}
+	return string(masked)
+}
+
+func elixirQuestionMarkStartsCharacter(text string, at int) bool {
+	if at <= 0 {
 		return true
 	}
-	return false
+	previous, _ := utf8.DecodeLastRuneInString(text[:at])
+	return !(previous == '_' || previous == '!' || previous == '?' || previous == '@' || unicode.IsLetter(previous) || unicode.IsDigit(previous) || unicode.IsMark(previous))
+}
+
+func elixirCharacterLiteralEnd(text string, start int) (int, bool) {
+	at := start + 1
+	if at >= len(text) || isNewlineStart(text[at]) {
+		return 0, false
+	}
+	if text[at] == '\\' {
+		at++
+		if at >= len(text) || isNewlineStart(text[at]) {
+			return 0, false
+		}
+		if (text[at] == 'x' || text[at] == 'u') && at+1 < len(text) && text[at+1] == '{' {
+			if close := strings.IndexByte(text[at+2:], '}'); close >= 0 {
+				return at + 2 + close + 1, true
+			}
+			return 0, false
+		}
+	}
+	_, size := utf8.DecodeRuneInString(text[at:])
+	if size <= 0 {
+		return 0, false
+	}
+	return at + size, true
 }
 
 func maskElixirSigils(text string) string {
@@ -195,7 +263,8 @@ func maskElixirSigils(text string) string {
 			continue
 		}
 		delimiterAt := at + 2
-		end, ok := phase8ElixirSigilEnd(text, delimiterAt)
+		interpolated := text[at+1] >= 'a' && text[at+1] <= 'z'
+		end, ok := phase8ElixirSigilEnd(text, delimiterAt, interpolated)
 		if !ok {
 			continue
 		}
@@ -209,14 +278,33 @@ func phase8ElixirSigilLetter(value byte) bool {
 	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase8ElixirSigilEnd(text string, delimiterAt int) (int, bool) {
+func phase8ElixirSigilEnd(text string, delimiterAt int, interpolated bool) (int, bool) {
 	if delimiterAt >= len(text) {
 		return 0, false
 	}
 	if delimiterAt+2 < len(text) && (text[delimiterAt] == '\'' || text[delimiterAt] == '"') && text[delimiterAt+1] == text[delimiterAt] && text[delimiterAt+2] == text[delimiterAt] {
 		delimiter := text[delimiterAt : delimiterAt+3]
-		if relative := strings.Index(text[delimiterAt+3:], delimiter); relative >= 0 {
-			return delimiterAt + 3 + relative + 3, true
+		for cursor := delimiterAt + 3; cursor < len(text); {
+			if interpolated && strings.HasPrefix(text[cursor:], "#{") {
+				end, ok := phase8ElixirInterpolationEnd(text, cursor+2)
+				if !ok {
+					return 0, false
+				}
+				cursor = end
+				continue
+			}
+			if strings.HasPrefix(text[cursor:], delimiter) {
+				return cursor + len(delimiter), true
+			}
+			if text[cursor] == '\\' && cursor+1 < len(text) {
+				cursor += 2
+				continue
+			}
+			_, size := utf8.DecodeRuneInString(text[cursor:])
+			if size <= 0 {
+				size = 1
+			}
+			cursor += size
 		}
 		return 0, false
 	}
@@ -243,6 +331,14 @@ func phase8ElixirSigilEnd(text string, delimiterAt int) (int, bool) {
 			cursor++
 			continue
 		}
+		if interpolated && strings.HasPrefix(text[cursor:], "#{") {
+			end, ok := phase8ElixirInterpolationEnd(text, cursor+2)
+			if !ok {
+				return 0, false
+			}
+			cursor = end - 1
+			continue
+		}
 		if paired && text[cursor] == left {
 			depth++
 			continue
@@ -258,12 +354,155 @@ func phase8ElixirSigilEnd(text string, delimiterAt int) (int, bool) {
 	return 0, false
 }
 
+func phase8ElixirInterpolationEnd(text string, start int) (int, bool) {
+	depth := 1
+	for at := start; at < len(text); {
+		switch text[at] {
+		case '#':
+			if strings.HasPrefix(text[at:], "#{") {
+				depth++
+				at += 2
+				continue
+			}
+			_, next := phase8LineBounds(text, at)
+			at = next
+			continue
+		case '\'', '"':
+			end, ok := erlangQuotedLiteralEnd(text, at)
+			if !ok {
+				return 0, false
+			}
+			at = end
+			continue
+		case '?':
+			if elixirQuestionMarkStartsCharacter(text, at) {
+				if end, ok := elixirCharacterLiteralEnd(text, at); ok {
+					at = end
+					continue
+				}
+			}
+		case '~':
+			if at+2 < len(text) && phase8ElixirSigilLetter(text[at+1]) {
+				end, ok := phase8ElixirSigilEnd(text, at+2, text[at+1] >= 'a' && text[at+1] <= 'z')
+				if ok {
+					at = end
+					continue
+				}
+			}
+		case '{':
+			depth++
+			at++
+			continue
+		case '}':
+			depth--
+			at++
+			if depth == 0 {
+				return at, true
+			}
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		if size <= 0 {
+			size = 1
+		}
+		at += size
+	}
+	return 0, false
+}
+
+func maskErlangCharacterLiterals(text string) string {
+	masked := []byte(text)
+	for at := 0; at < len(text); {
+		switch text[at] {
+		case '%':
+			_, next := phase8LineBounds(text, at)
+			at = next
+			continue
+		case '\'', '"':
+			end, ok := erlangQuotedLiteralEnd(text, at)
+			if !ok {
+				return string(masked)
+			}
+			at = end
+			continue
+		case '$':
+			if end, ok := erlangCharacterLiteralEnd(text, at); ok {
+				phase8MaskRange(masked, at, end)
+				at = end
+				continue
+			}
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		if size <= 0 {
+			size = 1
+		}
+		at += size
+	}
+	return string(masked)
+}
+
+func erlangQuotedLiteralEnd(text string, start int) (int, bool) {
+	quote := text[start]
+	if quote == '"' {
+		run := 1
+		for start+run < len(text) && text[start+run] == quote {
+			run++
+		}
+		if run >= 3 {
+			delimiter := text[start : start+run]
+			if relative := strings.Index(text[start+run:], delimiter); relative >= 0 {
+				return start + run + relative + run, true
+			}
+			return len(text), false
+		}
+	}
+	for at := start + 1; at < len(text); {
+		if text[at] == '\\' {
+			at++
+			if at >= len(text) {
+				break
+			}
+			if text[at] == '\r' && at+1 < len(text) && text[at+1] == '\n' {
+				at += 2
+				continue
+			}
+			_, size := utf8.DecodeRuneInString(text[at:])
+			at += max(size, 1)
+			continue
+		}
+		if text[at] == quote {
+			return at + 1, true
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		at += max(size, 1)
+	}
+	return len(text), false
+}
+
+func erlangCharacterLiteralEnd(text string, start int) (int, bool) {
+	at := start + 1
+	if at >= len(text) || text[at] == '\r' || text[at] == '\n' {
+		return 0, false
+	}
+	if text[at] == '\\' {
+		at++
+		if at >= len(text) || text[at] == '\r' || text[at] == '\n' {
+			return 0, false
+		}
+	}
+	_, size := utf8.DecodeRuneInString(text[at:])
+	if size <= 0 {
+		return 0, false
+	}
+	return at + size, true
+}
+
 func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	state, err := newPhase8State(ctx, document, options, "erlang", AnalyzerErlang)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, err := state.scan(options, ErlangScannerProfile(), document.Text)
+	scan, err := state.scan(options, ErlangScannerProfile(), maskErlangCharacterLiterals(document.Text))
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -308,14 +547,14 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 			case "include", "include_lib":
 				for _, tok := range tokens[open+1 : close] {
 					if value := phase8StringValue(tok); value != "" {
-						state.addDependency(StructuralDependencyImport, value, tok.StartOffset, tok.EndOffset)
+						state.addImportDependency(value, tok.StartOffset, tok.EndOffset)
 						break
 					}
 				}
 			case "import", "behaviour", "behavior":
 				idx := phase8NextIdentifier(tokens, open+1, close)
 				if idx >= 0 {
-					state.addDependency(StructuralDependencyImport, tokens[idx].Text, tokens[idx].StartOffset, tokens[idx].EndOffset)
+					state.addImportDependency(tokens[idx].Text, tokens[idx].StartOffset, tokens[idx].EndOffset)
 				}
 			case "record":
 				idx := phase8NextIdentifier(tokens, open+1, close)
@@ -359,6 +598,7 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	pairs := PairDelimiterTokens(scan.Tokens, nil)
 	for i := 0; i < len(scan.Tokens) && !state.stopped; {
 		if scan.Tokens[i].Kind == TokenNewline || scan.Tokens[i].Kind == TokenEOF || scan.Tokens[i].Nesting != 0 {
 			i++
@@ -391,14 +631,20 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 			if targetEnd > i+1 {
 				value := tokenRangeText(scan.Tokens, i+1, targetEnd)
-				state.addDependency(StructuralDependencyImport, value, scan.Tokens[i+1].StartOffset, scan.Tokens[targetEnd-1].EndOffset)
+				state.addImportDependency(value, scan.Tokens[i+1].StartOffset, scan.Tokens[targetEnd-1].EndOffset)
 			}
 			i = max(lineEnd, i+1)
 		case "type":
 			idx := phase8NextIdentifier(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
 				tok := scan.Tokens[idx]
-				state.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
+				symbol, added := state.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
+				if added {
+					if open, close, ok := phase8GleamTypeBody(scan.Tokens, pairs, idx); ok {
+						parent := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+						phase8AddGleamConstructors(state, scan.Tokens, pairs, open, close, &parent)
+					}
+				}
 			}
 			i++
 		case "fn":
@@ -420,6 +666,63 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		}
 	}
 	return state.result()
+}
+
+func phase8GleamTypeBody(tokens []Token, pairs map[int]int, nameIndex int) (int, int, bool) {
+	for index := nameIndex + 1; index < len(tokens); index++ {
+		token := tokens[index]
+		if token.Kind == TokenEOF {
+			return 0, 0, false
+		}
+		if token.Text == "{" && token.Nesting == 1 {
+			close, ok := pairs[index]
+			return index, close, ok && close > index
+		}
+		if token.Kind != TokenNewline || token.Nesting != 0 {
+			continue
+		}
+		next := index + 1
+		for next < len(tokens) && tokens[next].Kind == TokenNewline {
+			next++
+		}
+		if next < len(tokens) && tokens[next].Text == "{" && tokens[next].Nesting == 1 {
+			close, ok := pairs[next]
+			return next, close, ok && close > next
+		}
+		return 0, 0, false
+	}
+	return 0, 0, false
+}
+
+func phase8AddGleamConstructors(state *phase8State, tokens []Token, pairs map[int]int, open, close int, parent *SymbolParent) {
+	if state == nil || parent == nil || open < 0 || close <= open || close >= len(tokens) {
+		return
+	}
+	bodyNesting := tokens[open].Nesting
+	for index := open + 1; index < close && !state.stopped; index++ {
+		token := tokens[index]
+		if token.Nesting != bodyNesting || token.Kind != TokenIdentifier || !phase8GleamConstructorName(token.Text) {
+			continue
+		}
+		declarationEnd := token.EndOffset
+		if next := index + 1; next < close && tokens[next].Text == "(" && tokens[next].Nesting == bodyNesting+1 {
+			if pair, ok := pairs[next]; ok && pair > next && pair < close {
+				declarationEnd = tokens[pair].EndOffset
+				index = pair
+			}
+		}
+		declaration := OffsetRange{Start: token.StartOffset, End: declarationEnd}
+		state.add(SymbolSpec{
+			Kind: SymbolKindConstructor, NativeKind: "constructor", Name: token.Text, Parent: parent,
+			Declaration: declaration, NameRange: OffsetRange{Start: token.StartOffset, End: token.EndOffset},
+			Signature: &declaration, Evidence: SymbolEvidenceStructural,
+		})
+	}
+}
+
+func phase8GleamConstructorName(name string) bool {
+	first, _ := utf8.DecodeRuneInString(name)
+	return first != utf8.RuneError && unicode.IsUpper(first)
 }
 
 func phase8TopLevelSegments(tokens []Token, separator string) [][2]int {

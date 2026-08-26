@@ -2,8 +2,119 @@ package sourceintelligence
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
+
+func TestRealWorldObjectiveCPPInlineInterfaceEndPreservesConditionalDirectives(t *testing.T) {
+	text := "#if !TARGET_OS_MACCATALYST\n" +
+		"@interface _LayoutController : UINavigationController @end\n" +
+		"#endif\n" +
+		"@interface ContentView : NSObject\n" +
+		"- (void)run;\n" +
+		"@end\n"
+	result, err := (ObjectiveCPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Objective-C++ inline @end reported partial: %+v", result.Analysis)
+	}
+	for _, want := range []string{"_LayoutController", "ContentView", "ContentView.run"} {
+		if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), want) {
+			t.Fatalf("Objective-C++ inline @end missing %s: %v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldObjectiveCPPConditionalsInsideInterfaceRemainBalanced(t *testing.T) {
+	text := "#if FEATURE_ENABLED\n" +
+		"@interface Bridge : NSObject<EnabledProtocol>\n" +
+		"#else\n" +
+		"@interface Bridge : NSObject<LegacyProtocol>\n" +
+		"#endif\n" +
+		"- (void)run;\n" +
+		"@end\n"
+	result, err := (ObjectiveCPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Objective-C++ conditional interface reported partial: %+v", result.Analysis)
+	}
+}
+
+func TestRealWorldObjectiveCPPConditionalObjectiveCBranchesCanShareCloser(t *testing.T) {
+	text := "@interface Config : NSObject\n" +
+		"- (void)validate {\n" +
+		"#ifdef FEATURE\n" +
+		"  if (enabled) {\n" +
+		"#else\n" +
+		"  if (fallback) {\n" +
+		"#endif\n" +
+		"    value = @\"ok\";\n" +
+		"  }\n" +
+		"}\n" +
+		"@end\n"
+	result, err := (ObjectiveCPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Objective-C++ conditional Objective-C branches sharing a closer reported partial: %+v", result.Analysis)
+	}
+	if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Config.validate"]; !ok {
+		t.Fatalf("Objective-C method around conditional shared closer missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealWorldObjectiveCPPProtocolForwardDeclarationDoesNotMaskCPPCloser(t *testing.T) {
+	text := "#ifdef __cplusplus\n" +
+		"extern \"C\" {\n" +
+		"#endif\n" +
+		"@protocol First;\n" +
+		"@protocol Second;\n" +
+		"#ifdef __cplusplus\n" +
+		"}\n" +
+		"#endif\n" +
+		"int after(void);\n"
+	result, err := (ObjectiveCPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Objective-C++ forward @protocol declaration masked C++ closer: %+v", result.Analysis)
+	}
+	if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)["after"]; !ok {
+		t.Fatalf("C++ declaration after Objective-C forwards missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealWorldObjectiveCPPRawNSStringBodyStaysOpaque(t *testing.T) {
+	text := "static NSString *Source = @R\"(\n" +
+		"kernel void fake(device uint *dst [[buffer(0)]]) {\n" +
+		"  dst[0] = 1;\n" +
+		"}\n" +
+		")\";\n" +
+		"@interface Bridge : NSObject\n" +
+		"- (void)run;\n" +
+		"@end\n"
+	result, err := (ObjectiveCPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Objective-C++ raw NSString body reported partial: %+v", result.Analysis)
+	}
+	if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Bridge.run"]; !ok {
+		t.Fatalf("declaration after Objective-C++ raw NSString missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.Name == "fake" {
+			t.Fatalf("raw NSString body leaked shader declaration: %+v", symbol)
+		}
+	}
+}
 
 func TestRealWorldObjectiveCPPCompositeMergePreservesSourceOrder(t *testing.T) {
 	text := "int Early = 1;\n" +
@@ -23,6 +134,275 @@ func TestRealWorldObjectiveCPPCompositeMergePreservesSourceOrder(t *testing.T) {
 		if result.Analysis.Symbols[index].QualifiedName != name {
 			t.Fatalf("symbol order at %d = %q want %q; symbols=%v", index, result.Analysis.Symbols[index].QualifiedName, name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 		}
+	}
+}
+
+func TestMQLAdapterResolvesDialectPreprocessorBranches(t *testing.T) {
+	text := "class Store {\npublic:\n" +
+		"#ifndef __MQL4__\n" +
+		"Store(int flags = 5) {\n" +
+		"#else\n" +
+		"Store(int flags = 4) {\n" +
+		"#endif\n" +
+		"value = flags;\n" +
+		"}\n" +
+		"void After() {}\n" +
+		"int value;\n" +
+		"};\n"
+	for _, tc := range []struct {
+		name          string
+		analyzer      SourceAnalyzer
+		wantSignature string
+	}{
+		{name: "mql4", analyzer: MQL4Analyzer{}, wantSignature: "flags = 4"},
+		{name: "mql5", analyzer: MQL5Analyzer{}, wantSignature: "flags = 5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Fatalf("known MQL dialect branch should be structurally complete: %+v", result.Analysis)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			constructor, ok := byName["Store.Store"]
+			if !ok || constructor.Kind != SymbolKindConstructor || !strings.Contains(constructor.Signature, tc.wantSignature) {
+				t.Fatalf("dialect constructor = %+v exists=%v want signature containing %q; symbols=%v", constructor, ok, tc.wantSignature, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if after, ok := byName["Store.After"]; !ok || after.Kind != SymbolKindMethod {
+				t.Fatalf("method after dialect conditional = %+v exists=%v; symbols=%v", after, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name          string
+		macro         string
+		wantSignature string
+	}{
+		{name: "generic mql macro is defined", macro: "__MQL__", wantSignature: "flags = 6"},
+		{name: "cplusplus macro is not defined", macro: "__cplusplus", wantSignature: "flags = 7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "class Store {\npublic:\n" +
+				"#ifdef " + tc.macro + "\n" +
+				"Store(int flags = 6) {\n" +
+				"#else\n" +
+				"Store(int flags = 7) {\n" +
+				"#endif\n" +
+				"value = flags;\n" +
+				"}\n};\n"
+			for _, analyzer := range []SourceAnalyzer{MQL4Analyzer{}, MQL5Analyzer{}} {
+				result, err := analyzer.Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete {
+					t.Fatalf("known %s branch should be structurally complete for %s: %+v", tc.macro, analyzer.Language(), result.Analysis)
+				}
+				constructor, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Store.Store"]
+				if !ok || !strings.Contains(constructor.Signature, tc.wantSignature) {
+					t.Fatalf("%s constructor = %+v exists=%v want signature containing %q", analyzer.Language(), constructor, ok, tc.wantSignature)
+				}
+			}
+		})
+	}
+
+	t.Run("unknown macro remains fail closed across shared delimiter", func(t *testing.T) {
+		text := "class Store {\npublic:\n" +
+			"#ifdef FEATURE\n" +
+			"Store(int flags = 1) {\n" +
+			"#else\n" +
+			"Store(int flags = 2) {\n" +
+			"#endif\n" +
+			"value = flags;\n" +
+			"}\n};\n"
+		result, err := (MQL5Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "mql5-conditional-preprocessor") {
+			t.Fatalf("unknown macro crossing a shared delimiter must remain fail closed: %+v", result.Analysis)
+		}
+	})
+}
+
+func TestMQLAdapterPreservesUnderlyingPreprocessorCoverageSemantics(t *testing.T) {
+	t.Run("balanced header guard remains complete", func(t *testing.T) {
+		text := "#ifndef SAMPLE_MQH\n#define SAMPLE_MQH\nclass Guarded { public: void Run() {} };\n#endif\n"
+		result, err := (MQL5Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "mql5-conditional-preprocessor") {
+			t.Fatalf("MQL5 balanced header guard should preserve structural coverage: %+v", result.Analysis)
+		}
+		conditionalDiagnostics := 0
+		for _, diagnostic := range result.Analysis.Diagnostics {
+			if diagnostic.Code == "mql5-conditional-preprocessor" {
+				conditionalDiagnostics++
+			}
+			if strings.HasPrefix(diagnostic.Code, "cpp-") {
+				t.Fatalf("C++ diagnostic leaked through MQL adapter: %+v", result.Analysis.Diagnostics)
+			}
+		}
+		if conditionalDiagnostics != 1 {
+			t.Fatalf("MQL5 conditional diagnostics=%d want 1: %+v", conditionalDiagnostics, result.Analysis.Diagnostics)
+		}
+	})
+
+	t.Run("balanced feature conditional remains complete", func(t *testing.T) {
+		text := "#ifdef DEBUG\nvoid Trace() {}\n#endif\nvoid Always() {}\n"
+		result, err := (MQL5Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "mql5-conditional-preprocessor") {
+			t.Fatalf("MQL5 balanced feature conditional should preserve structural coverage: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("malformed conditional remains incomplete", func(t *testing.T) {
+		text := "#if ENABLE_FEATURE\nclass Conditional { };\n"
+		result, err := (MQL4Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "mql4-malformed-conditional-preprocessor") {
+			t.Fatalf("MQL4 malformed conditional should fail closed: %+v", result.Analysis)
+		}
+	})
+}
+
+func TestMQLInputVariableKindsRemainDistinct(t *testing.T) {
+	text := "input int Period = 14;\n" +
+		"sinput double Risk = 1.0;\n" +
+		"extern bool Enabled = true;\n"
+	result, err := (MQL4Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, want := range map[string]struct {
+		nativeKind string
+		modifier   string
+	}{
+		"Period":  {nativeKind: "input-variable", modifier: "input"},
+		"Risk":    {nativeKind: "static-input-variable", modifier: "sinput"},
+		"Enabled": {nativeKind: "extern-variable", modifier: "extern"},
+	} {
+		symbol, ok := byName[name]
+		if !ok {
+			t.Fatalf("missing MQL input variable %q; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		if symbol.NativeKind != want.nativeKind || !containsString(symbol.Modifiers, want.modifier) {
+			t.Fatalf("%s = nativeKind %q modifiers=%v, want %q + %q", name, symbol.NativeKind, symbol.Modifiers, want.nativeKind, want.modifier)
+		}
+	}
+}
+
+func TestMQL5InputGroupDeclarationsAreNotSymbols(t *testing.T) {
+	text := "input group \"Risk\"\n" +
+		"input double Lots = 0.10;\n" +
+		"input group \"Execution\";\n" +
+		"input int Slippage = 5;\n" +
+		"input int group = 7;\n"
+	result, err := (MQL5Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Lots", "Slippage", "group"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing MQL5 input %q; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for name, wantLine := range map[string]int{"Lots": 2, "Slippage": 4, "group": 5} {
+		symbol := byName[name]
+		if symbol.NativeKind != "input-variable" || symbol.DeclarationRange.Start.Line != wantLine {
+			t.Fatalf("%s input projection = nativeKind %q line %d, want input-variable line %d", name, symbol.NativeKind, symbol.DeclarationRange.Start.Line, wantLine)
+		}
+	}
+	groupCount := 0
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.QualifiedName == "group" {
+			groupCount++
+		}
+	}
+	if groupCount != 1 {
+		t.Fatalf("input group declarations leaked as symbols: count=%d symbols=%v", groupCount, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestMQLTemplateInterfaceRetainsNativeKindAndInheritance(t *testing.T) {
+	text := "template<typename TKey, typename TValue>\n" +
+		"interface IMap : public ICollection<CKeyValuePair<TKey,TValue>*>\n" +
+		"{\n" +
+		"   TValue Get(TKey key);\n" +
+		"};\n"
+	result, err := (MQL5Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if got, ok := byName["IMap"]; !ok || got.Kind != SymbolKindInterface || got.NativeKind != "interface" {
+		t.Fatalf("templated MQL5 interface = %+v exists=%v; symbols=%v", got, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if got, ok := byName["IMap.Get"]; !ok || got.Kind != SymbolKindMethod {
+		t.Fatalf("templated MQL5 interface method = %+v exists=%v; symbols=%v", got, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if !hasStructuralRelation(result.Relations, "inherits", "IMap", "ICollection<CKeyValuePair<TKey,TValue>*>") {
+		t.Fatalf("templated MQL5 interface inheritance missing: %+v", result.Relations)
+	}
+}
+
+func TestMQLInterfacesRetainNativeHierarchy(t *testing.T) {
+	text := "interface Worker\n" +
+		"{\n" +
+		"   void Run();\n" +
+		"   double Value(int index);\n" +
+		"};\n" +
+		"class Strategy : public Worker\n" +
+		"{\n" +
+		"public:\n" +
+		"   void Run() {}\n" +
+		"};\n"
+
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "mql4", analyzer: MQL4Analyzer{}},
+		{name: "mql5", analyzer: MQL5Analyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("%s interface analysis unexpectedly partial: %+v", tc.name, result.Analysis)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for qualified, kind := range map[string]SymbolKind{
+				"Worker": SymbolKindInterface, "Worker.Run": SymbolKindMethod, "Worker.Value": SymbolKindMethod,
+				"Strategy": SymbolKindClass, "Strategy.Run": SymbolKindMethod,
+			} {
+				if symbol, ok := byName[qualified]; !ok || symbol.Kind != kind {
+					t.Fatalf("%s %s = %+v exists=%v; symbols=%v", tc.name, qualified, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			if _, ok := byName["Run"]; ok {
+				t.Fatalf("%s interface method leaked top-level: %v", tc.name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if _, ok := byName["Value"]; ok {
+				t.Fatalf("%s interface method leaked top-level: %v", tc.name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if !hasStructuralRelation(result.Relations, "inherits", "Strategy", "Worker") {
+				t.Fatalf("%s interface inheritance relation missing: %+v", tc.name, result.Relations)
+			}
+		})
 	}
 }
 

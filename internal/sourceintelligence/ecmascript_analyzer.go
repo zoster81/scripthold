@@ -51,10 +51,17 @@ func analyzeECMAScriptDialect(ctx context.Context, document *SourceDocument, opt
 		analyzer = AnalyzerTypeScript
 		profile = TypeScriptScannerProfile()
 	}
+	maxNesting := options.MaxNesting
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
 	scanDocument := document
-	masked, err := maskECMAScriptRegexLiterals(ctx, document.Text)
+	masked, err := maskECMAScriptRegexLiterals(ctx, document.Text, maxNesting)
 	if err != nil {
-		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_ecmascript_source", document.Path, err)
+		if operation.KindOf(err) == operation.KindCancelled {
+			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_ecmascript_source", document.Path, err)
+		}
+		return AnalyzerResult{}, err
 	}
 	if masked != document.Text {
 		clone := *document
@@ -68,10 +75,6 @@ func analyzeECMAScriptDialect(ctx context.Context, document *SourceDocument, opt
 	})
 	if err := builder.checkReady(); err != nil {
 		return AnalyzerResult{}, err
-	}
-	maxNesting := options.MaxNesting
-	if maxNesting <= 0 {
-		maxNesting = 2048
 	}
 	scan, err := ScanSource(ctx, scanDocument, profile, ScannerLimits{
 		MaxTokens: scannerTokenBudget(scanDocument.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting,
@@ -724,30 +727,7 @@ func (parser *ecmaParser) collectTypeRelations(source string, start, end, nestin
 }
 
 func splitECMATypeList(tokens []Token, start, end, nesting int) [][2]int {
-	var result [][2]int
-	partStart := start
-	angle := 0
-	for index := start; index < end; index++ {
-		switch tokens[index].Text {
-		case "<":
-			angle++
-		case ">":
-			if angle > 0 {
-				angle--
-			}
-		case ",":
-			if angle == 0 && tokens[index].Nesting == nesting {
-				if partStart < index {
-					result = append(result, [2]int{partStart, index})
-				}
-				partStart = index + 1
-			}
-		}
-	}
-	if partStart < end {
-		result = append(result, [2]int{partStart, end})
-	}
-	return result
+	return splitTypeTokenRange(tokens, start, end, nesting)
 }
 
 func (parser *ecmaParser) findBodyOpen(start, end, base int) int {

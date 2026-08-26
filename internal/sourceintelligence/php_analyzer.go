@@ -577,7 +577,7 @@ func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnos
 				return "", nil, err
 			}
 		}
-		if strings.HasPrefix(text[at:], "//") || text[at] == '#' {
+		if strings.HasPrefix(text[at:], "//") || text[at] == '#' && !strings.HasPrefix(text[at:], "#[") {
 			for at < len(text) && text[at] != '\r' && text[at] != '\n' {
 				at++
 			}
@@ -660,11 +660,12 @@ func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnos
 			for lineEnd < len(text) && text[lineEnd] != '\r' && text[lineEnd] != '\n' {
 				lineEnd++
 			}
-			candidate := strings.TrimSpace(text[lineStart:lineEnd])
-			candidate = strings.TrimSuffix(candidate, ";")
-			candidate = strings.TrimSpace(candidate)
-			if candidate == name {
-				end = lineEnd
+			markerEnd, found, valid := phpHeredocClosingMarker(text, lineStart, lineEnd, name)
+			if found {
+				end = markerEnd
+				if !valid {
+					diagnostics = append(diagnostics, ScannerDiagnostic{Code: "invalid-heredoc-closing-marker", Message: "PHP heredoc/nowdoc closing identifier is followed by an identifier character", StartOffset: markerEnd - len(name), EndOffset: markerEnd})
+				}
 				break
 			}
 			if lineEnd >= len(text) {
@@ -693,4 +694,23 @@ func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnos
 		return text, diagnostics, nil
 	}
 	return string(masked), diagnostics, nil
+}
+
+func phpHeredocClosingMarker(text string, lineStart, lineEnd int, name string) (int, bool, bool) {
+	cursor := lineStart
+	for cursor < lineEnd && (text[cursor] == ' ' || text[cursor] == '\t') {
+		cursor++
+	}
+	if cursor+len(name) > lineEnd || text[cursor:cursor+len(name)] != name {
+		return 0, false, false
+	}
+	markerEnd := cursor + len(name)
+	if markerEnd < lineEnd && phpHeredocIdentifierByte(text[markerEnd]) {
+		return markerEnd, true, false
+	}
+	return markerEnd, true, true
+}
+
+func phpHeredocIdentifierByte(value byte) bool {
+	return value == '_' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
 }

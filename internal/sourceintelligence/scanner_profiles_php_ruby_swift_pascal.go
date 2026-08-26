@@ -9,12 +9,13 @@ func PHPScannerProfile() ScannerProfile {
 			"abstract", "as", "class", "const", "enum", "extends", "final", "function", "implements", "include", "include_once",
 			"interface", "namespace", "private", "protected", "public", "readonly", "require", "require_once", "static", "trait", "use",
 		},
-		Identifier:    IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$", ExtraContinue: "$"},
-		LineComments:  []string{"//", "#"},
-		BlockComments: []BlockCommentRule{{Start: "/*", End: "*/"}},
+		Identifier:            IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$", ExtraContinue: "$"},
+		LineComments:          []string{"//", "#"},
+		LineCommentExceptions: []string{"#["},
+		BlockComments:         []BlockCommentRule{{Start: "/*", End: "*/"}},
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "'", Multiline: true, BackslashEscapes: true},
 		},
 	}
 }
@@ -32,6 +33,11 @@ func RubyScannerProfile() ScannerProfile {
 		Strings: []StringRule{
 			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
 			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
+		},
+		HereDocs: []HereDocRule{
+			{Operator: "<<", AllowQuotedDelimiter: true, RequireAdjacentDelimiter: true, RequireIdentifierDelimiter: true},
+			{Operator: "<<-", AllowQuotedDelimiter: true, StripLeadingWhitespace: true, RequireAdjacentDelimiter: true, RequireIdentifierDelimiter: true},
+			{Operator: "<<~", AllowQuotedDelimiter: true, StripLeadingWhitespace: true, RequireAdjacentDelimiter: true, RequireIdentifierDelimiter: true},
 		},
 	}
 }

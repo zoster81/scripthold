@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -18,15 +19,122 @@ func (COBOLAnalyzer) Language() string   { return "cobol" }
 func (AdaAnalyzer) ID() AnalyzerID       { return AnalyzerAda }
 func (AdaAnalyzer) Language() string     { return "ada" }
 
+func phase9FortranLooksFreeForm(text string) bool {
+	const maxCodeLines = 256
+	codeLines := 0
+	for start := 0; start < len(text) && codeLines < maxCodeLines; {
+		end := strings.IndexByte(text[start:], '\n')
+		if end < 0 {
+			end = len(text)
+		} else {
+			end += start
+		}
+		line := strings.TrimSuffix(text[start:end], "\r")
+		first := 0
+		for first < len(line) && line[first] == ' ' {
+			first++
+		}
+		if first < len(line) {
+			trimmed := line[first:]
+			if trimmed[0] != '!' && trimmed[0] != '#' && trimmed[0] != '*' {
+				codeLines++
+				if first < 5 {
+					wordEnd := 0
+					for wordEnd < len(trimmed) && ((trimmed[wordEnd] >= 'A' && trimmed[wordEnd] <= 'Z') || (trimmed[wordEnd] >= 'a' && trimmed[wordEnd] <= 'z') || trimmed[wordEnd] == '_') {
+						wordEnd++
+					}
+					switch strings.ToLower(trimmed[:wordEnd]) {
+					case "module", "submodule", "program", "use", "implicit", "private", "public", "contains", "subroutine", "function", "type", "interface", "block", "select":
+						return true
+					}
+				}
+			}
+		}
+		if end >= len(text) {
+			break
+		}
+		start = end + 1
+	}
+	return false
+}
+
 func (FortranAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
+	if document == nil || ctx != nil && ctx.Err() != nil {
+		return analyzeFortranSingle(ctx, document, options)
+	}
+	plan := phase9PlanFortranConditionals(document.Text)
+	if plan.issue != nil {
+		result, err := analyzeFortranSingle(ctx, document, options)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+		result.Analysis.CoverageComplete = false
+		rangeValue, rangeErr := document.RangeFromUTF8Offsets(plan.issue.Start, plan.issue.End)
+		var normalized *Range
+		if rangeErr == nil {
+			normalized = &rangeValue
+		}
+		result.Analysis.Diagnostics = append(result.Analysis.Diagnostics, AnalysisDiagnostic{
+			Code: "fortran-malformed-conditional-preprocessor", Message: plan.message, Severity: DiagnosticWarning, Range: normalized,
+		})
+		return result, nil
+	}
+	if len(plan.groups) == 0 {
+		return analyzeFortranSingle(ctx, document, options)
+	}
+	selections, ok := conditionalSelections(plan.groups)
+	if !ok {
+		result, err := analyzeFortranSingle(ctx, document, options)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+		result.Analysis.CoverageComplete = false
+		result.Analysis.Diagnostics = append(result.Analysis.Diagnostics, AnalysisDiagnostic{
+			Code: "fortran-conditional-variant-limit", Message: "conditional preprocessing requires more than 32 bounded structural variants", Severity: DiagnosticWarning,
+		})
+		return result, nil
+	}
+	variants := make([]AnalyzerResult, 0, len(selections))
+	for _, selection := range selections {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		masked := maskConditionalVariant(document.Text, plan, selection)
+		clone := *document
+		clone.Text = masked
+		clone.lineStarts = buildLineStarts(masked)
+		variant, err := analyzeFortranSingle(ctx, &clone, options)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+		variants = append(variants, variant)
+	}
+	return phase9MergeFortranConditionalVariants(options, variants), nil
+}
+
+func analyzeFortranSingle(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newPhase9Builder(ctx, document, options, "fortran", AnalyzerFortran)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	if strings.EqualFold(filepath.Ext(document.Path), ".f") {
-		return analyzeFortranFixed(ctx, document, options, builder)
+	scanDocument := document
+	if masked := phase9MaskFortranFyppDirectives(document.Text); masked != document.Text {
+		clone := *document
+		clone.Text = masked
+		clone.lineStarts = buildLineStarts(masked)
+		scanDocument = &clone
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, document, FortranScannerProfile(), options.MaxNesting)
+	if strings.EqualFold(filepath.Ext(document.Path), ".f") && !phase9FortranLooksFreeForm(scanDocument.Text) {
+		fixedDocument := scanDocument
+		if masked := phase9MaskFortranFixedVendorDirectiveContinuations(scanDocument.Text); masked != scanDocument.Text {
+			clone := *scanDocument
+			clone.Text = masked
+			clone.lineStarts = buildLineStarts(masked)
+			fixedDocument = &clone
+		}
+		return analyzeFortranFixed(ctx, fixedDocument, options, builder)
+	}
+	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, FortranScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -43,6 +151,310 @@ func (FortranAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
+func phase9MaskFortranFyppDirectives(text string) string {
+	var masked []byte
+	mask := func(start, end int) {
+		if start < 0 || end <= start || start >= len(text) {
+			return
+		}
+		end = min(end, len(text))
+		if masked == nil {
+			masked = []byte(text)
+		}
+		for index := start; index < end; index++ {
+			if masked[index] != '\r' && masked[index] != '\n' {
+				masked[index] = ' '
+			}
+		}
+	}
+	continuation := false
+	for start := 0; start < len(text); {
+		contentEnd := start
+		for contentEnd < len(text) && text[contentEnd] != '\r' && text[contentEnd] != '\n' {
+			contentEnd++
+		}
+		trimmed := strings.TrimLeft(text[start:contentEnd], " \t")
+		fypp := strings.HasPrefix(trimmed, "#:")
+		if fypp || continuation {
+			mask(start, contentEnd)
+			continuation = strings.HasSuffix(strings.TrimSpace(text[start:contentEnd]), "&")
+		} else {
+			continuation = false
+		}
+		if contentEnd >= len(text) {
+			break
+		}
+		if text[contentEnd] == '\r' && contentEnd+1 < len(text) && text[contentEnd+1] == '\n' {
+			start = contentEnd + 2
+		} else {
+			start = contentEnd + 1
+		}
+	}
+	for search := 0; search < len(text); {
+		openRelative := strings.Index(text[search:], "#{")
+		if openRelative < 0 {
+			break
+		}
+		open := search + openRelative
+		closeRelative := strings.Index(text[open+2:], "}#")
+		if closeRelative < 0 {
+			break
+		}
+		end := open + 2 + closeRelative + 2
+		mask(open, end)
+		search = end
+	}
+	if masked == nil {
+		return text
+	}
+	return string(masked)
+}
+
+func phase9MaskFortranFixedVendorDirectiveContinuations(text string) string {
+	var masked []byte
+	maskLine := func(start, end int) {
+		if masked == nil {
+			masked = []byte(text)
+		}
+		for index := start; index < end; index++ {
+			masked[index] = ' '
+		}
+	}
+	vendorDirective := false
+	for start := 0; start < len(text); {
+		contentEnd := start
+		for contentEnd < len(text) && text[contentEnd] != '\r' && text[contentEnd] != '\n' {
+			contentEnd++
+		}
+		trimmed := strings.TrimLeft(text[start:contentEnd], " \t")
+		lower := strings.ToLower(trimmed)
+		switch {
+		case strings.HasPrefix(lower, "!dir$"):
+			vendorDirective = true
+		case vendorDirective && strings.HasPrefix(trimmed, "&"):
+			maskLine(start, contentEnd)
+			vendorDirective = true
+		default:
+			vendorDirective = false
+		}
+		if contentEnd >= len(text) {
+			break
+		}
+		if text[contentEnd] == '\r' && contentEnd+1 < len(text) && text[contentEnd+1] == '\n' {
+			start = contentEnd + 2
+		} else {
+			start = contentEnd + 1
+		}
+	}
+	if masked == nil {
+		return text
+	}
+	return string(masked)
+}
+
+func phase9PlanFortranConditionals(text string) conditionalPlan {
+	plan := conditionalPlan{}
+	stack := make([]conditionalFrame, 0, 8)
+	for start := 0; start < len(text); {
+		contentEnd := start
+		for contentEnd < len(text) && text[contentEnd] != '\r' && text[contentEnd] != '\n' {
+			contentEnd++
+		}
+		next := contentEnd
+		if next < len(text) && text[next] == '\r' && next+1 < len(text) && text[next+1] == '\n' {
+			next += 2
+		} else if next < len(text) {
+			next++
+		}
+		trimmed := strings.TrimLeft(text[start:contentEnd], " \t")
+		keyword := ""
+		if strings.HasPrefix(trimmed, "#") {
+			rest := strings.TrimLeft(trimmed[1:], " \t")
+			end := 0
+			for end < len(rest) && (rest[end] == '_' || rest[end] >= 'A' && rest[end] <= 'Z' || rest[end] >= 'a' && rest[end] <= 'z') {
+				end++
+			}
+			if end > 0 {
+				keyword = "#" + strings.ToLower(rest[:end])
+			}
+		}
+		switch keyword {
+		case "#if", "#ifdef", "#ifndef":
+			parentGroup, parentBranch := -1, -1
+			if len(stack) > 0 {
+				parent := stack[len(stack)-1]
+				parentGroup, parentBranch = parent.group, parent.branch
+			}
+			group := conditionalGroup{parentGroup: parentGroup, parentBranch: parentBranch, branches: []conditionalBranch{{start: next}}}
+			plan.groups = append(plan.groups, group)
+			stack = append(stack, conditionalFrame{group: len(plan.groups) - 1})
+			plan.directives = append(plan.directives, OffsetRange{Start: start, End: contentEnd})
+		case "#elif", "#else":
+			plan.directives = append(plan.directives, OffsetRange{Start: start, End: contentEnd})
+			if len(stack) == 0 {
+				plan.issue = &OffsetRange{Start: start, End: contentEnd}
+				plan.message = "conditional branch directive has no matching opener"
+				return plan
+			}
+			frame := &stack[len(stack)-1]
+			if frame.seenElse {
+				plan.issue = &OffsetRange{Start: start, End: contentEnd}
+				plan.message = "conditional branch appears after #else"
+				return plan
+			}
+			group := &plan.groups[frame.group]
+			group.branches[frame.branch].end = start
+			group.branches = append(group.branches, conditionalBranch{start: next})
+			frame.branch = len(group.branches) - 1
+			if keyword == "#else" {
+				frame.seenElse = true
+			}
+		case "#endif":
+			plan.directives = append(plan.directives, OffsetRange{Start: start, End: contentEnd})
+			if len(stack) == 0 {
+				plan.issue = &OffsetRange{Start: start, End: contentEnd}
+				plan.message = "conditional #endif has no matching opener"
+				return plan
+			}
+			frame := stack[len(stack)-1]
+			plan.groups[frame.group].branches[frame.branch].end = start
+			stack = stack[:len(stack)-1]
+		}
+		start = next
+	}
+	if len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		group := plan.groups[frame.group]
+		plan.issue = &OffsetRange{Start: group.branches[0].start, End: group.branches[0].start}
+		plan.message = "conditional block is not terminated by #endif"
+	}
+	return plan
+}
+
+func phase9MergeFortranConditionalVariants(options AnalyzeOptions, variants []AnalyzerResult) AnalyzerResult {
+	merged := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
+	seenIDs := make(map[string]struct{})
+	seenLogical := make(map[string]struct{})
+	for _, variant := range variants {
+		if !variant.Analysis.CoverageComplete {
+			merged.Analysis.CoverageComplete = false
+		}
+		if variant.Analysis.Truncated {
+			merged.Analysis.Truncated = true
+			merged.Analysis.CoverageComplete = false
+		}
+		if variant.Analysis.DiagnosticsTruncated {
+			merged.Analysis.DiagnosticsTruncated = true
+			merged.Analysis.CoverageComplete = false
+		}
+		for _, symbol := range variant.Analysis.Symbols {
+			if _, exists := seenIDs[symbol.ID]; exists {
+				continue
+			}
+			logical := string(symbol.Kind) + "\x00" + symbol.QualifiedName
+			if symbol.QualifiedName != "" {
+				if _, exists := seenLogical[logical]; exists {
+					continue
+				}
+				seenLogical[logical] = struct{}{}
+			}
+			if len(merged.Analysis.Symbols) >= options.Limits.MaxSymbols {
+				merged.Analysis.Truncated = true
+				merged.Analysis.CoverageComplete = false
+				continue
+			}
+			seenIDs[symbol.ID] = struct{}{}
+			merged.Analysis.Symbols = append(merged.Analysis.Symbols, symbol)
+		}
+		merged.Dependencies = appendUniqueDependencies(merged.Dependencies, variant.Dependencies)
+		for _, diagnostic := range variant.Analysis.Diagnostics {
+			if len(merged.Analysis.Diagnostics) >= options.Limits.MaxDiagnostics {
+				merged.Analysis.DiagnosticsTruncated = true
+				merged.Analysis.CoverageComplete = false
+				break
+			}
+			merged.Analysis.Diagnostics = append(merged.Analysis.Diagnostics, diagnostic)
+		}
+	}
+	sort.Slice(merged.Analysis.Symbols, func(i, j int) bool {
+		left, right := merged.Analysis.Symbols[i], merged.Analysis.Symbols[j]
+		if left.declarationOffsets.Start != right.declarationOffsets.Start {
+			return left.declarationOffsets.Start < right.declarationOffsets.Start
+		}
+		if left.declarationOffsets.End != right.declarationOffsets.End {
+			return left.declarationOffsets.End < right.declarationOffsets.End
+		}
+		return left.ID < right.ID
+	})
+	return merged
+}
+
+func phase9NormalizeFortranFixedLines(text string, lines []SourceLine) {
+	for index := range lines {
+		line := &lines[index]
+		if line.Physical.End <= line.Physical.Start {
+			continue
+		}
+		raw := text[line.Physical.Start:line.Physical.End]
+		labelEnd := min(len(raw), scalarColumnOffset(raw, 7))
+		if strings.HasPrefix(strings.TrimLeft(raw[:labelEnd], " \t"), "!") {
+			line.Comment = true
+			line.Code = OffsetRange{Start: line.Physical.End, End: line.Physical.End}
+			continue
+		}
+		if line.Comment {
+			continue
+		}
+		if line.Code.End > line.Code.Start && strings.HasPrefix(strings.TrimLeft(text[line.Code.Start:line.Code.End], " \t"), "!") {
+			line.Comment = true
+			line.Code = OffsetRange{Start: line.Physical.End, End: line.Physical.End}
+			continue
+		}
+		if tab := strings.IndexByte(raw, '\t'); tab >= 0 && tab < 6 && strings.Trim(raw[:tab], " ") == "" {
+			cursor := tab + 1
+			continuation := false
+			if cursor < len(raw) && raw[cursor] >= '1' && raw[cursor] <= '9' {
+				continuation = true
+				cursor++
+			}
+			for cursor < len(raw) && (raw[cursor] == ' ' || raw[cursor] == '\t') {
+				cursor++
+			}
+			line.Label = OffsetRange{}
+			line.Continuation = continuation
+			line.Code = trimHorizontalRange(text, OffsetRange{Start: line.Physical.Start + cursor, End: line.Physical.End})
+			if line.Code.End > line.Code.Start && text[line.Code.Start] == '!' {
+				line.Comment = true
+				line.Code = OffsetRange{Start: line.Physical.End, End: line.Physical.End}
+			}
+			continue
+		}
+
+		standardEnd := line.Physical.Start + scalarColumnOffset(raw, 73)
+		extendedEnd := line.Physical.Start + scalarColumnOffset(raw, 133)
+		if extendedEnd <= standardEnd || standardEnd >= line.Physical.End {
+			continue
+		}
+		tail := strings.TrimSpace(text[standardEnd:extendedEnd])
+		if tail == "" || phase9FortranSequenceField(tail) {
+			continue
+		}
+		line.Code = trimHorizontalRange(text, OffsetRange{Start: line.Code.Start, End: extendedEnd})
+	}
+}
+
+func phase9FortranSequenceField(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] < '0' || value[index] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func analyzeFortranFixed(ctx context.Context, document *SourceDocument, options AnalyzeOptions, builder *SymbolBuilder) (AnalyzerResult, error) {
 	lines, err := BuildSourceLines(ctx, document, LineModelProfile{Kind: LineModelFixed, Fixed: FixedLineProfile{
 		CommentColumnOne: []string{"C", "c", "*", "!"}, LabelStartColumn: 1, LabelEndColumn: 6,
@@ -51,6 +463,7 @@ func analyzeFortranFixed(ctx context.Context, document *SourceDocument, options 
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	phase9NormalizeFortranFixedLines(document.Text, lines)
 	dependencies := []StructuralDependency{}
 	var scopes []phase9Scope
 	var statementRanges []OffsetRange
@@ -89,6 +502,10 @@ func analyzeFortranFixed(ctx context.Context, document *SourceDocument, options 
 		if line.Comment || line.Code.End <= line.Code.Start {
 			continue
 		}
+		rawPhysical := strings.TrimLeft(document.Text[line.Physical.Start:line.Physical.End], " \t")
+		if strings.HasPrefix(rawPhysical, "#") {
+			continue
+		}
 		if !line.Continuation {
 			if err := flush(); err != nil {
 				return AnalyzerResult{}, err
@@ -116,13 +533,80 @@ func phase9MaskedFixedStatement(text string, start, end int, ranges []OffsetRang
 	for index := range result {
 		result[index] = ' '
 	}
+	var quote byte
 	for _, value := range ranges {
 		if value.Start < start || value.End > end || value.End <= value.Start {
 			continue
 		}
-		copy(result[value.Start-start:value.End-start], text[value.Start:value.End])
+		for index := value.Start; index < value.End; index++ {
+			current := text[index]
+			if quote == 0 {
+				if hollerithEnd, ok := phase9FortranFixedHollerithEnd(text, value.Start, index, value.End); ok {
+					index = hollerithEnd - 1
+					continue
+				}
+			}
+			if quote != 0 {
+				result[index-start] = current
+				if current == quote {
+					if index+1 < value.End && text[index+1] == quote {
+						index++
+						result[index-start] = text[index]
+						continue
+					}
+					quote = 0
+				}
+				continue
+			}
+			if current == '\'' || current == '"' {
+				quote = current
+				result[index-start] = current
+				continue
+			}
+			if current == '!' {
+				break
+			}
+			result[index-start] = current
+		}
 	}
 	return string(result)
+}
+
+func phase9FortranFixedHollerithEnd(text string, rangeStart, start, end int) (int, bool) {
+	if start < rangeStart || start >= end || end > len(text) || text[start] < '0' || text[start] > '9' {
+		return 0, false
+	}
+	if start > rangeStart {
+		previous := text[start-1]
+		if previous == '_' || previous >= '0' && previous <= '9' || previous >= 'A' && previous <= 'Z' || previous >= 'a' && previous <= 'z' {
+			return 0, false
+		}
+	}
+	count := 0
+	marker := start
+	for marker < end && text[marker] >= '0' && text[marker] <= '9' {
+		digit := int(text[marker] - '0')
+		if count > (end-start-digit)/10 {
+			return 0, false
+		}
+		count = count*10 + digit
+		marker++
+	}
+	if count <= 0 || marker >= end || text[marker] != 'H' && text[marker] != 'h' {
+		return 0, false
+	}
+	payloadEnd := marker + 1
+	for remaining := count; remaining > 0; remaining-- {
+		if payloadEnd >= end {
+			return 0, false
+		}
+		_, size := utf8.DecodeRuneInString(text[payloadEnd:end])
+		if size <= 0 {
+			return 0, false
+		}
+		payloadEnd += size
+	}
+	return payloadEnd, true
 }
 
 func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens []Token, start, end int, scopes *[]phase9Scope, dependencies *[]StructuralDependency) {
@@ -135,9 +619,13 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 		if len(tokens) > 1 {
 			label = strings.ToLower(tokens[1].Text)
 		}
-		if label == "module" || label == "program" || label == "submodule" || label == "type" {
+		if label == "" || label == "module" || label == "program" || label == "submodule" || label == "type" || label == "subroutine" || label == "function" {
 			*scopes = phase9PopScope(*scopes, label, true)
 		}
+		return
+	}
+	if label, ok := phase9FortranCompactEndLabel(first); ok {
+		*scopes = phase9PopScope(*scopes, label, true)
 		return
 	}
 	if first == "use" {
@@ -157,12 +645,28 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 		return
 	}
 	parent := phase9ParentFromScopes(*scopes)
-	switch first {
-	case "module", "submodule", "program":
-		if first == "module" && len(tokens) > 1 && strings.EqualFold(tokens[1].Text, "procedure") {
+	if first == "module" && len(tokens) > 1 {
+		second := strings.ToLower(tokens[1].Text)
+		if second == "procedure" {
 			return
 		}
+		if second == "subroutine" || second == "function" {
+			phase9ParseFortranProcedure(document, builder, tokens, start, end, 1, parent, scopes)
+			return
+		}
+	}
+	switch first {
+	case "module", "submodule", "program":
 		nameIndex := phase9FirstIdentifier(tokens, 1)
+		if first == "submodule" {
+			for index := 1; index < len(tokens); index++ {
+				if tokens[index].Text != ")" {
+					continue
+				}
+				nameIndex = phase9FirstIdentifier(tokens, index+1)
+				break
+			}
+		}
 		if nameIndex < 0 {
 			return
 		}
@@ -173,7 +677,7 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 			*scopes = append(*scopes, phase9Scope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
 	case "type":
-		if len(tokens) > 1 && tokens[1].Text == "(" {
+		if len(tokens) > 1 && (tokens[1].Text == "(" || tokens[1].Text == "=" || tokens[1].Text == "=>" || strings.EqualFold(tokens[1].Text, "is")) {
 			return
 		}
 		nameIndex := -1
@@ -191,25 +695,57 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 			*scopes = append(*scopes, phase9Scope{label: "type", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
 	default:
-		keyword := -1
-		native := ""
+		phase9ParseFortranProcedure(document, builder, tokens, start, end, -1, parent, scopes)
+	}
+}
+
+func phase9FortranCompactEndLabel(token string) (string, bool) {
+	switch token {
+	case "endmodule":
+		return "module", true
+	case "endprogram":
+		return "program", true
+	case "endsubmodule":
+		return "submodule", true
+	case "endtype":
+		return "type", true
+	case "endsubroutine":
+		return "subroutine", true
+	case "endfunction":
+		return "function", true
+	default:
+		return "", false
+	}
+}
+
+func phase9ParseFortranProcedure(document *SourceDocument, builder *SymbolBuilder, tokens []Token, start, end, keyword int, parent *SymbolParent, scopes *[]phase9Scope) {
+	if keyword < 0 {
 		for index := 0; index < len(tokens); index++ {
 			lower := strings.ToLower(tokens[index].Text)
 			if lower == "subroutine" || lower == "function" {
+				if index > 0 && tokens[index-1].Text == "%" {
+					continue
+				}
 				keyword = index
-				native = lower
 				break
 			}
 		}
-		if keyword < 0 {
-			return
-		}
-		nameIndex := phase9FirstIdentifier(tokens, keyword+1)
-		if nameIndex < 0 {
-			return
-		}
-		phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: tokens[nameIndex].Text, Parent: parent,
-			Declaration: OffsetRange{Start: start, End: end}, NameRange: OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: start, End: end}, Evidence: SymbolEvidenceStructural})
+	}
+	if keyword < 0 || keyword >= len(tokens) {
+		return
+	}
+	native := strings.ToLower(tokens[keyword].Text)
+	if native != "subroutine" && native != "function" {
+		return
+	}
+	nameIndex := phase9FirstIdentifier(tokens, keyword+1)
+	if nameIndex < 0 {
+		return
+	}
+	symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: tokens[nameIndex].Text, Parent: parent,
+		Declaration: OffsetRange{Start: start, End: end}, NameRange: OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: start, End: end}, Evidence: SymbolEvidenceStructural})
+	if ok {
+		*scopes = append(*scopes, phase9Scope{label: native, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 	}
 }
 

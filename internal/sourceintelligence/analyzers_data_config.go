@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -32,68 +33,186 @@ type phase10SQLDialectProfile struct {
 	pattern *regexp.Regexp
 }
 
-var phase10SQLDialectProfiles = []phase10SQLDialectProfile{
-	{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(?:(?:or[ \t]+replace)[ \t]+)?(schema|table|view|function|procedure|type)[ \t]+([A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*)`)},
-	{name: "postgresql", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(materialized[ \t]+view)[ \t]+([A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*)`)},
-	{name: "sqlserver", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+or[ \t]+alter[ \t]+(view|function|procedure)[ \t]+([A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*)`)},
+type phase10SQLDeclarationCandidate struct {
+	profile    string
+	kindWord   string
+	fullName   string
+	parentName string
+	leafName   string
+	start      int
+	headerEnd  int
+	nameStart  int
+	nameEnd    int
+	leafStart  int
+	leafEnd    int
 }
+
+const phase10SQLIdentifierPattern = "(?:[A-Za-z_][A-Za-z0-9_$]*|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\\[(?:[^\\]]|\\]\\])*\\])"
+const phase10SQLQualifiedNamePattern = phase10SQLIdentifierPattern + "(?:[ \\t]*\\.[ \\t]*" + phase10SQLIdentifierPattern + ")*"
+
+var (
+	phase10SQLIdentifier       = regexp.MustCompile(phase10SQLIdentifierPattern)
+	phase10SQLSimpleIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]*$`)
+	phase10SQLReference        = regexp.MustCompile(`(?im)\breferences[ \t\r\n]+(` + phase10SQLQualifiedNamePattern + `)`)
+	phase10SQLDialectProfiles  = []phase10SQLDialectProfile{
+		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(?:(?:or[ \t]+replace)[ \t]+)?(schema|table|view|function|procedure|type)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + phase10SQLQualifiedNamePattern + `)`)},
+		{name: "postgresql", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(materialized[ \t]+view)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + phase10SQLQualifiedNamePattern + `)`)},
+		{name: "sqlserver", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+or[ \t]+alter[ \t]+(view|function|procedure)[ \t]+(` + phase10SQLQualifiedNamePattern + `)`)},
+	}
+)
 
 func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newPhase10Builder(ctx, document, options, "sql", AnalyzerSQL)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	parents := map[string]SymbolParent{}
 	source := phase10MaskComments(document.Text, []string{"--"}, "/*", "*/")
 	source = phase10MaskStrings(source, true, false, false)
+	candidates := phase10SQLDeclarations(document, source)
+	parents := map[string]SymbolParent{}
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		kind := SymbolKindType
+		switch candidate.kindWord {
+		case "schema":
+			kind = SymbolKindSchema
+		case "function", "procedure":
+			kind = SymbolKindFunction
+		}
+		name := candidate.fullName
+		nameStart := candidate.nameStart
+		nameEnd := candidate.nameEnd
+		var parent *SymbolParent
+		if candidate.parentName != "" {
+			if value, ok := parents[strings.ToLower(candidate.parentName)]; ok {
+				v := value
+				parent = &v
+				name = candidate.leafName
+				nameStart = candidate.leafStart
+				nameEnd = candidate.leafEnd
+			}
+		}
+		declEnd := candidate.headerEnd
+		if semi := strings.Index(source[declEnd:], ";"); semi >= 0 {
+			declEnd += semi + 1
+		}
+		native := candidate.kindWord
+		if candidate.profile != "common" {
+			native = candidate.profile + "-" + strings.ReplaceAll(candidate.kindWord, " ", "-")
+		}
+		symbol, ok := phase10AddSymbol(builder, kind, native, name, parent, OffsetRange{Start: candidate.start, End: declEnd}, OffsetRange{Start: nameStart, End: nameEnd})
+		if ok && kind == SymbolKindSchema {
+			parents[strings.ToLower(candidate.fullName)] = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+		}
+	}
+	var dependencies []StructuralDependency
+	for _, match := range phase10SQLReference.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		fullName, _, _, _, _, ok := phase10SQLCanonicalName(document.Text[match[2]:match[3]])
+		if !ok {
+			continue
+		}
+		phase10AddDependency(document, &dependencies, StructuralDependencyReference, fullName, match[2], match[3])
+	}
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func phase10SQLDeclarations(document *SourceDocument, source string) []phase10SQLDeclarationCandidate {
 	seen := map[string]struct{}{}
+	var candidates []phase10SQLDeclarationCandidate
 	for _, profile := range phase10SQLDialectProfiles {
 		for _, match := range profile.pattern.FindAllStringSubmatchIndex(source, -1) {
-			if err := ctx.Err(); err != nil {
-				return AnalyzerResult{}, err
+			if !phase10SQLDeclarationBoundary(source, match[0]) {
+				continue
 			}
 			kindWord := strings.ToLower(strings.Join(strings.Fields(document.Text[match[2]:match[3]]), " "))
-			fullName := document.Text[match[4]:match[5]]
-			key := fmt.Sprintf("%d:%d:%s", match[0], match[5], strings.ToLower(fullName))
+			fullName, parentName, leafName, leafStart, leafEnd, ok := phase10SQLCanonicalName(document.Text[match[4]:match[5]])
+			if !ok {
+				continue
+			}
+			key := fmt.Sprintf("%d:%d:%s:%s", match[0], match[5], kindWord, strings.ToLower(fullName))
 			if _, exists := seen[key]; exists {
 				continue
 			}
 			seen[key] = struct{}{}
-			kind := SymbolKindType
-			switch kindWord {
-			case "schema":
-				kind = SymbolKindSchema
-			case "function", "procedure":
-				kind = SymbolKindFunction
-			}
-			name := fullName
-			var parent *SymbolParent
-			if dot := strings.LastIndex(fullName, "."); dot >= 0 {
-				if value, ok := parents[strings.ToLower(fullName[:dot])]; ok {
-					v := value
-					parent = &v
-					name = fullName[dot+1:]
-				}
-			}
-			declEnd := match[1]
-			if semi := strings.Index(document.Text[declEnd:], ";"); semi >= 0 {
-				declEnd += semi + 1
-			}
-			nameStart := match[4]
-			if name != fullName {
-				nameStart = match[5] - len(name)
-			}
-			native := kindWord
-			if profile.name != "common" {
-				native = profile.name + "-" + strings.ReplaceAll(kindWord, " ", "-")
-			}
-			symbol, ok := phase10AddSymbol(builder, kind, native, name, parent, OffsetRange{Start: match[0], End: declEnd}, OffsetRange{Start: nameStart, End: match[5]})
-			if ok && kind == SymbolKindSchema {
-				parents[strings.ToLower(fullName)] = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-			}
+			candidates = append(candidates, phase10SQLDeclarationCandidate{
+				profile: profile.name, kindWord: kindWord, fullName: fullName, parentName: parentName, leafName: leafName,
+				start: match[0], headerEnd: match[1], nameStart: match[4], nameEnd: match[5], leafStart: match[4] + leafStart, leafEnd: match[4] + leafEnd,
+			})
 		}
 	}
-	return AnalyzerResult{Analysis: builder.Result()}, nil
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].start != candidates[j].start {
+			return candidates[i].start < candidates[j].start
+		}
+		if candidates[i].headerEnd != candidates[j].headerEnd {
+			return candidates[i].headerEnd < candidates[j].headerEnd
+		}
+		if candidates[i].kindWord != candidates[j].kindWord {
+			return candidates[i].kindWord < candidates[j].kindWord
+		}
+		return candidates[i].fullName < candidates[j].fullName
+	})
+	return candidates
+}
+
+func phase10SQLDeclarationBoundary(source string, start int) bool {
+	if start < 0 || start > len(source) {
+		return false
+	}
+	for index := start - 1; index >= 0; index-- {
+		switch source[index] {
+		case ' ', '\t':
+			continue
+		case '\r', '\n', ';':
+			return true
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func phase10SQLCanonicalName(raw string) (fullName, parentName, leafName string, leafStart, leafEnd int, ok bool) {
+	matches := phase10SQLIdentifier.FindAllStringIndex(raw, -1)
+	if len(matches) == 0 {
+		return "", "", "", 0, 0, false
+	}
+	parts := make([]string, 0, len(matches))
+	for _, match := range matches {
+		parts = append(parts, phase10SQLCanonicalIdentifier(raw[match[0]:match[1]]))
+	}
+	last := matches[len(matches)-1]
+	leafName = parts[len(parts)-1]
+	fullName = strings.Join(parts, ".")
+	if len(parts) > 1 {
+		parentName = strings.Join(parts[:len(parts)-1], ".")
+	}
+	return fullName, parentName, leafName, last[0], last[1], true
+}
+
+func phase10SQLCanonicalIdentifier(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 2 {
+		return raw
+	}
+	value := raw
+	switch {
+	case raw[0] == '"' && raw[len(raw)-1] == '"':
+		value = strings.ReplaceAll(raw[1:len(raw)-1], `""`, `"`)
+	case raw[0] == '`' && raw[len(raw)-1] == '`':
+		value = strings.ReplaceAll(raw[1:len(raw)-1], "``", "`")
+	case raw[0] == '[' && raw[len(raw)-1] == ']':
+		value = strings.ReplaceAll(raw[1:len(raw)-1], "]]", "]")
+	}
+	if phase10SQLSimpleIdentifier.MatchString(value) {
+		return value
+	}
+	return raw
 }
 
 var (
@@ -194,6 +313,22 @@ var phase10HCLBlock = regexp.MustCompile(`(?m)^([ \t]*)(variable|resource|data|m
 var phase10HCLGenericBlock = regexp.MustCompile(`(?m)^([ \t]*)([A-Za-z_][A-Za-z0-9_-]*)(?:[ \t]+"([^"]+)")?[ \t]*\{`)
 var phase10HCLSource = regexp.MustCompile(`(?m)^[ \t]*source[ \t]*=[ \t]*"([^"]+)"`)
 
+type phase10HCLBlockCandidate struct {
+	start     int
+	open      int
+	close     int
+	kind      SymbolKind
+	native    string
+	name      string
+	nameRange OffsetRange
+	word      string
+}
+
+type phase10HCLScope struct {
+	close  int
+	parent *SymbolParent
+}
+
 func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newPhase10Builder(ctx, document, options, "terraform", AnalyzerTerraform)
 	if err != nil {
@@ -202,6 +337,7 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 	dependencies := []StructuralDependency{}
 	source := phase10MaskComments(document.Text, []string{"#", "//"}, "/*", "*/")
 	source = phase10MaskHeredocs(source)
+	candidates := make([]phase10HCLBlockCandidate, 0)
 	for _, match := range phase10HCLBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -220,7 +356,6 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 		}
 		name := first
 		kind := SymbolKindVariable
-		native := word
 		nameStart, nameEnd := match[6], match[7]
 		switch word {
 		case "resource", "data":
@@ -232,14 +367,10 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 		case "variable", "output":
 			kind = SymbolKindVariable
 		}
-		phase10AddSymbol(builder, kind, native, name, nil, OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: nameStart, End: nameEnd})
-		if word == "module" {
-			bodyStart := open + 1
-			if sourceMatch := phase10HCLSource.FindStringSubmatchIndex(source[bodyStart:close]); sourceMatch != nil {
-				value := document.Text[bodyStart+sourceMatch[2] : bodyStart+sourceMatch[3]]
-				phase10AddDependency(document, &dependencies, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
-			}
-		}
+		candidates = append(candidates, phase10HCLBlockCandidate{
+			start: match[0], open: open, close: close, kind: kind, native: word, name: name,
+			nameRange: OffsetRange{Start: nameStart, End: nameEnd}, word: word,
+		})
 	}
 	for _, match := range phase10HCLGenericBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
@@ -263,7 +394,48 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 			name += "." + label
 			nameEnd = match[7]
 		}
-		phase10AddSymbol(builder, SymbolKindSection, "hcl-block", name, nil, OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: nameStart, End: nameEnd})
+		candidates = append(candidates, phase10HCLBlockCandidate{
+			start: match[0], open: open, close: close, kind: SymbolKindSection, native: "hcl-block", name: name,
+			nameRange: OffsetRange{Start: nameStart, End: nameEnd}, word: word,
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].start != candidates[j].start {
+			return candidates[i].start < candidates[j].start
+		}
+		return candidates[i].close > candidates[j].close
+	})
+	maxNesting := options.MaxNesting
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
+	scopes := make([]phase10HCLScope, 0, min(8, maxNesting))
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		for len(scopes) > 0 && candidate.start >= scopes[len(scopes)-1].close {
+			scopes = scopes[:len(scopes)-1]
+		}
+		if len(scopes) >= maxNesting {
+			phase10Diagnostic(builder, "terraform-block-nesting-limit", "Terraform/HCL structural block nesting exceeds the configured limit", candidate.start, candidate.open+1)
+			break
+		}
+		var parent *SymbolParent
+		if len(scopes) > 0 {
+			parent = scopes[len(scopes)-1].parent
+		}
+		symbol, added := phase10AddSymbol(builder, candidate.kind, candidate.native, candidate.name, parent, OffsetRange{Start: candidate.start, End: candidate.close + 1}, candidate.nameRange)
+		if candidate.word == "module" {
+			bodyStart := candidate.open + 1
+			if sourceMatch := phase10HCLSource.FindStringSubmatchIndex(source[bodyStart:candidate.close]); sourceMatch != nil {
+				value := document.Text[bodyStart+sourceMatch[2] : bodyStart+sourceMatch[3]]
+				phase10AddDependency(document, &dependencies, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
+			}
+		}
+		if added {
+			scopes = append(scopes, phase10HCLScope{close: candidate.close, parent: phase10Parent(symbol)})
+		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }

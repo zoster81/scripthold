@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // AnalyzerID is a stable internal routing identifier. Declaring an analyzer ID
@@ -512,19 +513,31 @@ func (registry *LanguageRegistry) ShebangCandidates(interpreter string) []Langua
 	return result
 }
 
-// DefaultLanguageRegistry contains the R25 analyzable canaries and representative
-// future-family routing metadata. Future entries intentionally have no analyzer.
+var defaultLanguageRegistryCache struct {
+	once     sync.Once
+	registry *LanguageRegistry
+	err      error
+}
+
+// DefaultLanguageRegistry returns the immutable validated process-wide routing
+// table. LanguageRegistry lookup methods clone descriptors before returning
+// them, so callers cannot mutate the cached registry through the public API.
 func DefaultLanguageRegistry() (*LanguageRegistry, error) {
-	registry, err := NewLanguageRegistry(defaultLanguageDescriptors())
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range registry.CapabilityRows() {
-		if row.Family == "custom" {
-			return nil, fmt.Errorf("default language %s has no approved R27 family classification", row.ID)
+	defaultLanguageRegistryCache.once.Do(func() {
+		registry, err := NewLanguageRegistry(defaultLanguageDescriptors())
+		if err != nil {
+			defaultLanguageRegistryCache.err = err
+			return
 		}
-	}
-	return registry, nil
+		for _, row := range registry.CapabilityRows() {
+			if row.Family == "custom" {
+				defaultLanguageRegistryCache.err = fmt.Errorf("default language %s has no approved R27 family classification", row.ID)
+				return
+			}
+		}
+		defaultLanguageRegistryCache.registry = registry
+	})
+	return defaultLanguageRegistryCache.registry, defaultLanguageRegistryCache.err
 }
 
 func defaultLanguageDescriptors() []LanguageDescriptor {

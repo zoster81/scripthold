@@ -45,6 +45,34 @@ func TestScannerProfileIdentifierDelimiterAndDirectivePolicies(t *testing.T) {
 	}
 }
 
+func TestScannerDirectiveBackslashContinuationsStayOpaque(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		eol  string
+	}{
+		{name: "LF", eol: "\n"},
+		{name: "CRLF", eol: "\r\n"},
+		{name: "CR", eol: "\r"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			text := "#define JSON_CAST(T, expr) (__extension__ ({ \\" + testCase.eol +
+				"    ((T) (expr)); \\" + testCase.eol +
+				"}))" + testCase.eol +
+				"struct After { int value; };" + testCase.eol
+			result := scanSourceText(t, text, CPPScannerProfile(), scannerTestLimits)
+			if !result.Complete || len(result.Diagnostics) != 0 {
+				t.Fatalf("continued C/C++ directive leaked delimiter state: %+v", result.Diagnostics)
+			}
+			if countKind(result.Tokens, TokenDirective) != 1 {
+				t.Fatalf("continued directive count = %d, want 1", countKind(result.Tokens, TokenDirective))
+			}
+			if !hasIdentifier(result.Tokens, "After") {
+				t.Fatalf("declaration after continued directive is missing: %+v", result.Tokens)
+			}
+		})
+	}
+}
+
 func TestScannerBackslashEscapedPhysicalNewlinesHandleCRLFAtomically(t *testing.T) {
 	profile := ScannerProfile{
 		Name:    "r27-escaped-newline",
@@ -81,6 +109,42 @@ func TestScannerBackslashEscapedPhysicalNewlinesHandleCRLFAtomically(t *testing.
 	result := scanSourceText(t, "$\"alpha\\\r\nbeta\"\r\n", interpolated, scannerTestLimits)
 	if !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("interpolated escaped CRLF reported partial: %+v", result.Diagnostics)
+	}
+}
+
+func TestScannerInterpolationBracePolicies(t *testing.T) {
+	csharp := ScannerProfile{
+		Name: "csharp-interpolation-braces",
+		Strings: []StringRule{{
+			Prefixes:            []string{"$"},
+			Delimiter:           "\"",
+			BackslashEscapes:    true,
+			InterpolationMarker: "$",
+			DoubledBraceEscape:  true,
+		}},
+	}
+	result := scanSourceText(t, "$\"{{literal}} {call()}\"", csharp, scannerTestLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("C# doubled-brace interpolation escape reported partial: %+v", result.Diagnostics)
+	}
+
+	luau := ScannerProfile{
+		Name: "luau-interpolation-braces",
+		Strings: []StringRule{{
+			Prefixes:            []string{""},
+			Delimiter:           "`",
+			BackslashEscapes:    true,
+			Interpolated:        true,
+			RejectDoubledBraces: true,
+		}},
+	}
+	result = scanSourceText(t, "`outer {`nested {\"value\"}`} \\{ \\``", luau, scannerTestLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("valid Luau nested interpolation reported partial: %+v", result.Diagnostics)
+	}
+	result = scanSourceText(t, "`invalid {{value}}`", luau, scannerTestLimits)
+	if result.Complete || len(result.Diagnostics) == 0 || result.Diagnostics[0].Code != "invalid-interpolation-brace" {
+		t.Fatalf("invalid Luau doubled braces were not diagnosed: %+v", result)
 	}
 }
 
@@ -150,6 +214,17 @@ func TestScannerHeredocsHideDeclarationLookingTextAndSupportMultipleBodies(t *te
 	}
 	if countKind(result.Tokens, TokenHereDoc) != 2 {
 		t.Fatalf("heredoc tokens = %d, want 2", countKind(result.Tokens, TokenHereDoc))
+	}
+	lines := BuildLogicalLines(result.Tokens, LogicalLineProfile{})
+	foundReal := false
+	for _, line := range lines {
+		if strings.HasPrefix(logicalLineText(line), "function Real") {
+			foundReal = true
+			break
+		}
+	}
+	if !foundReal {
+		t.Fatalf("heredoc terminator newline was not preserved as a logical-line boundary: %+v", lines)
 	}
 	assertTokenOffsetsValid(t, text, result.Tokens)
 }

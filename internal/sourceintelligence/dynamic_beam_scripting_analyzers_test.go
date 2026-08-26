@@ -334,6 +334,43 @@ func TestBashHeredocLexicalHazardsStayOpaque(t *testing.T) {
 	}
 }
 
+func TestGleamCustomTypeConstructorsExposeHierarchy(t *testing.T) {
+	text := `pub type Message {
+  Text(body: String)
+  Image(url: String, size: Int)
+  Ready
+}
+
+pub fn run(message: Message) { message }
+`
+	result, err := (GleamAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid Gleam custom type reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	parent, ok := byName["Message"]
+	if !ok || parent.Kind != SymbolKindType {
+		t.Fatalf("Gleam custom type = %+v exists=%v; symbols=%v", parent, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	for _, qualified := range []string{"Message.Text", "Message.Image", "Message.Ready"} {
+		constructor, exists := byName[qualified]
+		if !exists || constructor.Kind != SymbolKindConstructor {
+			t.Fatalf("Gleam constructor %s = %+v exists=%v; symbols=%v", qualified, constructor, exists, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		if constructor.ParentID != parent.ID || constructor.ParentQualifiedName != "Message" {
+			t.Fatalf("Gleam constructor %s parent=%q/%q want Message/%q", qualified, constructor.ParentQualifiedName, constructor.ParentID, parent.ID)
+		}
+	}
+	for _, forbidden := range []string{"Message.body", "Message.String", "Message.url", "Message.size", "Message.Int"} {
+		if _, exists := byName[forbidden]; exists {
+			t.Fatalf("Gleam constructor field/type leaked as hierarchy symbol %s", forbidden)
+		}
+	}
+}
+
 func TestDynamicBEAMScriptingCapabilityCeilings(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

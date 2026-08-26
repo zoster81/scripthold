@@ -325,12 +325,12 @@ func (h *Handler) countMatchingLines(ctx context.Context, path string, re *regex
 	count := 0
 	reader := io.MultiReader(bytes.NewReader(prefix), stream.Reader)
 	_, scanErr := textstream.ScanLines(ctx, reader, h.maxLineBytes(), func(line textstream.Line) error {
-		for _, segment := range bytes.Split(line.Data, []byte{'\r'}) {
+		return forEachCRSegment(line.Data, func(segment []byte) error {
 			if re.Match(segment) {
 				count++
 			}
-		}
-		return nil
+			return nil
+		})
 	})
 	if scanErr != nil {
 		return 0, scanErr
@@ -631,12 +631,7 @@ func (h *Handler) searchSingleFileWithBudget(ctx context.Context, path string, r
 	}
 
 	_, scanErr := textstream.ScanLines(ctx, reader, h.maxLineBytes(), func(line textstream.Line) error {
-		for _, segment := range bytes.Split(line.Data, []byte{'\r'}) {
-			if err := processLine(segment); err != nil {
-				return err
-			}
-		}
-		return nil
+		return forEachCRSegment(line.Data, processLine)
 	})
 	if scanErr != nil && !errors.Is(scanErr, errStopGrepScan) {
 		result.matches = nil
@@ -654,6 +649,19 @@ func (h *Handler) searchSingleFileWithBudget(ctx context.Context, path string, r
 		}
 	}
 	return result
+}
+
+func forEachCRSegment(data []byte, visit func([]byte) error) error {
+	for {
+		separator := bytes.IndexByte(data, '\r')
+		if separator < 0 {
+			return visit(data)
+		}
+		if err := visit(data[:separator]); err != nil {
+			return err
+		}
+		data = data[separator+1:]
+	}
 }
 
 // trimIncompleteUTF8Suffix removes only a trailing partial UTF-8 sequence from

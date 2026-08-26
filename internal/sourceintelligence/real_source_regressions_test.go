@@ -40,6 +40,726 @@ func TestRealSourceElixirSigilsDoNotLeakDelimiters(t *testing.T) {
 	requireRealSourceComplete(t, ElixirAnalyzer{}, text)
 }
 
+func TestRealSourceElixirNestedStringInterpolationStaysOpaque(t *testing.T) {
+	text := `defmodule Demo do
+  def headers(email, api_token) do
+    [
+      {"Accept", "application/json"},
+      {"Authorization", "Basic #{Base.encode64("#{email}:#{api_token}")}"}
+    ]
+  end
+end
+`
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "Demo.headers") {
+		t.Fatalf("nested Elixir interpolation lost function: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceElixirSigilDelimiterInsideInterpolationStaysOpaque(t *testing.T) {
+	text := `defmodule Demo do
+  def route(opts) do
+    ~s|live "/item/:#{opts[:primary_key] || :id}"|
+  end
+end
+`
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "Demo.route") {
+		t.Fatalf("interpolated Elixir sigil lost function: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceElixirCharacterLiteralsDoNotLeakDelimiters(t *testing.T) {
+	text := `defmodule Demo do
+  def split(<<"\"", rest::binary>>, prev) when prev in [?., ?(, ?,] do
+    {rest, ?)}
+  end
+end
+`
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "Demo.split") {
+		t.Fatalf("Elixir character literals lost function: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceElixirStructuralTokensHandleMultilineDoAndKeywordAtoms(t *testing.T) {
+	text := `defmodule Demo do
+  def run(value) do
+    with x <- value,
+         y <- (cond do
+           true -> x
+         end) do
+      y
+    end
+  end
+
+  def keywords do
+    [
+      :fn,
+      :case,
+      :with
+    ]
+  end
+end
+`
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo.run", "Demo.keywords"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Elixir structural token regression missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceElixirStructuralFnAllowsSpacedColonNeighbors(t *testing.T) {
+	text := `defmodule Demo do
+  def callbacks do
+    %{fun: fn value -> value end}
+  end
+
+  def validate(changeset) do
+    validate_change(changeset, :field, fn :field, value ->
+      value
+    end)
+  end
+
+  def keywords do
+    [:fn, fn: :value]
+  end
+end
+`
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.callbacks", "Demo.validate", "Demo.keywords"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Elixir colon adjacency regression missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceElixirMultilineKeywordBodyClearsPendingDeclaration(t *testing.T) {
+	text := `defmodule Demo do
+  def direct(
+        value
+      ),
+      do: value
+
+  def guarded(
+        value
+      )
+      when is_integer(value),
+      do: value
+end
+`
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.direct", "Demo.guarded"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Elixir multiline keyword body missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceElixirGuardContinuationRetainsStructuralScopes(t *testing.T) {
+	text := "defmodule Demo do\n" +
+		"  def eval(source, opts)\n" +
+		"      when is_binary(source) and is_list(opts) do\n" +
+		"    source\n" +
+		"  end\n" +
+		"  def next(), do: :ok\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.eval", "Demo.next"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Elixir guard continuation missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceElixirPipedCaseRetainsStructuralScopes(t *testing.T) {
+	text := "defmodule Demo do\n" +
+		"  def render(value) do\n" +
+		"    value\n" +
+		"    |> case do\n" +
+		"      nil -> :none\n" +
+		"      _ -> :some\n" +
+		"    end\n" +
+		"  end\n" +
+		"  def next(), do: :ok\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.render", "Demo.next"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Elixir piped case missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceElixirCustomMacroDoBlocksRetainStructuralScopes(t *testing.T) {
+	text := "defmodule Demo do\n" +
+		"  typedstruct enforce: true do\n" +
+		"    field(:id, integer())\n" +
+		"  end\n" +
+		"  deffilter Filter, id: integer() do\n" +
+		"    _ -> true\n" +
+		"  end\n" +
+		"  def run(value) do\n" +
+		"    marker = :do\n" +
+		"    if value, do: marker\n" +
+		"  end\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, ElixirAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.run"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Elixir custom macro block missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceFortranModuleSubprogramsRetainStructuralScopes(t *testing.T) {
+	text := "submodule(parent_mod) child_mod\n" +
+		"contains\n" +
+		"  module subroutine run()\n" +
+		"  end subroutine run\n" +
+		"  module function value() result(x)\n" +
+		"    integer :: x\n" +
+		"    x = 1\n" +
+		"  end function value\n" +
+		"end submodule child_mod\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"child_mod", "child_mod.run", "child_mod.value"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Fortran module subprogram missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceFortranCompactEndKeywordsCloseStructuralScopes(t *testing.T) {
+	text := "module demo\n" +
+		"  type item\n" +
+		"    integer :: field\n" +
+		"  endtype item\n" +
+		"contains\n" +
+		"  subroutine run()\n" +
+		"  endsubroutine run\n" +
+		"  function value() result(x)\n" +
+		"    integer :: x\n" +
+		"    x = 1\n" +
+		"  endfunction value\n" +
+		"endmodule demo\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "demo.item", "demo.run", "demo.value"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Fortran compact end keyword missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceFortranTypeNamedVariableAssignmentDoesNotOpenDerivedType(t *testing.T) {
+	text := "module demo\n" +
+		"contains\n" +
+		"  subroutine create(type_tab)\n" +
+		"    integer :: ii, type\n" +
+		"    type = type_tab(ii)\n" +
+		"  end subroutine create\n" +
+		"end module demo\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	if !containsSortedString(names, "demo.create") {
+		t.Fatalf("Fortran type-named variable source missing subroutine: %v", names)
+	}
+	if containsSortedString(names, "demo.create.ii") {
+		t.Fatalf("Fortran type-named variable assignment leaked a derived type: %v", names)
+	}
+}
+
+func TestRealSourceFortranMemberNamedFunctionDoesNotOpenProcedure(t *testing.T) {
+	text := "module demo\n" +
+		"contains\n" +
+		"  subroutine run()\n" +
+		"    call consume(state%function, full=.true.)\n" +
+		"  end subroutine run\n" +
+		"end module demo\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	if !containsSortedString(names, "demo.run") {
+		t.Fatalf("Fortran member-named function source missing subroutine: %v", names)
+	}
+	if containsSortedString(names, "demo.run.full") {
+		t.Fatalf("Fortran member named function leaked a procedure: %v", names)
+	}
+}
+
+func TestRealSourceFortranFixedFormCPPDirectivesStayOpaque(t *testing.T) {
+	text := "#define IMPLICIT_STATEMENT IMPLICIT INTEGER(4) (I-N), REAL(4) (A-H, O-Z)\n" +
+		"#define IFAC_TYPE REAL(4)\n" +
+		"      PROGRAM demo\n" +
+		"      IMPLICIT_STATEMENT\n" +
+		"      END\n"
+	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("fixed-form CPP directives lowered coverage: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo") {
+		t.Fatalf("fixed-form CPP source missing program: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranFyppCallContinuationStaysOpaque(t *testing.T) {
+	text := "module demo\n" +
+		"  #:call hash_map(prefix='demo', &\n" +
+		"     key_type='INTEGER, DIMENSION(2)', &\n" +
+		"     value_type='INTEGER', &\n" +
+		"     value_default_init=' = 0')\n" +
+		"  #:endcall hash_map\n" +
+		"contains\n" +
+		"  subroutine run()\n" +
+		"  end subroutine run\n" +
+		"end module demo\n"
+	document := scientificLegacyFunctionalTestDocument("demo.F", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("FYPP call continuation lowered coverage: %+v", result.Analysis)
+	}
+	for _, want := range []string{"demo", "demo.run"} {
+		if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), want) {
+			t.Fatalf("FYPP source missing %s: %v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealSourceFortranInlineFyppMarkersPreserveContinuation(t *testing.T) {
+	text := "module demo\n" +
+		"contains\n" +
+		"  subroutine run()\n" +
+		"    value = (#{if first}#one#{endif}# &\n" +
+		"             #{if second}# + two &#{endif}#\n" +
+		"             #{if third}# + three#{endif}#)\n" +
+		"  end subroutine run\n" +
+		"end module demo\n"
+	document := scientificLegacyFunctionalTestDocument("demo.F", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("inline FYPP markers interrupted continuation: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo.run") {
+		t.Fatalf("inline FYPP source missing run: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranFixedVendorDirectiveContinuationStaysOpaque(t *testing.T) {
+	text := "      PROGRAM demo\n" +
+		"!dir$ omp offload target(mic:0)\n" +
+		"& in (buffer:length(n), align(512))\n" +
+		"      END\n"
+	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("fixed-form vendor directive continuation lowered coverage: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo") {
+		t.Fatalf("fixed-form vendor directive source missing program: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranFixedFormBangInLabelColumnsIsComment(t *testing.T) {
+	text := "      PROGRAM demo\n" +
+		"    !        CALL fake(\n" +
+		"    ! 1           value)\n" +
+		"      END\n"
+	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("fixed-form bang comment in label columns lowered coverage: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo") {
+		t.Fatalf("fixed-form label-column bang comment lost program: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranFixedFormCommentOnlyCodeLineDoesNotBreakContinuation(t *testing.T) {
+	text := "      PROGRAM demo\n" +
+		"      CALL worker(\n" +
+		"            ! explanation between statement lines\n" +
+		"     1      first, second)\n" +
+		"      END\n"
+	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("fixed-form comment-only code line broke continuation: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo") {
+		t.Fatalf("fixed-form comment-only line lost program: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranFixedFormInlineCommentKeepsContinuation(t *testing.T) {
+	text := "      PROGRAM demo\n" +
+		"      IF (I .EQ. 1  ! inline explanation\n" +
+		"     .    .AND. J .EQ. 2) THEN\n" +
+		"      ENDIF\n" +
+		"      END\n"
+	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("fixed-form inline comment consumed continuation: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo") {
+		t.Fatalf("fixed-form inline-comment source missing program: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranFixedFormHollerithPayloadStaysOpaque(t *testing.T) {
+	text := "      PROGRAM demo\n" +
+		" 1000 FORMAT(\n" +
+		"     & 5X,8HABC'D)E?,I3/)\n" +
+		"      END\n"
+	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("fixed-form Hollerith payload leaked lexical delimiters: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo") {
+		t.Fatalf("fixed-form Hollerith source missing program: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranUppercaseFCanContainFreeFormSource(t *testing.T) {
+	text := "module demo\n" +
+		"  use dependency, only: first, &\n" +
+		"                        second\n" +
+		"contains\n" +
+		"  subroutine run()\n" +
+		"  end subroutine run\n" +
+		"end module demo\n"
+	document := scientificLegacyFunctionalTestDocument("demo.F", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid free-form .F source reported partial: %+v", result.Analysis)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "demo.run"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("free-form .F source missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceFortranFixedFormExtendedColumnsAndTabs(t *testing.T) {
+	text := "      PROGRAM demo\n" +
+		"      CALL worker(\n" +
+		"     1                     IFLAG  ,NEL    ,PMIN   ,OFF    ,EINT   ,MU  ,MU2,\n" +
+		"     2                     ESPE   ,DVOL   ,DF     ,VNEW   ,PSH    ,\n" +
+		"     3                     PNEW   ,DPDM   ,DPDE   ,VAREOS ,NVAREOS,MAT_PARAM%EOS)\n" +
+		"      DO j=1,1\n" +
+		"        DO i=1,1\n" +
+		"\t   Y(i+j) = 0.0D0\n" +
+		"\tEND DO\n" +
+		"\tY(j+j) = 1.0D0\n" +
+		"      END DO\n" +
+		"      END\n"
+	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid extended/tab fixed-form source reported partial: %+v", result.Analysis)
+	}
+	if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), "demo") {
+		t.Fatalf("fixed-form program symbol missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRealSourceFortranCPPDirectiveStringFragmentsStayOpaque(t *testing.T) {
+	text := "module release\n" +
+		"#ifdef __GFORTRAN__\n" +
+		"#  define STRINGIFY_START(X) \"&\n" +
+		"#  define STRINGIFY_END(X) &X\"\n" +
+		"#else\n" +
+		"#  define STRINGIFY_START(X) &\n" +
+		"#  define STRINGIFY_END(X) X\n" +
+		"#endif\n" +
+		"contains\n" +
+		"  function version() result(value)\n" +
+		"    integer :: value\n" +
+		"    value = 1\n" +
+		"  end function version\n" +
+		"end module release\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"release", "release.version"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Fortran CPP directive regression missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceFortranCPPContinuedMacroStaysOpaque(t *testing.T) {
+	text := "module demo\n" +
+		"#define VERSION_CHECK(MAJOR, MINOR) ((MAJOR) && \\\n" +
+		"  ((MAJOR) * 100 + (MINOR)))\n" +
+		"contains\n" +
+		"  subroutine run()\n" +
+		"  end subroutine run\n" +
+		"end module demo\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	for _, want := range []string{"demo", "demo.run"} {
+		if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), want) {
+			t.Fatalf("Fortran continued CPP macro missing %s: %v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealSourceFortranConditionalBranchesRemainMutuallyExclusive(t *testing.T) {
+	text := "module demo\n" +
+		"#ifdef EXTENDED_TYPE\n" +
+		"  type, extends(base) :: item\n" +
+		"#else\n" +
+		"  type :: item\n" +
+		"#endif\n" +
+		"  end type item\n" +
+		"contains\n" +
+		"  subroutine run()\n" +
+		"#ifdef LEGACY_CALL\n" +
+		"    call worker(buffer, &\n" +
+		"#else\n" +
+		"    call worker(inplace, &\n" +
+		"#endif\n" +
+		"      value)\n" +
+		"  end subroutine run\n" +
+		"end module demo\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "demo.item", "demo.run"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Fortran conditional structural union missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestConditionalVariantSelectionPacksIndependentBranches(t *testing.T) {
+	groups := make([]conditionalGroup, 40)
+	for index := range groups {
+		groups[index] = conditionalGroup{
+			parentGroup:  -1,
+			parentBranch: -1,
+			branches:     []conditionalBranch{{}, {}},
+		}
+	}
+	selections, ok := conditionalSelections(groups)
+	if !ok {
+		t.Fatal("independent conditional branches exceeded the bounded variant budget")
+	}
+	if len(selections) != 2 {
+		t.Fatalf("independent conditional variants=%d want 2", len(selections))
+	}
+	for groupID := range groups {
+		seen := [2]bool{}
+		for _, selection := range selections {
+			if selection[groupID] >= 0 && selection[groupID] < len(seen) {
+				seen[selection[groupID]] = true
+			}
+		}
+		if !seen[0] || !seen[1] {
+			t.Fatalf("conditional group %d branch coverage=%v", groupID, seen)
+		}
+	}
+}
+
+func TestRealSourceHaskellCharacterLiteralsDoNotOpenStrings(t *testing.T) {
+	text := "module Demo where\n" +
+		"quote :: Char -> Bool\n" +
+		"quote '\"' = True\n" +
+		"quote _ = False\n" +
+		"slash :: Char\n" +
+		"slash = '\\\\'\n" +
+		"prime' = 1\n"
+	result := requireRealSourceComplete(t, HaskellAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.quote", "Demo.slash", "Demo.prime'"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Haskell character literal regression missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceHaskellQuasiQuotesStayOpaque(t *testing.T) {
+	text := "module Demo where\n" +
+		"template = [trimming|\n" +
+		"module Fake where\n" +
+		"data Hidden = Hidden\n" +
+		"fake :: Int -> Int\n" +
+		"fake x = x\n" +
+		"|]\n" +
+		"after :: Int -> Int\n" +
+		"after x = x\n"
+	result := requireRealSourceComplete(t, HaskellAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	if !containsSortedString(names, "Demo.after") {
+		t.Fatalf("Haskell declaration after quasiquote missing: %v", names)
+	}
+	for _, forbidden := range []string{"Fake", "Fake.Hidden", "Fake.fake", "Demo.Hidden", "Demo.fake"} {
+		if containsSortedString(names, forbidden) {
+			t.Fatalf("Haskell quasiquote leaked %s: %v", forbidden, names)
+		}
+	}
+}
+
+func TestRealSourceJuliaCharacterLiteralsDoNotLeakDelimiters(t *testing.T) {
+	text := "module Demo\n" +
+		"function quote(quotemark::Char = '\"')\n" +
+		"  chars = ['\\\\', '{', '}']\n" +
+		"  quotemark in chars\n" +
+		"end\n" +
+		"adjoint = matrix'\n" +
+		"after(x) = x\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, JuliaAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.quote", "Demo.after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Julia character literal regression missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceJuliaInlineEndClosesStructuralScopes(t *testing.T) {
+	text := "module Demo\n" +
+		"macro tagged(ex) ex end\n" +
+		"function return_type end\n" +
+		"function after(x)\n" +
+		"  if x > 0\n" +
+		"    x\n" +
+		"  end\n" +
+		"end\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, JuliaAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.tagged", "Demo.return_type", "Demo.after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Julia inline end missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceJuliaOrdinaryMultilineStringsRemainOpaque(t *testing.T) {
+	text := "module Demo\n" +
+		"function work()\n" +
+		"  error(\"line one\n" +
+		"function Fake() end\n" +
+		"line three\")\n" +
+		"end\n" +
+		"function after() end\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, JuliaAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.work", "Demo.after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Julia multiline string missing %s: %v", want, names)
+		}
+	}
+	if containsSortedString(names, "Demo.work.Fake") || containsSortedString(names, "Fake") {
+		t.Fatalf("Julia multiline string leaked Fake: %v", names)
+	}
+}
+
+func TestRealSourceJuliaDelimiterContinuedFunctionSignature(t *testing.T) {
+	text := "module Demo\n" +
+		"function work(\n" +
+		"    value,\n" +
+		"    other\n" +
+		") end\n" +
+		"function after() end\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, JuliaAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"Demo", "Demo.work", "Demo.after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Julia delimiter-continued signature missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceFortranContinuedCharacterLiteralRequiresLeadingMarker(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		text := "module demo\n" +
+			"contains\n" +
+			"  subroutine work()\n" +
+			"    character(len=*), parameter :: message = 'alpha &\n" +
+			"      &function fake() beta'\n" +
+			"  end subroutine work\n" +
+			"  subroutine after()\n" +
+			"  end\n" +
+			"end module demo\n"
+		result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		for _, want := range []string{"demo", "demo.work", "demo.after"} {
+			if !containsSortedString(names, want) {
+				t.Fatalf("Fortran continued literal missing %s: %v", want, names)
+			}
+		}
+		if containsSortedString(names, "demo.work.fake") || containsSortedString(names, "demo.fake") {
+			t.Fatalf("Fortran continued literal leaked fake function: %v", names)
+		}
+	})
+
+	t.Run("gnu-missing-leading-continuation-marker", func(t *testing.T) {
+		text := "module demo\n" +
+			"  character(len=*), parameter :: message = 'alpha &\n" +
+			"  beta'\n" +
+			"end module demo\n"
+		requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	})
+
+	t.Run("missing-trailing-continuation-marker", func(t *testing.T) {
+		text := "module demo\n" +
+			"  character(len=*), parameter :: message = 'alpha\n" +
+			"  beta'\n" +
+			"end module demo\n"
+		result, err := (FortranAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.f90", text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "fortran-unterminated-string") {
+			t.Fatalf("invalid Fortran unterminated literal was accepted: %+v", result.Analysis)
+		}
+	})
+}
+
 func TestRealSourceRubyAssignedCaseBlock(t *testing.T) {
 	text := "module M\n" +
 		"  def run(value)\n" +
@@ -92,6 +812,138 @@ func TestRealSourceRubyDoBlockParameters(t *testing.T) {
 	result := requireRealSourceComplete(t, RubyAnalyzer{}, text)
 	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "M.run") {
 		t.Fatalf("Ruby method missing after do block: %v", names)
+	}
+}
+
+func TestRealSourceRubyInterpolatedPercentLiteralPreservesDelimiterState(t *testing.T) {
+	text := "class FailureApp\r\n" +
+		"  def http_auth\r\n" +
+		"    self.headers[\"WWW-Authenticate\"] = %(Basic realm=#{Devise.http_authentication_realm.inspect}) if http_auth_header?\r\n" +
+		"  end\r\n" +
+		"  def after\r\n" +
+		"    1\r\n" +
+		"  end\r\n" +
+		"end\r\n"
+	result := requireRealSourceComplete(t, RubyAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"FailureApp.after", "FailureApp.http_auth"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Ruby declaration %q missing after interpolated percent literal: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceRubyPercentLiteralFamiliesStayOpaque(t *testing.T) {
+	text := "class Literals\n" +
+		"  def values\n" +
+		"    a = %Q{value #{source.call} # still literal}\n" +
+		"    b = %q[nested [value] # still literal]\n" +
+		"    c = %w<one two # literal>\n" +
+		"    d = %r|value#fragment|\n" +
+		"  end\n" +
+		"  def after\n" +
+		"  end\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, RubyAnalyzer{}, text)
+	if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "Literals.after") {
+		t.Fatalf("Ruby method missing after percent-literal families: %v", names)
+	}
+}
+
+func TestRubyPercentLiteralProjectionDoesNotMaskModulo(t *testing.T) {
+	text := "value = 7%(2)\n"
+	document := sourceDocumentForScanner(text)
+	scan, err := ScanSource(context.Background(), document, RubyScannerProfile(), ScannerLimits{MaxTokens: 64, MaxTokenBytes: 1024, MaxNesting: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if masked, changed := maskRubyPercentLiterals(text, scan.Tokens, 64); changed || masked != text {
+		t.Fatalf("Ruby modulo expression was projected as a percent literal: changed=%v masked=%q", changed, masked)
+	}
+}
+
+func TestRealSourceRubySingletonClassReceiverWithSameLineEnd(t *testing.T) {
+	text := "module Devise\n" +
+		"  module Models\n" +
+		"    def self.config(mod)\n" +
+		"      class << mod; attr_accessor :available_configs; end\n" +
+		"      mod.available_configs = []\n" +
+		"    end\n" +
+		"    def self.after\n" +
+		"    end\n" +
+		"  end\n" +
+		"end\n"
+	result := requireRealSourceComplete(t, RubyAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	if !containsSortedString(names, "Devise.Models.config") || !containsSortedString(names, "Devise.Models.after") {
+		t.Fatalf("Ruby singleton-class receiver changed surrounding ownership: %v", names)
+	}
+	if containsSortedString(names, "Devise.Models.config.mod") || containsSortedString(names, "Devise.Models.mod") {
+		t.Fatalf("Ruby singleton-class receiver was promoted to a class symbol: %v", names)
+	}
+}
+
+func TestRealSourceRubyERBTemplateSyntaxStaysOpaque(t *testing.T) {
+	text := "class DeviseCreate<%= table_name.camelize %> < ActiveRecord::Migration<%= migration_version %>\r\n" +
+		"  def change\r\n" +
+		"    create_table :<%= table_name %> do |t|\r\n" +
+		"<%= migration_data -%>\r\n" +
+		"<% attributes.each do |attribute| -%>\r\n" +
+		"      t.<%= attribute.type %> :<%= attribute.name %>\r\n" +
+		"<% end -%>\r\n" +
+		"    end\r\n" +
+		"  end\r\n" +
+		"end\r\n"
+	result := requireRealSourceComplete(t, RubyAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	if !containsSortedString(names, "DeviseCreate") || !containsSortedString(names, "DeviseCreate.change") {
+		t.Fatalf("Ruby declarations surrounding ERB template syntax are missing: %v", names)
+	}
+	for _, forbidden := range []string{"table_name", "migration_data", "attribute", "attributes"} {
+		if containsSortedString(names, forbidden) {
+			t.Fatalf("Ruby ERB expression leaked symbol %q: %v", forbidden, names)
+		}
+	}
+}
+
+func TestRubyERBProjectionDoesNotMaskOpaqueRubyString(t *testing.T) {
+	text := "value = \"<% not template %>\"\ndef after\nend\n"
+	document := sourceDocumentForScanner(text)
+	scan, err := ScanSource(context.Background(), document, RubyScannerProfile(), ScannerLimits{MaxTokens: 64, MaxTokenBytes: 1024, MaxNesting: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if masked, changed := maskRubyERBTemplateSyntax(text, scan.Tokens); changed || masked != text {
+		t.Fatalf("Ruby string content was projected as ERB syntax: changed=%v masked=%q", changed, masked)
+	}
+}
+
+func TestRealSourceRubyInterpolatedSlashRegexpStaysOpaque(t *testing.T) {
+	text := "module OrmHelpers\r\n" +
+		"  def migration_exists?(table_name)\r\n" +
+		"    Dir.glob(\"migrations/[0-9]*_*.rb\").grep(/\\d+_add_devise_to_#{table_name}.rb$/).first\r\n" +
+		"  end\r\n" +
+		"  def after\r\n" +
+		"  end\r\n" +
+		"end\r\n"
+	result := requireRealSourceComplete(t, RubyAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"OrmHelpers", "OrmHelpers.migration_exists?", "OrmHelpers.after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Ruby declaration missing after interpolated slash regexp: want=%q symbols=%v", want, names)
+		}
+	}
+}
+
+func TestRubySlashRegexpProjectionDoesNotMaskDivision(t *testing.T) {
+	text := "value = total / count\ndef after\nend\n"
+	document := sourceDocumentForScanner(text)
+	scan, err := ScanSource(context.Background(), document, RubyScannerProfile(), ScannerLimits{MaxTokens: 64, MaxTokenBytes: 1024, MaxNesting: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if masked, changed := maskRubySlashRegexLiterals(text, scan.Tokens, 64); changed || masked != text {
+		t.Fatalf("Ruby division was projected as a regexp: changed=%v masked=%q", changed, masked)
 	}
 }
 

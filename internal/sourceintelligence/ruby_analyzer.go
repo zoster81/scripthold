@@ -35,9 +35,38 @@ func (RubyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
-	scan, err := ScanSource(ctx, document, RubyScannerProfile(), ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	scannerLimits := ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting}
+	scan, err := ScanSource(ctx, document, RubyScannerProfile(), scannerLimits)
 	if err != nil {
 		return AnalyzerResult{}, err
+	}
+	projectedText := document.Text
+	if masked, changed := maskRubyERBTemplateSyntax(projectedText, scan.Tokens); changed {
+		projectedText = masked
+		projected := *document
+		projected.Text = projectedText
+		scan, err = ScanSource(ctx, &projected, RubyScannerProfile(), scannerLimits)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+	}
+	if masked, changed := maskRubySlashRegexLiterals(projectedText, scan.Tokens, maxNesting); changed {
+		projectedText = masked
+		projected := *document
+		projected.Text = projectedText
+		scan, err = ScanSource(ctx, &projected, RubyScannerProfile(), scannerLimits)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+	}
+	if masked, changed := maskRubyPercentLiterals(projectedText, scan.Tokens, maxNesting); changed {
+		projectedText = masked
+		projected := *document
+		projected.Text = projectedText
+		scan, err = ScanSource(ctx, &projected, RubyScannerProfile(), scannerLimits)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
 	}
 	for _, diagnostic := range scan.Diagnostics {
 		value := OffsetRange{Start: diagnostic.StartOffset, End: diagnostic.EndOffset}
@@ -47,11 +76,272 @@ func (RubyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		builder.MarkIncomplete()
 	}
 	parser := &rubyParser{ctx: ctx, document: document, builder: builder}
-	parser.parse(BuildLogicalLines(scan.Tokens, LogicalLineProfile{}))
+	parser.parse(BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{";"}}))
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_ruby_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
+}
+
+func maskRubyERBTemplateSyntax(text string, tokens []Token) (string, bool) {
+	masked := []byte(text)
+	changed := false
+	for _, token := range tokens {
+		if token.Kind != TokenOperator || token.StartOffset < 0 || token.StartOffset+2 > len(text) || masked[token.StartOffset] != '<' || !strings.HasPrefix(text[token.StartOffset:], "<%") {
+			continue
+		}
+		relativeEnd := strings.Index(text[token.StartOffset+2:], "%>")
+		if relativeEnd < 0 {
+			continue
+		}
+		end := token.StartOffset + 2 + relativeEnd + 2
+		phase8MaskRange(masked, token.StartOffset, end)
+		changed = true
+	}
+	if !changed {
+		return text, false
+	}
+	return string(masked), true
+}
+
+func maskRubySlashRegexLiterals(text string, tokens []Token, maxNesting int) (string, bool) {
+	masked := []byte(text)
+	changed := false
+	for index, token := range tokens {
+		if token.Kind != TokenOperator || !strings.HasPrefix(token.Text, "/") || token.StartOffset < 0 || token.StartOffset >= len(masked) || masked[token.StartOffset] != '/' || !rubyLiteralExpressionContext(tokens, index) {
+			continue
+		}
+		end, ok := rubySlashRegexpEnd(text, token.StartOffset, maxNesting)
+		if !ok {
+			continue
+		}
+		phase8MaskRange(masked, token.StartOffset, end)
+		masked[token.StartOffset] = '_'
+		changed = true
+	}
+	if !changed {
+		return text, false
+	}
+	return string(masked), true
+}
+
+func rubySlashRegexpEnd(text string, start, maxNesting int) (int, bool) {
+	inClass := false
+	for at := start + 1; at < len(text); {
+		if text[at] == '\\' {
+			if at+1 >= len(text) {
+				return 0, false
+			}
+			at += 2
+			continue
+		}
+		if !inClass && strings.HasPrefix(text[at:], "#{") {
+			end, ok := rubyInterpolationExpressionEnd(text, at+1, maxNesting)
+			if !ok {
+				return 0, false
+			}
+			at = end
+			continue
+		}
+		switch text[at] {
+		case '[':
+			if !inClass {
+				inClass = true
+			}
+			at++
+		case ']':
+			if inClass {
+				inClass = false
+			}
+			at++
+		case '/':
+			if inClass {
+				at++
+				continue
+			}
+			at++
+			for at < len(text) && strings.ContainsRune("imxounes", rune(text[at])) {
+				at++
+			}
+			return at, true
+		default:
+			at++
+		}
+	}
+	return 0, false
+}
+
+func rubyInterpolationExpressionEnd(text string, open, maxNesting int) (int, bool) {
+	if open < 0 || open >= len(text) || text[open] != '{' {
+		return 0, false
+	}
+	depth := 1
+	for at := open + 1; at < len(text); {
+		switch text[at] {
+		case '\'', '"':
+			end, ok := rubyQuotedLiteralEnd(text, at)
+			if !ok {
+				return 0, false
+			}
+			at = end
+		case '#':
+			if strings.HasPrefix(text[at:], "#{") {
+				depth++
+				if maxNesting > 0 && depth > maxNesting {
+					return 0, false
+				}
+				at += 2
+				continue
+			}
+			if relative := strings.IndexAny(text[at:], "\r\n"); relative >= 0 {
+				at += relative
+			} else {
+				return 0, false
+			}
+		case '{':
+			depth++
+			if maxNesting > 0 && depth > maxNesting {
+				return 0, false
+			}
+			at++
+		case '}':
+			depth--
+			at++
+			if depth == 0 {
+				return at, true
+			}
+		default:
+			at++
+		}
+	}
+	return 0, false
+}
+
+func rubyQuotedLiteralEnd(text string, start int) (int, bool) {
+	quote := text[start]
+	for at := start + 1; at < len(text); at++ {
+		if text[at] == '\\' && at+1 < len(text) {
+			at++
+			continue
+		}
+		if text[at] == quote {
+			return at + 1, true
+		}
+	}
+	return 0, false
+}
+
+func maskRubyPercentLiterals(text string, tokens []Token, maxNesting int) (string, bool) {
+	masked := []byte(text)
+	changed := false
+	for index, token := range tokens {
+		if token.StartOffset < 0 || token.StartOffset >= len(masked) || masked[token.StartOffset] != '%' || token.Kind != TokenOperator || token.Text != "%" || !rubyLiteralExpressionContext(tokens, index) {
+			continue
+		}
+		delimiterAt, ok := rubyPercentLiteralDelimiterAt(text, token.EndOffset)
+		if !ok {
+			continue
+		}
+		end, ok := rubyPercentLiteralEnd(text, delimiterAt, maxNesting)
+		if !ok {
+			continue
+		}
+		phase8MaskRange(masked, token.StartOffset, end)
+		masked[token.StartOffset] = '_'
+		changed = true
+	}
+	if !changed {
+		return text, false
+	}
+	return string(masked), true
+}
+
+func rubyLiteralExpressionContext(tokens []Token, index int) bool {
+	for previous := index - 1; previous >= 0; previous-- {
+		token := tokens[previous]
+		switch token.Kind {
+		case TokenNewline, TokenIndent, TokenDedent:
+			return true
+		case TokenEOF:
+			continue
+		case TokenOperator:
+			return true
+		case TokenPunctuation:
+			switch token.Text {
+			case "(", "[", "{", ",", ";", ":":
+				return true
+			default:
+				return false
+			}
+		case TokenKeyword:
+			switch strings.ToLower(token.Text) {
+			case "begin", "case", "do", "else", "elsif", "ensure", "if", "rescue", "then", "unless", "until", "when", "while":
+				return true
+			default:
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func rubyPercentLiteralDelimiterAt(text string, offset int) (int, bool) {
+	if offset >= len(text) {
+		return 0, false
+	}
+	if strings.ContainsRune("qQwWiIxrs", rune(text[offset])) {
+		offset++
+	}
+	if offset >= len(text) {
+		return 0, false
+	}
+	delimiter := text[offset]
+	if delimiter == '_' || delimiter >= '0' && delimiter <= '9' || delimiter >= 'A' && delimiter <= 'Z' || delimiter >= 'a' && delimiter <= 'z' || delimiter == ' ' || delimiter == '\t' || delimiter == '\r' || delimiter == '\n' {
+		return 0, false
+	}
+	return offset, true
+}
+
+func rubyPercentLiteralEnd(text string, delimiterAt, maxNesting int) (int, bool) {
+	open := text[delimiterAt]
+	close := open
+	paired := true
+	switch open {
+	case '(':
+		close = ')'
+	case '[':
+		close = ']'
+	case '{':
+		close = '}'
+	case '<':
+		close = '>'
+	default:
+		paired = false
+	}
+	depth := 1
+	for at := delimiterAt + 1; at < len(text); at++ {
+		if text[at] == '\\' && at+1 < len(text) {
+			at++
+			continue
+		}
+		if paired && text[at] == open {
+			depth++
+			if maxNesting > 0 && depth > maxNesting {
+				return 0, false
+			}
+			continue
+		}
+		if text[at] != close {
+			continue
+		}
+		depth--
+		if depth == 0 {
+			return at + 1, true
+		}
+	}
+	return 0, false
 }
 
 type rubyScope struct {
@@ -180,8 +470,17 @@ func (p *rubyParser) parseModule(line LogicalLine, keyword int) {
 func (p *rubyParser) parseClass(line LogicalLine, keyword int) {
 	tokens := line.Tokens
 	cursor := keyword + 1
-	if (cursor+1 < len(tokens) && tokens[cursor].Text == "<<" && strings.EqualFold(tokens[cursor+1].Text, "self")) ||
-		(cursor+2 < len(tokens) && tokens[cursor].Text == "<" && tokens[cursor+1].Text == "<" && strings.EqualFold(tokens[cursor+2].Text, "self")) {
+	receiverStart := -1
+	if cursor < len(tokens) && tokens[cursor].Text == "<<" {
+		receiverStart = cursor + 1
+	} else if cursor+1 < len(tokens) && tokens[cursor].Text == "<" && tokens[cursor+1].Text == "<" {
+		receiverStart = cursor + 2
+	}
+	if receiverStart >= 0 {
+		if receiverStart >= len(tokens) {
+			p.markMalformed(line, "ruby-singleton-class-receiver", "Ruby singleton class declaration has no receiver")
+			return
+		}
 		p.scopes = append(p.scopes, rubyScope{kind: "singleton-class", parent: p.currentParent(), owner: p.currentOwner(), visibility: p.currentVisibility()})
 		return
 	}
@@ -344,6 +643,9 @@ func rubyStartsAnonymousBlock(tokens []Token) bool {
 	case "if", "unless", "case", "begin", "while", "until", "for":
 		return true
 	}
+	if rubyStartsAssignmentBlock(tokens) {
+		return true
+	}
 	inlineDepth := 0
 	for _, token := range tokens {
 		switch strings.ToLower(token.Text) {
@@ -356,6 +658,32 @@ func rubyStartsAnonymousBlock(tokens []Token) bool {
 		}
 	}
 	return inlineDepth > 0
+}
+
+func rubyStartsAssignmentBlock(tokens []Token) bool {
+	for index := 0; index < len(tokens); index++ {
+		if !rubyAssignmentOperator(tokens[index].Text) {
+			continue
+		}
+		next := nextStructuralToken(tokens, index+1, len(tokens))
+		if next >= len(tokens) {
+			return false
+		}
+		switch strings.ToLower(tokens[next].Text) {
+		case "if", "unless", "case", "begin":
+			return true
+		}
+	}
+	return false
+}
+
+func rubyAssignmentOperator(value string) bool {
+	switch value {
+	case "=", "||=", "&&=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", "&=", "|=", "^=":
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *rubyParser) currentParent() *SymbolParent {

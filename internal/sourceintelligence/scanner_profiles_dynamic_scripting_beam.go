@@ -14,6 +14,19 @@ func PerlScannerProfile() ScannerProfile {
 }
 
 func LuaScannerProfile(name string) ScannerProfile {
+	strings := []StringRule{
+		{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
+		{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
+	}
+	if name == "luau" {
+		strings = append([]StringRule{{
+			Prefixes:            []string{""},
+			Delimiter:           "`",
+			BackslashEscapes:    true,
+			Interpolated:        true,
+			RejectDoubledBraces: true,
+		}}, strings...)
+	}
 	return ScannerProfile{
 		Name: name,
 		Keywords: []string{
@@ -21,10 +34,7 @@ func LuaScannerProfile(name string) ScannerProfile {
 		},
 		Identifier:   DefaultIdentifierPolicy(),
 		LineComments: []string{"--"},
-		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
-		},
+		Strings:      strings,
 	}
 }
 
@@ -35,10 +45,10 @@ func ElixirScannerProfile() ScannerProfile {
 		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "@", ExtraContinue: "?!@"},
 		LineComments: []string{"#"},
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'''", Multiline: true, BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'", Multiline: true, BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true, BackslashEscapes: true, Interpolated: true, InterpolationOpen: "#{"},
+			{Prefixes: []string{""}, Delimiter: "'''", Multiline: true, BackslashEscapes: true, Interpolated: true, InterpolationOpen: "#{"},
+			{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true, Interpolated: true, InterpolationOpen: "#{"},
+			{Prefixes: []string{""}, Delimiter: "'", Multiline: true, BackslashEscapes: true, Interpolated: true, InterpolationOpen: "#{"},
 		},
 	}
 }
@@ -50,7 +60,8 @@ func ErlangScannerProfile() ScannerProfile {
 		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "@", ExtraContinue: "@"},
 		LineComments: []string{"%"},
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "\"", RepeatedDelimiterMin: 3, Multiline: true},
+			{Prefixes: []string{""}, Delimiter: "\"", Multiline: true, BackslashEscapes: true},
 			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
 		},
 	}

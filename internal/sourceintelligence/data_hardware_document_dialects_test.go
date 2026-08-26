@@ -38,6 +38,58 @@ func TestSQLDialectProfiles(t *testing.T) {
 	}
 }
 
+func TestSQLQuotedDDLHierarchyAndReferenceDependencies(t *testing.T) {
+	text := "CREATE SCHEMA IF NOT EXISTS `lemans24` DEFAULT CHARACTER SET utf8mb4;\n" +
+		"CREATE TABLE IF NOT EXISTS `lemans24`.`drivers` (`id` INT PRIMARY KEY);\n" +
+		"CREATE TABLE IF NOT EXISTS `lemans24`.`results` (`driver_id` INT, CONSTRAINT `fk_driver` FOREIGN KEY (`driver_id`) REFERENCES `lemans24`.`drivers` (`id`));\n" +
+		"CREATE TABLE [reporting].[runs] ([job_id] INT REFERENCES [reporting].[jobs]([id]));\n" +
+		"CREATE TABLE \"odd.name\" (id INT);\n" +
+		"GRANT CREATE TABLE TO chinook;\n" +
+		"REVOKE CREATE VIEW FROM chinook;\n" +
+		"-- REFERENCES ignored_table(id)\n" +
+		"SELECT 'REFERENCES ignored_string(id)';\n"
+	result, err := (SQLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("schema.sql", text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	schema, ok := byName["lemans24"]
+	if !ok || schema.Kind != SymbolKindSchema {
+		t.Fatalf("SQL schema = %+v exists=%v; symbols=%v", schema, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	for _, name := range []string{"lemans24.drivers", "lemans24.results"} {
+		symbol, exists := byName[name]
+		if !exists || symbol.Kind != SymbolKindType || symbol.ParentID != schema.ID || symbol.ParentQualifiedName != schema.QualifiedName {
+			t.Fatalf("SQL child %s = %+v exists=%v; schema=%+v symbols=%v", name, symbol, exists, schema, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	if _, ok := byName["reporting.runs"]; !ok {
+		t.Fatalf("SQL bracket-qualified table missing; symbols=%v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if _, ok := byName[`"odd.name"`]; !ok {
+		t.Fatalf("SQL quoted identifier containing a dot was split; symbols=%v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	dependencies := make(map[string]StructuralDependencyKind, len(result.Dependencies))
+	for _, dependency := range result.Dependencies {
+		dependencies[dependency.Value] = dependency.Kind
+	}
+	for _, value := range []string{"lemans24.drivers", "reporting.jobs"} {
+		if kind := dependencies[value]; string(kind) != "reference" {
+			t.Fatalf("SQL dependency %q kind=%q; all=%+v", value, kind, result.Dependencies)
+		}
+	}
+	for _, forbidden := range []string{"ignored_table", "ignored_string"} {
+		if _, ok := dependencies[forbidden]; ok {
+			t.Fatalf("opaque SQL text produced dependency %q: %+v", forbidden, result.Dependencies)
+		}
+	}
+	for _, forbidden := range []string{"TO", "FROM"} {
+		if _, ok := byName[forbidden]; ok {
+			t.Fatalf("SQL DCL phrase produced phantom declaration %q: %v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestGenericHCLUsesTerraformProviderWithoutInventingTerraformSemantics(t *testing.T) {
 	registry, err := NewLanguageRegistry(defaultLanguageDescriptors())
 	if err != nil {
@@ -58,6 +110,57 @@ func TestGenericHCLUsesTerraformProviderWithoutInventingTerraformSemantics(t *te
 	for _, name := range []string{"service.api", "provider.aws", "locals"} {
 		if symbol, ok := byName[name]; !ok || symbol.Kind != SymbolKindSection {
 			t.Fatalf("generic HCL section %s = %+v exists=%v; symbols=%v", name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestTerraformStructuralBlocksExposeHierarchy(t *testing.T) {
+	text := `resource "aws_instance" "web" {
+  lifecycle {
+    create_before_destroy = true
+  }
+  provisioner "local-exec" {
+    command = "echo ready"
+  }
+  tags = {
+    lifecycle = "metadata"
+  }
+}
+service "api" {
+  route "health" {
+    path = "/health"
+  }
+  settings = {
+    route = "metadata"
+  }
+}
+`
+	result, err := (TerraformAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("hierarchy.tf", text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, tc := range []struct {
+		name       string
+		parentName string
+		kind       SymbolKind
+	}{
+		{name: "aws_instance.web.lifecycle", parentName: "aws_instance.web", kind: SymbolKindSection},
+		{name: "aws_instance.web.provisioner.local-exec", parentName: "aws_instance.web", kind: SymbolKindSection},
+		{name: "service.api.route.health", parentName: "service.api", kind: SymbolKindSection},
+	} {
+		symbol, ok := byName[tc.name]
+		if !ok || symbol.Kind != tc.kind {
+			t.Fatalf("Terraform nested block %s = %+v exists=%v; symbols=%v", tc.name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		parent, ok := byName[tc.parentName]
+		if !ok || symbol.ParentID != parent.ID || symbol.ParentQualifiedName != parent.QualifiedName {
+			t.Fatalf("Terraform nested block %s parent = %q/%q, want %q/%q", tc.name, symbol.ParentID, symbol.ParentQualifiedName, parent.ID, parent.QualifiedName)
+		}
+	}
+	for _, forbidden := range []string{"aws_instance.web.tags", "aws_instance.web.tags.lifecycle", "service.api.settings", "service.api.settings.route"} {
+		if _, ok := byName[forbidden]; ok {
+			t.Fatalf("Terraform object expression unexpectedly became a structural block %s; symbols=%v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 		}
 	}
 }

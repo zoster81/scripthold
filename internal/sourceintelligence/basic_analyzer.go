@@ -69,15 +69,16 @@ type basicLine struct {
 	start, end int
 }
 type basicParser struct {
-	ctx          context.Context
-	document     *SourceDocument
-	builder      *SymbolBuilder
-	policy       basicDialectPolicy
-	lines        []basicLine
-	pairs        map[int]int
-	module       *SymbolParent
-	dependencies []StructuralDependency
-	stopped      bool
+	ctx                 context.Context
+	document            *SourceDocument
+	builder             *SymbolBuilder
+	policy              basicDialectPolicy
+	lines               []basicLine
+	pairs               map[int]int
+	declareLibraryPairs map[int]int
+	module              *SymbolParent
+	dependencies        []StructuralDependency
+	stopped             bool
 }
 
 func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options AnalyzeOptions, policy basicDialectPolicy) (AnalyzerResult, error) {
@@ -121,6 +122,7 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 		}
 	}
 	parser := &basicParser{ctx: ctx, document: document, builder: builder, policy: policy, lines: lines}
+	parser.declareLibraryPairs = parser.buildDeclareLibraryPairs()
 	parser.pairs = parser.buildPairs()
 	parser.dependencies = collectBasicDependencies(document, policy)
 	parser.parseRange(0, len(lines), nil, "")
@@ -130,6 +132,48 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies}, nil
 }
 
+func basicDeclareLibraryOpen(tokens []Token) bool {
+	semantic := basicSemanticIndex(tokens)
+	if semantic < 0 || !strings.EqualFold(tokens[semantic].Text, "declare") {
+		return false
+	}
+	library := semantic + 1
+	if library < len(tokens) && strings.EqualFold(tokens[library].Text, "dynamic") {
+		library++
+	}
+	return library < len(tokens) && strings.EqualFold(tokens[library].Text, "library")
+}
+
+func basicDeclareLibraryClose(tokens []Token) bool {
+	semantic := basicSemanticIndex(tokens)
+	return semantic >= 0 && semantic+1 < len(tokens) &&
+		strings.EqualFold(tokens[semantic].Text, "end") && strings.EqualFold(tokens[semantic+1].Text, "declare")
+}
+
+func (p *basicParser) buildDeclareLibraryPairs() map[int]int {
+	pairs := map[int]int{}
+	if p.policy.language != "qbasic" && p.policy.language != "classic-basic" {
+		return pairs
+	}
+	open := -1
+	for i, line := range p.lines {
+		if open < 0 {
+			if basicDeclareLibraryOpen(line.tokens) {
+				open = i
+			}
+			continue
+		}
+		if basicDeclareLibraryClose(line.tokens) {
+			pairs[open] = i
+			open = -1
+		}
+	}
+	if open >= 0 {
+		pairs[open] = -1
+	}
+	return pairs
+}
+
 func (p *basicParser) buildPairs() map[int]int {
 	pairs := map[int]int{}
 	type open struct {
@@ -137,7 +181,15 @@ func (p *basicParser) buildPairs() map[int]int {
 		label string
 	}
 	var stack []open
-	for i, line := range p.lines {
+	for i := 0; i < len(p.lines); i++ {
+		if close, ok := p.declareLibraryPairs[i]; ok {
+			if close < 0 {
+				break
+			}
+			i = close
+			continue
+		}
+		line := p.lines[i]
 		label, openScope := p.scopeOpen(line.tokens)
 		if openScope {
 			stack = append(stack, open{i, label})
@@ -283,6 +335,44 @@ func (p *basicParser) scopeClose(tokens []Token) string {
 	return ""
 }
 
+func (p *basicParser) parseDeclareLibraryBlock(index, end int, parent *SymbolParent) (int, bool) {
+	close, ok := p.declareLibraryPairs[index]
+	if !ok {
+		return index, false
+	}
+	line := p.lines[index]
+	prototypeEnd := close
+	if close < 0 || close > end {
+		prototypeEnd = end
+	}
+	p.parseDeclareLibraryPrototypes(index+1, prototypeEnd, parent)
+	if close < 0 {
+		p.builder.MarkIncomplete()
+		_ = p.builder.AddDiagnostic(DiagnosticSpec{Code: p.policy.language + "-missing-end-declare", Message: "DECLARE LIBRARY is missing END DECLARE", Severity: DiagnosticWarning, Range: &OffsetRange{Start: line.start, End: line.end}, AffectsCoverage: true})
+		return end, true
+	}
+	if close >= end {
+		return end, true
+	}
+	return close + 1, true
+}
+
+func (p *basicParser) parseVariableDeclaration(line basicLine, semantic int, first, scopeKind string, parent *SymbolParent) bool {
+	if first != "dim" && first != "global" && first != "static" {
+		return false
+	}
+	kind := SymbolKindVariable
+	if basicFieldScope(scopeKind) {
+		kind = SymbolKindField
+	}
+	nameIndex := semantic + 1
+	if first == "dim" && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "shared") {
+		nameIndex++
+	}
+	p.addNamed(line, nameIndex, kind, "variable", parent)
+	return true
+}
+
 func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind string) {
 	currentParent := parent
 	if currentParent == nil && p.module != nil {
@@ -314,6 +404,10 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 				}
 			}
 			i++
+			continue
+		}
+		if next, handled := p.parseDeclareLibraryBlock(i, end, currentParent); handled {
+			i = next
 			continue
 		}
 		semantic := basicSemanticIndex(tokens)
@@ -367,12 +461,7 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 			i++
 			continue
 		}
-		if first == "dim" || first == "global" || first == "static" {
-			kind := SymbolKindVariable
-			if basicFieldScope(scopeKind) {
-				kind = SymbolKindField
-			}
-			p.addNamed(line, semantic+1, kind, "variable", currentParent)
+		if p.parseVariableDeclaration(line, semantic, first, scopeKind, currentParent) {
 			i++
 			continue
 		}
@@ -463,6 +552,21 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 	}
 	name := normalizeBasicName(nameToken.Text, p.policy)
 	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset}, Signature: &OffsetRange{Start: line.start, End: line.end}, Evidence: SymbolEvidenceStructural})
+}
+
+func (p *basicParser) parseDeclareLibraryPrototypes(start, end int, parent *SymbolParent) {
+	for i := start; i < end && !p.stopped; i++ {
+		line := p.lines[i]
+		semantic := basicSemanticIndex(line.tokens)
+		if semantic < 0 || semantic+1 >= len(line.tokens) {
+			continue
+		}
+		kind := strings.ToLower(line.tokens[semantic].Text)
+		if kind != "sub" && kind != "function" {
+			continue
+		}
+		p.addNamed(line, semantic+1, SymbolKindFunction, "declare-library-"+kind, parent)
+	}
 }
 
 func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent) {

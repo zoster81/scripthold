@@ -126,6 +126,48 @@ func markdownCell(value string) string {
 	return value
 }
 
+type analyzerStructuralCapabilityProfile struct {
+	hierarchy    bool
+	signatures   bool
+	dependencies bool
+}
+
+// analyzerStructuralCapabilities is intentionally fail-closed. New analyzers
+// must be reviewed before they can advertise hierarchy, signatures, or dependencies.
+func analyzerStructuralCapabilities(analyzer AnalyzerID) analyzerStructuralCapabilityProfile {
+	switch analyzer {
+	case AnalyzerAda, AnalyzerAL, AnalyzerArduino, AnalyzerASPNetWebForms, AnalyzerAstro,
+		AnalyzerAutoHotkey, AnalyzerBlade, AnalyzerBlazor, AnalyzerC, AnalyzerCIL,
+		AnalyzerClassicASP, AnalyzerClojure, AnalyzerCOBOL, AnalyzerCommonLisp, AnalyzerCPP,
+		AnalyzerCPPCLI, AnalyzerCSharp, AnalyzerD, AnalyzerDart, AnalyzerDelphi,
+		AnalyzerEJS, AnalyzerElixir, AnalyzerErlang, AnalyzerFlow, AnalyzerFortran,
+		AnalyzerFreeBasic, AnalyzerFSharp, AnalyzerGleam, AnalyzerGo, AnalyzerGroovy,
+		AnalyzerHaskell, AnalyzerJava, AnalyzerJavaScript, AnalyzerJinja, AnalyzerJScriptNet,
+		AnalyzerJSP, AnalyzerJulia, AnalyzerKotlin, AnalyzerMATLAB, AnalyzerMQL4,
+		AnalyzerMQL5, AnalyzerNim, AnalyzerObjectiveC, AnalyzerObjectiveCPP, AnalyzerOCaml,
+		AnalyzerOctave, AnalyzerPascal, AnalyzerPerl, AnalyzerPHP, AnalyzerPHPHTML,
+		AnalyzerPowerShell, AnalyzerProto, AnalyzerPureBasic, AnalyzerPython, AnalyzerRazor,
+		AnalyzerRuby, AnalyzerRust, AnalyzerScala, AnalyzerSolidity, AnalyzerSQL,
+		AnalyzerSvelte, AnalyzerSwift, AnalyzerTcl, AnalyzerTerraform, AnalyzerTwig,
+		AnalyzerTypeScript, AnalyzerVB6, AnalyzerVBA, AnalyzerVBNet, AnalyzerVHDL,
+		AnalyzerVue, AnalyzerZig:
+		return analyzerStructuralCapabilityProfile{hierarchy: true, signatures: true, dependencies: true}
+	case AnalyzerAnsibleYAML, AnalyzerApex, AnalyzerClassicBasic, AnalyzerGraphQL,
+		AnalyzerJSON, AnalyzerMarkdown, AnalyzerPLSQL, AnalyzerQBasic, AnalyzerSystemVerilog,
+		AnalyzerTOML, AnalyzerVBScript, AnalyzerVerilog, AnalyzerYAML:
+		return analyzerStructuralCapabilityProfile{hierarchy: true, signatures: true}
+	case AnalyzerAssembly, AnalyzerCSS, AnalyzerHTML, AnalyzerLess, AnalyzerNix,
+		AnalyzerOpenAPI, AnalyzerSass, AnalyzerSCSS, AnalyzerXML:
+		return analyzerStructuralCapabilityProfile{signatures: true}
+	case AnalyzerBash, AnalyzerEmacsLisp, AnalyzerLua, AnalyzerLuau, AnalyzerR, AnalyzerShell:
+		return analyzerStructuralCapabilityProfile{signatures: true, dependencies: true}
+	case AnalyzerXAML:
+		return analyzerStructuralCapabilityProfile{hierarchy: true, dependencies: true}
+	default:
+		return analyzerStructuralCapabilityProfile{}
+	}
+}
+
 func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor {
 	if descriptor.Family == "" {
 		descriptor.Family = languageFamily(descriptor.ID)
@@ -144,11 +186,12 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 		}
 	}
 	if descriptor.Capabilities.SourceAnalysis {
+		structural := analyzerStructuralCapabilities(descriptor.Analyzer)
 		descriptor.Capabilities.Declarations = true
-		descriptor.Capabilities.Hierarchy = true
-		descriptor.Capabilities.Signatures = true
+		descriptor.Capabilities.Hierarchy = structural.hierarchy
+		descriptor.Capabilities.Signatures = structural.signatures
 		descriptor.Capabilities.Ranges = true
-		descriptor.Capabilities.Dependencies = true
+		descriptor.Capabilities.Dependencies = structural.dependencies
 		descriptor.Capabilities.IncrementalIndex = true
 		switch descriptor.ID {
 		case "vbnet", "cpp", "java", "kotlin", "javascript", "typescript", "rust", "php", "ruby", "swift", "pascal", "delphi", "fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "nim", "solidity", "apex", "al", "arduino", "groovy", "autohotkey", "scala", "flow":
@@ -210,7 +253,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "xaml":
 				descriptor.KnownLimitations = []string{"x:Class/x:Name/xmlns declarations are structural only; bindings, resources, code-behind resolution, semantic relations, and incremental indexing are not implemented"}
 			case "mql4", "mql5":
-				descriptor.KnownLimitations = []string{"macro expansion and conditional preprocessing are not evaluated; imported binaries, trading runtime state, project/type resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"simple #ifdef/#ifndef branches over predefined dialect macros __MQL4__, __MQL5__, __MQL__, and __cplusplus are resolved structurally; macro expansion, #if/#elif expression evaluation, user-defined conditional state, imported binaries, trading runtime state, project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "objective-c", "objective-cpp":
 				descriptor.KnownLimitations = []string{"preprocessor/macro expansion, categories/runtime dispatch, framework/project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "dart":
@@ -305,12 +348,14 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"root play/task name navigation is structural only; roles/includes/imports, variables, inventory, module/plugin resolution, execution semantics, semantic relations, and incremental indexing are not implemented"}
 			case "vue", "svelte", "astro":
 				descriptor.KnownLimitations = []string{"host markup plus supported script/style regions are analyzed with offset-preserving masking; framework compilation, template expression semantics, component resolution, generated code, semantic relations, and incremental indexing are not implemented"}
-			case "php-html", "jsp", "ejs":
+			case "php-html":
+				descriptor.KnownLimitations = []string{"host markup plus lexical-context-aware PHP regions are analyzed structurally with original host coordinates; valid PHP control-flow and declaration scopes may span multiple embedded regions, while template/runtime execution, generated output, project resolution, semantic relations, and incremental indexing are not implemented"}
+			case "jsp", "ejs":
 				descriptor.KnownLimitations = []string{"host markup plus explicit embedded code regions are analyzed structurally with original host coordinates; template/runtime execution, generated output, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "jinja", "twig":
 				descriptor.KnownLimitations = []string{"host markup plus structural block/macro declarations are indexed; template expressions, filters/tests, inheritance resolution, runtime rendering, semantic relations, and incremental indexing are not implemented"}
 			case "blade":
-				descriptor.KnownLimitations = []string{"host markup, section declarations and explicit @php regions are indexed; Blade expression/directive execution, component/view resolution, generated output, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"host markup, section declarations, explicit @php regions, and class-based Livewire Volt component members are indexed structurally; general Blade expression/directive execution, component/view resolution, generated output, semantic relations, and incremental indexing are not implemented"}
 			default:
 				descriptor.KnownLimitations = []string{"project resolution, syntactic call graph, semantic relations, and incremental indexing are not implemented"}
 			}
@@ -481,7 +526,9 @@ func activeProviderMetadata(analyzer AnalyzerID) (scannerProfile, strategy, vers
 		return "json", "native-document-structural", "r27-p10-v1"
 	case AnalyzerYAML, AnalyzerTOML, AnalyzerMarkdown, AnalyzerOpenAPI, AnalyzerAnsibleYAML:
 		return "document-line", "native-line-structural", "r27-p10-v1"
-	case AnalyzerVue, AnalyzerSvelte, AnalyzerAstro, AnalyzerPHPHTML, AnalyzerJSP, AnalyzerJinja, AnalyzerTwig, AnalyzerBlade, AnalyzerEJS:
+	case AnalyzerPHPHTML:
+		return "composite-template", "native-masked-composite", "r27-p11-v2"
+	case AnalyzerVue, AnalyzerSvelte, AnalyzerAstro, AnalyzerJSP, AnalyzerJinja, AnalyzerTwig, AnalyzerBlade, AnalyzerEJS:
 		return "composite-template", "native-masked-composite", "r27-p11-v1"
 	default:
 		return "unimplemented", "unimplemented", "none"

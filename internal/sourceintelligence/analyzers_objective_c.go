@@ -33,29 +33,10 @@ func analyzeObjectiveCFamily(ctx context.Context, document *SourceDocument, opti
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_objective_c_source", document.Path, err)
 	}
-	builder := NewSymbolBuilder(document, SymbolBuilderOptions{Context: ctx, Language: language, Analyzer: string(analyzer), IncludeSignatures: options.IncludeSignatures, MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits})
-	if err := builder.checkReady(); err != nil {
-		return AnalyzerResult{}, err
-	}
-	maxNesting := options.MaxNesting
-	if maxNesting <= 0 {
-		maxNesting = 2048
-	}
-	scan, err := ScanSource(ctx, document, ObjectiveCScannerProfile(language), ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	base, err := analyzeObjectiveCBase(ctx, document, options, language, analyzer, includeCPP)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	for _, diagnostic := range scan.Diagnostics {
-		value := OffsetRange{Start: diagnostic.StartOffset, End: diagnostic.EndOffset}
-		_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-" + diagnostic.Code, Message: diagnostic.Message, Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true})
-	}
-	if !scan.Complete {
-		builder.MarkIncomplete()
-	}
-	parser := &objectiveCParser{ctx: ctx, document: document, builder: builder, language: language, analyzer: analyzer, types: make(map[string]SymbolParent)}
-	parser.collectDirectives(scan.Tokens)
-	parser.parse(BuildLogicalLines(scan.Tokens, LogicalLineProfile{SkipDirectives: true}))
-	base := AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}
 	if !includeCPP {
 		return base, nil
 	}
@@ -87,6 +68,107 @@ func analyzeObjectiveCFamily(ctx context.Context, document *SourceDocument, opti
 	base.Dependencies = appendUniqueDependencies(base.Dependencies, cpp.Dependencies)
 	base.Relations = append(base.Relations, cpp.Relations...)
 	return base, nil
+}
+
+func analyzeObjectiveCBase(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, maskCPPRaw bool) (AnalyzerResult, error) {
+	planDocument := document
+	if maskCPPRaw {
+		maskedRaw, _, err := maskCPPRawStrings(ctx, document.Text)
+		if err != nil {
+			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_objective_cpp_source", document.Path, err)
+		}
+		if maskedRaw != document.Text {
+			clone := *document
+			clone.Text = maskedRaw
+			clone.lineStarts = buildLineStarts(maskedRaw)
+			planDocument = &clone
+		}
+	}
+	planProfile := ObjectiveCScannerProfile(language)
+	planProfile.DisableDelimiterTracking = true
+	maxNesting := options.MaxNesting
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
+	planScan, err := ScanSource(ctx, planDocument, planProfile, ScannerLimits{MaxTokens: scannerTokenBudget(planDocument.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	plan := cFamilyConditionalPlan(planScan.Tokens)
+	if plan.issue != nil || len(plan.groups) == 0 {
+		return analyzeObjectiveCBaseSingle(ctx, document, options, language, analyzer, maskCPPRaw)
+	}
+	selections, ok := conditionalSelections(plan.groups)
+	if !ok {
+		result, singleErr := analyzeObjectiveCBaseSingle(ctx, document, options, language, analyzer, maskCPPRaw)
+		if singleErr != nil {
+			return AnalyzerResult{}, singleErr
+		}
+		result.Analysis.CoverageComplete = false
+		if len(result.Analysis.Diagnostics) < options.Limits.MaxDiagnostics {
+			result.Analysis.Diagnostics = append(result.Analysis.Diagnostics, AnalysisDiagnostic{Code: language + "-conditional-variant-limit", Message: "conditional preprocessing exceeds the bounded structural variant limit", Severity: DiagnosticWarning})
+		} else {
+			result.Analysis.DiagnosticsTruncated = true
+		}
+		return result, nil
+	}
+	variants := make([]AnalyzerResult, 0, len(selections))
+	for _, selection := range selections {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_objective_c_source", document.Path, err)
+		}
+		masked := maskConditionalVariant(document.Text, plan, selection)
+		clone := *document
+		clone.Text = masked
+		clone.lineStarts = buildLineStarts(masked)
+		variant, variantErr := analyzeObjectiveCBaseSingle(ctx, &clone, options, language, analyzer, maskCPPRaw)
+		if variantErr != nil {
+			return AnalyzerResult{}, variantErr
+		}
+		variants = append(variants, variant)
+	}
+	return mergeCFamilyConditionalVariants(language, options, variants), nil
+}
+
+func analyzeObjectiveCBaseSingle(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, maskCPPRaw bool) (AnalyzerResult, error) {
+	builder := NewSymbolBuilder(document, SymbolBuilderOptions{Context: ctx, Language: language, Analyzer: string(analyzer), IncludeSignatures: options.IncludeSignatures, MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits})
+	if err := builder.checkReady(); err != nil {
+		return AnalyzerResult{}, err
+	}
+	maxNesting := options.MaxNesting
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
+	scanDocument := document
+	var rawDiagnostics []ScannerDiagnostic
+	if maskCPPRaw {
+		maskedRaw, diagnostics, maskErr := maskCPPRawStrings(ctx, document.Text)
+		if maskErr != nil {
+			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_objective_cpp_source", document.Path, maskErr)
+		}
+		rawDiagnostics = diagnostics
+		if maskedRaw != document.Text {
+			clone := *document
+			clone.Text = maskedRaw
+			clone.lineStarts = buildLineStarts(maskedRaw)
+			scanDocument = &clone
+		}
+	}
+	scan, err := ScanSource(ctx, scanDocument, ObjectiveCScannerProfile(language), ScannerLimits{MaxTokens: scannerTokenBudget(scanDocument.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	for _, diagnostic := range append(rawDiagnostics, scan.Diagnostics...) {
+		value := OffsetRange{Start: diagnostic.StartOffset, End: diagnostic.EndOffset}
+		_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-" + diagnostic.Code, Message: diagnostic.Message, Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true})
+	}
+	if !scan.Complete || len(rawDiagnostics) > 0 {
+		builder.MarkIncomplete()
+	}
+	parser := &objectiveCParser{ctx: ctx, document: document, builder: builder, language: language, analyzer: analyzer, types: make(map[string]SymbolParent)}
+	parser.collectDirectives(scan.Tokens)
+	parser.parse(BuildLogicalLines(scan.Tokens, LogicalLineProfile{SkipDirectives: true}))
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
 }
 
 type objectiveCParser struct {
@@ -337,17 +419,18 @@ func maskObjectiveCBlocksForCPP(text string) string {
 		}
 		trimmed := strings.TrimSpace(text[lineStart:lineEnd])
 		lower := strings.ToLower(trimmed)
-		if strings.HasPrefix(lower, "@interface") || strings.HasPrefix(lower, "@implementation") || strings.HasPrefix(lower, "@protocol") {
+		opensBlock := strings.HasPrefix(lower, "@interface") || strings.HasPrefix(lower, "@implementation") || strings.HasPrefix(lower, "@protocol") && !objectiveCProtocolForwardDeclaration(trimmed)
+		if opensBlock {
 			inside = true
 		}
-		if inside {
+		if inside && !strings.HasPrefix(trimmed, "#") {
 			for i := lineStart; i < lineEnd; i++ {
 				if masked[i] != '\r' && masked[i] != '\n' {
 					masked[i] = ' '
 				}
 			}
 		}
-		if inside && strings.HasPrefix(lower, "@end") {
+		if inside && (strings.HasPrefix(lower, "@end") || opensBlock && objectiveCLineHasEndDirective(trimmed)) {
 			inside = false
 		}
 		if lineEnd >= len(text) {
@@ -360,4 +443,54 @@ func maskObjectiveCBlocksForCPP(text string) string {
 		}
 	}
 	return string(masked)
+}
+
+func objectiveCProtocolForwardDeclaration(line string) bool {
+	if comment := strings.Index(line, "//"); comment >= 0 {
+		line = line[:comment]
+	}
+	if comment := strings.Index(line, "/*"); comment >= 0 {
+		line = line[:comment]
+	}
+	return strings.HasSuffix(strings.TrimSpace(line), ";")
+}
+
+func objectiveCLineHasEndDirective(line string) bool {
+	for at := 0; at < len(line); {
+		if strings.HasPrefix(line[at:], "//") {
+			return false
+		}
+		if strings.HasPrefix(line[at:], "/*") {
+			end := strings.Index(line[at+2:], "*/")
+			if end < 0 {
+				return false
+			}
+			at += end + 4
+			continue
+		}
+		if line[at] == '\'' || line[at] == '"' {
+			quote := line[at]
+			at++
+			for at < len(line) {
+				if line[at] == '\\' && at+1 < len(line) {
+					at += 2
+					continue
+				}
+				if line[at] == quote {
+					at++
+					break
+				}
+				at++
+			}
+			continue
+		}
+		if strings.HasPrefix(line[at:], "@end") {
+			next := at + len("@end")
+			if next == len(line) || !isASCIIIdentifierByte(line[next]) {
+				return true
+			}
+		}
+		at++
+	}
+	return false
 }

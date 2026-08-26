@@ -260,6 +260,24 @@ func NewSymbolBuilder(document *SourceDocument, options SymbolBuilderOptions) *S
 	return builder
 }
 
+func (builder *SymbolBuilder) reserveSymbols(capacity int) {
+	if builder == nil || capacity <= 0 || len(builder.result.Symbols) != 0 || len(builder.seenIDs) != 0 {
+		return
+	}
+	maximum := builder.options.Limits.MaxSymbols
+	if maximum <= 0 {
+		return
+	}
+	if capacity > maximum {
+		capacity = maximum
+	}
+	if capacity <= cap(builder.result.Symbols) {
+		return
+	}
+	builder.result.Symbols = make([]NormalizedSymbol, 0, capacity)
+	builder.seenIDs = make(map[string]struct{}, capacity)
+}
+
 func validateSymbolBuilderOptions(document *SourceDocument, options SymbolBuilderOptions) error {
 	if document == nil {
 		return operation.New(operation.KindInvalidInput, "source document is required")
@@ -287,8 +305,25 @@ func (builder *SymbolBuilder) Scopes() *ScopeStack {
 }
 
 // Add normalizes and appends one declaration while enforcing all common R25
-// evidence, range, identity, hierarchy, and retention rules.
+// evidence, range, identity, hierarchy, and retention rules. The returned value
+// is a defensive copy so callers cannot mutate the builder's retained symbol.
 func (builder *SymbolBuilder) Add(spec SymbolSpec) (NormalizedSymbol, error) {
+	normalized, err := builder.add(spec)
+	if err != nil {
+		return NormalizedSymbol{}, err
+	}
+	return cloneNormalizedSymbol(normalized), nil
+}
+
+// addDiscard retains one declaration without constructing the defensive return
+// copy needed by Add. It is for package-internal analyzer paths that only need
+// success/failure and never observe the normalized symbol directly.
+func (builder *SymbolBuilder) addDiscard(spec SymbolSpec) error {
+	_, err := builder.add(spec)
+	return err
+}
+
+func (builder *SymbolBuilder) add(spec SymbolSpec) (NormalizedSymbol, error) {
 	if builder == nil {
 		return NormalizedSymbol{}, operation.New(operation.KindInvalidInput, "symbol builder is nil")
 	}
@@ -329,7 +364,7 @@ func (builder *SymbolBuilder) Add(spec SymbolSpec) (NormalizedSymbol, error) {
 			Range: cloneRange(normalized.SignatureRange),
 		}, true)
 	}
-	return cloneNormalizedSymbol(normalized), nil
+	return normalized, nil
 }
 
 func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol, error) {

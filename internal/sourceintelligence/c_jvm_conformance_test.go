@@ -118,8 +118,8 @@ func TestOpaqueAdvancedStringFamiliesAndPreprocessorTruthfulness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if conditional.Analysis.CoverageComplete || len(conditional.Analysis.Diagnostics) == 0 {
-		t.Fatalf("conditional preprocessing was overclaimed as complete: %+v", conditional.Analysis)
+	if !conditional.Analysis.CoverageComplete || !hasAnalysisDiagnostic(conditional.Analysis.Diagnostics, "c-conditional-preprocessor") {
+		t.Fatalf("balanced conditional preprocessing should preserve structural source coverage while reporting the macro-state limitation: %+v", conditional.Analysis)
 	}
 	if _, ok := symbolsByQualifiedName(conditional.Analysis.Symbols)["Always"]; !ok {
 		t.Fatalf("conditional parsing lost unaffected declaration: %v", sortedSymbolQualifiedNames(conditional.Analysis.Symbols))

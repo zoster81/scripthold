@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -751,6 +752,31 @@ func TestSearchSingleFile_RejectsOversizedLine(t *testing.T) {
 	}
 	if len(result.matches) != 0 {
 		t.Fatalf("matches = %d, want 0", len(result.matches))
+	}
+}
+
+func TestForEachCRSegmentPreservesSplitSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{name: "no separator", input: "alpha", want: []string{"alpha"}},
+		{name: "internal separators", input: "alpha\rbeta\rgamma", want: []string{"alpha", "beta", "gamma"}},
+		{name: "empty segments", input: "\ralpha\r", want: []string{"", "alpha", ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			if err := forEachCRSegment([]byte(tc.input), func(segment []byte) error {
+				got = append(got, string(segment))
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("segments = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -11,16 +11,18 @@ type AnalyzeOptions struct {
 	Limits            SymbolBuilderLimits
 }
 
-// StructuralDependencyKind identifies a non-symbol source dependency fact.
+// StructuralDependencyKind identifies one syntax-proven source dependency form.
 type StructuralDependencyKind string
 
 const (
-	StructuralDependencyImport  StructuralDependencyKind = "import"
-	StructuralDependencyInclude StructuralDependencyKind = "include"
+	StructuralDependencyImport    StructuralDependencyKind = "import"
+	StructuralDependencyInclude   StructuralDependencyKind = "include"
+	StructuralDependencyReference StructuralDependencyKind = "reference"
 )
 
-// StructuralDependency is a syntax-proven dependency fact. It deliberately does
-// not claim resolution to a file, package, module, or project target.
+// StructuralDependency is a syntax-proven dependency fact. Its value may name a
+// path, module/package, or source entity; it deliberately does not claim that the
+// target has been resolved.
 type StructuralDependency struct {
 	Kind     StructuralDependencyKind `json:"kind"`
 	Value    string                   `json:"value"`

@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/zoster81/scripthold/internal/operation"
 )
@@ -13,45 +14,112 @@ func (FSharpAnalyzer) ID() AnalyzerID   { return AnalyzerFSharp }
 func (FSharpAnalyzer) Language() string { return "fsharp" }
 
 func FSharpScannerProfile() ScannerProfile {
-	return ScannerProfile{Name: "fsharp", Keywords: []string{"abstract", "and", "class", "end", "inherit", "interface", "let", "member", "module", "namespace", "open", "override", "static", "type", "val", "with"}, LineComments: []string{"//"}, BlockComments: []BlockCommentRule{{Start: "(*", End: "*)", Nestable: true}}, Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true}, {Prefixes: []string{"@", ""}, Delimiter: "\"", BackslashEscapes: true, DoubledDelimiterEscape: true}}, Directives: true, Indentation: true, IndentationNeutralDirectives: true}
+	return ScannerProfile{Name: "fsharp", Keywords: []string{"abstract", "and", "class", "end", "inherit", "interface", "let", "member", "module", "namespace", "open", "override", "static", "type", "val", "with"}, LineComments: []string{"//"}, BlockComments: []BlockCommentRule{{Start: "(*", End: "*)", Nestable: true}}, Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"\"\"", Multiline: true}, {Prefixes: []string{"@", ""}, Delimiter: "\"", BackslashEscapes: true, DoubledDelimiterEscape: true}}, Directives: true, Indentation: true, AllowNonStackDedent: true, IndentationNeutralDirectives: true}
+}
+
+func maskFSharpMultiplySymbolicKeyword(text string) string {
+	masked := []byte(text)
+	for at := 0; at+2 < len(text); {
+		relative := strings.Index(text[at:], "(*)")
+		if relative < 0 {
+			break
+		}
+		start := at + relative
+		masked[start+1] = ' '
+		at = start + 3
+	}
+	return string(masked)
+}
+
+func maskFSharpCharacterLiterals(text string) string {
+	masked := []byte(text)
+	for at := 0; at < len(text); {
+		if text[at] == '\'' {
+			if end, ok := fsharpCharacterLiteralEnd(text, at); ok {
+				phase8MaskRange(masked, at, end)
+				at = end
+				continue
+			}
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		at += max(size, 1)
+	}
+	return string(masked)
+}
+
+func fsharpCharacterLiteralEnd(text string, start int) (int, bool) {
+	at := start + 1
+	if at >= len(text) || text[at] == '\r' || text[at] == '\n' {
+		return 0, false
+	}
+	if text[at] != '\\' {
+		_, size := utf8.DecodeRuneInString(text[at:])
+		at += max(size, 1)
+		if at < len(text) && text[at] == '\'' {
+			return at + 1, true
+		}
+		return 0, false
+	}
+	at++
+	if at >= len(text) || text[at] == '\r' || text[at] == '\n' {
+		return 0, false
+	}
+	switch text[at] {
+	case 'u':
+		at++
+		if !fsharpConsumeHex(text, &at, 4, 4) {
+			return 0, false
+		}
+	case 'U':
+		at++
+		if !fsharpConsumeHex(text, &at, 8, 8) {
+			return 0, false
+		}
+	case 'x':
+		at++
+		if !fsharpConsumeHex(text, &at, 1, 4) {
+			return 0, false
+		}
+	default:
+		_, size := utf8.DecodeRuneInString(text[at:])
+		at += max(size, 1)
+	}
+	if at < len(text) && text[at] == '\'' {
+		return at + 1, true
+	}
+	return 0, false
+}
+
+func fsharpConsumeHex(text string, at *int, minDigits, maxDigits int) bool {
+	start := *at
+	for *at < len(text) && *at-start < maxDigits && fsharpHexByte(text[*at]) {
+		*at = *at + 1
+	}
+	return *at-start >= minDigits
+}
+
+func fsharpHexByte(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'f' || value >= 'A' && value <= 'F'
 }
 
 func (FSharpAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if document == nil {
-		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_fsharp_source", document.Path, err)
-	}
-	builder := NewSymbolBuilder(document, SymbolBuilderOptions{Context: ctx, Language: "fsharp", Analyzer: string(AnalyzerFSharp), IncludeSignatures: options.IncludeSignatures, MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits})
-	if err := builder.checkReady(); err != nil {
-		return AnalyzerResult{}, err
-	}
-	maxNesting := options.MaxNesting
-	if maxNesting <= 0 {
-		maxNesting = 2048
-	}
-	scan, err := ScanSource(ctx, document, FSharpScannerProfile(), ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	state, err := newPhase8State(ctx, document, options, "fsharp", AnalyzerFSharp)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	for _, d := range scan.Diagnostics {
-		v := OffsetRange{Start: d.StartOffset, End: d.EndOffset}
-		_ = builder.AddDiagnostic(DiagnosticSpec{Code: "fsharp-" + d.Code, Message: d.Message, Severity: DiagnosticWarning, Range: &v, AffectsCoverage: true})
-	}
-	if !scan.Complete {
-		builder.MarkIncomplete()
+	masked := maskFSharpMultiplySymbolicKeyword(document.Text)
+	masked = maskFSharpCharacterLiterals(masked)
+	scan, err := state.scan(options, FSharpScannerProfile(), masked)
+	if err != nil {
+		return AnalyzerResult{}, err
 	}
 	lines := BuildLogicalLines(scan.Tokens, LogicalLineProfile{TrackIndentation: true})
-	p := &fsharpParser{ctx: ctx, document: document, builder: builder}
+	p := &fsharpParser{ctx: state.ctx, document: document, builder: state.builder}
 	p.parse(lines)
-	if err := ctx.Err(); err != nil {
+	if err := state.ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_fsharp_source", document.Path, err)
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: p.dependencies, Relations: p.relations}, nil
+	return AnalyzerResult{Analysis: state.builder.Result(), Dependencies: p.dependencies, Relations: p.relations}, nil
 }
 
 type fsharpParser struct {

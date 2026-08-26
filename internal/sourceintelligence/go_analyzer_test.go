@@ -3,6 +3,8 @@ package sourceintelligence
 import (
 	"context"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +13,45 @@ import (
 )
 
 var _ SourceAnalyzer = GoAnalyzer{}
+
+func TestGoSymbolCapacityHintCountsRetainableDeclarationsAndClamps(t *testing.T) {
+	const source = `package sample
+
+type Box struct {
+	A int
+	B, C string
+	Embedded
+	_ int
+}
+
+type API interface {
+	Work()
+	Embedded
+}
+
+const (
+	Alpha = 1
+	beta = 2
+	_ = 3
+)
+var left, right int
+func Run() {}
+func _() {}
+`
+	file, err := parser.ParseFile(token.NewFileSet(), "capacity.go", source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := goSymbolCapacityHint(file, 100); got != 14 {
+		t.Fatalf("capacity hint = %d, want 14", got)
+	}
+	if got := goSymbolCapacityHint(file, 8); got != 8 {
+		t.Fatalf("clamped capacity hint = %d, want 8", got)
+	}
+	if got := goSymbolCapacityHint(nil, 100); got != 0 {
+		t.Fatalf("nil-file capacity hint = %d, want 0", got)
+	}
+}
 
 var goAnalyzerTestOptions = AnalyzeOptions{
 	IncludeSignatures: true,

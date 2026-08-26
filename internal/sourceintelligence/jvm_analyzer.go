@@ -112,10 +112,17 @@ func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, member
 		if index >= end || parser.tokens[index].Kind == TokenEOF {
 			return
 		}
-		if !members && !parser.kotlin && parser.token(index, "@") {
-			if next := parser.skipJavaAnnotations(index, end); next > index {
-				index = next
-				continue
+		if parser.token(index, "@") {
+			if parser.kotlin {
+				if next := parser.skipKotlinAnnotations(index, end); next > index {
+					index = next
+					continue
+				}
+			} else if !members {
+				if next := parser.skipJavaAnnotations(index, end); next > index {
+					index = next
+					continue
+				}
 			}
 		}
 		if !members && parser.token(index, "package") {
@@ -272,6 +279,12 @@ func (parser *jvmParser) typeDeclarationAt(start, end int) (keyword, declaration
 			prefixes = append(prefixes, text)
 			cursor++
 			continue
+		}
+		if !parser.kotlin && text == "class" {
+			previous := previousStructuralToken(parser.tokens, cursor-1, 0)
+			if previous >= 0 && parser.tokens[previous].Text == "." {
+				return 0, start, "", false
+			}
 		}
 		if text == "class" || text == "interface" || (!parser.kotlin && (text == "enum" || text == "record")) {
 			nativeKind = text
@@ -561,6 +574,42 @@ func (parser *jvmParser) addRelation(kind, source, target string, start, end int
 	if err == nil {
 		parser.relations = append(parser.relations, StructuralRelation{Kind: kind, Source: source, Target: target, Range: rangeValue, Evidence: SymbolEvidenceStructural})
 	}
+}
+
+func (parser *jvmParser) skipKotlinAnnotations(start, end int) int {
+	cursor := start
+	for cursor < end {
+		for cursor < end && parser.tokens[cursor].Kind == TokenNewline {
+			cursor++
+		}
+		if cursor >= end || parser.tokens[cursor].Text != "@" {
+			return cursor
+		}
+		annotationStart := cursor
+		cursor++
+		if cursor >= end || (parser.tokens[cursor].Kind != TokenIdentifier && parser.tokens[cursor].Kind != TokenKeyword) {
+			return annotationStart
+		}
+		cursor++
+		if cursor < end && parser.tokens[cursor].Text == ":" {
+			cursor++
+			if cursor >= end || (parser.tokens[cursor].Kind != TokenIdentifier && parser.tokens[cursor].Kind != TokenKeyword) {
+				return annotationStart
+			}
+			cursor++
+		}
+		for cursor+1 < end && parser.tokens[cursor].Text == "." && (parser.tokens[cursor+1].Kind == TokenIdentifier || parser.tokens[cursor+1].Kind == TokenKeyword) {
+			cursor += 2
+		}
+		if cursor < end && parser.tokens[cursor].Text == "(" {
+			close := parser.pairs[cursor]
+			if close <= cursor || close >= end {
+				return annotationStart
+			}
+			cursor = close + 1
+		}
+	}
+	return cursor
 }
 
 func (parser *jvmParser) skipJavaAnnotations(start, end int) int {

@@ -1,7 +1,6 @@
 package encoding
 
 import (
-	"encoding/binary"
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -18,13 +17,13 @@ const (
 
 type utf16Spec struct {
 	charset          string
-	order            binary.ByteOrder
+	order            detectionByteOrder
 	expectedZeroByte int
 }
 
 var (
-	utf16LESpec = utf16Spec{charset: "utf-16-le", order: binary.LittleEndian, expectedZeroByte: 1}
-	utf16BESpec = utf16Spec{charset: "utf-16-be", order: binary.BigEndian, expectedZeroByte: 0}
+	utf16LESpec = utf16Spec{charset: "utf-16-le", order: detectionLittleEndian, expectedZeroByte: 1}
+	utf16BESpec = utf16Spec{charset: "utf-16-be", order: detectionBigEndian, expectedZeroByte: 0}
 )
 
 type byteSample struct {
@@ -97,7 +96,7 @@ func (a *utf16Analyzer) consumePair(first, second byte) {
 		a.evidence.unexpectedZeros++
 	}
 
-	unit := a.spec.order.Uint16(pair[:])
+	unit := a.spec.order.uint16(pair[0], pair[1])
 
 	if a.hasPendingHigh {
 		if unit >= 0xDC00 && unit <= 0xDFFF {
@@ -187,14 +186,14 @@ func analyzeUTF16Samples(samples []byteSample, totalSize int64, spec utf16Spec) 
 			data = data[:len(data)-1]
 		}
 		if offset > 0 && len(data) >= 2 {
-			first := spec.order.Uint16(data[:2])
+			first := spec.order.uint16(data[0], data[1])
 			if first >= 0xDC00 && first <= 0xDFFF {
 				data = data[2:]
 				offset += 2
 			}
 		}
 		if offset+int64(len(data)) < totalSize && len(data) >= 2 {
-			last := spec.order.Uint16(data[len(data)-2:])
+			last := spec.order.uint16(data[len(data)-2], data[len(data)-1])
 			if last >= 0xD800 && last <= 0xDBFF {
 				data = data[:len(data)-2]
 			}

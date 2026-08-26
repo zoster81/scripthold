@@ -113,6 +113,61 @@ func TestCOBOLFreeFormDetectionHandlesRealWorldSignals(t *testing.T) {
 	}
 }
 
+func TestRealSourceFortranBareEndClosesTrackedProgramUnits(t *testing.T) {
+	text := "module demo\n" +
+		"contains\n" +
+		"  subroutine first()\n" +
+		"  end\n" +
+		"  integer function second()\n" +
+		"    second = 1\n" +
+		"  end function second\n" +
+		"end\n"
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.f90", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Fortran bare end reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "demo.first", "demo.second"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Fortran bare end missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestRealSourceFortranSelectTypeGuardsDoNotOpenDerivedTypeScopes(t *testing.T) {
+	text := "program main\n" +
+		"  class(*), allocatable :: value\n" +
+		"  select type (value)\n" +
+		"  type is (integer)\n" +
+		"    print *, value\n" +
+		"  class default\n" +
+		"    print *, 0\n" +
+		"  end select\n" +
+		"contains\n" +
+		"  subroutine after()\n" +
+		"  end subroutine after\n" +
+		"end program main\n"
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("main.f90", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid Fortran select type guard lowered coverage: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"main", "main.after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Fortran select type guard missing %s: %v", want, names)
+		}
+	}
+	if containsSortedString(names, "main.integer") {
+		t.Fatalf("Fortran type guard leaked derived type: %v", names)
+	}
+}
+
 func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 	t.Run("matlab-transpose-and-control-scopes", func(t *testing.T) {
 		text := "classdef Worker\n  methods\n    function out = first(obj, data)\n      value = data';\n      if value\n        out = value;\n      end\n    end\n    function out = second(obj, x)\n      out = x;\n    end\n  end\nend\n"

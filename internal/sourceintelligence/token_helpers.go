@@ -84,6 +84,30 @@ func splitTokenRangeAt(tokens []Token, start, end int, separator string, nesting
 	return result
 }
 
+func splitTypeTokenRange(tokens []Token, start, end, nesting int) [][2]int {
+	var result [][2]int
+	partStart := start
+	angle := 0
+	for index := start; index < end; index++ {
+		text := tokens[index].Text
+		switch {
+		case text == "<":
+			angle++
+		case angle > 0 && strings.Trim(text, ">") == "":
+			angle = max(0, angle-len(text))
+		case text == "," && angle == 0 && tokens[index].Nesting == nesting:
+			if partStart < index {
+				result = append(result, [2]int{partStart, index})
+			}
+			partStart = index + 1
+		}
+	}
+	if partStart < end {
+		result = append(result, [2]int{partStart, end})
+	}
+	return result
+}
+
 func normalizedTypeSpelling(tokens []Token, start, end int, drop map[string]struct{}) string {
 	for start < end {
 		if _, ok := drop[strings.ToLower(tokens[start].Text)]; ok {

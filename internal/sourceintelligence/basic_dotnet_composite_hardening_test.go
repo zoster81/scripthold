@@ -57,6 +57,56 @@ func TestRazorDirectiveSearchPreservesOffsetsAcrossUnicodeCaseFolding(t *testing
 	}
 }
 
+func TestRazorClientScriptTypeSelectsDataLanguage(t *testing.T) {
+	text := `<script type="text/html" id="product-template">
+<div id="product-card">{{ Model.Name }}</div>
+</script>
+<script type="application/json" data-vm>{"components":[{"name":"product-card"}]}</script>`
+	result, err := (RazorAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Razor data-script regions reported partial: %+v", result.Analysis)
+	}
+	var scriptLanguages []string
+	for _, region := range result.Regions {
+		if region.Kind == "script" {
+			scriptLanguages = append(scriptLanguages, region.Language)
+		}
+	}
+	if len(scriptLanguages) != 2 || scriptLanguages[0] != "html" || scriptLanguages[1] != "json" {
+		t.Fatalf("Razor script languages=%v, want [html json]", scriptLanguages)
+	}
+}
+
+func TestRazorGeneratedJSONDataScriptRemainsOpaque(t *testing.T) {
+	text := `<script type="application/json" data-vm="confirmDelete">@Json.Serialize(new {
+    route = Url.Action("Delete", "Account"),
+    field = "addressId"
+})</script>`
+	result, err := (RazorAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("Razor-generated JSON data block reported partial: %+v", result.Analysis)
+	}
+	scriptRegions := 0
+	for _, region := range result.Regions {
+		if region.Kind != "script" {
+			continue
+		}
+		scriptRegions++
+		if region.Language != "json" || !region.Supported {
+			t.Fatalf("Razor-generated JSON region=%+v", region)
+		}
+	}
+	if scriptRegions != 1 {
+		t.Fatalf("Razor-generated JSON script regions=%d; all=%+v", scriptRegions, result.Regions)
+	}
+}
+
 func TestXAMLRequiresBalancedAttributeQuotes(t *testing.T) {
 	text := `<Window x:Class="Demo.Bad' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><Grid x:Name='Root" /></Window>`
 	result, err := (XAMLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))

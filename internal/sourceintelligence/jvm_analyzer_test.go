@@ -204,6 +204,34 @@ class ConstraintsSizeResolver : SizeResolver {
 	}
 }
 
+func TestKotlinAnalyzerAnnotationClassLiteralsDoNotStealTypeDeclaration(t *testing.T) {
+	text := `package demo
+import sample.Base
+@Database(entities = [Entity::class], version = 1)
+@TypeConverters(value = [Converter::class])
+abstract class Store : Base() {
+    abstract fun dao(): Dao
+}
+`
+	result, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Kotlin annotation class literals made analysis partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if symbol, ok := byName["demo.Store"]; !ok || symbol.Kind != SymbolKindClass {
+		t.Fatalf("Store = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if symbol, ok := byName["demo.Store.dao"]; !ok || symbol.Kind != SymbolKindMethod {
+		t.Fatalf("Store.dao = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if !hasStructuralRelation(result.Relations, "supertype", "demo.Store", "Base") {
+		t.Fatalf("Store supertype relation missing: %+v", result.Relations)
+	}
+}
+
 func TestJVMAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	malformed := sourceDocumentForScanner("class Good { int x; }\nclass Broken { String s = \"unterminated\n")
 	malformed.Path = "Broken.java"

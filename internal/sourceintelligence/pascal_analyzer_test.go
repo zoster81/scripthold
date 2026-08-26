@@ -195,6 +195,95 @@ end.
 	}
 }
 
+func TestDelphiAnalyzerMultilineUsesWithDirectives(t *testing.T) {
+	text := `unit Demo;
+interface
+
+uses
+{$IFDEF USE_NS}
+  System.Classes,
+  System.SysUtils;
+{$ELSE}
+  Classes,
+  SysUtils;
+{$ENDIF}
+
+type
+  TAfter = class
+  end;
+
+implementation
+end.
+`
+	result, err := (DelphiAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("Delphi multiline uses reported partial: %+v", result.Analysis)
+	}
+	if got := dependencyValues(result.Dependencies); !reflect.DeepEqual(got, []string{"System.Classes", "System.SysUtils"}) {
+		t.Fatalf("Delphi multiline uses = %v", got)
+	}
+	if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Demo.TAfter"]; !ok {
+		t.Fatalf("declaration after multiline uses missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestDelphiAnalyzerAnonymousRoutineCallbacksPreserveCoverage(t *testing.T) {
+	text := `unit Demo;
+interface
+implementation
+
+procedure Register;
+begin
+  Invoke(
+    procedure
+    begin
+    end);
+end;
+
+end.
+`
+	result, err := (DelphiAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Delphi anonymous routine callback made analysis partial: %+v", result.Analysis)
+	}
+	if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Demo.Register"]; !ok || symbol.Kind != SymbolKindFunction {
+		t.Fatalf("Register = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestDelphiAnalyzerShortClassAndClassReferenceDeclarationsDoNotOpenScopes(t *testing.T) {
+	text := `unit Demo;
+interface
+
+type
+  TComparable = class abstract(TObject);
+  TComparableClass = class of TComparable;
+
+implementation
+end.
+`
+	result, err := (DelphiAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Delphi short class declarations made analysis partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if symbol, ok := byName["Demo.TComparable"]; !ok || symbol.Kind != SymbolKindClass {
+		t.Fatalf("TComparable = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if symbol, ok := byName["Demo.TComparableClass"]; !ok || symbol.Kind != SymbolKindAlias || symbol.NativeKind != "class-reference" {
+		t.Fatalf("TComparableClass = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
 func TestPascalDelphiMalformedLimitsAndCancellation(t *testing.T) {
 	partial, err := (PascalAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("program Good;\ntype\n  TGood = class\n  end;\n  TBroken = class\n"), testAnalyzeOptions(true, 32))
 	if err != nil {
@@ -202,6 +291,14 @@ func TestPascalDelphiMalformedLimitsAndCancellation(t *testing.T) {
 	}
 	if partial.Analysis.CoverageComplete || len(partial.Analysis.Diagnostics) == 0 {
 		t.Fatalf("malformed Pascal did not report partial coverage: %+v", partial.Analysis)
+	}
+
+	unterminatedUses, err := (DelphiAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("unit U;\ninterface\nuses\n  System.SysUtils,\n"), testAnalyzeOptions(false, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unterminatedUses.Analysis.CoverageComplete || !hasAnalysisDiagnostic(unterminatedUses.Analysis.Diagnostics, "delphi-unterminated-uses") {
+		t.Fatalf("unterminated Delphi uses clause did not fail closed: %+v", unterminatedUses.Analysis)
 	}
 
 	limited, err := (DelphiAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("unit U;\ninterface\ntype\n  A = class end;\n  B = class end;\n  C = class end;\nimplementation\nend.\n"), testAnalyzeOptions(false, 2))

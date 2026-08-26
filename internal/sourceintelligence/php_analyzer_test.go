@@ -84,6 +84,94 @@ TXT;
 	}
 }
 
+func TestPHPAnalyzerMultilineQuotedStringsRemainOpaque(t *testing.T) {
+	text := `<?php
+$single = 'line one
+class SingleFake { function hidden() {} }
+line three';
+$double = "line one
+function doubleFake() {}
+line three";
+class Real { public function run(): void {} }
+`
+	result, err := (PHPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid multiline PHP strings reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for qualified, kind := range map[string]SymbolKind{"Real": SymbolKindClass, "Real.run": SymbolKindMethod} {
+		symbol, ok := byName[qualified]
+		if !ok || symbol.Kind != kind {
+			t.Fatalf("PHP %s = %+v exists=%v; symbols=%v", qualified, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, forbidden := range []string{"SingleFake", "hidden", "doubleFake"} {
+		if _, ok := byName[forbidden]; ok {
+			t.Fatalf("multiline PHP string leaked declaration %q: %v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestPHPAnalyzerFlexibleHeredocClosingMarkerPreservesTrailingExpression(t *testing.T) {
+	text := `<?php
+function before(): void {}
+$value = collect(<<<'HTML'
+class HeredocFake { function hidden() {} }
+HTML, ['after-marker']);
+function after(): void {}
+`
+	result, err := (PHPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid flexible heredoc reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, qualified := range []string{"before", "after"} {
+		if _, ok := byName[qualified]; !ok {
+			t.Fatalf("PHP declaration %q missing after flexible heredoc: %v", qualified, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, forbidden := range []string{"HeredocFake", "hidden"} {
+		if _, ok := byName[forbidden]; ok {
+			t.Fatalf("flexible heredoc leaked declaration %q: %v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestPHPAnalyzerAttributesDoNotBecomeHashComments(t *testing.T) {
+	text := `<?php
+#[\Attribute]
+class Demo {
+    public function run(#[\SensitiveParameter] string $value): void {}
+}
+# class HashCommentFake { function hidden() {} }
+class After {}
+`
+	result, err := (PHPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid PHP attributes reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, qualified := range []string{"Demo", "Demo.run", "After"} {
+		if _, ok := byName[qualified]; !ok {
+			t.Fatalf("PHP declaration %q missing around attributes: %v", qualified, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, forbidden := range []string{"HashCommentFake", "hidden"} {
+		if _, ok := byName[forbidden]; ok {
+			t.Fatalf("PHP hash comment leaked declaration %q: %v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestPHPAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	malformed := sourceDocumentForScanner("<?php class Good {}\n$doc = <<<TXT\nunterminated\n")
 	partial, err := (PHPAnalyzer{}).Analyze(context.Background(), malformed, testAnalyzeOptions(true, 32))

@@ -711,7 +711,7 @@ func phase11PHPHTMLDistinctiveContent(phpProbe string) bool {
 	if !phpContentMarker.MatchString(phpProbe) && !phpEchoContentMarker.MatchString(phpProbe) {
 		return false
 	}
-	regions := phase11RegexRegions(phpProbe, phase11PHPBlock, "php", "php", 2, 3)
+	regions := phase11RegexRegions(phpProbe, phase11PHPBlock, "php", "php")
 	if len(regions) == 0 {
 		return false
 	}

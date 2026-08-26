@@ -63,7 +63,7 @@ func collectShellDependencies(state *phase8State, document *SourceDocument, toke
 			continue
 		}
 		if value, start, end, ok := phase8StaticDependencyTarget(document.Text, line.Tokens[1:]); ok {
-			state.addDependency(StructuralDependencyImport, value, start, end)
+			state.addImportDependency(value, start, end)
 		}
 	}
 }
@@ -230,7 +230,7 @@ func (p *tclPhase8Parser) parseRange(start, end, nesting int, parent *SymbolPare
 		case "source":
 			lineEnd := phase8TokenLineEnd(p.tokens, i+1)
 			if value, start, end, ok := phase8StaticDependencyTarget(p.state.document.Text, p.tokens[i+1:lineEnd]); ok {
-				p.state.addDependency(StructuralDependencyImport, value, start, end)
+				p.state.addImportDependency(value, start, end)
 			}
 			i = max(lineEnd, i+1)
 		case "package":
@@ -239,7 +239,7 @@ func (p *tclPhase8Parser) parseRange(start, end, nesting int, parent *SymbolPare
 			if require < lineEnd && strings.EqualFold(p.tokens[require].Text, "require") {
 				idx := phase8NextIdentifier(p.tokens, require+1, lineEnd)
 				if idx >= 0 {
-					p.state.addDependency(StructuralDependencyImport, p.tokens[idx].Text, p.tokens[idx].StartOffset, p.tokens[idx].EndOffset)
+					p.state.addImportDependency(p.tokens[idx].Text, p.tokens[idx].StartOffset, p.tokens[idx].EndOffset)
 				}
 			}
 			i = max(lineEnd, i+1)
@@ -284,7 +284,7 @@ func (AutoHotkeyAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 			value = strings.Fields(rest)[0]
 		}
 		if value != "" {
-			state.addDependency(StructuralDependencyImport, value, token.StartOffset, token.EndOffset)
+			state.addImportDependency(value, token.StartOffset, token.EndOffset)
 		}
 	}
 	parser := &autoHotkeyPhase8Parser{state: state, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil)}

@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -59,6 +60,68 @@ const view = () => (<div>class JSXFake {}</div>);
 	}
 	if !hasStructuralRelation(result.Relations, "extends", "Service", "Base") {
 		t.Fatalf("JavaScript class relation = %+v", result.Relations)
+	}
+}
+
+func TestJavaScriptNestedTemplateLiteralsRemainOpaque(t *testing.T) {
+	text := "function before() {}\n" +
+		"const html = `\n" +
+		"  ${undoPointName ? `<div>${escapeHtml(undoPointName)}${canUndo === false ? ' <span>(manual)</span>' : ''}</div>` : ''}\n" +
+		"  ${undoHint ? `<div><strong>hint</strong> function NestedTemplateFake() {} ${escapeHtml(undoHint)}</div>` : ''}\n" +
+		"`;\n" +
+		"function after() {}\n"
+	masked, maskErr := maskECMAScriptRegexLiterals(context.Background(), text, 256)
+	if maskErr != nil {
+		t.Fatal(maskErr)
+	}
+	if masked != text {
+		t.Fatal("nested template HTML was misclassified as an ECMAScript regex literal")
+	}
+	document := sourceDocumentForScanner(text)
+	document.Path = "nested-template.js"
+	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid nested JavaScript template literals reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"before", "html", "after"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("JavaScript declaration %q missing; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	if _, leaked := byName["NestedTemplateFake"]; leaked {
+		t.Fatalf("nested template text leaked a declaration: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestJavaScriptTemplateInterpolationMasksRegexWithoutMaskingDivision(t *testing.T) {
+	text := "const html = `${ /[{}]/.test(value) ? `<b>${value}</b>` : `${value / 2}` }`;\n" +
+		"function after() {}\n"
+	masked, err := maskECMAScriptRegexLiterals(context.Background(), text, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if masked == text {
+		t.Fatal("regex inside template interpolation was not masked")
+	}
+	if !strings.Contains(masked, "value / 2") {
+		t.Fatalf("division inside nested template interpolation was masked: %q", masked)
+	}
+	result, err := (JavaScriptAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("regex inside template interpolation corrupted coverage: %+v", result.Analysis)
+	}
+	if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)["after"]; !ok {
+		t.Fatalf("template interpolation lost following declaration: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if _, err := maskECMAScriptRegexLiterals(context.Background(), text, 1); operation.KindOf(err) != operation.KindLimit {
+		t.Fatalf("template interpolation nesting error=%v kind=%v, want limit", err, operation.KindOf(err))
 	}
 }
 

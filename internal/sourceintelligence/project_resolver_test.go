@@ -95,6 +95,56 @@ func TestProjectResolverCrossEcosystemDefinitions(t *testing.T) {
 	}
 }
 
+func TestProjectResolverSQLReferenceDependency(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	basePath := filepath.Join("project", "sql", "jobs.sql")
+	childPath := filepath.Join("project", "sql", "runs.sql")
+	base := projectResolverFacts(t, SQLAnalyzer{}, basePath, "CREATE TABLE jobs (id INT PRIMARY KEY);\n")
+	child := projectResolverFacts(t, SQLAnalyzer{}, childPath, "CREATE TABLE runs (job_id INT REFERENCES jobs(id));\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{child, base}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := model.Dependencies(childPath)
+	if len(dependencies) != 1 {
+		t.Fatalf("SQL dependencies = %+v, want one reference dependency", dependencies)
+	}
+	dependency := dependencies[0]
+	if string(dependency.Dependency.Kind) != "reference" || dependency.Dependency.Value != "jobs" {
+		t.Fatalf("SQL dependency fact = %+v", dependency.Dependency)
+	}
+	if string(dependency.Stage) != "explicit-reference" || dependency.Resolution != ResolutionResolved || len(dependency.Targets) != 1 || dependency.Targets[0].Path != basePath {
+		t.Fatalf("SQL reference dependency resolution = %+v", dependency)
+	}
+	dependents := model.Dependents(basePath)
+	if len(dependents) != 1 || dependents[0].Source.Path != childPath {
+		t.Fatalf("SQL reverse dependency = %+v", dependents)
+	}
+}
+
+func TestProjectResolverSQLReferenceDependencyAvoidsSelfEdge(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("project", "sql", "schema.sql")
+	facts := projectResolverFacts(t, SQLAnalyzer{}, path, "CREATE TABLE jobs (id INT PRIMARY KEY);\nCREATE TABLE runs (job_id INT REFERENCES jobs(id));\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := model.Dependencies(path)
+	if len(dependencies) != 1 || dependencies[0].Resolution != ResolutionUnresolved || len(dependencies[0].Targets) != 0 || dependencies[0].Stage != ProjectResolutionExplicitReference {
+		t.Fatalf("same-file SQL dependency = %+v", dependencies)
+	}
+	if dependents := model.Dependents(path); len(dependents) != 0 {
+		t.Fatalf("same-file SQL dependency created a self-edge: %+v", dependents)
+	}
+}
+
 func TestProjectResolverExplicitAliasAndDependencyAdjacency(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
@@ -214,6 +264,48 @@ func TestProjectResolverFilteringDoesNotMutateSharedIndexSlice(t *testing.T) {
 	}
 	if len(input) != 2 || input[0].pathKey != "first" || input[1].pathKey != "second" {
 		t.Fatalf("excludePath mutated its input: %+v", input)
+	}
+}
+
+func TestProjectResolverGlobalIndexesReferenceCanonicalFileRecords(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("project", "go", "sample.go")
+	facts := projectResolverFacts(t, GoAnalyzer{}, path, "package sample\ntype Item struct{}\nfunc Work() {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	canonical := make(map[string]*projectSymbolRecord)
+	for pathKey, records := range model.symbolsByFile {
+		for index := range records {
+			record := &records[index]
+			if record.pathKey != pathKey {
+				t.Fatalf("canonical record path key = %q, want %q", record.pathKey, pathKey)
+			}
+			canonical[record.symbol.ID] = record
+		}
+	}
+	if len(canonical) == 0 {
+		t.Fatal("project model produced no canonical symbol records")
+	}
+	for indexName, index := range map[string]map[string][]*projectSymbolRecord{
+		"qualified": model.symbolsByQualified,
+		"name":      model.symbolsByName,
+	} {
+		for key, records := range index {
+			for _, record := range records {
+				if record == nil {
+					t.Fatalf("%s index %q contains nil record", indexName, key)
+				}
+				if canonical[record.symbol.ID] != record {
+					t.Fatalf("%s index %q does not reference canonical record %q", indexName, key, record.symbol.ID)
+				}
+			}
+		}
 	}
 }
 

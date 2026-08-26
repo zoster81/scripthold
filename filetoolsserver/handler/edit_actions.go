@@ -153,7 +153,7 @@ func (h *Handler) prepareEdit(ctx context.Context, input EditFileInput) (prepare
 	}
 
 	changed := modifiedContent != content
-	dataToWrite := append([]byte(nil), sourceData...)
+	dataToWrite := sourceData
 	if changed {
 		contentToWrite := restoreDocumentLineEndings(modifiedContent, document.LineEndings.Style)
 		dataToWrite, err = encodeTextDocument(document, contentToWrite, bomPreserve)

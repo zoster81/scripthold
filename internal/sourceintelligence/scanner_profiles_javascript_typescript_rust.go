@@ -19,7 +19,7 @@ func JavaScriptScannerProfile() ScannerProfile {
 		LineComments:  []string{"//"},
 		BlockComments: []BlockCommentRule{{Start: "/*", End: "*/"}},
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "`", Multiline: true, BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "`", Multiline: true, BackslashEscapes: true, Interpolated: true, InterpolationOpen: "${"},
 			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
 			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
 		},

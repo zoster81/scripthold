@@ -81,13 +81,13 @@ func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 				value := tokenRangeText(line.Tokens, idx, end)
 				lower := strings.ToLower(value)
 				if value != "" && lower != "strict" && lower != "warnings" && lower != "feature" && lower != "lib" {
-					state.addDependency(StructuralDependencyImport, value, line.Tokens[idx].StartOffset, line.Tokens[end-1].EndOffset)
+					state.addImportDependency(value, line.Tokens[idx].StartOffset, line.Tokens[end-1].EndOffset)
 				}
 			}
 		case "require":
 			for _, token := range line.Tokens[1:] {
 				if value := phase8StringValue(token); value != "" {
-					state.addDependency(StructuralDependencyImport, value, token.StartOffset, token.EndOffset)
+					state.addImportDependency(value, token.StartOffset, token.EndOffset)
 					break
 				}
 			}
@@ -173,7 +173,7 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 		for j := i + 1; j < end; j++ {
 			if scan.Tokens[j].Kind == TokenString {
 				if value := phase8StringValue(scan.Tokens[j]); value != "" {
-					state.addDependency(StructuralDependencyImport, value, scan.Tokens[j].StartOffset, scan.Tokens[j].EndOffset)
+					state.addImportDependency(value, scan.Tokens[j].StartOffset, scan.Tokens[j].EndOffset)
 				}
 				break
 			}

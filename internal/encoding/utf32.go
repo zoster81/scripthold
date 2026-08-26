@@ -1,7 +1,6 @@
 package encoding
 
 import (
-	"encoding/binary"
 	"unicode"
 	"unicode/utf8"
 )
@@ -17,15 +16,15 @@ const (
 
 type utf32Spec struct {
 	charset               string
-	order                 binary.ByteOrder
+	order                 detectionByteOrder
 	expectedAnchorByte    int
 	expectedSecondaryByte int
 	oppositeAnchorByte    int
 }
 
 var (
-	utf32LESpec = utf32Spec{charset: "utf-32-le", order: binary.LittleEndian, expectedAnchorByte: 3, expectedSecondaryByte: 2, oppositeAnchorByte: 0}
-	utf32BESpec = utf32Spec{charset: "utf-32-be", order: binary.BigEndian, expectedAnchorByte: 0, expectedSecondaryByte: 1, oppositeAnchorByte: 3}
+	utf32LESpec = utf32Spec{charset: "utf-32-le", order: detectionLittleEndian, expectedAnchorByte: 3, expectedSecondaryByte: 2, oppositeAnchorByte: 0}
+	utf32BESpec = utf32Spec{charset: "utf-32-be", order: detectionBigEndian, expectedAnchorByte: 0, expectedSecondaryByte: 1, oppositeAnchorByte: 3}
 )
 
 type utf32Evidence struct {
@@ -85,14 +84,13 @@ func (analyzer *utf32Analyzer) consumeUnit(raw [4]byte) {
 		analyzer.evidence.oppositeZeros++
 	}
 
-	value := analyzer.spec.order.Uint32(raw[:])
+	value := analyzer.spec.order.uint32(raw)
 	if value > utf8.MaxRune || value >= 0xD800 && value <= 0xDFFF {
 		analyzer.evidence.structuralValid = false
 		return
 	}
 
-	var encoded [4]byte
-	analyzer.spec.order.PutUint32(encoded[:], value)
+	encoded := analyzer.spec.order.encodeUint32(value)
 	if encoded != raw {
 		analyzer.evidence.roundTrip = false
 	}

@@ -2,6 +2,10 @@ package sourceintelligence
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -9,6 +13,127 @@ import (
 
 	"github.com/zoster81/scripthold/internal/operation"
 )
+
+func TestSymbolBuilderReserveSymbolsClampsAndPreservesRetainedData(t *testing.T) {
+	document := sourceDocumentForScanner("func Work() {}\n")
+	builder := NewSymbolBuilder(document, SymbolBuilderOptions{
+		Language: "go", Analyzer: string(AnalyzerGo), MaxEvidence: SymbolEvidenceStructural,
+		Limits: SymbolBuilderLimits{MaxSymbols: 8, MaxSignatureBytes: 1024, MaxDiagnostics: 8},
+	})
+	builder.reserveSymbols(100)
+	if got := cap(builder.result.Symbols); got != 8 {
+		t.Fatalf("reserved symbol capacity = %d, want 8", got)
+	}
+	if builder.seenIDs == nil {
+		t.Fatal("reserveSymbols cleared the symbol identity set")
+	}
+	nameStart := strings.Index(document.Text, "Work")
+	if _, err := builder.Add(SymbolSpec{
+		Kind: SymbolKindFunction, NativeKind: "function", Name: "Work",
+		Declaration: OffsetRange{Start: 0, End: len(document.Text) - 1},
+		NameRange:   OffsetRange{Start: nameStart, End: nameStart + len("Work")},
+		Evidence:    SymbolEvidenceStructural,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	builder.reserveSymbols(2)
+	result := builder.Result()
+	if len(result.Symbols) != 1 || result.Symbols[0].Name != "Work" {
+		t.Fatalf("reserveSymbols changed retained symbols: %+v", result.Symbols)
+	}
+}
+
+func TestSymbolBuilderAddDiscardMatchesAddResult(t *testing.T) {
+	text := "class Item {\n    void Work() { }\n}\n"
+	document := sourceDocumentForScanner(text)
+	document.Path = "sample.cs"
+	options := SymbolBuilderOptions{
+		Language: "csharp", Analyzer: string(AnalyzerCSharp), IncludeSignatures: true,
+		MaxEvidence: SymbolEvidenceStructural,
+		Limits:      SymbolBuilderLimits{MaxSymbols: 16, MaxSignatureBytes: 1024, MaxDiagnostics: 8},
+	}
+	declaration := OffsetRange{Start: strings.Index(text, "void"), End: strings.Index(text, "\n}")}
+	nameStart := strings.Index(text, "Work")
+	signatureEnd := declaration.Start + strings.Index(text[declaration.Start:], " {")
+	bodyStart := declaration.Start + strings.Index(text[declaration.Start:], "{ }")
+	signature := OffsetRange{Start: declaration.Start, End: signatureEnd}
+	body := OffsetRange{Start: bodyStart, End: bodyStart + len("{ }")}
+	spec := SymbolSpec{
+		Kind: SymbolKindMethod, NativeKind: "method", Name: "Work",
+		Parent:      &SymbolParent{ID: strings.Repeat("a", 64), QualifiedName: "Item"},
+		Declaration: declaration, NameRange: OffsetRange{Start: nameStart, End: nameStart + len("Work")},
+		Signature: &signature, Body: &body, Visibility: VisibilityPublic,
+		Modifiers: []string{"Static", "static"}, Evidence: SymbolEvidenceStructural,
+	}
+
+	withReturn := NewSymbolBuilder(document, options)
+	if _, err := withReturn.Add(spec); err != nil {
+		t.Fatal(err)
+	}
+	withoutReturn := NewSymbolBuilder(document, options)
+	if err := withoutReturn.addDiscard(spec); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := withoutReturn.Result(), withReturn.Result(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("addDiscard result differs from Add\ngot=%+v\nwant=%+v", got, want)
+	}
+}
+
+func TestDeterministicSymbolIDMatchesLegacyEncoding(t *testing.T) {
+	cases := []struct {
+		path          string
+		language      string
+		disambiguator string
+		symbol        NormalizedSymbol
+	}{
+		{
+			path: "project/sample.go", language: "go",
+			symbol: NormalizedSymbol{Kind: SymbolKindFunction, NativeKind: "function", Name: "Work", QualifiedName: "pkg.Work", ParentID: strings.Repeat("a", 64), ParentQualifiedName: "pkg", declarationOffsets: OffsetRange{Start: 12, End: 98}, nameOffsets: OffsetRange{Start: 17, End: 21}},
+		},
+		{
+			path: "src/éxample/δοκιμή.cs", language: "csharp", disambiguator: "  synthetic:view  ",
+			symbol: NormalizedSymbol{Kind: SymbolKindMethod, NativeKind: "méthod", Name: "Café", QualifiedName: "Δ.Café", ParentID: strings.Repeat("f", 64), ParentQualifiedName: "Δ", RegionID: "region:α", declarationOffsets: OffsetRange{Start: 1_000_003, End: 1_234_567}, nameOffsets: OffsetRange{Start: 1_000_020, End: 1_000_025}},
+		},
+		{
+			path: "x", language: "sql", disambiguator: "0",
+			symbol: NormalizedSymbol{Kind: SymbolKindVariable, NativeKind: "column", Name: "x", QualifiedName: "x", declarationOffsets: OffsetRange{Start: 0, End: 1 << 30}, nameOffsets: OffsetRange{Start: 0, End: 1}},
+		},
+	}
+	for _, testCase := range cases {
+		got := deterministicSymbolID(testCase.path, testCase.language, testCase.symbol, testCase.disambiguator)
+		want := legacyDeterministicSymbolID(testCase.path, testCase.language, testCase.symbol, testCase.disambiguator)
+		if got != want {
+			t.Fatalf("deterministic symbol ID changed for %q/%q: got=%s want=%s", testCase.path, testCase.symbol.QualifiedName, got, want)
+		}
+	}
+}
+
+func legacyDeterministicSymbolID(path, language string, symbol NormalizedSymbol, disambiguator string) string {
+	hash := sha256.New()
+	parts := []string{
+		path,
+		language,
+		string(symbol.Kind),
+		symbol.NativeKind,
+		symbol.Name,
+		symbol.QualifiedName,
+		symbol.ParentID,
+		symbol.ParentQualifiedName,
+		symbol.RegionID,
+		fmt.Sprintf("%d", symbol.declarationOffsets.Start),
+		fmt.Sprintf("%d", symbol.declarationOffsets.End),
+		fmt.Sprintf("%d", symbol.nameOffsets.Start),
+		fmt.Sprintf("%d", symbol.nameOffsets.End),
+		strings.TrimSpace(disambiguator),
+	}
+	var length [8]byte
+	for _, part := range parts {
+		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write([]byte(part))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
 
 func TestSymbolBuilderNormalizesRangesHierarchySignatureAndModifiers(t *testing.T) {
 	text := "class Café<T> {\n    public void Work(int value) { }\n}\n"

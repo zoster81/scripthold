@@ -6,6 +6,31 @@ import (
 	"testing"
 )
 
+func TestDependencyCapabilitiesRequireImplementedEmitters(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, language := range []string{"yaml", "vbscript"} {
+		descriptor, ok := registry.Resolve(language)
+		if !ok {
+			t.Fatalf("missing descriptor for %s", language)
+		}
+		if descriptor.Capabilities.Dependencies {
+			t.Fatalf("%s advertises dependency analysis without a native dependency emitter", language)
+		}
+	}
+	for _, language := range []string{"go", "sql", "terraform", "freebasic", "classic-asp"} {
+		descriptor, ok := registry.Resolve(language)
+		if !ok {
+			t.Fatalf("missing descriptor for %s", language)
+		}
+		if !descriptor.Capabilities.Dependencies {
+			t.Fatalf("%s lost dependency analysis despite an implemented native dependency emitter", language)
+		}
+	}
+}
+
 func TestCapabilityMatrixDocumentationMatchesRegistry(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

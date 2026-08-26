@@ -10,14 +10,20 @@ type BlockCommentRule struct {
 // StringRule describes one opaque string family. Prefixes are matched before
 // Delimiter; repeated delimiters support raw quote runs such as C# raw strings.
 type StringRule struct {
-	Prefixes               []string
-	Delimiter              string
-	RepeatedDelimiterMin   int
-	Multiline              bool
-	BackslashEscapes       bool
-	DoubledDelimiterEscape bool
-	CaseInsensitivePrefix  bool
-	InterpolationMarker    string
+	Prefixes                       []string
+	Delimiter                      string
+	RepeatedDelimiterMin           int
+	Multiline                      bool
+	LineContinuation               string
+	AllowMissingContinuationPrefix bool
+	BackslashEscapes               bool
+	DoubledDelimiterEscape         bool
+	CaseInsensitivePrefix          bool
+	Interpolated                   bool
+	InterpolationMarker            string
+	InterpolationOpen              string
+	DoubledBraceEscape             bool
+	RejectDoubledBraces            bool
 }
 
 // IdentifierPolicy keeps language-specific identifier spelling out of the
@@ -44,17 +50,23 @@ type DelimiterRule struct {
 
 // DirectiveRule defines one line-start directive prefix. Leading horizontal
 // whitespace is allowed because the scanner retains logical line-start state.
+// BackslashContinuesLine keeps C-style physical continuations inside the same
+// opaque directive token instead of exposing macro-body fragments to parsing.
 type DirectiveRule struct {
-	Prefix          string
-	CaseInsensitive bool
+	Prefix                 string
+	CaseInsensitive        bool
+	BackslashContinuesLine bool
 }
 
 // HereDocRule defines one shell-like heredoc opener. The delimiter is parsed
 // from the opening logical line and bodies are consumed in declaration order.
 type HereDocRule struct {
-	Operator             string
-	AllowQuotedDelimiter bool
-	StripLeadingTabs     bool
+	Operator                   string
+	AllowQuotedDelimiter       bool
+	StripLeadingTabs           bool
+	StripLeadingWhitespace     bool
+	RequireAdjacentDelimiter   bool
+	RequireIdentifierDelimiter bool
 }
 
 // ScannerProfile contains lexical behavior only. Declaration semantics belong
@@ -65,6 +77,7 @@ type ScannerProfile struct {
 	Keywords                       []string
 	Identifier                     IdentifierPolicy
 	LineComments                   []string
+	LineCommentExceptions          []string
 	LineCommentRequiresWordStart   bool
 	BackslashEscapesOutsideStrings bool
 	BlockComments                  []BlockCommentRule
@@ -75,6 +88,7 @@ type ScannerProfile struct {
 	HereDocs                       []HereDocRule
 	Directives                     bool
 	Indentation                    bool
+	AllowNonStackDedent            bool
 	IndentationNeutralDirectives   bool
 	ExplicitContinuation           string
 	ImplicitContinuation           bool
@@ -96,8 +110,8 @@ func CSharpScannerProfile() ScannerProfile {
 		BlockComments: []BlockCommentRule{{Start: "/*", End: "*/"}},
 		Strings: []StringRule{
 			{Prefixes: rawPrefixes, Delimiter: "\"", RepeatedDelimiterMin: 3, Multiline: true},
-			{Prefixes: []string{"$@", "@$", "@"}, Delimiter: "\"", Multiline: true, DoubledDelimiterEscape: true, InterpolationMarker: "$"},
-			{Prefixes: []string{"$", ""}, Delimiter: "\"", BackslashEscapes: true, InterpolationMarker: "$"},
+			{Prefixes: []string{"$@", "@$", "@"}, Delimiter: "\"", Multiline: true, DoubledDelimiterEscape: true, InterpolationMarker: "$", DoubledBraceEscape: true},
+			{Prefixes: []string{"$", ""}, Delimiter: "\"", BackslashEscapes: true, InterpolationMarker: "$", DoubledBraceEscape: true},
 			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
 		},
 		Directives: true,
@@ -159,7 +173,8 @@ func CScannerProfile() ScannerProfile {
 			{Prefixes: []string{"u8", "u", "U", "L", ""}, Delimiter: "\"", BackslashEscapes: true},
 			{Prefixes: []string{"u", "U", "L", ""}, Delimiter: "'", BackslashEscapes: true},
 		},
-		Directives: true,
+		DirectiveRules: []DirectiveRule{{Prefix: "#", BackslashContinuesLine: true}},
+		Directives:     true,
 	}
 }
 
