@@ -453,6 +453,50 @@ func haskellCharacterLiteralEnd(text string, start int) (int, bool) {
 	return at + 1, true
 }
 
+func ocamlCharacterLiteralEnd(text string, start int) (int, bool) {
+	at := start + 1
+	if start < 0 || start >= len(text) || text[start] != '\'' || at >= len(text) || text[at] == '\r' || text[at] == '\n' {
+		return 0, false
+	}
+	if text[at] != '\\' {
+		value, size := utf8.DecodeRuneInString(text[at:])
+		if value == utf8.RuneError && size == 1 || value == '\r' || value == '\n' || value == '\'' || size <= 0 {
+			return 0, false
+		}
+		at += size
+	} else {
+		at++
+		if at >= len(text) || text[at] == '\r' || text[at] == '\n' {
+			return 0, false
+		}
+		switch {
+		case strings.ContainsRune("\\\"'ntbr ", rune(text[at])):
+			at++
+		case text[at] >= '0' && text[at] <= '9':
+			if at+3 > len(text) {
+				return 0, false
+			}
+			for index := 0; index < 3; index++ {
+				if text[at+index] < '0' || text[at+index] > '9' {
+					return 0, false
+				}
+			}
+			at += 3
+		case text[at] == 'x':
+			at++
+			if !phase9ConsumeFixedHex(text, &at, 2) {
+				return 0, false
+			}
+		default:
+			return 0, false
+		}
+	}
+	if at >= len(text) || text[at] != '\'' {
+		return 0, false
+	}
+	return at + 1, true
+}
+
 func phase9ConsumeFixedHex(text string, at *int, count int) bool {
 	if at == nil || count <= 0 || *at < 0 || *at+count > len(text) {
 		return false
@@ -717,7 +761,11 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, document, OCamlScannerProfile(), options.MaxNesting)
+	scanDocument, err := phase9MaskSingleQuotedCharacterLiterals(ctx, document, ocamlCharacterLiteralEnd)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, OCamlScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}

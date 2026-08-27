@@ -73,6 +73,27 @@ func TestDynamicBEAMScriptingConformanceAcrossEncodingsAndDeterminism(t *testing
 	}
 }
 
+func TestTclBracedWordsAndEscapedQuotesPreserveStructuralBraces(t *testing.T) {
+	text := "proc demo {} {\n" +
+		"  set literal {square [ bracket and ( paren are data}\n" +
+		"  uplevel \\#0 source \\\"$filename\\\"\n" +
+		"}\n" +
+		"proc after {} {}\n"
+	result, err := (TclAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid Tcl braced words/backslash substitutions reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Tcl declaration %q missing after literal delimiters: %v", want, names)
+		}
+	}
+}
+
 func TestProductionOpaqueAndMultilineBoundaries(t *testing.T) {
 	t.Run("perl-quoted-heredoc", func(t *testing.T) {
 		text := "my $data = <<'EOF';\nsub HeredocFake {}\nEOF\nsub Real {}\n"

@@ -222,6 +222,26 @@ func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 		}
 	})
 
+	t.Run("ocaml-character-literals-preserve-type-variables", func(t *testing.T) {
+		text := "let classify c =\n" +
+			"  if c = '0' || c = '9' || c = ' ' || c = '~' || c = '\"' || c = '\\\\' || c = '\\'' then c else c\n" +
+			"let id (x : 'a) = x\n" +
+			"let after = 1\n"
+		result, err := (OCamlAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("chars.ml", text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid OCaml character literals lowered coverage: %+v", result.Analysis.Diagnostics)
+		}
+		byName := symbolsByQualifiedName(result.Analysis.Symbols)
+		for _, name := range []string{"classify", "id", "after"} {
+			if _, ok := byName[name]; !ok {
+				t.Fatalf("OCaml declaration %q missing after character literals/type variable: %v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+	})
+
 	t.Run("julia-compact-function", func(t *testing.T) {
 		text := "module Demo\ncompact(x) = x\nadjoint = matrix'\nmacro tagged(ex)\n  ex\nend\nend\n"
 		result, err := (JuliaAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.jl", text), testAnalyzeOptions(false, 64))

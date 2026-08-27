@@ -121,13 +121,19 @@ func POSIXShellDelimiterRules() []DelimiterRule {
 	return []DelimiterRule{{Open: "(", Close: ")"}, {Open: "{", Close: "}"}}
 }
 
+func tclDelimiterRules() []DelimiterRule {
+	return []DelimiterRule{{Open: "{", Close: "}"}}
+}
+
 func TclScannerProfile() ScannerProfile {
 	return ScannerProfile{
-		Name:         "tcl",
-		Keywords:     []string{"namespace", "package", "proc", "source"},
-		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$:", ExtraContinue: "$:-"},
-		LineComments: []string{"#"},
-		Strings:      []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true}},
+		Name:                           "tcl",
+		Keywords:                       []string{"namespace", "package", "proc", "source"},
+		Identifier:                     IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$:", ExtraContinue: "$:-"},
+		LineComments:                   []string{"#"},
+		Strings:                        []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true}},
+		Delimiters:                     tclDelimiterRules(),
+		BackslashEscapesOutsideStrings: true,
 	}
 }
 

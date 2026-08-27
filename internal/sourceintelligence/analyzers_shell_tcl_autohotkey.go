@@ -148,7 +148,7 @@ func (TclAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	parser := &tclPhase8Parser{state: state, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil)}
+	parser := &tclPhase8Parser{state: state, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, tclDelimiterRules())}
 	parser.parseRange(0, len(scan.Tokens), 0, nil)
 	return state.result()
 }
