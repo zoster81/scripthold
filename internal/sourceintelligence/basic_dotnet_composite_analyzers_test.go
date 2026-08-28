@@ -115,6 +115,96 @@ func TestRealWorldFreeBasicTypeNamedFieldDoesNotOpenScope(t *testing.T) {
 	}
 }
 
+func TestRealWorldPureBasicKeywordNamedFieldsDoNotOpenForeignBasicScopes(t *testing.T) {
+	text := "Structure IntegerField\n" +
+		"  Type.i\n" +
+		"  Function.s\n" +
+		"  Value.i\n" +
+		"EndStructure\n" +
+		"Structure AsciiField\n" +
+		"  Type.a\n" +
+		"EndStructure\n" +
+		"Procedure After()\n" +
+		"EndProcedure\n"
+	result, err := (PureBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("PureBasic keyword-named fields opened foreign BASIC scopes: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"IntegerField", "IntegerField.Type", "IntegerField.Function", "IntegerField.Value", "AsciiField", "AsciiField.Type", "After"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestRealWorldPureBasicHashConstantsDoNotBecomeOpaqueDirectives(t *testing.T) {
+	text := "Procedure Run()\n" +
+		"  value = StringFingerprint(\"api_key\" +\n" +
+		"                            #PB_Cipher_MD5)\n" +
+		"EndProcedure\n" +
+		"Procedure After()\n" +
+		"EndProcedure\n"
+	result, err := (PureBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("PureBasic hash constant hid a multiline delimiter close: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"Run", "After"} {
+		if _, ok := byName[name]; !ok {
+			t.Fatalf("missing %s; symbols=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+
+	broken, err := (PureBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("Procedure Broken()\n  value = Call(1\nEndProcedure\n"), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broken.Analysis.CoverageComplete || !hasAnalysisDiagnostic(broken.Analysis.Diagnostics, "purebasic-unterminated-delimiter") {
+		t.Fatalf("genuinely unterminated PureBasic delimiter was accepted: %+v", broken.Analysis)
+	}
+}
+
+func TestRealWorldPureBasicMacroBodiesStayOpaque(t *testing.T) {
+	text := "Macro DoubleQuote\n" +
+		"\"\n" +
+		"EndMacro\n" +
+		"Macro GeneratedDeclaration\n" +
+		"Procedure Fake()\n" +
+		"EndProcedure\n" +
+		"EndMacro\n" +
+		"Procedure Real()\n" +
+		"EndProcedure\n"
+	result, err := (PureBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Diagnostics) != 0 {
+		t.Fatalf("valid PureBasic macro body reported partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if _, ok := byName["Real"]; !ok {
+		t.Fatalf("real declaration after macros missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if _, leaked := byName["Fake"]; leaked {
+		t.Fatalf("macro expansion body leaked declaration: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+
+	broken, err := (PureBasicAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("Macro Broken\n\"\n"), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broken.Analysis.CoverageComplete || !hasAnalysisDiagnostic(broken.Analysis.Diagnostics, "purebasic-missing-end-macro") {
+		t.Fatalf("unterminated PureBasic macro was accepted: %+v", broken.Analysis)
+	}
+}
+
 func TestRealWorldClassicBasicDeclareLibraryPrototypesDoNotOpenScopes(t *testing.T) {
 	text := "Declare Library \"\"\n" +
 		"    Function powf! (ByVal base!, ByVal exponent!)\n" +

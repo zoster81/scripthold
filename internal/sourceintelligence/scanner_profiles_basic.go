@@ -23,6 +23,7 @@ func FreeBasicScannerProfile() ScannerProfile    { return BasicScannerProfile("f
 func PureBasicScannerProfile() ScannerProfile {
 	profile := BasicScannerProfile("purebasic")
 	profile.LineComments = []string{";"}
+	profile.Directives = false
 	profile.ExplicitContinuation = ""
 	return profile
 }

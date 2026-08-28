@@ -99,7 +99,20 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
-	scan, err := ScanSource(ctx, document, policy.profile, ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	scanDocument := document
+	if policy.pureBasic {
+		masked, incompleteRange, complete := maskPureBasicMacroBlocks(document.Text)
+		if masked != document.Text {
+			clone := *document
+			clone.Text = masked
+			scanDocument = &clone
+		}
+		if !complete {
+			builder.MarkIncomplete()
+			_ = builder.AddDiagnostic(DiagnosticSpec{Code: "purebasic-missing-end-macro", Message: "Macro is missing its matching EndMacro", Severity: DiagnosticWarning, Range: incompleteRange, AffectsCoverage: true})
+		}
+	}
+	scan, err := ScanSource(ctx, scanDocument, policy.profile, ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -130,6 +143,55 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_basic_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies}, nil
+}
+
+func maskPureBasicMacroBlocks(text string) (string, *OffsetRange, bool) {
+	masked := []byte(text)
+	inMacro := false
+	macroStart := 0
+	macroEnd := 0
+	for lineStart := 0; lineStart < len(text); {
+		lineEnd := lineStart
+		for lineEnd < len(text) && text[lineEnd] != '\r' && text[lineEnd] != '\n' {
+			lineEnd++
+		}
+		next := lineEnd
+		if next < len(text) && text[next] == '\r' {
+			next++
+			if next < len(text) && text[next] == '\n' {
+				next++
+			}
+		} else if next < len(text) {
+			next++
+		}
+		line := text[lineStart:lineEnd]
+		if !inMacro && pureBasicLineStartsKeyword(line, "macro") {
+			inMacro = true
+			macroStart = lineStart
+			macroEnd = lineEnd
+		}
+		if inMacro {
+			for index := lineStart; index < next; index++ {
+				if masked[index] != '\r' && masked[index] != '\n' {
+					masked[index] = ' '
+				}
+			}
+			if pureBasicLineStartsKeyword(line, "endmacro") {
+				inMacro = false
+			}
+		}
+		lineStart = next
+	}
+	if inMacro {
+		value := OffsetRange{Start: macroStart, End: macroEnd}
+		return string(masked), &value, false
+	}
+	return string(masked), nil, true
+}
+
+func pureBasicLineStartsKeyword(line, keyword string) bool {
+	fields := strings.Fields(line)
+	return len(fields) > 0 && strings.EqualFold(fields[0], keyword)
 }
 
 func basicDeclareLibraryOpen(tokens []Token) bool {
@@ -293,6 +355,8 @@ func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 			return "enumeration", true
 		case "procedure", "procedurec", "proceduredll", "procedurecdll":
 			return "procedure", true
+		default:
+			return "", false
 		}
 	}
 	switch first {
@@ -622,7 +686,9 @@ func (p *basicParser) addTypeField(line basicLine, parent *SymbolParent) bool {
 		return false
 	}
 	first := line.tokens[semantic]
-	if first.Kind != TokenIdentifier && !(p.policy.freeBasic && first.Kind == TokenKeyword && strings.EqualFold(first.Text, "type")) {
+	freeBasicTypeField := p.policy.freeBasic && first.Kind == TokenKeyword && strings.EqualFold(first.Text, "type")
+	pureBasicKeywordField := p.policy.pureBasic && first.Kind == TokenKeyword && semantic+1 < len(line.tokens) && strings.HasPrefix(line.tokens[semantic+1].Text, ".")
+	if first.Kind != TokenIdentifier && !freeBasicTypeField && !pureBasicKeywordField {
 		return false
 	}
 	for _, tok := range line.tokens {
