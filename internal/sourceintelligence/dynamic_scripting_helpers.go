@@ -198,6 +198,7 @@ func maskPerlNonCode(text string) (string, bool) {
 			break
 		}
 	}
+	maskPerlArrayLastIndexSigils(result)
 	maskPerlQuoteLikeOperators(result)
 	return string(result), complete
 }
@@ -250,10 +251,13 @@ func phase8PerlHereDocDelimiter(line string) (string, bool) {
 
 func phase8PerlHereDocContext(before string) (allowed, quotedOnly bool) {
 	before = strings.TrimSpace(before)
-	if strings.HasSuffix(before, "=") {
+	if before == "return" || strings.HasSuffix(before, "=") {
 		return true, false
 	}
 	if phase8PerlEndsWithCallable(before, "print") || phase8PerlEndsWithCallable(before, "say") {
+		return true, false
+	}
+	if phase8PerlHereDocPrintFilehandleContext(before) {
 		return true, false
 	}
 	if strings.HasSuffix(before, "(") {
@@ -271,6 +275,23 @@ func phase8PerlEndsWithCallable(text, name string) bool {
 	}
 	start := len(text) - len(name)
 	return start == 0 || !phase8PerlIdentifierByte(text[start-1])
+}
+
+func phase8PerlHereDocPrintFilehandleContext(before string) bool {
+	fields := strings.Fields(before)
+	if len(fields) != 2 || (!phase8PerlEndsWithCallable(fields[0], "print") && !phase8PerlEndsWithCallable(fields[0], "say")) {
+		return false
+	}
+	filehandle := fields[1]
+	if len(filehandle) < 2 || filehandle[0] != '$' || !phase8PerlHereDocIdentifierStart(filehandle[1]) {
+		return false
+	}
+	for at := 2; at < len(filehandle); at++ {
+		if !phase8PerlHereDocIdentifierContinue(filehandle[at]) {
+			return false
+		}
+	}
+	return true
 }
 
 func phase8PerlBarewordHereDocDelimiter(rest string) (string, bool) {
@@ -299,6 +320,26 @@ func phase8PerlHereDocIdentifierContinue(value byte) bool {
 	return phase8PerlHereDocIdentifierStart(value) || value >= '0' && value <= '9'
 }
 
+func maskPerlArrayLastIndexSigils(result []byte) {
+	for at := 0; at+1 < len(result); at++ {
+		if result[at] != '$' {
+			continue
+		}
+		switch result[at+1] {
+		case '[', ']':
+			result[at+1] = ' '
+		case '#':
+			if at+2 >= len(result) {
+				continue
+			}
+			next := result[at+2]
+			if next == '{' || phase8PerlHereDocIdentifierStart(next) {
+				result[at+1] = ' '
+			}
+		}
+	}
+}
+
 func maskPerlQuoteLikeOperators(result []byte) {
 	for at := 0; at < len(result); {
 		switch result[at] {
@@ -312,7 +353,7 @@ func maskPerlQuoteLikeOperators(result []byte) {
 			if phase8PerlSlashRegexStart(result, at) {
 				if end, ok := phase8PerlSlashRegexEnd(result, at); ok {
 					phase8MaskRange(result, at, end)
-					at = end
+					at = phase8PerlQuoteLikeModifierEnd(result, end, "m")
 					continue
 				}
 			}
@@ -322,6 +363,7 @@ func maskPerlQuoteLikeOperators(result []byte) {
 			at++
 			continue
 		}
+		operator := string(result[at : at+operatorLength])
 		delimiterAt := at + operatorLength
 		for delimiterAt < len(result) && (result[delimiterAt] == ' ' || result[delimiterAt] == '\t') {
 			delimiterAt++
@@ -362,7 +404,7 @@ func maskPerlQuoteLikeOperators(result []byte) {
 			}
 		}
 		phase8MaskRange(result, at, end)
-		at = end
+		at = phase8PerlQuoteLikeModifierEnd(result, end, operator)
 	}
 }
 
@@ -411,6 +453,26 @@ func phase8PerlSlashRegexEnd(text []byte, delimiterAt int) (int, bool) {
 	return 0, false
 }
 
+func phase8PerlQuoteLikeModifierEnd(text []byte, at int, operator string) int {
+	modifiers := ""
+	switch operator {
+	case "m":
+		modifiers = "msixpodualngc"
+	case "qr":
+		modifiers = "msixpodualn"
+	case "s":
+		modifiers = "msixpodualngcer"
+	case "tr", "y":
+		modifiers = "cdsr"
+	default:
+		return at
+	}
+	for at < len(text) && strings.IndexByte(modifiers, text[at]) >= 0 {
+		at++
+	}
+	return at
+}
+
 func phase8PerlQuoteLikeOperatorAt(text []byte, at int) (length, parts int) {
 	if at > 0 && (phase8PerlIdentifierByte(text[at-1]) || text[at-1] == '\\') {
 		return 0, 0
@@ -433,7 +495,7 @@ func phase8PerlQuoteLikeOperatorAt(text []byte, at int) (length, parts int) {
 		if end > len(text) || string(text[at:end]) != candidate.operator {
 			continue
 		}
-		if end < len(text) && phase8PerlIdentifierByte(text[end]) {
+		if end < len(text) && phase8PerlWordIdentifierByte(text[end]) {
 			continue
 		}
 		if phase8PerlBracedQuoteLikeKey(text, at, end) {
@@ -474,12 +536,16 @@ func phase8PerlBareIdentifierByte(value byte) bool {
 	return value == '_' || value == ':' || value == '\'' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
+func phase8PerlWordIdentifierByte(value byte) bool {
+	return value == '_' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
 func phase8PerlIdentifierByte(value byte) bool {
-	return value == '_' || value == '$' || value == '@' || value == '%' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+	return phase8PerlWordIdentifierByte(value) || value == '$' || value == '@' || value == '%'
 }
 
 func phase8PerlQuoteDelimiter(value byte) bool {
-	return value > ' ' && !phase8PerlIdentifierByte(value) && value != '\\'
+	return value > ' ' && (!phase8PerlIdentifierByte(value) || value == '%') && value != '\\'
 }
 
 func phase8PerlDelimitedEnd(text []byte, delimiterAt int) (end int, paired bool, ok bool) {

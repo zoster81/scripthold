@@ -7,8 +7,8 @@ func PerlScannerProfile() ScannerProfile {
 		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$@%", ExtraContinue: "$@%:'"},
 		LineComments: []string{"#"},
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true, Multiline: true},
+			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true, Multiline: true},
 		},
 	}
 }

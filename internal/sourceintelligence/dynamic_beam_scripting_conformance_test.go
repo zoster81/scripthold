@@ -119,6 +119,97 @@ func TestProductionOpaqueAndMultilineBoundaries(t *testing.T) {
 		}
 	})
 
+	t.Run("perl-return-quoted-heredoc", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  return <<\"EoEXAMPLE\";\n" +
+			"don't expose sub HeredocFake {} [\n" +
+			"EoEXAMPLE\n" +
+			"}\n" +
+			"sub After {}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl return heredoc reported partial: %+v", result.Analysis)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		if containsSortedString(names, "HeredocFake") || !containsSortedString(names, "Real") || !containsSortedString(names, "After") {
+			t.Fatalf("Perl return heredoc symbols=%v", names)
+		}
+	})
+
+	t.Run("perl-print-filehandle-heredoc", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $fh = shift;\n" +
+			"  print $fh <<EOF;\n" +
+			"sub HeredocFake { [\n" +
+			"EOF\n" +
+			"}\n" +
+			"sub After {}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl print filehandle heredoc reported partial: %+v", result.Analysis)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		if containsSortedString(names, "HeredocFake") || !containsSortedString(names, "Real") || !containsSortedString(names, "After") {
+			t.Fatalf("Perl print filehandle heredoc symbols=%v", names)
+		}
+	})
+
+	t.Run("perl-native-multiline-quoted-strings", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $sql = \"SELECT (\n" +
+			"    value FROM table_name\n" +
+			"  )\";\n" +
+			"  my $text = 'literal {\n" +
+			"    content ]\n" +
+			"  ';\n" +
+			"  return $sql . $text;\n" +
+			"}\n" +
+			"sub After {}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl multiline native strings reported partial: %+v", result.Analysis)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		if !containsSortedString(names, "Real") || !containsSortedString(names, "After") {
+			t.Fatalf("Perl declarations missing after multiline native strings: %v", names)
+		}
+	})
+
+	t.Run("perl-punctuation-special-variable", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  return 1 if $] ge '5.014';\n" +
+			"  return 0;\n" +
+			"}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl punctuation special variable reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-prototype-dollar-before-closing-paren", func(t *testing.T) {
+		text := "sub no_context(&;$) { return 1 }\n" +
+			"sub release($;$) { return $_[1] }\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl prototypes reported partial: %+v", result.Analysis)
+		}
+	})
+
 	t.Run("perl-quote-like-operators", func(t *testing.T) {
 		text := "my $q = q{sub QFake { [ } apostrophe's };\n" +
 			"my $qq = qq(sub QQFake { ] });\n" +
@@ -204,6 +295,86 @@ func TestProductionOpaqueAndMultilineBoundaries(t *testing.T) {
 		}
 		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
 			t.Fatalf("valid Perl quote-like-letter hash keys reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-quote-like-modifiers-do-not-start-new-operators", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $value = 'header\\n\\nbody';\n" +
+			"  $value =~ s/^.*?\\n\\n//s;\n" +
+			"  my %builtins = (\n" +
+			"    cisco => { query => sub { return 1; } },\n" +
+			"  );\n" +
+			"  return $builtins{cisco};\n" +
+			"}\n"
+		masked, complete := maskPerlNonCode(text)
+		if !complete || !strings.Contains(masked, "my %builtins") {
+			t.Fatalf("Perl quote-like modifier consumed following code: complete=%v masked=%q", complete, masked)
+		}
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl quote-like modifier reported partial: %+v", result.Analysis)
+		}
+		if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "Real") {
+			t.Fatalf("Perl real function missing after quote-like modifier: %v", names)
+		}
+	})
+
+	t.Run("perl-percent-delimited-substitution", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $url = 'path';\n" +
+			"  $url =~ s%^[^?/]*/?%%;\n" +
+			"  return $url;\n" +
+			"}\n"
+		masked, complete := maskPerlNonCode(text)
+		if !complete || strings.Contains(masked, "[^?/]") {
+			t.Fatalf("Perl percent-delimited substitution was not masked: complete=%v masked=%q", complete, masked)
+		}
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl percent-delimited substitution reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-array-last-index-special-variable", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my @reply = qw(one two);\n" +
+			"  return join(' ', @reply[1..$#reply]);\n" +
+			"}\n"
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl array-last-index special variable reported partial: %+v", result.Analysis)
+		}
+	})
+
+	t.Run("perl-bare-slash-modifiers-do-not-start-quote-like-operators", func(t *testing.T) {
+		text := "sub Real {\n" +
+			"  my $value = 'header';\n" +
+			"  return 0 unless $value =~ /header/s;\n" +
+			"  my %builtins = (\n" +
+			"    cisco => { query => sub { return 1; } },\n" +
+			"  );\n" +
+			"  return $builtins{cisco};\n" +
+			"}\n"
+		masked, complete := maskPerlNonCode(text)
+		if !complete || !strings.Contains(masked, "my %builtins") {
+			t.Fatalf("Perl slash-regex modifier consumed following code: complete=%v masked=%q", complete, masked)
+		}
+		result, err := (PerlAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Perl slash-regex modifier reported partial: %+v", result.Analysis)
 		}
 	})
 
