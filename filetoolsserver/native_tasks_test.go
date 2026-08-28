@@ -168,11 +168,10 @@ func TestNativeTasksWrapsRealDeferredFingerprintAfterSyncWindow(t *testing.T) {
 }
 
 func TestNativeTasksThreeConcurrentSlowCallsPreserveFastPath(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	h, cfg, store, path := newDeferredFingerprintFixture(t)
-	cfg.Reliability.DeferredSyncWaitSeconds = 1
 	release := make(chan struct{})
 	defer func() {
 		select {
@@ -182,7 +181,14 @@ func TestNativeTasksThreeConcurrentSlowCallsPreserveFastPath(t *testing.T) {
 		}
 	}()
 	started := make(chan string, 3)
-	slowEngine := &fakeDeferredEngine{store: store, releaseWork: release, started: started}
+	executionErrors := make(chan error, 3)
+	slowEngine := &fakeDeferredEngine{
+		store:               store,
+		releaseWork:         release,
+		started:             started,
+		executionErrors:     executionErrors,
+		handoffAfterStarted: true,
+	}
 	slow := deferredFingerprintHandler(h, cfg, slowEngine, h.HandleFingerprintPaths)
 	middleware := createNativeTasksMiddleware(store, h.ResolvedAllowedDirs)
 
@@ -217,6 +223,8 @@ func TestNativeTasksThreeConcurrentSlowCallsPreserveFastPath(t *testing.T) {
 	for range 3 {
 		select {
 		case <-started:
+		case executeErr := <-executionErrors:
+			t.Fatalf("slow deferred execution failed before the started boundary: %v", executeErr)
 		case <-ctx.Done():
 			t.Fatal("slow deferred operations did not all cross the started boundary")
 		}

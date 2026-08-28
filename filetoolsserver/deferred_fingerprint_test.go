@@ -15,10 +15,12 @@ import (
 )
 
 type fakeDeferredEngine struct {
-	store       *deferredoperation.Store
-	executeNow  bool
-	releaseWork <-chan struct{}
-	started     chan<- string
+	store               *deferredoperation.Store
+	executeNow          bool
+	releaseWork         <-chan struct{}
+	started             chan<- string
+	executionErrors     chan<- error
+	handoffAfterStarted bool
 }
 
 func (engine *fakeDeferredEngine) Store() *deferredoperation.Store { return engine.store }
@@ -33,7 +35,13 @@ func (engine *fakeDeferredEngine) Submit(ctx context.Context, request deferredop
 		return operation, err
 	}
 	run := func() {
-		_ = engine.store.Execute(context.Background(), operation.OperationID, func(ctx context.Context, request deferredoperation.Request) ([]byte, deferredoperation.ResultMetadata, error) {
+		executeErr := engine.store.Execute(context.Background(), operation.OperationID, func(ctx context.Context, request deferredoperation.Request) ([]byte, deferredoperation.ResultMetadata, error) {
+			if engine.started != nil {
+				select {
+				case engine.started <- operation.OperationID:
+				default:
+				}
+			}
 			if engine.releaseWork != nil {
 				select {
 				case <-engine.releaseWork:
@@ -43,25 +51,17 @@ func (engine *fakeDeferredEngine) Submit(ctx context.Context, request deferredop
 			}
 			return ExecuteDeferredOperation(ctx, request)
 		})
+		if executeErr != nil && engine.executionErrors != nil {
+			select {
+			case engine.executionErrors <- executeErr:
+			default:
+			}
+		}
 	}
 	if engine.executeNow {
 		run()
 	} else {
 		go run()
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			observed, getErr := engine.store.Get(operation.OperationID, request.AllowedDirectories)
-			if getErr == nil && observed.Started {
-				if engine.started != nil {
-					select {
-					case engine.started <- observed.OperationID:
-					default:
-					}
-				}
-				return observed, nil
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
 	}
 	return operation, nil
 }
@@ -69,20 +69,23 @@ func (engine *fakeDeferredEngine) Submit(ctx context.Context, request deferredop
 func (engine *fakeDeferredEngine) Wait(ctx context.Context, operationID string, allowed []string, maximum time.Duration) (deferredoperation.Operation, bool, error) {
 	deadline := time.Now().Add(maximum)
 	for {
-		operation, err := engine.store.Get(operationID, allowed)
+		operation, err := engine.store.GetContext(ctx, operationID, allowed)
 		if err != nil {
 			return deferredoperation.Operation{}, false, err
 		}
 		if operation.Status.Terminal() {
 			return operation, true, nil
 		}
-		if maximum == 0 || !time.Now().Before(deadline) {
+		if engine.handoffAfterStarted && operation.Started {
+			return operation, false, nil
+		}
+		if !engine.handoffAfterStarted && (maximum == 0 || !time.Now().Before(deadline)) {
 			return operation, false, nil
 		}
 		select {
 		case <-ctx.Done():
 			return deferredoperation.Operation{}, false, ctx.Err()
-		case <-time.After(5 * time.Millisecond):
+		case <-time.After(25 * time.Millisecond):
 		}
 	}
 }
@@ -95,7 +98,7 @@ func newDeferredFingerprintFixture(t *testing.T) (*handler.Handler, *config.Conf
 		t.Fatal(err)
 	}
 	cfg := config.LoadFromEnvironment(func(string) string { return "" })
-	cfg.Reliability.DeferredSyncWaitSeconds = 0
+	cfg.Reliability.DeferredSyncWaitSeconds = 1
 	cfg.Reliability.DeferredMaxRuntimeSeconds = 30
 	store, err := deferredoperation.Initialize(filepath.Join(t.TempDir(), "deferred"), []string{public}, nil, deferredoperation.Limits{
 		MaxConcurrency: 4, MaxQueued: 8, MaxRuntimeSeconds: 30, RetentionSeconds: 3600,
