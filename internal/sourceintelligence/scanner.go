@@ -474,7 +474,7 @@ func (scanner *sourceScanner) skipBlockComment(rule BlockCommentRule) error {
 				return err
 			}
 		}
-		if rule.Nestable && strings.HasPrefix(scanner.text[scanner.at:], rule.Start) {
+		if rule.Nestable && blockCommentDelimiterMatches(scanner.text, scanner.at, rule.Start, rule.DelimiterLineOnly) {
 			depth++
 			if depth > scanner.limits.MaxNesting {
 				return scanner.limitError("block comment nesting", depth, scanner.limits.MaxNesting)
@@ -482,7 +482,7 @@ func (scanner *sourceScanner) skipBlockComment(rule BlockCommentRule) error {
 			scanner.at += len(rule.Start)
 			continue
 		}
-		if strings.HasPrefix(scanner.text[scanner.at:], rule.End) {
+		if blockCommentDelimiterMatches(scanner.text, scanner.at, rule.End, rule.DelimiterLineOnly) {
 			depth--
 			scanner.at += len(rule.End)
 			if depth == 0 {
@@ -838,12 +838,32 @@ func (scanner *sourceScanner) blockCommentRuleAt(offset int) (BlockCommentRule, 
 	best := BlockCommentRule{}
 	found := false
 	for _, rule := range scanner.profile.BlockComments {
-		if strings.HasPrefix(scanner.text[offset:], rule.Start) && (!found || len(rule.Start) > len(best.Start)) {
+		if blockCommentDelimiterMatches(scanner.text, offset, rule.Start, rule.DelimiterLineOnly) && (!found || len(rule.Start) > len(best.Start)) {
 			best = rule
 			found = true
 		}
 	}
 	return best, found
+}
+
+func blockCommentDelimiterMatches(text string, offset int, delimiter string, lineOnly bool) bool {
+	if offset < 0 || offset+len(delimiter) > len(text) || !strings.HasPrefix(text[offset:], delimiter) {
+		return false
+	}
+	if !lineOnly {
+		return true
+	}
+	for at := offset - 1; at >= 0 && !isNewlineStart(text[at]); at-- {
+		if !isHorizontalSpace(text[at]) {
+			return false
+		}
+	}
+	for at := offset + len(delimiter); at < len(text) && !isNewlineStart(text[at]); at++ {
+		if !isHorizontalSpace(text[at]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (scanner *sourceScanner) initializeStringDispatch() {

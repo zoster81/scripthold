@@ -144,109 +144,11 @@ func (TclAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, err := state.scan(options, TclScannerProfile(), document.Text)
-	if err != nil {
+	parser := newTclSourceParser(state, options.MaxNesting)
+	if _, _, err := parser.parseScript(0, len(document.Text), 0, nil, false, true); err != nil {
 		return AnalyzerResult{}, err
 	}
-	parser := &tclPhase8Parser{state: state, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, tclDelimiterRules())}
-	parser.parseRange(0, len(scan.Tokens), 0, nil)
 	return state.result()
-}
-
-type tclPhase8Parser struct {
-	state  *phase8State
-	tokens []Token
-	pairs  map[int]int
-}
-
-func (p *tclPhase8Parser) parseRange(start, end, nesting int, parent *SymbolParent) {
-	for i := start; i < end && !p.state.stopped; {
-		if p.state.ctx.Err() != nil {
-			return
-		}
-		i = nextStructuralToken(p.tokens, i, end)
-		if i >= end || p.tokens[i].Kind == TokenEOF {
-			return
-		}
-		if p.tokens[i].Nesting != nesting {
-			i++
-			continue
-		}
-		first := strings.ToLower(p.tokens[i].Text)
-		switch first {
-		case "proc":
-			nameIndex := phase8NextIdentifier(p.tokens, i+1, end)
-			if nameIndex < 0 {
-				i++
-				continue
-			}
-			argsOpen := nextStructuralToken(p.tokens, nameIndex+1, end)
-			if argsOpen >= end || p.tokens[argsOpen].Text != "{" {
-				i++
-				continue
-			}
-			argsClose := p.pairs[argsOpen]
-			bodyOpen := nextStructuralToken(p.tokens, argsClose+1, end)
-			if argsClose <= argsOpen || bodyOpen >= end || p.tokens[bodyOpen].Text != "{" {
-				i++
-				continue
-			}
-			bodyClose := p.pairs[bodyOpen]
-			if bodyClose <= bodyOpen {
-				p.state.builder.MarkIncomplete()
-				return
-			}
-			name := p.tokens[nameIndex]
-			p.state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "proc", Name: name.Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[i].StartOffset, End: p.tokens[bodyClose].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: p.tokens[i].StartOffset, End: p.tokens[bodyOpen].StartOffset}, Body: &OffsetRange{Start: p.tokens[bodyOpen].StartOffset, End: p.tokens[bodyClose].EndOffset}, Evidence: SymbolEvidenceStructural})
-			i = bodyClose + 1
-		case "namespace":
-			eval := nextStructuralToken(p.tokens, i+1, end)
-			if eval >= end || !strings.EqualFold(p.tokens[eval].Text, "eval") {
-				i++
-				continue
-			}
-			nameIndex := phase8NextIdentifier(p.tokens, eval+1, end)
-			if nameIndex < 0 {
-				i++
-				continue
-			}
-			bodyOpen := nextStructuralToken(p.tokens, nameIndex+1, end)
-			if bodyOpen >= end || p.tokens[bodyOpen].Text != "{" {
-				i++
-				continue
-			}
-			bodyClose := p.pairs[bodyOpen]
-			if bodyClose <= bodyOpen {
-				p.state.builder.MarkIncomplete()
-				return
-			}
-			name := p.tokens[nameIndex]
-			symbol, ok := p.state.add(SymbolSpec{Kind: SymbolKindNamespace, NativeKind: "namespace-eval", Name: name.Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[i].StartOffset, End: p.tokens[bodyClose].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: p.tokens[i].StartOffset, End: p.tokens[bodyOpen].StartOffset}, Body: &OffsetRange{Start: p.tokens[bodyOpen].StartOffset, End: p.tokens[bodyClose].EndOffset}, Evidence: SymbolEvidenceStructural})
-			if ok {
-				child := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-				p.parseRange(bodyOpen+1, bodyClose, nesting+1, child)
-			}
-			i = bodyClose + 1
-		case "source":
-			lineEnd := phase8TokenLineEnd(p.tokens, i+1)
-			if value, start, end, ok := phase8StaticDependencyTarget(p.state.document.Text, p.tokens[i+1:lineEnd]); ok {
-				p.state.addImportDependency(value, start, end)
-			}
-			i = max(lineEnd, i+1)
-		case "package":
-			lineEnd := phase8TokenLineEnd(p.tokens, i+1)
-			require := nextStructuralToken(p.tokens, i+1, lineEnd)
-			if require < lineEnd && strings.EqualFold(p.tokens[require].Text, "require") {
-				idx := phase8NextIdentifier(p.tokens, require+1, lineEnd)
-				if idx >= 0 {
-					p.state.addImportDependency(p.tokens[idx].Text, p.tokens[idx].StartOffset, p.tokens[idx].EndOffset)
-				}
-			}
-			i = max(lineEnd, i+1)
-		default:
-			i++
-		}
-	}
 }
 
 func (AutoHotkeyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {

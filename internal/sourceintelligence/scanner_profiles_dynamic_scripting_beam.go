@@ -131,7 +131,7 @@ func TclScannerProfile() ScannerProfile {
 		Keywords:                       []string{"namespace", "package", "proc", "source"},
 		Identifier:                     IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$:", ExtraContinue: "$:-"},
 		LineComments:                   []string{"#"},
-		Strings:                        []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true}},
+		Strings:                        []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true, Multiline: true}},
 		Delimiters:                     tclDelimiterRules(),
 		BackslashEscapesOutsideStrings: true,
 	}

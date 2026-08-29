@@ -61,7 +61,7 @@ func MATLABScannerProfile(name string) ScannerProfile {
 		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraContinue: "."},
 		LineComments: comments,
 		BlockComments: []BlockCommentRule{
-			{Start: "%{", End: "%}"},
+			{Start: "%{", End: "%}", DelimiterLineOnly: true},
 		},
 		Strings: []StringRule{
 			{Prefixes: []string{""}, Delimiter: "\"", DoubledDelimiterEscape: true},
@@ -94,8 +94,9 @@ func RScannerProfile() ScannerProfile {
 		Identifier:   IdentifierPolicy{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: ".", ExtraContinue: "."},
 		LineComments: []string{"#"},
 		Strings: []StringRule{
-			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true},
-			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true},
+			{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true, Multiline: true},
+			{Prefixes: []string{""}, Delimiter: "'", BackslashEscapes: true, Multiline: true},
+			{Prefixes: []string{""}, Delimiter: "`", BackslashEscapes: true},
 		},
 	}
 }

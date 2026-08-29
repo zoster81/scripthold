@@ -2,9 +2,10 @@ package sourceintelligence
 
 // BlockCommentRule defines one shared block-comment family.
 type BlockCommentRule struct {
-	Start    string
-	End      string
-	Nestable bool
+	Start             string
+	End               string
+	Nestable          bool
+	DelimiterLineOnly bool
 }
 
 // StringRule describes one opaque string family. Prefixes are matched before

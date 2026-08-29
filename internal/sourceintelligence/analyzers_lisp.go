@@ -35,7 +35,7 @@ func analyzePhase9Lisp(ctx context.Context, document *SourceDocument, options An
 		return AnalyzerResult{}, err
 	}
 	scanDocument := document
-	if language == "clojure" || language == "emacs-lisp" {
+	if language == "common-lisp" || language == "clojure" || language == "emacs-lisp" {
 		clone := *document
 		clone.Text = phase9MaskLispReaderCharacters(document.Text, language)
 		scanDocument = &clone
@@ -115,6 +115,10 @@ func phase9MaskLispReaderCharacters(text, language string) string {
 		}
 		end := at
 		switch language {
+		case "common-lisp":
+			if strings.HasPrefix(text[at:], "#\\") {
+				end = phase9CommonLispCharacterEnd(text, at)
+			}
 		case "clojure":
 			if text[at] == '\\' {
 				end = phase9ClojureCharacterEnd(text, at)
@@ -136,6 +140,27 @@ func phase9MaskLispReaderCharacters(text, language string) string {
 		at += size
 	}
 	return string(masked)
+}
+
+func phase9CommonLispCharacterEnd(text string, at int) int {
+	cursor := at + 2
+	if at < 0 || cursor > len(text) || !strings.HasPrefix(text[at:], "#\\") {
+		return at
+	}
+	if cursor >= len(text) {
+		return cursor
+	}
+	if phase9ReaderCharacterNameByte(text[cursor]) {
+		for cursor < len(text) && phase9ReaderCharacterNameByte(text[cursor]) {
+			cursor++
+		}
+		return cursor
+	}
+	_, size := utf8.DecodeRuneInString(text[cursor:])
+	if size <= 0 {
+		size = 1
+	}
+	return min(len(text), cursor+size)
 }
 
 func phase9ClojureCharacterEnd(text string, at int) int {

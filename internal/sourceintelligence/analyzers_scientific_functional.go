@@ -39,18 +39,34 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, document, MATLABScannerProfile(language), options.MaxNesting)
+	scanDocument, unterminatedCharacterVector, err := phase9MaskMATLABCharacterVectors(ctx, document, octave)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, MATLABScannerProfile(language), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	phase9ApplyScanDiagnostics(builder, scan, language)
+	if unterminatedCharacterVector != nil {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unterminated-character-vector", Message: language + " source contains an unterminated single-quoted character vector", Severity: DiagnosticWarning, Range: unterminatedCharacterVector, AffectsCoverage: true})
+	}
 	dependencies := []StructuralDependency{}
 	var scopes []phase9Scope
+	functionFile := false
+	firstCodeSeen := false
+	explicitFunctionEndSeen := false
+	implicitFunctionBoundaries := phase9MATLABLikeUsesImplicitFunctionBoundaries(lines, octave)
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		if !firstCodeSeen {
+			functionFile = first == "function"
+			firstCodeSeen = true
+		}
 		if first == "import" {
 			for index := 1; index < len(line.Tokens); index++ {
 				if line.Tokens[index].Kind != TokenIdentifier {
@@ -68,18 +84,62 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 			continue
 		}
 		if phase9MATLABLikeScopeTerminator(first, octave) {
-			if len(scopes) > 0 {
-				scopes = scopes[:len(scopes)-1]
+			if len(scopes) == 0 {
+				builder.MarkIncomplete()
+				_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unmatched-scope-terminator", Message: language + " source contains an unmatched structural scope terminator", Severity: DiagnosticWarning, AffectsCoverage: true})
+				continue
 			}
+			if scopes[len(scopes)-1].label == "function" {
+				explicitFunctionEndSeen = true
+			}
+			scopes = scopes[:len(scopes)-1]
 			continue
+		}
+		scopeOpeningLine := phase9MATLABLikeScopeOpeningTokens(line.Tokens, octave)
+		if !scopeOpeningLine {
+			phase9MATLABLikeVisitTrailingScopeTransitions(line.Tokens, octave, func(opening bool, label string) bool {
+				if opening {
+					scopes = append(scopes, phase9Scope{label: label})
+					return true
+				}
+				if len(scopes) == 0 {
+					builder.MarkIncomplete()
+					_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unmatched-scope-terminator", Message: language + " source contains an unmatched structural scope terminator", Severity: DiagnosticWarning, AffectsCoverage: true})
+					return false
+				}
+				if scopes[len(scopes)-1].label == "function" {
+					explicitFunctionEndSeen = true
+				}
+				scopes = scopes[:len(scopes)-1]
+				return true
+			})
 		}
 		switch first {
 		case "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
-			scopes = append(scopes, phase9Scope{label: first})
+			if (first == "methods" || first == "properties") && !scopeOpeningLine {
+				continue
+			}
+			if !phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
+				scopes = append(scopes, phase9Scope{label: first})
+				for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave) {
+					scopes = append(scopes, phase9Scope{label: label})
+				}
+			}
+			continue
+		case "arguments":
+			if !octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, false) {
+				scopes = append(scopes, phase9Scope{label: first})
+				for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, false) {
+					scopes = append(scopes, phase9Scope{label: label})
+				}
+			}
 			continue
 		case "unwind_protect":
-			if octave {
+			if octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, true) {
 				scopes = append(scopes, phase9Scope{label: first})
+				for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, true) {
+					scopes = append(scopes, phase9Scope{label: label})
+				}
 			}
 			continue
 		case "classdef":
@@ -95,6 +155,9 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 			}
 			continue
 		case "function":
+			if implicitFunctionBoundaries && len(scopes) == 1 && scopes[0].label == "function" {
+				scopes = scopes[:0]
+			}
 			nameIndex := phase9MATLABFunctionName(line.Tokens)
 			if nameIndex < 0 {
 				continue
@@ -106,15 +169,321 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 			}
 			symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "function", Name: line.Tokens[nameIndex].Text, Parent: parent,
 				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+			if phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
+				explicitFunctionEndSeen = true
+				continue
+			}
 			functionScope := phase9Scope{label: "function"}
 			if ok {
 				functionScope.parent = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 			}
 			scopes = append(scopes, functionScope)
+			for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave) {
+				scopes = append(scopes, phase9Scope{label: label})
+			}
 		}
+	}
+	if functionFile && len(scopes) == 1 && scopes[0].label == "function" && (octave || !explicitFunctionEndSeen) {
+		scopes = scopes[:0]
 	}
 	phase9MarkUnclosedScopes(builder, language, scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func phase9MaskMATLABCharacterVectors(ctx context.Context, document *SourceDocument, octave bool) (*SourceDocument, *OffsetRange, error) {
+	if document == nil || !strings.Contains(document.Text, "'") {
+		return document, nil, nil
+	}
+	text := document.Text
+	masked := []byte(text)
+	changed := false
+	var unterminated *OffsetRange
+	for at := 0; at < len(text); {
+		if at&0x3fff == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
+		}
+		if blockCommentDelimiterMatches(text, at, "%{", true) {
+			at = phase9MATLABBlockCommentEnd(text, at)
+			continue
+		}
+		if text[at] == '%' || octave && text[at] == '#' {
+			for at < len(text) && text[at] != '\r' && text[at] != '\n' {
+				at++
+			}
+			continue
+		}
+		if text[at] == '"' {
+			end, _ := phase9MATLABQuotedEnd(text, at, '"')
+			at = max(end, at+1)
+			continue
+		}
+		if text[at] == '\'' && phase9MATLABCharacterVectorStart(text, at) {
+			end, complete := phase9MATLABQuotedEnd(text, at, '\'')
+			phase8MaskRange(masked, at, end)
+			changed = true
+			if !complete && unterminated == nil {
+				value := OffsetRange{Start: at, End: end}
+				unterminated = &value
+			}
+			at = max(end, at+1)
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		at += max(size, 1)
+	}
+	if !changed {
+		return document, unterminated, nil
+	}
+	clone := *document
+	clone.Text = string(masked)
+	clone.lineStarts = buildLineStarts(clone.Text)
+	return &clone, unterminated, nil
+}
+
+func phase9MATLABBlockCommentEnd(text string, start int) int {
+	for at := start + len("%{"); at < len(text); {
+		relative := strings.Index(text[at:], "%}")
+		if relative < 0 {
+			return len(text)
+		}
+		closeOffset := at + relative
+		if blockCommentDelimiterMatches(text, closeOffset, "%}", true) {
+			return closeOffset + len("%}")
+		}
+		at = closeOffset + len("%}")
+	}
+	return len(text)
+}
+
+func phase9MATLABCharacterVectorStart(text string, at int) bool {
+	if at < 0 || at >= len(text) || text[at] != '\'' {
+		return false
+	}
+	if at == 0 {
+		return true
+	}
+	previous := text[at-1]
+	if previous == ' ' || previous == '\t' || previous == '\r' || previous == '\n' || previous == '\f' || previous == '\v' {
+		return true
+	}
+	return strings.ContainsRune("([{,:;=+-*/\\^&|~<>", rune(previous))
+}
+
+func phase9MATLABQuotedEnd(text string, start int, delimiter byte) (int, bool) {
+	if start < 0 || start >= len(text) || text[start] != delimiter {
+		return start, false
+	}
+	for at := start + 1; at < len(text); {
+		if text[at] == '\r' || text[at] == '\n' {
+			return at, false
+		}
+		if text[at] == delimiter {
+			if at+1 < len(text) && text[at+1] == delimiter {
+				at += 2
+				continue
+			}
+			return at + 1, true
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		at += max(size, 1)
+	}
+	return len(text), false
+}
+
+func phase9MATLABLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave bool) bool {
+	var scopes []string
+	boundaries := 0
+	explicitFunctionEnd := false
+	for _, line := range lines {
+		if len(line.Tokens) == 0 {
+			continue
+		}
+		first := strings.ToLower(line.Tokens[0].Text)
+		if phase9MATLABLikeScopeTerminator(first, octave) {
+			if len(scopes) == 0 {
+				return false
+			}
+			if scopes[len(scopes)-1] == "function" {
+				explicitFunctionEnd = true
+			}
+			scopes = scopes[:len(scopes)-1]
+			continue
+		}
+		scopeOpeningLine := phase9MATLABLikeScopeOpeningTokens(line.Tokens, octave)
+		if !scopeOpeningLine {
+			complete := phase9MATLABLikeVisitTrailingScopeTransitions(line.Tokens, octave, func(opening bool, label string) bool {
+				if opening {
+					scopes = append(scopes, label)
+					return true
+				}
+				if len(scopes) == 0 {
+					return false
+				}
+				if scopes[len(scopes)-1] == "function" {
+					explicitFunctionEnd = true
+				}
+				scopes = scopes[:len(scopes)-1]
+				return true
+			})
+			if !complete {
+				return false
+			}
+		}
+		switch first {
+		case "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
+			if (first == "methods" || first == "properties") && !scopeOpeningLine {
+				continue
+			}
+			if !phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
+				scopes = append(scopes, first)
+				scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave)...)
+			}
+		case "arguments":
+			if !octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, false) {
+				scopes = append(scopes, first)
+				scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, false)...)
+			}
+		case "unwind_protect":
+			if octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, true) {
+				scopes = append(scopes, first)
+				scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, true)...)
+			}
+		case "classdef":
+			scopes = append(scopes, "class")
+		case "function":
+			if phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
+				explicitFunctionEnd = true
+				continue
+			}
+			if len(scopes) == 1 && scopes[0] == "function" {
+				boundaries++
+				continue
+			}
+			scopes = append(scopes, "function")
+			scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave)...)
+		}
+	}
+	return boundaries > 0 && !explicitFunctionEnd && len(scopes) == 1 && scopes[0] == "function"
+}
+
+func phase9MATLABLikeScopeOpeningLine(keyword string, octave bool) bool {
+	switch keyword {
+	case "classdef", "function", "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
+		return true
+	case "arguments":
+		return !octave
+	case "unwind_protect":
+		return octave
+	default:
+		return false
+	}
+}
+
+func phase9MATLABLikeScopeOpeningTokens(tokens []Token, octave bool) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	keyword := strings.ToLower(tokens[0].Text)
+	if !phase9MATLABLikeScopeOpeningLine(keyword, octave) {
+		return false
+	}
+	if keyword != "methods" && keyword != "properties" {
+		return true
+	}
+	base := tokens[0].Nesting
+	for index := 1; index < len(tokens); index++ {
+		if tokens[index].Nesting == base && tokens[index].Text == "=" {
+			return false
+		}
+	}
+	return true
+}
+
+func phase9MATLABLikeVisitTrailingScopeTransitions(tokens []Token, octave bool, visit func(opening bool, label string) bool) bool {
+	if len(tokens) < 2 || visit == nil {
+		return true
+	}
+	base := tokens[0].Nesting
+	for index := 1; index < len(tokens); index++ {
+		if tokens[index].Nesting != base {
+			continue
+		}
+		keyword := strings.ToLower(tokens[index].Text)
+		if phase9MATLABLikeInlineScopeOpener(keyword, octave) {
+			if !visit(true, keyword) {
+				return false
+			}
+			continue
+		}
+		if phase9MATLABLikeScopeTerminator(keyword, octave) && !visit(false, "") {
+			return false
+		}
+	}
+	return true
+}
+
+func phase9MATLABLikeUnclosedTrailingScopes(tokens []Token, octave bool) []string {
+	if len(tokens) < 2 {
+		return nil
+	}
+	base := tokens[0].Nesting
+	var scopes []string
+	for index := 1; index < len(tokens); index++ {
+		if tokens[index].Nesting != base {
+			continue
+		}
+		keyword := strings.ToLower(tokens[index].Text)
+		if phase9MATLABLikeInlineScopeOpener(keyword, octave) {
+			scopes = append(scopes, keyword)
+			continue
+		}
+		if !phase9MATLABLikeScopeTerminator(keyword, octave) {
+			continue
+		}
+		if len(scopes) == 0 {
+			break
+		}
+		scopes = scopes[:len(scopes)-1]
+	}
+	return scopes
+}
+
+func phase9MATLABLikeLineClosesOwnScope(tokens []Token, octave bool) bool {
+	if len(tokens) < 2 {
+		return false
+	}
+	base := tokens[0].Nesting
+	depth := 1
+	for index := 1; index < len(tokens); index++ {
+		if tokens[index].Nesting != base {
+			continue
+		}
+		keyword := strings.ToLower(tokens[index].Text)
+		if phase9MATLABLikeInlineScopeOpener(keyword, octave) {
+			depth++
+			continue
+		}
+		if phase9MATLABLikeScopeTerminator(keyword, octave) {
+			depth--
+			if depth == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func phase9MATLABLikeInlineScopeOpener(keyword string, octave bool) bool {
+	switch keyword {
+	case "if", "for", "while", "switch", "try", "parfor", "spmd":
+		return true
+	case "unwind_protect":
+		return octave
+	default:
+		return false
+	}
 }
 
 func phase9MATLABLikeScopeTerminator(keyword string, octave bool) bool {

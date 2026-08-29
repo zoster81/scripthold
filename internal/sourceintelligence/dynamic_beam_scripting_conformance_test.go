@@ -94,6 +94,93 @@ func TestTclBracedWordsAndEscapedQuotesPreserveStructuralBraces(t *testing.T) {
 	}
 }
 
+func TestTclHashDataDoesNotStartMidCommandComment(t *testing.T) {
+	text := "proc demo {} {\n" +
+		"  catch { .w configure -background #ededed }\n" +
+		"}\n" +
+		"# unmatched } [ inside a real comment\n" +
+		"proc after {} {}\n"
+	result, err := (TclAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid Tcl hash data was treated as a mid-command comment: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Tcl declaration %q missing after hash-valued command argument: %v", want, names)
+		}
+	}
+}
+
+func TestTclMultilineQuotedWordsRemainOpaque(t *testing.T) {
+	text := "proc demo {} {\n" +
+		"  set value \"first line\n" +
+		"second line\"\n" +
+		"}\n" +
+		"proc after {} {}\n"
+	result, err := (TclAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid Tcl multiline quoted word reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Tcl declaration %q missing around multiline quoted word: %v", want, names)
+		}
+	}
+}
+
+func TestTclQuotesInsideBracedWordsRemainData(t *testing.T) {
+	text := "proc demo {} {\n" +
+		"  set pattern {([^\"<']+)}\n" +
+		"}\n" +
+		"proc after {} {}\n"
+	result, err := (TclAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid Tcl braced-word quote reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"demo", "after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("Tcl declaration %q missing after braced-word quote: %v", want, names)
+		}
+	}
+}
+
+func TestTclUnterminatedBracedVariableReferenceRemainsIncomplete(t *testing.T) {
+	result, err := (TclAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("set value ${unterminated\n"), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+		t.Fatalf("unterminated Tcl braced variable remained complete: %+v", result.Analysis)
+	}
+}
+
+func TestTclContextCheckScheduleDoesNotDependOnAlignedOffsets(t *testing.T) {
+	due, next := tclContextCheckDue(0, 1)
+	if !due || next != 4097 {
+		t.Fatalf("initial Tcl context schedule due=%v next=%d", due, next)
+	}
+	due, next = tclContextCheckDue(next, 4096)
+	if due || next != 4097 {
+		t.Fatalf("early Tcl context schedule due=%v next=%d", due, next)
+	}
+	due, next = tclContextCheckDue(next, 4098)
+	if !due || next != 8194 {
+		t.Fatalf("unaligned Tcl context schedule due=%v next=%d", due, next)
+	}
+}
+
 func TestProductionOpaqueAndMultilineBoundaries(t *testing.T) {
 	t.Run("perl-quoted-heredoc", func(t *testing.T) {
 		text := "my $data = <<'EOF';\nsub HeredocFake {}\nEOF\nsub Real {}\n"

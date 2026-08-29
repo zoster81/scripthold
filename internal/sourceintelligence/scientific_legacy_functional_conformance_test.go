@@ -261,7 +261,550 @@ func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 	})
 }
 
+func TestMATLABLikeInlineControlAndImplicitFunctionEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "function out = run(x)\n" +
+				"  if isempty(x), out = 0; return; end\n" +
+				"  out = x;\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("run.m", text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid %s inline control/implicit function end reported partial: %+v", tc.name, result.Analysis.Diagnostics)
+			}
+			if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["run"]; !ok || symbol.Kind != SymbolKindFunction {
+				t.Fatalf("%s implicit-end function=%+v exists=%v symbols=%v", tc.name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestMATLABLikeOneLineFunctionsCloseTheirOwnScope(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "classdef Worker\n" +
+				"  methods\n" +
+				"    function out = first(obj); out = obj; end\n" +
+				"    function out = second(obj); if obj, out = obj; else, out = []; end; end\n" +
+				"  end\n" +
+				"end\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("Worker.m", text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid %s one-line functions reported partial: %+v", tc.name, result.Analysis.Diagnostics)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, want := range []string{"Worker", "Worker.first", "Worker.second"} {
+				if _, ok := byName[want]; !ok {
+					t.Fatalf("%s one-line function scope missing %s: %v", tc.name, want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			if _, leaked := byName["Worker.first.second"]; leaked {
+				t.Fatalf("%s one-line function left a phantom nested scope: %v", tc.name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestMATLABLikeBlockCommentDelimitersRequireDedicatedLines(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			documented := "function out = documented(x)\n" +
+				"%{previous} is ordinary documentation text\n" +
+				"  value = '[)';\n" +
+				"  out = x;\n" +
+				"end\n"
+			documentedResult, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("documented.m", documented), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !documentedResult.Analysis.CoverageComplete || documentedResult.Analysis.Truncated {
+				t.Fatalf("valid %s documentation comment reported partial: %+v", tc.name, documentedResult.Analysis.Diagnostics)
+			}
+			if !containsSortedString(sortedSymbolQualifiedNames(documentedResult.Analysis.Symbols), "documented") {
+				t.Fatalf("%s declaration missing after documentation comment: %v", tc.name, sortedSymbolQualifiedNames(documentedResult.Analysis.Symbols))
+			}
+
+			block := "function out = blocked(x)\n" +
+				"  %{\n" +
+				"  function fake()\n" +
+				"  %}\n" +
+				"  out = x;\n" +
+				"end\n"
+			blockResult, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("blocked.m", block), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !blockResult.Analysis.CoverageComplete || blockResult.Analysis.Truncated {
+				t.Fatalf("valid %s dedicated-line block comment reported partial: %+v", tc.name, blockResult.Analysis.Diagnostics)
+			}
+			names := sortedSymbolQualifiedNames(blockResult.Analysis.Symbols)
+			if !containsSortedString(names, "blocked") {
+				t.Fatalf("%s declaration missing around block comment: %v", tc.name, names)
+			}
+			if containsSortedString(names, "blocked.fake") || containsSortedString(names, "fake") {
+				t.Fatalf("%s block-comment contents leaked declarations: %v", tc.name, names)
+			}
+
+			broken := "function out = broken(x)\n" +
+				"  %{\n" +
+				"  out = x;\n" +
+				"end\n"
+			partial, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("broken.m", broken), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if partial.Analysis.CoverageComplete || !hasAnalysisDiagnostic(partial.Analysis.Diagnostics, tc.name+"-unterminated-comment") {
+				t.Fatalf("unterminated %s dedicated-line block comment was accepted: %+v", tc.name, partial.Analysis)
+			}
+		})
+	}
+}
+
+func TestMATLABLikeImplicitSubfunctionBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "function out = first(x)\n" +
+				"  if x, out = x; end\n" +
+				"function out = second(x)\n" +
+				"  out = x + 1;\n" +
+				"function out = third(x)\n" +
+				"  out = x + 2;\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("subfunctions.m", text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid %s implicit subfunction boundaries reported partial: %+v", tc.name, result.Analysis.Diagnostics)
+			}
+			for _, want := range []string{"first", "second", "third"} {
+				if !containsSortedString(sortedSymbolQualifiedNames(result.Analysis.Symbols), want) {
+					t.Fatalf("%s implicit subfunction %q missing: %v", tc.name, want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
+func TestMATLABLikeCaseInlineControlPreservesImplicitSubfunctionBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "function out = first(x)\n" +
+				"  switch x\n" +
+				"    case 1, if x > 0\n" +
+				"      out = x;\n" +
+				"    end\n" +
+				"    case 2, if x > 1\n" +
+				"      out = x + 1;\n" +
+				"    end\n" +
+				"  end\n" +
+				"function out = second(x)\n" +
+				"  out = x + 1;\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("case-inline-control.m", text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid %s case-inline control reported partial: %+v", tc.name, result.Analysis.Diagnostics)
+			}
+			names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+			for _, want := range []string{"first", "second"} {
+				if !containsSortedString(names, want) {
+					t.Fatalf("%s implicit subfunction %q missing after case-inline control: %v", tc.name, want, names)
+				}
+			}
+			if containsSortedString(names, "first.second") {
+				t.Fatalf("%s case-inline control left a phantom function scope: %v", tc.name, names)
+			}
+		})
+	}
+}
+
+func TestMATLABLikeLogicalLineContinuationPreservesNestedControlScopes(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "function out = first(x)\n" +
+				"  if x, ...\n" +
+				"    if x > 1\n" +
+				"      out = x;\n" +
+				"    end\n" +
+				"  end\n" +
+				"function out = second(x)\n" +
+				"  out = x + 1;\n" +
+				"function out = third(x)\n" +
+				"  out = x + 2;\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("continued-nested-control.m", text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid %s continued nested control reported partial: %+v", tc.name, result.Analysis.Diagnostics)
+			}
+			names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+			for _, want := range []string{"first", "second", "third"} {
+				if !containsSortedString(names, want) {
+					t.Fatalf("%s implicit subfunction %q missing after continued nested control: %v", tc.name, want, names)
+				}
+			}
+			if containsSortedString(names, "first.second") || containsSortedString(names, "second.third") {
+				t.Fatalf("%s continued nested control left a phantom function scope: %v", tc.name, names)
+			}
+		})
+	}
+}
+
+func TestMATLABLikeMethodsAndPropertiesAssignmentsDoNotOpenScopes(t *testing.T) {
+	assignments := []struct {
+		name       string
+		assignment string
+	}{
+		{name: "methods", assignment: "  methods = {'WLS', 'OLS'};\n"},
+		{name: "properties-indexed", assignment: "  properties(1) = x;\n"},
+	}
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		for _, assignment := range assignments {
+			t.Run(tc.name+"/"+assignment.name, func(t *testing.T) {
+				text := "function out = run(x)\n" +
+					assignment.assignment +
+					"  if x\n" +
+					"    out = x;\n" +
+					"  else\n" +
+					"    out = 0;\n" +
+					"  end\n"
+				result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("keyword-assignment.m", text), testAnalyzeOptions(false, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+					t.Fatalf("valid %s %s assignment reported partial: %+v", tc.name, assignment.name, result.Analysis.Diagnostics)
+				}
+				if names := sortedSymbolQualifiedNames(result.Analysis.Symbols); !containsSortedString(names, "run") {
+					t.Fatalf("%s %s assignment lost function symbol: %v", tc.name, assignment.name, names)
+				}
+			})
+		}
+	}
+}
+
+func TestMATLABLikeAttributedMethodsAndPropertiesRemainBlockHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "classdef Worker\n" +
+				"  properties (SetAccess = private)\n" +
+				"    value\n" +
+				"  end\n" +
+				"  methods (Static = true)\n" +
+				"    function out = run(x)\n" +
+				"      out = x;\n" +
+				"    end\n" +
+				"  end\n" +
+				"end\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("Worker.m", text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid %s attributed class blocks reported partial: %+v", tc.name, result.Analysis.Diagnostics)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			if symbol, ok := byName["Worker.run"]; !ok || symbol.Kind != SymbolKindMethod {
+				t.Fatalf("%s attributed methods block lost method hierarchy: %+v exists=%v symbols=%v", tc.name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestMATLABExplicitNestedFunctionRemainsStructured(t *testing.T) {
+	text := "function out = outer(x)\n" +
+		"  function y = inner(z)\n" +
+		"    y = z;\n" +
+		"  end\n" +
+		"  out = inner(x);\n" +
+		"end\n"
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("nested.m", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid MATLAB nested function reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if symbol, ok := byName["outer"]; !ok || symbol.Kind != SymbolKindFunction {
+		t.Fatalf("MATLAB outer function=%+v exists=%v symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	if symbol, ok := byName["outer.inner"]; !ok || symbol.Kind != SymbolKindMethod {
+		t.Fatalf("MATLAB nested function=%+v exists=%v symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestMATLABBranchLineTerminatorClosesScope(t *testing.T) {
+	text := "function out = first(x)\n" +
+		"  if x\n" +
+		"    out = 1;\n" +
+		"  else, out = 0; end\n" +
+		"end\n" +
+		"function out = second(x)\n" +
+		"  out = x;\n" +
+		"end\n"
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("branches.m", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid MATLAB branch-line terminator reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, want := range []string{"first", "second"} {
+		if symbol, ok := byName[want]; !ok || symbol.Kind != SymbolKindFunction {
+			t.Fatalf("MATLAB branch-line terminator missing top-level %s: %+v exists=%v symbols=%v", want, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	if _, leaked := byName["first.second"]; leaked {
+		t.Fatalf("MATLAB branch-line terminator nested second function: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestMATLABBranchInlineScopeDoesNotCloseOuterScope(t *testing.T) {
+	text := "function out = run(x)\n" +
+		"  switch x\n" +
+		"    case 1, if x, out = 1; end\n" +
+		"    otherwise, out = 0;\n" +
+		"  end\n" +
+		"end\n"
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("branch-inline.m", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid MATLAB branch-inline scope reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["run"]; !ok || symbol.Kind != SymbolKindFunction {
+		t.Fatalf("MATLAB branch-inline function=%+v exists=%v symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestMATLABArgumentsBlockClosesBeforeFunction(t *testing.T) {
+	text := "function out = run(x)\n" +
+		"  arguments\n" +
+		"    x (1,1) double = 1\n" +
+		"  end\n" +
+		"  for i = 1:2, out = x + i; end\n" +
+		"end\n"
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("run.m", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid MATLAB arguments block reported partial: %+v", result.Analysis.Diagnostics)
+	}
+}
+
+func TestMATLABLikeUnmatchedEndRemainsIncomplete(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{name: "matlab", analyzer: MATLABAnalyzer{}},
+		{name: "octave", analyzer: OctaveAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "function run()\nend\nend\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("unmatched.m", text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+				t.Fatalf("unmatched %s end reported complete: %+v", tc.name, result.Analysis)
+			}
+		})
+	}
+}
+
+func TestMATLABMixedFunctionEndStyleRemainsIncomplete(t *testing.T) {
+	for _, text := range []string{
+		"function first()\nend\nfunction second()\n",
+		"function first()\nfunction second()\nend\n",
+	} {
+		result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("mixed.m", text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+			t.Fatalf("mixed explicit/implicit MATLAB function endings reported complete: %+v", result.Analysis)
+		}
+	}
+}
+
+func TestMATLABLikeCharacterVectorsStayOpaqueWithoutHidingTranspose(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		path     string
+		analyzer SourceAnalyzer
+		end      string
+	}{
+		{name: "matlab", path: "demo.m", analyzer: MATLABAnalyzer{}, end: "end"},
+		{name: "octave", path: "demo.m", analyzer: OctaveAnalyzer{}, end: "endfunction"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "function out = first(data)\n" +
+				"  pattern = '[)';\n" +
+				"  message = 'value(]';\n" +
+				"  out = data';\n" +
+				tc.end + "\n" +
+				"function out = after(value)\n" +
+				"  out = value;\n" +
+				tc.end + "\n"
+			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.path, text), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid %s character vectors/transpose reported partial: %+v", tc.name, result.Analysis.Diagnostics)
+			}
+			names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+			for _, want := range []string{"first", "after"} {
+				if !containsSortedString(names, want) {
+					t.Fatalf("%s declaration %q missing after character vectors: %v", tc.name, want, names)
+				}
+			}
+
+			brokenText := "function broken()\n  value = 'unterminated\n" + tc.end + "\n"
+			broken, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.path, brokenText), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if broken.Analysis.CoverageComplete {
+				t.Fatalf("unterminated %s character vector was accepted: %+v", tc.name, broken.Analysis)
+			}
+		})
+	}
+}
+
+func TestRBacktickIdentifiersKeepDelimiterNamesOpaque(t *testing.T) {
+	text := "extract <- function(items) {\n" +
+		"  lapply(items, `[[`, \"parsed\")\n" +
+		"}\n" +
+		"after <- function() 1\n"
+	result, err := (RAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.R", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid R backtick identifier reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"extract", "after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("R declaration %q missing after backtick identifier: %v", want, names)
+		}
+	}
+
+	broken, err := (RAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("broken.R", "value <- `unterminated\n"), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broken.Analysis.CoverageComplete {
+		t.Fatalf("unterminated R backtick identifier was accepted: %+v", broken.Analysis)
+	}
+}
+
+func TestRMultilineStringsRemainOpaque(t *testing.T) {
+	text := "before <- function() {\n" +
+		"  value <- 'first line\n" +
+		"second line'\n" +
+		"  other <- \"third line\n" +
+		"fourth line\"\n" +
+		"}\n" +
+		"after <- function() 1\n"
+	result, err := (RAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("multiline.R", text), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("valid R multiline strings reported partial: %+v", result.Analysis.Diagnostics)
+	}
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	for _, want := range []string{"before", "after"} {
+		if !containsSortedString(names, want) {
+			t.Fatalf("R declaration %q missing around multiline strings: %v", want, names)
+		}
+	}
+}
+
 func TestLispReaderFormsDoNotLeakDeclarations(t *testing.T) {
+	t.Run("common-lisp-reader-character-delimiters", func(t *testing.T) {
+		text := `(defpackage :demo)
+(in-package :demo)
+(defun Real () (list #\) #\} #\Space))
+(defun After () nil)
+`
+		result, err := (CommonLispAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("reader.lisp", text), testAnalyzeOptions(false, 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("valid Common Lisp reader characters reported partial: %+v", result.Analysis.Diagnostics)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		for _, want := range []string{"demo.Real", "demo.After"} {
+			if !containsSortedString(names, want) {
+				t.Fatalf("Common Lisp declaration %q missing after reader character: %v", want, names)
+			}
+		}
+	})
+
 	t.Run("common-lisp-block-comment-and-quote", func(t *testing.T) {
 		text := "#| (defun BlockFake () nil) |#\n'(defun QuotedFake () nil)\n(defpackage :demo)\n(in-package :demo)\n(defun Real () nil)\n"
 		result, err := (CommonLispAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.lisp", text), testAnalyzeOptions(false, 64))
@@ -307,7 +850,7 @@ func TestUnclosedStructuralScopesLowerCoverage(t *testing.T) {
 		{"fortran-module", FortranAnalyzer{}, "demo.f90", "module Demo\ncontains\nsubroutine run()\nend subroutine run\n"},
 		{"ada-package", AdaAnalyzer{}, "demo.ads", "package Demo is\n  procedure Run;\n"},
 		{"matlab-class", MATLABAnalyzer{}, "Worker.m", "classdef Worker\n  methods\n    function run(obj)\n    end\n"},
-		{"octave-function", OctaveAnalyzer{}, "demo.m", "function run()\n  x = 1;\n"},
+		{"octave-if", OctaveAnalyzer{}, "demo.m", "function run()\n  if true\n    x = 1;\n"},
 		{"julia-module", JuliaAnalyzer{}, "demo.jl", "module Demo\nfunction run()\nend\n"},
 		{"ocaml-module", OCamlAnalyzer{}, "demo.ml", "module Demo = struct\n  let run x = x\n"},
 	}
