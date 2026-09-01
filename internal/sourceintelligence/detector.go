@@ -237,7 +237,7 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 	}
 	addDirectiveEvidence(registry, collector, probeText)
 	addContentMarkerEvidence(registry, collector, probeText)
-	addPhase11PathContentEvidence(registry, collector, base, probeText)
+	addCompositePathContentEvidence(registry, collector, base, probeText)
 
 	for _, hinted := range input.ProjectLanguages {
 		if descriptor, ok := registry.Resolve(hinted); ok {
@@ -567,24 +567,24 @@ func isDirectiveWordByte(value byte) bool {
 }
 
 func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCollector, text string) {
-	phpProbe := phase10MaskDelimitedRegions(text, [][2]string{{"<!--", "-->"}})
+	phpProbe := maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
 	if phpContentMarker.MatchString(phpProbe) {
 		if descriptor, ok := registry.Lookup("php"); ok {
 			collector.add(descriptor.ID, EvidenceContentMarker, "php-open-tag", priorityContent)
 		}
 	}
-	if phase11PHPHTMLDistinctiveContent(phpProbe) {
+	if phpHTMLDistinctiveContent(phpProbe) {
 		if descriptor, ok := registry.Lookup("php-html"); ok {
 			collector.add(descriptor.ID, EvidenceContentMarker, "php-html-host-and-code", priorityDistinctiveContent)
 		}
 	}
 
-	graphqlProbe := phase10MaskStrings(phase10MaskComments(text, []string{"#"}, "", ""), false, true, true)
-	protoProbe := phase10MaskComments(text, []string{"//"}, "/*", "*/")
-	terraformProbe := phase10MaskHeredocs(phase10MaskComments(text, []string{"#", "//"}, "/*", "*/"))
-	vhdlProbe := phase10MaskComments(text, []string{"--"}, "", "")
-	plsqlProbe := phase10MaskStrings(phase10MaskComments(text, []string{"--"}, "/*", "*/"), true, false, false)
-	hdlProbe := phase10MaskStrings(phase10MaskComments(text, []string{"//"}, "/*", "*/"), false, true, false)
+	graphqlProbe := maskSourceStrings(maskSourceComments(text, []string{"#"}, "", ""), false, true, true)
+	protoProbe := maskSourceComments(text, []string{"//"}, "/*", "*/")
+	terraformProbe := maskSourceHeredocs(maskSourceComments(text, []string{"#", "//"}, "/*", "*/"))
+	vhdlProbe := maskSourceComments(text, []string{"--"}, "", "")
+	plsqlProbe := maskSourceStrings(maskSourceComments(text, []string{"--"}, "/*", "*/"), true, false, false)
+	hdlProbe := maskSourceStrings(maskSourceComments(text, []string{"//"}, "/*", "*/"), false, true, false)
 
 	distinctive := []struct {
 		language string
@@ -689,17 +689,17 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 	}
 }
 
-func addPhase11PathContentEvidence(registry *LanguageRegistry, collector *detectionCollector, base, text string) {
+func addCompositePathContentEvidence(registry *LanguageRegistry, collector *detectionCollector, base, text string) {
 	lowerBase := strings.ToLower(base)
 	switch {
 	case strings.HasSuffix(lowerBase, ".astro"):
-		if _, ok := phase11AstroFrontmatter(text); ok {
+		if _, ok := astroFrontmatter(text); ok {
 			if descriptor, exists := registry.Lookup("astro"); exists {
 				collector.add(descriptor.ID, EvidenceContentMarker, "astro-frontmatter", priorityDistinctiveContent)
 			}
 		}
 	case strings.HasSuffix(lowerBase, ".ejs"):
-		probe := phase10MaskDelimitedRegions(text, [][2]string{{"<!--", "-->"}})
+		probe := maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
 		if strings.Contains(probe, "<%") && strings.Contains(probe, "%>") {
 			if descriptor, exists := registry.Lookup("ejs"); exists {
 				collector.add(descriptor.ID, EvidenceContentMarker, "ejs-delimiter", priorityDistinctiveContent)
@@ -708,15 +708,15 @@ func addPhase11PathContentEvidence(registry *LanguageRegistry, collector *detect
 	}
 }
 
-func phase11PHPHTMLDistinctiveContent(phpProbe string) bool {
+func phpHTMLDistinctiveContent(phpProbe string) bool {
 	if !phpContentMarker.MatchString(phpProbe) && !phpEchoContentMarker.MatchString(phpProbe) {
 		return false
 	}
-	regions := phase11RegexRegions(phpProbe, phase11PHPBlock, "php", "php")
+	regions := regexEmbeddedRegions(phpProbe, phpBlockPattern, "php", "php")
 	if len(regions) == 0 {
 		return false
 	}
-	host, err := phase11MaskRanges(phpProbe, phase11FullRanges(regions))
+	host, err := maskCompositeRanges(phpProbe, embeddedRegionFullRanges(regions))
 	if err != nil {
 		return false
 	}

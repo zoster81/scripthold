@@ -95,7 +95,7 @@ func maskRubyERBTemplateSyntax(text string, tokens []Token) (string, bool) {
 			continue
 		}
 		end := token.StartOffset + 2 + relativeEnd + 2
-		phase8MaskRange(masked, token.StartOffset, end)
+		maskRangePreservingLines(masked, token.StartOffset, end)
 		changed = true
 	}
 	if !changed {
@@ -115,7 +115,7 @@ func maskRubySlashRegexLiterals(text string, tokens []Token, maxNesting int) (st
 		if !ok {
 			continue
 		}
-		phase8MaskRange(masked, token.StartOffset, end)
+		maskRangePreservingLines(masked, token.StartOffset, end)
 		masked[token.StartOffset] = '_'
 		changed = true
 	}
@@ -246,7 +246,7 @@ func maskRubyPercentLiterals(text string, tokens []Token, maxNesting int) (strin
 		if !ok {
 			continue
 		}
-		phase8MaskRange(masked, token.StartOffset, end)
+		maskRangePreservingLines(masked, token.StartOffset, end)
 		masked[token.StartOffset] = '_'
 		changed = true
 	}

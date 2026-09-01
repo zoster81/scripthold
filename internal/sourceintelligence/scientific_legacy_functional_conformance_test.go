@@ -906,6 +906,39 @@ func TestScientificLegacyFunctionalCancellationAndSymbolLimits(t *testing.T) {
 	}
 }
 
+func TestFortranProcedureKeywordSearchDoesNotAllocatePerToken(t *testing.T) {
+	tokens := make([]Token, 2048)
+	for index := range tokens {
+		tokens[index] = Token{Kind: TokenIdentifier, Text: "VALUE"}
+	}
+
+	allocations := testing.AllocsPerRun(5, func() {
+		var scopes []structuralAnalyzerScope
+		parseFortranProcedure(nil, tokens, 0, 0, -1, nil, &scopes)
+	})
+	if allocations > 1 {
+		t.Fatalf("Fortran procedure keyword search allocations = %.0f, want <= 1", allocations)
+	}
+}
+
+func TestFortranProcedureKeywordSearchPreservesUnicodeLowerSemantics(t *testing.T) {
+	text := "module demo\n" +
+		"contains\n" +
+		"  ſubroutine false_positive()\n" +
+		"  end subroutine false_positive\n" +
+		"  SuBrOuTiNe real_procedure()\n" +
+		"  EnD SuBrOuTiNe real_procedure\n" +
+		"end module demo\n"
+	result := requireRealSourceComplete(t, FortranAnalyzer{}, text)
+	names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+	if containsSortedString(names, "demo.false_positive") {
+		t.Fatalf("Unicode simple-fold-only spelling became a Fortran procedure: %v", names)
+	}
+	if !containsSortedString(names, "demo.real_procedure") {
+		t.Fatalf("mixed-case Fortran procedure missing: %v", names)
+	}
+}
+
 func scientificLegacyFunctionalTestDocument(path, text string) *SourceDocument {
 	return &SourceDocument{Path: path, Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
 }

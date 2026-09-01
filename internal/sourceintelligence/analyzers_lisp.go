@@ -18,33 +18,33 @@ func (EmacsLispAnalyzer) ID() AnalyzerID    { return AnalyzerEmacsLisp }
 func (EmacsLispAnalyzer) Language() string  { return "emacs-lisp" }
 
 func (CommonLispAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase9Lisp(ctx, document, options, "common-lisp", AnalyzerCommonLisp, CommonLispScannerProfile())
+	return analyzeLispSource(ctx, document, options, "common-lisp", AnalyzerCommonLisp, CommonLispScannerProfile())
 }
 
 func (ClojureAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase9Lisp(ctx, document, options, "clojure", AnalyzerClojure, ClojureScannerProfile())
+	return analyzeLispSource(ctx, document, options, "clojure", AnalyzerClojure, ClojureScannerProfile())
 }
 
 func (EmacsLispAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase9Lisp(ctx, document, options, "emacs-lisp", AnalyzerEmacsLisp, EmacsLispScannerProfile())
+	return analyzeLispSource(ctx, document, options, "emacs-lisp", AnalyzerEmacsLisp, EmacsLispScannerProfile())
 }
 
-func analyzePhase9Lisp(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, profile ScannerProfile) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, language, analyzer)
+func analyzeLispSource(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, profile ScannerProfile) (AnalyzerResult, error) {
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, language, analyzer)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	scanDocument := document
 	if language == "common-lisp" || language == "clojure" || language == "emacs-lisp" {
 		clone := *document
-		clone.Text = phase9MaskLispReaderCharacters(document.Text, language)
+		clone.Text = maskLispReaderCharacters(document.Text, language)
 		scanDocument = &clone
 	}
 	scan, err := ScanSource(ctx, scanDocument, profile, ScannerLimits{MaxTokens: scannerTokenBudget(document.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: max(2048, options.MaxNesting)})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, language)
+	applyStructuralScanDiagnostics(builder, scan, language)
 	pairs := PairDelimiterTokens(scan.Tokens, profile.Delimiters)
 	dependencies := []StructuralDependency{}
 	var currentParent *SymbolParent
@@ -58,29 +58,29 @@ func analyzePhase9Lisp(ctx context.Context, document *SourceDocument, options An
 			builder.MarkIncomplete()
 			continue
 		}
-		if phase9LispFormSuppressed(scan.Tokens, open, language) {
+		if lispFormSuppressed(scan.Tokens, open, language) {
 			open = close
 			continue
 		}
-		form := phase9NextFormToken(scan.Tokens, open+1, close)
+		form := nextLispFormToken(scan.Tokens, open+1, close)
 		if form < 0 {
 			continue
 		}
 		head := strings.ToLower(scan.Tokens[form].Text)
 		switch language {
 		case "common-lisp":
-			phase9ParseCommonLispForm(document, builder, scan.Tokens, form, close, head, &currentParent, packages, &dependencies)
+			parseCommonLispForm(document, builder, scan.Tokens, form, close, head, &currentParent, packages, &dependencies)
 		case "clojure":
-			phase9ParseClojureForm(document, builder, scan.Tokens, form, close, head, &currentParent, &dependencies)
+			parseClojureForm(document, builder, scan.Tokens, form, close, head, &currentParent, &dependencies)
 		case "emacs-lisp":
-			phase9ParseEmacsLispForm(document, builder, scan.Tokens, form, close, head, currentParent, &dependencies)
+			parseEmacsLispForm(document, builder, scan.Tokens, form, close, head, currentParent, &dependencies)
 		}
 		open = close
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9MaskLispReaderCharacters(text, language string) string {
+func maskLispReaderCharacters(text, language string) string {
 	masked := []byte(text)
 	inString := false
 	escaped := false
@@ -117,19 +117,19 @@ func phase9MaskLispReaderCharacters(text, language string) string {
 		switch language {
 		case "common-lisp":
 			if strings.HasPrefix(text[at:], "#\\") {
-				end = phase9CommonLispCharacterEnd(text, at)
+				end = commonLispCharacterEnd(text, at)
 			}
 		case "clojure":
 			if text[at] == '\\' {
-				end = phase9ClojureCharacterEnd(text, at)
+				end = clojureCharacterEnd(text, at)
 			}
 		case "emacs-lisp":
 			if text[at] == '?' {
-				end = phase9EmacsCharacterEnd(text, at)
+				end = emacsLispCharacterEnd(text, at)
 			}
 		}
 		if end > at {
-			phase8MaskRange(masked, at, end)
+			maskRangePreservingLines(masked, at, end)
 			at = end
 			continue
 		}
@@ -142,7 +142,7 @@ func phase9MaskLispReaderCharacters(text, language string) string {
 	return string(masked)
 }
 
-func phase9CommonLispCharacterEnd(text string, at int) int {
+func commonLispCharacterEnd(text string, at int) int {
 	cursor := at + 2
 	if at < 0 || cursor > len(text) || !strings.HasPrefix(text[at:], "#\\") {
 		return at
@@ -150,8 +150,8 @@ func phase9CommonLispCharacterEnd(text string, at int) int {
 	if cursor >= len(text) {
 		return cursor
 	}
-	if phase9ReaderCharacterNameByte(text[cursor]) {
-		for cursor < len(text) && phase9ReaderCharacterNameByte(text[cursor]) {
+	if lispReaderCharacterNameByte(text[cursor]) {
+		for cursor < len(text) && lispReaderCharacterNameByte(text[cursor]) {
 			cursor++
 		}
 		return cursor
@@ -163,13 +163,13 @@ func phase9CommonLispCharacterEnd(text string, at int) int {
 	return min(len(text), cursor+size)
 }
 
-func phase9ClojureCharacterEnd(text string, at int) int {
+func clojureCharacterEnd(text string, at int) int {
 	cursor := at + 1
 	if cursor >= len(text) {
 		return cursor
 	}
-	if phase9ReaderCharacterNameByte(text[cursor]) {
-		for cursor < len(text) && phase9ReaderCharacterNameByte(text[cursor]) {
+	if lispReaderCharacterNameByte(text[cursor]) {
+		for cursor < len(text) && lispReaderCharacterNameByte(text[cursor]) {
 			cursor++
 		}
 		return cursor
@@ -181,7 +181,7 @@ func phase9ClojureCharacterEnd(text string, at int) int {
 	return min(len(text), cursor+size)
 }
 
-func phase9EmacsCharacterEnd(text string, at int) int {
+func emacsLispCharacterEnd(text string, at int) int {
 	cursor := at + 1
 	if cursor >= len(text) {
 		return cursor
@@ -210,11 +210,11 @@ func phase9EmacsCharacterEnd(text string, at int) int {
 	return min(len(text), cursor+size)
 }
 
-func phase9ReaderCharacterNameByte(value byte) bool {
+func lispReaderCharacterNameByte(value byte) bool {
 	return value == '_' || value == '-' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase9LispFormSuppressed(tokens []Token, open int, language string) bool {
+func lispFormSuppressed(tokens []Token, open int, language string) bool {
 	previous := open - 1
 	for previous >= 0 && tokens[previous].Kind == TokenNewline {
 		previous--
@@ -235,7 +235,7 @@ func phase9LispFormSuppressed(tokens []Token, open int, language string) bool {
 	return false
 }
 
-func phase9NextFormToken(tokens []Token, start, end int) int {
+func nextLispFormToken(tokens []Token, start, end int) int {
 	for index := start; index < end; index++ {
 		if tokens[index].Kind == TokenNewline || tokens[index].Kind == TokenEOF {
 			continue
@@ -245,7 +245,7 @@ func phase9NextFormToken(tokens []Token, start, end int) int {
 	return -1
 }
 
-func phase9NextAtomToken(tokens []Token, start, end int) int {
+func nextLispAtomToken(tokens []Token, start, end int) int {
 	for index := start; index < end; index++ {
 		if tokens[index].Kind == TokenIdentifier || tokens[index].Kind == TokenKeyword || tokens[index].Kind == TokenString {
 			return index
@@ -254,28 +254,28 @@ func phase9NextAtomToken(tokens []Token, start, end int) int {
 	return -1
 }
 
-func phase9ParseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
+func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
-		phase9LispRequireDependency(document, tokens, form+1, close, dependencies)
+		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
 	}
 	if head == "in-package" {
-		nameIndex := phase9NextAtomToken(tokens, form+1, close)
+		nameIndex := nextLispAtomToken(tokens, form+1, close)
 		if nameIndex < 0 {
 			return
 		}
-		name := phase9CleanAtom(tokens[nameIndex].Text)
+		name := cleanLispAtom(tokens[nameIndex].Text)
 		if parent, ok := packages[strings.ToLower(name)]; ok {
 			value := parent
 			*currentParent = &value
 		}
 		return
 	}
-	nameIndex := phase9NextAtomToken(tokens, form+1, close)
+	nameIndex := nextLispAtomToken(tokens, form+1, close)
 	if nameIndex < 0 {
 		return
 	}
-	name, nameRange := phase9TokenName(tokens[nameIndex])
+	name, nameRange := lispTokenName(tokens[nameIndex])
 	if name == "" {
 		return
 	}
@@ -304,7 +304,7 @@ func phase9ParseCommonLispForm(document *SourceDocument, builder *SymbolBuilder,
 	if head == "defpackage" {
 		parent = nil
 	}
-	symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
+	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
 		Declaration: declaration, NameRange: nameRange, Signature: &signature, Evidence: SymbolEvidenceStructural})
 	if ok && head == "defpackage" {
 		value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
@@ -312,16 +312,16 @@ func phase9ParseCommonLispForm(document *SourceDocument, builder *SymbolBuilder,
 	}
 }
 
-func phase9ParseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, dependencies *[]StructuralDependency) {
+func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
-		phase9LispRequireDependency(document, tokens, form+1, close, dependencies)
+		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
 	}
-	nameIndex := phase9NextAtomToken(tokens, form+1, close)
+	nameIndex := nextLispAtomToken(tokens, form+1, close)
 	if nameIndex < 0 {
 		return
 	}
-	name, nameRange := phase9TokenName(tokens[nameIndex])
+	name, nameRange := lispTokenName(tokens[nameIndex])
 	if name == "" {
 		return
 	}
@@ -349,25 +349,25 @@ func phase9ParseClojureForm(document *SourceDocument, builder *SymbolBuilder, to
 	if head == "ns" {
 		parent = nil
 	}
-	symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: head, Name: name, Parent: parent,
+	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: head, Name: name, Parent: parent,
 		Declaration: declaration, NameRange: nameRange, Signature: &signature, Evidence: SymbolEvidenceStructural})
 	if ok && head == "ns" {
 		value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 		*currentParent = &value
-		phase9ClojureNSDependencies(document, tokens, form+1, close, dependencies)
+		addClojureNamespaceDependencies(document, tokens, form+1, close, dependencies)
 	}
 }
 
-func phase9ParseEmacsLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, parent *SymbolParent, dependencies *[]StructuralDependency) {
+func parseEmacsLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, parent *SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
-		phase9LispRequireDependency(document, tokens, form+1, close, dependencies)
+		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
 	}
-	nameIndex := phase9NextAtomToken(tokens, form+1, close)
+	nameIndex := nextLispAtomToken(tokens, form+1, close)
 	if nameIndex < 0 {
 		return
 	}
-	name, nameRange := phase9TokenName(tokens[nameIndex])
+	name, nameRange := lispTokenName(tokens[nameIndex])
 	if name == "" {
 		return
 	}
@@ -387,27 +387,27 @@ func phase9ParseEmacsLispForm(document *SourceDocument, builder *SymbolBuilder, 
 	}
 	declaration := OffsetRange{Start: tokens[form-1].StartOffset, End: tokens[close].EndOffset}
 	signature := OffsetRange{Start: declaration.Start, End: tokens[nameIndex].EndOffset}
-	phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: head, Name: name, Parent: parent,
+	addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: head, Name: name, Parent: parent,
 		Declaration: declaration, NameRange: nameRange, Signature: &signature, Evidence: SymbolEvidenceStructural})
 }
 
-func phase9LispRequireDependency(document *SourceDocument, tokens []Token, start, end int, dependencies *[]StructuralDependency) {
-	nameIndex := phase9NextAtomToken(tokens, start, end)
+func addLispRequireDependency(document *SourceDocument, tokens []Token, start, end int, dependencies *[]StructuralDependency) {
+	nameIndex := nextLispAtomToken(tokens, start, end)
 	if nameIndex < 0 {
 		return
 	}
 	value := ""
 	if tokens[nameIndex].Kind == TokenString {
-		value = phase9StringTokenValue(tokens[nameIndex])
+		value = quotedTokenValue(tokens[nameIndex])
 	} else {
-		value = phase9CleanAtom(tokens[nameIndex].Text)
+		value = cleanLispAtom(tokens[nameIndex].Text)
 	}
 	if value != "" {
-		phase9AddDependency(document, dependencies, StructuralDependencyImport, value, tokens[nameIndex].StartOffset, tokens[nameIndex].EndOffset)
+		addStructuralDependency(document, dependencies, StructuralDependencyImport, value, tokens[nameIndex].StartOffset, tokens[nameIndex].EndOffset)
 	}
 }
 
-func phase9ClojureNSDependencies(document *SourceDocument, tokens []Token, start, end int, dependencies *[]StructuralDependency) {
+func addClojureNamespaceDependencies(document *SourceDocument, tokens []Token, start, end int, dependencies *[]StructuralDependency) {
 	pairs := PairDelimiterTokens(tokens, nil)
 	for index := start; index < end; index++ {
 		if !strings.EqualFold(tokens[index].Text, ":require") {
@@ -425,9 +425,9 @@ func phase9ClojureNSDependencies(document *SourceDocument, tokens []Token, start
 			if close <= cursor || close > end {
 				continue
 			}
-			nameIndex := phase9NextAtomToken(tokens, cursor+1, close)
+			nameIndex := nextLispAtomToken(tokens, cursor+1, close)
 			if nameIndex >= 0 && tokens[nameIndex].Kind == TokenIdentifier && !strings.HasPrefix(tokens[nameIndex].Text, ":") {
-				phase9AddDependency(document, dependencies, StructuralDependencyImport, tokens[nameIndex].Text, tokens[nameIndex].StartOffset, tokens[nameIndex].EndOffset)
+				addStructuralDependency(document, dependencies, StructuralDependencyImport, tokens[nameIndex].Text, tokens[nameIndex].StartOffset, tokens[nameIndex].EndOffset)
 			}
 			cursor = close
 		}

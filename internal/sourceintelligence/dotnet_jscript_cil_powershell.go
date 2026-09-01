@@ -29,7 +29,7 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 	scanDoc := *document
 	scanDoc.Text = masked
 	scanDoc.lineStarts = buildLineStarts(masked)
-	scan, err := ScanSource(ctx, &scanDoc, JavaScriptScannerProfile(), ScannerLimits{MaxTokens: scannerTokenBudget(masked), MaxTokenBytes: 1024 * 1024, MaxNesting: phase6MaxNesting(options.MaxNesting)})
+	scan, err := ScanSource(ctx, &scanDoc, JavaScriptScannerProfile(), ScannerLimits{MaxTokens: scannerTokenBudget(masked), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNestingOrDefault(options.MaxNesting)})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -862,7 +862,7 @@ func nextPhysicalLine(text string, end int) int {
 	return end + 1
 }
 
-func phase6MaxNesting(value int) int {
+func maxNestingOrDefault(value int) int {
 	if value > 0 {
 		return value
 	}

@@ -129,20 +129,20 @@ func OCamlScannerProfile() ScannerProfile {
 }
 
 func CommonLispScannerProfile() ScannerProfile {
-	profile := phase9LispScannerProfile("common-lisp", []string{"defclass", "defconstant", "defmacro", "defpackage", "defparameter", "defstruct", "defun", "defvar", "in-package", "require"})
+	profile := lispScannerProfile("common-lisp", []string{"defclass", "defconstant", "defmacro", "defpackage", "defparameter", "defstruct", "defun", "defvar", "in-package", "require"})
 	profile.BlockComments = []BlockCommentRule{{Start: "#|", End: "|#", Nestable: true}}
 	return profile
 }
 
 func ClojureScannerProfile() ScannerProfile {
-	return phase9LispScannerProfile("clojure", []string{"def", "defmacro", "defn", "defn-", "defprotocol", "defrecord", "deftype", "ns", "require"})
+	return lispScannerProfile("clojure", []string{"def", "defmacro", "defn", "defn-", "defprotocol", "defrecord", "deftype", "ns", "require"})
 }
 
 func EmacsLispScannerProfile() ScannerProfile {
-	return phase9LispScannerProfile("emacs-lisp", []string{"defclass", "defconst", "defcustom", "defmacro", "defun", "defvar", "provide", "require"})
+	return lispScannerProfile("emacs-lisp", []string{"defclass", "defconst", "defcustom", "defmacro", "defun", "defvar", "provide", "require"})
 }
 
-func phase9LispScannerProfile(name string, keywords []string) ScannerProfile {
+func lispScannerProfile(name string, keywords []string) ScannerProfile {
 	return ScannerProfile{
 		Name:         name,
 		Keywords:     keywords,

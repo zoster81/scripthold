@@ -7,7 +7,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-type phase8State struct {
+type structuralAnalyzerState struct {
 	ctx          context.Context
 	document     *SourceDocument
 	builder      *SymbolBuilder
@@ -16,7 +16,7 @@ type phase8State struct {
 	stopped      bool
 }
 
-func newPhase8State(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*phase8State, error) {
+func newStructuralAnalyzerState(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*structuralAnalyzerState, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -24,7 +24,7 @@ func newPhase8State(ctx context.Context, document *SourceDocument, options Analy
 		return nil, operation.New(operation.KindInvalidInput, "source document is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, operation.Wrap(operation.KindCancelled, "analyze_phase8_source", document.Path, err)
+		return nil, operation.Wrap(operation.KindCancelled, "analyze_structural_source", document.Path, err)
 	}
 	builder := NewSymbolBuilder(document, SymbolBuilderOptions{
 		Context: ctx, Language: language, Analyzer: string(analyzer), IncludeSignatures: options.IncludeSignatures,
@@ -33,10 +33,10 @@ func newPhase8State(ctx context.Context, document *SourceDocument, options Analy
 	if err := builder.checkReady(); err != nil {
 		return nil, err
 	}
-	return &phase8State{ctx: ctx, document: document, builder: builder}, nil
+	return &structuralAnalyzerState{ctx: ctx, document: document, builder: builder}, nil
 }
 
-func (s *phase8State) scan(options AnalyzeOptions, profile ScannerProfile, masked string) (ScanResult, error) {
+func (s *structuralAnalyzerState) scan(options AnalyzeOptions, profile ScannerProfile, masked string) (ScanResult, error) {
 	if masked == "" && s.document.Text != "" {
 		masked = s.document.Text
 	}
@@ -61,7 +61,7 @@ func (s *phase8State) scan(options AnalyzeOptions, profile ScannerProfile, maske
 	return scan, nil
 }
 
-func (s *phase8State) add(spec SymbolSpec) (NormalizedSymbol, bool) {
+func (s *structuralAnalyzerState) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	symbol, err := s.builder.Add(spec)
 	if operation.KindOf(err) == operation.KindLimit {
 		s.stopped = true
@@ -74,7 +74,7 @@ func (s *phase8State) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	return symbol, true
 }
 
-func (s *phase8State) addImportDependency(value string, start, end int) {
+func (s *structuralAnalyzerState) addImportDependency(value string, start, end int) {
 	value = strings.TrimSpace(value)
 	if value == "" || start < 0 || end <= start || end > len(s.document.Text) {
 		return
@@ -86,7 +86,7 @@ func (s *phase8State) addImportDependency(value string, start, end int) {
 	s.dependencies = appendUniqueDependencies(s.dependencies, []StructuralDependency{{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}})
 }
 
-func (s *phase8State) addRelation(kind, source, target string, start, end int) {
+func (s *structuralAnalyzerState) addRelation(kind, source, target string, start, end int) {
 	if strings.TrimSpace(source) == "" || strings.TrimSpace(target) == "" || start < 0 || end <= start || end > len(s.document.Text) {
 		return
 	}
@@ -97,14 +97,14 @@ func (s *phase8State) addRelation(kind, source, target string, start, end int) {
 	s.relations = append(s.relations, StructuralRelation{Kind: kind, Source: source, Target: strings.TrimSpace(target), Range: rangeValue, Evidence: SymbolEvidenceStructural})
 }
 
-func (s *phase8State) result() (AnalyzerResult, error) {
+func (s *structuralAnalyzerState) result() (AnalyzerResult, error) {
 	if err := s.ctx.Err(); err != nil {
-		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_phase8_source", s.document.Path, err)
+		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_structural_source", s.document.Path, err)
 	}
 	return AnalyzerResult{Analysis: s.builder.Result(), Dependencies: s.dependencies, Relations: s.relations}, nil
 }
 
-func phase8StringValue(token Token) string {
+func quotedTokenStringValue(token Token) string {
 	if token.Kind != TokenString || len(token.Text) < 2 {
 		return ""
 	}
@@ -121,7 +121,7 @@ func phase8StringValue(token Token) string {
 	return ""
 }
 
-func phase8MaskRange(result []byte, start, end int) {
+func maskRangePreservingLines(result []byte, start, end int) {
 	if start < 0 {
 		start = 0
 	}
@@ -135,7 +135,7 @@ func phase8MaskRange(result []byte, start, end int) {
 	}
 }
 
-func phase8LineBounds(text string, start int) (end, next int) {
+func physicalLineBounds(text string, start int) (end, next int) {
 	end = start
 	for end < len(text) && text[end] != '\r' && text[end] != '\n' {
 		end++
@@ -156,19 +156,19 @@ func maskPerlNonCode(text string) (string, bool) {
 	complete := true
 	inPOD := false
 	for at := 0; at < len(text); {
-		end, next := phase8LineBounds(text, at)
+		end, next := physicalLineBounds(text, at)
 		line := text[at:end]
 		trimmed := strings.TrimSpace(line)
 		if !inPOD && (trimmed == "__DATA__" || trimmed == "__END__") {
-			phase8MaskRange(result, at, len(text))
+			maskRangePreservingLines(result, at, len(text))
 			break
 		}
-		podCommand, podDirective := phase8PerlPODCommand(line)
+		podCommand, podDirective := perlPODCommand(line)
 		if !inPOD && podDirective && podCommand != "cut" {
 			inPOD = true
 		}
 		if inPOD {
-			phase8MaskRange(result, at, end)
+			maskRangePreservingLines(result, at, end)
 			if podDirective && podCommand == "cut" {
 				inPOD = false
 			}
@@ -177,16 +177,16 @@ func maskPerlNonCode(text string) (string, bool) {
 	}
 
 	for at := 0; at < len(text); {
-		end, next := phase8LineBounds(text, at)
-		delimiter, ok := phase8PerlHereDocDelimiter(text[at:end])
+		end, next := physicalLineBounds(text, at)
+		delimiter, ok := perlHereDocDelimiter(text[at:end])
 		if !ok {
 			at = next
 			continue
 		}
 		body := next
 		for body < len(text) {
-			bodyEnd, bodyNext := phase8LineBounds(text, body)
-			phase8MaskRange(result, body, bodyEnd)
+			bodyEnd, bodyNext := physicalLineBounds(text, body)
+			maskRangePreservingLines(result, body, bodyEnd)
 			if strings.TrimSpace(text[body:bodyEnd]) == delimiter {
 				at = bodyNext
 				break
@@ -203,22 +203,22 @@ func maskPerlNonCode(text string) (string, bool) {
 	return string(result), complete
 }
 
-func phase8PerlPODCommand(line string) (string, bool) {
-	if len(line) < 2 || line[0] != '=' || !phase8PerlPODCommandLetter(line[1]) {
+func perlPODCommand(line string) (string, bool) {
+	if len(line) < 2 || line[0] != '=' || !perlPODCommandLetter(line[1]) {
 		return "", false
 	}
 	end := 2
-	for end < len(line) && (phase8PerlPODCommandLetter(line[end]) || line[end] >= '0' && line[end] <= '9') {
+	for end < len(line) && (perlPODCommandLetter(line[end]) || line[end] >= '0' && line[end] <= '9') {
 		end++
 	}
 	return line[1:end], true
 }
 
-func phase8PerlPODCommandLetter(value byte) bool {
+func perlPODCommandLetter(value byte) bool {
 	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase8PerlHereDocDelimiter(line string) (string, bool) {
+func perlHereDocDelimiter(line string) (string, bool) {
 	search := 0
 	for search < len(line) {
 		relative := strings.Index(line[search:], "<<")
@@ -227,7 +227,7 @@ func phase8PerlHereDocDelimiter(line string) (string, bool) {
 		}
 		operator := search + relative
 		before := strings.TrimSpace(line[:operator])
-		allowed, quotedOnly := phase8PerlHereDocContext(before)
+		allowed, quotedOnly := perlHereDocContext(before)
 		rest := strings.TrimSpace(line[operator+2:])
 		if allowed {
 			if len(rest) >= 3 && (rest[0] == '\'' || rest[0] == '"') {
@@ -239,7 +239,7 @@ func phase8PerlHereDocDelimiter(line string) (string, bool) {
 					}
 				}
 			} else if !quotedOnly {
-				if delimiter, ok := phase8PerlBarewordHereDocDelimiter(rest); ok {
+				if delimiter, ok := perlBarewordHereDocDelimiter(rest); ok {
 					return delimiter, true
 				}
 			}
@@ -249,57 +249,57 @@ func phase8PerlHereDocDelimiter(line string) (string, bool) {
 	return "", false
 }
 
-func phase8PerlHereDocContext(before string) (allowed, quotedOnly bool) {
+func perlHereDocContext(before string) (allowed, quotedOnly bool) {
 	before = strings.TrimSpace(before)
 	if before == "return" || strings.HasSuffix(before, "=") {
 		return true, false
 	}
-	if phase8PerlEndsWithCallable(before, "print") || phase8PerlEndsWithCallable(before, "say") {
+	if perlEndsWithCallable(before, "print") || perlEndsWithCallable(before, "say") {
 		return true, false
 	}
-	if phase8PerlHereDocPrintFilehandleContext(before) {
+	if perlHereDocPrintFilehandleContext(before) {
 		return true, false
 	}
 	if strings.HasSuffix(before, "(") {
 		callee := strings.TrimSpace(strings.TrimSuffix(before, "("))
-		if phase8PerlEndsWithCallable(callee, "print") || phase8PerlEndsWithCallable(callee, "say") {
+		if perlEndsWithCallable(callee, "print") || perlEndsWithCallable(callee, "say") {
 			return true, true
 		}
 	}
 	return false, false
 }
 
-func phase8PerlEndsWithCallable(text, name string) bool {
+func perlEndsWithCallable(text, name string) bool {
 	if !strings.HasSuffix(text, name) {
 		return false
 	}
 	start := len(text) - len(name)
-	return start == 0 || !phase8PerlIdentifierByte(text[start-1])
+	return start == 0 || !perlIdentifierByte(text[start-1])
 }
 
-func phase8PerlHereDocPrintFilehandleContext(before string) bool {
+func perlHereDocPrintFilehandleContext(before string) bool {
 	fields := strings.Fields(before)
-	if len(fields) != 2 || (!phase8PerlEndsWithCallable(fields[0], "print") && !phase8PerlEndsWithCallable(fields[0], "say")) {
+	if len(fields) != 2 || (!perlEndsWithCallable(fields[0], "print") && !perlEndsWithCallable(fields[0], "say")) {
 		return false
 	}
 	filehandle := fields[1]
-	if len(filehandle) < 2 || filehandle[0] != '$' || !phase8PerlHereDocIdentifierStart(filehandle[1]) {
+	if len(filehandle) < 2 || filehandle[0] != '$' || !perlHereDocIdentifierStart(filehandle[1]) {
 		return false
 	}
 	for at := 2; at < len(filehandle); at++ {
-		if !phase8PerlHereDocIdentifierContinue(filehandle[at]) {
+		if !perlHereDocIdentifierContinue(filehandle[at]) {
 			return false
 		}
 	}
 	return true
 }
 
-func phase8PerlBarewordHereDocDelimiter(rest string) (string, bool) {
-	if rest == "" || !phase8PerlHereDocIdentifierStart(rest[0]) {
+func perlBarewordHereDocDelimiter(rest string) (string, bool) {
+	if rest == "" || !perlHereDocIdentifierStart(rest[0]) {
 		return "", false
 	}
 	end := 1
-	for end < len(rest) && phase8PerlHereDocIdentifierContinue(rest[end]) {
+	for end < len(rest) && perlHereDocIdentifierContinue(rest[end]) {
 		end++
 	}
 	if end < len(rest) {
@@ -312,12 +312,12 @@ func phase8PerlBarewordHereDocDelimiter(rest string) (string, bool) {
 	return rest[:end], true
 }
 
-func phase8PerlHereDocIdentifierStart(value byte) bool {
+func perlHereDocIdentifierStart(value byte) bool {
 	return value == '_' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase8PerlHereDocIdentifierContinue(value byte) bool {
-	return phase8PerlHereDocIdentifierStart(value) || value >= '0' && value <= '9'
+func perlHereDocIdentifierContinue(value byte) bool {
+	return perlHereDocIdentifierStart(value) || value >= '0' && value <= '9'
 }
 
 func maskPerlArrayLastIndexSigils(result []byte) {
@@ -333,7 +333,7 @@ func maskPerlArrayLastIndexSigils(result []byte) {
 				continue
 			}
 			next := result[at+2]
-			if next == '{' || phase8PerlHereDocIdentifierStart(next) {
+			if next == '{' || perlHereDocIdentifierStart(next) {
 				result[at+1] = ' '
 			}
 		}
@@ -344,21 +344,21 @@ func maskPerlQuoteLikeOperators(result []byte) {
 	for at := 0; at < len(result); {
 		switch result[at] {
 		case '#':
-			at = phase8PerlLineEnd(result, at)
+			at = perlLineEnd(result, at)
 			continue
 		case '\'', '"':
-			at = phase8OrdinaryStringEnd(result, at)
+			at = ordinaryStringEnd(result, at)
 			continue
 		case '/':
-			if phase8PerlSlashRegexStart(result, at) {
-				if end, ok := phase8PerlSlashRegexEnd(result, at); ok {
-					phase8MaskRange(result, at, end)
-					at = phase8PerlQuoteLikeModifierEnd(result, end, "m")
+			if perlSlashRegexStart(result, at) {
+				if end, ok := perlSlashRegexEnd(result, at); ok {
+					maskRangePreservingLines(result, at, end)
+					at = perlQuoteLikeModifierEnd(result, end, "m")
 					continue
 				}
 			}
 		}
-		operatorLength, parts := phase8PerlQuoteLikeOperatorAt(result, at)
+		operatorLength, parts := perlQuoteLikeOperatorAt(result, at)
 		if operatorLength == 0 {
 			at++
 			continue
@@ -368,11 +368,11 @@ func maskPerlQuoteLikeOperators(result []byte) {
 		for delimiterAt < len(result) && (result[delimiterAt] == ' ' || result[delimiterAt] == '\t') {
 			delimiterAt++
 		}
-		if delimiterAt >= len(result) || !phase8PerlQuoteDelimiter(result[delimiterAt]) {
+		if delimiterAt >= len(result) || !perlQuoteDelimiter(result[delimiterAt]) {
 			at += operatorLength
 			continue
 		}
-		firstEnd, paired, ok := phase8PerlDelimitedEnd(result, delimiterAt)
+		firstEnd, paired, ok := perlDelimitedEnd(result, delimiterAt)
 		if !ok {
 			at += operatorLength
 			continue
@@ -384,18 +384,18 @@ func maskPerlQuoteLikeOperators(result []byte) {
 				for secondAt < len(result) && (result[secondAt] == ' ' || result[secondAt] == '\t') {
 					secondAt++
 				}
-				if secondAt >= len(result) || !phase8PerlQuoteDelimiter(result[secondAt]) {
+				if secondAt >= len(result) || !perlQuoteDelimiter(result[secondAt]) {
 					at += operatorLength
 					continue
 				}
-				secondEnd, _, secondOK := phase8PerlDelimitedEnd(result, secondAt)
+				secondEnd, _, secondOK := perlDelimitedEnd(result, secondAt)
 				if !secondOK {
 					at += operatorLength
 					continue
 				}
 				end = secondEnd
 			} else {
-				secondEnd, secondOK := phase8PerlSimpleDelimitedContentEnd(result, firstEnd, result[delimiterAt])
+				secondEnd, secondOK := perlSimpleDelimitedContentEnd(result, firstEnd, result[delimiterAt])
 				if !secondOK {
 					at += operatorLength
 					continue
@@ -403,12 +403,12 @@ func maskPerlQuoteLikeOperators(result []byte) {
 				end = secondEnd
 			}
 		}
-		phase8MaskRange(result, at, end)
-		at = phase8PerlQuoteLikeModifierEnd(result, end, operator)
+		maskRangePreservingLines(result, at, end)
+		at = perlQuoteLikeModifierEnd(result, end, operator)
 	}
 }
 
-func phase8PerlSlashRegexStart(text []byte, at int) bool {
+func perlSlashRegexStart(text []byte, at int) bool {
 	if at < 0 || at >= len(text) || text[at] != '/' {
 		return false
 	}
@@ -437,7 +437,7 @@ func phase8PerlSlashRegexStart(text []byte, at int) bool {
 	}
 }
 
-func phase8PerlSlashRegexEnd(text []byte, delimiterAt int) (int, bool) {
+func perlSlashRegexEnd(text []byte, delimiterAt int) (int, bool) {
 	for at := delimiterAt + 1; at < len(text); at++ {
 		if text[at] == '\\' {
 			at++
@@ -453,7 +453,7 @@ func phase8PerlSlashRegexEnd(text []byte, delimiterAt int) (int, bool) {
 	return 0, false
 }
 
-func phase8PerlQuoteLikeModifierEnd(text []byte, at int, operator string) int {
+func perlQuoteLikeModifierEnd(text []byte, at int, operator string) int {
 	modifiers := ""
 	switch operator {
 	case "m":
@@ -473,8 +473,8 @@ func phase8PerlQuoteLikeModifierEnd(text []byte, at int, operator string) int {
 	return at
 }
 
-func phase8PerlQuoteLikeOperatorAt(text []byte, at int) (length, parts int) {
-	if at > 0 && (phase8PerlIdentifierByte(text[at-1]) || text[at-1] == '\\') {
+func perlQuoteLikeOperatorAt(text []byte, at int) (length, parts int) {
+	if at > 0 && (perlIdentifierByte(text[at-1]) || text[at-1] == '\\') {
 		return 0, 0
 	}
 	for _, candidate := range []struct {
@@ -495,10 +495,10 @@ func phase8PerlQuoteLikeOperatorAt(text []byte, at int) (length, parts int) {
 		if end > len(text) || string(text[at:end]) != candidate.operator {
 			continue
 		}
-		if end < len(text) && phase8PerlWordIdentifierByte(text[end]) {
+		if end < len(text) && perlWordIdentifierByte(text[end]) {
 			continue
 		}
-		if phase8PerlBracedQuoteLikeKey(text, at, end) {
+		if perlBracedQuoteLikeKey(text, at, end) {
 			return 0, 0
 		}
 		return len(candidate.operator), candidate.parts
@@ -506,12 +506,12 @@ func phase8PerlQuoteLikeOperatorAt(text []byte, at int) (length, parts int) {
 	return 0, 0
 }
 
-func phase8PerlBracedQuoteLikeKey(text []byte, at, end int) bool {
+func perlBracedQuoteLikeKey(text []byte, at, end int) bool {
 	previous := at - 1
 	for previous >= 0 && (text[previous] == ' ' || text[previous] == '\t') {
 		previous--
 	}
-	if previous < 0 || text[previous] != '{' || !phase8PerlHashSubscriptBeforeBrace(text, previous) {
+	if previous < 0 || text[previous] != '{' || !perlHashSubscriptBeforeBrace(text, previous) {
 		return false
 	}
 	next := end
@@ -521,34 +521,34 @@ func phase8PerlBracedQuoteLikeKey(text []byte, at, end int) bool {
 	return next < len(text) && text[next] == '}'
 }
 
-func phase8PerlHashSubscriptBeforeBrace(text []byte, brace int) bool {
+func perlHashSubscriptBeforeBrace(text []byte, brace int) bool {
 	if brace >= 2 && text[brace-2] == '-' && text[brace-1] == '>' {
 		return true
 	}
 	at := brace - 1
-	for at >= 0 && phase8PerlBareIdentifierByte(text[at]) {
+	for at >= 0 && perlBareIdentifierByte(text[at]) {
 		at--
 	}
 	return at >= 0 && (text[at] == '$' || text[at] == '@' || text[at] == '%')
 }
 
-func phase8PerlBareIdentifierByte(value byte) bool {
+func perlBareIdentifierByte(value byte) bool {
 	return value == '_' || value == ':' || value == '\'' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase8PerlWordIdentifierByte(value byte) bool {
+func perlWordIdentifierByte(value byte) bool {
 	return value == '_' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase8PerlIdentifierByte(value byte) bool {
-	return phase8PerlWordIdentifierByte(value) || value == '$' || value == '@' || value == '%'
+func perlIdentifierByte(value byte) bool {
+	return perlWordIdentifierByte(value) || value == '$' || value == '@' || value == '%'
 }
 
-func phase8PerlQuoteDelimiter(value byte) bool {
-	return value > ' ' && (!phase8PerlIdentifierByte(value) || value == '%') && value != '\\'
+func perlQuoteDelimiter(value byte) bool {
+	return value > ' ' && (!perlIdentifierByte(value) || value == '%') && value != '\\'
 }
 
-func phase8PerlDelimitedEnd(text []byte, delimiterAt int) (end int, paired bool, ok bool) {
+func perlDelimitedEnd(text []byte, delimiterAt int) (end int, paired bool, ok bool) {
 	open := text[delimiterAt]
 	close := open
 	switch open {
@@ -562,7 +562,7 @@ func phase8PerlDelimitedEnd(text []byte, delimiterAt int) (end int, paired bool,
 		close, paired = '>', true
 	}
 	if !paired {
-		end, ok := phase8PerlSimpleDelimitedContentEnd(text, delimiterAt+1, close)
+		end, ok := perlSimpleDelimitedContentEnd(text, delimiterAt+1, close)
 		return end, false, ok
 	}
 	depth := 1
@@ -585,7 +585,7 @@ func phase8PerlDelimitedEnd(text []byte, delimiterAt int) (end int, paired bool,
 	return 0, true, false
 }
 
-func phase8PerlSimpleDelimitedContentEnd(text []byte, contentAt int, delimiter byte) (int, bool) {
+func perlSimpleDelimitedContentEnd(text []byte, contentAt int, delimiter byte) (int, bool) {
 	for at := contentAt; at < len(text); at++ {
 		if text[at] == '\\' {
 			at++
@@ -598,14 +598,14 @@ func phase8PerlSimpleDelimitedContentEnd(text []byte, contentAt int, delimiter b
 	return 0, false
 }
 
-func phase8PerlLineEnd(text []byte, at int) int {
+func perlLineEnd(text []byte, at int) int {
 	for at < len(text) && text[at] != '\r' && text[at] != '\n' {
 		at++
 	}
 	return at
 }
 
-func phase8OrdinaryStringEnd(text []byte, start int) int {
+func ordinaryStringEnd(text []byte, start int) int {
 	quote := text[start]
 	for at := start + 1; at < len(text); at++ {
 		if text[at] == '\\' {
@@ -629,7 +629,7 @@ func maskLuaLongBrackets(text string) (string, bool) {
 		switch {
 		case strings.HasPrefix(text[at:], "--"):
 			if end, matched, terminated := luaLongBracketEnd(text, at+2); matched {
-				phase8MaskRange(result, at, end)
+				maskRangePreservingLines(result, at, end)
 				if !terminated {
 					complete = false
 					return string(result), complete
@@ -637,15 +637,15 @@ func maskLuaLongBrackets(text string) (string, bool) {
 				at = end
 				continue
 			}
-			lineEnd, _ := phase8LineBounds(text, at)
+			lineEnd, _ := physicalLineBounds(text, at)
 			at = lineEnd
 			continue
 		case text[at] == '\'' || text[at] == '"':
-			at = phase8OrdinaryStringEnd(result, at)
+			at = ordinaryStringEnd(result, at)
 			continue
 		case text[at] == '[':
 			if end, matched, terminated := luaLongBracketEnd(text, at); matched {
-				phase8MaskRange(result, at, end)
+				maskRangePreservingLines(result, at, end)
 				if !terminated {
 					complete = false
 					return string(result), complete
@@ -686,7 +686,7 @@ func maskGroovySlashyStrings(text string) (string, bool) {
 	for at := 0; at < len(text); {
 		switch {
 		case strings.HasPrefix(text[at:], "//"):
-			end, _ := phase8LineBounds(text, at)
+			end, _ := physicalLineBounds(text, at)
 			at = end
 			continue
 		case strings.HasPrefix(text[at:], "/*"):
@@ -698,21 +698,21 @@ func maskGroovySlashyStrings(text string) (string, bool) {
 			continue
 		case strings.HasPrefix(text[at:], "\"\"\"") || strings.HasPrefix(text[at:], "'''"):
 			delimiter := text[at : at+3]
-			at = phase8SkipQuoted(text, at, delimiter, true)
+			at = skipQuotedText(text, at, delimiter, true)
 			continue
 		case text[at] == '\'' || text[at] == '"':
-			at = phase8SkipQuoted(text, at, text[at:at+1], true)
+			at = skipQuotedText(text, at, text[at:at+1], true)
 			continue
 		case strings.HasPrefix(text[at:], "$/"):
 			if relative := strings.Index(text[at+2:], "/$"); relative >= 0 {
 				end := at + 2 + relative + 2
-				phase8MaskRange(result, at, end)
+				maskRangePreservingLines(result, at, end)
 				at = end
 				continue
 			}
-			phase8MaskRange(result, at, len(text))
+			maskRangePreservingLines(result, at, len(text))
 			return string(result), false
-		case text[at] == '/' && phase8GroovySlashyStart(text, at):
+		case text[at] == '/' && groovySlashyStart(text, at):
 			end := at + 1
 			for end < len(text) {
 				if text[end] == '\\' && end+1 < len(text) {
@@ -721,14 +721,14 @@ func maskGroovySlashyStrings(text string) (string, bool) {
 				}
 				if text[end] == '/' {
 					end++
-					phase8MaskRange(result, at, end)
+					maskRangePreservingLines(result, at, end)
 					at = end
 					break
 				}
 				end++
 			}
 			if end >= len(text) {
-				phase8MaskRange(result, at, len(text))
+				maskRangePreservingLines(result, at, len(text))
 				complete = false
 				at = end
 			}
@@ -739,7 +739,7 @@ func maskGroovySlashyStrings(text string) (string, bool) {
 	return string(result), complete
 }
 
-func phase8GroovySlashyStart(text string, at int) bool {
+func groovySlashyStart(text string, at int) bool {
 	for i := at - 1; i >= 0; i-- {
 		switch text[i] {
 		case ' ', '\t':
@@ -753,7 +753,7 @@ func phase8GroovySlashyStart(text string, at int) bool {
 	return true
 }
 
-func phase8SkipQuoted(text string, start int, delimiter string, backslashEscapes bool) int {
+func skipQuotedText(text string, start int, delimiter string, backslashEscapes bool) int {
 	at := start + len(delimiter)
 	for at < len(text) {
 		if backslashEscapes && text[at] == '\\' && at+1 < len(text) {
@@ -777,7 +777,7 @@ func maskAutoHotkeyCodeStrings(text string) (string, bool) {
 
 	complete := true
 	for lineStart := 0; lineStart < len(text); {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		line := string(result[lineStart:lineEnd])
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			lineStart = next
@@ -800,7 +800,7 @@ func maskAutoHotkeyCodeStrings(text string) (string, bool) {
 					end, closed = continuedEnd, true
 				}
 			}
-			phase8MaskRange(result, at, end)
+			maskRangePreservingLines(result, at, end)
 			if !closed {
 				complete = false
 			}
@@ -814,7 +814,7 @@ func maskAutoHotkeyCodeStrings(text string) (string, bool) {
 
 func maskAutoHotkeyLegacyCommandBraceTransitions(text string, result []byte) {
 	for lineStart := 0; lineStart < len(text); {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		at := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
 		if at >= lineEnd || !autoHotkeyLegacyIdentifierStart(result[at]) {
 			lineStart = next
@@ -836,7 +836,7 @@ func maskAutoHotkeyLegacyCommandBraceTransitions(text string, result []byte) {
 				break
 			}
 			if result[cursor] == '}' && result[cursor+1] == '{' {
-				phase8MaskRange(result, cursor, cursor+2)
+				maskRangePreservingLines(result, cursor, cursor+2)
 				cursor++
 			}
 		}
@@ -846,13 +846,13 @@ func maskAutoHotkeyLegacyCommandBraceTransitions(text string, result []byte) {
 
 func maskAutoHotkeyEscapedStructural(text string, result []byte) {
 	for lineStart := 0; lineStart < len(text); {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		for at := lineStart; at+1 < lineEnd; at++ {
 			if result[at] != '`' {
 				continue
 			}
 			if autoHotkeyStructuralEscapeTarget(result[at+1]) {
-				phase8MaskRange(result, at, at+2)
+				maskRangePreservingLines(result, at, at+2)
 			}
 			at++
 		}
@@ -871,7 +871,7 @@ func autoHotkeyStructuralEscapeTarget(value byte) bool {
 
 func maskAutoHotkeyBracketHotkeys(text string, result []byte) {
 	for lineStart := 0; lineStart < len(text); {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		at := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
 		for at < lineEnd {
 			switch result[at] {
@@ -891,13 +891,13 @@ func maskAutoHotkeyBracketHotkeys(text string, result []byte) {
 
 func maskAutoHotkeyLegacyRawAssignments(text string, result []byte) {
 	for lineStart := 0; lineStart < len(text); {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		at := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
 		if at < lineEnd && result[at] != ';' && result[at] != '#' {
 			if equal := autoHotkeyLegacyAssignmentEqual(result, at, lineEnd); equal >= 0 {
 				rhs := autoHotkeyHorizontalStart(result, equal+1, lineEnd)
 				if autoHotkeyLegacyRawCloser(result, rhs, lineEnd) || autoHotkeyLegacyRawQuoteColon(result, rhs, lineEnd) {
-					phase8MaskRange(result, equal+1, lineEnd)
+					maskRangePreservingLines(result, equal+1, lineEnd)
 				}
 			}
 		}
@@ -979,7 +979,7 @@ func autoHotkeyLegacyIdentifierContinue(value byte) bool {
 func maskAutoHotkeyContinuationSections(text string, result []byte) {
 	previousStart, previousEnd := -1, -1
 	for lineStart := 0; lineStart < len(text); {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		trimmedStart := autoHotkeyHorizontalStart(result, lineStart, lineEnd)
 		if autoHotkeyContinuationHeader(result, trimmedStart, lineEnd) {
 			quoteStart, quote, quoted := -1, byte(0), false
@@ -992,7 +992,7 @@ func maskAutoHotkeyContinuationSections(text string, result []byte) {
 				if quoted {
 					maskStart = quoteStart
 				}
-				phase8MaskRange(result, maskStart, maskEnd)
+				maskRangePreservingLines(result, maskStart, maskEnd)
 				previousStart, previousEnd = maskEnd, closeLineEnd
 				lineStart = closeNext
 				continue
@@ -1030,7 +1030,7 @@ func autoHotkeyContinuationHeader(data []byte, start, end int) bool {
 
 func autoHotkeyContinuationClose(text string, data []byte, start int, quote byte, quoted bool) (int, int, int, bool) {
 	for lineStart := start; lineStart < len(text); {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		at := autoHotkeyHorizontalStart(data, lineStart, lineEnd)
 		if at < lineEnd && data[at] == ')' {
 			if !quoted {
@@ -1098,7 +1098,7 @@ func autoHotkeyQuoteEnd(data []byte, start, lineEnd int, quote byte) (int, bool)
 
 func autoHotkeyContinuedQuoteEnd(text string, data []byte, lineStart int, quote byte) (int, bool) {
 	for lineStart < len(data) {
-		lineEnd, next := phase8LineBounds(text, lineStart)
+		lineEnd, next := physicalLineBounds(text, lineStart)
 		at := autoHotkeyHorizontalStart(data, lineStart, lineEnd)
 		if !autoHotkeyExpressionContinuationStart(data, at, lineEnd) {
 			return 0, false
@@ -1192,7 +1192,7 @@ func autoHotkeyHorizontalStart(data []byte, start, end int) int {
 	return start
 }
 
-func phase8StaticDependencyTarget(text string, tokens []Token) (string, int, int, bool) {
+func staticDependencyTarget(text string, tokens []Token) (string, int, int, bool) {
 	startIndex := 0
 	for startIndex < len(tokens) && (tokens[startIndex].Kind == TokenNewline || tokens[startIndex].Kind == TokenDirective) {
 		startIndex++
@@ -1201,7 +1201,7 @@ func phase8StaticDependencyTarget(text string, tokens []Token) (string, int, int
 		return "", 0, 0, false
 	}
 	first := tokens[startIndex]
-	if value := phase8StringValue(first); value != "" {
+	if value := quotedTokenStringValue(first); value != "" {
 		return value, first.StartOffset, first.EndOffset, true
 	}
 	start := first.StartOffset
@@ -1234,7 +1234,7 @@ func phase8StaticDependencyTarget(text string, tokens []Token) (string, int, int
 	return value, start, end, true
 }
 
-func phase8NextIdentifier(tokens []Token, start, end int) int {
+func nextIdentifierOrKeywordToken(tokens []Token, start, end int) int {
 	for i := start; i < end; i++ {
 		if tokens[i].Kind == TokenIdentifier || tokens[i].Kind == TokenKeyword {
 			return i

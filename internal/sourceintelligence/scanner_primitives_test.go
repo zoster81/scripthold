@@ -22,6 +22,70 @@ func TestTokenRepresentationRemainsCompact(t *testing.T) {
 	}
 }
 
+func TestScannerCaseInsensitiveKeywordsPreserveUnicodeLowerSemantics(t *testing.T) {
+	profile := ScannerProfile{
+		Name:            "case-insensitive-keywords",
+		CaseInsensitive: true,
+		Keywords:        []string{"σ", "k"},
+	}
+	result := scanSourceText(t, "Σ σ ς K k", profile, scannerTestLimits)
+	var got []Token
+	for _, token := range result.Tokens {
+		if token.Kind == TokenIdentifier || token.Kind == TokenKeyword {
+			got = append(got, token)
+		}
+	}
+	wantText := []string{"Σ", "σ", "ς", "K", "k"}
+	wantKind := []TokenKind{TokenKeyword, TokenKeyword, TokenIdentifier, TokenKeyword, TokenKeyword}
+	if len(got) != len(wantText) {
+		t.Fatalf("case-insensitive identifier count = %d, want %d: %+v", len(got), len(wantText), got)
+	}
+	for index := range got {
+		if got[index].Text != wantText[index] || got[index].Kind != wantKind[index] {
+			t.Fatalf("token %d = {%q %v}, want {%q %v}", index, got[index].Text, got[index].Kind, wantText[index], wantKind[index])
+		}
+	}
+}
+
+func TestScannerCaseInsensitiveKeywordHashCollisionsAreVerified(t *testing.T) {
+	hash := caseInsensitiveKeywordHash("target")
+	scanner := sourceScanner{
+		profile:                 ScannerProfile{CaseInsensitive: true},
+		caseInsensitiveKeywords: map[uint64]string{hash: "different"},
+		caseInsensitiveKeywordCollisions: map[uint64][]string{
+			hash: {"TARGET"},
+		},
+	}
+	if !scanner.isKeyword("target") {
+		t.Fatal("verified collision bucket did not find the matching keyword")
+	}
+	delete(scanner.caseInsensitiveKeywordCollisions, hash)
+	if scanner.isKeyword("target") {
+		t.Fatal("hash collision produced a false keyword")
+	}
+}
+
+func TestScannerCaseInsensitiveKeywordLookupDoesNotAllocatePerIdentifier(t *testing.T) {
+	profile := FortranScannerProfile()
+	text := strings.Repeat("MoDuLe Alpha FuNcTiOn Beta SuBrOuTiNe Gamma\n", 512)
+	document := sourceDocumentForScanner(text)
+
+	var result ScanResult
+	var scanErr error
+	allocations := testing.AllocsPerRun(5, func() {
+		result, scanErr = ScanSource(context.Background(), document, profile, scannerTestLimits)
+	})
+	if scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if !result.Complete {
+		t.Fatalf("case-insensitive scan is partial: %+v", result.Diagnostics)
+	}
+	if allocations > 64 {
+		t.Fatalf("case-insensitive scanner allocations = %.0f, want <= 64", allocations)
+	}
+}
+
 func TestScannerProfileIdentifierDelimiterAndDirectivePolicies(t *testing.T) {
 	profile := ScannerProfile{
 		Name:     "r27-profiled",

@@ -20,7 +20,7 @@ func (GroovyAnalyzer) ID() AnalyzerID   { return AnalyzerGroovy }
 func (GroovyAnalyzer) Language() string { return "groovy" }
 
 func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, "perl", AnalyzerPerl)
+	state, err := newStructuralAnalyzerState(ctx, document, options, "perl", AnalyzerPerl)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -42,7 +42,7 @@ func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		first := strings.ToLower(line.Tokens[0].Text)
 		switch first {
 		case "package":
-			nameStart := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
+			nameStart := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 			if nameStart < 0 {
 				continue
 			}
@@ -65,14 +65,14 @@ func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 				currentPackage = &parent
 			}
 		case "sub":
-			nameIndex := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
+			nameIndex := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 			if nameIndex < 0 {
 				continue
 			}
 			tok := line.Tokens[nameIndex]
 			state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "sub", Name: tok.Text, Parent: currentPackage, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 		case "use":
-			idx := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
+			idx := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 			if idx >= 0 {
 				end := idx + 1
 				for end < len(line.Tokens) && (line.Tokens[end].Text == ":" || line.Tokens[end].Kind == TokenIdentifier || line.Tokens[end].Kind == TokenKeyword) {
@@ -86,7 +86,7 @@ func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			}
 		case "require":
 			for _, token := range line.Tokens[1:] {
-				if value := phase8StringValue(token); value != "" {
+				if value := quotedTokenStringValue(token); value != "" {
 					state.addImportDependency(value, token.StartOffset, token.EndOffset)
 					break
 				}
@@ -105,7 +105,7 @@ func (LuauAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 }
 
 func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, luau bool) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, language, analyzer)
+	state, err := newStructuralAnalyzerState(ctx, document, options, language, analyzer)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -132,14 +132,14 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 		nameStart, nameEnd := -1, -1
 		nativeKind := "function"
 		if functionIndex >= 0 {
-			nameStart = phase8NextIdentifier(line.Tokens, functionIndex+1, len(line.Tokens))
+			nameStart = nextIdentifierOrKeywordToken(line.Tokens, functionIndex+1, len(line.Tokens))
 			if nameStart >= 0 {
 				nameEnd = nameStart + 1
 				for nameEnd+1 < len(line.Tokens) && (line.Tokens[nameEnd].Text == "." || line.Tokens[nameEnd].Text == ":") && (line.Tokens[nameEnd+1].Kind == TokenIdentifier || line.Tokens[nameEnd+1].Kind == TokenKeyword) {
 					nameEnd += 2
 				}
 			}
-		} else if start, end, ok := phase8LuaAssignedFunctionName(line.Tokens); ok {
+		} else if start, end, ok := luaAssignedFunctionName(line.Tokens); ok {
 			nameStart, nameEnd = start, end
 			nativeKind = "function-assignment"
 		}
@@ -157,7 +157,7 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 				typeIndex = 1
 			}
 			if typeIndex >= 0 {
-				idx := phase8NextIdentifier(line.Tokens, typeIndex+1, len(line.Tokens))
+				idx := nextIdentifierOrKeywordToken(line.Tokens, typeIndex+1, len(line.Tokens))
 				if idx >= 0 {
 					tok := line.Tokens[idx]
 					state.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: tok.Text, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
@@ -172,7 +172,7 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 		end := min(len(scan.Tokens), i+8)
 		for j := i + 1; j < end; j++ {
 			if scan.Tokens[j].Kind == TokenString {
-				if value := phase8StringValue(scan.Tokens[j]); value != "" {
+				if value := quotedTokenStringValue(scan.Tokens[j]); value != "" {
 					state.addImportDependency(value, scan.Tokens[j].StartOffset, scan.Tokens[j].EndOffset)
 				}
 				break
@@ -185,7 +185,7 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 	return state.result()
 }
 
-func phase8LuaAssignedFunctionName(tokens []Token) (int, int, bool) {
+func luaAssignedFunctionName(tokens []Token) (int, int, bool) {
 	start := 0
 	if len(tokens) > 0 && strings.EqualFold(tokens[0].Text, "local") {
 		start = 1
@@ -209,7 +209,7 @@ func phase8LuaAssignedFunctionName(tokens []Token) (int, int, bool) {
 }
 
 func (GroovyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase7Brace(ctx, document, options, phase7BracePolicy{
+	return analyzeBraceLanguage(ctx, document, options, braceLanguagePolicy{
 		language: "groovy", analyzer: AnalyzerGroovy, profile: GroovyScannerProfile(),
 		typeKinds:     map[string]SymbolKind{"class": SymbolKindClass, "interface": SymbolKindInterface, "trait": SymbolKindTrait, "enum": SymbolKindEnum},
 		typeNative:    map[string]string{"class": "class", "interface": "interface", "trait": "trait", "enum": "enum"},

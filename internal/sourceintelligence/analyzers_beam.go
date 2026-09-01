@@ -25,7 +25,7 @@ type elixirScope struct {
 }
 
 func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, "elixir", AnalyzerElixir)
+	state, err := newStructuralAnalyzerState(ctx, document, options, "elixir", AnalyzerElixir)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -54,7 +54,7 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		var declarationScope *elixirScope
 		switch first {
 		case "defmodule":
-			start := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
+			start := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 			if start >= 0 {
 				end := start + 1
 				for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
@@ -71,7 +71,7 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 				}
 			}
 		case "def", "defp", "defmacro", "defmacrop", "defguard", "defguardp":
-			idx := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
+			idx := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 			if idx >= 0 {
 				tok := line.Tokens[idx]
 				if _, ok := state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: tok.Text, Parent: currentModule(), Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
@@ -80,7 +80,7 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 				}
 			}
 		case "alias", "import", "require", "use":
-			start := phase8NextIdentifier(line.Tokens, 1, len(line.Tokens))
+			start := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 			if start >= 0 {
 				end := start + 1
 				for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
@@ -196,7 +196,7 @@ func maskElixirCharacterLiterals(text string) string {
 	for at := 0; at < len(text); {
 		switch text[at] {
 		case '#':
-			_, next := phase8LineBounds(text, at)
+			_, next := physicalLineBounds(text, at)
 			at = next
 			continue
 		case '\'', '"':
@@ -209,7 +209,7 @@ func maskElixirCharacterLiterals(text string) string {
 		case '?':
 			if elixirQuestionMarkStartsCharacter(text, at) {
 				if end, ok := elixirCharacterLiteralEnd(text, at); ok {
-					phase8MaskRange(masked, at, end)
+					maskRangePreservingLines(masked, at, end)
 					at = end
 					continue
 				}
@@ -259,26 +259,26 @@ func elixirCharacterLiteralEnd(text string, start int) (int, bool) {
 func maskElixirSigils(text string) string {
 	masked := []byte(text)
 	for at := 0; at+2 < len(text); at++ {
-		if text[at] != '~' || !phase8ElixirSigilLetter(text[at+1]) {
+		if text[at] != '~' || !elixirSigilLetter(text[at+1]) {
 			continue
 		}
 		delimiterAt := at + 2
 		interpolated := text[at+1] >= 'a' && text[at+1] <= 'z'
-		end, ok := phase8ElixirSigilEnd(text, delimiterAt, interpolated)
+		end, ok := elixirSigilEnd(text, delimiterAt, interpolated)
 		if !ok {
 			continue
 		}
-		phase8MaskRange(masked, at, end)
+		maskRangePreservingLines(masked, at, end)
 		at = end - 1
 	}
 	return string(masked)
 }
 
-func phase8ElixirSigilLetter(value byte) bool {
+func elixirSigilLetter(value byte) bool {
 	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase8ElixirSigilEnd(text string, delimiterAt int, interpolated bool) (int, bool) {
+func elixirSigilEnd(text string, delimiterAt int, interpolated bool) (int, bool) {
 	if delimiterAt >= len(text) {
 		return 0, false
 	}
@@ -286,7 +286,7 @@ func phase8ElixirSigilEnd(text string, delimiterAt int, interpolated bool) (int,
 		delimiter := text[delimiterAt : delimiterAt+3]
 		for cursor := delimiterAt + 3; cursor < len(text); {
 			if interpolated && strings.HasPrefix(text[cursor:], "#{") {
-				end, ok := phase8ElixirInterpolationEnd(text, cursor+2)
+				end, ok := elixirInterpolationEnd(text, cursor+2)
 				if !ok {
 					return 0, false
 				}
@@ -332,7 +332,7 @@ func phase8ElixirSigilEnd(text string, delimiterAt int, interpolated bool) (int,
 			continue
 		}
 		if interpolated && strings.HasPrefix(text[cursor:], "#{") {
-			end, ok := phase8ElixirInterpolationEnd(text, cursor+2)
+			end, ok := elixirInterpolationEnd(text, cursor+2)
 			if !ok {
 				return 0, false
 			}
@@ -354,7 +354,7 @@ func phase8ElixirSigilEnd(text string, delimiterAt int, interpolated bool) (int,
 	return 0, false
 }
 
-func phase8ElixirInterpolationEnd(text string, start int) (int, bool) {
+func elixirInterpolationEnd(text string, start int) (int, bool) {
 	depth := 1
 	for at := start; at < len(text); {
 		switch text[at] {
@@ -364,7 +364,7 @@ func phase8ElixirInterpolationEnd(text string, start int) (int, bool) {
 				at += 2
 				continue
 			}
-			_, next := phase8LineBounds(text, at)
+			_, next := physicalLineBounds(text, at)
 			at = next
 			continue
 		case '\'', '"':
@@ -382,8 +382,8 @@ func phase8ElixirInterpolationEnd(text string, start int) (int, bool) {
 				}
 			}
 		case '~':
-			if at+2 < len(text) && phase8ElixirSigilLetter(text[at+1]) {
-				end, ok := phase8ElixirSigilEnd(text, at+2, text[at+1] >= 'a' && text[at+1] <= 'z')
+			if at+2 < len(text) && elixirSigilLetter(text[at+1]) {
+				end, ok := elixirSigilEnd(text, at+2, text[at+1] >= 'a' && text[at+1] <= 'z')
 				if ok {
 					at = end
 					continue
@@ -415,7 +415,7 @@ func maskErlangCharacterLiterals(text string) string {
 	for at := 0; at < len(text); {
 		switch text[at] {
 		case '%':
-			_, next := phase8LineBounds(text, at)
+			_, next := physicalLineBounds(text, at)
 			at = next
 			continue
 		case '\'', '"':
@@ -427,7 +427,7 @@ func maskErlangCharacterLiterals(text string) string {
 			continue
 		case '$':
 			if end, ok := erlangCharacterLiteralEnd(text, at); ok {
-				phase8MaskRange(masked, at, end)
+				maskRangePreservingLines(masked, at, end)
 				at = end
 				continue
 			}
@@ -498,7 +498,7 @@ func erlangCharacterLiteralEnd(text string, start int) (int, bool) {
 }
 
 func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, "erlang", AnalyzerErlang)
+	state, err := newStructuralAnalyzerState(ctx, document, options, "erlang", AnalyzerErlang)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -506,7 +506,7 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	segments := phase8TopLevelSegments(scan.Tokens, ".")
+	segments := beamTopLevelSegments(scan.Tokens, ".")
 	var module *SymbolParent
 	seenFunctions := make(map[string]struct{})
 	for _, segment := range segments {
@@ -526,17 +526,17 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		}
 		if tokens[0].Text == "-" && len(tokens) > 1 {
 			attribute := strings.ToLower(tokens[1].Text)
-			open := phase8FindToken(tokens, 2, "(")
+			open := beamFindToken(tokens, 2, "(")
 			close := -1
 			if open >= 0 {
-				close = phase8MatchingLocal(tokens, open, "(", ")")
+				close = beamMatchingLocal(tokens, open, "(", ")")
 			}
 			if open < 0 || close <= open+1 {
 				continue
 			}
 			switch attribute {
 			case "module":
-				idx := phase8NextIdentifier(tokens, open+1, close)
+				idx := nextIdentifierOrKeywordToken(tokens, open+1, close)
 				if idx >= 0 {
 					tok := tokens[idx]
 					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: tok.Text, QualifiedName: tok.Text, Declaration: OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, Evidence: SymbolEvidenceStructural})
@@ -546,18 +546,18 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 				}
 			case "include", "include_lib":
 				for _, tok := range tokens[open+1 : close] {
-					if value := phase8StringValue(tok); value != "" {
+					if value := quotedTokenStringValue(tok); value != "" {
 						state.addImportDependency(value, tok.StartOffset, tok.EndOffset)
 						break
 					}
 				}
 			case "import", "behaviour", "behavior":
-				idx := phase8NextIdentifier(tokens, open+1, close)
+				idx := nextIdentifierOrKeywordToken(tokens, open+1, close)
 				if idx >= 0 {
 					state.addImportDependency(tokens[idx].Text, tokens[idx].StartOffset, tokens[idx].EndOffset)
 				}
 			case "record":
-				idx := phase8NextIdentifier(tokens, open+1, close)
+				idx := nextIdentifierOrKeywordToken(tokens, open+1, close)
 				if idx >= 0 {
 					tok := tokens[idx]
 					state.add(SymbolSpec{Kind: SymbolKindStruct, NativeKind: "record", Name: tok.Text, Parent: module, Declaration: OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
@@ -565,19 +565,19 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 			}
 			continue
 		}
-		nameIndex := phase8NextIdentifier(tokens, 0, len(tokens))
-		if nameIndex != 0 || phase8FindArrow(tokens) < 0 {
+		nameIndex := nextIdentifierOrKeywordToken(tokens, 0, len(tokens))
+		if nameIndex != 0 || beamFindArrow(tokens) < 0 {
 			continue
 		}
-		open := phase8FindToken(tokens, nameIndex+1, "(")
+		open := beamFindToken(tokens, nameIndex+1, "(")
 		if open < 0 {
 			continue
 		}
-		close := phase8MatchingLocal(tokens, open, "(", ")")
+		close := beamMatchingLocal(tokens, open, "(", ")")
 		if close <= open {
 			continue
 		}
-		arity := phase8Arity(tokens, open+1, close)
+		arity := beamArity(tokens, open+1, close)
 		key := tokens[nameIndex].Text + "/" + strconv.Itoa(arity)
 		if _, duplicate := seenFunctions[key]; duplicate {
 			continue
@@ -590,7 +590,7 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 }
 
 func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, "gleam", AnalyzerGleam)
+	state, err := newStructuralAnalyzerState(ctx, document, options, "gleam", AnalyzerGleam)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -614,7 +614,7 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		keyword := strings.ToLower(scan.Tokens[i].Text)
 		switch keyword {
 		case "import":
-			lineEnd := phase8TokenLineEnd(scan.Tokens, i+1)
+			lineEnd := beamTokenLineEnd(scan.Tokens, i+1)
 			targetEnd := lineEnd
 			for j := i + 1; j < lineEnd; j++ {
 				if strings.EqualFold(scan.Tokens[j].Text, "as") && scan.Tokens[j].Nesting == 0 {
@@ -635,30 +635,30 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 			i = max(lineEnd, i+1)
 		case "type":
-			idx := phase8NextIdentifier(scan.Tokens, i+1, len(scan.Tokens))
+			idx := nextIdentifierOrKeywordToken(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
 				tok := scan.Tokens[idx]
-				symbol, added := state.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
+				symbol, added := state.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
 				if added {
-					if open, close, ok := phase8GleamTypeBody(scan.Tokens, pairs, idx); ok {
+					if open, close, ok := gleamTypeBody(scan.Tokens, pairs, idx); ok {
 						parent := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-						phase8AddGleamConstructors(state, scan.Tokens, pairs, open, close, &parent)
+						addGleamConstructors(state, scan.Tokens, pairs, open, close, &parent)
 					}
 				}
 			}
 			i++
 		case "fn":
-			idx := phase8NextIdentifier(scan.Tokens, i+1, len(scan.Tokens))
+			idx := nextIdentifierOrKeywordToken(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
 				tok := scan.Tokens[idx]
-				state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "fn", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
+				state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "fn", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
 			}
 			i++
 		case "const":
-			idx := phase8NextIdentifier(scan.Tokens, i+1, len(scan.Tokens))
+			idx := nextIdentifierOrKeywordToken(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
 				tok := scan.Tokens[idx]
-				state.add(SymbolSpec{Kind: SymbolKindConstant, NativeKind: "const", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: phase8DeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
+				state.add(SymbolSpec{Kind: SymbolKindConstant, NativeKind: "const", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 			i++
 		default:
@@ -668,7 +668,7 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	return state.result()
 }
 
-func phase8GleamTypeBody(tokens []Token, pairs map[int]int, nameIndex int) (int, int, bool) {
+func gleamTypeBody(tokens []Token, pairs map[int]int, nameIndex int) (int, int, bool) {
 	for index := nameIndex + 1; index < len(tokens); index++ {
 		token := tokens[index]
 		if token.Kind == TokenEOF {
@@ -694,14 +694,14 @@ func phase8GleamTypeBody(tokens []Token, pairs map[int]int, nameIndex int) (int,
 	return 0, 0, false
 }
 
-func phase8AddGleamConstructors(state *phase8State, tokens []Token, pairs map[int]int, open, close int, parent *SymbolParent) {
+func addGleamConstructors(state *structuralAnalyzerState, tokens []Token, pairs map[int]int, open, close int, parent *SymbolParent) {
 	if state == nil || parent == nil || open < 0 || close <= open || close >= len(tokens) {
 		return
 	}
 	bodyNesting := tokens[open].Nesting
 	for index := open + 1; index < close && !state.stopped; index++ {
 		token := tokens[index]
-		if token.Nesting != bodyNesting || token.Kind != TokenIdentifier || !phase8GleamConstructorName(token.Text) {
+		if token.Nesting != bodyNesting || token.Kind != TokenIdentifier || !gleamConstructorName(token.Text) {
 			continue
 		}
 		declarationEnd := token.EndOffset
@@ -720,12 +720,12 @@ func phase8AddGleamConstructors(state *phase8State, tokens []Token, pairs map[in
 	}
 }
 
-func phase8GleamConstructorName(name string) bool {
+func gleamConstructorName(name string) bool {
 	first, _ := utf8.DecodeRuneInString(name)
 	return first != utf8.RuneError && unicode.IsUpper(first)
 }
 
-func phase8TopLevelSegments(tokens []Token, separator string) [][2]int {
+func beamTopLevelSegments(tokens []Token, separator string) [][2]int {
 	var result [][2]int
 	start := 0
 	for i, token := range tokens {
@@ -745,7 +745,7 @@ func phase8TopLevelSegments(tokens []Token, separator string) [][2]int {
 	return result
 }
 
-func phase8FindToken(tokens []Token, start int, text string) int {
+func beamFindToken(tokens []Token, start int, text string) int {
 	for i := start; i < len(tokens); i++ {
 		if tokens[i].Text == text {
 			return i
@@ -754,7 +754,7 @@ func phase8FindToken(tokens []Token, start int, text string) int {
 	return -1
 }
 
-func phase8MatchingLocal(tokens []Token, open int, left, right string) int {
+func beamMatchingLocal(tokens []Token, open int, left, right string) int {
 	depth := 0
 	for i := open; i < len(tokens); i++ {
 		switch tokens[i].Text {
@@ -770,7 +770,7 @@ func phase8MatchingLocal(tokens []Token, open int, left, right string) int {
 	return -1
 }
 
-func phase8FindArrow(tokens []Token) int {
+func beamFindArrow(tokens []Token) int {
 	for i := 0; i < len(tokens); i++ {
 		if tokens[i].Text == "->" || (tokens[i].Text == "-" && i+1 < len(tokens) && tokens[i+1].Text == ">") {
 			return i
@@ -779,7 +779,7 @@ func phase8FindArrow(tokens []Token) int {
 	return -1
 }
 
-func phase8Arity(tokens []Token, start, end int) int {
+func beamArity(tokens []Token, start, end int) int {
 	if start >= end {
 		return 0
 	}
@@ -793,7 +793,7 @@ func phase8Arity(tokens []Token, start, end int) int {
 	return arity
 }
 
-func phase8TokenLineEnd(tokens []Token, start int) int {
+func beamTokenLineEnd(tokens []Token, start int) int {
 	for i := start; i < len(tokens); i++ {
 		if tokens[i].Kind == TokenNewline || tokens[i].Kind == TokenEOF {
 			return i
@@ -802,8 +802,8 @@ func phase8TokenLineEnd(tokens []Token, start int) int {
 	return len(tokens)
 }
 
-func phase8DeclarationLineEnd(tokens []Token, start int) int {
-	end := phase8TokenLineEnd(tokens, start)
+func beamDeclarationLineEnd(tokens []Token, start int) int {
+	end := beamTokenLineEnd(tokens, start)
 	if end <= start {
 		return tokens[start].EndOffset
 	}

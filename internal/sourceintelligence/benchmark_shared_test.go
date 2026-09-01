@@ -71,6 +71,30 @@ func BenchmarkSharedScannerSparseTail(b *testing.B) {
 	}
 }
 
+func BenchmarkSharedScannerCaseInsensitiveKeywords(b *testing.B) {
+	const line = "MoDuLe Alpha FuNcTiOn Beta SuBrOuTiNe Gamma\n"
+	for _, repeats := range []int{1, 64, 512} {
+		text := strings.Repeat(line, repeats)
+		b.Run(fmt.Sprintf("bytes-%d", len(text)), func(b *testing.B) {
+			document := sourceDocumentForScanner(text)
+			profile := FortranScannerProfile()
+			limits := ScannerLimits{MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: 256}
+			b.ReportAllocs()
+			b.SetBytes(int64(len(text)))
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := ScanSource(context.Background(), document, profile, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if !result.Complete || len(result.Tokens) == 0 {
+					b.Fatalf("unexpected case-insensitive scanner result: complete=%t tokens=%d diagnostics=%+v", result.Complete, len(result.Tokens), result.Diagnostics)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedScannerDeepNesting(b *testing.B) {
 	const depth = 192
 	const groups = 64

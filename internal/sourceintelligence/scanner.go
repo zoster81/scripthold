@@ -81,23 +81,25 @@ type matchedStringRule struct {
 }
 
 type sourceScanner struct {
-	ctx                   context.Context
-	document              *SourceDocument
-	text                  string
-	profile               ScannerProfile
-	limits                ScannerLimits
-	keywords              map[string]struct{}
-	stringStartBytes      [256]bool
-	stringStartUnfiltered bool
-	delimiterStartBytes   [256]bool
-	result                ScanResult
-	at                    int
-	lineStart             bool
-	pendingIndent         bool
-	continued             bool
-	delimiters            []delimiterEntry
-	pendingHereDocs       []pendingHereDoc
-	indentStack           []int
+	ctx                              context.Context
+	document                         *SourceDocument
+	text                             string
+	profile                          ScannerProfile
+	limits                           ScannerLimits
+	keywords                         map[string]struct{}
+	caseInsensitiveKeywords          map[uint64]string
+	caseInsensitiveKeywordCollisions map[uint64][]string
+	stringStartBytes                 [256]bool
+	stringStartUnfiltered            bool
+	delimiterStartBytes              [256]bool
+	result                           ScanResult
+	at                               int
+	lineStart                        bool
+	pendingIndent                    bool
+	continued                        bool
+	delimiters                       []delimiterEntry
+	pendingHereDocs                  []pendingHereDoc
+	indentStack                      []int
 }
 
 // ScanSource performs bounded lexical scanning over one already-decoded source document.
@@ -128,7 +130,6 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 		text:     document.Text,
 		profile:  profile,
 		limits:   limits,
-		keywords: make(map[string]struct{}, len(profile.Keywords)),
 		result: ScanResult{
 			Complete: true,
 			Tokens:   make([]Token, 0, initialScannerTokenCapacity(len(document.Text), limits.MaxTokens)),
@@ -137,8 +138,28 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 		pendingIndent: profile.Indentation,
 		indentStack:   []int{0},
 	}
-	for _, keyword := range profile.Keywords {
-		scanner.keywords[scanner.keywordKey(keyword)] = struct{}{}
+	if profile.CaseInsensitive {
+		scanner.caseInsensitiveKeywords = make(map[uint64]string, len(profile.Keywords))
+		for _, keyword := range profile.Keywords {
+			hash := caseInsensitiveKeywordHash(keyword)
+			existing, duplicateHash := scanner.caseInsensitiveKeywords[hash]
+			if !duplicateHash {
+				scanner.caseInsensitiveKeywords[hash] = keyword
+				continue
+			}
+			if caseInsensitiveKeywordEqual(existing, keyword) {
+				continue
+			}
+			if scanner.caseInsensitiveKeywordCollisions == nil {
+				scanner.caseInsensitiveKeywordCollisions = make(map[uint64][]string)
+			}
+			scanner.caseInsensitiveKeywordCollisions[hash] = append(scanner.caseInsensitiveKeywordCollisions[hash], keyword)
+		}
+	} else {
+		scanner.keywords = make(map[string]struct{}, len(profile.Keywords))
+		for _, keyword := range profile.Keywords {
+			scanner.keywords[keyword] = struct{}{}
+		}
 	}
 	if err := scanner.validateProfile(); err != nil {
 		return ScanResult{}, err
@@ -723,7 +744,7 @@ func (scanner *sourceScanner) scanIdentifier() error {
 	}
 	text := scanner.text[start:scanner.at]
 	kind := TokenIdentifier
-	if _, ok := scanner.keywords[scanner.keywordKey(text)]; ok {
+	if scanner.isKeyword(text) {
 		kind = TokenKeyword
 	}
 	scanner.lineStart = false
@@ -980,11 +1001,51 @@ func (scanner *sourceScanner) segmentEndsAtLineStart(start, end int) bool {
 	return true
 }
 
-func (scanner *sourceScanner) keywordKey(value string) string {
-	if scanner.profile.CaseInsensitive {
-		return strings.ToLower(value)
+func (scanner *sourceScanner) isKeyword(value string) bool {
+	if !scanner.profile.CaseInsensitive {
+		_, ok := scanner.keywords[value]
+		return ok
 	}
-	return value
+	hash := caseInsensitiveKeywordHash(value)
+	keyword, ok := scanner.caseInsensitiveKeywords[hash]
+	if !ok {
+		return false
+	}
+	if caseInsensitiveKeywordEqual(value, keyword) {
+		return true
+	}
+	for _, collision := range scanner.caseInsensitiveKeywordCollisions[hash] {
+		if caseInsensitiveKeywordEqual(value, collision) {
+			return true
+		}
+	}
+	return false
+}
+
+func caseInsensitiveKeywordHash(value string) uint64 {
+	const (
+		offset uint64 = 14695981039346656037
+		prime  uint64 = 1099511628211
+	)
+	hash := offset
+	for _, valueRune := range value {
+		hash ^= uint64(unicode.ToLower(valueRune))
+		hash *= prime
+	}
+	return hash
+}
+
+func caseInsensitiveKeywordEqual(left, right string) bool {
+	for len(left) > 0 && len(right) > 0 {
+		leftRune, leftSize := utf8.DecodeRuneInString(left)
+		rightRune, rightSize := utf8.DecodeRuneInString(right)
+		if unicode.ToLower(leftRune) != unicode.ToLower(rightRune) {
+			return false
+		}
+		left = left[leftSize:]
+		right = right[rightSize:]
+	}
+	return len(left) == 0 && len(right) == 0
 }
 
 func (scanner *sourceScanner) checkContext() error {

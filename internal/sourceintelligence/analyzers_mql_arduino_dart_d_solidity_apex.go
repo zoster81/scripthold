@@ -107,7 +107,7 @@ func analyzeMQL(ctx context.Context, document *SourceDocument, options AnalyzeOp
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	relabelPhase7AdapterDiagnostics(&analysis, language)
+	relabelBraceAdapterDiagnostics(&analysis, language)
 	dependencies := append([]StructuralDependency(nil), source.Dependencies...)
 	imports := collectMQLDirectives(document, scan.Tokens)
 	dependencies = appendUniqueDependencies(dependencies, imports)
@@ -170,21 +170,21 @@ func projectMQLDialectConditionals(text string, tokens []Token, language string)
 	}
 	projected := []byte(text)
 	for _, frame := range completed {
-		phase8MaskRange(projected, frame.opener.StartOffset, frame.opener.EndOffset)
+		maskRangePreservingLines(projected, frame.opener.StartOffset, frame.opener.EndOffset)
 		if frame.hasElse {
-			phase8MaskRange(projected, frame.elseToken.StartOffset, frame.elseToken.EndOffset)
+			maskRangePreservingLines(projected, frame.elseToken.StartOffset, frame.elseToken.EndOffset)
 		}
-		phase8MaskRange(projected, frame.endifToken.StartOffset, frame.endifToken.EndOffset)
+		maskRangePreservingLines(projected, frame.endifToken.StartOffset, frame.endifToken.EndOffset)
 		if frame.activeFirst {
 			if frame.hasElse {
-				phase8MaskRange(projected, frame.elseToken.EndOffset, frame.endifToken.StartOffset)
+				maskRangePreservingLines(projected, frame.elseToken.EndOffset, frame.endifToken.StartOffset)
 			}
 		} else {
 			inactiveEnd := frame.endifToken.StartOffset
 			if frame.hasElse {
 				inactiveEnd = frame.elseToken.StartOffset
 			}
-			phase8MaskRange(projected, frame.opener.EndOffset, inactiveEnd)
+			maskRangePreservingLines(projected, frame.opener.EndOffset, inactiveEnd)
 		}
 	}
 	return string(projected), true
@@ -227,12 +227,12 @@ func projectMQLForCPP(text string, tokens []Token, language string, interfaceNam
 	for index := 0; index < len(tokens); index++ {
 		token := tokens[index]
 		if language == "mql5" && index+2 < len(tokens) && token.Nesting == 0 && strings.EqualFold(token.Text, "input") {
-			lineEnd, _ := phase8LineBounds(text, token.StartOffset)
+			lineEnd, _ := physicalLineBounds(text, token.StartOffset)
 			group := tokens[index+1]
 			label := tokens[index+2]
 			if group.StartOffset < lineEnd && label.StartOffset < lineEnd && strings.EqualFold(group.Text, "group") && label.Kind == TokenString {
 				ensureProjection()
-				phase8MaskRange(projected, token.StartOffset, lineEnd)
+				maskRangePreservingLines(projected, token.StartOffset, lineEnd)
 				index += 2
 				continue
 			}
@@ -295,7 +295,7 @@ func collectMQLDirectives(document *SourceDocument, tokens []Token) []Structural
 			continue
 		}
 		rest := strings.TrimSpace(trimmed[len("#import"):])
-		value := phase7QuotedOrAngleValue(rest)
+		value := quotedOrAngleValue(rest)
 		if value == "" {
 			continue
 		}
@@ -321,7 +321,7 @@ func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDe
 	return result
 }
 
-func phase7QuotedOrAngleValue(value string) string {
+func quotedOrAngleValue(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) < 2 {
 		return ""
@@ -358,11 +358,11 @@ func (ArduinoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	relabelPhase7AdapterDiagnostics(&analysis, "arduino")
+	relabelBraceAdapterDiagnostics(&analysis, "arduino")
 	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
 }
 
-func relabelPhase7AdapterDiagnostics(target *AnalysisResult, language string) {
+func relabelBraceAdapterDiagnostics(target *AnalysisResult, language string) {
 	for index := range target.Diagnostics {
 		diagnostic := &target.Diagnostics[index]
 		if strings.HasPrefix(diagnostic.Code, "cpp-") {
@@ -388,7 +388,7 @@ func (SolidityAnalyzer) Language() string { return "solidity" }
 func (ApexAnalyzer) ID() AnalyzerID       { return AnalyzerApex }
 func (ApexAnalyzer) Language() string     { return "apex" }
 
-type phase7BracePolicy struct {
+type braceLanguagePolicy struct {
 	language             string
 	analyzer             AnalyzerID
 	profile              ScannerProfile
@@ -405,7 +405,7 @@ type phase7BracePolicy struct {
 }
 
 func (DartAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase7Brace(ctx, document, options, phase7BracePolicy{
+	return analyzeBraceLanguage(ctx, document, options, braceLanguagePolicy{
 		language: "dart", analyzer: AnalyzerDart, profile: DartScannerProfile(),
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "enum": SymbolKindEnum, "mixin": SymbolKindTrait, "extension": SymbolKindType},
 		typeNative: map[string]string{"class": "class", "enum": "enum", "mixin": "mixin", "extension": "extension"},
@@ -413,7 +413,7 @@ func (DartAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	})
 }
 func (DAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase7Brace(ctx, document, options, phase7BracePolicy{
+	return analyzeBraceLanguage(ctx, document, options, braceLanguagePolicy{
 		language: "d", analyzer: AnalyzerD, profile: DScannerProfile(),
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "struct": SymbolKindStruct, "interface": SymbolKindInterface, "enum": SymbolKindEnum, "union": SymbolKindType},
 		typeNative: map[string]string{"class": "class", "struct": "struct", "interface": "interface", "enum": "enum", "union": "union"},
@@ -426,7 +426,7 @@ func maskDQStringLiterals(text string) (string, bool) {
 	masked := []byte(text)
 	for at := 0; at < len(text); {
 		if strings.HasPrefix(text[at:], "//") {
-			at = phase7DLineEnd(text, at+2)
+			at = dLineEnd(text, at+2)
 			continue
 		}
 		if strings.HasPrefix(text[at:], "/*") {
@@ -437,57 +437,57 @@ func maskDQStringLiterals(text string) (string, bool) {
 			break
 		}
 		if strings.HasPrefix(text[at:], "/+") {
-			if end, ok := phase7DNestedCommentEnd(text, at); ok {
+			if end, ok := dNestedCommentEnd(text, at); ok {
 				at = end
 				continue
 			}
 			break
 		}
 		if text[at] == '"' || text[at] == '\'' || text[at] == '`' {
-			at = phase7DOrdinaryStringEnd(text, at)
+			at = dOrdinaryStringEnd(text, at)
 			continue
 		}
-		if text[at] != 'q' || at > 0 && phase7DIdentifierByte(text[at-1]) || at+1 >= len(text) {
+		if text[at] != 'q' || at > 0 && dIdentifierByte(text[at-1]) || at+1 >= len(text) {
 			at++
 			continue
 		}
 		end, ok := 0, false
 		switch text[at+1] {
 		case '{':
-			end, ok = phase7DBalancedQStringEnd(text, at+1, '{', '}', false)
+			end, ok = dBalancedQStringEnd(text, at+1, '{', '}', false)
 		case '"':
-			end, ok = phase7DQuotedQStringEnd(text, at)
+			end, ok = dQuotedQStringEnd(text, at)
 		}
 		if end == 0 {
 			at++
 			continue
 		}
 		if !ok {
-			phase8MaskRange(masked, at, len(text))
+			maskRangePreservingLines(masked, at, len(text))
 			return string(masked), false
 		}
-		phase8MaskRange(masked, at, end)
+		maskRangePreservingLines(masked, at, end)
 		at = end
 	}
 	return string(masked), true
 }
 
-func phase7DQuotedQStringEnd(text string, at int) (int, bool) {
+func dQuotedQStringEnd(text string, at int) (int, bool) {
 	content := at + 2
 	if content >= len(text) {
 		return len(text), false
 	}
 	switch text[content] {
 	case '{':
-		return phase7DBalancedQStringEnd(text, content, '{', '}', true)
+		return dBalancedQStringEnd(text, content, '{', '}', true)
 	case '[':
-		return phase7DBalancedQStringEnd(text, content, '[', ']', true)
+		return dBalancedQStringEnd(text, content, '[', ']', true)
 	case '(':
-		return phase7DBalancedQStringEnd(text, content, '(', ')', true)
+		return dBalancedQStringEnd(text, content, '(', ')', true)
 	case '<':
-		return phase7DBalancedQStringEnd(text, content, '<', '>', true)
+		return dBalancedQStringEnd(text, content, '<', '>', true)
 	}
-	if !phase7DIdentifierStart(text[content]) {
+	if !dIdentifierStart(text[content]) {
 		for cursor := content + 1; cursor+1 < len(text); cursor++ {
 			if text[cursor] == text[content] && text[cursor+1] == '"' {
 				return cursor + 2, true
@@ -496,16 +496,16 @@ func phase7DQuotedQStringEnd(text string, at int) (int, bool) {
 		return len(text), false
 	}
 	cursor := content + 1
-	for cursor < len(text) && phase7DIdentifierByte(text[cursor]) {
+	for cursor < len(text) && dIdentifierByte(text[cursor]) {
 		cursor++
 	}
 	delimiter := text[content:cursor]
 	for cursor < len(text) {
 		lineStart := cursor
 		if text[lineStart] == '\r' || text[lineStart] == '\n' {
-			lineStart = phase7DNextLine(text, lineStart)
+			lineStart = dNextLine(text, lineStart)
 		}
-		lineEnd := phase7DLineEnd(text, lineStart)
+		lineEnd := dLineEnd(text, lineStart)
 		line := text[lineStart:lineEnd]
 		terminator := delimiter + "\""
 		if strings.HasPrefix(line, terminator) {
@@ -514,12 +514,12 @@ func phase7DQuotedQStringEnd(text string, at int) (int, bool) {
 		if lineEnd >= len(text) {
 			break
 		}
-		cursor = phase7DNextLine(text, lineEnd)
+		cursor = dNextLine(text, lineEnd)
 	}
 	return len(text), false
 }
 
-func phase7DBalancedQStringEnd(text string, open int, left, right byte, quoted bool) (int, bool) {
+func dBalancedQStringEnd(text string, open int, left, right byte, quoted bool) (int, bool) {
 	depth := 1
 	for cursor := open + 1; cursor < len(text); cursor++ {
 		switch text[cursor] {
@@ -542,7 +542,7 @@ func phase7DBalancedQStringEnd(text string, open int, left, right byte, quoted b
 	return len(text), false
 }
 
-func phase7DNestedCommentEnd(text string, at int) (int, bool) {
+func dNestedCommentEnd(text string, at int) (int, bool) {
 	depth := 1
 	for cursor := at + 2; cursor < len(text); cursor++ {
 		if strings.HasPrefix(text[cursor:], "/+") {
@@ -561,7 +561,7 @@ func phase7DNestedCommentEnd(text string, at int) (int, bool) {
 	return len(text), false
 }
 
-func phase7DOrdinaryStringEnd(text string, at int) int {
+func dOrdinaryStringEnd(text string, at int) int {
 	delimiter := text[at]
 	for cursor := at + 1; cursor < len(text); cursor++ {
 		if delimiter != '`' && text[cursor] == '\\' && cursor+1 < len(text) {
@@ -578,14 +578,14 @@ func phase7DOrdinaryStringEnd(text string, at int) int {
 	return len(text)
 }
 
-func phase7DLineEnd(text string, at int) int {
+func dLineEnd(text string, at int) int {
 	for at < len(text) && text[at] != '\r' && text[at] != '\n' {
 		at++
 	}
 	return at
 }
 
-func phase7DNextLine(text string, at int) int {
+func dNextLine(text string, at int) int {
 	if at < len(text) && text[at] == '\r' {
 		at++
 		if at < len(text) && text[at] == '\n' {
@@ -599,15 +599,15 @@ func phase7DNextLine(text string, at int) int {
 	return at
 }
 
-func phase7DIdentifierStart(value byte) bool {
+func dIdentifierStart(value byte) bool {
 	return value == '_' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase7DIdentifierByte(value byte) bool {
-	return phase7DIdentifierStart(value) || value >= '0' && value <= '9'
+func dIdentifierByte(value byte) bool {
+	return dIdentifierStart(value) || value >= '0' && value <= '9'
 }
 func (SolidityAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase7Brace(ctx, document, options, phase7BracePolicy{
+	return analyzeBraceLanguage(ctx, document, options, braceLanguagePolicy{
 		language: "solidity", analyzer: AnalyzerSolidity, profile: SolidityScannerProfile(),
 		typeKinds:  map[string]SymbolKind{"contract": SymbolKindClass, "interface": SymbolKindInterface, "library": SymbolKindModule, "struct": SymbolKindStruct, "enum": SymbolKindEnum},
 		typeNative: map[string]string{"contract": "contract", "interface": "interface", "library": "library", "struct": "struct", "enum": "enum"},
@@ -615,7 +615,7 @@ func (SolidityAnalyzer) Analyze(ctx context.Context, document *SourceDocument, o
 	})
 }
 func (ApexAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase7Brace(ctx, document, options, phase7BracePolicy{
+	return analyzeBraceLanguage(ctx, document, options, braceLanguagePolicy{
 		language: "apex", analyzer: AnalyzerApex, profile: ApexScannerProfile(), caseInsensitive: true,
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "interface": SymbolKindInterface, "enum": SymbolKindEnum},
 		typeNative: map[string]string{"class": "class", "interface": "interface", "enum": "enum"},
@@ -631,7 +631,7 @@ func setOf(values ...string) map[string]struct{} {
 	return result
 }
 
-func analyzePhase7Brace(ctx context.Context, document *SourceDocument, options AnalyzeOptions, policy phase7BracePolicy) (AnalyzerResult, error) {
+func analyzeBraceLanguage(ctx context.Context, document *SourceDocument, options AnalyzeOptions, policy braceLanguagePolicy) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -639,7 +639,7 @@ func analyzePhase7Brace(ctx context.Context, document *SourceDocument, options A
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_phase7_brace_source", document.Path, err)
+		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_brace_language_source", document.Path, err)
 	}
 	builder := NewSymbolBuilder(document, SymbolBuilderOptions{Context: ctx, Language: policy.language, Analyzer: string(policy.analyzer), IncludeSignatures: options.IncludeSignatures, MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits})
 	if err := builder.checkReady(); err != nil {
@@ -676,42 +676,42 @@ func analyzePhase7Brace(ctx context.Context, document *SourceDocument, options A
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{Code: policy.language + "-unterminated-opaque-region", Message: policy.language + " source contains an unterminated language-specific opaque region", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
-	parser := &phase7BraceParser{ctx: ctx, document: document, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil), builder: builder, policy: policy}
+	parser := &braceLanguageParser{ctx: ctx, document: document, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil), builder: builder, policy: policy}
 	parent := parser.parseModuleAndDependencies()
 	parser.parseScope(0, len(scan.Tokens), parent, false, "")
 	if err := ctx.Err(); err != nil {
-		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_phase7_brace_source", document.Path, err)
+		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_brace_language_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
 }
 
-type phase7BraceParser struct {
+type braceLanguageParser struct {
 	ctx          context.Context
 	document     *SourceDocument
 	tokens       []Token
 	pairs        map[int]int
 	builder      *SymbolBuilder
-	policy       phase7BracePolicy
+	policy       braceLanguagePolicy
 	dependencies []StructuralDependency
 	relations    []StructuralRelation
 	module       *SymbolParent
 	stopped      bool
 }
 
-func (p *phase7BraceParser) eq(value, want string) bool {
+func (p *braceLanguageParser) eq(value, want string) bool {
 	if p.policy.caseInsensitive {
 		return strings.EqualFold(value, want)
 	}
 	return value == want
 }
-func (p *phase7BraceParser) lower(value string) string {
+func (p *braceLanguageParser) lower(value string) string {
 	if p.policy.caseInsensitive {
 		return strings.ToLower(value)
 	}
 	return value
 }
 
-func (p *phase7BraceParser) parseModuleAndDependencies() *SymbolParent {
+func (p *braceLanguageParser) parseModuleAndDependencies() *SymbolParent {
 	for i := 0; i < len(p.tokens); i++ {
 		if p.tokens[i].Nesting != 0 || p.tokens[i].Kind == TokenNewline || p.tokens[i].Kind == TokenEOF {
 			continue
@@ -753,7 +753,7 @@ func (p *phase7BraceParser) parseModuleAndDependencies() *SymbolParent {
 	return p.module
 }
 
-func (p *phase7BraceParser) collectImport(start int) {
+func (p *braceLanguageParser) collectImport(start int) {
 	depth := p.tokens[start].Nesting
 	end := p.findSameDepth(start+1, len(p.tokens), ";", depth)
 	if end < 0 {
@@ -766,7 +766,7 @@ func (p *phase7BraceParser) collectImport(start int) {
 		if p.tokens[i].Kind != TokenString {
 			continue
 		}
-		value := phase7StringValue(p.tokens[i].Text)
+		value := quotedStringValue(p.tokens[i].Text)
 		if value != "" {
 			p.addDependency(StructuralDependencyImport, value, p.tokens[i].StartOffset, p.tokens[i].EndOffset)
 			return
@@ -786,7 +786,7 @@ func (p *phase7BraceParser) collectImport(start int) {
 	}
 }
 
-func phase7StringValue(value string) string {
+func quotedStringValue(value string) string {
 	if len(value) < 2 {
 		return ""
 	}
@@ -797,7 +797,7 @@ func phase7StringValue(value string) string {
 	return value[1 : len(value)-1]
 }
 
-func (p *phase7BraceParser) parseScope(start, end int, parent *SymbolParent, members bool, owner string) {
+func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, members bool, owner string) {
 	for i := start; i < end && !p.stopped; {
 		if p.ctx.Err() != nil {
 			return
@@ -826,7 +826,7 @@ func (p *phase7BraceParser) parseScope(start, end int, parent *SymbolParent, mem
 	}
 }
 
-func (p *phase7BraceParser) typeKeyword(start, end int) (int, bool) {
+func (p *braceLanguageParser) typeKeyword(start, end int) (int, bool) {
 	limit := min(end, start+16)
 	for i := start; i < limit; i++ {
 		text := p.lower(p.tokens[i].Text)
@@ -846,7 +846,7 @@ func (p *phase7BraceParser) typeKeyword(start, end int) (int, bool) {
 	return -1, false
 }
 
-func (p *phase7BraceParser) parseType(start, keyword, end int, parent *SymbolParent, members bool, owner string) int {
+func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolParent, members bool, owner string) int {
 	depth := p.tokens[keyword].Nesting
 	native := p.lower(p.tokens[keyword].Text)
 	if p.policy.language == "d" && (native == "struct" || native == "union") {
@@ -905,7 +905,7 @@ func (p *phase7BraceParser) parseType(start, keyword, end int, parent *SymbolPar
 		body = &value
 	}
 	modifiers := p.collectModifiers(start, keyword)
-	symbol, added := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd}, Body: body, Visibility: phase7Visibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
+	symbol, added := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd}, Body: body, Visibility: braceLanguageVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	if added && open >= 0 {
 		p.collectTypeRelations(symbol.QualifiedName, nameIndex+1, open, depth)
 		if kind != SymbolKindEnum {
@@ -916,7 +916,7 @@ func (p *phase7BraceParser) parseType(start, keyword, end int, parent *SymbolPar
 	return terminator + 1
 }
 
-func (p *phase7BraceParser) collectTypeRelations(source string, start, end, depth int) {
+func (p *braceLanguageParser) collectTypeRelations(source string, start, end, depth int) {
 	colon := -1
 	for i := start; i < end; i++ {
 		if p.tokens[i].Text == ":" && p.tokens[i].Nesting == depth {
@@ -955,7 +955,7 @@ func (p *phase7BraceParser) collectTypeRelations(source string, start, end, dept
 	}
 }
 
-func (p *phase7BraceParser) addRelationParts(kind, source string, start, end, depth int) {
+func (p *braceLanguageParser) addRelationParts(kind, source string, start, end, depth int) {
 	for _, part := range splitCommaTokenRangeAt(p.tokens, start, end, depth) {
 		left, right := part[0], part[1]
 		for left < right {
@@ -980,7 +980,7 @@ func (p *phase7BraceParser) addRelationParts(kind, source string, start, end, de
 	}
 }
 
-func (p *phase7BraceParser) parseExplicit(start, end int, parent *SymbolParent, members bool, owner, native string) int {
+func (p *braceLanguageParser) parseExplicit(start, end int, parent *SymbolParent, members bool, owner, native string) int {
 	depth := p.tokens[start].Nesting
 	kind := SymbolKindFunction
 	nameIndex := -1
@@ -1063,7 +1063,7 @@ func (p *phase7BraceParser) parseExplicit(start, end int, parent *SymbolParent, 
 	return next
 }
 
-func (p *phase7BraceParser) parseCStyle(start, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
+func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
 	depth := p.tokens[start].Nesting
 	terminator := -1
 	for i := start; i < end; i++ {
@@ -1134,7 +1134,7 @@ func (p *phase7BraceParser) parseCStyle(start, end int, parent *SymbolParent, me
 				if nameIndex >= 0 {
 					nameRange = OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}
 				}
-				p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: nameRange, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Visibility: phase7Visibility(p.collectModifiers(start, paren)), Modifiers: p.collectModifiers(start, paren), Evidence: SymbolEvidenceStructural, Disambiguator: p.parameterDisambiguator(paren)})
+				p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: nameRange, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Visibility: braceLanguageVisibility(p.collectModifiers(start, paren)), Modifiers: p.collectModifiers(start, paren), Evidence: SymbolEvidenceStructural, Disambiguator: p.parameterDisambiguator(paren)})
 				return next, true
 			}
 		}
@@ -1148,7 +1148,7 @@ func (p *phase7BraceParser) parseCStyle(start, end int, parent *SymbolParent, me
 	return p.parseVariable(start, terminator, parent, members)
 }
 
-func (p *phase7BraceParser) parseVariable(start, semicolon int, parent *SymbolParent, members bool) (int, bool) {
+func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *SymbolParent, members bool) (int, bool) {
 	if start >= semicolon {
 		return semicolon + 1, false
 	}
@@ -1187,11 +1187,11 @@ func (p *phase7BraceParser) parseVariable(start, semicolon int, parent *SymbolPa
 		}
 	}
 	modifiers := p.collectModifiers(start, nameIndex)
-	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semicolon].EndOffset}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Visibility: phase7Visibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
+	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semicolon].EndOffset}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Visibility: braceLanguageVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	return semicolon + 1, true
 }
 
-func (p *phase7BraceParser) collectModifiers(start, end int) []string {
+func (p *braceLanguageParser) collectModifiers(start, end int) []string {
 	var result []string
 	for i := start; i < end; i++ {
 		text := p.lower(p.tokens[i].Text)
@@ -1202,7 +1202,7 @@ func (p *phase7BraceParser) collectModifiers(start, end int) []string {
 	return result
 }
 
-func phase7Visibility(modifiers []string) Visibility {
+func braceLanguageVisibility(modifiers []string) Visibility {
 	for _, modifier := range modifiers {
 		switch strings.ToLower(modifier) {
 		case "public", "global":
@@ -1218,7 +1218,7 @@ func phase7Visibility(modifiers []string) Visibility {
 	return ""
 }
 
-func (p *phase7BraceParser) functionTerminator(start, end, depth int) (terminator, bodyOpen int) {
+func (p *braceLanguageParser) functionTerminator(start, end, depth int) (terminator, bodyOpen int) {
 	for i := start; i < end; i++ {
 		if p.tokens[i].Text == ";" && p.tokens[i].Nesting == depth {
 			return i, -1
@@ -1230,7 +1230,7 @@ func (p *phase7BraceParser) functionTerminator(start, end, depth int) (terminato
 	return -1, -1
 }
 
-func (p *phase7BraceParser) parameterDisambiguator(paren int) string {
+func (p *braceLanguageParser) parameterDisambiguator(paren int) string {
 	if paren < 0 {
 		return ""
 	}
@@ -1240,7 +1240,7 @@ func (p *phase7BraceParser) parameterDisambiguator(paren int) string {
 	return ""
 }
 
-func (p *phase7BraceParser) findSameDepth(start, end int, text string, depth int) int {
+func (p *braceLanguageParser) findSameDepth(start, end int, text string, depth int) int {
 	for i := start; i < end; i++ {
 		if p.tokens[i].Text == text && p.tokens[i].Nesting == depth {
 			return i
@@ -1248,7 +1248,7 @@ func (p *phase7BraceParser) findSameDepth(start, end int, text string, depth int
 	}
 	return -1
 }
-func (p *phase7BraceParser) lineEnd(start int) int {
+func (p *braceLanguageParser) lineEnd(start int) int {
 	for i := start; i < len(p.tokens); i++ {
 		if p.tokens[i].Kind == TokenNewline || p.tokens[i].Kind == TokenEOF {
 			return i
@@ -1256,13 +1256,13 @@ func (p *phase7BraceParser) lineEnd(start int) int {
 	}
 	return len(p.tokens)
 }
-func (p *phase7BraceParser) addDependency(kind StructuralDependencyKind, value string, start, end int) {
+func (p *braceLanguageParser) addDependency(kind StructuralDependencyKind, value string, start, end int) {
 	rangeValue, err := p.document.RangeFromUTF8Offsets(start, end)
 	if err == nil {
 		p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}})
 	}
 }
-func (p *phase7BraceParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
+func (p *braceLanguageParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	symbol, err := p.builder.Add(spec)
 	if operation.KindOf(err) == operation.KindLimit {
 		p.stopped = true

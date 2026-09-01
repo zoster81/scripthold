@@ -7,14 +7,14 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-type phase10Line struct {
+type sourceTextLine struct {
 	text       string
 	trimmed    string
 	start, end int
 	indent     int
 }
 
-func newPhase10Builder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
+func newDocumentDataHardwareBuilder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -31,8 +31,8 @@ func newPhase10Builder(ctx context.Context, document *SourceDocument, options An
 	return builder, nil
 }
 
-func phase10Lines(text string) []phase10Line {
-	lines := make([]phase10Line, 0, strings.Count(text, "\n")+1)
+func sourceTextLines(text string) []sourceTextLine {
+	lines := make([]sourceTextLine, 0, strings.Count(text, "\n")+1)
 	for start := 0; start <= len(text); {
 		end := start
 		for end < len(text) && text[end] != '\r' && text[end] != '\n' {
@@ -44,7 +44,7 @@ func phase10Lines(text string) []phase10Line {
 		for indent < len(raw) && (raw[indent] == ' ' || raw[indent] == '\t') {
 			indent++
 		}
-		lines = append(lines, phase10Line{text: raw, trimmed: trimmed, start: start, end: end, indent: indent})
+		lines = append(lines, sourceTextLine{text: raw, trimmed: trimmed, start: start, end: end, indent: indent})
 		if end >= len(text) {
 			break
 		}
@@ -57,7 +57,7 @@ func phase10Lines(text string) []phase10Line {
 	return lines
 }
 
-func phase10AddSymbol(builder *SymbolBuilder, kind SymbolKind, native, name string, parent *SymbolParent, declaration, nameRange OffsetRange) (NormalizedSymbol, bool) {
+func addDocumentDataHardwareSymbol(builder *SymbolBuilder, kind SymbolKind, native, name string, parent *SymbolParent, declaration, nameRange OffsetRange) (NormalizedSymbol, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" || declaration.End <= declaration.Start || nameRange.End <= nameRange.Start {
 		return NormalizedSymbol{}, false
@@ -73,14 +73,14 @@ func phase10AddSymbol(builder *SymbolBuilder, kind SymbolKind, native, name stri
 	return NormalizedSymbol{}, false
 }
 
-func phase10Parent(symbol NormalizedSymbol) *SymbolParent {
+func parentFromNormalizedSymbol(symbol NormalizedSymbol) *SymbolParent {
 	if symbol.ID == "" {
 		return nil
 	}
 	return &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 }
 
-func phase10AddDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
+func addDocumentDataHardwareDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
 	value = strings.TrimSpace(value)
 	if value == "" || start < 0 || end <= start || end > len(document.Text) {
 		return
@@ -92,7 +92,7 @@ func phase10AddDependency(document *SourceDocument, dependencies *[]StructuralDe
 	*dependencies = appendUniqueDependencies(*dependencies, []StructuralDependency{{Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}})
 }
 
-func phase10Diagnostic(builder *SymbolBuilder, code, message string, start, end int) {
+func addDocumentDataHardwareDiagnostic(builder *SymbolBuilder, code, message string, start, end int) {
 	builder.MarkIncomplete()
 	var value *OffsetRange
 	if end > start && start >= 0 {
@@ -102,7 +102,7 @@ func phase10Diagnostic(builder *SymbolBuilder, code, message string, start, end 
 	_ = builder.AddDiagnostic(DiagnosticSpec{Code: code, Message: message, Severity: DiagnosticWarning, Range: value, AffectsCoverage: true})
 }
 
-func phase10StripLineComment(text string, markers ...string) string {
+func stripLineComment(text string, markers ...string) string {
 	quote := byte(0)
 	for i := 0; i < len(text); i++ {
 		if quote != 0 {
@@ -128,7 +128,7 @@ func phase10StripLineComment(text string, markers ...string) string {
 	return text
 }
 
-func phase10Unquote(value string) string {
+func unquoteSourceValue(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
 		return value[1 : len(value)-1]
@@ -136,7 +136,7 @@ func phase10Unquote(value string) string {
 	return value
 }
 
-func phase10MaskRange(masked []byte, start, end int) {
+func maskByteRangePreservingLines(masked []byte, start, end int) {
 	if start < 0 {
 		start = 0
 	}
@@ -150,10 +150,10 @@ func phase10MaskRange(masked []byte, start, end int) {
 	}
 }
 
-// phase10MaskComments blanks comments while preserving byte offsets and quoted
+// maskSourceComments blanks comments while preserving byte offsets and quoted
 // strings. String contents remain available to language recognizers that need
 // literal labels or dependency paths.
-func phase10MaskComments(text string, lineMarkers []string, blockStart, blockEnd string) string {
+func maskSourceComments(text string, lineMarkers []string, blockStart, blockEnd string) string {
 	masked := []byte(text)
 	for index := 0; index < len(text); {
 		if text[index] == '\'' || text[index] == '"' {
@@ -183,7 +183,7 @@ func phase10MaskComments(text string, lineMarkers []string, blockStart, blockEnd
 				for end < len(text) && text[end] != '\r' && text[end] != '\n' {
 					end++
 				}
-				phase10MaskRange(masked, index, end)
+				maskByteRangePreservingLines(masked, index, end)
 				index = end
 				matched = true
 				break
@@ -195,11 +195,11 @@ func phase10MaskComments(text string, lineMarkers []string, blockStart, blockEnd
 		if blockStart != "" && blockEnd != "" && strings.HasPrefix(text[index:], blockStart) {
 			end := strings.Index(text[index+len(blockStart):], blockEnd)
 			if end < 0 {
-				phase10MaskRange(masked, index, len(text))
+				maskByteRangePreservingLines(masked, index, len(text))
 				break
 			}
 			end += index + len(blockStart) + len(blockEnd)
-			phase10MaskRange(masked, index, end)
+			maskByteRangePreservingLines(masked, index, end)
 			index = end
 			continue
 		}
@@ -208,17 +208,17 @@ func phase10MaskComments(text string, lineMarkers []string, blockStart, blockEnd
 	return string(masked)
 }
 
-func phase10MaskStrings(text string, single, double, tripleDouble bool) string {
+func maskSourceStrings(text string, single, double, tripleDouble bool) string {
 	masked := []byte(text)
 	for index := 0; index < len(text); {
 		if tripleDouble && strings.HasPrefix(text[index:], "\"\"\"") {
 			end := strings.Index(text[index+3:], "\"\"\"")
 			if end < 0 {
-				phase10MaskRange(masked, index, len(text))
+				maskByteRangePreservingLines(masked, index, len(text))
 				break
 			}
 			end += index + 6
-			phase10MaskRange(masked, index, end)
+			maskByteRangePreservingLines(masked, index, end)
 			index = end
 			continue
 		}
@@ -249,12 +249,12 @@ func phase10MaskStrings(text string, single, double, tripleDouble bool) string {
 			}
 			index++
 		}
-		phase10MaskRange(masked, start, index)
+		maskByteRangePreservingLines(masked, start, index)
 	}
 	return string(masked)
 }
 
-func phase10MaskDelimitedRegions(text string, regions [][2]string) string {
+func maskDelimitedSourceRegions(text string, regions [][2]string) string {
 	masked := []byte(text)
 	for index := 0; index < len(text); {
 		matched := false
@@ -264,11 +264,11 @@ func phase10MaskDelimitedRegions(text string, regions [][2]string) string {
 			}
 			end := strings.Index(text[index+len(region[0]):], region[1])
 			if end < 0 {
-				phase10MaskRange(masked, index, len(text))
+				maskByteRangePreservingLines(masked, index, len(text))
 				return string(masked)
 			}
 			end += index + len(region[0]) + len(region[1])
-			phase10MaskRange(masked, index, end)
+			maskByteRangePreservingLines(masked, index, end)
 			index = end
 			matched = true
 			break
@@ -280,9 +280,9 @@ func phase10MaskDelimitedRegions(text string, regions [][2]string) string {
 	return string(masked)
 }
 
-func phase10MaskHeredocs(text string) string {
+func maskSourceHeredocs(text string) string {
 	masked := []byte(text)
-	lines := phase10Lines(text)
+	lines := sourceTextLines(text)
 	for index := 0; index < len(lines); index++ {
 		line := lines[index]
 		marker := strings.Index(line.text, "<<")
@@ -311,7 +311,7 @@ func phase10MaskHeredocs(text string) string {
 		for body := index + 1; body < len(lines); body++ {
 			if strings.TrimSpace(lines[body].text) == terminator {
 				if body > index+1 {
-					phase10MaskRange(masked, lines[index+1].start, lines[body].start)
+					maskByteRangePreservingLines(masked, lines[index+1].start, lines[body].start)
 				}
 				index = body
 				break

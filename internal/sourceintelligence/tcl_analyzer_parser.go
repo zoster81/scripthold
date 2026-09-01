@@ -25,13 +25,13 @@ type tclWord struct {
 }
 
 type tclSourceParser struct {
-	state            *phase8State
+	state            *structuralAnalyzerState
 	text             string
 	maxNesting       int
 	nextContextCheck int
 }
 
-func newTclSourceParser(state *phase8State, maxNesting int) *tclSourceParser {
+func newTclSourceParser(state *structuralAnalyzerState, maxNesting int) *tclSourceParser {
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}

@@ -7,12 +7,12 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-type phase9Scope struct {
+type structuralAnalyzerScope struct {
 	label  string
 	parent SymbolParent
 }
 
-func newPhase9Builder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
+func newStructuralAnalyzerBuilder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -29,7 +29,7 @@ func newPhase9Builder(ctx context.Context, document *SourceDocument, options Ana
 	return builder, nil
 }
 
-func phase9ScanLogicalLines(ctx context.Context, document *SourceDocument, profile ScannerProfile, maxNesting int) (ScanResult, []LogicalLine, error) {
+func scanAnalyzerLogicalLines(ctx context.Context, document *SourceDocument, profile ScannerProfile, maxNesting int) (ScanResult, []LogicalLine, error) {
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
@@ -42,7 +42,7 @@ func phase9ScanLogicalLines(ctx context.Context, document *SourceDocument, profi
 	return scan, BuildLogicalLines(scan.Tokens, LogicalLineProfile{}), nil
 }
 
-func phase9ApplyScanDiagnostics(builder *SymbolBuilder, scan ScanResult, language string) {
+func applyStructuralScanDiagnostics(builder *SymbolBuilder, scan ScanResult, language string) {
 	for _, diagnostic := range scan.Diagnostics {
 		value := OffsetRange{Start: diagnostic.StartOffset, End: diagnostic.EndOffset}
 		_ = builder.AddDiagnostic(DiagnosticSpec{
@@ -55,7 +55,7 @@ func phase9ApplyScanDiagnostics(builder *SymbolBuilder, scan ScanResult, languag
 	}
 }
 
-func phase9AddDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
+func addStructuralDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
 	value = strings.TrimSpace(value)
 	if value == "" || start < 0 || end <= start || end > len(document.Text) {
 		return
@@ -69,7 +69,7 @@ func phase9AddDependency(document *SourceDocument, dependencies *[]StructuralDep
 	}})
 }
 
-func phase9AddSymbol(builder *SymbolBuilder, spec SymbolSpec) (NormalizedSymbol, bool) {
+func addStructuralSymbol(builder *SymbolBuilder, spec SymbolSpec) (NormalizedSymbol, bool) {
 	symbol, err := builder.Add(spec)
 	if err == nil {
 		return symbol, true
@@ -80,7 +80,7 @@ func phase9AddSymbol(builder *SymbolBuilder, spec SymbolSpec) (NormalizedSymbol,
 	return NormalizedSymbol{}, false
 }
 
-func phase9LineEndToken(tokens []Token) int {
+func logicalLineTokenEnd(tokens []Token) int {
 	end := len(tokens)
 	for end > 0 && (tokens[end-1].Kind == TokenEOF || tokens[end-1].Kind == TokenNewline) {
 		end--
@@ -88,7 +88,7 @@ func phase9LineEndToken(tokens []Token) int {
 	return end
 }
 
-func phase9TokenIndexFold(tokens []Token, value string, start int) int {
+func tokenIndexEqualFold(tokens []Token, value string, start int) int {
 	for index := max(start, 0); index < len(tokens); index++ {
 		if strings.EqualFold(tokens[index].Text, value) {
 			return index
@@ -97,7 +97,7 @@ func phase9TokenIndexFold(tokens []Token, value string, start int) int {
 	return -1
 }
 
-func phase9FirstIdentifier(tokens []Token, start int) int {
+func firstIdentifierToken(tokens []Token, start int) int {
 	for index := max(start, 0); index < len(tokens); index++ {
 		if tokens[index].Kind == TokenIdentifier {
 			return index
@@ -106,7 +106,7 @@ func phase9FirstIdentifier(tokens []Token, start int) int {
 	return -1
 }
 
-func phase9ParentFromScopes(scopes []phase9Scope) *SymbolParent {
+func parentFromStructuralScopes(scopes []structuralAnalyzerScope) *SymbolParent {
 	for index := len(scopes) - 1; index >= 0; index-- {
 		if scopes[index].parent.ID != "" {
 			value := scopes[index].parent
@@ -116,7 +116,7 @@ func phase9ParentFromScopes(scopes []phase9Scope) *SymbolParent {
 	return nil
 }
 
-func phase9MarkUnclosedScopes(builder *SymbolBuilder, language string, scopes []phase9Scope) {
+func markUnclosedStructuralScopes(builder *SymbolBuilder, language string, scopes []structuralAnalyzerScope) {
 	if len(scopes) == 0 {
 		return
 	}
@@ -127,7 +127,7 @@ func phase9MarkUnclosedScopes(builder *SymbolBuilder, language string, scopes []
 	})
 }
 
-func phase9QualifiedTail(value string) string {
+func qualifiedNameTail(value string) string {
 	for _, separator := range []string{"::", "."} {
 		if index := strings.LastIndex(value, separator); index >= 0 {
 			return value[index+len(separator):]
@@ -136,7 +136,7 @@ func phase9QualifiedTail(value string) string {
 	return value
 }
 
-func phase9PopScope(scopes []phase9Scope, label string, caseInsensitive bool) []phase9Scope {
+func popStructuralScope(scopes []structuralAnalyzerScope, label string, caseInsensitive bool) []structuralAnalyzerScope {
 	if len(scopes) == 0 {
 		return scopes
 	}
@@ -155,7 +155,7 @@ func phase9PopScope(scopes []phase9Scope, label string, caseInsensitive bool) []
 	return scopes
 }
 
-func phase9CleanAtom(value string) string {
+func cleanLispAtom(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.TrimPrefix(value, "'")
 	value = strings.TrimPrefix(value, ":")
@@ -164,7 +164,7 @@ func phase9CleanAtom(value string) string {
 	return value
 }
 
-func phase9TokenName(token Token) (string, OffsetRange) {
+func lispTokenName(token Token) (string, OffsetRange) {
 	name := strings.TrimSpace(token.Text)
 	start := token.StartOffset
 	for len(name) > 0 && (name[0] == ':' || name[0] == '\'') {
@@ -177,7 +177,7 @@ func phase9TokenName(token Token) (string, OffsetRange) {
 	return name, OffsetRange{Start: start, End: start + len(name)}
 }
 
-func phase9StringTokenValue(token Token) string {
+func quotedTokenValue(token Token) string {
 	value := strings.TrimSpace(token.Text)
 	if len(value) < 2 {
 		return ""

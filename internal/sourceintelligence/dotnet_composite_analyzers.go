@@ -128,17 +128,17 @@ func (ASPNetWebFormsAnalyzer) Analyze(ctx context.Context, document *SourceDocum
 	result := AnalyzerResult{Analysis: builder.Result(), Dependencies: aspNetDirectiveDependencies(document), Regions: regions}
 	clientOptions := options
 	clientOptions.Limits.MaxSymbols = max(1, remaining)
-	client, err := phase11AnalyzeClientWebRegions(ctx, document, clientOptions, "aspnet-webforms", AnalyzerASPNetWebForms, excludedClientRanges)
+	client, err := analyzeClientWebRegions(ctx, document, clientOptions, "aspnet-webforms", AnalyzerASPNetWebForms, excludedClientRanges)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	result.Analysis = phase11MergeAnalysis(result.Analysis, client.Analysis, options.Limits)
-	phase11AppendDependencies(&result, client.Dependencies, options.Limits)
-	phase11AppendRelations(&result, client.Relations, options.Limits)
+	result.Analysis = mergeCompositeAnalysis(result.Analysis, client.Analysis, options.Limits)
+	appendCompositeDependencies(&result, client.Dependencies, options.Limits)
+	appendCompositeRelations(&result, client.Relations, options.Limits)
 	serverRegions := result.Regions
 	result.Regions = nil
-	phase11AppendRegions(&result, serverRegions, options.Limits)
-	phase11AppendRegions(&result, client.Regions, options.Limits)
+	appendCompositeRegions(&result, serverRegions, options.Limits)
+	appendCompositeRegions(&result, client.Regions, options.Limits)
 	return result, nil
 }
 func aspNetPageLanguage(text string) string {
@@ -289,17 +289,17 @@ func analyzeRazorFamily(ctx context.Context, document *SourceDocument, options A
 	}
 	clientOptions := options
 	clientOptions.Limits.MaxSymbols = max(1, remaining)
-	client, err := phase11AnalyzeClientWebRegions(ctx, document, clientOptions, language, analyzer, excludedClientRanges)
+	client, err := analyzeClientWebRegions(ctx, document, clientOptions, language, analyzer, excludedClientRanges)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	result.Analysis = phase11MergeAnalysis(result.Analysis, client.Analysis, options.Limits)
-	phase11AppendDependencies(&result, client.Dependencies, options.Limits)
-	phase11AppendRelations(&result, client.Relations, options.Limits)
+	result.Analysis = mergeCompositeAnalysis(result.Analysis, client.Analysis, options.Limits)
+	appendCompositeDependencies(&result, client.Dependencies, options.Limits)
+	appendCompositeRelations(&result, client.Relations, options.Limits)
 	serverRegions := result.Regions
 	result.Regions = nil
-	phase11AppendRegions(&result, serverRegions, options.Limits)
-	phase11AppendRegions(&result, client.Regions, options.Limits)
+	appendCompositeRegions(&result, serverRegions, options.Limits)
+	appendCompositeRegions(&result, client.Regions, options.Limits)
 	return result, nil
 }
 func findRazorCodeRanges(ctx context.Context, document *SourceDocument, directives []string) ([]embeddedCodeRange, bool, error) {

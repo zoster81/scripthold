@@ -33,7 +33,7 @@ func maskScalaTripleQuotedStrings(text string) string {
 					runEnd++
 				}
 				if runEnd-cursor >= 3 {
-					phase8MaskRange(masked, at, runEnd)
+					maskRangePreservingLines(masked, at, runEnd)
 					at = runEnd
 					closed = true
 					break
@@ -109,11 +109,11 @@ func maskScalaInterpolatedStrings(text string) (string, []OffsetRange) {
 		}
 		cursor := at
 		for _, expression := range expressions {
-			phase8MaskRange(masked, cursor, expression.Start)
+			maskRangePreservingLines(masked, cursor, expression.Start)
 			interpolationExpressions = append(interpolationExpressions, expression)
 			cursor = expression.End
 		}
-		phase8MaskRange(masked, cursor, end)
+		maskRangePreservingLines(masked, cursor, end)
 		at = end
 	}
 	return string(masked), interpolationExpressions
@@ -320,7 +320,7 @@ func maskScalaSymbolLiterals(text string) string {
 		if end < len(text) && text[end] == '\'' {
 			continue
 		}
-		phase8MaskRange(masked, at, end)
+		maskRangePreservingLines(masked, at, end)
 		at = end - 1
 	}
 	return string(masked)

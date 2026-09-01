@@ -28,7 +28,7 @@ func (BashAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 }
 
 func analyzeShellFamily(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, bash bool) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, language, analyzer)
+	state, err := newStructuralAnalyzerState(ctx, document, options, language, analyzer)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -53,7 +53,7 @@ func shellMaskedSource(ctx context.Context, document *SourceDocument, maxNesting
 	return maskPOSIXShellLexicalHazards(ctx, document, maxNesting)
 }
 
-func collectShellDependencies(state *phase8State, document *SourceDocument, tokens []Token, bash bool) {
+func collectShellDependencies(state *structuralAnalyzerState, document *SourceDocument, tokens []Token, bash bool) {
 	for _, line := range BuildLogicalLines(tokens, LogicalLineProfile{Separators: []string{";"}}) {
 		if len(line.Tokens) < 2 {
 			continue
@@ -62,7 +62,7 @@ func collectShellDependencies(state *phase8State, document *SourceDocument, toke
 		if first != "." && !(bash && first == "source") {
 			continue
 		}
-		if value, start, end, ok := phase8StaticDependencyTarget(document.Text, line.Tokens[1:]); ok {
+		if value, start, end, ok := staticDependencyTarget(document.Text, line.Tokens[1:]); ok {
 			state.addImportDependency(value, start, end)
 		}
 	}
@@ -75,7 +75,7 @@ func shellDelimiterRules(bash bool) []DelimiterRule {
 	return POSIXShellDelimiterRules()
 }
 
-func parseShellFunctions(state *phase8State, tokens []Token, pairs map[int]int, bash bool) {
+func parseShellFunctions(state *structuralAnalyzerState, tokens []Token, pairs map[int]int, bash bool) {
 	for index := 0; index < len(tokens) && !state.stopped; {
 		token := tokens[index]
 		if token.Kind == TokenEOF {
@@ -118,7 +118,7 @@ func parseShellFunctions(state *phase8State, tokens []Token, pairs map[int]int, 
 func shellFunctionCandidate(tokens []Token, index int, bash bool) (start, nameIndex, paren int, ok bool) {
 	token := tokens[index]
 	if bash && strings.EqualFold(token.Text, "function") {
-		nameIndex = phase8NextIdentifier(tokens, index+1, len(tokens))
+		nameIndex = nextIdentifierOrKeywordToken(tokens, index+1, len(tokens))
 		if nameIndex < 0 {
 			return 0, 0, 0, false
 		}
@@ -140,7 +140,7 @@ func shellFunctionCandidate(tokens []Token, index int, bash bool) (start, nameIn
 }
 
 func (TclAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, "tcl", AnalyzerTcl)
+	state, err := newStructuralAnalyzerState(ctx, document, options, "tcl", AnalyzerTcl)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -152,7 +152,7 @@ func (TclAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 }
 
 func (AutoHotkeyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, "autohotkey", AnalyzerAutoHotkey)
+	state, err := newStructuralAnalyzerState(ctx, document, options, "autohotkey", AnalyzerAutoHotkey)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -181,7 +181,7 @@ func (AutoHotkeyAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 			continue
 		}
 		rest := strings.TrimSpace(trimmed[len(prefix):])
-		value := phase7QuotedOrAngleValue(rest)
+		value := quotedOrAngleValue(rest)
 		if value == "" && rest != "" && !strings.ContainsAny(rest, "%`") {
 			value = strings.Fields(rest)[0]
 		}
@@ -189,18 +189,18 @@ func (AutoHotkeyAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 			state.addImportDependency(value, token.StartOffset, token.EndOffset)
 		}
 	}
-	parser := &autoHotkeyPhase8Parser{state: state, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil)}
+	parser := &autoHotkeyParser{state: state, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil)}
 	parser.parseRange(0, len(scan.Tokens), 0, nil)
 	return state.result()
 }
 
-type autoHotkeyPhase8Parser struct {
-	state  *phase8State
+type autoHotkeyParser struct {
+	state  *structuralAnalyzerState
 	tokens []Token
 	pairs  map[int]int
 }
 
-func (p *autoHotkeyPhase8Parser) parseRange(start, end, nesting int, parent *SymbolParent) {
+func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolParent) {
 	for i := start; i < end && !p.state.stopped; {
 		i = nextStructuralToken(p.tokens, i, end)
 		if i >= end || p.tokens[i].Kind == TokenEOF {
@@ -211,7 +211,7 @@ func (p *autoHotkeyPhase8Parser) parseRange(start, end, nesting int, parent *Sym
 			continue
 		}
 		if strings.EqualFold(p.tokens[i].Text, "class") {
-			nameIndex := phase8NextIdentifier(p.tokens, i+1, end)
+			nameIndex := nextIdentifierOrKeywordToken(p.tokens, i+1, end)
 			if nameIndex < 0 {
 				i++
 				continue
@@ -240,7 +240,7 @@ func (p *autoHotkeyPhase8Parser) parseRange(start, end, nesting int, parent *Sym
 			if ok {
 				for j := nameIndex + 1; j < open; j++ {
 					if strings.EqualFold(p.tokens[j].Text, "extends") {
-						target := phase8NextIdentifier(p.tokens, j+1, open)
+						target := nextIdentifierOrKeywordToken(p.tokens, j+1, open)
 						if target >= 0 {
 							p.state.addRelation("extends", symbol.QualifiedName, p.tokens[target].Text, p.tokens[target].StartOffset, p.tokens[target].EndOffset)
 						}

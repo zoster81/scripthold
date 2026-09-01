@@ -19,7 +19,7 @@ func (COBOLAnalyzer) Language() string   { return "cobol" }
 func (AdaAnalyzer) ID() AnalyzerID       { return AnalyzerAda }
 func (AdaAnalyzer) Language() string     { return "ada" }
 
-func phase9FortranLooksFreeForm(text string) bool {
+func fortranLooksFreeForm(text string) bool {
 	const maxCodeLines = 256
 	codeLines := 0
 	for start := 0; start < len(text) && codeLines < maxCodeLines; {
@@ -62,7 +62,7 @@ func (FortranAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	if document == nil || ctx != nil && ctx.Err() != nil {
 		return analyzeFortranSingle(ctx, document, options)
 	}
-	plan := phase9PlanFortranConditionals(document.Text)
+	plan := planFortranConditionals(document.Text)
 	if plan.issue != nil {
 		result, err := analyzeFortranSingle(ctx, document, options)
 		if err != nil {
@@ -109,24 +109,24 @@ func (FortranAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		}
 		variants = append(variants, variant)
 	}
-	return phase9MergeFortranConditionalVariants(options, variants), nil
+	return mergeFortranConditionalVariants(options, variants), nil
 }
 
 func analyzeFortranSingle(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, "fortran", AnalyzerFortran)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "fortran", AnalyzerFortran)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	scanDocument := document
-	if masked := phase9MaskFortranFyppDirectives(document.Text); masked != document.Text {
+	if masked := maskFortranFyppDirectives(document.Text); masked != document.Text {
 		clone := *document
 		clone.Text = masked
 		clone.lineStarts = buildLineStarts(masked)
 		scanDocument = &clone
 	}
-	if strings.EqualFold(filepath.Ext(document.Path), ".f") && !phase9FortranLooksFreeForm(scanDocument.Text) {
+	if strings.EqualFold(filepath.Ext(document.Path), ".f") && !fortranLooksFreeForm(scanDocument.Text) {
 		fixedDocument := scanDocument
-		if masked := phase9MaskFortranFixedVendorDirectiveContinuations(scanDocument.Text); masked != scanDocument.Text {
+		if masked := maskFortranFixedVendorDirectiveContinuations(scanDocument.Text); masked != scanDocument.Text {
 			clone := *scanDocument
 			clone.Text = masked
 			clone.lineStarts = buildLineStarts(masked)
@@ -134,24 +134,24 @@ func analyzeFortranSingle(ctx context.Context, document *SourceDocument, options
 		}
 		return analyzeFortranFixed(ctx, fixedDocument, options, builder)
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, FortranScannerProfile(), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, FortranScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, "fortran")
+	applyStructuralScanDiagnostics(builder, scan, "fortran")
 	dependencies := []StructuralDependency{}
-	var scopes []phase9Scope
+	var scopes []structuralAnalyzerScope
 	for _, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
-		phase9ParseFortranTokens(document, builder, line.Tokens, line.StartOffset, line.EndOffset, &scopes, &dependencies)
+		parseFortranTokens(document, builder, line.Tokens, line.StartOffset, line.EndOffset, &scopes, &dependencies)
 	}
-	phase9MarkUnclosedScopes(builder, "fortran", scopes)
+	markUnclosedStructuralScopes(builder, "fortran", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9MaskFortranFyppDirectives(text string) string {
+func maskFortranFyppDirectives(text string) string {
 	var masked []byte
 	mask := func(start, end int) {
 		if start < 0 || end <= start || start >= len(text) {
@@ -210,7 +210,7 @@ func phase9MaskFortranFyppDirectives(text string) string {
 	return string(masked)
 }
 
-func phase9MaskFortranFixedVendorDirectiveContinuations(text string) string {
+func maskFortranFixedVendorDirectiveContinuations(text string) string {
 	var masked []byte
 	maskLine := func(start, end int) {
 		if masked == nil {
@@ -252,7 +252,7 @@ func phase9MaskFortranFixedVendorDirectiveContinuations(text string) string {
 	return string(masked)
 }
 
-func phase9PlanFortranConditionals(text string) conditionalPlan {
+func planFortranConditionals(text string) conditionalPlan {
 	plan := conditionalPlan{}
 	stack := make([]conditionalFrame, 0, 8)
 	for start := 0; start < len(text); {
@@ -331,7 +331,7 @@ func phase9PlanFortranConditionals(text string) conditionalPlan {
 	return plan
 }
 
-func phase9MergeFortranConditionalVariants(options AnalyzeOptions, variants []AnalyzerResult) AnalyzerResult {
+func mergeFortranConditionalVariants(options AnalyzeOptions, variants []AnalyzerResult) AnalyzerResult {
 	merged := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
 	seenIDs := make(map[string]struct{})
 	seenLogical := make(map[string]struct{})
@@ -389,7 +389,7 @@ func phase9MergeFortranConditionalVariants(options AnalyzeOptions, variants []An
 	return merged
 }
 
-func phase9NormalizeFortranFixedLines(text string, lines []SourceLine) {
+func normalizeFortranFixedLines(text string, lines []SourceLine) {
 	for index := range lines {
 		line := &lines[index]
 		if line.Physical.End <= line.Physical.Start {
@@ -436,14 +436,14 @@ func phase9NormalizeFortranFixedLines(text string, lines []SourceLine) {
 			continue
 		}
 		tail := strings.TrimSpace(text[standardEnd:extendedEnd])
-		if tail == "" || phase9FortranSequenceField(tail) {
+		if tail == "" || fortranSequenceField(tail) {
 			continue
 		}
 		line.Code = trimHorizontalRange(text, OffsetRange{Start: line.Code.Start, End: extendedEnd})
 	}
 }
 
-func phase9FortranSequenceField(value string) bool {
+func fortranSequenceField(value string) bool {
 	if value == "" {
 		return false
 	}
@@ -463,9 +463,9 @@ func analyzeFortranFixed(ctx context.Context, document *SourceDocument, options 
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9NormalizeFortranFixedLines(document.Text, lines)
+	normalizeFortranFixedLines(document.Text, lines)
 	dependencies := []StructuralDependency{}
-	var scopes []phase9Scope
+	var scopes []structuralAnalyzerScope
 	var statementRanges []OffsetRange
 	statementStart := -1
 	statementEnd := -1
@@ -476,9 +476,9 @@ func analyzeFortranFixed(ctx context.Context, document *SourceDocument, options 
 			statementEnd = -1
 			return nil
 		}
-		text := phase9MaskedFixedStatement(document.Text, statementStart, statementEnd, statementRanges)
+		text := maskedFortranFixedStatement(document.Text, statementStart, statementEnd, statementRanges)
 		fake := &SourceDocument{Path: document.Path, Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
-		scan, logical, scanErr := phase9ScanLogicalLines(ctx, fake, FortranScannerProfile(), options.MaxNesting)
+		scan, logical, scanErr := scanAnalyzerLogicalLines(ctx, fake, FortranScannerProfile(), options.MaxNesting)
 		if scanErr != nil {
 			return scanErr
 		}
@@ -491,7 +491,7 @@ func analyzeFortranFixed(ctx context.Context, document *SourceDocument, options 
 				tokens[index].StartOffset += statementStart
 				tokens[index].EndOffset += statementStart
 			}
-			phase9ParseFortranTokens(document, builder, tokens, statementStart, statementEnd, &scopes, &dependencies)
+			parseFortranTokens(document, builder, tokens, statementStart, statementEnd, &scopes, &dependencies)
 		}
 		statementRanges = statementRanges[:0]
 		statementStart = -1
@@ -521,11 +521,11 @@ func analyzeFortranFixed(ctx context.Context, document *SourceDocument, options 
 	if err := flush(); err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9MarkUnclosedScopes(builder, "fortran", scopes)
+	markUnclosedStructuralScopes(builder, "fortran", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9MaskedFixedStatement(text string, start, end int, ranges []OffsetRange) string {
+func maskedFortranFixedStatement(text string, start, end int, ranges []OffsetRange) string {
 	if start < 0 || end < start || end > len(text) {
 		return ""
 	}
@@ -541,7 +541,7 @@ func phase9MaskedFixedStatement(text string, start, end int, ranges []OffsetRang
 		for index := value.Start; index < value.End; index++ {
 			current := text[index]
 			if quote == 0 {
-				if hollerithEnd, ok := phase9FortranFixedHollerithEnd(text, value.Start, index, value.End); ok {
+				if hollerithEnd, ok := fortranFixedHollerithEnd(text, value.Start, index, value.End); ok {
 					index = hollerithEnd - 1
 					continue
 				}
@@ -572,7 +572,7 @@ func phase9MaskedFixedStatement(text string, start, end int, ranges []OffsetRang
 	return string(result)
 }
 
-func phase9FortranFixedHollerithEnd(text string, rangeStart, start, end int) (int, bool) {
+func fortranFixedHollerithEnd(text string, rangeStart, start, end int) (int, bool) {
 	if start < rangeStart || start >= end || end > len(text) || text[start] < '0' || text[start] > '9' {
 		return 0, false
 	}
@@ -609,7 +609,7 @@ func phase9FortranFixedHollerithEnd(text string, rangeStart, start, end int) (in
 	return payloadEnd, true
 }
 
-func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens []Token, start, end int, scopes *[]phase9Scope, dependencies *[]StructuralDependency) {
+func parseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens []Token, start, end int, scopes *[]structuralAnalyzerScope, dependencies *[]StructuralDependency) {
 	if len(tokens) == 0 {
 		return
 	}
@@ -620,12 +620,12 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 			label = strings.ToLower(tokens[1].Text)
 		}
 		if label == "" || label == "module" || label == "program" || label == "submodule" || label == "type" || label == "subroutine" || label == "function" {
-			*scopes = phase9PopScope(*scopes, label, true)
+			*scopes = popStructuralScope(*scopes, label, true)
 		}
 		return
 	}
-	if label, ok := phase9FortranCompactEndLabel(first); ok {
-		*scopes = phase9PopScope(*scopes, label, true)
+	if label, ok := fortranCompactEndLabel(first); ok {
+		*scopes = popStructuralScope(*scopes, label, true)
 		return
 	}
 	if first == "use" {
@@ -640,30 +640,30 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 			}
 		}
 		if name >= 0 {
-			phase9AddDependency(document, dependencies, StructuralDependencyImport, tokens[name].Text, tokens[name].StartOffset, tokens[name].EndOffset)
+			addStructuralDependency(document, dependencies, StructuralDependencyImport, tokens[name].Text, tokens[name].StartOffset, tokens[name].EndOffset)
 		}
 		return
 	}
-	parent := phase9ParentFromScopes(*scopes)
+	parent := parentFromStructuralScopes(*scopes)
 	if first == "module" && len(tokens) > 1 {
 		second := strings.ToLower(tokens[1].Text)
 		if second == "procedure" {
 			return
 		}
 		if second == "subroutine" || second == "function" {
-			phase9ParseFortranProcedure(builder, tokens, start, end, 1, parent, scopes)
+			parseFortranProcedure(builder, tokens, start, end, 1, parent, scopes)
 			return
 		}
 	}
 	switch first {
 	case "module", "submodule", "program":
-		nameIndex := phase9FirstIdentifier(tokens, 1)
+		nameIndex := firstIdentifierToken(tokens, 1)
 		if first == "submodule" {
 			for index := 1; index < len(tokens); index++ {
 				if tokens[index].Text != ")" {
 					continue
 				}
-				nameIndex = phase9FirstIdentifier(tokens, index+1)
+				nameIndex = firstIdentifierToken(tokens, index+1)
 				break
 			}
 		}
@@ -671,10 +671,10 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 			return
 		}
 		kind := SymbolKindModule
-		symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: first, Name: tokens[nameIndex].Text, Parent: parent,
+		symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: first, Name: tokens[nameIndex].Text, Parent: parent,
 			Declaration: OffsetRange{Start: start, End: end}, NameRange: OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: start, End: end}, Evidence: SymbolEvidenceStructural})
 		if ok {
-			*scopes = append(*scopes, phase9Scope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+			*scopes = append(*scopes, structuralAnalyzerScope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
 	case "type":
 		if len(tokens) > 1 && (tokens[1].Text == "(" || tokens[1].Text == "=" || tokens[1].Text == "=>" || strings.EqualFold(tokens[1].Text, "is")) {
@@ -689,17 +689,17 @@ func phase9ParseFortranTokens(document *SourceDocument, builder *SymbolBuilder, 
 		if nameIndex < 0 {
 			return
 		}
-		symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: "derived-type", Name: tokens[nameIndex].Text, Parent: parent,
+		symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: "derived-type", Name: tokens[nameIndex].Text, Parent: parent,
 			Declaration: OffsetRange{Start: start, End: end}, NameRange: OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: start, End: end}, Evidence: SymbolEvidenceStructural})
 		if ok {
-			*scopes = append(*scopes, phase9Scope{label: "type", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+			*scopes = append(*scopes, structuralAnalyzerScope{label: "type", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
 	default:
-		phase9ParseFortranProcedure(builder, tokens, start, end, -1, parent, scopes)
+		parseFortranProcedure(builder, tokens, start, end, -1, parent, scopes)
 	}
 }
 
-func phase9FortranCompactEndLabel(token string) (string, bool) {
+func fortranCompactEndLabel(token string) (string, bool) {
 	switch token {
 	case "endmodule":
 		return "module", true
@@ -718,43 +718,58 @@ func phase9FortranCompactEndLabel(token string) (string, bool) {
 	}
 }
 
-func phase9ParseFortranProcedure(builder *SymbolBuilder, tokens []Token, start, end, keyword int, parent *SymbolParent, scopes *[]phase9Scope) {
+func parseFortranProcedure(builder *SymbolBuilder, tokens []Token, start, end, keyword int, parent *SymbolParent, scopes *[]structuralAnalyzerScope) {
+	native := ""
 	if keyword < 0 {
 		for index := 0; index < len(tokens); index++ {
-			lower := strings.ToLower(tokens[index].Text)
-			if lower == "subroutine" || lower == "function" {
-				if index > 0 && tokens[index-1].Text == "%" {
-					continue
-				}
-				keyword = index
-				break
+			native = fortranProcedureKeyword(tokens[index].Text)
+			if native == "" {
+				continue
 			}
+			if index > 0 && tokens[index-1].Text == "%" {
+				native = ""
+				continue
+			}
+			keyword = index
+			break
 		}
 	}
 	if keyword < 0 || keyword >= len(tokens) {
 		return
 	}
-	native := strings.ToLower(tokens[keyword].Text)
-	if native != "subroutine" && native != "function" {
+	if native == "" {
+		native = fortranProcedureKeyword(tokens[keyword].Text)
+	}
+	if native == "" {
 		return
 	}
-	nameIndex := phase9FirstIdentifier(tokens, keyword+1)
+	nameIndex := firstIdentifierToken(tokens, keyword+1)
 	if nameIndex < 0 {
 		return
 	}
-	symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: tokens[nameIndex].Text, Parent: parent,
+	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: start, End: end}, NameRange: OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: start, End: end}, Evidence: SymbolEvidenceStructural})
 	if ok {
-		*scopes = append(*scopes, phase9Scope{label: native, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+		*scopes = append(*scopes, structuralAnalyzerScope{label: native, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 	}
 }
 
+func fortranProcedureKeyword(value string) string {
+	if caseInsensitiveKeywordEqual(value, "subroutine") {
+		return "subroutine"
+	}
+	if caseInsensitiveKeywordEqual(value, "function") {
+		return "function"
+	}
+	return ""
+}
+
 func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, "cobol", AnalyzerCOBOL)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "cobol", AnalyzerCOBOL)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	fixedFormat := !phase9COBOLLooksFreeForm(document.Text)
+	fixedFormat := !cobolLooksFreeForm(document.Text)
 	lineProfile := LineModelProfile{Kind: LineModelFree}
 	if fixedFormat {
 		lineProfile = LineModelProfile{Kind: LineModelFixed, Fixed: FixedLineProfile{
@@ -790,11 +805,11 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 			previousQuote := continuedQuote
 			var validContinuation bool
-			code, continuedQuote, validContinuation = phase9COBOLStripInlineCommentState(rawCode, continuedQuote, line.Continuation)
+			code, continuedQuote, validContinuation = cobolStripInlineCommentState(rawCode, continuedQuote, line.Continuation)
 			if previousQuote != 0 && !validContinuation {
 				addUnterminatedLiteral(continuedRange)
 				continuedRange = OffsetRange{}
-				code, continuedQuote, _ = phase9COBOLStripInlineCommentState(rawCode, 0, false)
+				code, continuedQuote, _ = cobolStripInlineCommentState(rawCode, 0, false)
 			}
 			if continuedQuote != 0 && continuedRange == (OffsetRange{}) {
 				continuedRange = line.Code
@@ -803,7 +818,7 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 		} else {
 			var complete bool
-			code, complete = phase9COBOLStripInlineComment(rawCode)
+			code, complete = cobolStripInlineComment(rawCode)
 			if !complete {
 				addUnterminatedLiteral(line.Code)
 			}
@@ -814,12 +829,12 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		upper := strings.ToUpper(code)
 		switch {
 		case strings.HasPrefix(upper, "PROGRAM-ID."):
-			name := phase9COBOLWordAfter(code, "PROGRAM-ID.")
+			name := cobolWordAfter(code, "PROGRAM-ID.")
 			if name == "" {
 				continue
 			}
-			nameStart := phase9FindFoldRange(document.Text, line.Code, name)
-			symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "program-id", Name: name,
+			nameStart := findEqualFoldRange(document.Text, line.Code, name)
+			symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "program-id", Name: name,
 				Declaration: line.Code, NameRange: nameStart, Signature: &line.Code, Evidence: SymbolEvidenceStructural})
 			if ok {
 				value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
@@ -830,16 +845,16 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			if name == "" || strings.ContainsAny(name, " \t") {
 				continue
 			}
-			nameRange := phase9FindFoldRange(document.Text, line.Code, name)
-			phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "section", Name: name, Parent: program,
+			nameRange := findEqualFoldRange(document.Text, line.Code, name)
+			addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "section", Name: name, Parent: program,
 				Declaration: line.Code, NameRange: nameRange, Signature: &line.Code, Evidence: SymbolEvidenceStructural})
 		}
 		if index := strings.Index(upper, "COPY "); index >= 0 {
 			rest := strings.TrimSpace(code[index+len("COPY "):])
-			name := phase9COBOLLeadingWord(rest)
+			name := cobolLeadingWord(rest)
 			if name != "" {
 				absolute := line.Code.Start + index + len("COPY ") + strings.Index(code[index+len("COPY "):], name)
-				phase9AddDependency(document, &dependencies, StructuralDependencyInclude, name, absolute, absolute+len(name))
+				addStructuralDependency(document, &dependencies, StructuralDependencyInclude, name, absolute, absolute+len(name))
 			}
 		}
 	}
@@ -849,12 +864,12 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9COBOLStripInlineComment(text string) (string, bool) {
-	code, quote, _ := phase9COBOLStripInlineCommentState(text, 0, false)
+func cobolStripInlineComment(text string) (string, bool) {
+	code, quote, _ := cobolStripInlineCommentState(text, 0, false)
 	return code, quote == 0
 }
 
-func phase9COBOLStripInlineCommentState(text string, quote byte, continuation bool) (string, byte, bool) {
+func cobolStripInlineCommentState(text string, quote byte, continuation bool) (string, byte, bool) {
 	start := 0
 	if quote != 0 {
 		if !continuation {
@@ -891,7 +906,7 @@ func phase9COBOLStripInlineCommentState(text string, quote byte, continuation bo
 	return strings.TrimSpace(text), quote, true
 }
 
-func phase9COBOLLooksFreeForm(text string) bool {
+func cobolLooksFreeForm(text string) bool {
 	for start := 0; start < len(text); {
 		end := start
 		for end < len(text) && text[end] != '\r' && text[end] != '\n' {
@@ -899,7 +914,7 @@ func phase9COBOLLooksFreeForm(text string) bool {
 		}
 		line := text[start:end]
 		trimmed := strings.TrimSpace(line)
-		if trimmed != "" && !strings.HasPrefix(trimmed, "*>") && phase9COBOLFreeFormLineEvidence(line) {
+		if trimmed != "" && !strings.HasPrefix(trimmed, "*>") && cobolFreeFormLineEvidence(line) {
 			return true
 		}
 		if end >= len(text) {
@@ -914,8 +929,8 @@ func phase9COBOLLooksFreeForm(text string) bool {
 	return false
 }
 
-func phase9COBOLFreeFormLineEvidence(line string) bool {
-	if !phase9COBOLFixedPrefixCompatible(line) {
+func cobolFreeFormLineEvidence(line string) bool {
+	if !cobolFixedPrefixCompatible(line) {
 		first := strings.TrimLeft(line, " \t")
 		leading := len(line) - len(first)
 		if leading < 7 {
@@ -930,12 +945,12 @@ func phase9COBOLFreeFormLineEvidence(line string) bool {
 	if codeStart >= codeEnd {
 		return false
 	}
-	_, fullComplete := phase9COBOLStripInlineComment(line)
-	_, fixedComplete := phase9COBOLStripInlineComment(line[codeStart:codeEnd])
+	_, fullComplete := cobolStripInlineComment(line)
+	_, fixedComplete := cobolStripInlineComment(line[codeStart:codeEnd])
 	return fullComplete && !fixedComplete
 }
 
-func phase9COBOLFixedPrefixCompatible(line string) bool {
+func cobolFixedPrefixCompatible(line string) bool {
 	if utf8.RuneCountInString(line) < 7 {
 		return false
 	}
@@ -974,14 +989,14 @@ func cobolFixedComment(line string) bool {
 	return r == '*' || r == '/' || r == 'D' || r == 'd'
 }
 
-func phase9COBOLWordAfter(text, prefix string) string {
+func cobolWordAfter(text, prefix string) string {
 	if len(text) < len(prefix) {
 		return ""
 	}
-	return phase9COBOLLeadingWord(strings.TrimSpace(text[len(prefix):]))
+	return cobolLeadingWord(strings.TrimSpace(text[len(prefix):]))
 }
 
-func phase9COBOLLeadingWord(text string) string {
+func cobolLeadingWord(text string) string {
 	end := 0
 	for end < len(text) {
 		value := text[end]
@@ -996,7 +1011,7 @@ func phase9COBOLLeadingWord(text string) string {
 	return text[:end]
 }
 
-func phase9FindFoldRange(text string, scope OffsetRange, value string) OffsetRange {
+func findEqualFoldRange(text string, scope OffsetRange, value string) OffsetRange {
 	if scope.Start < 0 || scope.End > len(text) || scope.End <= scope.Start || value == "" {
 		return OffsetRange{}
 	}
@@ -1009,21 +1024,21 @@ func phase9FindFoldRange(text string, scope OffsetRange, value string) OffsetRan
 }
 
 func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, "ada", AnalyzerAda)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "ada", AnalyzerAda)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scanDocument, err := phase9MaskAdaCharacterLiterals(ctx, document)
+	scanDocument, err := maskAdaCharacterLiterals(ctx, document)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, AdaScannerProfile(), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, AdaScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, "ada")
+	applyStructuralScanDiagnostics(builder, scan, "ada")
 	dependencies := []StructuralDependency{}
-	var scopes []phase9Scope
+	var scopes []structuralAnalyzerScope
 	for lineIndex := range lines {
 		line := lines[lineIndex]
 		if len(line.Tokens) == 0 {
@@ -1031,7 +1046,7 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
 		if first == "with" {
-			end := phase9LineEndToken(line.Tokens)
+			end := logicalLineTokenEnd(line.Tokens)
 			for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, end, line.Tokens[0].Nesting) {
 				partEnd := part[1]
 				for partEnd > part[0] && line.Tokens[partEnd-1].Text == ";" {
@@ -1042,7 +1057,7 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 				}
 				value := tokenRangeText(line.Tokens, part[0], partEnd)
 				if value != "" {
-					phase9AddDependency(document, &dependencies, StructuralDependencyImport, value, line.Tokens[part[0]].StartOffset, line.Tokens[partEnd-1].EndOffset)
+					addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, line.Tokens[part[0]].StartOffset, line.Tokens[partEnd-1].EndOffset)
 				}
 			}
 			continue
@@ -1050,54 +1065,54 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if first == "end" {
 			if len(scopes) > 0 && len(line.Tokens) > 1 {
 				closing := line.Tokens[1].Text
-				if name, _, _, ok := phase9AdaSelectedName(line.Tokens, 1); ok {
+				if name, _, _, ok := adaSelectedName(line.Tokens, 1); ok {
 					closing = name
 				}
 				current := scopes[len(scopes)-1]
-				if strings.EqualFold(closing, "package") || strings.EqualFold(closing, current.parent.QualifiedName) || strings.EqualFold(closing, phase9QualifiedTail(current.parent.QualifiedName)) {
+				if strings.EqualFold(closing, "package") || strings.EqualFold(closing, current.parent.QualifiedName) || strings.EqualFold(closing, qualifiedNameTail(current.parent.QualifiedName)) {
 					scopes = scopes[:len(scopes)-1]
 				}
 			}
 			continue
 		}
-		parent := phase9ParentFromScopes(scopes)
+		parent := parentFromStructuralScopes(scopes)
 		if first == "package" {
 			nameStart := 1
 			if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "body") {
 				nameStart = 2
 			}
-			name, nameIndex, nameEnd, ok := phase9AdaSelectedName(line.Tokens, nameStart)
+			name, nameIndex, nameEnd, ok := adaSelectedName(line.Tokens, nameStart)
 			if !ok {
 				continue
 			}
-			symbol, added := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: name, Parent: parent,
+			symbol, added := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: name, Parent: parent,
 				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if added && phase9AdaPackageOpensScope(line.Tokens, nameEnd-1, phase9AdaNextTokens(lines, lineIndex+1)) {
-				scopes = append(scopes, phase9Scope{label: "package", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+			if added && adaPackageOpensScope(line.Tokens, nameEnd-1, adaNextTokens(lines, lineIndex+1)) {
+				scopes = append(scopes, structuralAnalyzerScope{label: "package", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 			}
 			continue
 		}
 		if first == "type" || first == "subtype" || first == "task" || first == "protected" {
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 			continue
 		}
 		if first == "procedure" || first == "function" {
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 		}
 	}
-	phase9MarkUnclosedScopes(builder, "ada", scopes)
+	markUnclosedStructuralScopes(builder, "ada", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9MaskAdaCharacterLiterals(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
+func maskAdaCharacterLiterals(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
 	if document == nil || !strings.Contains(document.Text, "'") {
 		return document, nil
 	}
@@ -1142,8 +1157,8 @@ func phase9MaskAdaCharacterLiterals(ctx context.Context, document *SourceDocumen
 	return &clone, nil
 }
 
-func phase9AdaSelectedName(tokens []Token, start int) (string, int, int, bool) {
-	nameStart := phase9FirstIdentifier(tokens, start)
+func adaSelectedName(tokens []Token, start int) (string, int, int, bool) {
+	nameStart := firstIdentifierToken(tokens, start)
 	if nameStart < 0 {
 		return "", 0, 0, false
 	}
@@ -1155,17 +1170,17 @@ func phase9AdaSelectedName(tokens []Token, start int) (string, int, int, bool) {
 	return name, nameStart, nameEnd, name != ""
 }
 
-func phase9AdaNextTokens(lines []LogicalLine, start int) []Token {
+func adaNextTokens(lines []LogicalLine, start int) []Token {
 	for index := max(start, 0); index < len(lines); index++ {
-		if phase9LineEndToken(lines[index].Tokens) > 0 {
+		if logicalLineTokenEnd(lines[index].Tokens) > 0 {
 			return lines[index].Tokens
 		}
 	}
 	return nil
 }
 
-func phase9AdaPackageOpensScope(tokens []Token, nameIndex int, nextTokens []Token) bool {
-	end := phase9LineEndToken(tokens)
+func adaPackageOpensScope(tokens []Token, nameIndex int, nextTokens []Token) bool {
+	end := logicalLineTokenEnd(tokens)
 	hasIs := false
 	for index := nameIndex + 1; index < end; index++ {
 		switch strings.ToLower(tokens[index].Text) {
@@ -1181,7 +1196,7 @@ func phase9AdaPackageOpensScope(tokens []Token, nameIndex int, nextTokens []Toke
 			return true
 		}
 	}
-	nextEnd := phase9LineEndToken(nextTokens)
+	nextEnd := logicalLineTokenEnd(nextTokens)
 	if nextEnd == 0 {
 		return true
 	}

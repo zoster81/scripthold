@@ -36,7 +36,7 @@ func maskFSharpCharacterLiterals(text string) string {
 	for at := 0; at < len(text); {
 		if text[at] == '\'' {
 			if end, ok := fsharpCharacterLiteralEnd(text, at); ok {
-				phase8MaskRange(masked, at, end)
+				maskRangePreservingLines(masked, at, end)
 				at = end
 				continue
 			}
@@ -103,7 +103,7 @@ func fsharpHexByte(value byte) bool {
 }
 
 func (FSharpAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	state, err := newPhase8State(ctx, document, options, "fsharp", AnalyzerFSharp)
+	state, err := newStructuralAnalyzerState(ctx, document, options, "fsharp", AnalyzerFSharp)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}

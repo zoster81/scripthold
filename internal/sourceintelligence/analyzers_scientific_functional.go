@@ -35,29 +35,29 @@ func (OctaveAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 }
 
 func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, octave bool) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, language, analyzer)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, language, analyzer)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scanDocument, unterminatedCharacterVector, err := phase9MaskMATLABCharacterVectors(ctx, document, octave)
+	scanDocument, unterminatedCharacterVector, err := maskMATLABCharacterVectors(ctx, document, octave)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, MATLABScannerProfile(language), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, MATLABScannerProfile(language), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, language)
+	applyStructuralScanDiagnostics(builder, scan, language)
 	if unterminatedCharacterVector != nil {
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unterminated-character-vector", Message: language + " source contains an unterminated single-quoted character vector", Severity: DiagnosticWarning, Range: unterminatedCharacterVector, AffectsCoverage: true})
 	}
 	dependencies := []StructuralDependency{}
-	var scopes []phase9Scope
+	var scopes []structuralAnalyzerScope
 	functionFile := false
 	firstCodeSeen := false
 	explicitFunctionEndSeen := false
-	implicitFunctionBoundaries := phase9MATLABLikeUsesImplicitFunctionBoundaries(lines, octave)
+	implicitFunctionBoundaries := matlabLikeUsesImplicitFunctionBoundaries(lines, octave)
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
@@ -72,18 +72,18 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 				if line.Tokens[index].Kind != TokenIdentifier {
 					continue
 				}
-				phase9AddDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[index].Text, line.Tokens[index].StartOffset, line.Tokens[index].EndOffset)
+				addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[index].Text, line.Tokens[index].StartOffset, line.Tokens[index].EndOffset)
 			}
 			continue
 		}
 		if octave && first == "pkg" && len(line.Tokens) >= 3 && strings.EqualFold(line.Tokens[1].Text, "load") {
-			nameIndex := phase9FirstIdentifier(line.Tokens, 2)
+			nameIndex := firstIdentifierToken(line.Tokens, 2)
 			if nameIndex >= 0 {
-				phase9AddDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
+				addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
 			}
 			continue
 		}
-		if phase9MATLABLikeScopeTerminator(first, octave) {
+		if matlabLikeScopeTerminator(first, octave) {
 			if len(scopes) == 0 {
 				builder.MarkIncomplete()
 				_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unmatched-scope-terminator", Message: language + " source contains an unmatched structural scope terminator", Severity: DiagnosticWarning, AffectsCoverage: true})
@@ -95,11 +95,11 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 			scopes = scopes[:len(scopes)-1]
 			continue
 		}
-		scopeOpeningLine := phase9MATLABLikeScopeOpeningTokens(line.Tokens, octave)
+		scopeOpeningLine := matlabLikeScopeOpeningTokens(line.Tokens, octave)
 		if !scopeOpeningLine {
-			phase9MATLABLikeVisitTrailingScopeTransitions(line.Tokens, octave, func(opening bool, label string) bool {
+			matlabLikeVisitTrailingScopeTransitions(line.Tokens, octave, func(opening bool, label string) bool {
 				if opening {
-					scopes = append(scopes, phase9Scope{label: label})
+					scopes = append(scopes, structuralAnalyzerScope{label: label})
 					return true
 				}
 				if len(scopes) == 0 {
@@ -119,78 +119,78 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 			if (first == "methods" || first == "properties") && !scopeOpeningLine {
 				continue
 			}
-			if !phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
-				scopes = append(scopes, phase9Scope{label: first})
-				for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave) {
-					scopes = append(scopes, phase9Scope{label: label})
+			if !matlabLikeLineClosesOwnScope(line.Tokens, octave) {
+				scopes = append(scopes, structuralAnalyzerScope{label: first})
+				for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, octave) {
+					scopes = append(scopes, structuralAnalyzerScope{label: label})
 				}
 			}
 			continue
 		case "arguments":
-			if !octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, false) {
-				scopes = append(scopes, phase9Scope{label: first})
-				for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, false) {
-					scopes = append(scopes, phase9Scope{label: label})
+			if !octave && !matlabLikeLineClosesOwnScope(line.Tokens, false) {
+				scopes = append(scopes, structuralAnalyzerScope{label: first})
+				for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, false) {
+					scopes = append(scopes, structuralAnalyzerScope{label: label})
 				}
 			}
 			continue
 		case "unwind_protect":
-			if octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, true) {
-				scopes = append(scopes, phase9Scope{label: first})
-				for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, true) {
-					scopes = append(scopes, phase9Scope{label: label})
+			if octave && !matlabLikeLineClosesOwnScope(line.Tokens, true) {
+				scopes = append(scopes, structuralAnalyzerScope{label: first})
+				for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, true) {
+					scopes = append(scopes, structuralAnalyzerScope{label: label})
 				}
 			}
 			continue
 		case "classdef":
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex < 0 {
 				continue
 			}
-			parent := phase9ParentFromScopes(scopes)
-			symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindClass, NativeKind: "classdef", Name: line.Tokens[nameIndex].Text, Parent: parent,
+			parent := parentFromStructuralScopes(scopes)
+			symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindClass, NativeKind: "classdef", Name: line.Tokens[nameIndex].Text, Parent: parent,
 				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			if ok {
-				scopes = append(scopes, phase9Scope{label: "class", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+				scopes = append(scopes, structuralAnalyzerScope{label: "class", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 			}
 			continue
 		case "function":
 			if implicitFunctionBoundaries && len(scopes) == 1 && scopes[0].label == "function" {
 				scopes = scopes[:0]
 			}
-			nameIndex := phase9MATLABFunctionName(line.Tokens)
+			nameIndex := matlabFunctionName(line.Tokens)
 			if nameIndex < 0 {
 				continue
 			}
-			parent := phase9ParentFromScopes(scopes)
+			parent := parentFromStructuralScopes(scopes)
 			kind := SymbolKindFunction
 			if parent != nil {
 				kind = SymbolKindMethod
 			}
-			symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "function", Name: line.Tokens[nameIndex].Text, Parent: parent,
+			symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "function", Name: line.Tokens[nameIndex].Text, Parent: parent,
 				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
+			if matlabLikeLineClosesOwnScope(line.Tokens, octave) {
 				explicitFunctionEndSeen = true
 				continue
 			}
-			functionScope := phase9Scope{label: "function"}
+			functionScope := structuralAnalyzerScope{label: "function"}
 			if ok {
 				functionScope.parent = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 			}
 			scopes = append(scopes, functionScope)
-			for _, label := range phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave) {
-				scopes = append(scopes, phase9Scope{label: label})
+			for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, octave) {
+				scopes = append(scopes, structuralAnalyzerScope{label: label})
 			}
 		}
 	}
 	if functionFile && len(scopes) == 1 && scopes[0].label == "function" && (octave || !explicitFunctionEndSeen) {
 		scopes = scopes[:0]
 	}
-	phase9MarkUnclosedScopes(builder, language, scopes)
+	markUnclosedStructuralScopes(builder, language, scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9MaskMATLABCharacterVectors(ctx context.Context, document *SourceDocument, octave bool) (*SourceDocument, *OffsetRange, error) {
+func maskMATLABCharacterVectors(ctx context.Context, document *SourceDocument, octave bool) (*SourceDocument, *OffsetRange, error) {
 	if document == nil || !strings.Contains(document.Text, "'") {
 		return document, nil, nil
 	}
@@ -205,7 +205,7 @@ func phase9MaskMATLABCharacterVectors(ctx context.Context, document *SourceDocum
 			}
 		}
 		if blockCommentDelimiterMatches(text, at, "%{", true) {
-			at = phase9MATLABBlockCommentEnd(text, at)
+			at = matlabBlockCommentEnd(text, at)
 			continue
 		}
 		if text[at] == '%' || octave && text[at] == '#' {
@@ -215,13 +215,13 @@ func phase9MaskMATLABCharacterVectors(ctx context.Context, document *SourceDocum
 			continue
 		}
 		if text[at] == '"' {
-			end, _ := phase9MATLABQuotedEnd(text, at, '"')
+			end, _ := matlabQuotedEnd(text, at, '"')
 			at = max(end, at+1)
 			continue
 		}
-		if text[at] == '\'' && phase9MATLABCharacterVectorStart(text, at) {
-			end, complete := phase9MATLABQuotedEnd(text, at, '\'')
-			phase8MaskRange(masked, at, end)
+		if text[at] == '\'' && matlabCharacterVectorStart(text, at) {
+			end, complete := matlabQuotedEnd(text, at, '\'')
+			maskRangePreservingLines(masked, at, end)
 			changed = true
 			if !complete && unterminated == nil {
 				value := OffsetRange{Start: at, End: end}
@@ -242,7 +242,7 @@ func phase9MaskMATLABCharacterVectors(ctx context.Context, document *SourceDocum
 	return &clone, unterminated, nil
 }
 
-func phase9MATLABBlockCommentEnd(text string, start int) int {
+func matlabBlockCommentEnd(text string, start int) int {
 	for at := start + len("%{"); at < len(text); {
 		relative := strings.Index(text[at:], "%}")
 		if relative < 0 {
@@ -257,7 +257,7 @@ func phase9MATLABBlockCommentEnd(text string, start int) int {
 	return len(text)
 }
 
-func phase9MATLABCharacterVectorStart(text string, at int) bool {
+func matlabCharacterVectorStart(text string, at int) bool {
 	if at < 0 || at >= len(text) || text[at] != '\'' {
 		return false
 	}
@@ -271,7 +271,7 @@ func phase9MATLABCharacterVectorStart(text string, at int) bool {
 	return strings.ContainsRune("([{,:;=+-*/\\^&|~<>", rune(previous))
 }
 
-func phase9MATLABQuotedEnd(text string, start int, delimiter byte) (int, bool) {
+func matlabQuotedEnd(text string, start int, delimiter byte) (int, bool) {
 	if start < 0 || start >= len(text) || text[start] != delimiter {
 		return start, false
 	}
@@ -292,7 +292,7 @@ func phase9MATLABQuotedEnd(text string, start int, delimiter byte) (int, bool) {
 	return len(text), false
 }
 
-func phase9MATLABLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave bool) bool {
+func matlabLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave bool) bool {
 	var scopes []string
 	boundaries := 0
 	explicitFunctionEnd := false
@@ -301,7 +301,7 @@ func phase9MATLABLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave 
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
-		if phase9MATLABLikeScopeTerminator(first, octave) {
+		if matlabLikeScopeTerminator(first, octave) {
 			if len(scopes) == 0 {
 				return false
 			}
@@ -311,9 +311,9 @@ func phase9MATLABLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave 
 			scopes = scopes[:len(scopes)-1]
 			continue
 		}
-		scopeOpeningLine := phase9MATLABLikeScopeOpeningTokens(line.Tokens, octave)
+		scopeOpeningLine := matlabLikeScopeOpeningTokens(line.Tokens, octave)
 		if !scopeOpeningLine {
-			complete := phase9MATLABLikeVisitTrailingScopeTransitions(line.Tokens, octave, func(opening bool, label string) bool {
+			complete := matlabLikeVisitTrailingScopeTransitions(line.Tokens, octave, func(opening bool, label string) bool {
 				if opening {
 					scopes = append(scopes, label)
 					return true
@@ -336,24 +336,24 @@ func phase9MATLABLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave 
 			if (first == "methods" || first == "properties") && !scopeOpeningLine {
 				continue
 			}
-			if !phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
+			if !matlabLikeLineClosesOwnScope(line.Tokens, octave) {
 				scopes = append(scopes, first)
-				scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave)...)
+				scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, octave)...)
 			}
 		case "arguments":
-			if !octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, false) {
+			if !octave && !matlabLikeLineClosesOwnScope(line.Tokens, false) {
 				scopes = append(scopes, first)
-				scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, false)...)
+				scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, false)...)
 			}
 		case "unwind_protect":
-			if octave && !phase9MATLABLikeLineClosesOwnScope(line.Tokens, true) {
+			if octave && !matlabLikeLineClosesOwnScope(line.Tokens, true) {
 				scopes = append(scopes, first)
-				scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, true)...)
+				scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, true)...)
 			}
 		case "classdef":
 			scopes = append(scopes, "class")
 		case "function":
-			if phase9MATLABLikeLineClosesOwnScope(line.Tokens, octave) {
+			if matlabLikeLineClosesOwnScope(line.Tokens, octave) {
 				explicitFunctionEnd = true
 				continue
 			}
@@ -362,13 +362,13 @@ func phase9MATLABLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave 
 				continue
 			}
 			scopes = append(scopes, "function")
-			scopes = append(scopes, phase9MATLABLikeUnclosedTrailingScopes(line.Tokens, octave)...)
+			scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, octave)...)
 		}
 	}
 	return boundaries > 0 && !explicitFunctionEnd && len(scopes) == 1 && scopes[0] == "function"
 }
 
-func phase9MATLABLikeScopeOpeningLine(keyword string, octave bool) bool {
+func matlabLikeScopeOpeningLine(keyword string, octave bool) bool {
 	switch keyword {
 	case "classdef", "function", "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
 		return true
@@ -381,12 +381,12 @@ func phase9MATLABLikeScopeOpeningLine(keyword string, octave bool) bool {
 	}
 }
 
-func phase9MATLABLikeScopeOpeningTokens(tokens []Token, octave bool) bool {
+func matlabLikeScopeOpeningTokens(tokens []Token, octave bool) bool {
 	if len(tokens) == 0 {
 		return false
 	}
 	keyword := strings.ToLower(tokens[0].Text)
-	if !phase9MATLABLikeScopeOpeningLine(keyword, octave) {
+	if !matlabLikeScopeOpeningLine(keyword, octave) {
 		return false
 	}
 	if keyword != "methods" && keyword != "properties" {
@@ -401,7 +401,7 @@ func phase9MATLABLikeScopeOpeningTokens(tokens []Token, octave bool) bool {
 	return true
 }
 
-func phase9MATLABLikeVisitTrailingScopeTransitions(tokens []Token, octave bool, visit func(opening bool, label string) bool) bool {
+func matlabLikeVisitTrailingScopeTransitions(tokens []Token, octave bool, visit func(opening bool, label string) bool) bool {
 	if len(tokens) < 2 || visit == nil {
 		return true
 	}
@@ -411,20 +411,20 @@ func phase9MATLABLikeVisitTrailingScopeTransitions(tokens []Token, octave bool, 
 			continue
 		}
 		keyword := strings.ToLower(tokens[index].Text)
-		if phase9MATLABLikeInlineScopeOpener(keyword, octave) {
+		if matlabLikeInlineScopeOpener(keyword, octave) {
 			if !visit(true, keyword) {
 				return false
 			}
 			continue
 		}
-		if phase9MATLABLikeScopeTerminator(keyword, octave) && !visit(false, "") {
+		if matlabLikeScopeTerminator(keyword, octave) && !visit(false, "") {
 			return false
 		}
 	}
 	return true
 }
 
-func phase9MATLABLikeUnclosedTrailingScopes(tokens []Token, octave bool) []string {
+func matlabLikeUnclosedTrailingScopes(tokens []Token, octave bool) []string {
 	if len(tokens) < 2 {
 		return nil
 	}
@@ -435,11 +435,11 @@ func phase9MATLABLikeUnclosedTrailingScopes(tokens []Token, octave bool) []strin
 			continue
 		}
 		keyword := strings.ToLower(tokens[index].Text)
-		if phase9MATLABLikeInlineScopeOpener(keyword, octave) {
+		if matlabLikeInlineScopeOpener(keyword, octave) {
 			scopes = append(scopes, keyword)
 			continue
 		}
-		if !phase9MATLABLikeScopeTerminator(keyword, octave) {
+		if !matlabLikeScopeTerminator(keyword, octave) {
 			continue
 		}
 		if len(scopes) == 0 {
@@ -450,7 +450,7 @@ func phase9MATLABLikeUnclosedTrailingScopes(tokens []Token, octave bool) []strin
 	return scopes
 }
 
-func phase9MATLABLikeLineClosesOwnScope(tokens []Token, octave bool) bool {
+func matlabLikeLineClosesOwnScope(tokens []Token, octave bool) bool {
 	if len(tokens) < 2 {
 		return false
 	}
@@ -461,11 +461,11 @@ func phase9MATLABLikeLineClosesOwnScope(tokens []Token, octave bool) bool {
 			continue
 		}
 		keyword := strings.ToLower(tokens[index].Text)
-		if phase9MATLABLikeInlineScopeOpener(keyword, octave) {
+		if matlabLikeInlineScopeOpener(keyword, octave) {
 			depth++
 			continue
 		}
-		if phase9MATLABLikeScopeTerminator(keyword, octave) {
+		if matlabLikeScopeTerminator(keyword, octave) {
 			depth--
 			if depth == 0 {
 				return true
@@ -475,7 +475,7 @@ func phase9MATLABLikeLineClosesOwnScope(tokens []Token, octave bool) bool {
 	return false
 }
 
-func phase9MATLABLikeInlineScopeOpener(keyword string, octave bool) bool {
+func matlabLikeInlineScopeOpener(keyword string, octave bool) bool {
 	switch keyword {
 	case "if", "for", "while", "switch", "try", "parfor", "spmd":
 		return true
@@ -486,7 +486,7 @@ func phase9MATLABLikeInlineScopeOpener(keyword string, octave bool) bool {
 	}
 }
 
-func phase9MATLABLikeScopeTerminator(keyword string, octave bool) bool {
+func matlabLikeScopeTerminator(keyword string, octave bool) bool {
 	switch keyword {
 	case "end", "endfunction", "endclassdef":
 		return true
@@ -502,34 +502,34 @@ func phase9MATLABLikeScopeTerminator(keyword string, octave bool) bool {
 	}
 }
 
-func phase9MATLABFunctionName(tokens []Token) int {
+func matlabFunctionName(tokens []Token) int {
 	if len(tokens) < 2 {
 		return -1
 	}
 	for index := 1; index < len(tokens); index++ {
 		if tokens[index].Text == "=" {
-			return phase9FirstIdentifier(tokens, index+1)
+			return firstIdentifierToken(tokens, index+1)
 		}
 	}
-	return phase9FirstIdentifier(tokens, 1)
+	return firstIdentifierToken(tokens, 1)
 }
 
 func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, "julia", AnalyzerJulia)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "julia", AnalyzerJulia)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scanDocument, err := phase9MaskSingleQuotedCharacterLiterals(ctx, document, juliaCharacterLiteralEnd)
+	scanDocument, err := maskSingleQuotedCharacterLiterals(ctx, document, juliaCharacterLiteralEnd)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, JuliaScannerProfile(), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, JuliaScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, "julia")
+	applyStructuralScanDiagnostics(builder, scan, "julia")
 	dependencies := []StructuralDependency{}
-	var scopes []phase9Scope
+	var scopes []structuralAnalyzerScope
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
@@ -537,9 +537,9 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		first := strings.ToLower(line.Tokens[0].Text)
 		if first == "using" || first == "import" {
 			for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, len(line.Tokens), line.Tokens[0].Nesting) {
-				name := phase9FirstIdentifier(line.Tokens, part[0])
+				name := firstIdentifierToken(line.Tokens, part[0])
 				if name >= part[0] && name < part[1] {
-					phase9AddDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[name].Text, line.Tokens[name].StartOffset, line.Tokens[name].EndOffset)
+					addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[name].Text, line.Tokens[name].StartOffset, line.Tokens[name].EndOffset)
 				}
 			}
 			continue
@@ -550,38 +550,38 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 			continue
 		}
-		parent := phase9ParentFromScopes(scopes)
+		parent := parentFromStructuralScopes(scopes)
 		switch first {
 		case "module", "baremodule":
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
+				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				if ok && !phase9JuliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
-					scopes = append(scopes, phase9Scope{label: "module", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+				if ok && !juliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
+					scopes = append(scopes, structuralAnalyzerScope{label: "module", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 				}
 			}
 		case "struct":
-			phase9AddJuliaType(builder, line, parent, false, &scopes)
+			addJuliaType(builder, line, parent, false, &scopes)
 		case "mutable":
 			if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "struct") {
-				phase9AddJuliaType(builder, line, parent, true, &scopes)
+				addJuliaType(builder, line, parent, true, &scopes)
 			}
 		case "abstract", "primitive":
 			if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "type") {
-				nameIndex := phase9FirstIdentifier(line.Tokens, 2)
+				nameIndex := firstIdentifierToken(line.Tokens, 2)
 				if nameIndex >= 0 {
-					phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: first + "-type", Name: line.Tokens[nameIndex].Text, Parent: parent,
+					addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: first + "-type", Name: line.Tokens[nameIndex].Text, Parent: parent,
 						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 				}
 			}
 		case "function", "macro":
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
+				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				if !phase9JuliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
-					scope := phase9Scope{label: "function"}
+				if !juliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
+					scope := structuralAnalyzerScope{label: "function"}
 					if ok {
 						scope.parent = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 					}
@@ -589,23 +589,23 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 				}
 			}
 		default:
-			if line.Tokens[0].Kind == TokenIdentifier && phase9JuliaCompactFunction(line.Tokens) {
-				phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "compact-function", Name: line.Tokens[0].Text, Parent: parent,
+			if line.Tokens[0].Kind == TokenIdentifier && juliaCompactFunction(line.Tokens) {
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "compact-function", Name: line.Tokens[0].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 				continue
 			}
 			if first == "if" || first == "for" || first == "while" || first == "begin" || first == "let" || first == "try" || first == "quote" {
-				if !phase9JuliaLineClosesOwnScope(line.Tokens, 1) {
-					scopes = append(scopes, phase9Scope{label: first})
+				if !juliaLineClosesOwnScope(line.Tokens, 1) {
+					scopes = append(scopes, structuralAnalyzerScope{label: first})
 				}
 			}
 		}
 	}
-	phase9MarkUnclosedScopes(builder, "julia", scopes)
+	markUnclosedStructuralScopes(builder, "julia", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9JuliaLineClosesOwnScope(tokens []Token, bodyStart int) bool {
+func juliaLineClosesOwnScope(tokens []Token, bodyStart int) bool {
 	if len(tokens) == 0 {
 		return false
 	}
@@ -622,14 +622,14 @@ func phase9JuliaLineClosesOwnScope(tokens []Token, bodyStart int) bool {
 			}
 			continue
 		}
-		if phase9JuliaInlineBlockOpener(tokens, index, base) {
+		if juliaInlineBlockOpener(tokens, index, base) {
 			depth++
 		}
 	}
 	return false
 }
 
-func phase9JuliaInlineBlockOpener(tokens []Token, index, base int) bool {
+func juliaInlineBlockOpener(tokens []Token, index, base int) bool {
 	if index < 0 || index >= len(tokens) || tokens[index].Nesting != base {
 		return false
 	}
@@ -647,7 +647,7 @@ func phase9JuliaInlineBlockOpener(tokens []Token, index, base int) bool {
 	}
 }
 
-func phase9JuliaCompactFunction(tokens []Token) bool {
+func juliaCompactFunction(tokens []Token) bool {
 	if len(tokens) < 4 || tokens[1].Text != "(" {
 		return false
 	}
@@ -656,12 +656,12 @@ func phase9JuliaCompactFunction(tokens []Token) bool {
 	return close > 1 && close+1 < len(tokens) && tokens[close+1].Text == "="
 }
 
-func phase9AddJuliaType(builder *SymbolBuilder, line LogicalLine, parent *SymbolParent, mutable bool, scopes *[]phase9Scope) {
+func addJuliaType(builder *SymbolBuilder, line LogicalLine, parent *SymbolParent, mutable bool, scopes *[]structuralAnalyzerScope) {
 	start := 1
 	if mutable {
 		start = 2
 	}
-	nameIndex := phase9FirstIdentifier(line.Tokens, start)
+	nameIndex := firstIdentifierToken(line.Tokens, start)
 	if nameIndex < 0 {
 		return
 	}
@@ -669,14 +669,14 @@ func phase9AddJuliaType(builder *SymbolBuilder, line LogicalLine, parent *Symbol
 	if mutable {
 		native = "mutable-struct"
 	}
-	symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindStruct, NativeKind: native, Name: line.Tokens[nameIndex].Text, Parent: parent,
+	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindStruct, NativeKind: native, Name: line.Tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-	if ok && !phase9JuliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
-		*scopes = append(*scopes, phase9Scope{label: "struct", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+	if ok && !juliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
+		*scopes = append(*scopes, structuralAnalyzerScope{label: "struct", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 	}
 }
 
-func phase9MaskSingleQuotedCharacterLiterals(ctx context.Context, document *SourceDocument, literalEnd func(string, int) (int, bool)) (*SourceDocument, error) {
+func maskSingleQuotedCharacterLiterals(ctx context.Context, document *SourceDocument, literalEnd func(string, int) (int, bool)) (*SourceDocument, error) {
 	if document == nil || literalEnd == nil || !strings.Contains(document.Text, "'") {
 		return document, nil
 	}
@@ -690,7 +690,7 @@ func phase9MaskSingleQuotedCharacterLiterals(ctx context.Context, document *Sour
 		}
 		if document.Text[at] == '\'' {
 			if end, ok := literalEnd(document.Text, at); ok {
-				phase8MaskRange(masked, at, end)
+				maskRangePreservingLines(masked, at, end)
 				changed = true
 				at = end
 				continue
@@ -728,7 +728,7 @@ func juliaCharacterLiteralEnd(text string, start int) (int, bool) {
 		case 'x':
 			at++
 			startDigits := at
-			for at < len(text) && at-startDigits < 2 && phase9ASCIIHexDigit(text[at]) {
+			for at < len(text) && at-startDigits < 2 && asciiHexDigit(text[at]) {
 				at++
 			}
 			if at == startDigits {
@@ -736,12 +736,12 @@ func juliaCharacterLiteralEnd(text string, start int) (int, bool) {
 			}
 		case 'u':
 			at++
-			if !phase9ConsumeFixedHex(text, &at, 4) {
+			if !consumeFixedHex(text, &at, 4) {
 				return 0, false
 			}
 		case 'U':
 			at++
-			if !phase9ConsumeFixedHex(text, &at, 8) {
+			if !consumeFixedHex(text, &at, 8) {
 				return 0, false
 			}
 		default:
@@ -792,7 +792,7 @@ func haskellCharacterLiteralEnd(text string, start int) (int, bool) {
 		case text[at] == 'x':
 			at++
 			startDigits := at
-			for at < len(text) && phase9ASCIIHexDigit(text[at]) {
+			for at < len(text) && asciiHexDigit(text[at]) {
 				at++
 			}
 			if at == startDigits {
@@ -809,7 +809,7 @@ func haskellCharacterLiteralEnd(text string, start int) (int, bool) {
 			for at < len(text) && (text[at] >= 'A' && text[at] <= 'Z' || text[at] >= '0' && text[at] <= '9') {
 				at++
 			}
-			if !phase9HaskellNamedCharacterEscape(text[nameStart:at]) {
+			if !haskellNamedCharacterEscape(text[nameStart:at]) {
 				return 0, false
 			}
 		default:
@@ -853,7 +853,7 @@ func ocamlCharacterLiteralEnd(text string, start int) (int, bool) {
 			at += 3
 		case text[at] == 'x':
 			at++
-			if !phase9ConsumeFixedHex(text, &at, 2) {
+			if !consumeFixedHex(text, &at, 2) {
 				return 0, false
 			}
 		default:
@@ -866,12 +866,12 @@ func ocamlCharacterLiteralEnd(text string, start int) (int, bool) {
 	return at + 1, true
 }
 
-func phase9ConsumeFixedHex(text string, at *int, count int) bool {
+func consumeFixedHex(text string, at *int, count int) bool {
 	if at == nil || count <= 0 || *at < 0 || *at+count > len(text) {
 		return false
 	}
 	for index := 0; index < count; index++ {
-		if !phase9ASCIIHexDigit(text[*at+index]) {
+		if !asciiHexDigit(text[*at+index]) {
 			return false
 		}
 	}
@@ -879,11 +879,11 @@ func phase9ConsumeFixedHex(text string, at *int, count int) bool {
 	return true
 }
 
-func phase9ASCIIHexDigit(value byte) bool {
+func asciiHexDigit(value byte) bool {
 	return value >= '0' && value <= '9' || value >= 'a' && value <= 'f' || value >= 'A' && value <= 'F'
 }
 
-func phase9HaskellNamedCharacterEscape(value string) bool {
+func haskellNamedCharacterEscape(value string) bool {
 	switch value {
 	case "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS", "HT", "LF", "VT", "FF", "CR", "SO", "SI", "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB", "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS", "US", "SP", "DEL":
 		return true
@@ -893,15 +893,15 @@ func phase9HaskellNamedCharacterEscape(value string) bool {
 }
 
 func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, "r", AnalyzerR)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "r", AnalyzerR)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, document, RScannerProfile(), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, document, RScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, "r")
+	applyStructuralScanDiagnostics(builder, scan, "r")
 	dependencies := []StructuralDependency{}
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
@@ -909,8 +909,8 @@ func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
 		if (first == "library" || first == "require") && len(line.Tokens) >= 3 {
-			if tokenIndex, value, ok := phase9RStaticPackageArgument(line.Tokens); ok {
-				phase9AddDependency(document, &dependencies, StructuralDependencyImport, value, line.Tokens[tokenIndex].StartOffset, line.Tokens[tokenIndex].EndOffset)
+			if tokenIndex, value, ok := rStaticPackageArgument(line.Tokens); ok {
+				addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, line.Tokens[tokenIndex].StartOffset, line.Tokens[tokenIndex].EndOffset)
 			}
 			continue
 		}
@@ -924,16 +924,16 @@ func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 				break
 			}
 		}
-		if assignment < 0 || phase9TokenIndexFold(line.Tokens, "function", assignment+1) < 0 {
+		if assignment < 0 || tokenIndexEqualFold(line.Tokens, "function", assignment+1) < 0 {
 			continue
 		}
-		phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "assigned-function", Name: line.Tokens[0].Text,
+		addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "assigned-function", Name: line.Tokens[0].Text,
 			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9RStaticPackageArgument(tokens []Token) (int, string, bool) {
+func rStaticPackageArgument(tokens []Token) (int, string, bool) {
 	characterOnly := false
 	for index := 1; index+2 < len(tokens); index++ {
 		if strings.EqualFold(tokens[index].Text, "character.only") && tokens[index+1].Text == "=" && strings.EqualFold(tokens[index+2].Text, "TRUE") {
@@ -950,7 +950,7 @@ func phase9RStaticPackageArgument(tokens []Token) (int, string, bool) {
 		}
 		switch tokens[index].Kind {
 		case TokenString:
-			value := phase9StringTokenValue(tokens[index])
+			value := quotedTokenValue(tokens[index])
 			return index, value, value != ""
 		case TokenIdentifier:
 			if characterOnly {
@@ -963,23 +963,23 @@ func phase9RStaticPackageArgument(tokens []Token) (int, string, bool) {
 }
 
 func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, "haskell", AnalyzerHaskell)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "haskell", AnalyzerHaskell)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scanDocument, err := phase9MaskHaskellQuasiQuotes(ctx, document)
+	scanDocument, err := maskHaskellQuasiQuotes(ctx, document)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scanDocument, err = phase9MaskSingleQuotedCharacterLiterals(ctx, scanDocument, haskellCharacterLiteralEnd)
+	scanDocument, err = maskSingleQuotedCharacterLiterals(ctx, scanDocument, haskellCharacterLiteralEnd)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, HaskellScannerProfile(), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, HaskellScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, "haskell")
+	applyStructuralScanDiagnostics(builder, scan, "haskell")
 	dependencies := []StructuralDependency{}
 	var module *SymbolParent
 	seenFunctions := make(map[string]struct{})
@@ -989,9 +989,9 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
 		if first == "module" {
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: line.Tokens[nameIndex].Text,
+				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: line.Tokens[nameIndex].Text,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 				if ok {
 					value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
@@ -1001,35 +1001,35 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			continue
 		}
 		if first == "import" {
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				phase9AddDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
+				addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
 			}
 			continue
 		}
 		if first == "data" || first == "newtype" || first == "type" || first == "class" {
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
 				kind := SymbolKindType
 				if first == "class" {
 					kind = SymbolKindInterface
 				}
-				phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: module,
+				addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: module,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 			continue
 		}
-		if line.Tokens[0].Kind == TokenIdentifier && phase9HasDoubleColon(line.Tokens, 1) {
+		if line.Tokens[0].Kind == TokenIdentifier && hasDoubleColon(line.Tokens, 1) {
 			name := line.Tokens[0].Text
 			if _, exists := seenFunctions[name]; !exists {
-				phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "type-signature", Name: name, Parent: module,
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "type-signature", Name: name, Parent: module,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 				seenFunctions[name] = struct{}{}
 			}
 			continue
 		}
 		if line.Tokens[0].Kind == TokenIdentifier {
-			equals := phase9TokenIndexFold(line.Tokens, "=", 1)
+			equals := tokenIndexEqualFold(line.Tokens, "=", 1)
 			if equals > 0 {
 				name := line.Tokens[0].Text
 				if _, exists := seenFunctions[name]; !exists {
@@ -1039,7 +1039,7 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 						kind = SymbolKindFunction
 						native = "function-binding"
 					}
-					phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: module,
+					addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: module,
 						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 					seenFunctions[name] = struct{}{}
 				}
@@ -1049,7 +1049,7 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
 
-func phase9MaskHaskellQuasiQuotes(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
+func maskHaskellQuasiQuotes(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
 	if document == nil || !strings.Contains(document.Text, "|]") {
 		return document, nil
 	}
@@ -1066,7 +1066,7 @@ func phase9MaskHaskellQuasiQuotes(ctx context.Context, document *SourceDocument)
 			at += max(size, 1)
 			continue
 		}
-		contentStart, ok := phase9HaskellQuasiQuoteContentStart(document.Text, at)
+		contentStart, ok := haskellQuasiQuoteContentStart(document.Text, at)
 		if !ok {
 			at++
 			continue
@@ -1077,7 +1077,7 @@ func phase9MaskHaskellQuasiQuotes(ctx context.Context, document *SourceDocument)
 			continue
 		}
 		end := contentStart + relativeEnd + 2
-		phase8MaskRange(masked, at, end)
+		maskRangePreservingLines(masked, at, end)
 		changed = true
 		at = end
 	}
@@ -1090,16 +1090,16 @@ func phase9MaskHaskellQuasiQuotes(ctx context.Context, document *SourceDocument)
 	return &clone, nil
 }
 
-func phase9HaskellQuasiQuoteContentStart(text string, start int) (int, bool) {
+func haskellQuasiQuoteContentStart(text string, start int) (int, bool) {
 	cursor := start + 1
-	if start < 0 || start >= len(text) || text[start] != '[' || cursor >= len(text) || !phase9HaskellQuoterStart(text[cursor]) {
+	if start < 0 || start >= len(text) || text[start] != '[' || cursor >= len(text) || !haskellQuoterStart(text[cursor]) {
 		return 0, false
 	}
 	for cursor++; cursor < len(text); cursor++ {
 		switch value := text[cursor]; {
 		case value == '|':
 			return cursor + 1, true
-		case phase9HaskellQuoterContinue(value):
+		case haskellQuoterContinue(value):
 			continue
 		default:
 			return 0, false
@@ -1108,15 +1108,15 @@ func phase9HaskellQuasiQuoteContentStart(text string, start int) (int, bool) {
 	return 0, false
 }
 
-func phase9HaskellQuoterStart(value byte) bool {
+func haskellQuoterStart(value byte) bool {
 	return value == '_' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func phase9HaskellQuoterContinue(value byte) bool {
-	return phase9HaskellQuoterStart(value) || value >= '0' && value <= '9' || value == '\'' || value == '.'
+func haskellQuoterContinue(value byte) bool {
+	return haskellQuoterStart(value) || value >= '0' && value <= '9' || value == '\'' || value == '.'
 }
 
-func phase9HasDoubleColon(tokens []Token, start int) bool {
+func hasDoubleColon(tokens []Token, start int) bool {
 	for index := max(start, 0); index+1 < len(tokens); index++ {
 		if tokens[index].Text == ":" && tokens[index+1].Text == ":" {
 			return true
@@ -1126,30 +1126,30 @@ func phase9HasDoubleColon(tokens []Token, start int) bool {
 }
 
 func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newPhase9Builder(ctx, document, options, "ocaml", AnalyzerOCaml)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "ocaml", AnalyzerOCaml)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scanDocument, err := phase9MaskSingleQuotedCharacterLiterals(ctx, document, ocamlCharacterLiteralEnd)
+	scanDocument, err := maskSingleQuotedCharacterLiterals(ctx, document, ocamlCharacterLiteralEnd)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := phase9ScanLogicalLines(ctx, scanDocument, OCamlScannerProfile(), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, OCamlScannerProfile(), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase9ApplyScanDiagnostics(builder, scan, "ocaml")
+	applyStructuralScanDiagnostics(builder, scan, "ocaml")
 	dependencies := []StructuralDependency{}
-	var scopes []phase9Scope
+	var scopes []structuralAnalyzerScope
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
 		if first == "open" || first == "include" {
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				phase9AddDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
+				addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
 			}
 			continue
 		}
@@ -1159,27 +1159,27 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 			continue
 		}
-		parent := phase9ParentFromScopes(scopes)
+		parent := parentFromStructuralScopes(scopes)
 		switch first {
 		case "module":
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				symbol, ok := phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: line.Tokens[nameIndex].Text, Parent: parent,
+				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				if ok && phase9TokenIndexFold(line.Tokens, "struct", nameIndex+1) >= 0 {
-					scopes = append(scopes, phase9Scope{label: "module", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+				if ok && tokenIndexEqualFold(line.Tokens, "struct", nameIndex+1) >= 0 {
+					scopes = append(scopes, structuralAnalyzerScope{label: "module", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 				}
 			}
 		case "type":
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: line.Tokens[nameIndex].Text, Parent: parent,
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 		case "class":
-			nameIndex := phase9FirstIdentifier(line.Tokens, 1)
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				phase9AddSymbol(builder, SymbolSpec{Kind: SymbolKindClass, NativeKind: "class", Name: line.Tokens[nameIndex].Text, Parent: parent,
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindClass, NativeKind: "class", Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 		case "let":
@@ -1187,20 +1187,20 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "rec") {
 				start = 2
 			}
-			nameIndex := phase9FirstIdentifier(line.Tokens, start)
+			nameIndex := firstIdentifierToken(line.Tokens, start)
 			if nameIndex >= 0 {
 				kind := SymbolKindVariable
 				native := "value-binding"
-				equals := phase9TokenIndexFold(line.Tokens, "=", nameIndex+1)
-				if equals > nameIndex+1 && line.Tokens[nameIndex+1].Text != ":" || phase9TokenIndexFold(line.Tokens, "fun", nameIndex+1) >= 0 || phase9TokenIndexFold(line.Tokens, "function", nameIndex+1) >= 0 {
+				equals := tokenIndexEqualFold(line.Tokens, "=", nameIndex+1)
+				if equals > nameIndex+1 && line.Tokens[nameIndex+1].Text != ":" || tokenIndexEqualFold(line.Tokens, "fun", nameIndex+1) >= 0 || tokenIndexEqualFold(line.Tokens, "function", nameIndex+1) >= 0 {
 					kind = SymbolKindFunction
 					native = "function-binding"
 				}
-				phase9AddSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: line.Tokens[nameIndex].Text, Parent: parent,
+				addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 		}
 	}
-	phase9MarkUnclosedScopes(builder, "ocaml", scopes)
+	markUnclosedStructuralScopes(builder, "ocaml", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }

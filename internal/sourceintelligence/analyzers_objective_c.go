@@ -201,7 +201,7 @@ func (p *objectiveCParser) collectDirectives(tokens []Token) {
 			keyword = "#include"
 			kind = StructuralDependencyInclude
 		}
-		value := phase7QuotedOrAngleValue(strings.TrimSpace(trimmed[len(keyword):]))
+		value := quotedOrAngleValue(strings.TrimSpace(trimmed[len(keyword):]))
 		if value == "" {
 			continue
 		}

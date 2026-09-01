@@ -39,21 +39,21 @@ func (BladeAnalyzer) Language() string   { return "blade" }
 func (EJSAnalyzer) ID() AnalyzerID       { return AnalyzerEJS }
 func (EJSAnalyzer) Language() string     { return "ejs" }
 
-type phase11EmbeddedRegion struct {
+type compositeEmbeddedRegion struct {
 	kind     string
 	language string
 	full     OffsetRange
 	content  OffsetRange
 }
 
-type phase11TemplateScope struct {
+type templateScope struct {
 	kind        string
 	name        string
 	parent      SymbolParent
 	declaration OffsetRange
 }
 
-type phase11BladeDeclaration struct {
+type bladeDeclaration struct {
 	kind        SymbolKind
 	nativeKind  string
 	name        string
@@ -62,12 +62,12 @@ type phase11BladeDeclaration struct {
 	volt        bool
 }
 
-type phase11BladeVoltComponent struct {
+type bladeVoltComponent struct {
 	symbol      NormalizedSymbol
 	declaration OffsetRange
 }
 
-type phase11BladeAnonymousClass struct {
+type bladeAnonymousClass struct {
 	classIndex  int
 	openIndex   int
 	closeIndex  int
@@ -75,73 +75,73 @@ type phase11BladeAnonymousClass struct {
 }
 
 var (
-	phase11ScriptTag              = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
-	phase11StyleTag               = regexp.MustCompile(`(?is)<style\b([^>]*)>(.*?)</style\s*>`)
-	phase11ScriptOpen             = regexp.MustCompile(`(?is)<script\b`)
-	phase11StyleOpen              = regexp.MustCompile(`(?is)<style\b`)
-	phase11LangAttr               = regexp.MustCompile(`(?i)\blang\s*=\s*["']([^"']+)["']`)
-	phase11TypeAttr               = regexp.MustCompile(`(?i)\btype\s*=\s*["']([^"']+)["']`)
-	phase11PHPBlock               = regexp.MustCompile(`(?is)<\?(?:php|=)?(.*?)\?>`)
-	phase11PHPOpen                = regexp.MustCompile(`(?is)<\?(?:php\b|=)`)
-	phase11JSPBlock               = regexp.MustCompile(`(?is)<%[!@=]?(.*?)%>`)
-	phase11EJSBlock               = regexp.MustCompile(`(?is)<%[-_=#]?(.*?)[-_]?%>`)
-	phase11PercentOpen            = regexp.MustCompile(`(?is)<%`)
-	phase11BladeSection           = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*\)`)
-	phase11BladeVolt              = regexp.MustCompile(`(?i)@volt\s*\(\s*["']([^"']+)["']\s*\)`)
-	phase11BladeDependency        = regexp.MustCompile(`(?i)@(extends|include)\s*\(\s*["']([^"']+)["']\s*\)`)
-	phase11TemplateScopeDirective = regexp.MustCompile(`(?is)^\{%[-+]?\s*(block|macro|endblock|endmacro)\b(?:\s+([A-Za-z_][A-Za-z0-9_-]*))?`)
-	phase11TemplateDependency     = regexp.MustCompile(`(?i)\{%[-+]?\s*(extends|include|import|from)\s+["']([^"']+)["']`)
-	phase11JSPIncludeDirective    = regexp.MustCompile(`(?is)<%@\s*include\b[^%>]*\bfile\s*=\s*["']([^"']+)["'][^%>]*%>`)
-	phase11SrcAttr                = regexp.MustCompile(`(?i)\bsrc\s*=\s*["']([^"']+)["']`)
+	scriptTagPattern              = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
+	styleTagPattern               = regexp.MustCompile(`(?is)<style\b([^>]*)>(.*?)</style\s*>`)
+	scriptOpenPattern             = regexp.MustCompile(`(?is)<script\b`)
+	styleOpenPattern              = regexp.MustCompile(`(?is)<style\b`)
+	languageAttributePattern      = regexp.MustCompile(`(?i)\blang\s*=\s*["']([^"']+)["']`)
+	typeAttributePattern          = regexp.MustCompile(`(?i)\btype\s*=\s*["']([^"']+)["']`)
+	phpBlockPattern               = regexp.MustCompile(`(?is)<\?(?:php|=)?(.*?)\?>`)
+	phpOpenPattern                = regexp.MustCompile(`(?is)<\?(?:php\b|=)`)
+	jspBlockPattern               = regexp.MustCompile(`(?is)<%[!@=]?(.*?)%>`)
+	ejsBlockPattern               = regexp.MustCompile(`(?is)<%[-_=#]?(.*?)[-_]?%>`)
+	percentOpenPattern            = regexp.MustCompile(`(?is)<%`)
+	bladeSectionPattern           = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*\)`)
+	bladeVoltPattern              = regexp.MustCompile(`(?i)@volt\s*\(\s*["']([^"']+)["']\s*\)`)
+	bladeDependencyPattern        = regexp.MustCompile(`(?i)@(extends|include)\s*\(\s*["']([^"']+)["']\s*\)`)
+	templateScopeDirectivePattern = regexp.MustCompile(`(?is)^\{%[-+]?\s*(block|macro|endblock|endmacro)\b(?:\s+([A-Za-z_][A-Za-z0-9_-]*))?`)
+	templateDependencyPattern     = regexp.MustCompile(`(?i)\{%[-+]?\s*(extends|include|import|from)\s+["']([^"']+)["']`)
+	jspIncludeDirectivePattern    = regexp.MustCompile(`(?is)<%@\s*include\b[^%>]*\bfile\s*=\s*["']([^"']+)["'][^%>]*%>`)
+	sourceAttributePattern        = regexp.MustCompile(`(?i)\bsrc\s*=\s*["']([^"']+)["']`)
 )
 
 func (VueAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase11ScriptStyleHost(ctx, document, options, "vue", AnalyzerVue, false)
+	return analyzeScriptStyleHost(ctx, document, options, "vue", AnalyzerVue, false)
 }
 
 func (SvelteAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase11ScriptStyleHost(ctx, document, options, "svelte", AnalyzerSvelte, false)
+	return analyzeScriptStyleHost(ctx, document, options, "svelte", AnalyzerSvelte, false)
 }
 
 func (AstroAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase11ScriptStyleHost(ctx, document, options, "astro", AnalyzerAstro, true)
+	return analyzeScriptStyleHost(ctx, document, options, "astro", AnalyzerAstro, true)
 }
 
 func (PHPHTMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	if document == nil {
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
-	probe := phase11MaskHostComments(document.Text)
-	regions, complete, err := phase11PHPRegions(ctx, probe)
+	probe := maskHostComments(document.Text)
+	regions, complete, err := phpRegions(ctx, probe)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	result, err := analyzePhase11PHPHTMLHost(ctx, document, options, regions)
+	result, err := analyzePHPHTMLHost(ctx, document, options, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	if !complete {
-		phase11MarkPartial(&result.Analysis, options.Limits, false, "php-html-unterminated-region", "PHP region is not terminated")
+		markCompositePartial(&result.Analysis, options.Limits, false, "php-html-unterminated-region", "PHP region is not terminated")
 	}
 	return result, nil
 }
 
-func phase11PHPRegions(ctx context.Context, probe string) ([]phase11EmbeddedRegion, bool, error) {
+func phpRegions(ctx context.Context, probe string) ([]compositeEmbeddedRegion, bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	regions := make([]phase11EmbeddedRegion, 0, 8)
+	regions := make([]compositeEmbeddedRegion, 0, 8)
 	for search := 0; search < len(probe); {
 		if err := ctx.Err(); err != nil {
 			return nil, false, operation.Wrap(operation.KindCancelled, "segment_php_html_source", "", err)
 		}
-		opening := phase11PHPOpen.FindStringIndex(probe[search:])
+		opening := phpOpenPattern.FindStringIndex(probe[search:])
 		if opening == nil {
 			break
 		}
 		fullStart := search + opening[0]
 		contentStart := search + opening[1]
-		closeStart, found, err := phase11PHPClosingTag(ctx, probe, contentStart)
+		closeStart, found, err := phpClosingTag(ctx, probe, contentStart)
 		if err != nil {
 			return nil, false, err
 		}
@@ -151,7 +151,7 @@ func phase11PHPRegions(ctx context.Context, probe string) ([]phase11EmbeddedRegi
 			fullEnd = closeStart + len("?>")
 			contentEnd = closeStart
 		}
-		regions = append(regions, phase11EmbeddedRegion{
+		regions = append(regions, compositeEmbeddedRegion{
 			kind:     "php",
 			language: "php",
 			full:     OffsetRange{Start: fullStart, End: fullEnd},
@@ -165,10 +165,10 @@ func phase11PHPRegions(ctx context.Context, probe string) ([]phase11EmbeddedRegi
 	return regions, true, nil
 }
 
-func phase11PHPClosingTag(ctx context.Context, text string, start int) (int, bool, error) {
+func phpClosingTag(ctx context.Context, text string, start int) (int, bool, error) {
 	nextContextCheck := start
 	for at := start; at < len(text); {
-		if err := phase11PHPContextCheck(ctx, at, &nextContextCheck); err != nil {
+		if err := checkPHPContext(ctx, at, &nextContextCheck); err != nil {
 			return 0, false, err
 		}
 		if strings.HasPrefix(text[at:], "?>") {
@@ -178,7 +178,7 @@ func phase11PHPClosingTag(ctx context.Context, text string, start int) (int, boo
 			at += 2
 			closed := false
 			for at < len(text) {
-				if err := phase11PHPContextCheck(ctx, at, &nextContextCheck); err != nil {
+				if err := checkPHPContext(ctx, at, &nextContextCheck); err != nil {
 					return 0, false, err
 				}
 				if strings.HasPrefix(text[at:], "*/") {
@@ -195,7 +195,7 @@ func phase11PHPClosingTag(ctx context.Context, text string, start int) (int, boo
 		}
 		if strings.HasPrefix(text[at:], "//") || text[at] == '#' && !strings.HasPrefix(text[at:], "#[") {
 			for at < len(text) && text[at] != '\r' && text[at] != '\n' {
-				if err := phase11PHPContextCheck(ctx, at, &nextContextCheck); err != nil {
+				if err := checkPHPContext(ctx, at, &nextContextCheck); err != nil {
 					return 0, false, err
 				}
 				if strings.HasPrefix(text[at:], "?>") {
@@ -209,7 +209,7 @@ func phase11PHPClosingTag(ctx context.Context, text string, start int) (int, boo
 			quote := text[at]
 			at++
 			for at < len(text) {
-				if err := phase11PHPContextCheck(ctx, at, &nextContextCheck); err != nil {
+				if err := checkPHPContext(ctx, at, &nextContextCheck); err != nil {
 					return 0, false, err
 				}
 				if text[at] == '\\' {
@@ -225,7 +225,7 @@ func phase11PHPClosingTag(ctx context.Context, text string, start int) (int, boo
 			continue
 		}
 		if strings.HasPrefix(text[at:], "<<<") {
-			end, recognized, err := phase11PHPHeredocEnd(ctx, text, at)
+			end, recognized, err := phpHeredocEnd(ctx, text, at)
 			if err != nil {
 				return 0, false, err
 			}
@@ -239,7 +239,7 @@ func phase11PHPClosingTag(ctx context.Context, text string, start int) (int, boo
 	return len(text), false, nil
 }
 
-func phase11PHPContextCheck(ctx context.Context, at int, next *int) error {
+func checkPHPContext(ctx context.Context, at int, next *int) error {
 	if at < *next {
 		return nil
 	}
@@ -250,7 +250,7 @@ func phase11PHPContextCheck(ctx context.Context, at int, next *int) error {
 	return nil
 }
 
-func phase11PHPHeredocEnd(ctx context.Context, text string, open int) (int, bool, error) {
+func phpHeredocEnd(ctx context.Context, text string, open int) (int, bool, error) {
 	cursor := open + len("<<<")
 	for cursor < len(text) && (text[cursor] == ' ' || text[cursor] == '\t') {
 		cursor++
@@ -290,12 +290,12 @@ func phase11PHPHeredocEnd(ctx context.Context, text string, open int) (int, bool
 	}
 	nextContextCheck := cursor
 	for lineStart := cursor; lineStart <= len(text); {
-		if err := phase11PHPContextCheck(ctx, lineStart, &nextContextCheck); err != nil {
+		if err := checkPHPContext(ctx, lineStart, &nextContextCheck); err != nil {
 			return 0, false, err
 		}
 		lineEnd := lineStart
 		for lineEnd < len(text) && text[lineEnd] != '\r' && text[lineEnd] != '\n' {
-			if err := phase11PHPContextCheck(ctx, lineEnd, &nextContextCheck); err != nil {
+			if err := checkPHPContext(ctx, lineEnd, &nextContextCheck); err != nil {
 				return 0, false, err
 			}
 			lineEnd++
@@ -316,7 +316,7 @@ func phase11PHPHeredocEnd(ctx context.Context, text string, open int) (int, bool
 	return len(text), true, nil
 }
 
-func analyzePhase11PHPHTMLHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []phase11EmbeddedRegion) (AnalyzerResult, error) {
+func analyzePHPHTMLHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -327,17 +327,17 @@ func analyzePhase11PHPHTMLHost(ctx context.Context, document *SourceDocument, op
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_php_html_source", document.Path, err)
 	}
 	allRegions := regions
-	retainedRegions, regionsTruncated := phase11CapRegions(regions, options.Limits.MaxSymbols)
-	maskedHost, err := phase11MaskRanges(document.Text, phase11FullRanges(allRegions))
+	retainedRegions, regionsTruncated := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
+	maskedHost, err := maskCompositeRanges(document.Text, embeddedRegionFullRanges(allRegions))
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
-	host, err := phase11AnalyzeMasked(ctx, document, maskedHost, options, "php-html", AnalyzerPHPHTML, "host-html", "html")
+	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskedHost, options, "php-html", AnalyzerPHPHTML, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase11MergeAnalyzerResult(&result, host, options.Limits)
+	mergeCompositeAnalyzerResult(&result, host, options.Limits)
 
 	phpRanges := make([]OffsetRange, 0, len(retainedRegions))
 	for index, region := range retainedRegions {
@@ -356,37 +356,37 @@ func analyzePhase11PHPHTMLHost(ctx context.Context, document *SourceDocument, op
 		if projectionErr != nil {
 			return AnalyzerResult{}, projectionErr
 		}
-		embedded, analyzeErr := phase11AnalyzeMasked(ctx, document, projection, options, "php-html", AnalyzerPHPHTML, "", "php")
+		embedded, analyzeErr := analyzeMaskedEmbeddedRegion(ctx, document, projection, options, "php-html", AnalyzerPHPHTML, "", "php")
 		if analyzeErr != nil {
 			return AnalyzerResult{}, analyzeErr
 		}
-		phase11AssignEmbeddedRegionIDs(embedded.Analysis.Symbols, retainedRegions)
-		phase11MergeAnalyzerResult(&result, embedded, options.Limits)
+		assignEmbeddedRegionIDs(embedded.Analysis.Symbols, retainedRegions)
+		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
 	}
 	if regionsTruncated {
-		phase11MarkPartial(&result.Analysis, options.Limits, true, "php-html-region-limit", "PHP region retention limit reached")
+		markCompositePartial(&result.Analysis, options.Limits, true, "php-html-region-limit", "PHP region retention limit reached")
 	}
 	return result, nil
 }
 
 func (JSPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	probe := phase11MaskHostComments(document.Text)
-	regions := phase11RegexRegions(probe, phase11JSPBlock, "jsp-java", "java")
-	complete := phase11OpeningsCovered(probe, regions, phase11PercentOpen)
-	result, err := analyzePhase11JSPHost(ctx, document, options, regions)
+	probe := maskHostComments(document.Text)
+	regions := regexEmbeddedRegions(probe, jspBlockPattern, "jsp-java", "java")
+	complete := embeddedOpeningsCovered(probe, regions, percentOpenPattern)
+	result, err := analyzeJSPHost(ctx, document, options, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase11AppendDependencies(&result, phase11JSPDependencies(document, probe), options.Limits)
+	appendCompositeDependencies(&result, jspDependencies(document, probe), options.Limits)
 	if !complete {
-		phase11MarkPartial(&result.Analysis, options.Limits, false, "jsp-unterminated-region", "JSP region is not terminated")
+		markCompositePartial(&result.Analysis, options.Limits, false, "jsp-unterminated-region", "JSP region is not terminated")
 	}
 	return result, nil
 }
 
-func analyzePhase11JSPHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []phase11EmbeddedRegion) (AnalyzerResult, error) {
+func analyzeJSPHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion) (AnalyzerResult, error) {
 	allRegions := regions
-	regions, regionsTruncated := phase11CapRegions(regions, options.Limits.MaxSymbols)
+	regions, regionsTruncated := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -397,16 +397,16 @@ func analyzePhase11JSPHost(ctx context.Context, document *SourceDocument, option
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_jsp_source", document.Path, err)
 	}
 
-	maskedHost, err := phase11MaskRanges(document.Text, phase11FullRanges(allRegions))
+	maskedHost, err := maskCompositeRanges(document.Text, embeddedRegionFullRanges(allRegions))
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
-	host, err := phase11AnalyzeMasked(ctx, document, maskedHost, options, "jsp", AnalyzerJSP, "host-html", "html")
+	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskedHost, options, "jsp", AnalyzerJSP, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase11MergeAnalyzerResult(&result, host, options.Limits)
+	mergeCompositeAnalyzerResult(&result, host, options.Limits)
 
 	javaRanges := make([]OffsetRange, 0, len(regions))
 	for index, region := range regions {
@@ -419,7 +419,7 @@ func analyzePhase11JSPHost(ctx context.Context, document *SourceDocument, option
 			return AnalyzerResult{}, rangeErr
 		}
 		result.Regions = append(result.Regions, SourceRegion{ID: regionID, Kind: region.kind, Language: region.language, Range: rangeValue, Evidence: SymbolEvidenceStructural, Supported: true})
-		if phase11JSPJavaRegion(document.Text, region) {
+		if jspJavaRegion(document.Text, region) {
 			javaRanges = append(javaRanges, region.content)
 		}
 	}
@@ -429,20 +429,20 @@ func analyzePhase11JSPHost(ctx context.Context, document *SourceDocument, option
 		if maskErr != nil {
 			return AnalyzerResult{}, maskErr
 		}
-		embedded, analyzeErr := phase11AnalyzeMasked(ctx, document, maskedJava, options, "jsp", AnalyzerJSP, "", "java")
+		embedded, analyzeErr := analyzeMaskedEmbeddedRegion(ctx, document, maskedJava, options, "jsp", AnalyzerJSP, "", "java")
 		if analyzeErr != nil {
 			return AnalyzerResult{}, analyzeErr
 		}
-		phase11AssignEmbeddedRegionIDs(embedded.Analysis.Symbols, regions)
-		phase11MergeAnalyzerResult(&result, embedded, options.Limits)
+		assignEmbeddedRegionIDs(embedded.Analysis.Symbols, regions)
+		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
 	}
 	if regionsTruncated {
-		phase11MarkPartial(&result.Analysis, options.Limits, true, "jsp-region-limit", "composite region retention limit reached")
+		markCompositePartial(&result.Analysis, options.Limits, true, "jsp-region-limit", "composite region retention limit reached")
 	}
 	return result, nil
 }
 
-func phase11JSPJavaRegion(text string, region phase11EmbeddedRegion) bool {
+func jspJavaRegion(text string, region compositeEmbeddedRegion) bool {
 	marker := region.full.Start + len("<%")
 	if marker >= len(text) || marker >= region.full.End {
 		return false
@@ -450,7 +450,7 @@ func phase11JSPJavaRegion(text string, region phase11EmbeddedRegion) bool {
 	return text[marker] != '@' && !strings.HasPrefix(text[marker:], "--")
 }
 
-func phase11AssignEmbeddedRegionIDs(symbols []NormalizedSymbol, regions []phase11EmbeddedRegion) {
+func assignEmbeddedRegionIDs(symbols []NormalizedSymbol, regions []compositeEmbeddedRegion) {
 	for index := range symbols {
 		offset := symbols[index].declarationOffsets.Start
 		for regionIndex, region := range regions {
@@ -467,41 +467,41 @@ func (EJSAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if document == nil {
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
-	probe := phase11MaskHostComments(document.Text)
-	regions := phase11RegexRegions(probe, phase11EJSBlock, "ejs-js", "javascript")
-	complete := phase11OpeningsCovered(probe, regions, phase11PercentOpen)
-	result, err := analyzePhase11EJSHost(ctx, document, options, regions)
+	probe := maskHostComments(document.Text)
+	regions := regexEmbeddedRegions(probe, ejsBlockPattern, "ejs-js", "javascript")
+	complete := embeddedOpeningsCovered(probe, regions, percentOpenPattern)
+	result, err := analyzeEJSHost(ctx, document, options, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	retainedRegions, _ := phase11CapRegions(regions, options.Limits.MaxSymbols)
-	dependencies, err := phase11EJSDependencies(ctx, document, retainedRegions, options.MaxNesting)
+	retainedRegions, _ := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
+	dependencies, err := ejsDependencies(ctx, document, retainedRegions, options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase11AppendDependencies(&result, dependencies, options.Limits)
+	appendCompositeDependencies(&result, dependencies, options.Limits)
 	if !complete {
-		phase11MarkPartial(&result.Analysis, options.Limits, false, "ejs-unterminated-region", "EJS region is not terminated")
+		markCompositePartial(&result.Analysis, options.Limits, false, "ejs-unterminated-region", "EJS region is not terminated")
 	}
 	return result, nil
 }
 
-func analyzePhase11EJSHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []phase11EmbeddedRegion) (AnalyzerResult, error) {
+func analyzeEJSHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	allRegions := regions
-	retainedRegions, regionsTruncated := phase11CapRegions(regions, options.Limits.MaxSymbols)
-	maskedHost, err := phase11MaskRanges(document.Text, phase11FullRanges(allRegions))
+	retainedRegions, regionsTruncated := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
+	maskedHost, err := maskCompositeRanges(document.Text, embeddedRegionFullRanges(allRegions))
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
-	host, err := phase11AnalyzeMasked(ctx, document, maskedHost, options, "ejs", AnalyzerEJS, "host-html", "html")
+	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskedHost, options, "ejs", AnalyzerEJS, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase11MergeAnalyzerResult(&result, host, options.Limits)
+	mergeCompositeAnalyzerResult(&result, host, options.Limits)
 
 	for index, region := range retainedRegions {
 		public, rangeErr := sourceRegionForOffsets(document, fmt.Sprintf("ejs-js-%d", index+1), region.kind, region.language, region.full.Start, region.full.End, true)
@@ -513,7 +513,7 @@ func analyzePhase11EJSHost(ctx context.Context, document *SourceDocument, option
 
 	executable := make([]OffsetRange, 0, len(allRegions))
 	for _, region := range allRegions {
-		if phase11EJSRegionExecutable(document.Text, region) {
+		if ejsRegionExecutable(document.Text, region) {
 			executable = append(executable, region.content)
 		}
 	}
@@ -522,19 +522,19 @@ func analyzePhase11EJSHost(ctx context.Context, document *SourceDocument, option
 		if projectionErr != nil {
 			return AnalyzerResult{}, projectionErr
 		}
-		embedded, analyzeErr := phase11AnalyzeMasked(ctx, document, projection, options, "ejs", AnalyzerEJS, "ejs-scriptlets", "javascript")
+		embedded, analyzeErr := analyzeMaskedEmbeddedRegion(ctx, document, projection, options, "ejs", AnalyzerEJS, "ejs-scriptlets", "javascript")
 		if analyzeErr != nil {
 			return AnalyzerResult{}, analyzeErr
 		}
-		phase11MergeAnalyzerResult(&result, embedded, options.Limits)
+		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
 	}
 	if regionsTruncated {
-		phase11MarkPartial(&result.Analysis, options.Limits, true, "ejs-region-limit", "EJS region retention limit reached")
+		markCompositePartial(&result.Analysis, options.Limits, true, "ejs-region-limit", "EJS region retention limit reached")
 	}
 	return result, nil
 }
 
-func phase11EJSRegionExecutable(text string, region phase11EmbeddedRegion) bool {
+func ejsRegionExecutable(text string, region compositeEmbeddedRegion) bool {
 	if region.full.Start < 0 || region.full.Start >= len(text) || region.content.Start < region.full.Start || region.content.Start > len(text) {
 		return false
 	}
@@ -549,9 +549,9 @@ func (BladeAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	if document == nil {
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
-	probe := phase10MaskDelimitedRegions(document.Text, [][2]string{{"<!--", "-->"}, {"{{--", "--}}"}})
-	regions, complete := phase11BladePHPRegions(probe)
-	hostProbe, err := phase11MaskRanges(probe, phase11FullRanges(regions))
+	probe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}, {"{{--", "--}}"}})
+	regions, complete := bladePHPRegions(probe)
+	hostProbe, err := maskCompositeRanges(probe, embeddedRegionFullRanges(regions))
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -559,49 +559,49 @@ func (BladeAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	if err := builder.checkReady(); err != nil {
 		return AnalyzerResult{}, err
 	}
-	voltComponents, err := phase11AddBladeDeclarations(builder, document, hostProbe)
+	voltComponents, err := addBladeDeclarations(builder, document, hostProbe)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	result, err := analyzePhase11BladeHost(ctx, document, options, regions)
+	result, err := analyzeBladeHost(ctx, document, options, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	result.Analysis = phase11MergeAnalysis(result.Analysis, builder.Result(), options.Limits)
+	result.Analysis = mergeCompositeAnalysis(result.Analysis, builder.Result(), options.Limits)
 	remaining := max(0, options.Limits.MaxSymbols-len(result.Analysis.Symbols))
 	if len(voltComponents) > 0 {
-		voltRegions, _ := phase11CapRegions(regions, options.Limits.MaxSymbols)
+		voltRegions, _ := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
 		voltOptions := options
 		voltOptions.Limits.MaxSymbols = max(1, remaining)
-		volt, voltErr := phase11AnalyzeBladeVoltAnonymousClasses(ctx, document, voltOptions, voltRegions, voltComponents)
+		volt, voltErr := analyzeBladeVoltAnonymousClasses(ctx, document, voltOptions, voltRegions, voltComponents)
 		if voltErr != nil {
 			return AnalyzerResult{}, voltErr
 		}
-		phase11MergeAnalyzerResult(&result, volt, options.Limits)
+		mergeCompositeAnalyzerResult(&result, volt, options.Limits)
 	}
-	phase11AppendDependencies(&result, phase11BladeDependencies(document, hostProbe), options.Limits)
+	appendCompositeDependencies(&result, bladeDependencies(document, hostProbe), options.Limits)
 	if !complete {
-		phase11MarkPartial(&result.Analysis, options.Limits, false, "blade-unterminated-region", "Blade PHP region is not terminated")
+		markCompositePartial(&result.Analysis, options.Limits, false, "blade-unterminated-region", "Blade PHP region is not terminated")
 	}
 	return result, nil
 }
 
-func analyzePhase11BladeHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []phase11EmbeddedRegion) (AnalyzerResult, error) {
+func analyzeBladeHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	allRegions := regions
-	retainedRegions, regionsTruncated := phase11CapRegions(regions, options.Limits.MaxSymbols)
-	maskedHost, err := phase11MaskRanges(document.Text, phase11FullRanges(allRegions))
+	retainedRegions, regionsTruncated := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
+	maskedHost, err := maskCompositeRanges(document.Text, embeddedRegionFullRanges(allRegions))
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
-	host, err := phase11AnalyzeMasked(ctx, document, maskedHost, options, "blade", AnalyzerBlade, "host-html", "html")
+	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskedHost, options, "blade", AnalyzerBlade, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase11MergeAnalyzerResult(&result, host, options.Limits)
+	mergeCompositeAnalyzerResult(&result, host, options.Limits)
 
 	phpRanges := make([]OffsetRange, 0, len(retainedRegions))
 	for index, region := range retainedRegions {
@@ -617,65 +617,65 @@ func analyzePhase11BladeHost(ctx context.Context, document *SourceDocument, opti
 		if projectionErr != nil {
 			return AnalyzerResult{}, projectionErr
 		}
-		embedded, analyzeErr := phase11AnalyzeMasked(ctx, document, projection, options, "blade", AnalyzerBlade, "blade-php-blocks", "php")
+		embedded, analyzeErr := analyzeMaskedEmbeddedRegion(ctx, document, projection, options, "blade", AnalyzerBlade, "blade-php-blocks", "php")
 		if analyzeErr != nil {
 			return AnalyzerResult{}, analyzeErr
 		}
-		phase11AssignEmbeddedRegionIDs(embedded.Analysis.Symbols, retainedRegions)
-		phase11MergeAnalyzerResult(&result, embedded, options.Limits)
+		assignEmbeddedRegionIDs(embedded.Analysis.Symbols, retainedRegions)
+		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
 	}
 	if regionsTruncated {
-		phase11MarkPartial(&result.Analysis, options.Limits, true, "blade-region-limit", "Blade PHP region retention limit reached")
+		markCompositePartial(&result.Analysis, options.Limits, true, "blade-region-limit", "Blade PHP region retention limit reached")
 	}
 	return result, nil
 }
 
 func (JinjaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase11TemplateHost(ctx, document, options, "jinja", AnalyzerJinja)
+	return analyzeTemplateHost(ctx, document, options, "jinja", AnalyzerJinja)
 }
 
 func (TwigAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzePhase11TemplateHost(ctx, document, options, "twig", AnalyzerTwig)
+	return analyzeTemplateHost(ctx, document, options, "twig", AnalyzerTwig)
 }
 
-func analyzePhase11ScriptStyleHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, astro bool) (AnalyzerResult, error) {
+func analyzeScriptStyleHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, astro bool) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if document == nil {
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
-	regions := make([]phase11EmbeddedRegion, 0, 8)
-	probe := phase10MaskDelimitedRegions(document.Text, [][2]string{{"<!--", "-->"}})
+	regions := make([]compositeEmbeddedRegion, 0, 8)
+	probe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}})
 	if astro {
-		if frontmatter, ok := phase11AstroFrontmatter(document.Text); ok {
-			regions = append(regions, phase11EmbeddedRegion{kind: "frontmatter", language: "typescript", full: frontmatter.Full, content: frontmatter.Content})
+		if frontmatter, ok := astroFrontmatter(document.Text); ok {
+			regions = append(regions, compositeEmbeddedRegion{kind: "frontmatter", language: "typescript", full: frontmatter.Full, content: frontmatter.Content})
 			var err error
-			probe, err = phase11MaskRanges(probe, []OffsetRange{frontmatter.Full})
+			probe, err = maskCompositeRanges(probe, []OffsetRange{frontmatter.Full})
 			if err != nil {
 				return AnalyzerResult{}, err
 			}
 		}
 	}
-	regions = append(regions, phase11TagRegions(probe, phase11ScriptTag, "script", phase11ScriptLanguage)...)
-	regions = append(regions, phase11TagRegions(probe, phase11StyleTag, "style", phase11StyleLanguage)...)
-	regions = phase11OrderedNonOverlappingRegions(regions)
-	complete := phase11OpeningsCovered(probe, regions, phase11ScriptOpen) && phase11OpeningsCovered(probe, regions, phase11StyleOpen)
-	result, err := analyzePhase11DelimitedHost(ctx, document, options, language, analyzer, regions)
+	regions = append(regions, tagEmbeddedRegions(probe, scriptTagPattern, "script", scriptLanguage)...)
+	regions = append(regions, tagEmbeddedRegions(probe, styleTagPattern, "style", styleLanguage)...)
+	regions = orderedNonOverlappingEmbeddedRegions(regions)
+	complete := embeddedOpeningsCovered(probe, regions, scriptOpenPattern) && embeddedOpeningsCovered(probe, regions, styleOpenPattern)
+	result, err := analyzeDelimitedCompositeHost(ctx, document, options, language, analyzer, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	retainedRegions, _ := phase11CapRegions(regions, options.Limits.MaxSymbols)
-	phase11AppendDependencies(&result, phase11ScriptSourceDependencies(document, retainedRegions), options.Limits)
+	retainedRegions, _ := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
+	appendCompositeDependencies(&result, scriptSourceDependencies(document, retainedRegions), options.Limits)
 	if !complete {
-		phase11MarkPartial(&result.Analysis, options.Limits, false, language+"-unterminated-region", "script/style region is not terminated")
+		markCompositePartial(&result.Analysis, options.Limits, false, language+"-unterminated-region", "script/style region is not terminated")
 	}
 	return result, nil
 }
 
-func analyzePhase11DelimitedHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, regions []phase11EmbeddedRegion) (AnalyzerResult, error) {
+func analyzeDelimitedCompositeHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, regions []compositeEmbeddedRegion) (AnalyzerResult, error) {
 	allRegions := regions
-	regions, regionsTruncated := phase11CapRegions(regions, options.Limits.MaxSymbols)
+	regions, regionsTruncated := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -685,16 +685,16 @@ func analyzePhase11DelimitedHost(ctx context.Context, document *SourceDocument, 
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_composite_source", document.Path, err)
 	}
-	maskedHost, err := phase11MaskRanges(document.Text, phase11FullRanges(allRegions))
+	maskedHost, err := maskCompositeRanges(document.Text, embeddedRegionFullRanges(allRegions))
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
-	hostAnalysis, err := phase11AnalyzeMasked(ctx, document, maskedHost, options, language, analyzer, "host-html", "html")
+	hostAnalysis, err := analyzeMaskedEmbeddedRegion(ctx, document, maskedHost, options, language, analyzer, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	phase11MergeAnalyzerResult(&result, hostAnalysis, options.Limits)
+	mergeCompositeAnalyzerResult(&result, hostAnalysis, options.Limits)
 
 	for index, region := range regions {
 		if err := ctx.Err(); err != nil {
@@ -705,7 +705,7 @@ func analyzePhase11DelimitedHost(ctx context.Context, document *SourceDocument, 
 		if rangeErr != nil {
 			return AnalyzerResult{}, rangeErr
 		}
-		supported := phase11LanguageSupported(region.language)
+		supported := embeddedLanguageSupported(region.language)
 		result.Regions = append(result.Regions, SourceRegion{ID: regionID, Kind: region.kind, Language: region.language, Range: rangeValue, Evidence: SymbolEvidenceStructural, Supported: supported})
 		if !supported {
 			result.Analysis.CoverageComplete = false
@@ -715,28 +715,28 @@ func analyzePhase11DelimitedHost(ctx context.Context, document *SourceDocument, 
 		if maskErr != nil {
 			return AnalyzerResult{}, maskErr
 		}
-		embedded, analyzeErr := phase11AnalyzeMasked(ctx, document, masked, options, language, analyzer, regionID, region.language)
+		embedded, analyzeErr := analyzeMaskedEmbeddedRegion(ctx, document, masked, options, language, analyzer, regionID, region.language)
 		if analyzeErr != nil {
 			return AnalyzerResult{}, analyzeErr
 		}
-		phase11MergeAnalyzerResult(&result, embedded, options.Limits)
+		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
 	}
 	if regionsTruncated {
-		phase11MarkPartial(&result.Analysis, options.Limits, true, language+"-region-limit", "composite region retention limit reached")
+		markCompositePartial(&result.Analysis, options.Limits, true, language+"-region-limit", "composite region retention limit reached")
 	}
 	return result, nil
 }
 
-func analyzePhase11TemplateHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (AnalyzerResult, error) {
+func analyzeTemplateHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if document == nil {
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
-	masked, ranges, complete := phase11MaskTemplateSyntax(document.Text)
-	declarationProbe := phase10MaskDelimitedRegions(document.Text, [][2]string{{"<!--", "-->"}, {"{#", "#}"}, {"{{", "}}"}})
-	result, err := phase11AnalyzeMasked(ctx, document, masked, options, language, analyzer, "host-html", "html")
+	masked, ranges, complete := maskTemplateSyntax(document.Text)
+	declarationProbe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}, {"{#", "#}"}, {"{{", "}}"}})
+	result, err := analyzeMaskedEmbeddedRegion(ctx, document, masked, options, language, analyzer, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -744,12 +744,12 @@ func analyzePhase11TemplateHost(ctx context.Context, document *SourceDocument, o
 	if err := builder.checkReady(); err != nil {
 		return AnalyzerResult{}, err
 	}
-	if err := phase11AddTemplateDeclarations(builder, document, ranges, language, options.MaxNesting); err != nil {
+	if err := addTemplateDeclarations(builder, document, ranges, language, options.MaxNesting); err != nil {
 		return AnalyzerResult{}, err
 	}
-	result.Analysis = phase11MergeAnalysis(result.Analysis, builder.Result(), options.Limits)
-	phase11AppendDependencies(&result, phase11TemplateDependencies(document, declarationProbe), options.Limits)
-	retainedRanges, rangesTruncated := phase11CapOffsetRanges(ranges, options.Limits.MaxSymbols)
+	result.Analysis = mergeCompositeAnalysis(result.Analysis, builder.Result(), options.Limits)
+	appendCompositeDependencies(&result, templateDependencies(document, declarationProbe), options.Limits)
+	retainedRanges, rangesTruncated := capCompositeOffsetRanges(ranges, options.Limits.MaxSymbols)
 	for index, value := range retainedRanges {
 		rangeValue, rangeErr := document.RangeFromUTF8Offsets(value.Start, value.End)
 		if rangeErr == nil {
@@ -757,19 +757,19 @@ func analyzePhase11TemplateHost(ctx context.Context, document *SourceDocument, o
 		}
 	}
 	if rangesTruncated {
-		phase11MarkPartial(&result.Analysis, options.Limits, true, language+"-region-limit", "template region retention limit reached")
+		markCompositePartial(&result.Analysis, options.Limits, true, language+"-region-limit", "template region retention limit reached")
 	}
 	if !complete {
-		phase11MarkPartial(&result.Analysis, options.Limits, false, language+"-unterminated-region", "template region is not terminated")
+		markCompositePartial(&result.Analysis, options.Limits, false, language+"-unterminated-region", "template region is not terminated")
 	}
 	return result, nil
 }
 
-func phase11AddTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, ranges []OffsetRange, language string, maxNesting int) error {
+func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, ranges []OffsetRange, language string, maxNesting int) error {
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
-	scopes := make([]phase11TemplateScope, 0, min(8, maxNesting))
+	scopes := make([]templateScope, 0, min(8, maxNesting))
 	for _, value := range ranges {
 		if value.Start < 0 || value.End <= value.Start || value.End > len(document.Text) {
 			continue
@@ -778,7 +778,7 @@ func phase11AddTemplateDeclarations(builder *SymbolBuilder, document *SourceDocu
 		if !strings.HasPrefix(statement, "{%") {
 			continue
 		}
-		match := phase11TemplateScopeDirective.FindStringSubmatchIndex(statement)
+		match := templateScopeDirectivePattern.FindStringSubmatchIndex(statement)
 		if len(match) < 4 || match[2] < 0 {
 			continue
 		}
@@ -813,7 +813,7 @@ func phase11AddTemplateDeclarations(builder *SymbolBuilder, document *SourceDocu
 				}
 				return err
 			}
-			scopes = append(scopes, phase11TemplateScope{kind: directive, name: name, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}, declaration: declaration})
+			scopes = append(scopes, templateScope{kind: directive, name: name, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}, declaration: declaration})
 		case "endblock", "endmacro":
 			expected := strings.TrimPrefix(directive, "end")
 			if len(scopes) == 0 {
@@ -845,7 +845,7 @@ func phase11AddTemplateDeclarations(builder *SymbolBuilder, document *SourceDocu
 	return nil
 }
 
-func phase11AnalyzeMasked(ctx context.Context, host *SourceDocument, masked string, options AnalyzeOptions, _ string, analyzer AnalyzerID, regionID, embeddedLanguage string) (AnalyzerResult, error) {
+func analyzeMaskedEmbeddedRegion(ctx context.Context, host *SourceDocument, masked string, options AnalyzeOptions, _ string, analyzer AnalyzerID, regionID, embeddedLanguage string) (AnalyzerResult, error) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		return AnalyzerResult{}, err
@@ -872,7 +872,7 @@ func phase11AnalyzeMasked(ctx context.Context, host *SourceDocument, masked stri
 	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
 }
 
-func phase11MergeAnalysis(dst, src AnalysisResult, limits SymbolBuilderLimits) AnalysisResult {
+func mergeCompositeAnalysis(dst, src AnalysisResult, limits SymbolBuilderLimits) AnalysisResult {
 	if !src.CoverageComplete {
 		dst.CoverageComplete = false
 	}
@@ -922,13 +922,13 @@ func phase11MergeAnalysis(dst, src AnalysisResult, limits SymbolBuilderLimits) A
 	return dst
 }
 
-func phase11MergeAnalyzerResult(dst *AnalyzerResult, src AnalyzerResult, limits SymbolBuilderLimits) {
-	dst.Analysis = phase11MergeAnalysis(dst.Analysis, src.Analysis, limits)
-	phase11AppendDependencies(dst, src.Dependencies, limits)
-	phase11AppendRelations(dst, src.Relations, limits)
+func mergeCompositeAnalyzerResult(dst *AnalyzerResult, src AnalyzerResult, limits SymbolBuilderLimits) {
+	dst.Analysis = mergeCompositeAnalysis(dst.Analysis, src.Analysis, limits)
+	appendCompositeDependencies(dst, src.Dependencies, limits)
+	appendCompositeRelations(dst, src.Relations, limits)
 }
 
-func phase11LanguageSupported(language string) bool {
+func embeddedLanguageSupported(language string) bool {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		return false
@@ -941,8 +941,8 @@ func phase11LanguageSupported(language string) bool {
 	return ok
 }
 
-func phase11TagRegions(text string, pattern *regexp.Regexp, kind string, language func(string) string) []phase11EmbeddedRegion {
-	regions := make([]phase11EmbeddedRegion, 0, 8)
+func tagEmbeddedRegions(text string, pattern *regexp.Regexp, kind string, language func(string) string) []compositeEmbeddedRegion {
+	regions := make([]compositeEmbeddedRegion, 0, 8)
 	for search := 0; search < len(text); {
 		match := pattern.FindStringSubmatchIndex(text[search:])
 		if match == nil {
@@ -951,7 +951,7 @@ func phase11TagRegions(text string, pattern *regexp.Regexp, kind string, languag
 		start := search + match[0]
 		end := search + match[1]
 		contentStart := search + match[4]
-		if phase11SelfClosingTagOpening(text[start:contentStart]) {
+		if selfClosingTagOpening(text[start:contentStart]) {
 			search = contentStart
 			continue
 		}
@@ -959,36 +959,36 @@ func phase11TagRegions(text string, pattern *regexp.Regexp, kind string, languag
 		if match[2] >= 0 {
 			attrs = text[search+match[2] : search+match[3]]
 		}
-		regions = append(regions, phase11EmbeddedRegion{kind: kind, language: language(attrs), full: OffsetRange{Start: start, End: end}, content: OffsetRange{Start: contentStart, End: search + match[5]}})
+		regions = append(regions, compositeEmbeddedRegion{kind: kind, language: language(attrs), full: OffsetRange{Start: start, End: end}, content: OffsetRange{Start: contentStart, End: search + match[5]}})
 		search = end
 	}
 	return regions
 }
 
-func phase11SelfClosingTagOpening(opening string) bool {
+func selfClosingTagOpening(opening string) bool {
 	close := strings.LastIndexByte(opening, '>')
 	return close >= 0 && strings.HasSuffix(strings.TrimSpace(opening[:close]), "/")
 }
 
-func phase11AddBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, probe string) ([]phase11BladeVoltComponent, error) {
-	declarations := make([]phase11BladeDeclaration, 0, 8)
-	for _, match := range phase11BladeSection.FindAllStringSubmatchIndex(probe, -1) {
-		declarations = append(declarations, phase11BladeDeclaration{
+func addBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, probe string) ([]bladeVoltComponent, error) {
+	declarations := make([]bladeDeclaration, 0, 8)
+	for _, match := range bladeSectionPattern.FindAllStringSubmatchIndex(probe, -1) {
+		declarations = append(declarations, bladeDeclaration{
 			kind: SymbolKindSection, nativeKind: "section", name: document.Text[match[2]:match[3]],
 			declaration: OffsetRange{Start: match[0], End: match[1]}, nameRange: OffsetRange{Start: match[2], End: match[3]},
 		})
 	}
-	for _, match := range phase11BladeVolt.FindAllStringSubmatchIndex(probe, -1) {
+	for _, match := range bladeVoltPattern.FindAllStringSubmatchIndex(probe, -1) {
 		if match[0] > 0 && probe[match[0]-1] == '@' {
 			continue
 		}
-		declarations = append(declarations, phase11BladeDeclaration{
+		declarations = append(declarations, bladeDeclaration{
 			kind: SymbolKindEntity, nativeKind: "volt-component", name: document.Text[match[2]:match[3]], volt: true,
 			declaration: OffsetRange{Start: match[0], End: match[1]}, nameRange: OffsetRange{Start: match[2], End: match[3]},
 		})
 	}
 	sort.SliceStable(declarations, func(i, j int) bool { return declarations[i].declaration.Start < declarations[j].declaration.Start })
-	components := make([]phase11BladeVoltComponent, 0, len(declarations))
+	components := make([]bladeVoltComponent, 0, len(declarations))
 	for _, declaration := range declarations {
 		symbol, err := builder.Add(SymbolSpec{
 			Kind: declaration.kind, NativeKind: declaration.nativeKind, Name: declaration.name,
@@ -1001,13 +1001,13 @@ func phase11AddBladeDeclarations(builder *SymbolBuilder, document *SourceDocumen
 			return nil, err
 		}
 		if declaration.volt {
-			components = append(components, phase11BladeVoltComponent{symbol: symbol, declaration: declaration.declaration})
+			components = append(components, bladeVoltComponent{symbol: symbol, declaration: declaration.declaration})
 		}
 	}
 	return components, nil
 }
 
-func phase11AnalyzeBladeVoltAnonymousClasses(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []phase11EmbeddedRegion, components []phase11BladeVoltComponent) (AnalyzerResult, error) {
+func analyzeBladeVoltAnonymousClasses(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion, components []bladeVoltComponent) (AnalyzerResult, error) {
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
 	retainedRegions := regions
 	if len(retainedRegions) == 0 || len(components) == 0 {
@@ -1039,7 +1039,7 @@ func phase11AnalyzeBladeVoltAnonymousClasses(ctx context.Context, document *Sour
 		return AnalyzerResult{}, err
 	}
 	pairs := PairDelimiterTokens(scan.Tokens, nil)
-	classes := phase11BladeAnonymousClasses(scan.Tokens, pairs, retainedRegions)
+	classes := bladeAnonymousClasses(scan.Tokens, pairs, retainedRegions)
 	componentIndex := 0
 	remaining := max(1, options.Limits.MaxSymbols)
 	for _, class := range classes {
@@ -1058,11 +1058,11 @@ func phase11AnalyzeBladeVoltAnonymousClasses(ctx context.Context, document *Sour
 			associationEnd = regions[class.regionIndex+1].full.Start
 		}
 		component := components[componentIndex]
-		if component.declaration.Start >= associationEnd || !phase11BladeAnonymousClassExtendsComponent(scan.Tokens, class.classIndex, class.openIndex) {
+		if component.declaration.Start >= associationEnd || !bladeAnonymousClassExtendsComponent(scan.Tokens, class.classIndex, class.openIndex) {
 			continue
 		}
 		if remaining <= 0 {
-			phase11MarkPartial(&result.Analysis, options.Limits, true, "blade-volt-symbol-limit", "Blade Volt member retention limit reached")
+			markCompositePartial(&result.Analysis, options.Limits, true, "blade-volt-symbol-limit", "Blade Volt member retention limit reached")
 			break
 		}
 		regionID := fmt.Sprintf("%s-%d", retainedRegions[class.regionIndex].kind, class.regionIndex+1)
@@ -1078,16 +1078,16 @@ func phase11AnalyzeBladeVoltAnonymousClasses(ctx context.Context, document *Sour
 		parser := &phpParser{ctx: ctx, document: document, tokens: scan.Tokens, pairs: pairs, builder: memberBuilder}
 		parent := &SymbolParent{ID: component.symbol.ID, QualifiedName: component.symbol.QualifiedName}
 		parser.collectTypeRelations(component.symbol.QualifiedName, class.classIndex+1, class.openIndex, scan.Tokens[class.classIndex].Nesting, "class")
-		parser.parseScope(class.openIndex+1, class.closeIndex, parent, true, phase11BladeVoltOwner(component.symbol.Name))
-		phase11MergeAnalyzerResult(&result, AnalyzerResult{Analysis: memberBuilder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, options.Limits)
+		parser.parseScope(class.openIndex+1, class.closeIndex, parent, true, bladeVoltOwner(component.symbol.Name))
+		mergeCompositeAnalyzerResult(&result, AnalyzerResult{Analysis: memberBuilder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, options.Limits)
 		remaining = max(0, options.Limits.MaxSymbols-len(result.Analysis.Symbols))
 		componentIndex++
 	}
 	return result, nil
 }
 
-func phase11BladeAnonymousClasses(tokens []Token, pairs map[int]int, regions []phase11EmbeddedRegion) []phase11BladeAnonymousClass {
-	classes := make([]phase11BladeAnonymousClass, 0, 4)
+func bladeAnonymousClasses(tokens []Token, pairs map[int]int, regions []compositeEmbeddedRegion) []bladeAnonymousClass {
+	classes := make([]bladeAnonymousClass, 0, 4)
 	for index := 0; index < len(tokens); index++ {
 		if tokens[index].Nesting != 0 || !strings.EqualFold(tokens[index].Text, "new") {
 			continue
@@ -1135,19 +1135,19 @@ func phase11BladeAnonymousClasses(tokens []Token, pairs map[int]int, regions []p
 		if regionIndex < 0 {
 			continue
 		}
-		classes = append(classes, phase11BladeAnonymousClass{classIndex: classIndex, openIndex: openIndex, closeIndex: closeIndex, regionIndex: regionIndex})
+		classes = append(classes, bladeAnonymousClass{classIndex: classIndex, openIndex: openIndex, closeIndex: closeIndex, regionIndex: regionIndex})
 		index = closeIndex
 	}
 	return classes
 }
 
-func phase11BladeAnonymousClassExtendsComponent(tokens []Token, classIndex, openIndex int) bool {
+func bladeAnonymousClassExtendsComponent(tokens []Token, classIndex, openIndex int) bool {
 	base := tokens[classIndex].Nesting
 	for index := classIndex + 1; index < openIndex; index++ {
 		if tokens[index].Nesting != base || !strings.EqualFold(tokens[index].Text, "extends") {
 			continue
 		}
-		start := phase11NextCodeToken(tokens, index+1)
+		start := nextCompositeCodeToken(tokens, index+1)
 		if start < 0 || start >= openIndex {
 			return false
 		}
@@ -1166,35 +1166,35 @@ func phase11BladeAnonymousClassExtendsComponent(tokens []Token, classIndex, open
 	return false
 }
 
-func phase11BladeVoltOwner(name string) string {
+func bladeVoltOwner(name string) string {
 	if index := strings.LastIndexByte(name, '.'); index >= 0 && index+1 < len(name) {
 		return name[index+1:]
 	}
 	return name
 }
 
-func phase11BladePHPRegions(text string) ([]phase11EmbeddedRegion, bool) {
+func bladePHPRegions(text string) ([]compositeEmbeddedRegion, bool) {
 	const closeDirective = "@endphp"
 	lower := asciiLowerPreservingBytes(text)
-	regions := make([]phase11EmbeddedRegion, 0)
+	regions := make([]compositeEmbeddedRegion, 0)
 	complete := true
 	for search := 0; search < len(lower); {
-		directiveStart, directiveOpenEnd := phase11NextBladePHPDirective(lower, search)
+		directiveStart, directiveOpenEnd := nextBladePHPDirective(lower, search)
 		rawStart := -1
-		if match := phase11PHPOpen.FindStringIndex(lower[search:]); match != nil {
+		if match := phpOpenPattern.FindStringIndex(lower[search:]); match != nil {
 			rawStart = search + match[0]
 		}
 		if directiveStart < 0 && rawStart < 0 {
 			break
 		}
 		if rawStart >= 0 && (directiveStart < 0 || rawStart < directiveStart) {
-			match := phase11PHPBlock.FindStringSubmatchIndex(text[rawStart:])
+			match := phpBlockPattern.FindStringSubmatchIndex(text[rawStart:])
 			if len(match) < 4 || match[0] != 0 || match[2] < 0 || match[3] < 0 {
 				complete = false
 				break
 			}
 			fullEnd := rawStart + match[1]
-			regions = append(regions, phase11EmbeddedRegion{
+			regions = append(regions, compositeEmbeddedRegion{
 				kind: "blade-raw-php", language: "php",
 				full:    OffsetRange{Start: rawStart, End: fullEnd},
 				content: OffsetRange{Start: rawStart + match[2], End: rawStart + match[3]},
@@ -1203,12 +1203,12 @@ func phase11BladePHPRegions(text string) ([]phase11EmbeddedRegion, bool) {
 			continue
 		}
 
-		closeStart, closeEnd, found := phase11BladeEndPHP(lower, directiveOpenEnd, closeDirective)
+		closeStart, closeEnd, found := bladeEndPHP(lower, directiveOpenEnd, closeDirective)
 		if !found {
 			complete = false
 			break
 		}
-		regions = append(regions, phase11EmbeddedRegion{
+		regions = append(regions, compositeEmbeddedRegion{
 			kind: "blade-php", language: "php",
 			full:    OffsetRange{Start: directiveStart, End: closeEnd},
 			content: OffsetRange{Start: directiveOpenEnd, End: closeStart},
@@ -1218,7 +1218,7 @@ func phase11BladePHPRegions(text string) ([]phase11EmbeddedRegion, bool) {
 	return regions, complete
 }
 
-func phase11NextBladePHPDirective(text string, search int) (int, int) {
+func nextBladePHPDirective(text string, search int) (int, int) {
 	const openDirective = "@php"
 	for search < len(text) {
 		relative := strings.Index(text[search:], openDirective)
@@ -1248,7 +1248,7 @@ func phase11NextBladePHPDirective(text string, search int) (int, int) {
 	return -1, -1
 }
 
-func phase11BladeEndPHP(text string, search int, directive string) (int, int, bool) {
+func bladeEndPHP(text string, search int, directive string) (int, int, bool) {
 	for search < len(text) {
 		relative := strings.Index(text[search:], directive)
 		if relative < 0 {
@@ -1264,20 +1264,20 @@ func phase11BladeEndPHP(text string, search int, directive string) (int, int, bo
 	return 0, 0, false
 }
 
-func phase11RegexRegions(text string, pattern *regexp.Regexp, kind, language string) []phase11EmbeddedRegion {
+func regexEmbeddedRegions(text string, pattern *regexp.Regexp, kind, language string) []compositeEmbeddedRegion {
 	matches := pattern.FindAllStringSubmatchIndex(text, -1)
-	regions := make([]phase11EmbeddedRegion, 0, len(matches))
+	regions := make([]compositeEmbeddedRegion, 0, len(matches))
 	for _, match := range matches {
 		if len(match) <= 3 || match[2] < 0 || match[3] < 0 {
 			continue
 		}
-		regions = append(regions, phase11EmbeddedRegion{kind: kind, language: language, full: OffsetRange{Start: match[0], End: match[1]}, content: OffsetRange{Start: match[2], End: match[3]}})
+		regions = append(regions, compositeEmbeddedRegion{kind: kind, language: language, full: OffsetRange{Start: match[0], End: match[1]}, content: OffsetRange{Start: match[2], End: match[3]}})
 	}
 	return regions
 }
 
-func phase11ScriptLanguage(attrs string) string {
-	if match := phase11LangAttr.FindStringSubmatch(attrs); len(match) > 1 {
+func scriptLanguage(attrs string) string {
+	if match := languageAttributePattern.FindStringSubmatch(attrs); len(match) > 1 {
 		switch strings.ToLower(strings.TrimSpace(match[1])) {
 		case "ts", "typescript":
 			return "typescript"
@@ -1287,7 +1287,7 @@ func phase11ScriptLanguage(attrs string) string {
 			return strings.ToLower(strings.TrimSpace(match[1]))
 		}
 	}
-	if match := phase11TypeAttr.FindStringSubmatch(attrs); len(match) > 1 {
+	if match := typeAttributePattern.FindStringSubmatch(attrs); len(match) > 1 {
 		switch strings.ToLower(strings.TrimSpace(match[1])) {
 		case "text/html":
 			return "html"
@@ -1300,8 +1300,8 @@ func phase11ScriptLanguage(attrs string) string {
 	return "javascript"
 }
 
-func phase11StyleLanguage(attrs string) string {
-	if match := phase11LangAttr.FindStringSubmatch(attrs); len(match) > 1 {
+func styleLanguage(attrs string) string {
+	if match := languageAttributePattern.FindStringSubmatch(attrs); len(match) > 1 {
 		switch strings.ToLower(strings.TrimSpace(match[1])) {
 		case "css":
 			return "css"
@@ -1318,7 +1318,7 @@ func phase11StyleLanguage(attrs string) string {
 	return "css"
 }
 
-func phase11AstroFrontmatter(text string) (CompositeSegment, bool) {
+func astroFrontmatter(text string) (CompositeSegment, bool) {
 	if !strings.HasPrefix(text, "---") {
 		return CompositeSegment{}, false
 	}
@@ -1342,7 +1342,7 @@ func phase11AstroFrontmatter(text string) (CompositeSegment, bool) {
 	return CompositeSegment{Kind: "frontmatter", Language: "typescript", Full: OffsetRange{Start: 0, End: closeEnd}, Content: OffsetRange{Start: contentStart, End: closeStart}}, true
 }
 
-func phase11FullRanges(regions []phase11EmbeddedRegion) []OffsetRange {
+func embeddedRegionFullRanges(regions []compositeEmbeddedRegion) []OffsetRange {
 	ranges := make([]OffsetRange, 0, len(regions))
 	for _, region := range regions {
 		ranges = append(ranges, region.full)
@@ -1350,24 +1350,24 @@ func phase11FullRanges(regions []phase11EmbeddedRegion) []OffsetRange {
 	return ranges
 }
 
-func phase11MaskRanges(text string, ranges []OffsetRange) (string, error) {
+func maskCompositeRanges(text string, ranges []OffsetRange) (string, error) {
 	masked := []byte(text)
 	for _, value := range ranges {
 		if value.Start < 0 || value.End < value.Start || value.End > len(text) || !utf8Boundary(text, value.Start) || !utf8Boundary(text, value.End) {
 			return "", operation.New(operation.KindInvalidInput, "composite mask range is invalid")
 		}
-		phase10MaskRange(masked, value.Start, value.End)
+		maskByteRangePreservingLines(masked, value.Start, value.End)
 	}
 	return string(masked), nil
 }
 
-func phase11MaskTemplateSyntax(text string) (string, []OffsetRange, bool) {
-	probe := phase11MaskHostComments(text)
+func maskTemplateSyntax(text string) (string, []OffsetRange, bool) {
+	probe := maskHostComments(text)
 	masked := []byte(probe)
 	ranges := make([]OffsetRange, 0, 16)
 	complete := true
 	for position := 0; position < len(probe); {
-		open, delimiters := phase11NextTemplateDelimiter(probe, position)
+		open, delimiters := nextTemplateDelimiter(probe, position)
 		if open < 0 {
 			break
 		}
@@ -1376,19 +1376,19 @@ func phase11MaskTemplateSyntax(text string) (string, []OffsetRange, bool) {
 			complete = false
 			value := OffsetRange{Start: open, End: len(probe)}
 			ranges = append(ranges, value)
-			phase10MaskRange(masked, value.Start, value.End)
+			maskByteRangePreservingLines(masked, value.Start, value.End)
 			break
 		}
 		close += open + len(delimiters[0]) + len(delimiters[1])
 		value := OffsetRange{Start: open, End: close}
 		ranges = append(ranges, value)
-		phase10MaskRange(masked, value.Start, value.End)
+		maskByteRangePreservingLines(masked, value.Start, value.End)
 		position = close
 	}
 	return string(masked), ranges, complete
 }
 
-func phase11NextTemplateDelimiter(text string, position int) (int, [2]string) {
+func nextTemplateDelimiter(text string, position int) (int, [2]string) {
 	best := -1
 	var selected [2]string
 	for _, delimiters := range [][2]string{{"{#", "#}"}, {"{{", "}}"}, {"{%", "%}"}} {
@@ -1405,42 +1405,42 @@ func phase11NextTemplateDelimiter(text string, position int) (int, [2]string) {
 	return best, selected
 }
 
-func phase11MaskHostComments(text string) string {
-	return phase10MaskDelimitedRegions(text, [][2]string{{"<!--", "-->"}})
+func maskHostComments(text string) string {
+	return maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
 }
 
-func phase11AnalyzeClientWebRegions(ctx context.Context, document *SourceDocument, options AnalyzeOptions, hostLanguage string, analyzer AnalyzerID, excluded []OffsetRange) (AnalyzerResult, error) {
-	probe := phase10MaskDelimitedRegions(document.Text, [][2]string{{"<!--", "-->"}, {"@*", "*@"}})
+func analyzeClientWebRegions(ctx context.Context, document *SourceDocument, options AnalyzeOptions, hostLanguage string, analyzer AnalyzerID, excluded []OffsetRange) (AnalyzerResult, error) {
+	probe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}, {"@*", "*@"}})
 	var err error
 	if len(excluded) > 0 {
-		probe, err = phase11MaskRanges(probe, excluded)
+		probe, err = maskCompositeRanges(probe, excluded)
 		if err != nil {
 			return AnalyzerResult{}, err
 		}
 	}
 	regions := append(
-		phase11TagRegions(probe, phase11ScriptTag, "script", phase11ScriptLanguage),
-		phase11TagRegions(probe, phase11StyleTag, "style", phase11StyleLanguage)...,
+		tagEmbeddedRegions(probe, scriptTagPattern, "script", scriptLanguage),
+		tagEmbeddedRegions(probe, styleTagPattern, "style", styleLanguage)...,
 	)
-	regions = phase11OrderedNonOverlappingRegions(regions)
+	regions = orderedNonOverlappingEmbeddedRegions(regions)
 	allRegions := regions
-	complete := phase11OpeningsCovered(probe, allRegions, phase11ScriptOpen) && phase11OpeningsCovered(probe, allRegions, phase11StyleOpen)
-	regions, regionsTruncated := phase11CapRegions(regions, options.Limits.MaxSymbols)
+	complete := embeddedOpeningsCovered(probe, allRegions, scriptOpenPattern) && embeddedOpeningsCovered(probe, allRegions, styleOpenPattern)
+	regions, regionsTruncated := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
 
 	hostMasks := append([]OffsetRange(nil), excluded...)
-	hostMasks = append(hostMasks, phase11FullRanges(allRegions)...)
-	hostMasked, err := phase11MaskRanges(document.Text, hostMasks)
+	hostMasks = append(hostMasks, embeddedRegionFullRanges(allRegions)...)
+	hostMasked, err := maskCompositeRanges(document.Text, hostMasks)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	result, err := phase11AnalyzeMasked(ctx, document, hostMasked, options, hostLanguage, analyzer, "client-host", "html")
+	result, err := analyzeMaskedEmbeddedRegion(ctx, document, hostMasked, options, hostLanguage, analyzer, "client-host", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	remaining := max(0, options.Limits.MaxSymbols-len(result.Analysis.Symbols))
 	for index, region := range regions {
 		regionID := fmt.Sprintf("client-%s-%d", region.kind, index+1)
-		supported := phase11LanguageSupported(region.language)
+		supported := embeddedLanguageSupported(region.language)
 		public, rangeErr := sourceRegionForOffsets(document, regionID, region.kind, region.language, region.full.Start, region.full.End, supported)
 		if rangeErr != nil {
 			return AnalyzerResult{}, rangeErr
@@ -1450,7 +1450,7 @@ func phase11AnalyzeClientWebRegions(ctx context.Context, document *SourceDocumen
 			result.Analysis.CoverageComplete = false
 			continue
 		}
-		if phase11RazorGeneratedDataRegion(document.Text, hostLanguage, region) {
+		if razorGeneratedDataRegion(document.Text, hostLanguage, region) {
 			continue
 		}
 		regionOptions := options
@@ -1461,24 +1461,24 @@ func phase11AnalyzeClientWebRegions(ctx context.Context, document *SourceDocumen
 		if maskErr != nil {
 			return AnalyzerResult{}, maskErr
 		}
-		embedded, analyzeErr := phase11AnalyzeMasked(ctx, document, masked, regionOptions, hostLanguage, analyzer, regionID, region.language)
+		embedded, analyzeErr := analyzeMaskedEmbeddedRegion(ctx, document, masked, regionOptions, hostLanguage, analyzer, regionID, region.language)
 		if analyzeErr != nil {
 			return AnalyzerResult{}, analyzeErr
 		}
-		phase11MergeAnalyzerResult(&result, embedded, options.Limits)
+		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
 		remaining = max(0, options.Limits.MaxSymbols-len(result.Analysis.Symbols))
 	}
-	phase11AppendDependencies(&result, phase11ScriptSourceDependencies(document, regions), options.Limits)
+	appendCompositeDependencies(&result, scriptSourceDependencies(document, regions), options.Limits)
 	if regionsTruncated {
-		phase11MarkPartial(&result.Analysis, options.Limits, true, hostLanguage+"-region-limit", "client region retention limit reached")
+		markCompositePartial(&result.Analysis, options.Limits, true, hostLanguage+"-region-limit", "client region retention limit reached")
 	}
 	if !complete {
-		phase11MarkPartial(&result.Analysis, options.Limits, false, hostLanguage+"-unterminated-client-region", "client script/style region is not terminated")
+		markCompositePartial(&result.Analysis, options.Limits, false, hostLanguage+"-unterminated-client-region", "client script/style region is not terminated")
 	}
 	return result, nil
 }
 
-func phase11RazorGeneratedDataRegion(text, hostLanguage string, region phase11EmbeddedRegion) bool {
+func razorGeneratedDataRegion(text, hostLanguage string, region compositeEmbeddedRegion) bool {
 	if region.kind != "script" || region.language != "json" || hostLanguage != "razor" && hostLanguage != "blazor" ||
 		region.content.Start < 0 || region.content.End < region.content.Start || region.content.End > len(text) {
 		return false
@@ -1487,38 +1487,38 @@ func phase11RazorGeneratedDataRegion(text, hostLanguage string, region phase11Em
 	return strings.HasPrefix(content, "@") && !strings.HasPrefix(content, "@@")
 }
 
-func phase11ScriptSourceDependencies(document *SourceDocument, regions []phase11EmbeddedRegion) []StructuralDependency {
+func scriptSourceDependencies(document *SourceDocument, regions []compositeEmbeddedRegion) []StructuralDependency {
 	var dependencies []StructuralDependency
 	for _, region := range regions {
 		if region.kind != "script" || region.content.Start <= region.full.Start || region.content.Start > len(document.Text) {
 			continue
 		}
 		opening := document.Text[region.full.Start:region.content.Start]
-		match := phase11SrcAttr.FindStringSubmatchIndex(opening)
+		match := sourceAttributePattern.FindStringSubmatchIndex(opening)
 		if len(match) < 4 || match[2] < 0 {
 			continue
 		}
 		start := region.full.Start + match[2]
 		end := region.full.Start + match[3]
-		phase11AddDependency(document, &dependencies, StructuralDependencyInclude, document.Text[start:end], start, end)
+		addCompositeDependency(document, &dependencies, StructuralDependencyInclude, document.Text[start:end], start, end)
 	}
 	return dependencies
 }
 
-func phase11JSPDependencies(document *SourceDocument, probe string) []StructuralDependency {
+func jspDependencies(document *SourceDocument, probe string) []StructuralDependency {
 	var dependencies []StructuralDependency
-	for _, match := range phase11JSPIncludeDirective.FindAllStringSubmatchIndex(probe, -1) {
+	for _, match := range jspIncludeDirectivePattern.FindAllStringSubmatchIndex(probe, -1) {
 		if len(match) < 4 || match[2] < 0 {
 			continue
 		}
-		phase11AddDependency(document, &dependencies, StructuralDependencyInclude, document.Text[match[2]:match[3]], match[2], match[3])
+		addCompositeDependency(document, &dependencies, StructuralDependencyInclude, document.Text[match[2]:match[3]], match[2], match[3])
 	}
 	return dependencies
 }
 
-func phase11TemplateDependencies(document *SourceDocument, probe string) []StructuralDependency {
+func templateDependencies(document *SourceDocument, probe string) []StructuralDependency {
 	var dependencies []StructuralDependency
-	for _, match := range phase11TemplateDependency.FindAllStringSubmatchIndex(probe, -1) {
+	for _, match := range templateDependencyPattern.FindAllStringSubmatchIndex(probe, -1) {
 		if len(match) < 6 || match[4] < 0 {
 			continue
 		}
@@ -1527,23 +1527,23 @@ func phase11TemplateDependencies(document *SourceDocument, probe string) []Struc
 		if directive == "import" || directive == "from" {
 			kind = StructuralDependencyImport
 		}
-		phase11AddDependency(document, &dependencies, kind, document.Text[match[4]:match[5]], match[4], match[5])
+		addCompositeDependency(document, &dependencies, kind, document.Text[match[4]:match[5]], match[4], match[5])
 	}
 	return dependencies
 }
 
-func phase11BladeDependencies(document *SourceDocument, probe string) []StructuralDependency {
+func bladeDependencies(document *SourceDocument, probe string) []StructuralDependency {
 	var dependencies []StructuralDependency
-	for _, match := range phase11BladeDependency.FindAllStringSubmatchIndex(probe, -1) {
+	for _, match := range bladeDependencyPattern.FindAllStringSubmatchIndex(probe, -1) {
 		if len(match) < 6 || match[4] < 0 {
 			continue
 		}
-		phase11AddDependency(document, &dependencies, StructuralDependencyInclude, document.Text[match[4]:match[5]], match[4], match[5])
+		addCompositeDependency(document, &dependencies, StructuralDependencyInclude, document.Text[match[4]:match[5]], match[4], match[5])
 	}
 	return dependencies
 }
 
-func phase11EJSDependencies(ctx context.Context, document *SourceDocument, regions []phase11EmbeddedRegion, maxNesting int) ([]StructuralDependency, error) {
+func ejsDependencies(ctx context.Context, document *SourceDocument, regions []compositeEmbeddedRegion, maxNesting int) ([]StructuralDependency, error) {
 	var dependencies []StructuralDependency
 	if maxNesting <= 0 {
 		maxNesting = 2048
@@ -1562,9 +1562,9 @@ func phase11EJSDependencies(ctx context.Context, document *SourceDocument, regio
 			if scan.Tokens[index].Text != "include" {
 				continue
 			}
-			open := phase11NextCodeToken(scan.Tokens, index+1)
-			valueIndex := phase11NextCodeToken(scan.Tokens, open+1)
-			close := phase11NextCodeToken(scan.Tokens, valueIndex+1)
+			open := nextCompositeCodeToken(scan.Tokens, index+1)
+			valueIndex := nextCompositeCodeToken(scan.Tokens, open+1)
+			close := nextCompositeCodeToken(scan.Tokens, valueIndex+1)
 			if open < 0 || valueIndex < 0 || close < 0 || scan.Tokens[open].Text != "(" || scan.Tokens[valueIndex].Kind != TokenString || scan.Tokens[close].Text != ")" {
 				continue
 			}
@@ -1574,13 +1574,13 @@ func phase11EJSDependencies(ctx context.Context, document *SourceDocument, regio
 			}
 			start := region.content.Start + scan.Tokens[valueIndex].StartOffset
 			end := region.content.Start + scan.Tokens[valueIndex].EndOffset
-			phase11AddDependency(document, &dependencies, StructuralDependencyInclude, value, start, end)
+			addCompositeDependency(document, &dependencies, StructuralDependencyInclude, value, start, end)
 		}
 	}
 	return dependencies, nil
 }
 
-func phase11NextCodeToken(tokens []Token, start int) int {
+func nextCompositeCodeToken(tokens []Token, start int) int {
 	if start < 0 {
 		return -1
 	}
@@ -1592,7 +1592,7 @@ func phase11NextCodeToken(tokens []Token, start int) int {
 	return -1
 }
 
-func phase11AddDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
+func addCompositeDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
 	value = strings.TrimSpace(value)
 	if value == "" || start < 0 || end <= start || end > len(document.Text) {
 		return
@@ -1604,7 +1604,7 @@ func phase11AddDependency(document *SourceDocument, dependencies *[]StructuralDe
 	*dependencies = appendUniqueDependencies(*dependencies, []StructuralDependency{{Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}})
 }
 
-func phase11CapRegions(regions []phase11EmbeddedRegion, limit int) ([]phase11EmbeddedRegion, bool) {
+func capEmbeddedRegions(regions []compositeEmbeddedRegion, limit int) ([]compositeEmbeddedRegion, bool) {
 	limit = max(1, limit)
 	if len(regions) <= limit {
 		return regions, false
@@ -1612,7 +1612,7 @@ func phase11CapRegions(regions []phase11EmbeddedRegion, limit int) ([]phase11Emb
 	return regions[:limit], true
 }
 
-func phase11CapOffsetRanges(ranges []OffsetRange, limit int) ([]OffsetRange, bool) {
+func capCompositeOffsetRanges(ranges []OffsetRange, limit int) ([]OffsetRange, bool) {
 	limit = max(1, limit)
 	if len(ranges) <= limit {
 		return ranges, false
@@ -1620,12 +1620,12 @@ func phase11CapOffsetRanges(ranges []OffsetRange, limit int) ([]OffsetRange, boo
 	return ranges[:limit], true
 }
 
-func phase11OpeningsCovered(text string, regions []phase11EmbeddedRegion, opening *regexp.Regexp) bool {
+func embeddedOpeningsCovered(text string, regions []compositeEmbeddedRegion, opening *regexp.Regexp) bool {
 	locations := opening.FindAllStringIndex(text, -1)
 	regionIndex := 0
 	for _, location := range locations {
 		start := location[0]
-		if closeRelative := strings.IndexByte(text[start:], '>'); closeRelative >= 0 && phase11SelfClosingTagOpening(text[start:start+closeRelative+1]) {
+		if closeRelative := strings.IndexByte(text[start:], '>'); closeRelative >= 0 && selfClosingTagOpening(text[start:start+closeRelative+1]) {
 			continue
 		}
 		for regionIndex < len(regions) && regions[regionIndex].full.End <= start {
@@ -1638,7 +1638,7 @@ func phase11OpeningsCovered(text string, regions []phase11EmbeddedRegion, openin
 	return true
 }
 
-func phase11MarkPartial(result *AnalysisResult, limits SymbolBuilderLimits, truncated bool, code, message string) {
+func markCompositePartial(result *AnalysisResult, limits SymbolBuilderLimits, truncated bool, code, message string) {
 	result.CoverageComplete = false
 	if truncated {
 		result.Truncated = true
@@ -1651,58 +1651,58 @@ func phase11MarkPartial(result *AnalysisResult, limits SymbolBuilderLimits, trun
 	}
 }
 
-func phase11AppendDependencies(result *AnalyzerResult, extra []StructuralDependency, limits SymbolBuilderLimits) {
+func appendCompositeDependencies(result *AnalyzerResult, extra []StructuralDependency, limits SymbolBuilderLimits) {
 	merged := appendUniqueDependencies(result.Dependencies, extra)
 	limit := max(1, limits.MaxSymbols)
 	if len(merged) > limit {
 		merged = merged[:limit]
-		phase11MarkPartial(&result.Analysis, limits, true, "dependency-limit", "dependency retention limit reached")
+		markCompositePartial(&result.Analysis, limits, true, "dependency-limit", "dependency retention limit reached")
 	}
 	result.Dependencies = merged
 }
 
-func phase11AppendRegions(result *AnalyzerResult, extra []SourceRegion, limits SymbolBuilderLimits) {
+func appendCompositeRegions(result *AnalyzerResult, extra []SourceRegion, limits SymbolBuilderLimits) {
 	limit := max(1, limits.MaxSymbols)
 	remaining := limit - len(result.Regions)
 	if remaining <= 0 {
 		if len(extra) > 0 {
-			phase11MarkPartial(&result.Analysis, limits, true, "region-limit", "composite region retention limit reached")
+			markCompositePartial(&result.Analysis, limits, true, "region-limit", "composite region retention limit reached")
 		}
 		return
 	}
 	if len(extra) > remaining {
 		result.Regions = append(result.Regions, extra[:remaining]...)
-		phase11MarkPartial(&result.Analysis, limits, true, "region-limit", "composite region retention limit reached")
+		markCompositePartial(&result.Analysis, limits, true, "region-limit", "composite region retention limit reached")
 		return
 	}
 	result.Regions = append(result.Regions, extra...)
 }
 
-func phase11AppendRelations(result *AnalyzerResult, extra []StructuralRelation, limits SymbolBuilderLimits) {
+func appendCompositeRelations(result *AnalyzerResult, extra []StructuralRelation, limits SymbolBuilderLimits) {
 	limit := max(1, limits.MaxSymbols)
 	remaining := limit - len(result.Relations)
 	if remaining <= 0 {
 		if len(extra) > 0 {
-			phase11MarkPartial(&result.Analysis, limits, true, "relation-limit", "relation retention limit reached")
+			markCompositePartial(&result.Analysis, limits, true, "relation-limit", "relation retention limit reached")
 		}
 		return
 	}
 	if len(extra) > remaining {
 		result.Relations = append(result.Relations, extra[:remaining]...)
-		phase11MarkPartial(&result.Analysis, limits, true, "relation-limit", "relation retention limit reached")
+		markCompositePartial(&result.Analysis, limits, true, "relation-limit", "relation retention limit reached")
 		return
 	}
 	result.Relations = append(result.Relations, extra...)
 }
 
-func phase11OrderedNonOverlappingRegions(regions []phase11EmbeddedRegion) []phase11EmbeddedRegion {
+func orderedNonOverlappingEmbeddedRegions(regions []compositeEmbeddedRegion) []compositeEmbeddedRegion {
 	sort.SliceStable(regions, func(i, j int) bool {
 		if regions[i].full.Start != regions[j].full.Start {
 			return regions[i].full.Start < regions[j].full.Start
 		}
 		return regions[i].full.End > regions[j].full.End
 	})
-	result := make([]phase11EmbeddedRegion, 0, len(regions))
+	result := make([]compositeEmbeddedRegion, 0, len(regions))
 	end := -1
 	for _, region := range regions {
 		if region.full.Start < end {

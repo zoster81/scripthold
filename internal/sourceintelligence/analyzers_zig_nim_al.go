@@ -73,7 +73,7 @@ func (p *zigParser) collectImports() {
 			if p.tokens[j].Kind != TokenString {
 				continue
 			}
-			value := phase7StringValue(p.tokens[j].Text)
+			value := quotedStringValue(p.tokens[j].Text)
 			if value != "" {
 				r, err := p.document.RangeFromUTF8Offsets(p.tokens[j].StartOffset, p.tokens[j].EndOffset)
 				if err == nil {
@@ -320,28 +320,28 @@ func maskNimApostropheSuffixes(text string) string {
 		if text[at] != '\'' || at+1 >= len(text) {
 			continue
 		}
-		if at > 0 && text[at-1] == '`' && phase7NimSuffixByte(text[at+1]) {
+		if at > 0 && text[at-1] == '`' && nimSuffixByte(text[at+1]) {
 			masked[at] = ' '
 			continue
 		}
-		if at == 0 || !phase7NimNumericSuffixLeftByte(text[at-1]) || !phase7NimSuffixByte(text[at+1]) {
+		if at == 0 || !nimNumericSuffixLeftByte(text[at-1]) || !nimSuffixByte(text[at+1]) {
 			continue
 		}
 		end := at + 2
-		for end < len(text) && phase7NimSuffixByte(text[end]) {
+		for end < len(text) && nimSuffixByte(text[end]) {
 			end++
 		}
-		phase8MaskRange(masked, at, end)
+		maskRangePreservingLines(masked, at, end)
 		at = end - 1
 	}
 	return string(masked)
 }
 
-func phase7NimNumericSuffixLeftByte(value byte) bool {
+func nimNumericSuffixLeftByte(value byte) bool {
 	return value >= '0' && value <= '9' || value >= 'A' && value <= 'F' || value >= 'a' && value <= 'f'
 }
 
-func phase7NimSuffixByte(value byte) bool {
+func nimSuffixByte(value byte) bool {
 	return value == '_' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
@@ -884,7 +884,7 @@ func alObjectNameToken(tokens []Token, start, end int) int {
 
 func alTokenValue(token Token) string {
 	if token.Kind == TokenString {
-		return phase7StringValue(token.Text)
+		return quotedStringValue(token.Text)
 	}
 	return strings.Trim(token.Text, "\"")
 }
