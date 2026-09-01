@@ -234,6 +234,34 @@ func TestScannerMalformedInputReturnsBoundedDiagnostics(t *testing.T) {
 	}
 }
 
+func TestScannerLargeTokenGrowthIsAllocationBounded(t *testing.T) {
+	const line = "namespace Demo { class Item { string Text = \"value // not comment\"; void Run() { /* comment */ Call(\"x\"); } } }\n"
+	text := strings.Repeat(line, 4096)
+	document := sourceDocumentForScanner(text)
+	profile := CSharpScannerProfile()
+	limits := ScannerLimits{MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: 256}
+
+	var result ScanResult
+	var scanErr error
+	allocations := testing.AllocsPerRun(5, func() {
+		result, scanErr = ScanSource(context.Background(), document, profile, limits)
+	})
+	if scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if !result.Complete || len(result.Tokens) == 0 {
+		t.Fatalf("unexpected scanner result: complete=%t tokens=%d diagnostics=%+v", result.Complete, len(result.Tokens), result.Diagnostics)
+	}
+	if allocations > 15 {
+		t.Fatalf("large scanner allocations = %.0f, want <= 15", allocations)
+	}
+	maxCapacity := len(result.Tokens) + len(result.Tokens)/16
+	if cap(result.Tokens) > maxCapacity {
+		t.Fatalf("large scanner retained capacity = %d for %d tokens, want <= %d", cap(result.Tokens), len(result.Tokens), maxCapacity)
+	}
+	assertTokenOffsetsValid(t, text, result.Tokens)
+}
+
 func TestScannerLimitsNestingTokensAndTokenBytes(t *testing.T) {
 	tests := []struct {
 		name   string

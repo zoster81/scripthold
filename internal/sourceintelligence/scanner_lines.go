@@ -32,19 +32,59 @@ func BuildLogicalLines(tokens []Token, profile LogicalLineProfile) []LogicalLine
 			separatorSet[separator] = struct{}{}
 		}
 	}
+	retainedCapacity := 0
+	lineCapacity := 0
+	lineHasTokens := false
+prepass:
+	for _, token := range tokens {
+		switch token.Kind {
+		case TokenIndent, TokenDedent:
+			continue
+		case TokenNewline:
+			if lineHasTokens {
+				lineCapacity++
+				lineHasTokens = false
+			}
+			continue
+		case TokenEOF:
+			break prepass
+		case TokenDirective:
+			if profile.SkipDirectives {
+				continue
+			}
+		}
+		if _, separator := separatorSet[token.Text]; separator && token.Nesting == 0 {
+			if lineHasTokens {
+				lineCapacity++
+				lineHasTokens = false
+			}
+			continue
+		}
+		retainedCapacity++
+		lineHasTokens = true
+	}
+	if lineHasTokens {
+		lineCapacity++
+	}
+
 	indent := 0
 	lineIndent := 0
-	var current []Token
+	lineStart := 0
+	retained := make([]Token, 0, retainedCapacity)
 	var result []LogicalLine
+	if lineCapacity > 0 {
+		result = make([]LogicalLine, 0, lineCapacity)
+	}
 	flush := func() {
-		if len(current) == 0 {
+		if lineStart == len(retained) {
 			return
 		}
+		lineTokens := retained[lineStart:len(retained):len(retained)]
 		result = append(result, LogicalLine{
-			Tokens: append([]Token(nil), current...), StartOffset: current[0].StartOffset,
-			EndOffset: current[len(current)-1].EndOffset, Indent: lineIndent,
+			Tokens: lineTokens, StartOffset: lineTokens[0].StartOffset,
+			EndOffset: lineTokens[len(lineTokens)-1].EndOffset, Indent: lineIndent,
 		})
-		current = current[:0]
+		lineStart = len(retained)
 	}
 	for _, token := range tokens {
 		switch token.Kind {
@@ -68,10 +108,10 @@ func BuildLogicalLines(tokens []Token, profile LogicalLineProfile) []LogicalLine
 			flush()
 			continue
 		}
-		if len(current) == 0 {
+		if lineStart == len(retained) {
 			lineIndent = indent
 		}
-		current = append(current, token)
+		retained = append(retained, token)
 	}
 	flush()
 	return result

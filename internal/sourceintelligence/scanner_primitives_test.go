@@ -6,9 +6,21 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+	"unsafe"
 
 	"github.com/zoster81/scripthold/internal/operation"
 )
+
+func TestTokenRepresentationRemainsCompact(t *testing.T) {
+	var kind TokenKind
+	if size := unsafe.Sizeof(kind); size != 1 {
+		t.Fatalf("TokenKind size = %d bytes, want 1", size)
+	}
+	maxTokenSize := uintptr(6) * unsafe.Sizeof(int(0))
+	if size := unsafe.Sizeof(Token{}); size > maxTokenSize {
+		t.Fatalf("Token size = %d bytes, want <= %d", size, maxTokenSize)
+	}
+}
 
 func TestScannerProfileIdentifierDelimiterAndDirectivePolicies(t *testing.T) {
 	profile := ScannerProfile{
@@ -342,6 +354,52 @@ func TestLogicalLineBuilderHandlesBasicSeparatorsAndIndentation(t *testing.T) {
 	pyLines := BuildLogicalLines(pyScan.Tokens, LogicalLineProfile{TrackIndentation: true, SkipDirectives: true})
 	if got := []int{pyLines[0].Indent, pyLines[1].Indent, pyLines[2].Indent, pyLines[3].Indent}; !reflect.DeepEqual(got, []int{0, 1, 2, 0}) {
 		t.Fatalf("Python logical indentation = %v", got)
+	}
+}
+
+func TestBuildLogicalLinesUsesBoundedIsolatedStorage(t *testing.T) {
+	const lineCount = 2048
+	tokens := make([]Token, 0, lineCount*4+1)
+	for line := 0; line < lineCount; line++ {
+		offset := line * 16
+		tokens = append(tokens,
+			Token{Kind: TokenIdentifier, Text: "value", StartOffset: offset, EndOffset: offset + 5},
+			Token{Kind: TokenOperator, Text: "=", StartOffset: offset + 6, EndOffset: offset + 7},
+			Token{Kind: TokenNumber, Text: "1", StartOffset: offset + 8, EndOffset: offset + 9},
+			Token{Kind: TokenNewline, Text: "\n", StartOffset: offset + 9, EndOffset: offset + 10},
+		)
+	}
+	tokens = append(tokens, Token{Kind: TokenEOF, StartOffset: lineCount * 16, EndOffset: lineCount * 16})
+
+	var lines []LogicalLine
+	allocations := testing.AllocsPerRun(10, func() {
+		lines = BuildLogicalLines(tokens, LogicalLineProfile{})
+	})
+	if allocations > 8 {
+		t.Fatalf("BuildLogicalLines allocations = %.0f, want <= 8 for %d lines", allocations, lineCount)
+	}
+	if len(lines) != lineCount {
+		t.Fatalf("logical line count = %d, want %d", len(lines), lineCount)
+	}
+
+	inputFirst := tokens[0]
+	lines[0].Tokens[0].Text = "changed"
+	if tokens[0] != inputFirst {
+		t.Fatalf("logical-line tokens alias input tokens: input=%+v", tokens[0])
+	}
+
+	secondFirst := lines[1].Tokens[0]
+	first := append(lines[0].Tokens, Token{Kind: TokenIdentifier, Text: "extra"})
+	if len(first) != 4 || lines[1].Tokens[0] != secondFirst {
+		t.Fatalf("appending to one logical line corrupted adjacent storage: first=%+v second=%+v", first, lines[1].Tokens)
+	}
+
+	afterEOF := BuildLogicalLines([]Token{
+		{Kind: TokenEOF},
+		{Kind: TokenIdentifier, Text: "ignored", StartOffset: 1, EndOffset: 8},
+	}, LogicalLineProfile{})
+	if afterEOF != nil {
+		t.Fatalf("tokens after EOF produced logical lines: %+v", afterEOF)
 	}
 }
 

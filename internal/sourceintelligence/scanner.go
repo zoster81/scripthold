@@ -16,21 +16,21 @@ const (
 )
 
 // TokenKind is a language-neutral lexical category.
-type TokenKind string
+type TokenKind uint8
 
 const (
-	TokenIdentifier  TokenKind = "identifier"
-	TokenKeyword     TokenKind = "keyword"
-	TokenNumber      TokenKind = "number"
-	TokenString      TokenKind = "string"
-	TokenOperator    TokenKind = "operator"
-	TokenPunctuation TokenKind = "punctuation"
-	TokenNewline     TokenKind = "newline"
-	TokenIndent      TokenKind = "indent"
-	TokenDedent      TokenKind = "dedent"
-	TokenDirective   TokenKind = "directive"
-	TokenHereDoc     TokenKind = "heredoc"
-	TokenEOF         TokenKind = "eof"
+	TokenIdentifier TokenKind = iota + 1
+	TokenKeyword
+	TokenNumber
+	TokenString
+	TokenOperator
+	TokenPunctuation
+	TokenNewline
+	TokenIndent
+	TokenDedent
+	TokenDirective
+	TokenHereDoc
+	TokenEOF
 )
 
 // Token stores decoded UTF-8 offsets only. Public coordinate conversion remains
@@ -774,20 +774,29 @@ func (scanner *sourceScanner) emit(kind TokenKind, start, end int) error {
 	if end-start > scanner.limits.MaxTokenBytes {
 		return scanner.limitError("token bytes", end-start, scanner.limits.MaxTokenBytes)
 	}
-	if len(scanner.result.Tokens)+1 > scanner.limits.MaxTokens {
-		return scanner.limitError("token count", len(scanner.result.Tokens)+1, scanner.limits.MaxTokens)
-	}
-	scanner.result.Tokens = append(scanner.result.Tokens, Token{
+	return scanner.appendToken(Token{
 		Kind: kind, Text: scanner.text[start:end], StartOffset: start, EndOffset: end, Nesting: len(scanner.delimiters),
 	})
-	return nil
 }
 
 func (scanner *sourceScanner) emitSynthetic(kind TokenKind, offset, nesting int) error {
-	if len(scanner.result.Tokens)+1 > scanner.limits.MaxTokens {
-		return scanner.limitError("token count", len(scanner.result.Tokens)+1, scanner.limits.MaxTokens)
+	return scanner.appendToken(Token{Kind: kind, StartOffset: offset, EndOffset: offset, Nesting: nesting})
+}
+
+func (scanner *sourceScanner) appendToken(token Token) error {
+	tokens := scanner.result.Tokens
+	if len(tokens)+1 > scanner.limits.MaxTokens {
+		return scanner.limitError("token count", len(tokens)+1, scanner.limits.MaxTokens)
 	}
-	scanner.result.Tokens = append(scanner.result.Tokens, Token{Kind: kind, StartOffset: offset, EndOffset: offset, Nesting: nesting})
+	if len(tokens) == cap(tokens) && cap(tokens) >= scannerInitialTokenCapacityLimit && cap(tokens) < scanner.limits.MaxTokens {
+		remaining := scanner.limits.MaxTokens - cap(tokens)
+		growth := max(cap(tokens)/3, 1)
+		growth = min(growth, remaining)
+		grown := make([]Token, len(tokens), cap(tokens)+growth)
+		copy(grown, tokens)
+		tokens = grown
+	}
+	scanner.result.Tokens = append(tokens, token)
 	return nil
 }
 
