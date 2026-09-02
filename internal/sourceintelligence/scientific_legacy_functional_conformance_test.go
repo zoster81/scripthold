@@ -921,6 +921,37 @@ func TestFortranProcedureKeywordSearchDoesNotAllocatePerToken(t *testing.T) {
 	}
 }
 
+func TestFortranStatementDispatchDoesNotAllocatePerLine(t *testing.T) {
+	tokens := []Token{{Kind: TokenIdentifier, Text: "MiXeDValue"}}
+	var scopes []structuralAnalyzerScope
+
+	allocations := testing.AllocsPerRun(5, func() {
+		for range 2048 {
+			parseFortranTokens(nil, nil, tokens, 0, len(tokens[0].Text), &scopes, nil)
+		}
+	})
+	if allocations > 1 {
+		t.Fatalf("Fortran statement dispatch allocations = %.0f, want <= 1", allocations)
+	}
+}
+
+func TestFortranStatementKeywordPreservesUnicodeLowerSemantics(t *testing.T) {
+	for _, testCase := range []struct {
+		value string
+		want  string
+	}{
+		{value: "MoDuLe", want: "module"},
+		{value: "EnDsUbRoUtInE", want: "endsubroutine"},
+		{value: "PrOcEdUrE", want: "procedure"},
+		{value: "ſubroutine", want: ""},
+		{value: "ordinary", want: ""},
+	} {
+		if got := fortranStatementKeyword(testCase.value); got != testCase.want {
+			t.Fatalf("fortranStatementKeyword(%q) = %q, want %q", testCase.value, got, testCase.want)
+		}
+	}
+}
+
 func TestFortranProcedureKeywordSearchPreservesUnicodeLowerSemantics(t *testing.T) {
 	text := "module demo\n" +
 		"contains\n" +

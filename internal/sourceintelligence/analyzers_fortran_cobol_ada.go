@@ -613,13 +613,14 @@ func parseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens
 	if len(tokens) == 0 {
 		return
 	}
-	first := strings.ToLower(tokens[0].Text)
+	first := fortranStatementKeyword(tokens[0].Text)
 	if first == "end" {
-		label := ""
-		if len(tokens) > 1 {
-			label = strings.ToLower(tokens[1].Text)
+		if len(tokens) == 1 {
+			*scopes = popStructuralScope(*scopes, "", true)
+			return
 		}
-		if label == "" || label == "module" || label == "program" || label == "submodule" || label == "type" || label == "subroutine" || label == "function" {
+		label := fortranStatementKeyword(tokens[1].Text)
+		if label == "module" || label == "program" || label == "submodule" || label == "type" || label == "subroutine" || label == "function" {
 			*scopes = popStructuralScope(*scopes, label, true)
 		}
 		return
@@ -646,7 +647,7 @@ func parseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens
 	}
 	parent := parentFromStructuralScopes(*scopes)
 	if first == "module" && len(tokens) > 1 {
-		second := strings.ToLower(tokens[1].Text)
+		second := fortranStatementKeyword(tokens[1].Text)
 		if second == "procedure" {
 			return
 		}
@@ -697,6 +698,72 @@ func parseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens
 	default:
 		parseFortranProcedure(builder, tokens, start, end, -1, parent, scopes)
 	}
+}
+
+func fortranStatementKeyword(value string) string {
+	if value == "" {
+		return ""
+	}
+	first := value[0]
+	if first >= 'A' && first <= 'Z' {
+		first += 'a' - 'A'
+	}
+	if first >= utf8.RuneSelf {
+		return fortranNonASCIIStatementKeyword(value)
+	}
+	return fortranASCIIStatementKeyword(value, first)
+}
+
+func fortranASCIIStatementKeyword(value string, first byte) string {
+	switch first {
+	case 'e':
+		return fortranEndStatementKeyword(value)
+	case 'f':
+		return fortranStatementKeywordMatch(value, "function")
+	case 'm':
+		return fortranStatementKeywordMatch(value, "module")
+	case 'p':
+		if matched := fortranStatementKeywordMatch(value, "program"); matched != "" {
+			return matched
+		}
+		return fortranStatementKeywordMatch(value, "procedure")
+	case 's':
+		if matched := fortranStatementKeywordMatch(value, "submodule"); matched != "" {
+			return matched
+		}
+		return fortranStatementKeywordMatch(value, "subroutine")
+	case 't':
+		return fortranStatementKeywordMatch(value, "type")
+	case 'u':
+		return fortranStatementKeywordMatch(value, "use")
+	default:
+		return ""
+	}
+}
+
+func fortranEndStatementKeyword(value string) string {
+	for _, keyword := range [...]string{"end", "endmodule", "endprogram", "endsubmodule", "endtype", "endsubroutine", "endfunction"} {
+		if matched := fortranStatementKeywordMatch(value, keyword); matched != "" {
+			return matched
+		}
+	}
+	return ""
+}
+
+func fortranNonASCIIStatementKeyword(value string) string {
+	for _, keyword := range [...]string{"end", "endmodule", "endprogram", "endsubmodule", "endtype", "endsubroutine", "endfunction", "function", "module", "program", "procedure", "submodule", "subroutine", "type", "use"} {
+		if matched := fortranStatementKeywordMatch(value, keyword); matched != "" {
+			return matched
+		}
+	}
+	return ""
+}
+
+func fortranStatementKeywordMatch(value, keyword string) string {
+	if value == keyword || caseInsensitiveKeywordEqual(value, keyword) {
+		return keyword
+	}
+	return ""
 }
 
 func fortranCompactEndLabel(token string) (string, bool) {
