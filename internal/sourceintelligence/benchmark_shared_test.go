@@ -543,6 +543,21 @@ func BenchmarkSharedDelimiterPairing(b *testing.B) {
 	}
 }
 
+func BenchmarkSharedDelimiterPairingSparse(b *testing.B) {
+	tokens := make([]Token, 32*1024)
+	for index := range tokens {
+		tokens[index] = Token{Kind: TokenIdentifier, Text: "value"}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		pairs := PairDelimiterTokens(tokens, nil)
+		if len(pairs) != 0 {
+			b.Fatalf("sparse delimiter pairing returned %d entries", len(pairs))
+		}
+	}
+}
+
 func BenchmarkSharedConditionalSelections(b *testing.B) {
 	const groupCount = 24
 	groups := make([]conditionalGroup, groupCount)

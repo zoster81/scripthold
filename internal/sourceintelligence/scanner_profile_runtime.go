@@ -214,7 +214,7 @@ func PairDelimiterTokens(tokens []Token, rules []DelimiterRule) map[int]int {
 		close string
 	}
 	var stack []entry
-	pairs := make(map[int]int)
+	pairs := make(map[int]int, delimiterPairCapacityHint(tokens, closeSet))
 	for index, token := range tokens {
 		if close, ok := openToClose[token.Text]; ok {
 			stack = append(stack, entry{index: index, close: close})
@@ -232,6 +232,35 @@ func PairDelimiterTokens(tokens []Token, rules []DelimiterRule) map[int]int {
 		pairs[index] = top.index
 	}
 	return pairs
+}
+
+func delimiterPairCapacityHint(tokens []Token, closeSet map[string]struct{}) int {
+	const probeTokens = 1024
+	probeEnd := min(len(tokens), probeTokens)
+	pairCount := 0
+	for index := 1; index < probeEnd; index++ {
+		if tokens[index].Nesting >= tokens[index-1].Nesting {
+			continue
+		}
+		if _, closeToken := closeSet[tokens[index].Text]; closeToken {
+			pairCount++
+		}
+	}
+	if pairCount == 0 {
+		return 0
+	}
+	for index := probeEnd; index < len(tokens); index++ {
+		if tokens[index].Nesting >= tokens[index-1].Nesting {
+			continue
+		}
+		if _, closeToken := closeSet[tokens[index].Text]; closeToken {
+			pairCount++
+		}
+	}
+	if pairCount > len(tokens)/2 {
+		return len(tokens)
+	}
+	return pairCount * 2
 }
 
 func (scanner *sourceScanner) hereDocOpeningAt(offset int) (HereDocRule, int, bool) {

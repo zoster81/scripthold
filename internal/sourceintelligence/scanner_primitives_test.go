@@ -136,6 +136,66 @@ func TestScannerDelimiterDispatchPreservesUTF8Delimiters(t *testing.T) {
 	}
 }
 
+func TestPairDelimiterTokensDensePairingAllocationBounded(t *testing.T) {
+	const repeats = 1024
+	text := strings.Repeat("call(alpha[beta{gamma(delta)}], other);\n", repeats)
+	profile := CSharpScannerProfile()
+	scan, err := ScanSource(context.Background(), sourceDocumentForScanner(text), profile, ScannerLimits{
+		MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: 256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantPairEntries = repeats * 8
+	allocations := testing.AllocsPerRun(5, func() {
+		pairs := PairDelimiterTokens(scan.Tokens, profile.Delimiters)
+		if len(pairs) != wantPairEntries {
+			t.Fatalf("delimiter pair entries = %d, want %d", len(pairs), wantPairEntries)
+		}
+	})
+	if allocations > 40 {
+		t.Fatalf("dense delimiter pairing allocations = %.0f, want <= 40", allocations)
+	}
+}
+
+func TestPairDelimiterTokensDelayedDensePairingAllocationBounded(t *testing.T) {
+	const repeats = 1024
+	text := strings.Repeat("value ", 600) + strings.Repeat("call(alpha[beta{gamma(delta)}], other);\n", repeats)
+	profile := CSharpScannerProfile()
+	scan, err := ScanSource(context.Background(), sourceDocumentForScanner(text), profile, ScannerLimits{
+		MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: 256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantPairEntries = repeats * 8
+	allocations := testing.AllocsPerRun(5, func() {
+		pairs := PairDelimiterTokens(scan.Tokens, profile.Delimiters)
+		if len(pairs) != wantPairEntries {
+			t.Fatalf("delayed delimiter pair entries = %d, want %d", len(pairs), wantPairEntries)
+		}
+	})
+	if allocations > 40 {
+		t.Fatalf("delayed dense delimiter pairing allocations = %.0f, want <= 40", allocations)
+	}
+}
+
+func TestPairDelimiterTokensSparseInputAllocationBounded(t *testing.T) {
+	tokens := make([]Token, 32*1024)
+	for index := range tokens {
+		tokens[index] = Token{Kind: TokenIdentifier, Text: "value"}
+	}
+	allocations := testing.AllocsPerRun(5, func() {
+		pairs := PairDelimiterTokens(tokens, nil)
+		if len(pairs) != 0 {
+			t.Fatalf("sparse delimiter pairs = %d, want 0", len(pairs))
+		}
+	})
+	if allocations > 16 {
+		t.Fatalf("sparse delimiter pairing allocations = %.0f, want <= 16", allocations)
+	}
+}
+
 func TestScannerDirectiveBackslashContinuationsStayOpaque(t *testing.T) {
 	for _, testCase := range []struct {
 		name string
