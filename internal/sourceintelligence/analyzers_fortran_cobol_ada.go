@@ -331,10 +331,16 @@ func planFortranConditionals(text string) conditionalPlan {
 	return plan
 }
 
+type fortranLogicalSymbolKey struct {
+	kind          SymbolKind
+	qualifiedName string
+}
+
 func mergeFortranConditionalVariants(options AnalyzeOptions, variants []AnalyzerResult) AnalyzerResult {
 	merged := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
 	seenIDs := make(map[string]struct{})
-	seenLogical := make(map[string]struct{})
+	seenLogical := make(map[fortranLogicalSymbolKey]struct{})
+	var legacySeenLogical map[string]struct{}
 	for _, variant := range variants {
 		if !variant.Analysis.CoverageComplete {
 			merged.Analysis.CoverageComplete = false
@@ -351,12 +357,24 @@ func mergeFortranConditionalVariants(options AnalyzeOptions, variants []Analyzer
 			if _, exists := seenIDs[symbol.ID]; exists {
 				continue
 			}
-			logical := string(symbol.Kind) + "\x00" + symbol.QualifiedName
 			if symbol.QualifiedName != "" {
-				if _, exists := seenLogical[logical]; exists {
-					continue
+				kind := string(symbol.Kind)
+				if strings.IndexByte(kind, 0) >= 0 || strings.IndexByte(symbol.QualifiedName, 0) >= 0 {
+					if legacySeenLogical == nil {
+						legacySeenLogical = make(map[string]struct{})
+					}
+					logical := kind + "\x00" + symbol.QualifiedName
+					if _, exists := legacySeenLogical[logical]; exists {
+						continue
+					}
+					legacySeenLogical[logical] = struct{}{}
+				} else {
+					logical := fortranLogicalSymbolKey{kind: symbol.Kind, qualifiedName: symbol.QualifiedName}
+					if _, exists := seenLogical[logical]; exists {
+						continue
+					}
+					seenLogical[logical] = struct{}{}
 				}
-				seenLogical[logical] = struct{}{}
 			}
 			if len(merged.Analysis.Symbols) >= options.Limits.MaxSymbols {
 				merged.Analysis.Truncated = true
