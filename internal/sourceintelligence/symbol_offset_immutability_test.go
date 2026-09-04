@@ -23,8 +23,9 @@ func TestPrivateSymbolOffsetSnapshotsRemainOwnerOnly(t *testing.T) {
 	}
 
 	allowed := map[string]struct{}{
-		"normalizeSymbol": {},
-		"SourceOffsets":   {},
+		"normalizeSymbol":   {},
+		"SourceOffsets":     {},
+		"sameSourceOffsets": {},
 	}
 	privateFields := map[string]struct{}{
 		"signatureOffsets": {},

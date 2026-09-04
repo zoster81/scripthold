@@ -455,6 +455,128 @@ func TestALConditionalMergeIsIncrementalBoundedAndConflictAware(t *testing.T) {
 	}
 }
 
+func TestALConditionalMergeDuplicateSymbolAllocationBudget(t *testing.T) {
+	const symbolCount = 512
+	symbols := make([]NormalizedSymbol, symbolCount)
+	for index := range symbols {
+		signatureRange := Range{Start: Position{Line: index + 1, Column: 1}, End: Position{Line: index + 1, Column: 9}}
+		bodyRange := Range{Start: Position{Line: index + 1, Column: 10}, End: Position{Line: index + 2, Column: 1}}
+		signatureOffsets := OffsetRange{Start: index * 32, End: index*32 + 8}
+		bodyOffsets := OffsetRange{Start: index*32 + 9, End: index*32 + 31}
+		symbols[index] = NormalizedSymbol{
+			ID: fmt.Sprintf("symbol-%04d", index), Path: "benchmark.al", Language: "al", Kind: SymbolKindMethod,
+			NativeKind: "procedure", Name: "Run", QualifiedName: fmt.Sprintf("Demo.Run.%04d", index),
+			ParentID: "parent", ParentQualifiedName: "Demo", RegionID: "region",
+			DeclarationRange: Range{Start: Position{Line: index + 1, Column: 1}, End: Position{Line: index + 2, Column: 1}},
+			NameRange:        Range{Start: Position{Line: index + 1, Column: 11}, End: Position{Line: index + 1, Column: 14}},
+			SignatureRange:   &signatureRange, BodyRange: &bodyRange, Signature: "procedure Run()", Visibility: VisibilityPublic,
+			Modifiers: []string{"local", "procedure"}, Evidence: SymbolEvidenceStructural, Analyzer: string(AnalyzerAL),
+			declarationOffsets: OffsetRange{Start: index * 32, End: index*32 + 31}, nameOffsets: OffsetRange{Start: index*32 + 10, End: index*32 + 13},
+			signatureOffsets: &signatureOffsets, bodyOffsets: &bodyOffsets,
+		}
+	}
+	merge := newALConditionalMerge(SymbolBuilderLimits{MaxSymbols: symbolCount + 1, MaxSignatureBytes: 128, MaxDiagnostics: 8})
+	merge.add(AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true, Symbols: symbols}})
+
+	allocations := testing.AllocsPerRun(20, func() {
+		merge.add(AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true, Symbols: symbols}})
+	})
+	if allocations > 1 {
+		t.Fatalf("duplicate-symbol merge allocations = %.0f, want <= 1", allocations)
+	}
+}
+
+func TestALConditionalSymbolEqualityMatchesReflectDeepEqual(t *testing.T) {
+	if fields := reflect.TypeOf(NormalizedSymbol{}).NumField(); fields != 24 {
+		t.Fatalf("NormalizedSymbol field count = %d, update alConditionalSymbolsEqual for the new shape", fields)
+	}
+	makeSymbol := func() NormalizedSymbol {
+		signatureRange := Range{Start: Position{Line: 2, Column: 3}, End: Position{Line: 2, Column: 18}}
+		bodyRange := Range{Start: Position{Line: 2, Column: 19}, End: Position{Line: 4, Column: 2}}
+		signatureOffsets := OffsetRange{Start: 20, End: 35}
+		bodyOffsets := OffsetRange{Start: 36, End: 80}
+		return NormalizedSymbol{
+			ID: "id", Path: "sample.al", Language: "al", Kind: SymbolKindMethod, NativeKind: "procedure",
+			Name: "Run", QualifiedName: "Demo.Run", ParentID: "parent-id", ParentQualifiedName: "Demo", RegionID: "region",
+			DeclarationRange: Range{Start: Position{Line: 2, Column: 1}, End: Position{Line: 4, Column: 2}},
+			NameRange:        Range{Start: Position{Line: 2, Column: 11}, End: Position{Line: 2, Column: 14}},
+			SignatureRange:   &signatureRange, BodyRange: &bodyRange, Signature: "procedure Run()", Visibility: VisibilityPublic,
+			Modifiers: []string{"local", "procedure"}, Evidence: SymbolEvidenceStructural, Analyzer: string(AnalyzerAL),
+			declarationOffsets: OffsetRange{Start: 18, End: 80}, nameOffsets: OffsetRange{Start: 28, End: 31},
+			signatureOffsets: &signatureOffsets, bodyOffsets: &bodyOffsets, signatureTruncated: true,
+		}
+	}
+
+	left, right := makeSymbol(), makeSymbol()
+	if !reflect.DeepEqual(left, right) || !alConditionalSymbolsEqual(left, right) {
+		t.Fatal("equal populated symbols were not preserved")
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*NormalizedSymbol)
+	}{
+		{"id", func(value *NormalizedSymbol) { value.ID = "other" }},
+		{"path", func(value *NormalizedSymbol) { value.Path = "other.al" }},
+		{"language", func(value *NormalizedSymbol) { value.Language = "other" }},
+		{"kind", func(value *NormalizedSymbol) { value.Kind = SymbolKindClass }},
+		{"native-kind", func(value *NormalizedSymbol) { value.NativeKind = "other" }},
+		{"name", func(value *NormalizedSymbol) { value.Name = "Other" }},
+		{"qualified-name", func(value *NormalizedSymbol) { value.QualifiedName = "Demo.Other" }},
+		{"parent-id", func(value *NormalizedSymbol) { value.ParentID = "other-parent" }},
+		{"parent-qualified-name", func(value *NormalizedSymbol) { value.ParentQualifiedName = "Other" }},
+		{"region-id", func(value *NormalizedSymbol) { value.RegionID = "other-region" }},
+		{"declaration-range", func(value *NormalizedSymbol) { value.DeclarationRange.End.Column++ }},
+		{"name-range", func(value *NormalizedSymbol) { value.NameRange.End.Column++ }},
+		{"signature-range", func(value *NormalizedSymbol) { value.SignatureRange.End.Column++ }},
+		{"signature-range-nil", func(value *NormalizedSymbol) { value.SignatureRange = nil }},
+		{"body-range", func(value *NormalizedSymbol) { value.BodyRange.End.Column++ }},
+		{"body-range-nil", func(value *NormalizedSymbol) { value.BodyRange = nil }},
+		{"signature", func(value *NormalizedSymbol) { value.Signature = "procedure Other()" }},
+		{"visibility", func(value *NormalizedSymbol) { value.Visibility = VisibilityPrivate }},
+		{"modifiers", func(value *NormalizedSymbol) { value.Modifiers[0] = "other" }},
+		{"modifiers-nil", func(value *NormalizedSymbol) { value.Modifiers = nil }},
+		{"evidence", func(value *NormalizedSymbol) { value.Evidence = SymbolEvidenceLexical }},
+		{"analyzer", func(value *NormalizedSymbol) { value.Analyzer = "other" }},
+		{"declaration-offsets", func(value *NormalizedSymbol) { value.declarationOffsets.End++ }},
+		{"name-offsets", func(value *NormalizedSymbol) { value.nameOffsets.End++ }},
+		{"signature-offsets", func(value *NormalizedSymbol) { value.signatureOffsets.End++ }},
+		{"signature-offsets-nil", func(value *NormalizedSymbol) { value.signatureOffsets = nil }},
+		{"body-offsets", func(value *NormalizedSymbol) { value.bodyOffsets.End++ }},
+		{"body-offsets-nil", func(value *NormalizedSymbol) { value.bodyOffsets = nil }},
+		{"signature-truncated", func(value *NormalizedSymbol) { value.signatureTruncated = false }},
+	}
+	for _, testCase := range mutations {
+		t.Run(testCase.name, func(t *testing.T) {
+			left, right := makeSymbol(), makeSymbol()
+			testCase.mutate(&right)
+			if got, want := alConditionalSymbolsEqual(left, right), reflect.DeepEqual(left, right); got != want {
+				t.Fatalf("typed equality = %t, reflect.DeepEqual = %t", got, want)
+			}
+		})
+	}
+
+	t.Run("nil-versus-empty-modifiers", func(t *testing.T) {
+		left, right := makeSymbol(), makeSymbol()
+		left.Modifiers = nil
+		right.Modifiers = []string{}
+		if got, want := alConditionalSymbolsEqual(left, right), reflect.DeepEqual(left, right); got != want || got {
+			t.Fatalf("typed equality = %t, reflect.DeepEqual = %t", got, want)
+		}
+	})
+	t.Run("matching-nils", func(t *testing.T) {
+		left, right := makeSymbol(), makeSymbol()
+		left.SignatureRange, right.SignatureRange = nil, nil
+		left.BodyRange, right.BodyRange = nil, nil
+		left.signatureOffsets, right.signatureOffsets = nil, nil
+		left.bodyOffsets, right.bodyOffsets = nil, nil
+		left.Modifiers, right.Modifiers = nil, nil
+		if got, want := alConditionalSymbolsEqual(left, right), reflect.DeepEqual(left, right); got != want || !got {
+			t.Fatalf("typed equality = %t, reflect.DeepEqual = %t", got, want)
+		}
+	})
+}
+
 func TestDetectionKeepsSharedHeadersAmbiguousAndRoutesDistinctFormats(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

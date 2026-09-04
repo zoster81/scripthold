@@ -3,7 +3,6 @@ package sourceintelligence
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 
@@ -816,6 +815,65 @@ func newALConditionalMerge(limits SymbolBuilderLimits) *alConditionalMerge {
 	}
 }
 
+type alConditionalSymbolValue struct {
+	ID                  string
+	Path                string
+	Language            string
+	Kind                SymbolKind
+	NativeKind          string
+	Name                string
+	QualifiedName       string
+	ParentID            string
+	ParentQualifiedName string
+	RegionID            string
+	DeclarationRange    Range
+	NameRange           Range
+	Signature           string
+	Visibility          Visibility
+	Evidence            SymbolEvidence
+	Analyzer            string
+	SignatureTruncated  bool
+}
+
+func alConditionalSymbolValueOf(symbol NormalizedSymbol) alConditionalSymbolValue {
+	return alConditionalSymbolValue{
+		ID: symbol.ID, Path: symbol.Path, Language: symbol.Language, Kind: symbol.Kind, NativeKind: symbol.NativeKind,
+		Name: symbol.Name, QualifiedName: symbol.QualifiedName, ParentID: symbol.ParentID, ParentQualifiedName: symbol.ParentQualifiedName,
+		RegionID: symbol.RegionID, DeclarationRange: symbol.DeclarationRange, NameRange: symbol.NameRange, Signature: symbol.Signature,
+		Visibility: symbol.Visibility, Evidence: symbol.Evidence, Analyzer: symbol.Analyzer, SignatureTruncated: symbol.signatureTruncated,
+	}
+}
+
+func alConditionalSymbolsEqual(left, right NormalizedSymbol) bool {
+	if alConditionalSymbolValueOf(left) != alConditionalSymbolValueOf(right) || !left.sameSourceOffsets(right) {
+		return false
+	}
+	if !alConditionalRangePointersEqual(left.SignatureRange, right.SignatureRange) ||
+		!alConditionalRangePointersEqual(left.BodyRange, right.BodyRange) {
+		return false
+	}
+	return alConditionalStringSlicesEqual(left.Modifiers, right.Modifiers)
+}
+
+func alConditionalStringSlicesEqual(left, right []string) bool {
+	if (left == nil) != (right == nil) || len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func alConditionalRangePointersEqual(left, right *Range) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
+}
+
 func (merge *alConditionalMerge) add(variant AnalyzerResult) {
 	if !variant.Analysis.CoverageComplete {
 		merge.result.Analysis.CoverageComplete = false
@@ -832,7 +890,7 @@ func (merge *alConditionalMerge) add(variant AnalyzerResult) {
 	symbolLimit := max(1, merge.limits.MaxSymbols)
 	for _, symbol := range variant.Analysis.Symbols {
 		if existing, ok := merge.symbols[symbol.ID]; ok {
-			if !reflect.DeepEqual(existing, symbol) {
+			if !alConditionalSymbolsEqual(existing, symbol) {
 				merge.result.Analysis.CoverageComplete = false
 				merge.addDiagnostic(AnalysisDiagnostic{Code: "al-conditional-symbol-conflict", Message: "conditional variants produced conflicting data for one symbol identity", Severity: DiagnosticWarning})
 			}

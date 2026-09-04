@@ -166,6 +166,21 @@ func (symbol NormalizedSymbol) SourceOffsets() (declaration, name OffsetRange, s
 	return symbol.declarationOffsets, symbol.nameOffsets, cloneOffsetRange(symbol.signatureOffsets), cloneOffsetRange(symbol.bodyOffsets)
 }
 
+func (symbol NormalizedSymbol) sameSourceOffsets(other NormalizedSymbol) bool {
+	if symbol.declarationOffsets != other.declarationOffsets || symbol.nameOffsets != other.nameOffsets {
+		return false
+	}
+	return sameOptionalOffsetRange(symbol.signatureOffsets, other.signatureOffsets) &&
+		sameOptionalOffsetRange(symbol.bodyOffsets, other.bodyOffsets)
+}
+
+func sameOptionalOffsetRange(left, right *OffsetRange) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
+}
+
 func (symbol NormalizedSymbol) sourceOffsets() (declaration OffsetRange, signature, body *OffsetRange) {
 	declaration, _, signature, body = symbol.SourceOffsets()
 	return declaration, signature, body
