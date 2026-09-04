@@ -709,8 +709,8 @@ func cloneNormalizedSymbol(symbol NormalizedSymbol) NormalizedSymbol {
 		value := *symbol.BodyRange
 		symbol.BodyRange = &value
 	}
-	symbol.signatureOffsets = cloneOffsetRange(symbol.signatureOffsets)
-	symbol.bodyOffsets = cloneOffsetRange(symbol.bodyOffsets)
+	// Private UTF-8 offset snapshots are immutable after normalizeSymbol.
+	// SourceOffsets returns fresh copies, so defensive symbol copies may share them.
 	return symbol
 }
 

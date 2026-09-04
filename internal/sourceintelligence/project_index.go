@@ -654,14 +654,6 @@ func cloneProjectFileFactsForIndex(input ProjectFileFacts) ProjectFileFacts {
 			copy := *symbol.BodyRange
 			symbol.BodyRange = &copy
 		}
-		if symbol.signatureOffsets != nil {
-			copy := *symbol.signatureOffsets
-			symbol.signatureOffsets = &copy
-		}
-		if symbol.bodyOffsets != nil {
-			copy := *symbol.bodyOffsets
-			symbol.bodyOffsets = &copy
-		}
 	}
 	output.Analysis.Analysis.Diagnostics = append([]AnalysisDiagnostic(nil), input.Analysis.Analysis.Diagnostics...)
 	for index := range output.Analysis.Analysis.Diagnostics {
