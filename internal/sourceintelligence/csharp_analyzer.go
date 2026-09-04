@@ -339,7 +339,7 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 				value := OffsetRange{Start: parser.tokens[arrow].StartOffset, End: parser.tokens[terminator].EndOffset}
 				body = &value
 			}
-			parser.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
+			parser.addDiscard(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
 				Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: declarationEnd},
 				NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 				Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: signatureEnd}, Body: body,
@@ -373,14 +373,14 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 			value := OffsetRange{Start: parser.tokens[terminator].StartOffset, End: parser.tokens[closeIndex].EndOffset}
 			body = &value
 		}
-		parser.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		parser.addDiscard(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
 			Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: declarationEnd},
 			NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 			Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: signatureEnd}, Body: body,
 			Visibility: visibility, Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 		if kind == SymbolKindField && closeIndex < 0 {
 			for _, extra := range parser.additionalFieldNames(nameIndex+1, terminator, depth) {
-				parser.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: parser.tokens[extra].Text, Parent: parent,
+				parser.addDiscard(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: parser.tokens[extra].Text, Parent: parent,
 					Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: declarationEnd},
 					NameRange:   OffsetRange{Start: parser.tokens[extra].StartOffset, End: parser.tokens[extra].EndOffset},
 					Visibility:  visibility, Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
@@ -408,15 +408,26 @@ func (parser *csharpParser) skipAttributeLists(start, end int) (int, bool) {
 
 func (parser *csharpParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	symbol, err := parser.builder.Add(spec)
-	if operation.KindOf(err) == operation.KindLimit {
-		parser.stopped = true
-		return NormalizedSymbol{}, false
-	}
-	if err != nil {
-		parser.builder.MarkIncomplete()
+	if !parser.handleAddError(err) {
 		return NormalizedSymbol{}, false
 	}
 	return symbol, true
+}
+
+func (parser *csharpParser) addDiscard(spec SymbolSpec) {
+	parser.handleAddError(parser.builder.addDiscard(spec))
+}
+
+func (parser *csharpParser) handleAddError(err error) bool {
+	if err == nil {
+		return true
+	}
+	if operation.KindOf(err) == operation.KindLimit {
+		parser.stopped = true
+		return false
+	}
+	parser.builder.MarkIncomplete()
+	return false
 }
 
 func (parser *csharpParser) nextUseful(index, end int) int {

@@ -291,7 +291,7 @@ func (parser *vbnetParser) parseCallable(index, end int, statement vbStatement, 
 		_ = parser.builder.AddDiagnostic(DiagnosticSpec{Code: "vbnet-missing-end", Message: "declaration is missing End " + endLabel, Severity: DiagnosticWarning, Range: &OffsetRange{Start: statement.startOffset, End: statement.endOffset}, AffectsCoverage: true})
 	}
 	nameToken := statement.tokens[nameIndex]
-	_, err := parser.builder.Add(SymbolSpec{
+	err := parser.builder.addDiscard(SymbolSpec{
 		Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: statement.startOffset, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset},
 		Signature: &OffsetRange{Start: statement.startOffset, End: statement.endOffset}, Body: body,
@@ -328,7 +328,7 @@ func (parser *vbnetParser) parseEvent(index, end int, statement vbStatement, key
 		body = &value
 	}
 	nameToken := statement.tokens[nameIndex]
-	_, err := parser.builder.Add(SymbolSpec{
+	err := parser.builder.addDiscard(SymbolSpec{
 		Kind: SymbolKindEvent, NativeKind: "event", Name: nameToken.Text, Parent: parent,
 		Declaration: OffsetRange{Start: statement.startOffset, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset},
 		Signature: &OffsetRange{Start: statement.startOffset, End: statement.endOffset}, Body: body,
@@ -419,7 +419,7 @@ func (parser *vbnetParser) addSingleLine(statement vbStatement, keywordIndex int
 		return
 	}
 	modifiers := vbCollectModifiers(statement, keywordIndex)
-	_, err := parser.builder.Add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: statement.tokens[nameIndex].Text, Parent: parent,
+	err := parser.builder.addDiscard(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: statement.tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: statement.startOffset, End: statement.endOffset}, NameRange: OffsetRange{Start: statement.tokens[nameIndex].StartOffset, End: statement.tokens[nameIndex].EndOffset},
 		Signature: &OffsetRange{Start: statement.startOffset, End: statement.endOffset}, Visibility: vbVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	if operation.KindOf(err) == operation.KindLimit {
@@ -438,7 +438,7 @@ func (parser *vbnetParser) addField(statement vbStatement, parent *SymbolParent)
 		return
 	}
 	modifiers := vbCollectModifiers(statement, keywordIndex)
-	_, err := parser.builder.Add(SymbolSpec{Kind: SymbolKindField, NativeKind: "field", Name: statement.tokens[nameIndex].Text, Parent: parent,
+	err := parser.builder.addDiscard(SymbolSpec{Kind: SymbolKindField, NativeKind: "field", Name: statement.tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: statement.startOffset, End: statement.endOffset}, NameRange: OffsetRange{Start: statement.tokens[nameIndex].StartOffset, End: statement.tokens[nameIndex].EndOffset},
 		Signature: &OffsetRange{Start: statement.startOffset, End: statement.endOffset}, Visibility: vbVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	if operation.KindOf(err) == operation.KindLimit {

@@ -79,6 +79,37 @@ func TestSymbolBuilderAddDiscardMatchesAddResult(t *testing.T) {
 	}
 }
 
+func TestCanaryAnalyzersAvoidDefensiveCopiesForDiscardedSymbols(t *testing.T) {
+	options := AnalyzeOptions{MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: 10_000, MaxSignatureBytes: 8192, MaxDiagnostics: 256}}
+	testCases := []struct {
+		name           string
+		text           string
+		analyze        func(context.Context, *SourceDocument, AnalyzeOptions) (AnalyzerResult, error)
+		maxAllocations float64
+	}{
+		{name: "csharp", text: generatedCSharpSource(400), analyze: CSharpAnalyzer{}.Analyze, maxAllocations: 7000},
+		{name: "vbnet", text: generatedVBNetSource(400), analyze: VBNetAnalyzer{}.Analyze, maxAllocations: 7500},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			document := sourceDocumentForScanner(testCase.text)
+			document.Path = "allocation-guard." + testCase.name
+			allocations := testing.AllocsPerRun(5, func() {
+				result, err := testCase.analyze(context.Background(), document, options)
+				if err != nil {
+					panic(err)
+				}
+				if len(result.Analysis.Symbols) != 401 {
+					panic(fmt.Sprintf("unexpected symbol count %d", len(result.Analysis.Symbols)))
+				}
+			})
+			if allocations > testCase.maxAllocations {
+				t.Fatalf("allocations = %.0f, want <= %.0f", allocations, testCase.maxAllocations)
+			}
+		})
+	}
+}
+
 func TestDeterministicSymbolIDMatchesLegacyEncoding(t *testing.T) {
 	cases := []struct {
 		path          string
