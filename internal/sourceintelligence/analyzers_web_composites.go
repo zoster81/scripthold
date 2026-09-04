@@ -872,6 +872,35 @@ func analyzeMaskedEmbeddedRegion(ctx context.Context, host *SourceDocument, mask
 	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
 }
 
+func mergeInitialCompositeSymbols(dst *AnalysisResult, symbols []NormalizedSymbol, maxSymbols int) {
+	seen := make(map[string]bool)
+	retained := 0
+	for _, symbol := range symbols {
+		if _, exists := seen[symbol.ID]; exists {
+			continue
+		}
+		if retained >= maxSymbols {
+			dst.Truncated = true
+			dst.CoverageComplete = false
+			break
+		}
+		seen[symbol.ID] = false
+		retained++
+	}
+	if retained == 0 {
+		return
+	}
+	dst.Symbols = make([]NormalizedSymbol, 0, retained)
+	for _, symbol := range symbols {
+		emitted, exists := seen[symbol.ID]
+		if !exists || emitted {
+			continue
+		}
+		dst.Symbols = append(dst.Symbols, symbol)
+		seen[symbol.ID] = true
+	}
+}
+
 func mergeCompositeAnalysis(dst, src AnalysisResult, limits SymbolBuilderLimits) AnalysisResult {
 	if !src.CoverageComplete {
 		dst.CoverageComplete = false
@@ -884,21 +913,25 @@ func mergeCompositeAnalysis(dst, src AnalysisResult, limits SymbolBuilderLimits)
 		dst.DiagnosticsTruncated = true
 		dst.CoverageComplete = false
 	}
-	seen := make(map[string]struct{}, len(dst.Symbols))
-	for _, symbol := range dst.Symbols {
-		seen[symbol.ID] = struct{}{}
-	}
-	for _, symbol := range src.Symbols {
-		if _, exists := seen[symbol.ID]; exists {
-			continue
+	if dst.Symbols == nil {
+		mergeInitialCompositeSymbols(&dst, src.Symbols, limits.MaxSymbols)
+	} else {
+		seen := make(map[string]struct{}, len(dst.Symbols))
+		for _, symbol := range dst.Symbols {
+			seen[symbol.ID] = struct{}{}
 		}
-		if len(dst.Symbols) >= limits.MaxSymbols {
-			dst.Truncated = true
-			dst.CoverageComplete = false
-			break
+		for _, symbol := range src.Symbols {
+			if _, exists := seen[symbol.ID]; exists {
+				continue
+			}
+			if len(dst.Symbols) >= limits.MaxSymbols {
+				dst.Truncated = true
+				dst.CoverageComplete = false
+				break
+			}
+			seen[symbol.ID] = struct{}{}
+			dst.Symbols = append(dst.Symbols, symbol)
 		}
-		seen[symbol.ID] = struct{}{}
-		dst.Symbols = append(dst.Symbols, symbol)
 	}
 	sort.SliceStable(dst.Symbols, func(i, j int) bool {
 		left := dst.Symbols[i]
