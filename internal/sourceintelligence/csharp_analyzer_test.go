@@ -266,3 +266,21 @@ public class Broken {
 		t.Fatalf("C# bounded result = %+v", limitedResult.Analysis)
 	}
 }
+
+func TestCSharpAnalyzerAvoidsSpeculativeTypeProbeModifierAllocations(t *testing.T) {
+	document := sourceDocumentForScanner(generatedCSharpSource(400))
+	document.Path = "type-probe-allocation.cs"
+	options := AnalyzeOptions{MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: 10_000, MaxSignatureBytes: 8192, MaxDiagnostics: 256}}
+	allocations := testing.AllocsPerRun(5, func() {
+		result, err := (CSharpAnalyzer{}).Analyze(context.Background(), document, options)
+		if err != nil {
+			panic(err)
+		}
+		if len(result.Analysis.Symbols) != 401 {
+			panic("unexpected C# allocation-guard symbol count")
+		}
+	})
+	if allocations > 6000 {
+		t.Fatalf("allocations = %.0f, want <= 6000", allocations)
+	}
+}

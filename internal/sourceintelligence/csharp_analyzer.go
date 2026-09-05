@@ -94,7 +94,8 @@ func (parser *csharpParser) parseScope(start, end int, parent *SymbolParent, mem
 			index = next
 			continue
 		}
-		if keyword, declarationStart, modifiers, ok := parser.typeDeclarationAt(index, end); ok {
+		if keyword, declarationStart, ok := parser.typeDeclarationAt(index, end); ok {
+			modifiers := parser.collectTypeModifiers(declarationStart, keyword)
 			index = parser.parseType(declarationStart, keyword, end, currentParent, modifiers)
 			continue
 		}
@@ -197,30 +198,46 @@ func (parser *csharpParser) parseNamespace(start, end int, parent *SymbolParent)
 	return closeIndex + 1, nil
 }
 
-func (parser *csharpParser) typeDeclarationAt(start, end int) (keyword, declarationStart int, modifiers []string, ok bool) {
+func (parser *csharpParser) typeDeclarationAt(start, end int) (keyword, declarationStart int, ok bool) {
 	cursor := start
 	declarationStart = start
 	for cursor < end {
 		if parser.tokens[cursor].Text == "[" {
 			closeIndex := parser.pairs[cursor]
 			if closeIndex <= cursor {
-				return 0, start, nil, false
+				return 0, start, false
 			}
 			cursor = parser.nextUseful(closeIndex+1, end)
 			continue
 		}
 		text := strings.ToLower(parser.tokens[cursor].Text)
 		if _, exists := csharpModifiers[text]; exists {
-			modifiers = append(modifiers, text)
 			cursor = parser.nextUseful(cursor+1, end)
 			continue
 		}
 		if text == "class" || text == "struct" || text == "interface" || text == "record" || text == "enum" {
-			return cursor, declarationStart, modifiers, true
+			return cursor, declarationStart, true
 		}
-		return 0, start, nil, false
+		return 0, start, false
 	}
-	return 0, start, nil, false
+	return 0, start, false
+}
+
+func (parser *csharpParser) collectTypeModifiers(start, end int) []string {
+	var modifiers []string
+	for index := start; index < end; index++ {
+		if parser.tokens[index].Text == "[" {
+			if closeIndex := parser.pairs[index]; closeIndex > index && closeIndex < end {
+				index = closeIndex
+				continue
+			}
+		}
+		text := strings.ToLower(parser.tokens[index].Text)
+		if _, ok := csharpModifiers[text]; ok {
+			modifiers = append(modifiers, text)
+		}
+	}
+	return modifiers
 }
 
 func (parser *csharpParser) parseType(start, keyword, end int, parent *SymbolParent, modifiers []string) int {
@@ -281,9 +298,6 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 	start = parser.nextUseful(start, end)
 	if start >= end {
 		return end
-	}
-	if keyword, declarationStart, modifiers, ok := parser.typeDeclarationAt(start, end); ok {
-		return parser.parseType(declarationStart, keyword, end, parent, modifiers)
 	}
 	declarationStart := start
 	memberStart, ok := parser.skipAttributeLists(start, end)
