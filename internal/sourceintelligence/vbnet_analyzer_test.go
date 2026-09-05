@@ -8,6 +8,41 @@ import (
 
 var _ SourceAnalyzer = VBNetAnalyzer{}
 
+func TestVBMultilineLambdaLabelPreservesLowercaseKeywordSemantics(t *testing.T) {
+	statement := vbStatement{tokens: []Token{{Text: "Dim"}, {Text: "ſub"}, {Text: "("}, {Text: ")"}}}
+	if label := vbMultilineLambdaLabel(statement); label != "" {
+		t.Fatalf("vbMultilineLambdaLabel() = %q, want empty for non-lowercase-equivalent token", label)
+	}
+}
+
+func TestVBEndLabelPreservesLowercaseKeywordSemantics(t *testing.T) {
+	statement := vbStatement{tokens: []Token{{Text: "End"}, {Text: "ſub"}}}
+	if label := vbEndLabel(statement); label != "ſub" {
+		t.Fatalf("vbEndLabel() = %q, want %q", label, "ſub")
+	}
+}
+
+func TestVBDeclarationKeywordCanonicalizationPreservesFallback(t *testing.T) {
+	tests := []struct {
+		name        string
+		tokens      []Token
+		wantIndex   int
+		wantKeyword string
+	}{
+		{name: "mixed-case declaration after modifier", tokens: []Token{{Text: "PuBlIc"}, {Text: "FuNcTiOn"}}, wantIndex: 1, wantKeyword: "function"},
+		{name: "mixed-case end", tokens: []Token{{Text: "eNd"}, {Text: "sUb"}}, wantIndex: 0, wantKeyword: "end"},
+		{name: "unknown token fallback", tokens: []Token{{Text: "CustomName"}}, wantIndex: 0, wantKeyword: "customname"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			index, keyword := vbDeclarationKeyword(vbStatement{tokens: testCase.tokens})
+			if index != testCase.wantIndex || keyword != testCase.wantKeyword {
+				t.Fatalf("vbDeclarationKeyword() = (%d, %q), want (%d, %q)", index, keyword, testCase.wantIndex, testCase.wantKeyword)
+			}
+		})
+	}
+}
+
 func TestVBNetAnalyzerScopesContinuationColonAndRelations(t *testing.T) {
 	text := `Imports System
 Namespace Demo

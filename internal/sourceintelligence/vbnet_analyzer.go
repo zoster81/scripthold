@@ -84,6 +84,11 @@ var vbModifiers = map[string]struct{}{
 	"ansi": {}, "auto": {}, "unicode": {}, "widening": {}, "narrowing": {},
 }
 
+var vbCanonicalStatementKeywords = [...]string{
+	"end", "sub", "function", "property", "event", "class", "dim", "namespace",
+	"module", "structure", "interface", "enum", "const", "imports", "inherits", "implements",
+}
+
 func buildVBStatements(tokens []Token) []vbStatement {
 	lines := BuildLogicalLines(tokens, LogicalLineProfile{Separators: []string{":"}, SkipDirectives: true})
 	result := make([]vbStatement, 0, len(lines))
@@ -126,7 +131,19 @@ func vbEndLabel(statement vbStatement) string {
 	if len(statement.tokens) < 2 || !strings.EqualFold(statement.tokens[0].Text, "end") {
 		return ""
 	}
-	return strings.ToLower(statement.tokens[1].Text)
+	label := statement.tokens[1].Text
+	switch {
+	case caseInsensitiveKeywordEqual(label, "sub"):
+		return "sub"
+	case caseInsensitiveKeywordEqual(label, "function"):
+		return "function"
+	case caseInsensitiveKeywordEqual(label, "property"):
+		return "property"
+	case caseInsensitiveKeywordEqual(label, "event"):
+		return "event"
+	default:
+		return strings.ToLower(label)
+	}
 }
 
 func (parser *vbnetParser) parseRange(start, end int, parent *SymbolParent, ownerName, ownerKind string) {
@@ -192,21 +209,25 @@ func (parser *vbnetParser) parseRange(start, end int, parent *SymbolParent, owne
 
 func vbDeclarationKeyword(statement vbStatement) (int, string) {
 	for index, token := range statement.tokens {
+		if keyword := vbCanonicalStatementKeyword(token.Text); keyword != "" {
+			return index, keyword
+		}
 		text := strings.ToLower(token.Text)
 		if _, modifier := vbModifiers[text]; modifier {
 			continue
 		}
-		if text == "dim" {
-			return index, text
-		}
-		switch text {
-		case "namespace", "module", "class", "structure", "interface", "enum", "sub", "function", "property", "event", "const":
-			return index, text
-		default:
-			return index, text
-		}
+		return index, text
 	}
 	return -1, ""
+}
+
+func vbCanonicalStatementKeyword(text string) string {
+	for _, keyword := range vbCanonicalStatementKeywords {
+		if caseInsensitiveKeywordEqual(text, keyword) {
+			return keyword
+		}
+	}
+	return ""
 }
 
 func (parser *vbnetParser) addType(statement vbStatement, keywordIndex int, keyword string, closeIndex int, parent *SymbolParent) (NormalizedSymbol, bool) {
@@ -371,8 +392,13 @@ func (parser *vbnetParser) findEnd(start, end int, label string) int {
 func vbMultilineLambdaLabel(statement vbStatement) string {
 	declarationIndex, declarationKeyword := vbDeclarationKeyword(statement)
 	for index, token := range statement.tokens {
-		label := strings.ToLower(token.Text)
-		if label != "sub" && label != "function" {
+		label := ""
+		switch {
+		case caseInsensitiveKeywordEqual(token.Text, "sub"):
+			label = "sub"
+		case caseInsensitiveKeywordEqual(token.Text, "function"):
+			label = "function"
+		default:
 			continue
 		}
 		if index == declarationIndex && strings.EqualFold(label, declarationKeyword) {
