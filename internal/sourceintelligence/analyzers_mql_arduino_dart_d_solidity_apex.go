@@ -1160,7 +1160,8 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 				if nameIndex >= 0 {
 					nameRange = OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}
 				}
-				p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: nameRange, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Visibility: braceLanguageVisibility(p.collectModifiers(start, paren)), Modifiers: p.collectModifiers(start, paren), Evidence: SymbolEvidenceStructural, Disambiguator: p.parameterDisambiguator(paren)})
+				modifiers := p.collectModifiers(start, paren)
+				p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: nameRange, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Visibility: braceLanguageVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural, Disambiguator: p.parameterDisambiguator(paren)})
 				return next, true
 			}
 		}
