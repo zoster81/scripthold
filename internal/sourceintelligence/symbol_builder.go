@@ -339,6 +339,16 @@ func (builder *SymbolBuilder) addDiscard(spec SymbolSpec) error {
 	return err
 }
 
+// addParent retains one declaration and returns only immutable hierarchy identity.
+// It avoids Add's defensive full-symbol copy without exposing retained symbol state.
+func (builder *SymbolBuilder) addParent(spec SymbolSpec) (SymbolParent, error) {
+	normalized, err := builder.add(spec)
+	if err != nil {
+		return SymbolParent{}, err
+	}
+	return SymbolParent{ID: normalized.ID, QualifiedName: normalized.QualifiedName}, nil
+}
+
 func (builder *SymbolBuilder) add(spec SymbolSpec) (NormalizedSymbol, error) {
 	if builder == nil {
 		return NormalizedSymbol{}, operation.New(operation.KindInvalidInput, "symbol builder is nil")

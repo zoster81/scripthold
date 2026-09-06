@@ -143,7 +143,7 @@ func (parser *pythonParser) parseRange(start, end int, parent *SymbolParent, par
 			_ = parser.builder.AddDiagnostic(DiagnosticSpec{Code: "python-empty-scope", Message: "declaration has no indented body", Severity: DiagnosticWarning, Range: &OffsetRange{Start: line.startOffset, End: line.endOffset}, AffectsCoverage: true})
 		}
 		nameToken := line.tokens[nameIndex]
-		symbol, err := parser.builder.Add(SymbolSpec{
+		symbolParent, err := parser.builder.addParent(SymbolSpec{
 			Kind: kind, NativeKind: nativeKind, Name: nameToken.Text, Parent: parent,
 			Declaration: OffsetRange{Start: declarationStart, End: declarationEnd},
 			NameRange:   OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset},
@@ -160,8 +160,7 @@ func (parser *pythonParser) parseRange(start, end int, parent *SymbolParent, par
 			continue
 		}
 		if scopeEnd > declarationIndex+1 {
-			child := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-			parser.parseRange(declarationIndex+1, scopeEnd, child, nativeKind)
+			parser.parseRange(declarationIndex+1, scopeEnd, &symbolParent, nativeKind)
 		}
 		index = scopeEnd
 	}
