@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -372,6 +373,33 @@ func TestProjectResolverLimitsCancellationAndDuplicatePath(t *testing.T) {
 	duplicate.Path = first.Path
 	if _, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, duplicate}, projectResolverLimitsForTest()); operation.KindOf(err) != operation.KindInvalidInput {
 		t.Fatalf("duplicate path error = %v kind=%v", err, operation.KindOf(err))
+	}
+}
+
+func TestProjectPathStemKeyFromCanonicalKeyMatchesLegacy(t *testing.T) {
+	legacy := func(value string) string {
+		clean := filepath.Clean(strings.TrimSpace(value))
+		extension := filepath.Ext(clean)
+		if extension != "" {
+			clean = strings.TrimSuffix(clean, extension)
+		}
+		return projectPathKey(clean)
+	}
+	for _, value := range []string{
+		" project/Mixed/Child.JAVA ",
+		filepath.Join("project", "nested", "..", "Mixed.Name.Ext"),
+		filepath.Join("project", "plain"),
+		filepath.Join("project", ".hidden"),
+		filepath.Join("project", "trailing."),
+	} {
+		want := legacy(value)
+		canonical := projectPathKey(value)
+		if got := projectPathStemKeyFromCanonicalKey(canonical); got != want {
+			t.Fatalf("stem from canonical key for %q = %q, want %q", value, got, want)
+		}
+		if got := projectPathStemKey(value); got != want {
+			t.Fatalf("stem key for %q = %q, want %q", value, got, want)
+		}
 	}
 }
 

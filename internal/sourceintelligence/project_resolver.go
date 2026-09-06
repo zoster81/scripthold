@@ -74,6 +74,11 @@ type ProjectReference struct {
 	Resolution     ResolutionState        `json:"resolution"`
 }
 
+type projectModelInputFile struct {
+	facts   ProjectFileFacts
+	pathKey string
+}
+
 type projectFileRecord struct {
 	facts      ProjectFileFacts
 	pathKey    string
@@ -147,10 +152,14 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		referencesByTarget:     make(map[string][]ProjectReference),
 	}
 
-	files := append([]ProjectFileFacts(nil), input...)
-	sort.Slice(files, func(i, j int) bool { return projectPathKey(files[i].Path) < projectPathKey(files[j].Path) })
+	files := make([]projectModelInputFile, len(input))
+	for index, facts := range input {
+		files[index] = projectModelInputFile{facts: facts, pathKey: projectPathKey(facts.Path)}
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].pathKey < files[j].pathKey })
 	var symbolCount, dependencyCount, referenceCount int
-	for _, facts := range files {
+	for _, file := range files {
+		facts := file.facts
 		if err := ctx.Err(); err != nil {
 			return nil, operation.Wrap(operation.KindCancelled, "build_project_model", facts.Path, err)
 		}
@@ -158,7 +167,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		if path == "" {
 			return nil, operation.New(operation.KindInvalidInput, "project file path is required")
 		}
-		pathKey := projectPathKey(path)
+		pathKey := file.pathKey
 		if _, duplicate := model.files[pathKey]; duplicate {
 			return nil, operation.Wrap(operation.KindInvalidInput, "build_project_model", path, fmt.Errorf("duplicate project file path"))
 		}
@@ -185,7 +194,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		facts.Language = descriptor.ID
 		record := projectFileRecord{facts: facts, pathKey: pathKey, languageID: descriptor.ID}
 		model.files[pathKey] = record
-		stemKey := projectPathStemKey(path)
+		stemKey := projectPathStemKeyFromCanonicalKey(pathKey)
 		model.filesByStem[stemKey] = append(model.filesByStem[stemKey], pathKey)
 		model.fileOrder = append(model.fileOrder, pathKey)
 	}
@@ -952,12 +961,19 @@ func projectPathKey(value string) string {
 }
 
 func projectPathStemKey(value string) string {
-	clean := filepath.Clean(strings.TrimSpace(value))
-	extension := filepath.Ext(clean)
-	if extension != "" {
-		clean = strings.TrimSuffix(clean, extension)
+	return projectPathStemKeyFromCanonicalKey(projectPathKey(value))
+}
+
+func projectPathStemKeyFromCanonicalKey(key string) string {
+	extension := filepath.Ext(key)
+	if extension == "" {
+		return key
 	}
-	return projectPathKey(clean)
+	stem := strings.TrimSuffix(key, extension)
+	if filepath.Base(key) == extension {
+		return filepath.Clean(stem)
+	}
+	return stem
 }
 
 func validProjectFingerprint(value string) bool {
