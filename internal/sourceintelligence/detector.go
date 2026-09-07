@@ -173,6 +173,83 @@ var (
 	systemVerilogContentMarker = regexp.MustCompile(`(?is)\b(?:interface|package)[ \t]+[A-Za-z_][A-Za-z0-9_$]*\b.*?\bend(?:interface|package)\b`)
 )
 
+type contentMarkerRule struct {
+	language    string
+	pattern     *regexp.Regexp
+	detail      string
+	requiredAny []string
+}
+
+var genericContentMarkerRules = [...]contentMarkerRule{
+	{language: "classic-asp", pattern: classicASPContentMarker, detail: "asp-server-block"},
+	{language: "go", pattern: goContentMarker, detail: "go-package", requiredAny: []string{"package"}},
+	{language: "csharp", pattern: csharpContentMarker, detail: "csharp-declaration", requiredAny: []string{"using", "namespace", "class", "struct", "interface", "record", "enum"}},
+	{language: "vbnet", pattern: vbnetContentMarker, detail: "vbnet-declaration"},
+	{language: "python", pattern: pythonContentMarker, detail: "python-declaration", requiredAny: []string{"def", "class", "from", "import"}},
+	{language: "cpp", pattern: cppContentMarker, detail: "cpp-distinctive-declaration", requiredAny: []string{"namespace", "template"}},
+	{language: "java", pattern: javaContentMarker, detail: "java-declaration", requiredAny: []string{"package", "import", "class", "interface", "enum", "record"}},
+	{language: "kotlin", pattern: kotlinContentMarker, detail: "kotlin-declaration", requiredAny: []string{"package", "import", "class", "interface", "object", "fun", "typealias"}},
+	{language: "scala", pattern: scalaContentMarker, detail: "scala-distinctive-declaration", requiredAny: []string{"case", "trait", "object", "given", "extension", "enum", "def"}},
+	{language: "ruby", pattern: rubyContentMarker, detail: "ruby-declaration", requiredAny: []string{"module", "class", "def", "require"}},
+	{language: "swift", pattern: swiftContentMarker, detail: "swift-declaration", requiredAny: []string{"import", "protocol", "extension", "func", "init", "deinit", "associatedtype", "typealias", "let", "var"}},
+	{language: "delphi", pattern: delphiContentMarker, detail: "delphi-helper"},
+	{language: "vb6", pattern: classicVBMetadataMarker, detail: "classic-vb-module-metadata"},
+	{language: "vba", pattern: classicVBMetadataMarker, detail: "classic-vb-module-metadata"},
+	{language: "vbscript", pattern: vbscriptContentMarker, detail: "vbscript-declaration"},
+	{language: "fsharp", pattern: fsharpContentMarker, detail: "fsharp-declaration", requiredAny: []string{"open", "let", "type", "module"}},
+	{language: "cil", pattern: cilContentMarker, detail: "cil-directive", requiredAny: []string{".assembly", ".module", ".class", ".method", ".field"}},
+	{language: "powershell", pattern: powerShellContentMarker, detail: "powershell-declaration"},
+	{language: "purebasic", pattern: pureBasicContentMarker, detail: "purebasic-declaration"},
+	{language: "freebasic", pattern: freeBasicContentMarker, detail: "freebasic-declaration"},
+	{language: "aspnet-webforms", pattern: webFormsContentMarker, detail: "webforms-directive"},
+	{language: "razor", pattern: razorContentMarker, detail: "razor-directive", requiredAny: []string{"@functions", "@model", "@inherits", "@using"}},
+	{language: "blazor", pattern: blazorContentMarker, detail: "blazor-directive", requiredAny: []string{"@code", "@page", "@inject", "@using"}},
+	{language: "xaml", pattern: xamlContentMarker, detail: "xaml-directive"},
+	{language: "mql4", pattern: mqlContentMarker, detail: "mql-declaration"},
+	{language: "mql5", pattern: mqlContentMarker, detail: "mql-declaration"},
+	{language: "objective-c", pattern: objectiveCContentMarker, detail: "objective-c-declaration", requiredAny: []string{"#import", "@interface", "@implementation", "@protocol", "@property"}},
+	{language: "objective-cpp", pattern: objectiveCContentMarker, detail: "objective-c-declaration", requiredAny: []string{"#import", "@interface", "@implementation", "@protocol", "@property"}},
+	{language: "dart", pattern: dartContentMarker, detail: "dart-declaration", requiredAny: []string{"import", "mixin", "extension", "part"}},
+	{language: "d", pattern: dContentMarker, detail: "d-declaration", requiredAny: []string{"module", "import", "unittest", "version"}},
+	{language: "zig", pattern: zigContentMarker, detail: "zig-declaration", requiredAny: []string{"const"}},
+	{language: "nim", pattern: nimContentMarker, detail: "nim-declaration", requiredAny: []string{"proc", "func", "method", "iterator", "template", "import"}},
+	{language: "solidity", pattern: solidityContentMarker, detail: "solidity-declaration", requiredAny: []string{"pragma", "contract", "library", "function"}},
+	{language: "apex", pattern: apexContentMarker, detail: "apex-declaration"},
+	{language: "al", pattern: alContentMarker, detail: "al-declaration"},
+	{language: "arduino", pattern: arduinoContentMarker, detail: "arduino-convention", requiredAny: []string{"#include", "void"}},
+	{language: "perl", pattern: perlContentMarker, detail: "perl-pragmas", requiredAny: []string{"use"}},
+	{language: "luau", pattern: luauContentMarker, detail: "luau-mode-directive", requiredAny: []string{"--!"}},
+	{language: "elixir", pattern: elixirContentMarker, detail: "elixir-module", requiredAny: []string{"defmodule"}},
+	{language: "erlang", pattern: erlangContentMarker, detail: "erlang-module-attribute", requiredAny: []string{"-module"}},
+	{language: "autohotkey", pattern: autoHotkeyContentMarker, detail: "autohotkey-requires"},
+	{language: "groovy", pattern: groovyContentMarker, detail: "groovy-def-function", requiredAny: []string{"def"}},
+	{language: "tcl", pattern: tclContentMarker, detail: "tcl-command", requiredAny: []string{"namespace", "proc"}},
+	{language: "fortran", pattern: fortranContentMarker, detail: "fortran-program-unit"},
+	{language: "cobol", pattern: cobolContentMarker, detail: "cobol-division-program"},
+	{language: "ada", pattern: adaContentMarker, detail: "ada-context-package"},
+	{language: "matlab", pattern: matlabContentMarker, detail: "matlab-classdef"},
+	{language: "octave", pattern: octaveContentMarker, detail: "octave-distinctive-form"},
+	{language: "julia", pattern: juliaContentMarker, detail: "julia-type-form", requiredAny: []string{"mutable", "abstract", "primitive"}},
+	{language: "r", pattern: rContentMarker, detail: "r-function-assignment", requiredAny: []string{"<-"}},
+	{language: "haskell", pattern: haskellContentMarker, detail: "haskell-data-form", requiredAny: []string{"data", "newtype"}},
+	{language: "ocaml", pattern: ocamlContentMarker, detail: "ocaml-module-struct", requiredAny: []string{"module"}},
+	{language: "common-lisp", pattern: commonLispContentMarker, detail: "common-lisp-def-form"},
+	{language: "clojure", pattern: clojureContentMarker, detail: "clojure-def-form", requiredAny: []string{"(ns", "(defn", "(defrecord", "(defprotocol"}},
+	{language: "emacs-lisp", pattern: emacsLispContentMarker, detail: "emacs-lisp-custom-form"},
+}
+
+func contentMarkerMayMatch(text string, requiredAny []string) bool {
+	if len(requiredAny) == 0 {
+		return true
+	}
+	for _, literal := range requiredAny {
+		if strings.Contains(text, literal) {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	priorityExplicit           = 100
 	priorityExactBasename      = 95
@@ -609,68 +686,10 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		}
 	}
 
-	markers := []struct {
-		language string
-		pattern  *regexp.Regexp
-		detail   string
-	}{
-		{language: "classic-asp", pattern: classicASPContentMarker, detail: "asp-server-block"},
-		{language: "go", pattern: goContentMarker, detail: "go-package"},
-		{language: "csharp", pattern: csharpContentMarker, detail: "csharp-declaration"},
-		{language: "vbnet", pattern: vbnetContentMarker, detail: "vbnet-declaration"},
-		{language: "python", pattern: pythonContentMarker, detail: "python-declaration"},
-		{language: "cpp", pattern: cppContentMarker, detail: "cpp-distinctive-declaration"},
-		{language: "java", pattern: javaContentMarker, detail: "java-declaration"},
-		{language: "kotlin", pattern: kotlinContentMarker, detail: "kotlin-declaration"},
-		{language: "scala", pattern: scalaContentMarker, detail: "scala-distinctive-declaration"},
-		{language: "ruby", pattern: rubyContentMarker, detail: "ruby-declaration"},
-		{language: "swift", pattern: swiftContentMarker, detail: "swift-declaration"},
-		{language: "delphi", pattern: delphiContentMarker, detail: "delphi-helper"},
-		{language: "vb6", pattern: classicVBMetadataMarker, detail: "classic-vb-module-metadata"},
-		{language: "vba", pattern: classicVBMetadataMarker, detail: "classic-vb-module-metadata"},
-		{language: "vbscript", pattern: vbscriptContentMarker, detail: "vbscript-declaration"},
-		{language: "fsharp", pattern: fsharpContentMarker, detail: "fsharp-declaration"},
-		{language: "cil", pattern: cilContentMarker, detail: "cil-directive"},
-		{language: "powershell", pattern: powerShellContentMarker, detail: "powershell-declaration"},
-		{language: "purebasic", pattern: pureBasicContentMarker, detail: "purebasic-declaration"},
-		{language: "freebasic", pattern: freeBasicContentMarker, detail: "freebasic-declaration"},
-		{language: "aspnet-webforms", pattern: webFormsContentMarker, detail: "webforms-directive"},
-		{language: "razor", pattern: razorContentMarker, detail: "razor-directive"},
-		{language: "blazor", pattern: blazorContentMarker, detail: "blazor-directive"},
-		{language: "xaml", pattern: xamlContentMarker, detail: "xaml-directive"},
-		{language: "mql4", pattern: mqlContentMarker, detail: "mql-declaration"},
-		{language: "mql5", pattern: mqlContentMarker, detail: "mql-declaration"},
-		{language: "objective-c", pattern: objectiveCContentMarker, detail: "objective-c-declaration"},
-		{language: "objective-cpp", pattern: objectiveCContentMarker, detail: "objective-c-declaration"},
-		{language: "dart", pattern: dartContentMarker, detail: "dart-declaration"},
-		{language: "d", pattern: dContentMarker, detail: "d-declaration"},
-		{language: "zig", pattern: zigContentMarker, detail: "zig-declaration"},
-		{language: "nim", pattern: nimContentMarker, detail: "nim-declaration"},
-		{language: "solidity", pattern: solidityContentMarker, detail: "solidity-declaration"},
-		{language: "apex", pattern: apexContentMarker, detail: "apex-declaration"},
-		{language: "al", pattern: alContentMarker, detail: "al-declaration"},
-		{language: "arduino", pattern: arduinoContentMarker, detail: "arduino-convention"},
-		{language: "perl", pattern: perlContentMarker, detail: "perl-pragmas"},
-		{language: "luau", pattern: luauContentMarker, detail: "luau-mode-directive"},
-		{language: "elixir", pattern: elixirContentMarker, detail: "elixir-module"},
-		{language: "erlang", pattern: erlangContentMarker, detail: "erlang-module-attribute"},
-		{language: "autohotkey", pattern: autoHotkeyContentMarker, detail: "autohotkey-requires"},
-		{language: "groovy", pattern: groovyContentMarker, detail: "groovy-def-function"},
-		{language: "tcl", pattern: tclContentMarker, detail: "tcl-command"},
-		{language: "fortran", pattern: fortranContentMarker, detail: "fortran-program-unit"},
-		{language: "cobol", pattern: cobolContentMarker, detail: "cobol-division-program"},
-		{language: "ada", pattern: adaContentMarker, detail: "ada-context-package"},
-		{language: "matlab", pattern: matlabContentMarker, detail: "matlab-classdef"},
-		{language: "octave", pattern: octaveContentMarker, detail: "octave-distinctive-form"},
-		{language: "julia", pattern: juliaContentMarker, detail: "julia-type-form"},
-		{language: "r", pattern: rContentMarker, detail: "r-function-assignment"},
-		{language: "haskell", pattern: haskellContentMarker, detail: "haskell-data-form"},
-		{language: "ocaml", pattern: ocamlContentMarker, detail: "ocaml-module-struct"},
-		{language: "common-lisp", pattern: commonLispContentMarker, detail: "common-lisp-def-form"},
-		{language: "clojure", pattern: clojureContentMarker, detail: "clojure-def-form"},
-		{language: "emacs-lisp", pattern: emacsLispContentMarker, detail: "emacs-lisp-custom-form"},
-	}
-	for _, marker := range markers {
+	for _, marker := range genericContentMarkerRules {
+		if !contentMarkerMayMatch(text, marker.requiredAny) {
+			continue
+		}
 		if marker.pattern.MatchString(text) {
 			if languageID, ok := registry.lookupLanguageID(marker.language); ok {
 				collector.add(languageID, EvidenceContentMarker, marker.detail, priorityContent)

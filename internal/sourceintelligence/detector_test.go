@@ -570,6 +570,75 @@ func TestLanguageDetectorBoundsAnalyzerProbesCandidatesAndEvidence(t *testing.T)
 	}
 }
 
+func TestGenericContentMarkerPrefiltersPreserveRepresentativeMatches(t *testing.T) {
+	representative := map[string]string{
+		"go":            "package main\n",
+		"csharp":        "namespace Demo\n",
+		"python":        "def run():\n    pass\n",
+		"cpp":           "namespace Demo {}\n",
+		"java":          "package demo;\n",
+		"kotlin":        "package demo\n",
+		"scala":         "trait Demo\n",
+		"ruby":          "module Demo\nend\n",
+		"swift":         "import Foundation\n",
+		"fsharp":        "module Demo\n",
+		"cil":           ".assembly Demo {}\n",
+		"razor":         "@model Demo\n",
+		"blazor":        "@code {\n}\n",
+		"objective-c":   "@interface Demo\n@end\n",
+		"objective-cpp": "@interface Demo\n@end\n",
+		"dart":          "import 'dart:io';\n",
+		"d":             "module demo;\n",
+		"zig":           "const demo = @import(\"demo\");\n",
+		"nim":           "proc run() = discard\n",
+		"solidity":      "pragma solidity ^0.8.0;\n",
+		"arduino":       "#include <Arduino.h>\n",
+		"perl":          "use strict;\n",
+		"luau":          "--!strict\n",
+		"elixir":        "defmodule Demo do\nend\n",
+		"erlang":        "-module(demo).\n",
+		"groovy":        "def run() {\n}\n",
+		"tcl":           "proc run {} {}\n",
+		"julia":         "mutable struct Demo\nend\n",
+		"r":             "run <- function() {}\n",
+		"haskell":       "data Demo = Demo\n",
+		"ocaml":         "module Demo = struct\nend\n",
+		"clojure":       "(defn run [] 1)\n",
+	}
+
+	gated := 0
+	for _, marker := range genericContentMarkerRules {
+		if len(marker.requiredAny) == 0 {
+			continue
+		}
+		gated++
+		if regexpUsesCaseFolding(marker.pattern.String()) {
+			t.Fatalf("content marker %s uses a case-insensitive regexp with a case-sensitive prefilter", marker.language)
+		}
+		text, ok := representative[marker.language]
+		if !ok {
+			t.Fatalf("content marker %s has no representative prefilter fixture", marker.language)
+		}
+		if !marker.pattern.MatchString(text) {
+			t.Fatalf("content marker %s fixture does not match the authoritative regexp", marker.language)
+		}
+		if !contentMarkerMayMatch(text, marker.requiredAny) {
+			t.Fatalf("content marker %s prefilter rejected an authoritative regexp match", marker.language)
+		}
+	}
+	if gated != len(representative) {
+		t.Fatalf("gated content markers = %d, representative fixtures = %d", gated, len(representative))
+	}
+}
+
+func regexpUsesCaseFolding(expression string) bool {
+	if !strings.HasPrefix(expression, "(?") {
+		return false
+	}
+	end := strings.IndexByte(expression, ')')
+	return end > 2 && strings.Contains(expression[2:end], "i")
+}
+
 func hasDetectionEvidence(result DetectionResult, kind EvidenceKind) bool {
 	for _, evidence := range result.Evidence {
 		if evidence.Kind == kind {
