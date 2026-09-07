@@ -200,7 +200,7 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 
 	collector := newDetectionCollector()
 	if input.ExplicitLanguage != "" {
-		descriptor, ok := registry.Resolve(input.ExplicitLanguage)
+		languageID, ok := registry.resolveLanguageID(input.ExplicitLanguage)
 		if !ok {
 			return DetectionResult{}, operation.Wrap(
 				operation.KindInvalidInput,
@@ -209,30 +209,30 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 				fmt.Errorf("unknown explicit language %q", input.ExplicitLanguage),
 			)
 		}
-		collector.add(descriptor.ID, EvidenceExplicit, normalizeLanguageName(input.ExplicitLanguage), priorityExplicit)
+		collector.add(languageID, EvidenceExplicit, normalizeLanguageName(input.ExplicitLanguage), priorityExplicit)
 		return collector.finalize(), nil
 	}
 
 	base := filepath.Base(input.Path)
-	if descriptor, ok := registry.ExactBasename(base); ok {
-		collector.add(descriptor.ID, EvidenceExactBasename, base, priorityExactBasename)
+	if languageID, ok := registry.exactBasenameLanguageID(base); ok {
+		collector.add(languageID, EvidenceExactBasename, base, priorityExactBasename)
 	}
-	if descriptor, suffix, ok := registry.CompoundSuffix(base); ok {
-		collector.add(descriptor.ID, EvidenceCompoundSuffix, suffix, priorityCompoundSuffix)
+	if languageID, suffix, ok := registry.compoundSuffixLanguageID(base); ok {
+		collector.add(languageID, EvidenceCompoundSuffix, suffix, priorityCompoundSuffix)
 	}
 	if extension := filepath.Ext(base); extension != "" {
-		for _, descriptor := range registry.ExtensionCandidates(extension) {
-			collector.add(descriptor.ID, EvidenceExtension, strings.ToLower(extension), priorityExtension)
-			if descriptorHasAmbiguousExtension(descriptor, extension) {
-				collector.requireExtensionCorroboration(descriptor.ID)
+		for _, candidate := range registry.extensionDetectionCandidates(extension) {
+			collector.add(candidate.language, EvidenceExtension, strings.ToLower(extension), priorityExtension)
+			if candidate.ambiguous {
+				collector.requireExtensionCorroboration(candidate.language)
 			}
 		}
 	}
 
 	probeText := boundedDetectionText(input.Text)
 	if interpreter := parseShebangInterpreter(probeText); interpreter != "" {
-		for _, descriptor := range registry.ShebangCandidates(interpreter) {
-			collector.add(descriptor.ID, EvidenceShebang, interpreter, priorityShebang)
+		for _, languageID := range registry.shebangLanguageIDs(interpreter) {
+			collector.add(languageID, EvidenceShebang, interpreter, priorityShebang)
 		}
 	}
 	addDirectiveEvidence(registry, collector, probeText)
@@ -240,8 +240,8 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 	addCompositePathContentEvidence(registry, collector, base, probeText)
 
 	for _, hinted := range input.ProjectLanguages {
-		if descriptor, ok := registry.Resolve(hinted); ok {
-			collector.add(descriptor.ID, EvidenceProjectHint, normalizeLanguageName(hinted), priorityProjectHint)
+		if languageID, ok := registry.resolveLanguageID(hinted); ok {
+			collector.add(languageID, EvidenceProjectHint, normalizeLanguageName(hinted), priorityProjectHint)
 		}
 	}
 
@@ -255,7 +255,7 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 			if probe.Probe == nil {
 				continue
 			}
-			descriptor, ok := registry.Resolve(probe.Language)
+			languageID, ok := registry.resolveLanguageID(probe.Language)
 			if !ok {
 				continue
 			}
@@ -267,7 +267,7 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 				return DetectionResult{}, err
 			}
 			if matched {
-				collector.add(descriptor.ID, EvidenceAnalyzerProbe, descriptor.ID, priorityAnalyzerProbe)
+				collector.add(languageID, EvidenceAnalyzerProbe, languageID, priorityAnalyzerProbe)
 			}
 		}
 		if len(input.Probes) > limit {
@@ -280,16 +280,6 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 
 func newDetectionCollector() *detectionCollector {
 	return &detectionCollector{candidates: make(map[string]*detectionCandidateState)}
-}
-
-func descriptorHasAmbiguousExtension(descriptor LanguageDescriptor, extension string) bool {
-	normalized := normalizeExtension(extension)
-	for _, candidate := range descriptor.AmbiguousExtensions {
-		if candidate == normalized {
-			return true
-		}
-	}
-	return false
 }
 
 func (collector *detectionCollector) requireExtensionCorroboration(language string) {
@@ -451,8 +441,8 @@ func parseShebangInterpreter(text string) string {
 
 func addDirectiveEvidence(registry *LanguageRegistry, collector *detectionCollector, text string) {
 	if hasClassicASPLanguageDirective(text) {
-		if descriptor, ok := registry.Lookup("classic-asp"); ok {
-			collector.add(descriptor.ID, EvidenceDirective, "asp-language-directive", priorityDirective)
+		if languageID, ok := registry.lookupLanguageID("classic-asp"); ok {
+			collector.add(languageID, EvidenceDirective, "asp-language-directive", priorityDirective)
 		}
 	}
 	matches := modelineLanguage.FindAllStringSubmatch(text, 8)
@@ -464,8 +454,8 @@ func addDirectiveEvidence(registry *LanguageRegistry, collector *detectionCollec
 		if name == "" && len(match) > 2 {
 			name = match[2]
 		}
-		if descriptor, ok := registry.Resolve(name); ok {
-			collector.add(descriptor.ID, EvidenceDirective, normalizeLanguageName(name), priorityDirective)
+		if languageID, ok := registry.resolveLanguageID(name); ok {
+			collector.add(languageID, EvidenceDirective, normalizeLanguageName(name), priorityDirective)
 		}
 	}
 }
@@ -569,13 +559,13 @@ func isDirectiveWordByte(value byte) bool {
 func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCollector, text string) {
 	phpProbe := maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
 	if phpContentMarker.MatchString(phpProbe) {
-		if descriptor, ok := registry.Lookup("php"); ok {
-			collector.add(descriptor.ID, EvidenceContentMarker, "php-open-tag", priorityContent)
+		if languageID, ok := registry.lookupLanguageID("php"); ok {
+			collector.add(languageID, EvidenceContentMarker, "php-open-tag", priorityContent)
 		}
 	}
 	if phpHTMLDistinctiveContent(phpProbe) {
-		if descriptor, ok := registry.Lookup("php-html"); ok {
-			collector.add(descriptor.ID, EvidenceContentMarker, "php-html-host-and-code", priorityDistinctiveContent)
+		if languageID, ok := registry.lookupLanguageID("php-html"); ok {
+			collector.add(languageID, EvidenceContentMarker, "php-html-host-and-code", priorityDistinctiveContent)
 		}
 	}
 
@@ -604,18 +594,18 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 	}
 	for _, marker := range distinctive {
 		if marker.pattern.MatchString(marker.probe) {
-			if descriptor, ok := registry.Lookup(marker.language); ok {
-				collector.add(descriptor.ID, EvidenceContentMarker, marker.detail, priorityDistinctiveContent)
+			if languageID, ok := registry.lookupLanguageID(marker.language); ok {
+				collector.add(languageID, EvidenceContentMarker, marker.detail, priorityDistinctiveContent)
 			}
 		}
 	}
 	if systemVerilogContentMarker.MatchString(hdlProbe) {
-		if descriptor, ok := registry.Lookup("systemverilog"); ok {
-			collector.add(descriptor.ID, EvidenceContentMarker, "systemverilog-interface-package", priorityDistinctiveContent)
+		if languageID, ok := registry.lookupLanguageID("systemverilog"); ok {
+			collector.add(languageID, EvidenceContentMarker, "systemverilog-interface-package", priorityDistinctiveContent)
 		}
 	} else if verilogContentMarker.MatchString(hdlProbe) {
-		if descriptor, ok := registry.Lookup("verilog"); ok {
-			collector.add(descriptor.ID, EvidenceContentMarker, "verilog-module", priorityDistinctiveContent)
+		if languageID, ok := registry.lookupLanguageID("verilog"); ok {
+			collector.add(languageID, EvidenceContentMarker, "verilog-module", priorityDistinctiveContent)
 		}
 	}
 
@@ -682,8 +672,8 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 	}
 	for _, marker := range markers {
 		if marker.pattern.MatchString(text) {
-			if descriptor, ok := registry.Lookup(marker.language); ok {
-				collector.add(descriptor.ID, EvidenceContentMarker, marker.detail, priorityContent)
+			if languageID, ok := registry.lookupLanguageID(marker.language); ok {
+				collector.add(languageID, EvidenceContentMarker, marker.detail, priorityContent)
 			}
 		}
 	}
@@ -694,15 +684,15 @@ func addCompositePathContentEvidence(registry *LanguageRegistry, collector *dete
 	switch {
 	case strings.HasSuffix(lowerBase, ".astro"):
 		if _, ok := astroFrontmatter(text); ok {
-			if descriptor, exists := registry.Lookup("astro"); exists {
-				collector.add(descriptor.ID, EvidenceContentMarker, "astro-frontmatter", priorityDistinctiveContent)
+			if languageID, exists := registry.lookupLanguageID("astro"); exists {
+				collector.add(languageID, EvidenceContentMarker, "astro-frontmatter", priorityDistinctiveContent)
 			}
 		}
 	case strings.HasSuffix(lowerBase, ".ejs"):
 		probe := maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
 		if strings.Contains(probe, "<%") && strings.Contains(probe, "%>") {
-			if descriptor, exists := registry.Lookup("ejs"); exists {
-				collector.add(descriptor.ID, EvidenceContentMarker, "ejs-delimiter", priorityDistinctiveContent)
+			if languageID, exists := registry.lookupLanguageID("ejs"); exists {
+				collector.add(languageID, EvidenceContentMarker, "ejs-delimiter", priorityDistinctiveContent)
 			}
 		}
 	}

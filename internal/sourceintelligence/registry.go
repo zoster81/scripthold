@@ -271,7 +271,7 @@ type LanguageRegistry struct {
 	byName           map[string]string
 	exactBasenames   map[string]string
 	compoundSuffixes map[string]string
-	extensions       map[string][]string
+	extensions       map[string][]extensionRegistration
 	shebangs         map[string][]string
 	orderedSuffixes  []string
 }
@@ -288,7 +288,7 @@ func NewLanguageRegistry(descriptors []LanguageDescriptor) (*LanguageRegistry, e
 		byName:           make(map[string]string, len(descriptors)*2),
 		exactBasenames:   make(map[string]string),
 		compoundSuffixes: make(map[string]string),
-		extensions:       make(map[string][]string),
+		extensions:       make(map[string][]extensionRegistration),
 		shebangs:         make(map[string][]string),
 	}
 	extensionRegistrations := make(map[string][]extensionRegistration)
@@ -371,9 +371,11 @@ func NewLanguageRegistry(descriptors []LanguageDescriptor) (*LanguageRegistry, e
 				return nil, fmt.Errorf("duplicate extension %q in language %s", extension, registration.language)
 			}
 			seen[registration.language] = struct{}{}
-			registry.extensions[extension] = append(registry.extensions[extension], registration.language)
+			registry.extensions[extension] = append(registry.extensions[extension], registration)
 		}
-		sort.Strings(registry.extensions[extension])
+		sort.Slice(registry.extensions[extension], func(i, j int) bool {
+			return registry.extensions[extension][i].language < registry.extensions[extension][j].language
+		})
 	}
 	for interpreter := range registry.shebangs {
 		sort.Strings(registry.shebangs[interpreter])
@@ -437,6 +439,60 @@ func normalizeExtension(value string) string {
 
 func normalizeSuffix(value string) string { return normalizeExtension(value) }
 
+func (registry *LanguageRegistry) resolveLanguageID(name string) (string, bool) {
+	if registry == nil {
+		return "", false
+	}
+	id, ok := registry.byName[normalizeLanguageName(name)]
+	return id, ok
+}
+
+func (registry *LanguageRegistry) lookupLanguageID(id string) (string, bool) {
+	if registry == nil {
+		return "", false
+	}
+	normalized := normalizeLanguageName(id)
+	_, ok := registry.byID[normalized]
+	return normalized, ok
+}
+
+func (registry *LanguageRegistry) exactBasenameLanguageID(name string) (string, bool) {
+	if registry == nil {
+		return "", false
+	}
+	id, ok := registry.exactBasenames[normalizeBasename(name)]
+	return id, ok
+}
+
+func (registry *LanguageRegistry) compoundSuffixLanguageID(path string) (string, string, bool) {
+	if registry == nil {
+		return "", "", false
+	}
+	lower := strings.ToLower(path)
+	for _, suffix := range registry.orderedSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			return registry.compoundSuffixes[suffix], suffix, true
+		}
+	}
+	return "", "", false
+}
+
+func (registry *LanguageRegistry) extensionDetectionCandidates(extension string) []extensionRegistration {
+	if registry == nil {
+		return nil
+	}
+	candidates := registry.extensions[normalizeExtension(extension)]
+	return append([]extensionRegistration(nil), candidates...)
+}
+
+func (registry *LanguageRegistry) shebangLanguageIDs(interpreter string) []string {
+	if registry == nil {
+		return nil
+	}
+	ids := registry.shebangs[normalizeInterpreter(interpreter)]
+	return append([]string(nil), ids...)
+}
+
 // Lookup returns a descriptor by canonical ID.
 func (registry *LanguageRegistry) Lookup(id string) (LanguageDescriptor, bool) {
 	if registry == nil {
@@ -489,10 +545,10 @@ func (registry *LanguageRegistry) ExtensionCandidates(extension string) []Langua
 	if registry == nil {
 		return nil
 	}
-	ids := registry.extensions[normalizeExtension(extension)]
-	result := make([]LanguageDescriptor, 0, len(ids))
-	for _, id := range ids {
-		if descriptor, ok := registry.Lookup(id); ok {
+	registrations := registry.extensions[normalizeExtension(extension)]
+	result := make([]LanguageDescriptor, 0, len(registrations))
+	for _, registration := range registrations {
+		if descriptor, ok := registry.Lookup(registration.language); ok {
 			result = append(result, descriptor)
 		}
 	}
