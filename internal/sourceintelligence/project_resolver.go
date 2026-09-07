@@ -94,6 +94,31 @@ type projectSymbolRecord struct {
 	nameKey      string
 }
 
+type projectLanguageDescriptorCache struct {
+	registry *LanguageRegistry
+	byName   map[string]LanguageDescriptor
+}
+
+func newProjectLanguageDescriptorCache(registry *LanguageRegistry) projectLanguageDescriptorCache {
+	return projectLanguageDescriptorCache{registry: registry, byName: make(map[string]LanguageDescriptor)}
+}
+
+func (cache *projectLanguageDescriptorCache) resolve(name string) (LanguageDescriptor, bool) {
+	key := normalizeLanguageName(name)
+	if descriptor, ok := cache.byName[key]; ok {
+		return descriptor, true
+	}
+	descriptor, ok := cache.registry.Resolve(key)
+	if !ok {
+		return LanguageDescriptor{}, false
+	}
+	cache.byName[descriptor.ID] = descriptor
+	for _, alias := range descriptor.Aliases {
+		cache.byName[alias] = descriptor
+	}
+	return descriptor, true
+}
+
 // ProjectModel is the deterministic, immutable Phase 12 symbol/dependency model.
 // It remains memory-only and may back retained process-local Phase 15 generations;
 // persistent on-disk indexing is not introduced.
@@ -140,6 +165,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		return nil, operation.Wrap(operation.KindLimit, "build_project_model", "", fmt.Errorf("file count %d exceeds limit %d", len(input), limits.MaxFiles))
 	}
 
+	descriptors := newProjectLanguageDescriptorCache(registry)
 	model := &ProjectModel{
 		files:                  make(map[string]projectFileRecord, len(input)),
 		filesByStem:            make(map[string][]string, len(input)),
@@ -171,7 +197,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		if _, duplicate := model.files[pathKey]; duplicate {
 			return nil, operation.Wrap(operation.KindInvalidInput, "build_project_model", path, fmt.Errorf("duplicate project file path"))
 		}
-		descriptor, ok := registry.Resolve(facts.Language)
+		descriptor, ok := descriptors.resolve(facts.Language)
 		if !ok || !descriptor.Capabilities.SourceAnalysis {
 			return nil, operation.Wrap(operation.KindInvalidInput, "build_project_model", path, fmt.Errorf("unknown or unsupported project language %q", facts.Language))
 		}
@@ -199,19 +225,19 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		model.fileOrder = append(model.fileOrder, pathKey)
 	}
 
-	if err := model.buildSymbolTables(ctx, registry); err != nil {
+	if err := model.buildSymbolTables(ctx, &descriptors); err != nil {
 		return nil, err
 	}
-	if err := model.buildDependencies(ctx, registry, maxCandidates); err != nil {
+	if err := model.buildDependencies(ctx, &descriptors, maxCandidates); err != nil {
 		return nil, err
 	}
-	if err := model.buildReferences(ctx, registry, maxCandidates); err != nil {
+	if err := model.buildReferences(ctx, &descriptors, maxCandidates); err != nil {
 		return nil, err
 	}
 	return model, nil
 }
 
-func (model *ProjectModel) buildSymbolTables(ctx context.Context, registry *LanguageRegistry) error {
+func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *projectLanguageDescriptorCache) error {
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
 		records := make([]projectSymbolRecord, 0, len(file.facts.Analysis.Analysis.Symbols))
@@ -223,7 +249,7 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, registry *Lang
 			if languageID == "" {
 				languageID = file.languageID
 			}
-			descriptor, ok := registry.Resolve(languageID)
+			descriptor, ok := descriptors.resolve(languageID)
 			if !ok {
 				continue
 			}
@@ -256,10 +282,10 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, registry *Lang
 	return nil
 }
 
-func (model *ProjectModel) buildDependencies(ctx context.Context, registry *LanguageRegistry, maxCandidates int) error {
+func (model *ProjectModel) buildDependencies(ctx context.Context, descriptors *projectLanguageDescriptorCache, maxCandidates int) error {
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
-		descriptor, _ := registry.Resolve(file.languageID)
+		descriptor, _ := descriptors.resolve(file.languageID)
 		for _, dependency := range file.facts.Analysis.Dependencies {
 			if err := ctx.Err(); err != nil {
 				return operation.Wrap(operation.KindCancelled, "resolve_project_dependency", file.facts.Path, err)
@@ -401,10 +427,10 @@ func (model *ProjectModel) dependencyPathMatches(file projectFileRecord, depende
 	return sortedEntityMap(seen)
 }
 
-func (model *ProjectModel) buildReferences(ctx context.Context, registry *LanguageRegistry, maxCandidates int) error {
+func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *projectLanguageDescriptorCache, maxCandidates int) error {
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
-		descriptor, _ := registry.Resolve(file.languageID)
+		descriptor, _ := descriptors.resolve(file.languageID)
 		for _, relation := range file.facts.Analysis.Relations {
 			if err := ctx.Err(); err != nil {
 				return operation.Wrap(operation.KindCancelled, "resolve_project_reference", file.facts.Path, err)

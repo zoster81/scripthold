@@ -37,7 +37,7 @@ func TestBuildProjectModelAvoidsRepeatedPathCanonicalization(t *testing.T) {
 	if observed == 0 {
 		t.Fatal("allocation guard produced no project references")
 	}
-	if allocations > 3900 {
-		t.Fatalf("BuildProjectModel allocations = %.0f, want <= 3900", allocations)
+	if allocations > 3100 {
+		t.Fatalf("BuildProjectModel allocations = %.0f, want <= 3100", allocations)
 	}
 }

@@ -96,6 +96,42 @@ func TestProjectResolverCrossEcosystemDefinitions(t *testing.T) {
 	}
 }
 
+func TestProjectResolverLanguageDescriptorCachePreservesAliasesAndMixedLanguages(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	javaPath := filepath.Join("project", "languages", "JavaItem.java")
+	javaFacts := projectResolverFacts(t, JavaAnalyzer{}, javaPath, "package demo; class JavaItem {}\n")
+	javaFacts.Language = " JAVA "
+	if len(javaFacts.Analysis.Analysis.Symbols) == 0 {
+		t.Fatal("Java fixture produced no symbols")
+	}
+	javaFacts.Analysis.Analysis.Symbols[0].Language = " JAVA "
+
+	typeScriptPath := filepath.Join("project", "languages", "TypeScriptItem.ts")
+	typeScriptFacts := projectResolverFacts(t, TypeScriptAnalyzer{}, typeScriptPath, "export class TypeScriptItem {}\n")
+	typeScriptFacts.Language = "ts"
+	if len(typeScriptFacts.Analysis.Analysis.Symbols) == 0 {
+		t.Fatal("TypeScript fixture produced no symbols")
+	}
+	typeScriptFacts.Analysis.Analysis.Symbols[0].Language = "ts"
+
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{typeScriptFacts, javaFacts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, wantLanguage := range map[string]string{javaPath: "java", typeScriptPath: "typescript"} {
+		record, ok := model.files[projectPathKey(path)]
+		if !ok {
+			t.Fatalf("missing project file record for %s", path)
+		}
+		if record.languageID != wantLanguage {
+			t.Fatalf("language for %s = %q, want %q", path, record.languageID, wantLanguage)
+		}
+	}
+}
+
 func TestProjectResolverSQLReferenceDependency(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
