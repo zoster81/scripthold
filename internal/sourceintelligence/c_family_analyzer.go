@@ -34,6 +34,18 @@ var cFamilyModifiers = map[string]struct{}{
 	"typedef": {}, "virtual": {}, "volatile": {}, "override": {}, "final": {}, "signed": {}, "unsigned": {}, "long": {}, "short": {},
 }
 
+var (
+	cFamilyCScannerProfile   = CScannerProfile()
+	cFamilyCPPScannerProfile = CPPScannerProfile()
+)
+
+func cFamilyScannerProfile(cpp bool) ScannerProfile {
+	if cpp {
+		return cFamilyCPPScannerProfile
+	}
+	return cFamilyCScannerProfile
+}
+
 func analyzeCFamily(ctx context.Context, document *SourceDocument, options AnalyzeOptions, cpp bool) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -44,10 +56,9 @@ func analyzeCFamily(ctx context.Context, document *SourceDocument, options Analy
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_c_family_source", document.Path, err)
 	}
-	profile := CScannerProfile()
+	profile := cFamilyScannerProfile(cpp)
 	lexicalText := document.Text
 	if cpp {
-		profile = CPPScannerProfile()
 		masked, _, err := maskCPPRawStrings(ctx, document.Text)
 		if err != nil {
 			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_cpp_source", document.Path, err)
@@ -125,13 +136,12 @@ func analyzeCFamilySingle(ctx context.Context, document *SourceDocument, options
 	}
 	language := "c"
 	analyzer := AnalyzerC
-	profile := CScannerProfile()
+	profile := cFamilyScannerProfile(cpp)
 	lexicalText := document.Text
 	var rawDiagnostics []ScannerDiagnostic
 	if cpp {
 		language = "cpp"
 		analyzer = AnalyzerCPP
-		profile = CPPScannerProfile()
 		masked, diagnostics, err := maskCPPRawStrings(ctx, document.Text)
 		if err != nil {
 			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_cpp_source", document.Path, err)
