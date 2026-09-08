@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"fmt"
+	"math/bits"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -43,7 +44,8 @@ func SegmentCompositeSource(ctx context.Context, document *SourceDocument, profi
 		return nil, false, operation.New(operation.KindInvalidInput, "composite profile and segment limit are invalid")
 	}
 	seen := make(map[string]struct{}, len(profile.Rules))
-	for _, rule := range profile.Rules {
+	var openingFirstByteMasks [256]uint32
+	for index, rule := range profile.Rules {
 		if rule.Open == "" || rule.Close == "" || rule.Kind == "" || len(rule.Open) > 128 || len(rule.Close) > 128 || !utf8.ValidString(rule.Open) || !utf8.ValidString(rule.Close) {
 			return nil, false, operation.New(operation.KindInvalidInput, "composite delimiters require bounded non-empty UTF-8 open/close/kind values")
 		}
@@ -51,6 +53,7 @@ func SegmentCompositeSource(ctx context.Context, document *SourceDocument, profi
 			return nil, false, operation.New(operation.KindInvalidInput, "composite opening delimiters must be unique")
 		}
 		seen[rule.Open] = struct{}{}
+		openingFirstByteMasks[rule.Open[0]] |= uint32(1) << uint(index)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, false, operation.Wrap(operation.KindCancelled, "segment_composite_source", document.Path, err)
@@ -74,7 +77,7 @@ func SegmentCompositeSource(ctx context.Context, document *SourceDocument, profi
 		if err := ctx.Err(); err != nil {
 			return nil, false, operation.Wrap(operation.KindCancelled, "segment_composite_source", document.Path, err)
 		}
-		next, ruleIndex, err := nextCompositeOpening(ctx, text, position, profile.Rules)
+		next, ruleIndex, err := nextCompositeOpening(ctx, text, position, profile.Rules, &openingFirstByteMasks)
 		if err != nil {
 			return nil, false, operation.Wrap(operation.KindCancelled, "segment_composite_source", document.Path, err)
 		}
@@ -111,16 +114,23 @@ func SegmentCompositeSource(ctx context.Context, document *SourceDocument, profi
 	return segments, complete, nil
 }
 
-func nextCompositeOpening(ctx context.Context, text string, start int, rules []CompositeDelimiterRule) (int, int, error) {
+func nextCompositeOpening(ctx context.Context, text string, start int, rules []CompositeDelimiterRule, firstByteMasks *[256]uint32) (int, int, error) {
 	for offset := start; offset < len(text); offset++ {
 		if offset&4095 == 0 {
 			if err := ctx.Err(); err != nil {
 				return -1, -1, err
 			}
 		}
+		mask := firstByteMasks[text[offset]]
+		if mask == 0 {
+			continue
+		}
 		bestRule := -1
 		bestLength := -1
-		for index, rule := range rules {
+		for mask != 0 {
+			index := bits.TrailingZeros32(mask)
+			mask &^= uint32(1) << uint(index)
+			rule := rules[index]
 			if len(rule.Open) <= bestLength || !strings.HasPrefix(text[offset:], rule.Open) {
 				continue
 			}

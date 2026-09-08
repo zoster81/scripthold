@@ -621,6 +621,44 @@ func TestCompositeSegmentationAndMaskingPreserveUTF8Offsets(t *testing.T) {
 	}
 }
 
+func TestCompositeSegmentationSharedOpeningPrefixesAndRuleLimit(t *testing.T) {
+	text := "host <%= value %> tail «%= other %»"
+	segments, complete, err := SegmentCompositeSource(context.Background(), sourceDocumentForScanner(text), CompositeProfile{
+		HostKind: "host",
+		Rules: []CompositeDelimiterRule{
+			{Open: "<%", Close: "%>", Kind: "server"},
+			{Open: "<%=", Close: "%>", Kind: "expression"},
+			{Open: "«%", Close: "%»", Kind: "unicode-server"},
+			{Open: "«%=", Close: "%»", Kind: "unicode-expression"},
+		},
+	}, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !complete || len(segments) != 4 || segments[1].Kind != "expression" || segments[3].Kind != "unicode-expression" {
+		t.Fatalf("shared-prefix segmentation complete=%v segments=%+v", complete, segments)
+	}
+	if got := strings.TrimSpace(text[segments[1].Content.Start:segments[1].Content.End]); got != "value" {
+		t.Fatalf("ASCII shared-prefix content = %q", got)
+	}
+	if got := strings.TrimSpace(text[segments[3].Content.Start:segments[3].Content.End]); got != "other" {
+		t.Fatalf("UTF-8 shared-prefix content = %q", got)
+	}
+
+	rules := make([]CompositeDelimiterRule, 32)
+	for index := range rules {
+		rules[index] = CompositeDelimiterRule{Open: "@" + string(rune(0x100+index)), Close: "!", Kind: "embedded"}
+	}
+	limitText := "prefix " + rules[31].Open + "payload!"
+	segments, complete, err = SegmentCompositeSource(context.Background(), sourceDocumentForScanner(limitText), CompositeProfile{HostKind: "host", Rules: rules}, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !complete || len(segments) != 2 || strings.TrimSpace(limitText[segments[1].Content.Start:segments[1].Content.End]) != "payload" {
+		t.Fatalf("32-rule segmentation complete=%v segments=%+v", complete, segments)
+	}
+}
+
 func TestScannerPrimitiveLimitsCancellationAndMalformedProfiles(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
