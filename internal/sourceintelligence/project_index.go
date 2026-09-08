@@ -36,16 +36,17 @@ func ProjectIndexAnalysisFingerprint(registry *LanguageRegistry, config ProjectI
 		return "", operation.New(operation.KindInvalidInput, "language registry is required for project index fingerprinting")
 	}
 	hasher := sha256.New()
-	writeProjectIndexHashPart(hasher, "scripthold:r27-project-index-analysis-v1")
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxFileBytes))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxDecodedCharacters))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxSymbols))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxSignatureBytes))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxDiagnostics))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxDetectorProbes))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxNesting))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", config.MaxProjectEdges))
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%t", config.IncludeSignatures))
+	scratch := make([]byte, 0, 264)
+	writeProjectIndexAnalysisPart(hasher, &scratch, "scripthold:r27-project-index-analysis-v1")
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxFileBytes))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxDecodedCharacters))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxSymbols))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxSignatureBytes))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxDiagnostics))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxDetectorProbes))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxNesting))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%d", config.MaxProjectEdges))
+	writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%t", config.IncludeSignatures))
 	ids := make([]string, 0, len(registry.byID))
 	for id := range registry.byID {
 		ids = append(ids, id)
@@ -53,25 +54,44 @@ func ProjectIndexAnalysisFingerprint(registry *LanguageRegistry, config ProjectI
 	sort.Strings(ids)
 	for _, id := range ids {
 		descriptor := registry.byID[id]
-		writeProjectIndexHashPart(hasher, descriptor.ID)
-		writeProjectIndexHashStrings(hasher, descriptor.Aliases)
-		writeProjectIndexHashStrings(hasher, descriptor.ExactBasenames)
-		writeProjectIndexHashStrings(hasher, descriptor.CompoundSuffixes)
-		writeProjectIndexHashStrings(hasher, descriptor.Extensions)
-		writeProjectIndexHashStrings(hasher, descriptor.AmbiguousExtensions)
-		writeProjectIndexHashStrings(hasher, descriptor.ShebangInterpreters)
-		writeProjectIndexHashPart(hasher, string(descriptor.Analyzer))
-		writeProjectIndexHashPart(hasher, fmt.Sprintf("%+v", descriptor.Capabilities))
-		writeProjectIndexHashPart(hasher, descriptor.Family)
+		writeProjectIndexAnalysisPart(hasher, &scratch, descriptor.ID)
+		writeProjectIndexAnalysisStrings(hasher, &scratch, descriptor.Aliases)
+		writeProjectIndexAnalysisStrings(hasher, &scratch, descriptor.ExactBasenames)
+		writeProjectIndexAnalysisStrings(hasher, &scratch, descriptor.CompoundSuffixes)
+		writeProjectIndexAnalysisStrings(hasher, &scratch, descriptor.Extensions)
+		writeProjectIndexAnalysisStrings(hasher, &scratch, descriptor.AmbiguousExtensions)
+		writeProjectIndexAnalysisStrings(hasher, &scratch, descriptor.ShebangInterpreters)
+		writeProjectIndexAnalysisPart(hasher, &scratch, string(descriptor.Analyzer))
+		writeProjectIndexAnalysisPart(hasher, &scratch, fmt.Sprintf("%+v", descriptor.Capabilities))
+		writeProjectIndexAnalysisPart(hasher, &scratch, descriptor.Family)
 		for _, evidence := range descriptor.DetectionEvidence {
-			writeProjectIndexHashPart(hasher, string(evidence))
+			writeProjectIndexAnalysisPart(hasher, &scratch, string(evidence))
 		}
-		writeProjectIndexHashPart(hasher, descriptor.ScannerProfile)
-		writeProjectIndexHashPart(hasher, descriptor.CompositeBehavior)
-		writeProjectIndexHashPart(hasher, descriptor.AnalyzerStrategy)
-		writeProjectIndexHashPart(hasher, descriptor.AnalyzerVersion)
+		writeProjectIndexAnalysisPart(hasher, &scratch, descriptor.ScannerProfile)
+		writeProjectIndexAnalysisPart(hasher, &scratch, descriptor.CompositeBehavior)
+		writeProjectIndexAnalysisPart(hasher, &scratch, descriptor.AnalyzerStrategy)
+		writeProjectIndexAnalysisPart(hasher, &scratch, descriptor.AnalyzerVersion)
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func writeProjectIndexAnalysisPart(hasher interface{ Write([]byte) (int, error) }, scratch *[]byte, value string) {
+	required := 8 + len(value)
+	if cap(*scratch) < required {
+		*scratch = make([]byte, required)
+	} else {
+		*scratch = (*scratch)[:required]
+	}
+	binary.BigEndian.PutUint64((*scratch)[:8], uint64(len(value)))
+	copy((*scratch)[8:], value)
+	_, _ = hasher.Write(*scratch)
+}
+
+func writeProjectIndexAnalysisStrings(hasher interface{ Write([]byte) (int, error) }, scratch *[]byte, values []string) {
+	writeProjectIndexAnalysisPart(hasher, scratch, fmt.Sprintf("%d", len(values)))
+	for _, value := range values {
+		writeProjectIndexAnalysisPart(hasher, scratch, value)
+	}
 }
 
 // ProjectIndexManagerLimits bound process-local project scopes and immutable
@@ -631,13 +651,6 @@ func writeProjectIndexHashPart(hasher interface{ Write([]byte) (int, error) }, v
 	binary.BigEndian.PutUint64(length[:], uint64(len(value)))
 	_, _ = hasher.Write(length[:])
 	_, _ = hasher.Write([]byte(value))
-}
-
-func writeProjectIndexHashStrings(hasher interface{ Write([]byte) (int, error) }, values []string) {
-	writeProjectIndexHashPart(hasher, fmt.Sprintf("%d", len(values)))
-	for _, value := range values {
-		writeProjectIndexHashPart(hasher, value)
-	}
 }
 
 func cloneProjectFileFactsForIndex(input ProjectFileFacts) ProjectFileFacts {
