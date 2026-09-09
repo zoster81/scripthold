@@ -62,7 +62,7 @@ var (
 )
 
 func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "sql", AnalyzerSQL)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "sql", AnalyzerSQL)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -116,7 +116,7 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if !ok {
 			continue
 		}
-		addDocumentDataHardwareDependency(document, &dependencies, StructuralDependencyReference, fullName, match[2], match[3])
+		addStructuralDependency(document, &dependencies, StructuralDependencyReference, fullName, match[2], match[3])
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
 }
@@ -221,7 +221,7 @@ var (
 )
 
 func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "plsql", AnalyzerPLSQL)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "plsql", AnalyzerPLSQL)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -260,7 +260,7 @@ var (
 )
 
 func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "graphql", AnalyzerGraphQL)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "graphql", AnalyzerGraphQL)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -330,7 +330,7 @@ type hclScope struct {
 }
 
 func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "terraform", AnalyzerTerraform)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "terraform", AnalyzerTerraform)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -430,7 +430,7 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 			bodyStart := candidate.open + 1
 			if sourceMatch := hclSource.FindStringSubmatchIndex(source[bodyStart:candidate.close]); sourceMatch != nil {
 				value := document.Text[bodyStart+sourceMatch[2] : bodyStart+sourceMatch[3]]
-				addDocumentDataHardwareDependency(document, &dependencies, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
+				addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
 			}
 		}
 		if added {
@@ -443,7 +443,7 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 var nixBinding = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_'-]*)[ \t]*=`)
 
 func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "nix", AnalyzerNix)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "nix", AnalyzerNix)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -485,7 +485,7 @@ var (
 )
 
 func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "proto", AnalyzerProto)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "proto", AnalyzerProto)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -501,7 +501,7 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	for _, match := range protoImport.FindAllStringSubmatchIndex(source, -1) {
 		value := document.Text[match[2]:match[3]]
-		addDocumentDataHardwareDependency(document, &dependencies, StructuralDependencyImport, value, match[2], match[3])
+		addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, match[2], match[3])
 	}
 	for _, match := range protoBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {

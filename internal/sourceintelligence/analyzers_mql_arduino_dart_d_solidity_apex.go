@@ -307,46 +307,6 @@ func collectMQLDirectives(document *SourceDocument, tokens []Token) []Structural
 	return result
 }
 
-type structuralDependencyKey struct {
-	kind  StructuralDependencyKind
-	value string
-}
-
-func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDependency {
-	total := len(base) + len(extra)
-	seen := make(map[structuralDependencyKey]struct{}, total)
-	var legacySeen map[string]struct{}
-	result := make([]StructuralDependency, 0, total)
-	for index := 0; index < total; index++ {
-		dependency := StructuralDependency{}
-		if index < len(base) {
-			dependency = base[index]
-		} else {
-			dependency = extra[index-len(base)]
-		}
-
-		kind := string(dependency.Kind)
-		if strings.IndexByte(kind, 0) >= 0 || strings.IndexByte(dependency.Value, 0) >= 0 {
-			if legacySeen == nil {
-				legacySeen = make(map[string]struct{})
-			}
-			key := kind + "\x00" + dependency.Value
-			if _, ok := legacySeen[key]; ok {
-				continue
-			}
-			legacySeen[key] = struct{}{}
-		} else {
-			key := structuralDependencyKey{kind: dependency.Kind, value: dependency.Value}
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-		}
-		result = append(result, dependency)
-	}
-	return result
-}
-
 func quotedOrAngleValue(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) < 2 {

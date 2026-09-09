@@ -1,6 +1,11 @@
 package sourceintelligence
 
-import "context"
+import (
+	"context"
+	"strings"
+
+	"github.com/zoster81/scripthold/internal/operation"
+)
 
 // AnalyzeOptions are common per-document analyzer controls. Structural
 // dependencies share MaxSymbols as their per-file retention ceiling until the
@@ -29,6 +34,77 @@ type StructuralDependency struct {
 	Alias    string                   `json:"alias,omitempty"`
 	Range    Range                    `json:"range"`
 	Evidence SymbolEvidence           `json:"evidence"`
+}
+
+func newStructuralAnalyzerBuilder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if document == nil {
+		return nil, operation.New(operation.KindInvalidInput, "source document is required")
+	}
+	builder := NewSymbolBuilder(document, SymbolBuilderOptions{
+		Context: ctx, Language: language, Analyzer: string(analyzer), IncludeSignatures: options.IncludeSignatures,
+		MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits,
+	})
+	if err := builder.checkReady(); err != nil {
+		return nil, err
+	}
+	return builder, nil
+}
+
+func addStructuralDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
+	value = strings.TrimSpace(value)
+	if value == "" || start < 0 || end <= start || end > len(document.Text) {
+		return
+	}
+	rangeValue, err := document.RangeFromUTF8Offsets(start, end)
+	if err != nil {
+		return
+	}
+	*dependencies = appendUniqueDependencies(*dependencies, []StructuralDependency{{
+		Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural,
+	}})
+}
+
+type structuralDependencyKey struct {
+	kind  StructuralDependencyKind
+	value string
+}
+
+func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDependency {
+	total := len(base) + len(extra)
+	seen := make(map[structuralDependencyKey]struct{}, total)
+	var legacySeen map[string]struct{}
+	result := make([]StructuralDependency, 0, total)
+	for index := 0; index < total; index++ {
+		dependency := StructuralDependency{}
+		if index < len(base) {
+			dependency = base[index]
+		} else {
+			dependency = extra[index-len(base)]
+		}
+
+		kind := string(dependency.Kind)
+		if strings.IndexByte(kind, 0) >= 0 || strings.IndexByte(dependency.Value, 0) >= 0 {
+			if legacySeen == nil {
+				legacySeen = make(map[string]struct{})
+			}
+			key := kind + "\x00" + dependency.Value
+			if _, ok := legacySeen[key]; ok {
+				continue
+			}
+			legacySeen[key] = struct{}{}
+		} else {
+			key := structuralDependencyKey{kind: dependency.Kind, value: dependency.Value}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		result = append(result, dependency)
+	}
+	return result
 }
 
 // StructuralRelation is a syntax-proven declaration relationship. Targets are

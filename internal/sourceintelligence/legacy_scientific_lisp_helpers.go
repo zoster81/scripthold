@@ -12,23 +12,6 @@ type structuralAnalyzerScope struct {
 	parent SymbolParent
 }
 
-func newStructuralAnalyzerBuilder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if document == nil {
-		return nil, operation.New(operation.KindInvalidInput, "source document is required")
-	}
-	builder := NewSymbolBuilder(document, SymbolBuilderOptions{
-		Context: ctx, Language: language, Analyzer: string(analyzer), IncludeSignatures: options.IncludeSignatures,
-		MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits,
-	})
-	if err := builder.checkReady(); err != nil {
-		return nil, err
-	}
-	return builder, nil
-}
-
 func scanAnalyzerLogicalLines(ctx context.Context, document *SourceDocument, profile ScannerProfile, maxNesting int) (ScanResult, []LogicalLine, error) {
 	if maxNesting <= 0 {
 		maxNesting = 2048
@@ -53,20 +36,6 @@ func applyStructuralScanDiagnostics(builder *SymbolBuilder, scan ScanResult, lan
 	if !scan.Complete || scan.DiagnosticsTruncated {
 		builder.MarkIncomplete()
 	}
-}
-
-func addStructuralDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
-	value = strings.TrimSpace(value)
-	if value == "" || start < 0 || end <= start || end > len(document.Text) {
-		return
-	}
-	rangeValue, err := document.RangeFromUTF8Offsets(start, end)
-	if err != nil {
-		return
-	}
-	*dependencies = appendUniqueDependencies(*dependencies, []StructuralDependency{{
-		Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural,
-	}})
 }
 
 func addStructuralSymbol(builder *SymbolBuilder, spec SymbolSpec) (NormalizedSymbol, bool) {

@@ -28,7 +28,7 @@ var (
 )
 
 func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "vhdl", AnalyzerVHDL)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "vhdl", AnalyzerVHDL)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -37,7 +37,7 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	source := maskSourceComments(document.Text, []string{"--"}, "", "")
 	for _, use := range vhdlUse.FindAllStringSubmatchIndex(source, -1) {
 		value := document.Text[use[2]:use[3]]
-		addDocumentDataHardwareDependency(document, &dependencies, StructuralDependencyImport, value, use[2], use[3])
+		addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, use[2], use[3])
 	}
 	for _, match := range vhdlEntity.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
@@ -117,7 +117,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 		language = "systemverilog"
 		analyzer = AnalyzerSystemVerilog
 	}
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, language, analyzer)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, language, analyzer)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -202,7 +202,7 @@ var (
 )
 
 func (AssemblyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "assembly", AnalyzerAssembly)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "assembly", AnalyzerAssembly)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}

@@ -1,7 +1,6 @@
 package sourceintelligence
 
 import (
-	"context"
 	"strings"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -12,23 +11,6 @@ type sourceTextLine struct {
 	trimmed    string
 	start, end int
 	indent     int
-}
-
-func newDocumentDataHardwareBuilder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if document == nil {
-		return nil, operation.New(operation.KindInvalidInput, "source document is required")
-	}
-	builder := NewSymbolBuilder(document, SymbolBuilderOptions{
-		Context: ctx, Language: language, Analyzer: string(analyzer), IncludeSignatures: options.IncludeSignatures,
-		MaxEvidence: SymbolEvidenceStructural, Limits: options.Limits,
-	})
-	if err := builder.checkReady(); err != nil {
-		return nil, err
-	}
-	return builder, nil
 }
 
 func sourceTextLines(text string) []sourceTextLine {
@@ -78,18 +60,6 @@ func parentFromNormalizedSymbol(symbol NormalizedSymbol) *SymbolParent {
 		return nil
 	}
 	return &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-}
-
-func addDocumentDataHardwareDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
-	value = strings.TrimSpace(value)
-	if value == "" || start < 0 || end <= start || end > len(document.Text) {
-		return
-	}
-	rangeValue, err := document.RangeFromUTF8Offsets(start, end)
-	if err != nil {
-		return
-	}
-	*dependencies = appendUniqueDependencies(*dependencies, []StructuralDependency{{Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}})
 }
 
 func addDocumentDataHardwareDiagnostic(builder *SymbolBuilder, code, message string, start, end int) {

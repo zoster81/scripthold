@@ -60,7 +60,7 @@ func (XMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 }
 
 func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, language, analyzer)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, language, analyzer)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -108,7 +108,7 @@ func (LessAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 }
 
 func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, scss, less bool) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, language, analyzer)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, language, analyzer)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -228,7 +228,7 @@ func cssWhitespace(value byte) bool {
 }
 
 func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "sass", AnalyzerSass)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "sass", AnalyzerSass)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -260,7 +260,7 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 }
 
 func (JSONAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "json", AnalyzerJSON)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "json", AnalyzerJSON)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -433,7 +433,7 @@ type yamlScope struct {
 }
 
 func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "yaml", AnalyzerYAML)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "yaml", AnalyzerYAML)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -485,7 +485,7 @@ var (
 )
 
 func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "toml", AnalyzerTOML)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "toml", AnalyzerTOML)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -594,7 +594,7 @@ func tomlBracketDelta(text string) int {
 var markdownHeading = regexp.MustCompile(`^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$`)
 
 func (MarkdownAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "markdown", AnalyzerMarkdown)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "markdown", AnalyzerMarkdown)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -647,7 +647,7 @@ func (MarkdownAnalyzer) Analyze(ctx context.Context, document *SourceDocument, o
 }
 
 func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "openapi", AnalyzerOpenAPI)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "openapi", AnalyzerOpenAPI)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -688,7 +688,7 @@ func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 }
 
 func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newDocumentDataHardwareBuilder(ctx, document, options, "ansible-yaml", AnalyzerAnsibleYAML)
+	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "ansible-yaml", AnalyzerAnsibleYAML)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
