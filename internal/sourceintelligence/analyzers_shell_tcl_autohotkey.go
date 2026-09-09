@@ -19,6 +19,18 @@ func (TclAnalyzer) Language() string        { return "tcl" }
 func (AutoHotkeyAnalyzer) ID() AnalyzerID   { return AnalyzerAutoHotkey }
 func (AutoHotkeyAnalyzer) Language() string { return "autohotkey" }
 
+var (
+	shellAnalyzerShellScannerProfile = ShellScannerProfile("shell")
+	shellAnalyzerBashScannerProfile  = ShellScannerProfile("bash")
+)
+
+func shellAnalyzerScannerProfile(bash bool) ScannerProfile {
+	if bash {
+		return shellAnalyzerBashScannerProfile
+	}
+	return shellAnalyzerShellScannerProfile
+}
+
 func (ShellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	return analyzeShellFamily(ctx, document, options, "shell", AnalyzerShell, false)
 }
@@ -36,7 +48,7 @@ func analyzeShellFamily(ctx context.Context, document *SourceDocument, options A
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, err := state.scan(options, ShellScannerProfile(language), masked)
+	scan, err := state.scan(options, shellAnalyzerScannerProfile(bash), masked)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
