@@ -13,6 +13,18 @@ type RAnalyzer struct{}
 type HaskellAnalyzer struct{}
 type OCamlAnalyzer struct{}
 
+var (
+	matlabAnalyzerMATLABScannerProfile = MATLABScannerProfile("matlab")
+	matlabAnalyzerOctaveScannerProfile = MATLABScannerProfile("octave")
+)
+
+func matlabAnalyzerScannerProfile(octave bool) ScannerProfile {
+	if octave {
+		return matlabAnalyzerOctaveScannerProfile
+	}
+	return matlabAnalyzerMATLABScannerProfile
+}
+
 func (MATLABAnalyzer) ID() AnalyzerID    { return AnalyzerMATLAB }
 func (MATLABAnalyzer) Language() string  { return "matlab" }
 func (OctaveAnalyzer) ID() AnalyzerID    { return AnalyzerOctave }
@@ -43,7 +55,7 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, MATLABScannerProfile(language), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, scanDocument, matlabAnalyzerScannerProfile(octave), options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
