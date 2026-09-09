@@ -659,6 +659,40 @@ func TestCompositeSegmentationSharedOpeningPrefixesAndRuleLimit(t *testing.T) {
 	}
 }
 
+func TestCompositeCloseSearchPreservesCheckpointSemantics(t *testing.T) {
+	longClose := strings.Repeat("q", 128)
+	for _, testCase := range []struct {
+		name  string
+		text  string
+		start int
+		close string
+		want  int
+	}{
+		{name: "crosses checkpoint", text: strings.Repeat("x", 4094) + "ABCDEtail", start: 1, close: "ABCDE", want: 4094},
+		{name: "max bounded close crosses checkpoint", text: strings.Repeat("x", 4080) + longClose + "tail", start: 1, close: longClose, want: 4080},
+		{name: "utf8 close", text: strings.Repeat("α", 3000) + "%»tail", start: 3, close: "%»", want: len(strings.Repeat("α", 3000))},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := findCompositeClose(context.Background(), testCase.text, testCase.start, testCase.close)
+			if err != nil || got != testCase.want {
+				t.Fatalf("close search = (%d,%v), want (%d,nil)", got, err, testCase.want)
+			}
+		})
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got, err := findCompositeClose(cancelled, strings.Repeat("x", 123)+"%>"+strings.Repeat("x", 5000), 1, "%>"); err != nil || got != 123 {
+		t.Fatalf("match before checkpoint = (%d,%v), want (123,nil)", got, err)
+	}
+	if got, err := findCompositeClose(cancelled, strings.Repeat("x", 4096)+"%>", 1, "%>"); err == nil || got != -1 {
+		t.Fatalf("match at cancelled checkpoint = (%d,%v), want (-1,cancelled)", got, err)
+	}
+	if got, err := findCompositeClose(cancelled, strings.Repeat("x", 4095), 1, "%>"); err != nil || got != -1 {
+		t.Fatalf("short no-match before checkpoint = (%d,%v), want (-1,nil)", got, err)
+	}
+}
+
 func TestScannerPrimitiveLimitsCancellationAndMalformedProfiles(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

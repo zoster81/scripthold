@@ -145,15 +145,25 @@ func nextCompositeOpening(ctx context.Context, text string, start int, rules []C
 }
 
 func findCompositeClose(ctx context.Context, text string, start int, close string) (int, error) {
-	for offset := start; offset+len(close) <= len(text); offset++ {
+	lastStart := len(text) - len(close)
+	for offset := start; offset <= lastStart; {
 		if offset&4095 == 0 {
 			if err := ctx.Err(); err != nil {
 				return -1, err
 			}
 		}
-		if strings.HasPrefix(text[offset:], close) {
-			return offset, nil
+		endStart := lastStart + 1
+		if distance := 4096 - (offset & 4095); distance < endStart-offset {
+			endStart = offset + distance
 		}
+		searchEnd := endStart + len(close) - 1
+		if index := strings.Index(text[offset:searchEnd], close); index >= 0 {
+			match := offset + index
+			if match < endStart {
+				return match, nil
+			}
+		}
+		offset = endStart
 	}
 	return -1, nil
 }
