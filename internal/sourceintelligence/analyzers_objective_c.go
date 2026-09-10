@@ -11,6 +11,18 @@ import (
 type ObjectiveCAnalyzer struct{}
 type ObjectiveCPPAnalyzer struct{}
 
+var (
+	objectiveCAnalyzerObjectiveCScannerProfile   = ObjectiveCScannerProfile("objective-c")
+	objectiveCAnalyzerObjectiveCPPScannerProfile = ObjectiveCScannerProfile("objective-cpp")
+)
+
+func objectiveCAnalyzerScannerProfile(language string) ScannerProfile {
+	if language == "objective-cpp" {
+		return objectiveCAnalyzerObjectiveCPPScannerProfile
+	}
+	return objectiveCAnalyzerObjectiveCScannerProfile
+}
+
 func (ObjectiveCAnalyzer) ID() AnalyzerID     { return AnalyzerObjectiveC }
 func (ObjectiveCAnalyzer) Language() string   { return "objective-c" }
 func (ObjectiveCPPAnalyzer) ID() AnalyzerID   { return AnalyzerObjectiveCPP }
@@ -84,7 +96,7 @@ func analyzeObjectiveCBase(ctx context.Context, document *SourceDocument, option
 			planDocument = &clone
 		}
 	}
-	planProfile := ObjectiveCScannerProfile(language)
+	planProfile := objectiveCAnalyzerScannerProfile(language)
 	planProfile.DisableDelimiterTracking = true
 	maxNesting := options.MaxNesting
 	if maxNesting <= 0 {
@@ -154,7 +166,7 @@ func analyzeObjectiveCBaseSingle(ctx context.Context, document *SourceDocument, 
 			scanDocument = &clone
 		}
 	}
-	scan, err := ScanSource(ctx, scanDocument, ObjectiveCScannerProfile(language), ScannerLimits{MaxTokens: scannerTokenBudget(scanDocument.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
+	scan, err := ScanSource(ctx, scanDocument, objectiveCAnalyzerScannerProfile(language), ScannerLimits{MaxTokens: scannerTokenBudget(scanDocument.Text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
