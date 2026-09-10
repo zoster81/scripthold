@@ -16,6 +16,7 @@ type OCamlAnalyzer struct{}
 var (
 	matlabAnalyzerMATLABScannerProfile = MATLABScannerProfile("matlab")
 	matlabAnalyzerOctaveScannerProfile = MATLABScannerProfile("octave")
+	rAnalyzerScannerProfile            = RScannerProfile()
 )
 
 func matlabAnalyzerScannerProfile(octave bool) ScannerProfile {
@@ -909,7 +910,7 @@ func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, lines, err := scanAnalyzerLogicalLines(ctx, document, RScannerProfile(), options.MaxNesting)
+	scan, lines, err := scanAnalyzerLogicalLines(ctx, document, rAnalyzerScannerProfile, options.MaxNesting)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
