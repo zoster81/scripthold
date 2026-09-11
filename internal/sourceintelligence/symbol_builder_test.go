@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 
@@ -551,10 +550,4 @@ func assertLowerHex64(t *testing.T, label, value string) {
 			t.Fatalf("%s = %q, want lower hex", label, value)
 		}
 	}
-}
-
-func sortedStrings(values []string) []string {
-	result := append([]string(nil), values...)
-	sort.Strings(result)
-	return result
 }

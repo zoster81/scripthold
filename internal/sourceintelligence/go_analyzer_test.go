@@ -344,37 +344,3 @@ func analyzeGoText(t *testing.T, text string, options AnalyzeOptions) AnalyzerRe
 	}
 	return result
 }
-
-func symbolsByQualifiedName(symbols []NormalizedSymbol) map[string]NormalizedSymbol {
-	result := make(map[string]NormalizedSymbol, len(symbols))
-	for _, symbol := range symbols {
-		result[symbol.QualifiedName] = symbol
-	}
-	return result
-}
-
-func sortedSymbolQualifiedNames(symbols []NormalizedSymbol) []string {
-	result := make([]string, len(symbols))
-	for index, symbol := range symbols {
-		result[index] = symbol.QualifiedName
-	}
-	return sortedStrings(result)
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func hasAnalysisDiagnostic(diagnostics []AnalysisDiagnostic, code string) bool {
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == code {
-			return true
-		}
-	}
-	return false
-}

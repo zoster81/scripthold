@@ -353,10 +353,6 @@ func scanSourceText(t *testing.T, text string, profile ScannerProfile, limits Sc
 	return result
 }
 
-func sourceDocumentForScanner(text string) *SourceDocument {
-	return &SourceDocument{Path: "scanner.fixture", Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
-}
-
 func keywordTexts(tokens []Token, keyword string) []string {
 	var result []string
 	for _, token := range tokens {

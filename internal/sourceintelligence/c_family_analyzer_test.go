@@ -580,27 +580,6 @@ func TestCFamilyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	}
 }
 
-func testAnalyzeOptions(signatures bool, maxSymbols int) AnalyzeOptions {
-	return AnalyzeOptions{IncludeSignatures: signatures, MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: maxSymbols, MaxSignatureBytes: 8192, MaxDiagnostics: 64}}
-}
-
-func dependencyValues(values []StructuralDependency) []string {
-	result := make([]string, len(values))
-	for index, value := range values {
-		result[index] = value.Value
-	}
-	return result
-}
-
-func hasStructuralRelation(values []StructuralRelation, kind, source, target string) bool {
-	for _, value := range values {
-		if value.Kind == kind && value.Source == source && value.Target == target && value.Evidence == SymbolEvidenceStructural {
-			return true
-		}
-	}
-	return false
-}
-
 func TestCPPAnalyzerOutOfClassDefinitionsPreserveOwnership(t *testing.T) {
 	text := `namespace Demo {
 template <class T>

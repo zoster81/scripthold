@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -183,11 +182,6 @@ func TestAnalyzerRegistryCoverageIsMechanicallyConsistent(t *testing.T) {
 			t.Fatalf("analyzer identity mismatch for %s: %q/%q", descriptor.ID, analyzer.ID(), analyzer.Language())
 		}
 	}
-}
-
-func containsSortedString(values []string, target string) bool {
-	index := sort.SearchStrings(values, target)
-	return index < len(values) && values[index] == target
 }
 
 func generatedGoSource(count int) string {
