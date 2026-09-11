@@ -568,7 +568,7 @@ func (p *phpParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 }
 
 func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnostic, error) {
-	masked := []byte(text)
+	var masked []byte
 	changed := false
 	var diagnostics []ScannerDiagnostic
 	for at := 0; at < len(text); {
@@ -681,11 +681,7 @@ func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnos
 			diagnostics = append(diagnostics, ScannerDiagnostic{Code: "unterminated-heredoc", Message: "PHP heredoc/nowdoc literal is not terminated", StartOffset: open, EndOffset: len(text)})
 			end = len(text)
 		}
-		for i := open; i < end; i++ {
-			if masked[i] != '\r' && masked[i] != '\n' {
-				masked[i] = ' '
-			}
-		}
+		masked = maskPHPHeredocRange(text, masked, open, end)
 		changed = true
 		at = end
 		continue
@@ -694,6 +690,18 @@ func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnos
 		return text, diagnostics, nil
 	}
 	return string(masked), diagnostics, nil
+}
+
+func maskPHPHeredocRange(text string, masked []byte, start, end int) []byte {
+	if masked == nil {
+		masked = []byte(text)
+	}
+	for index := start; index < end; index++ {
+		if masked[index] != '\r' && masked[index] != '\n' {
+			masked[index] = ' '
+		}
+	}
+	return masked
 }
 
 func phpHeredocClosingMarker(text string, lineStart, lineEnd int, name string) (int, bool, bool) {
