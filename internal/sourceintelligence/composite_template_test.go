@@ -78,7 +78,7 @@ function load() { return 1 }
 
 	for _, tc := range tests {
 		t.Run(tc.language, func(t *testing.T) {
-			document := scientificLegacyFunctionalTestDocument("fixture", tc.text)
+			document := testSourceDocument("fixture", tc.text)
 			result, err := tc.analyzer.Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
 			if err != nil {
 				t.Fatal(err)
@@ -121,7 +121,7 @@ func TestPHPHTMLCodeOnlyFileMayEndInsidePHPRegion(t *testing.T) {
 class Demo {
     public function run(): void {}
 }`
-	result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.php", text), testAnalyzeOptions(true, 64))
+	result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.php", text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestPHPHTMLControlFlowMaySpanEmbeddedRegions(t *testing.T) {
 <main id="hero"></main>
 <?php } ?>
 <?php function after(): void {} ?>`
-	result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.php", text), testAnalyzeOptions(true, 64))
+	result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.php", text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ function afterNowdoc(): void {}
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.php", tc.text), testAnalyzeOptions(true, 64))
+			result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.php", tc.text), testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,7 +212,7 @@ function afterNowdoc(): void {}
 		{name: "hash comment closes region", text: "<?php # closes ?>\n<main id=\"hero\"></main>"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.php", tc.text), testAnalyzeOptions(true, 64))
+			result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.php", tc.text), testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -239,7 +239,7 @@ func TestJinjaTwigDeclarationHierarchyAndMalformedScopes(t *testing.T) {
   {% block body %}<main id="hero"></main>{% endblock %}
   {% macro render(value) %}{{ value }}{% endmacro %}
 {% endblock %}`
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture", text), testAnalyzeOptions(true, 128))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("fixture", text), testAnalyzeOptions(true, 128))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -259,7 +259,7 @@ func TestJinjaTwigDeclarationHierarchyAndMalformedScopes(t *testing.T) {
 			}
 
 			malformed := `{% block outer %}{% macro render() %}{% endblock %}{% endmacro %}`
-			bad, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture", malformed), testAnalyzeOptions(true, 64))
+			bad, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("fixture", malformed), testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -277,7 +277,7 @@ func TestJSPControlFlowMaySpanScriptletRegions(t *testing.T) {
 <%= request.getMethod() %>
 <% } %>
 <%! class Helper { void run() {} } %>`
-	result, err := (JSPAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.jsp", text), testAnalyzeOptions(true, 128))
+	result, err := (JSPAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.jsp", text), testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestBladePHPControlFlowMaySpanDirectiveRegions(t *testing.T) {
 @php } @endphp
 </main>
 @php class Helper { public function run() {} } @endphp`
-	result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", text), testAnalyzeOptions(true, 128))
+	result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.blade.php", text), testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestBladePHPControlFlowMaySpanDirectiveRegions(t *testing.T) {
 func TestBladeRawPHPRegionPreservesHierarchy(t *testing.T) {
 	text := `<main id="hero"></main>
 <?php class RawHelper { public function run() {} } ?>`
-	result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", text), testAnalyzeOptions(true, 128))
+	result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.blade.php", text), testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestBladeEmbeddedPHPDelimitersRemainOpaque(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", tc.text), testAnalyzeOptions(true, 128))
+			result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.blade.php", tc.text), testAnalyzeOptions(true, 128))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -409,7 +409,7 @@ new class extends Component {
 @volt('auth.login')
 <form wire:submit="authenticate"></form>
 @endvolt`
-	result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("login.blade.php", text), testAnalyzeOptions(true, 128))
+	result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("login.blade.php", text), testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestBladeVoltAnonymousClassAssociationIsBounded(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", tc.text), testAnalyzeOptions(true, 64))
+			result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.blade.php", tc.text), testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -504,7 +504,7 @@ func TestBladeVoltAnonymousClassAssociationIsBounded(t *testing.T) {
 func TestBladeVoltAnonymousClassHonorsSymbolLimit(t *testing.T) {
 	text := `<?php new class extends Component { public function run() {} }; ?>
 @volt('limited')`
-	result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", text), testAnalyzeOptions(true, 1))
+	result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.blade.php", text), testAnalyzeOptions(true, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func TestBladeVoltAnonymousClassFindsLaterRegionUnderTightSymbolBudget(t *testin
 	text := `<?php $noop = 1; ?>
 <?php new class extends Component { public function run() {} }; ?>
 @volt('late')`
-	result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", text), testAnalyzeOptions(true, 2))
+	result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.blade.php", text), testAnalyzeOptions(true, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +545,7 @@ Environment env = new Environment();
 String json = gson.toJson(env, Environment.class);
 response.setContentType("application/json");
 %>`
-	result, err := (JSPAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.jsp", text), testAnalyzeOptions(true, 128))
+	result, err := (JSPAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.jsp", text), testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,7 +623,7 @@ func TestExistingDotNetCompositesKeepHostCoordinates(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.language, func(t *testing.T) {
-			document := scientificLegacyFunctionalTestDocument("fixture", tc.text)
+			document := testSourceDocument("fixture", tc.text)
 			result, err := tc.analyzer.Analyze(context.Background(), document, testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)

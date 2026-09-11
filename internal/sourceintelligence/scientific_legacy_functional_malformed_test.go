@@ -25,7 +25,7 @@ func TestMalformedSourceLowersCoverage(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.path, tc.text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument(tc.path, tc.text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}

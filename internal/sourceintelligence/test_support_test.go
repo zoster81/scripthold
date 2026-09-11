@@ -2,8 +2,12 @@ package sourceintelligence
 
 import "sort"
 
+func testSourceDocument(path, text string) *SourceDocument {
+	return &SourceDocument{Path: path, Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
+}
+
 func sourceDocumentForScanner(text string) *SourceDocument {
-	return &SourceDocument{Path: "scanner.fixture", Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
+	return testSourceDocument("scanner.fixture", text)
 }
 
 func testAnalyzeOptions(signatures bool, maxSymbols int) AnalyzeOptions {
@@ -44,6 +48,23 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func sameStringSet(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]int, len(got))
+	for _, value := range got {
+		seen[value]++
+	}
+	for _, value := range want {
+		if seen[value] == 0 {
+			return false
+		}
+		seen[value]--
+	}
+	return true
 }
 
 func hasAnalysisDiagnostic(diagnostics []AnalysisDiagnostic, code string) bool {

@@ -13,7 +13,7 @@ func TestDataHardwareDocumentCancellationAndSymbolLimits(t *testing.T) {
 	for _, analyzer := range dataHardwareDocumentAnalyzers() {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := analyzer.Analyze(ctx, scientificLegacyFunctionalTestDocument("cancel.fixture", "placeholder\n"), testAnalyzeOptions(false, 16))
+		_, err := analyzer.Analyze(ctx, testSourceDocument("cancel.fixture", "placeholder\n"), testAnalyzeOptions(false, 16))
 		if operation.KindOf(err) != operation.KindCancelled {
 			t.Fatalf("%s cancellation err=%v kind=%v", analyzer.Language(), err, operation.KindOf(err))
 		}
@@ -48,7 +48,7 @@ func TestDataHardwareDocumentCancellationAndSymbolLimits(t *testing.T) {
 		{"ansible-yaml", AnsibleYAMLAnalyzer{}, generatedAnsible(1200)},
 	} {
 		t.Run("limit-"+tc.language, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("limit.fixture", tc.text), testAnalyzeOptions(false, 128))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("limit.fixture", tc.text), testAnalyzeOptions(false, 128))
 			if err != nil {
 				t.Fatal(err)
 			}

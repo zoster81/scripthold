@@ -37,7 +37,7 @@ func TestDotNetCompositesDelegateServerClientAndStyleRegions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.language, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture", tc.text), testAnalyzeOptions(true, 128))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("fixture", tc.text), testAnalyzeOptions(true, 128))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -12,7 +12,7 @@ import (
 func TestLegacyFormatsPreserveFixedAndFreeStructure(t *testing.T) {
 	t.Run("fortran-fixed-continuation-offsets", func(t *testing.T) {
 		text := "C     SUBROUTINE Fake()\r\n      MODULE LEGACY\r\n      USE ISO_C_BINDING\r\n      SUBROUTINE\r\n     & RUN(X)\r\n      END SUBROUTINE RUN\r\n      END MODULE LEGACY\r\n"
-		document := scientificLegacyFunctionalTestDocument("legacy.f", text)
+		document := testSourceDocument("legacy.f", text)
 		result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 64))
 		if err != nil {
 			t.Fatal(err)
@@ -38,7 +38,7 @@ func TestLegacyFormatsPreserveFixedAndFreeStructure(t *testing.T) {
 
 	t.Run("fortran-type-spec-is-not-type-definition", func(t *testing.T) {
 		text := "module demo\n  type(worker) :: item\ncontains\n  subroutine run()\n  end subroutine run\nend module demo\n"
-		result, err := (FortranAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.f90", text), testAnalyzeOptions(false, 64))
+		result, err := (FortranAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.f90", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestLegacyFormatsPreserveFixedAndFreeStructure(t *testing.T) {
 
 	t.Run("cobol-fixed-comment-and-free-format", func(t *testing.T) {
 		fixed := "      * PROGRAM-ID. FAKE.\r\n       IDENTIFICATION DIVISION.\r\n       PROGRAM-ID. REAL.\r\n       PROCEDURE DIVISION.\r\n       MAIN SECTION.\r\n           COPY COMMON.\r\n"
-		fixedResult, err := (COBOLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixed.cob", fixed), testAnalyzeOptions(false, 64))
+		fixedResult, err := (COBOLAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixed.cob", fixed), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +62,7 @@ func TestLegacyFormatsPreserveFixedAndFreeStructure(t *testing.T) {
 		}
 
 		free := "IDENTIFICATION DIVISION.\nPROGRAM-ID. FREEDEMO.\nPROCEDURE DIVISION.\n*> COPY FAKE.\nMAIN SECTION.\nCOPY COMMON.\n"
-		freeResult, err := (COBOLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("free.cbl", free), testAnalyzeOptions(false, 64))
+		freeResult, err := (COBOLAnalyzer{}).Analyze(context.Background(), testSourceDocument("free.cbl", free), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -99,7 +99,7 @@ func TestCOBOLFreeFormDetectionHandlesRealWorldSignals(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := (COBOLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.name+".cob", tc.text), testAnalyzeOptions(false, 64))
+			result, err := (COBOLAnalyzer{}).Analyze(context.Background(), testSourceDocument(tc.name+".cob", tc.text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +122,7 @@ func TestRealSourceFortranBareEndClosesTrackedProgramUnits(t *testing.T) {
 		"    second = 1\n" +
 		"  end function second\n" +
 		"end\n"
-	result, err := (FortranAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.f90", text), testAnalyzeOptions(false, 64))
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.f90", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestRealSourceFortranSelectTypeGuardsDoNotOpenDerivedTypeScopes(t *testing.
 		"  subroutine after()\n" +
 		"  end subroutine after\n" +
 		"end program main\n"
-	result, err := (FortranAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("main.f90", text), testAnalyzeOptions(false, 64))
+	result, err := (FortranAnalyzer{}).Analyze(context.Background(), testSourceDocument("main.f90", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestRealSourceFortranSelectTypeGuardsDoNotOpenDerivedTypeScopes(t *testing.
 func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 	t.Run("matlab-transpose-and-control-scopes", func(t *testing.T) {
 		text := "classdef Worker\n  methods\n    function out = first(obj, data)\n      value = data';\n      if value\n        out = value;\n      end\n    end\n    function out = second(obj, x)\n      out = x;\n    end\n  end\nend\n"
-		result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("Worker.m", text), testAnalyzeOptions(false, 64))
+		result, err := (MATLABAnalyzer{}).Analyze(context.Background(), testSourceDocument("Worker.m", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,7 +188,7 @@ func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 
 	t.Run("haskell-qualified-import-and-equation", func(t *testing.T) {
 		text := "module Demo where\nimport qualified Data.Map as M\ndata Worker = Worker Int\nrun (Worker x) = x\nanswer = 42\npromoted = 'Worker\n"
-		result, err := (HaskellAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("Demo.hs", text), testAnalyzeOptions(false, 64))
+		result, err := (HaskellAnalyzer{}).Analyze(context.Background(), testSourceDocument("Demo.hs", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,7 +209,7 @@ func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 
 	t.Run("ocaml-value-versus-function", func(t *testing.T) {
 		text := "module Demo = struct\n  let answer = 42\n  let run x = x\nend\n"
-		result, err := (OCamlAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.ml", text), testAnalyzeOptions(false, 64))
+		result, err := (OCamlAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.ml", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -227,7 +227,7 @@ func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 			"  if c = '0' || c = '9' || c = ' ' || c = '~' || c = '\"' || c = '\\\\' || c = '\\'' then c else c\n" +
 			"let id (x : 'a) = x\n" +
 			"let after = 1\n"
-		result, err := (OCamlAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("chars.ml", text), testAnalyzeOptions(false, 64))
+		result, err := (OCamlAnalyzer{}).Analyze(context.Background(), testSourceDocument("chars.ml", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -244,7 +244,7 @@ func TestDynamicAndFunctionalBoundariesStayConservative(t *testing.T) {
 
 	t.Run("julia-compact-function", func(t *testing.T) {
 		text := "module Demo\ncompact(x) = x\nadjoint = matrix'\nmacro tagged(ex)\n  ex\nend\nend\n"
-		result, err := (JuliaAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.jl", text), testAnalyzeOptions(false, 64))
+		result, err := (JuliaAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.jl", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,7 +273,7 @@ func TestMATLABLikeInlineControlAndImplicitFunctionEnd(t *testing.T) {
 			text := "function out = run(x)\n" +
 				"  if isempty(x), out = 0; return; end\n" +
 				"  out = x;\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("run.m", text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("run.m", text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -302,7 +302,7 @@ func TestMATLABLikeOneLineFunctionsCloseTheirOwnScope(t *testing.T) {
 				"    function out = second(obj); if obj, out = obj; else, out = []; end; end\n" +
 				"  end\n" +
 				"end\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("Worker.m", text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("Worker.m", text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -336,7 +336,7 @@ func TestMATLABLikeBlockCommentDelimitersRequireDedicatedLines(t *testing.T) {
 				"  value = '[)';\n" +
 				"  out = x;\n" +
 				"end\n"
-			documentedResult, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("documented.m", documented), testAnalyzeOptions(false, 64))
+			documentedResult, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("documented.m", documented), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -353,7 +353,7 @@ func TestMATLABLikeBlockCommentDelimitersRequireDedicatedLines(t *testing.T) {
 				"  %}\n" +
 				"  out = x;\n" +
 				"end\n"
-			blockResult, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("blocked.m", block), testAnalyzeOptions(false, 64))
+			blockResult, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("blocked.m", block), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -372,7 +372,7 @@ func TestMATLABLikeBlockCommentDelimitersRequireDedicatedLines(t *testing.T) {
 				"  %{\n" +
 				"  out = x;\n" +
 				"end\n"
-			partial, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("broken.m", broken), testAnalyzeOptions(false, 64))
+			partial, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("broken.m", broken), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -398,7 +398,7 @@ func TestMATLABLikeImplicitSubfunctionBoundaries(t *testing.T) {
 				"  out = x + 1;\n" +
 				"function out = third(x)\n" +
 				"  out = x + 2;\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("subfunctions.m", text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("subfunctions.m", text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -434,7 +434,7 @@ func TestMATLABLikeCaseInlineControlPreservesImplicitSubfunctionBoundaries(t *te
 				"  end\n" +
 				"function out = second(x)\n" +
 				"  out = x + 1;\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("case-inline-control.m", text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("case-inline-control.m", text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -473,7 +473,7 @@ func TestMATLABLikeLogicalLineContinuationPreservesNestedControlScopes(t *testin
 				"  out = x + 1;\n" +
 				"function out = third(x)\n" +
 				"  out = x + 2;\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("continued-nested-control.m", text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("continued-nested-control.m", text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -517,7 +517,7 @@ func TestMATLABLikeMethodsAndPropertiesAssignmentsDoNotOpenScopes(t *testing.T) 
 					"  else\n" +
 					"    out = 0;\n" +
 					"  end\n"
-				result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("keyword-assignment.m", text), testAnalyzeOptions(false, 64))
+				result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("keyword-assignment.m", text), testAnalyzeOptions(false, 64))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -551,7 +551,7 @@ func TestMATLABLikeAttributedMethodsAndPropertiesRemainBlockHeaders(t *testing.T
 				"    end\n" +
 				"  end\n" +
 				"end\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("Worker.m", text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("Worker.m", text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -573,7 +573,7 @@ func TestMATLABExplicitNestedFunctionRemainsStructured(t *testing.T) {
 		"  end\n" +
 		"  out = inner(x);\n" +
 		"end\n"
-	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("nested.m", text), testAnalyzeOptions(false, 64))
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), testSourceDocument("nested.m", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +598,7 @@ func TestMATLABBranchLineTerminatorClosesScope(t *testing.T) {
 		"function out = second(x)\n" +
 		"  out = x;\n" +
 		"end\n"
-	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("branches.m", text), testAnalyzeOptions(false, 64))
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), testSourceDocument("branches.m", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,7 +623,7 @@ func TestMATLABBranchInlineScopeDoesNotCloseOuterScope(t *testing.T) {
 		"    otherwise, out = 0;\n" +
 		"  end\n" +
 		"end\n"
-	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("branch-inline.m", text), testAnalyzeOptions(false, 64))
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), testSourceDocument("branch-inline.m", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,7 +642,7 @@ func TestMATLABArgumentsBlockClosesBeforeFunction(t *testing.T) {
 		"  end\n" +
 		"  for i = 1:2, out = x + i; end\n" +
 		"end\n"
-	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("run.m", text), testAnalyzeOptions(false, 64))
+	result, err := (MATLABAnalyzer{}).Analyze(context.Background(), testSourceDocument("run.m", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,7 +661,7 @@ func TestMATLABLikeUnmatchedEndRemainsIncomplete(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			text := "function run()\nend\nend\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("unmatched.m", text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("unmatched.m", text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -677,7 +677,7 @@ func TestMATLABMixedFunctionEndStyleRemainsIncomplete(t *testing.T) {
 		"function first()\nend\nfunction second()\n",
 		"function first()\nfunction second()\nend\n",
 	} {
-		result, err := (MATLABAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("mixed.m", text), testAnalyzeOptions(false, 64))
+		result, err := (MATLABAnalyzer{}).Analyze(context.Background(), testSourceDocument("mixed.m", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -706,7 +706,7 @@ func TestMATLABLikeCharacterVectorsStayOpaqueWithoutHidingTranspose(t *testing.T
 				"function out = after(value)\n" +
 				"  out = value;\n" +
 				tc.end + "\n"
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.path, text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument(tc.path, text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -721,7 +721,7 @@ func TestMATLABLikeCharacterVectorsStayOpaqueWithoutHidingTranspose(t *testing.T
 			}
 
 			brokenText := "function broken()\n  value = 'unterminated\n" + tc.end + "\n"
-			broken, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.path, brokenText), testAnalyzeOptions(false, 64))
+			broken, err := tc.analyzer.Analyze(context.Background(), testSourceDocument(tc.path, brokenText), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -737,7 +737,7 @@ func TestRBacktickIdentifiersKeepDelimiterNamesOpaque(t *testing.T) {
 		"  lapply(items, `[[`, \"parsed\")\n" +
 		"}\n" +
 		"after <- function() 1\n"
-	result, err := (RAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.R", text), testAnalyzeOptions(false, 64))
+	result, err := (RAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.R", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -751,7 +751,7 @@ func TestRBacktickIdentifiersKeepDelimiterNamesOpaque(t *testing.T) {
 		}
 	}
 
-	broken, err := (RAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("broken.R", "value <- `unterminated\n"), testAnalyzeOptions(false, 64))
+	broken, err := (RAnalyzer{}).Analyze(context.Background(), testSourceDocument("broken.R", "value <- `unterminated\n"), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,7 +768,7 @@ func TestRMultilineStringsRemainOpaque(t *testing.T) {
 		"fourth line\"\n" +
 		"}\n" +
 		"after <- function() 1\n"
-	result, err := (RAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("multiline.R", text), testAnalyzeOptions(false, 64))
+	result, err := (RAnalyzer{}).Analyze(context.Background(), testSourceDocument("multiline.R", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -790,7 +790,7 @@ func TestLispReaderFormsDoNotLeakDeclarations(t *testing.T) {
 (defun Real () (list #\) #\} #\Space))
 (defun After () nil)
 `
-		result, err := (CommonLispAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("reader.lisp", text), testAnalyzeOptions(false, 64))
+		result, err := (CommonLispAnalyzer{}).Analyze(context.Background(), testSourceDocument("reader.lisp", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -807,7 +807,7 @@ func TestLispReaderFormsDoNotLeakDeclarations(t *testing.T) {
 
 	t.Run("common-lisp-block-comment-and-quote", func(t *testing.T) {
 		text := "#| (defun BlockFake () nil) |#\n'(defun QuotedFake () nil)\n(defpackage :demo)\n(in-package :demo)\n(defun Real () nil)\n"
-		result, err := (CommonLispAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.lisp", text), testAnalyzeOptions(false, 64))
+		result, err := (CommonLispAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.lisp", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -824,7 +824,7 @@ func TestLispReaderFormsDoNotLeakDeclarations(t *testing.T) {
 
 	t.Run("clojure-discard-and-quote", func(t *testing.T) {
 		text := "(ns demo.core)\n#_(defn DiscardedFake [] nil)\n'(defn QuotedFake [] nil)\n(defn real [] nil)\n"
-		result, err := (ClojureAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.clj", text), testAnalyzeOptions(false, 64))
+		result, err := (ClojureAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.clj", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -856,7 +856,7 @@ func TestUnclosedStructuralScopesLowerCoverage(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument(tc.path, tc.text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument(tc.path, tc.text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -870,7 +870,7 @@ func TestScientificLegacyFunctionalCancellationAndSymbolLimits(t *testing.T) {
 	for _, analyzer := range scientificLegacyFunctionalAnalyzers() {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := analyzer.Analyze(ctx, scientificLegacyFunctionalTestDocument("cancel.fixture", "module Demo\n"), testAnalyzeOptions(false, 16))
+		_, err := analyzer.Analyze(ctx, testSourceDocument("cancel.fixture", "module Demo\n"), testAnalyzeOptions(false, 16))
 		if operation.KindOf(err) != operation.KindCancelled {
 			t.Fatalf("%s cancellation err=%v kind=%v", analyzer.Language(), err, operation.KindOf(err))
 		}
@@ -895,7 +895,7 @@ func TestScientificLegacyFunctionalCancellationAndSymbolLimits(t *testing.T) {
 		{"emacs-lisp", EmacsLispAnalyzer{}, generatedEmacsLisp(1200)},
 	} {
 		t.Run("limit-"+tc.language, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("limit.fixture", tc.text), testAnalyzeOptions(false, 128))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("limit.fixture", tc.text), testAnalyzeOptions(false, 128))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -968,10 +968,6 @@ func TestFortranProcedureKeywordSearchPreservesUnicodeLowerSemantics(t *testing.
 	if !containsSortedString(names, "demo.real_procedure") {
 		t.Fatalf("mixed-case Fortran procedure missing: %v", names)
 	}
-}
-
-func scientificLegacyFunctionalTestDocument(path, text string) *SourceDocument {
-	return &SourceDocument{Path: path, Text: text, Encoding: "utf-8", lineStarts: buildLineStarts(text)}
 }
 
 func scientificLegacyFunctionalAnalyzers() []SourceAnalyzer {

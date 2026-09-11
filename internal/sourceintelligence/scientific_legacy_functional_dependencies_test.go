@@ -7,7 +7,7 @@ import (
 
 func TestClojureNamespaceCollectsAllStaticRequireVectors(t *testing.T) {
 	text := "(ns demo.core\n  (:require [clojure.string :as str]\n            [clojure.set :as set]\n            [demo.util]))\n(defn run [x] x)\n"
-	result, err := (ClojureAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.clj", text), testAnalyzeOptions(false, 64))
+	result, err := (ClojureAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.clj", text), testAnalyzeOptions(false, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestStaticDependencyFormsRejectDynamicTargets(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("dynamic.fixture", tc.text), testAnalyzeOptions(false, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("dynamic.fixture", tc.text), testAnalyzeOptions(false, 64))
 			if err != nil {
 				t.Fatal(err)
 			}

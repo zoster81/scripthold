@@ -24,7 +24,7 @@ func TestSQLDialectProfiles(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := (SQLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("dialect.sql", tc.text), testAnalyzeOptions(true, 64))
+			result, err := (SQLAnalyzer{}).Analyze(context.Background(), testSourceDocument("dialect.sql", tc.text), testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -48,7 +48,7 @@ func TestSQLQuotedDDLHierarchyAndReferenceDependencies(t *testing.T) {
 		"REVOKE CREATE VIEW FROM chinook;\n" +
 		"-- REFERENCES ignored_table(id)\n" +
 		"SELECT 'REFERENCES ignored_string(id)';\n"
-	result, err := (SQLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("schema.sql", text), testAnalyzeOptions(true, 64))
+	result, err := (SQLAnalyzer{}).Analyze(context.Background(), testSourceDocument("schema.sql", text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestGenericHCLUsesTerraformProviderWithoutInventingTerraformSemantics(t *te
 	if detection.State != DetectionProbable || detection.Language != "terraform" {
 		t.Fatalf("generic HCL detection = %+v, want terraform canonical provider", detection)
 	}
-	result, err := (TerraformAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("service.hcl", "service \"api\" { port = 8080 }\nprovider \"aws\" {}\nlocals { answer = 42 }\n"), testAnalyzeOptions(true, 64))
+	result, err := (TerraformAnalyzer{}).Analyze(context.Background(), testSourceDocument("service.hcl", "service \"api\" { port = 8080 }\nprovider \"aws\" {}\nlocals { answer = 42 }\n"), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ service "api" {
   }
 }
 `
-	result, err := (TerraformAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("hierarchy.tf", text), testAnalyzeOptions(true, 64))
+	result, err := (TerraformAnalyzer{}).Analyze(context.Background(), testSourceDocument("hierarchy.tf", text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestAssemblyDialectLabels(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.asm", tc.text), testAnalyzeOptions(true, 64))
+			result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.asm", tc.text), testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)
 			}

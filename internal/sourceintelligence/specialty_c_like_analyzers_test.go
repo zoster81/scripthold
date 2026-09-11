@@ -514,23 +514,6 @@ func TestTradingAndSpecialtyAnalyzersExposeDistinctNativeStructure(t *testing.T)
 	}
 }
 
-func sameStringSet(got, want []string) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	seen := make(map[string]int, len(got))
-	for _, value := range got {
-		seen[value]++
-	}
-	for _, value := range want {
-		if seen[value] == 0 {
-			return false
-		}
-		seen[value]--
-	}
-	return true
-}
-
 func TestDetectorKeepsObjectiveCMExtensionAmbiguousWithoutContentEvidence(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

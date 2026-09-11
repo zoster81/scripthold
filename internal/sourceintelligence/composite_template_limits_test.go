@@ -17,7 +17,7 @@ func TestCancellationAcrossNewProviders(t *testing.T) {
 		t.Run(analyzer.Language(), func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			_, err := analyzer.Analyze(ctx, scientificLegacyFunctionalTestDocument("fixture", `<main id="hero"></main>`), testAnalyzeOptions(true, 32))
+			_, err := analyzer.Analyze(ctx, testSourceDocument("fixture", `<main id="hero"></main>`), testAnalyzeOptions(true, 32))
 			if operation.KindOf(err) != operation.KindCancelled {
 				t.Fatalf("cancel error=%v kind=%v", err, operation.KindOf(err))
 			}
@@ -26,7 +26,7 @@ func TestCancellationAcrossNewProviders(t *testing.T) {
 }
 
 func TestPHPHTMLEOFRegionStillReportsMalformedPHP(t *testing.T) {
-	result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.php", `<?php function load() {`), testAnalyzeOptions(true, 64))
+	result, err := (PHPHTMLAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.php", `<?php function load() {`), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestCompositeRegionOutputIsBounded(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			options := testAnalyzeOptions(true, 128)
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture", tc.text), options)
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("fixture", tc.text), options)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +75,7 @@ func TestDotNetCompositeAggregateRegionBudgetAndMalformedClient(t *testing.T) {
 		fmt.Fprintf(&mixed, `<script>function C%d() {}</script>\n`, index)
 	}
 	options := testAnalyzeOptions(true, 128)
-	result, err := (ASPNetWebFormsAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.aspx", mixed.String()), options)
+	result, err := (ASPNetWebFormsAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.aspx", mixed.String()), options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestDotNetCompositeAggregateRegionBudgetAndMalformedClient(t *testing.T) {
 		t.Fatalf(".NET composite aggregate region budget not enforced: regions=%d analysis=%+v", len(result.Regions), result.Analysis)
 	}
 
-	malformed, err := (RazorAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.cshtml", `@functions { public void ServerRun() {} }<script>function broken() {}`), testAnalyzeOptions(true, 64))
+	malformed, err := (RazorAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.cshtml", `@functions { public void ServerRun() {} }<script>function broken() {}`), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestDotNetCompositeAggregateRegionBudgetAndMalformedClient(t *testing.T) {
 
 func TestBladeInlinePHPDirectiveDoesNotOpenBlock(t *testing.T) {
 	text := "@php($selectedOption = old('x') ?? $cartRule->x)\n<div>{{ $selectedOption }}</div>\n"
-	result, err := (BladeAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.blade.php", text), testAnalyzeOptions(true, 64))
+	result, err := (BladeAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.blade.php", text), testAnalyzeOptions(true, 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestUnterminatedCompositeRegionsLowerCoverage(t *testing.T) {
 		{"ejs", EJSAnalyzer{}, `<% function load() {}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture", tc.text), testAnalyzeOptions(true, 64))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("fixture", tc.text), testAnalyzeOptions(true, 64))
 			if err != nil {
 				t.Fatal(err)
 			}

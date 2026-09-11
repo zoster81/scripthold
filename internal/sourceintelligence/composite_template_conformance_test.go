@@ -68,7 +68,7 @@ function load() {}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := tc.analyzer.Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture", tc.text), testAnalyzeOptions(true, 128))
+			result, err := tc.analyzer.Analyze(context.Background(), testSourceDocument("fixture", tc.text), testAnalyzeOptions(true, 128))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +91,7 @@ func TestScriptStyleRegionsRemainInSourceOrder(t *testing.T) {
 	text := `<style>.card { display: block; }</style>
 <main id="hero"></main>
 <script>function load() {}</script>`
-	result, err := (VueAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.vue", text), testAnalyzeOptions(true, 128))
+	result, err := (VueAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.vue", text), testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestScriptStyleRegionsRemainInSourceOrder(t *testing.T) {
 
 func TestUnsupportedEmbeddedLanguageIsExplicitPartialRegion(t *testing.T) {
 	text := `<main id="hero"></main><script lang="coffee">class Fake {}</script>`
-	result, err := (VueAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("fixture.vue", text), testAnalyzeOptions(true, 128))
+	result, err := (VueAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.vue", text), testAnalyzeOptions(true, 128))
 	if err != nil {
 		t.Fatal(err)
 	}

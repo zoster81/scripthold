@@ -301,7 +301,7 @@ func TestRealSourceFortranFixedFormCPPDirectivesStayOpaque(t *testing.T) {
 		"      PROGRAM demo\n" +
 		"      IMPLICIT_STATEMENT\n" +
 		"      END\n"
-	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	document := testSourceDocument("demo.f", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -325,7 +325,7 @@ func TestRealSourceFortranFyppCallContinuationStaysOpaque(t *testing.T) {
 		"  subroutine run()\n" +
 		"  end subroutine run\n" +
 		"end module demo\n"
-	document := scientificLegacyFunctionalTestDocument("demo.F", text)
+	document := testSourceDocument("demo.F", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +349,7 @@ func TestRealSourceFortranInlineFyppMarkersPreserveContinuation(t *testing.T) {
 		"             #{if third}# + three#{endif}#)\n" +
 		"  end subroutine run\n" +
 		"end module demo\n"
-	document := scientificLegacyFunctionalTestDocument("demo.F", text)
+	document := testSourceDocument("demo.F", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -367,7 +367,7 @@ func TestRealSourceFortranFixedVendorDirectiveContinuationStaysOpaque(t *testing
 		"!dir$ omp offload target(mic:0)\n" +
 		"& in (buffer:length(n), align(512))\n" +
 		"      END\n"
-	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	document := testSourceDocument("demo.f", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +385,7 @@ func TestRealSourceFortranFixedFormBangInLabelColumnsIsComment(t *testing.T) {
 		"    !        CALL fake(\n" +
 		"    ! 1           value)\n" +
 		"      END\n"
-	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	document := testSourceDocument("demo.f", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -404,7 +404,7 @@ func TestRealSourceFortranFixedFormCommentOnlyCodeLineDoesNotBreakContinuation(t
 		"            ! explanation between statement lines\n" +
 		"     1      first, second)\n" +
 		"      END\n"
-	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	document := testSourceDocument("demo.f", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +423,7 @@ func TestRealSourceFortranFixedFormInlineCommentKeepsContinuation(t *testing.T) 
 		"     .    .AND. J .EQ. 2) THEN\n" +
 		"      ENDIF\n" +
 		"      END\n"
-	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	document := testSourceDocument("demo.f", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -441,7 +441,7 @@ func TestRealSourceFortranFixedFormHollerithPayloadStaysOpaque(t *testing.T) {
 		" 1000 FORMAT(\n" +
 		"     & 5X,8HABC'D)E?,I3/)\n" +
 		"      END\n"
-	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	document := testSourceDocument("demo.f", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -462,7 +462,7 @@ func TestRealSourceFortranUppercaseFCanContainFreeFormSource(t *testing.T) {
 		"  subroutine run()\n" +
 		"  end subroutine run\n" +
 		"end module demo\n"
-	document := scientificLegacyFunctionalTestDocument("demo.F", text)
+	document := testSourceDocument("demo.F", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +491,7 @@ func TestRealSourceFortranFixedFormExtendedColumnsAndTabs(t *testing.T) {
 		"\tY(j+j) = 1.0D0\n" +
 		"      END DO\n" +
 		"      END\n"
-	document := scientificLegacyFunctionalTestDocument("demo.f", text)
+	document := testSourceDocument("demo.f", text)
 	result, err := (FortranAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 256))
 	if err != nil {
 		t.Fatal(err)
@@ -750,7 +750,7 @@ func TestRealSourceFortranContinuedCharacterLiteralRequiresLeadingMarker(t *test
 			"  character(len=*), parameter :: message = 'alpha\n" +
 			"  beta'\n" +
 			"end module demo\n"
-		result, err := (FortranAnalyzer{}).Analyze(context.Background(), scientificLegacyFunctionalTestDocument("demo.f90", text), testAnalyzeOptions(false, 64))
+		result, err := (FortranAnalyzer{}).Analyze(context.Background(), testSourceDocument("demo.f90", text), testAnalyzeOptions(false, 64))
 		if err != nil {
 			t.Fatal(err)
 		}
