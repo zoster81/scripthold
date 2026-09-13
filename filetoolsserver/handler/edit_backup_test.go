@@ -62,6 +62,30 @@ func TestEditPreviewRequiredBackupCapturesApprovedPreState(t *testing.T) {
 	assertEditBackupBytes(t, target, []byte("omega\n"))
 }
 
+func TestEditPreviewPinnedBackupCreatesProtectedManifest(t *testing.T) {
+	h, store, target := newEditBackupFixture(t, backupstore.Limits{})
+	if err := os.WriteFile(target, []byte("alpha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previewResult, preview, err := h.HandleEditFile(context.Background(), nil, EditFileInput{
+		Action:       editActionPreview,
+		Path:         target,
+		Edits:        []EditOperation{{OldText: "alpha", NewText: "omega"}},
+		BackupPolicy: editBackupPolicyPinned,
+	})
+	if err != nil || previewResult.IsError || preview.BackupPolicy != editBackupPolicyPinned {
+		t.Fatalf("pinned preview result=%+v output=%+v err=%v", previewResult, preview, err)
+	}
+	applyResult, applied, err := h.HandleEditFile(context.Background(), nil, EditFileInput{Action: editActionApply, PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !applied.Applied || len(applied.BackupID) != 64 {
+		t.Fatalf("pinned apply result=%+v output=%+v err=%v", applyResult, applied, err)
+	}
+	inspected, err := store.Inspect(context.Background(), applied.BackupID, backupstore.InspectOptions{})
+	if err != nil || !inspected.Manifest.Pinned || store.Index().PinnedCount != 1 {
+		t.Fatalf("pinned manifest=%+v index=%+v err=%v", inspected.Manifest, store.Index(), err)
+	}
+}
+
 func TestEditPreviewRequiredBackupRejectsUnavailableStoreAndStrictUnion(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target.txt")

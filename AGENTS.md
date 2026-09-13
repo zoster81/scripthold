@@ -79,7 +79,7 @@ Use focused TDD when practical: reproduce, confirm the expected failure, impleme
 - Allowed directories are process-wide policy shared by every connection; do not introduce per-session filesystem ACLs or let future HTTP sessions mutate startup roots without an explicit roadmap decision.
 - Dynamic MCP client roots are a stdio-only compatibility path when no startup directories are configured.
 - Native HTTP must follow `docs/HTTP_SECURITY.md`; do not weaken authentication, Host/Origin checks, session limits, logging redaction, or the dual execution opt-in.
-- A configured backup store is a separate process-wide internal authority: it must not overlap public roots, must remain inaccessible to ordinary tools, and must preserve the owner-only, one-writer, immutable-format, no-background-GC, and no-automatic-rollback decisions in `docs/PERSISTENT_BACKUP_LIFECYCLE.md`.
+- A configured backup store is a separate process-wide internal authority: it must not overlap public roots, must remain inaccessible to ordinary tools, and must preserve the owner-only, one-writer, immutable-format, no-background-GC, pin protection, manifest-before-object deletion, and no-automatic-rollback decisions in `docs/PERSISTENT_BACKUP_LIFECYCLE.md`. Synchronous per-target FIFO retention after a newer manifest is durable is the only approved automatic deletion path.
 - Preserve stdio behavior while transport work is in progress.
 
 ## Verification commands

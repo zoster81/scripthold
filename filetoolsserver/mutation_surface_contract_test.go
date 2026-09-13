@@ -56,6 +56,13 @@ func TestPublicMutationBoundaries(t *testing.T) {
 		}
 		assertPreviewIDOnlySchema(t, tool)
 	}
+
+	deleteTool := byName["backup_delete"]
+	if deleteTool == nil || deleteTool.Annotations == nil || deleteTool.Annotations.ReadOnlyHint ||
+		deleteTool.Annotations.DestructiveHint == nil || !*deleteTool.Annotations.DestructiveHint {
+		t.Fatalf("backup_delete is not advertised as an explicit destructive mutation: %#v", deleteTool)
+	}
+	assertBackupIDOnlySchema(t, deleteTool)
 }
 
 func TestReadOnlyToolNamesRejectLegacyMutationForms(t *testing.T) {
@@ -162,6 +169,27 @@ func TestEditPreviewThroughMCPIsSideEffectFreeAndApplyIsPreviewIDOnly(t *testing
 	})
 	if err != nil || !replay.IsError {
 		t.Fatalf("replay result=%#v err=%v", replay, err)
+	}
+}
+
+func assertBackupIDOnlySchema(t *testing.T, tool *mcp.Tool) {
+	t.Helper()
+	data, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		t.Fatalf("marshal %s input schema: %v", tool.Name, err)
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("decode %s input schema: %v", tool.Name, err)
+	}
+	if len(schema.Properties) != 1 || schema.Properties["backupId"] == nil {
+		t.Fatalf("%s input properties = %v, want backupId only", tool.Name, schema.Properties)
+	}
+	if len(schema.Required) != 1 || schema.Required[0] != "backupId" {
+		t.Fatalf("%s required fields = %v, want [backupId]", tool.Name, schema.Required)
 	}
 }
 

@@ -303,6 +303,36 @@ func newBackupStoreHandlerFixture(t *testing.T) backupStoreHandlerFixture {
 	}
 }
 
+func TestHandleBackupDeleteExplicitlyRemovesPinnedBackup(t *testing.T) {
+	fixture := newBackupStoreHandlerFixture(t)
+	target := filepath.Join(fixture.publicRoot, "pinned.txt")
+	captured := fixture.capture(t, target, "pinned backup bytes", true)
+
+	result, output, err := fixture.handler.HandleBackupDelete(context.Background(), nil, BackupDeleteInput{BackupID: captured.Manifest.BackupID})
+	if err != nil || result.IsError || output.BackupID != captured.Manifest.BackupID || !output.Pinned || !output.ManifestRemoved {
+		t.Fatalf("delete result=%+v output=%+v err=%v", result, output, err)
+	}
+	if fixture.store.Index().ManifestCount != 0 || fixture.store.Index().PinnedCount != 0 {
+		t.Fatalf("delete left pinned manifest: %#v", fixture.store.Index())
+	}
+}
+
+func TestHandleBackupDeleteOutputLimitPreventsDeletion(t *testing.T) {
+	fixture := newBackupStoreHandlerFixture(t)
+	target := filepath.Join(fixture.publicRoot, "output-limited.txt")
+	captured := fixture.capture(t, target, "must remain protected", true)
+	fixture.handler.config.Limits.MaxOutputBytes = 1
+
+	result, output, err := fixture.handler.HandleBackupDelete(context.Background(), nil, BackupDeleteInput{BackupID: captured.Manifest.BackupID})
+	if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeLimit || output.BackupID != "" {
+		t.Fatalf("output-limited delete result=%+v output=%+v err=%v", result, output, err)
+	}
+	index := fixture.store.Index()
+	if index.ManifestCount != 1 || index.PinnedCount != 1 || len(index.Manifests) != 1 || index.Manifests[0].BackupID != captured.Manifest.BackupID {
+		t.Fatalf("output limit deleted protected backup: %#v", index)
+	}
+}
+
 func (fixture backupStoreHandlerFixture) capture(t *testing.T, path, content string, pinned bool) backupstore.CaptureResult {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

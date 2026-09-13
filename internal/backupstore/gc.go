@@ -162,6 +162,7 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 	for _, object := range postManifestIndex.Objects {
 		postReferences[object.Digest] = object.References
 	}
+	removedObjects := make(map[string]struct{}, len(plan.Objects))
 	for _, candidate := range plan.Objects {
 		if postReferences[candidate.Digest] != 0 {
 			return result, operation.New(operation.KindConflict, "backup object gained a live reference during GC")
@@ -182,6 +183,7 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 		if moved {
 			durableStateChanged = true
 			result.ObjectsRemoved++
+			removedObjects[candidate.Digest] = struct{}{}
 			trash = append(trash, gcTrashEntry{kind: "object", id: candidate.Digest, path: destination, bytes: candidate.Bytes})
 		}
 		if moveErr != nil {
@@ -209,7 +211,8 @@ func (store *Store) ApplyGC(ctx context.Context, plan GCPlan) (result GCResult, 
 		}
 	}
 
-	refreshErr := store.refreshDerivedIndex(ctx)
+	finalIndex := indexWithoutObjects(postManifestIndex, removedObjects)
+	refreshErr := store.publishDerivedIndex(finalIndex)
 	result.Generation = store.Index().Generation
 	indexRefreshed = refreshErr == nil
 	if refreshErr != nil {
@@ -376,6 +379,130 @@ func buildGCPlan(index Index, limits Limits, plannedAt time.Time, activeManifest
 	plan.ManifestCount = len(plan.Manifests)
 	plan.ObjectCount = len(plan.Objects)
 	return plan, nil
+}
+
+// enforceTargetVersionRetention keeps the newest configured number of
+// unpinned versions for one target after a newer manifest is already durable.
+// The just-created manifest, pinned manifests, and active restore sources are
+// never selected. Failure to find a currently removable candidate leaves a
+// temporary soft-limit excess rather than invalidating the new backup.
+// transactionMu must be held by the caller.
+func (store *Store) enforceTargetVersionRetention(ctx context.Context, targetPath, protectedBackupID string) (changed bool, finalIndex Index, indexReady bool, err error) {
+	if store == nil || store.limits.MaxVersionsPerTarget <= 0 {
+		return false, Index{}, false, nil
+	}
+	index, activeManifests, activeObjects, err := store.gcAuthoritativeSnapshot(ctx)
+	if err != nil {
+		return false, Index{}, false, err
+	}
+
+	unpinned := 0
+	for _, manifest := range index.Manifests {
+		if manifest.TargetPath == targetPath && !manifest.Pinned {
+			unpinned++
+		}
+	}
+	excess := unpinned - store.limits.MaxVersionsPerTarget
+	if excess <= 0 {
+		return false, index, true, nil
+	}
+
+	candidates := make([]ManifestSummary, 0, excess)
+	for _, manifest := range index.Manifests {
+		if len(candidates) >= excess {
+			break
+		}
+		if manifest.TargetPath != targetPath || manifest.Pinned || manifest.BackupID == protectedBackupID || activeManifests[manifest.BackupID] > 0 {
+			continue
+		}
+		candidates = append(candidates, manifest)
+	}
+	if len(candidates) == 0 {
+		return false, index, true, nil
+	}
+
+	trash := make([]gcTrashEntry, 0, len(candidates)*2)
+	objectDigests := make(map[string]int64, len(candidates))
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return changed, Index{}, false, operation.Wrap(operation.KindCancelled, "retain_backup_versions", "", err)
+		}
+		source := manifestPath(store.root, candidate.BackupID)
+		info, statErr := os.Lstat(source)
+		if statErr != nil {
+			return changed, Index{}, false, operation.New(operation.KindConflict, "backup manifest changed during automatic retention")
+		}
+		manifest, readErr := readManifest(source, info, store.descriptor)
+		if readErr != nil || manifest.BackupID != candidate.BackupID || manifest.TargetPath != targetPath || manifest.Pinned ||
+			manifest.ObjectDigest != candidate.ObjectDigest || manifest.ManifestChecksum != candidate.ManifestChecksum {
+			return changed, Index{}, false, operation.New(operation.KindConflict, "backup manifest changed during automatic retention")
+		}
+		destination := gcManifestTrashPath(store.root, candidate.BackupID)
+		moved, moveErr := store.ops.moveGCEntry(source, destination, info, "backup retention manifest")
+		if moved {
+			changed = true
+			trash = append(trash, gcTrashEntry{kind: "manifest", id: candidate.BackupID, path: destination})
+			objectDigests[candidate.ObjectDigest] = candidate.ObjectBytes
+		}
+		if moveErr != nil {
+			return changed, Index{}, false, moveErr
+		}
+	}
+
+	postIndex, _, postActiveObjects, scanErr := store.gcAuthoritativeSnapshot(ctx)
+	if scanErr != nil {
+		return changed, Index{}, false, scanErr
+	}
+	postReferences := make(map[string]int, len(postIndex.Objects))
+	for _, object := range postIndex.Objects {
+		postReferences[object.Digest] = object.References
+	}
+	digests := make([]string, 0, len(objectDigests))
+	for digest := range objectDigests {
+		digests = append(digests, digest)
+	}
+	sort.Strings(digests)
+	removedObjects := make(map[string]struct{}, len(digests))
+	for _, digest := range digests {
+		if postReferences[digest] != 0 || activeObjects[digest] > 0 || postActiveObjects[digest] > 0 {
+			continue
+		}
+		source := objectPath(store.root, digest)
+		info, statErr := os.Lstat(source)
+		if os.IsNotExist(statErr) {
+			removedObjects[digest] = struct{}{}
+			continue
+		}
+		if statErr != nil {
+			return changed, Index{}, false, sanitizedFilesystemError("backup retention object cannot be inspected", statErr)
+		}
+		bytes := objectDigests[digest]
+		if verifyErr := verifyExistingObject(ctx, source, info, digest, bytes); verifyErr != nil {
+			return changed, Index{}, false, verifyErr
+		}
+		destination := gcObjectTrashPath(store.root, digest)
+		moved, moveErr := store.ops.moveGCEntry(source, destination, info, "backup retention object")
+		if moved {
+			changed = true
+			removedObjects[digest] = struct{}{}
+			trash = append(trash, gcTrashEntry{kind: "object", id: digest, path: destination, bytes: bytes})
+		}
+		if moveErr != nil {
+			return changed, Index{}, false, moveErr
+		}
+	}
+
+	finalIndex = indexWithoutObjects(postIndex, removedObjects)
+	var cleanupErr error
+	for index := range trash {
+		entry := &trash[index]
+		removed, removeErr := store.ops.removeGCTrashEntry(entry.path)
+		entry.removed = removed
+		if removeErr != nil {
+			cleanupErr = errors.Join(cleanupErr, removeErr)
+		}
+	}
+	return changed, finalIndex, true, cleanupErr
 }
 
 func validateGCPlan(plan GCPlan) (time.Time, error) {

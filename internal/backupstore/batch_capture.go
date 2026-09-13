@@ -38,6 +38,15 @@ func (store *Store) PreflightCaptureBatch(ctx context.Context, requests []Captur
 // manifest that became durable before an error; those manifests are never
 // removed implicitly.
 func (store *Store) CaptureBatch(ctx context.Context, requests []CaptureRequest) (results []CaptureResult, err error) {
+	defer func() {
+		if len(results) == 0 {
+			return
+		}
+		// Objects and manifests are already durable at this point. Persist the
+		// latest derived projection once for the complete batch or durable prefix;
+		// startup can still rebuild it if this best-effort cache write fails.
+		err = errors.Join(err, store.persistCurrentDerivedIndex())
+	}()
 	prepared, err := store.prepareCaptureBatch(ctx, requests)
 	if err != nil {
 		return nil, err
@@ -62,7 +71,7 @@ func (store *Store) CaptureBatch(ctx context.Context, requests []CaptureRequest)
 
 	var derivedErrors []error
 	for index := range prepared {
-		result, captureErr := store.capture(ctx, prepared[index].request, prepared[index].size, true)
+		result, captureErr := store.capture(ctx, prepared[index].request, prepared[index].size, true, true)
 		store.release(reservations[index])
 		released[index] = true
 		if result.Manifest.BackupID != "" {
@@ -160,18 +169,9 @@ func (store *Store) planBatchReservationsLocked(prepared []preparedCaptureReques
 	if batchPinned > store.limits.MaxPinned-store.index.PinnedCount-store.reservedPinned {
 		return nil, operation.New(operation.KindLimit, "backup pinned-manifest quota is exhausted")
 	}
-	for targetPath, batchCount := range batchTargets {
-		current := store.reservedTargets[targetPath]
-		for _, target := range store.index.Targets {
-			if target.TargetPath == targetPath {
-				current += target.ManifestCount - target.PinnedCount
-				break
-			}
-		}
-		if batchCount > store.limits.MaxVersionsPerTarget-current {
-			return nil, operation.New(operation.KindLimit, "backup target-version quota is exhausted")
-		}
-	}
+	// Per-target version pressure is resolved after each durable manifest by
+	// deterministic FIFO retention. It must not reject read-only preflight or
+	// package admission merely because the target already reached retention.
 	if !commit {
 		return reservations, nil
 	}

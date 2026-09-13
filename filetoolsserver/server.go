@@ -253,6 +253,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	addTool(server, toolPolicy, catalogTool("patch_package_apply"), handler.Wrap(logger, "patch_package_apply", h.HandlePatchPackageApply))
 	addTool(server, toolPolicy, catalogTool("backup_restore_apply"), handler.Wrap(logger, "backup_restore_apply", h.HandleBackupRestoreApply))
 	addTool(server, toolPolicy, catalogTool("backup_gc_apply"), handler.Wrap(logger, "backup_gc_apply", h.HandleBackupGCApply))
+	addTool(server, toolPolicy, catalogTool("backup_delete"), handler.Wrap(logger, "backup_delete", h.HandleBackupDelete))
 	addTool(server, toolPolicy, catalogTool("manage_bom_apply"), handler.Wrap(logger, "manage_bom_apply", h.HandleManageBOMApply))
 	addTool(server, toolPolicy, catalogTool("convert_encoding_apply"), handler.Wrap(logger, "convert_encoding_apply", h.HandleConvertEncodingApply))
 	addTool(server, toolPolicy, catalogTool("filesystem_package_apply"), handler.Wrap(logger, "filesystem_package_apply", h.HandleFilesystemPackageApply))

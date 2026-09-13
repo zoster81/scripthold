@@ -6,9 +6,9 @@
 
 This document defines the security boundary, storage format, capture transaction, public management surface, restore contract, garbage-collection model, limits, failure semantics, crash invariants, and verification requirements. Future changes must preserve or explicitly revise these guarantees through a reviewed design; milestone chronology belongs in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md).
 
-The implemented subsystem is disabled by default, uses a dedicated non-overlapping owner-only store with a lifetime writer lock, stores exact bytes as verified immutable content-addressed objects plus checksummed immutable manifests, treats its index as derived/rebuildable state, integrates persistent capture only through explicit approval-bound mutation policy, supports one-shot original-target restore with mandatory safety backup for existing targets, and performs garbage collection only through an explicit generation-bound dry-run/apply plan. Alternate restore destinations, mutable pinning, automatic rollback, background GC, and secure-deletion guarantees remain unavailable.
+The implemented subsystem is disabled by default, uses a dedicated non-overlapping owner-only store with a lifetime writer lock, stores exact bytes as verified immutable content-addressed objects plus checksummed immutable manifests, treats its index as derived/rebuildable state, integrates persistent capture only through approval-bound mutation policy, supports one-shot original-target restore with mandatory safety backup for existing targets, performs age/orphan garbage collection through an explicit generation-bound dry-run/apply plan, and performs synchronous per-target FIFO retention only after a newer unpinned manifest is already durable. Alternate restore destinations, mutable pinning of an existing manifest, automatic rollback, background GC, and secure-deletion guarantees remain unavailable.
 
-The adjacent transactional `.bak` behavior of `convert_encoding` remains separate from the persistent store. R23 applies persistent pre-state policy to approval-bound `edit_file`, `patch_package`, `manage_bom`, and `convert_encoding` capabilities: omitted request policy inherits `MCP_BACKUP_DEFAULT_POLICY`, an explicit `required` may strengthen it, callers cannot weaken an operator default of `required`, and logical no-ops create neither persistent nor adjacent backups.
+The adjacent transactional `.bak` behavior of `convert_encoding` remains separate from the persistent store. Approval-bound `edit_file`, `patch_package`, `manage_bom`, and `convert_encoding` capabilities inherit `MCP_BACKUP_DEFAULT_POLICY` when request policy is omitted. Explicit `required` requests normal persistent capture; explicit `pinned` is stronger and creates an immutable protected manifest. Callers cannot weaken an operator default of `required`, and logical no-ops create neither persistent nor adjacent backups.
 
 ## Goals
 
@@ -20,7 +20,8 @@ The persistent backup subsystem is designed to:
 - let clients list and inspect bounded backup metadata without exposing store paths or file contents;
 - restore exact bytes through one-shot preview/apply with current-state validation;
 - preserve the current target before a destructive restore whenever the target exists;
-- garbage-collect only through an explicit dry-run/apply plan;
+- keep the newest bounded unpinned history per target through synchronous post-capture FIFO retention, while preserving pinned and active-restore backups;
+- garbage-collect age-expired/orphan data only through an explicit dry-run/apply plan;
 - recover deterministically from interrupted object, manifest, index, restore, and garbage-collection operations;
 - preserve stdio and Streamable HTTP equivalence and the process-wide trust model;
 - remain disabled unless an operator configures a dedicated store.
@@ -35,7 +36,7 @@ The subsystem does not provide:
 - concurrent writers from several server processes;
 - per-session or per-agent backup ACLs inside one server process;
 - arbitrary restore destinations;
-- background or scheduled garbage collection;
+- background or scheduled garbage collection; automatic deletion is limited to synchronous oldest-first per-target retention after a newer backup is durable;
 - guaranteed secure deletion on SSD, copy-on-write, journaled, snapshotted, or remote filesystems;
 - application-managed encryption keys or an encryption-at-rest format;
 - direct browsing or mutation of store files through ordinary filesystem tools;
@@ -149,11 +150,12 @@ Restore must revalidate object bytes and current path authorization. It must nev
 The index accelerates bounded listing and quota calculations but is never authoritative.
 
 - Manifests and objects remain the durable source of truth.
-- The in-memory index is generated from a deterministic manifest and object scan.
-- The persisted `index-v1.json` remains compact: it stores only the generation digest and aggregate counts, never every path or manifest row.
+- Startup, audit, retention, GC, and any uncertain state rebuild the in-memory index from a deterministic manifest and object scan.
+- After a verified durable capture that remains below per-target retention pressure, the process may update the already validated in-memory projection deterministically from the committed manifest/object evidence instead of rescanning the store. This fast path never authorizes deletion; uncertainty or pressure falls back to an authoritative scan before any retention move.
+- The persisted `index-v1.json` remains compact: it stores only the generation digest and aggregate counts, never every path or manifest row. Multi-file capture keeps the in-memory projection current after every durable manifest but may coalesce this disposable cache write to one final replacement for the complete batch or durable prefix.
 - Index replacement uses synced staging and atomic replacement.
 - A missing, corrupt, stale, or tampered index is rebuilt under explicit limits.
-- An interrupted index update cannot invalidate a committed manifest.
+- An interrupted or failed index update cannot invalidate a committed manifest; reopening reconstructs current state from immutable manifests and objects.
 
 This avoids a transaction that depends on atomically updating both a manifest and one global mutable database file.
 
@@ -168,14 +170,14 @@ The approved defaults are:
 | `MCP_BACKUP_MAX_TOTAL_BYTES` | `1073741824` | Maximum retained unique object bytes. |
 | `MCP_BACKUP_MAX_OBJECT_BYTES` | `67108864` | Maximum bytes in one object. |
 | `MCP_BACKUP_MAX_MANIFESTS` | `10000` | Maximum live manifests. |
-| `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` | `32` | Maximum unpinned versions retained per target. |
+| `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` | `64` | Target number of newest unpinned versions retained per target; older non-pinned versions are removed FIFO after a newer backup is durable. |
 | `MCP_BACKUP_MAX_PINNED` | `256` | Maximum pinned manifests. |
 | `MCP_BACKUP_RETENTION_DAYS` | `30` | Age threshold used by GC planning, not automatic deletion. |
 | `MCP_BACKUP_PLAN_TTL_SECONDS` | `900` | Lifetime of restore and GC preview capabilities. |
 
 All values must be positive and overflow-safe. Configuration loading enforces hard maxima of 1 TiB total bytes, 1 GiB per object, 1,000,000 manifests, 10,000 versions per target, 100,000 pinned manifests, 3,650 retention days, and 86,400 seconds for plan lifetime; environment values above those maxima fall back to the documented defaults, while invalid direct internal store options fail closed. `MCP_MAX_OUTPUT_BYTES` bounds management, restore, GC, and mutation output, while `MCP_MAX_BATCH_FILES` bounds targets in one backup-integrated package operation.
 
-Total-byte, object-size, manifest-count, per-target-version, and immutable-pin limits are enforced through conservative process-local reservations. Configuration alone does not create backups; capture occurs only for changed approved edit/package/BOM/encoding capabilities whose effective policy is `required`, or through the mandatory safety step of an approved restore. `MCP_BACKUP_RETENTION_DAYS` and the unpinned per-target version limit are evaluated only by explicit `gcDryRun`; `MCP_BACKUP_PLAN_TTL_SECONDS` bounds both restore and GC capabilities. No quota failure triggers implicit garbage collection.
+Total-byte, object-size, manifest-count, and pinned limits remain hard conservative admission bounds. `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` is instead a retention target: reaching it does not reject a new unpinned backup. After the newer manifest is durable, the store removes the oldest eligible non-pinned versions for that same target until the configured count is restored; pinned records, the new manifest, and active restore sources are excluded. If no old version is currently removable, the target may temporarily exceed the retention target rather than losing the new backup. Configuration alone does not create backups; capture occurs only for changed approved edit/package/BOM/encoding capabilities whose effective policy is `required` or `pinned`, or through the mandatory safety step of an approved restore. `MCP_BACKUP_RETENTION_DAYS` remains part of explicit `gcDryRun`; `MCP_BACKUP_PLAN_TTL_SECONDS` bounds both restore and GC capabilities. Global/object/manifest/pinned hard quota failures do not trigger unrelated implicit garbage collection.
 
 ## Capture transaction
 
@@ -189,9 +191,10 @@ The internal capture primitive implements the durable portion of this transactio
 6. Install or verify the immutable object.
 7. Write, sync, and atomically install the immutable manifest.
 8. Sync affected store directories.
-9. Update or invalidate the derived index.
-10. Release the reservation and return the backup identifier to the prepared mutation.
-11. Only then allow the target mutation to stage or commit according to its existing contract.
+9. Update the in-memory derived projection. Below retention pressure this may be derived directly from the previous validated projection plus the newly committed evidence; any uncertainty or destructive retention path performs an authoritative scan.
+10. Persist the compact derived index. A multi-file capture may coalesce this cache replacement while keeping every object and manifest independently durable; failure returns durable-result evidence and startup can rebuild the index.
+11. Release the reservation and return the backup identifier to the prepared mutation.
+12. Only then allow the target mutation to stage or commit according to its existing contract.
 
 If object or manifest persistence fails, the target mutation does not begin. A committed backup remains valid even when the later target mutation fails; manifests describe captured state and do not claim that the associated mutation succeeded.
 
@@ -201,16 +204,16 @@ If object or manifest persistence fails, the target mutation does not begin. A c
 - Total committed unique object bytes plus live reservations must remain within quota.
 - Deduplication may reduce committed bytes, but admission reserves the conservative full object size until an existing object is verified.
 - Cancellation or failure releases the reservation.
-- Individual and package-wide reservations are implemented. Package admission reserves every changed source at its full byte size plus all manifest, pinned, and per-target version capacity atomically before the first capture; verified deduplication may reduce only the committed object bytes.
-- Quota exhaustion is a preflight failure, not a trigger for implicit garbage collection.
+- Individual and package-wide reservations are implemented. Package admission reserves every changed source at its full byte size plus manifest and pinned capacity atomically before the first capture; verified deduplication may reduce only the committed object bytes. Per-target history is not reserved as a hard admission slot because retention occurs only after each new manifest is durable.
+- Global byte/object/manifest/pinned quota exhaustion is a preflight failure. Per-target version pressure is resolved by the approved synchronous FIFO retention path and must not reject a new unpinned backup.
 
 ## Mutation integration
 
-Persistent backup behavior is approval-bound and monotonic. `MCP_BACKUP_DEFAULT_POLICY` is `disabled` unless the operator configures `required`. Eligible preparation requests may omit `backupPolicy` to inherit that default or set exactly `required`; there is no request value that disables an operator-required policy. The effective policy is retained inside the one-shot capability, and every apply tool accepts only `previewId`.
+Persistent backup behavior is approval-bound and monotonic. `MCP_BACKUP_DEFAULT_POLICY` is `disabled` unless the operator configures `required`. Eligible preparation requests may omit `backupPolicy` to inherit that default, set `required` for a normal persistent backup, or set `pinned` for a protected backup. `pinned` implies required capture and cannot weaken an operator default of `required`. The effective policy is retained inside the one-shot capability, and the established apply tools continue to accept only `previewId`.
 
 ### Edit preview/apply
 
-`edit_file` is read-only and accepts only `action=preview`; historical direct mutation and in-tool apply are removed from the MCP surface. Preview prepares exact bytes/fingerprints and, when a changed result has effective policy `required`, performs only read-only backup admission preflight. A no-op needs no store. `edit_file_apply` consumes the capability, revalidates identity/fingerprints, durably captures and verifies the exact approved pre-state before permission changes or target replacement, revalidates again, then commits the retained bytes. A durable `backupId` remains valid if a later mutation step fails; no automatic rollback is claimed.
+`edit_file` is read-only and accepts only `action=preview`; historical direct mutation and in-tool apply are removed from the MCP surface. Preview prepares exact bytes/fingerprints and, when a changed result has effective policy `required` or `pinned`, performs only read-only backup admission preflight. A no-op needs no store. `edit_file_apply` consumes the capability, revalidates identity/fingerprints, durably captures and verifies the exact approved pre-state before permission changes or target replacement, revalidates again, then commits the retained bytes. A durable `backupId` remains valid if a later mutation step fails; no automatic rollback is claimed.
 
 ### Patch packages
 
@@ -218,7 +221,7 @@ Persistent backup behavior is approval-bound and monotonic. `MCP_BACKUP_DEFAULT_
 
 ### BOM and encoding mutations
 
-`manage_bom` `addPreview`/`stripPreview` and `convert_encoding dryRun=true` retain exact result bytes, stable target identities, pre/result fingerprints, and the effective backup policy in a bounded one-shot capability. Changed previews with required policy perform read-only store admission; no-op previews require no store. `manage_bom_apply` and `convert_encoding_apply` capture required persistent pre-states before replacement and verify final fingerprints. Encoding batches capture all required persistent backups before the first file write, then commit sequentially with explicit partial-commit evidence rather than rollback claims.
+`manage_bom` `addPreview`/`stripPreview` and `convert_encoding dryRun=true` retain exact result bytes, stable target identities, pre/result fingerprints, and the effective backup policy in a bounded one-shot capability. Changed previews with `required` or `pinned` policy perform read-only store admission; no-op previews require no store. `manage_bom_apply` and `convert_encoding_apply` capture the required persistent pre-states before replacement, preserve pinned protection when requested, and verify final fingerprints. Encoding batches capture all required persistent backups before the first file write, then commit sequentially with explicit partial-commit evidence rather than rollback claims.
 
 ### Adjacent `.bak` conversion behavior
 
@@ -240,8 +243,9 @@ Mutation is physically separate:
 
 - `backup_restore_apply` accepts only `previewId`. It consumes/revalidates the restore capability; for an existing target it durably captures/verifies the mandatory safety backup and revalidates the target **before restore staging is created**, then commits with optimistic replace. Missing targets use no-replace creation and no safety backup.
 - `backup_gc_apply` accepts only `previewId`. It consumes the plan, blocks capture reservations, reconstructs/compares complete generation/pin/reference evidence, then removes manifests before fully verified zero-reference objects and refreshes derived state after durable progress.
+- `backup_delete` accepts exactly one `backupId` and is an explicitly destructive management tool. It revalidates current target authorization and immutable manifest/object evidence, may remove a pinned manifest only because the caller selected that exact identifier, preserves shared/active-restore objects, and uses the same manifest-first typed-trash recovery discipline.
 
-No backup tool accepts a store path, object path, alternate restore destination, caller-selected restore bytes, mutable pin instruction, caller-selected GC policy, or raw deletion instruction. Apply tools accept no path/content/policy override. Every response remains within `MCP_MAX_OUTPUT_BYTES`.
+No backup tool accepts a store path, object path, alternate restore destination, caller-selected restore bytes, mutable pin instruction, or caller-selected GC policy. Capability-based apply tools accept no path/content/policy override. The dedicated `backup_delete` exception accepts only one exact `backupId`; it cannot select a store path, object path, target path, policy, or wildcard scope. Every response remains within `MCP_MAX_OUTPUT_BYTES`.
 ## Listing and review
 
 - Results are ordered newest-first by creation time and backup ID.
@@ -289,7 +293,7 @@ A restore never deletes or consumes the source backup.
 
 ## Garbage collection
 
-Garbage collection is an always-explicit dry-run/apply workflow. It never runs because quota is exhausted, on a timer, or in the background.
+Age/orphan garbage collection is an always-explicit dry-run/apply workflow. It never runs on a timer or in the background. Separate from GC, per-target version retention runs synchronously after a newer unpinned manifest is durable and removes only the oldest eligible non-pinned history for that same target.
 
 ### Policy
 
@@ -328,7 +332,7 @@ Objects become eligible only when their post-manifest reference count is zero. E
 
 Pinning changes retention semantics and therefore requires a crash-consistent design.
 
-The implemented initial choice is immutable pin state at backup creation. GC never selects a pinned manifest. Mutable pin/unpin remains unavailable; any future implementation must use append-only pin records or replacement manifests rather than rewriting an original manifest in place, and requires a separate approval because it changes quotas, planning, and recovery.
+Pin state remains immutable in each manifest. Normal approval-bound mutation requests may choose `backupPolicy="pinned"`, which performs the same mandatory pre-state capture with `Pinned=true`; pinned quota admission is checked before mutation. Automatic per-target retention and explicit GC never select a pinned manifest. Mutable pin/unpin of an already-created manifest remains unavailable. A pinned backup is removed only when its exact identifier is supplied to the dedicated destructive `backup_delete` tool.
 
 ## Startup recovery and degraded state
 
@@ -394,7 +398,9 @@ The implementation must preserve these invariants at every injected failure poin
 
 ## Complexity
 
-- Capture: `O(file bytes)` time and bounded streaming memory.
+- Capture below per-target retention pressure: `O(file bytes + manifests + objects)` worst-case time with bounded streaming file memory. Normal steady-state capture updates the validated derived projection in memory and avoids a filesystem-wide manifest/object scan; uncertainty fails over to the authoritative scan path.
+- Multi-file capture below retention pressure keeps the derived projection current after each durable manifest and coalesces the compact persisted-index replacement to one final write for the complete batch or durable prefix.
+- Capture with per-target rollover adds authoritative bounded scans, deterministic oldest-first candidate selection, and manifest/object removal work. The implementation reuses those authoritative snapshots instead of performing redundant final scans.
 - Restore preview/apply: `O(current bytes + object bytes)` time and bounded streaming memory, excluding explicitly bounded diff construction.
 - List: `O(manifests scanned)` worst-case under the configured manifest bound, with `O(page size)` retained output and keyset pagination; bounded index rebuild is `O(manifests)`.
 - Quick audit: `O(manifests + objects)` metadata work.
@@ -421,7 +427,9 @@ No API may retain all file contents, all diffs, or an unbounded manifest set in 
 - unknown fields and unsupported versions;
 - exact object hashing, no-replace install, deduplication, object collision simulation, and existing-object corruption;
 - manifest canonicalization, checksum, duplicate IDs, oversized manifests, and index rebuild;
-- quota reservations, cancellation, saturation, overflow, object-size, manifest-count, per-target, and pinned limits;
+- quota reservations, cancellation, saturation, overflow, object-size, manifest-count, pinned hard limits, and per-target retention rollover without admission deadlock;
+- concurrent independent captures and large batches keep the in-memory/persisted derived projection consistent, fall back to authoritative scans when the projection is inconsistent, coalesce non-authoritative batch index persistence, and recover correctly if that final cache write fails;
+- pinned and active-restore records are never selected by automatic retention, while exact-ID explicit deletion may remove a pinned record only when no active restore retains it;
 - source changes during hashing and between capture and target mutation;
 - failures at every write, sync, close, rename, index, and cleanup position.
 
@@ -471,7 +479,7 @@ A store under or adjacent to a public workspace could be read, overwritten, fing
 
 ### Risk: backup creation causes the mutation it is meant to protect to fail
 
-Quota exhaustion, disk-full, permission, sync, or lock failures can block mutations. This is intentional for `required` policy. Backup remains opt-in, quota admission occurs before mutation, and no implicit GC is attempted. Operators choose store capacity and retention explicitly.
+Disk-full, permission, sync, lock, global byte/manifest, object-size, or pinned-quota failures can still block mutations under required/pinned policy. Per-target history saturation no longer does: the newer backup is committed first and oldest eligible non-pinned history is then rotated. This prevents a hot file from becoming unbackuppable merely because it reached its retention count, without deleting pinned or active-restore evidence first.
 
 ### Risk: a mutable global index becomes a single corruption point
 
@@ -507,9 +515,11 @@ Maintainers explicitly accepted all ten decisions on 2026-08-04:
 4. immutable objects and manifests are authoritative, with a rebuildable derived index;
 5. the documented quota and retention defaults are accepted, together with mandatory status reporting and conservative preflight estimates in the phases that consume them;
 6. restore is initially limited to the original target and always safety-backs up an existing target;
-7. GC remains explicit dry-run/apply with no background deletion;
+7. age/orphan GC remains explicit dry-run/apply with no background deletion;
 8. encryption at rest and secure deletion guarantees are deferred;
 9. existing adjacent `.bak` conversion behavior remains separate;
 10. no automatic patch-package rollback is introduced.
 
-The approved design was implemented incrementally so each durability and recovery boundary could be failure-tested before the next public capability was enabled. The completed implementation preserves all ten decisions above; its full lifecycle and release-adjacent verification matrix completed on 2026-08-05.
+The approved design was implemented incrementally so each durability and recovery boundary could be failure-tested before the next public capability was enabled. The full lifecycle and release-adjacent verification matrix completed on 2026-08-05.
+
+A subsequent maintainer-approved maintenance revision on 2026-08-26 changes only the per-target saturation and protection UX: `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` is a synchronous post-capture retention target with default `64`, `backupPolicy="pinned"` creates protected immutable manifests, and exact-ID `backup_delete` is the explicit authority for intentional removal. Global byte/object/manifest/pinned quotas, one-writer ownership, no background GC, manifest-before-object deletion, and no automatic rollback remain unchanged.

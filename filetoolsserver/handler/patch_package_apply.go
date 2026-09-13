@@ -108,12 +108,12 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 	}
 
 	staged := make([]*filesystem.StagedReplacement, len(prepared.targets))
-	if prepared.backupPolicy == editBackupPolicyRequired {
+	if persistentBackupRequired(prepared.backupPolicy) {
 		if h.backupBatchCapture == nil {
 			failure := operation.New(operation.KindConflict, "required package backup authority is unavailable")
 			return h.patchPackageApplyFailure(prepared, output, -1, failure, staged)
 		}
-		requests := patchPackageCaptureRequests(prepared.label, prepared.targets)
+		requests := patchPackageCaptureRequests(prepared.label, prepared.backupPolicy, prepared.targets)
 		if len(requests) > 0 {
 			captures, captureErr := h.backupBatchCapture.CaptureBatch(ctx, requests)
 			changedIndices := make([]int, 0, len(requests))
@@ -552,7 +552,7 @@ func (h *Handler) checkPatchPackageApplyWorstCaseOutput(output PatchPackageOutpu
 	worst := output
 	worst.Results = append([]PatchPackageTargetResult(nil), output.Results...)
 	worst.PartialCommit = true
-	if worst.BackupPolicy == editBackupPolicyRequired {
+	if persistentBackupRequired(worst.BackupPolicy) {
 		worst.BackupCount = worst.ChangedCount
 	}
 	worst.ActualAggregateFingerprint = strings.Repeat("f", sha256.Size*2)
@@ -571,7 +571,7 @@ func (h *Handler) checkPatchPackageApplyWorstCaseOutput(output PatchPackageOutpu
 		worst.Results[index].State = patchPackageStateUnchanged
 		worst.Results[index].Applied = true
 		worst.Results[index].ReadOnlyCleared = true
-		if worst.BackupPolicy == editBackupPolicyRequired && worst.Results[index].Changed {
+		if persistentBackupRequired(worst.BackupPolicy) && worst.Results[index].Changed {
 			worst.Results[index].BackupID = strings.Repeat("f", patchPackagePreviewTokenBytes*2)
 		}
 	}

@@ -82,6 +82,36 @@ type BackupStoreOutput struct {
 	GC         *BackupStoreGCOutput      `json:"gc,omitempty"`
 }
 
+// BackupDeleteInput is the complete explicit backup deletion request.
+// It deliberately accepts no path or policy override.
+type BackupDeleteInput struct {
+	BackupID string `json:"backupId"`
+}
+
+func (input *BackupDeleteInput) UnmarshalJSON(data []byte) error {
+	type alias BackupDeleteInput
+	var decoded alias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return err
+	}
+	*input = BackupDeleteInput(decoded)
+	return nil
+}
+
+type BackupDeleteOutput struct {
+	BackupID        string `json:"backupId"`
+	Pinned          bool   `json:"pinned"`
+	ManifestRemoved bool   `json:"manifestRemoved"`
+	ObjectRemoved   bool   `json:"objectRemoved"`
+	BytesReclaimed  int64  `json:"bytesReclaimed"`
+	Generation      string `json:"generation"`
+}
+
 type BackupStoreLimitsOutput struct {
 	MaxTotalBytes        int64 `json:"maxTotalBytes"`
 	MaxObjectBytes       int64 `json:"maxObjectBytes"`

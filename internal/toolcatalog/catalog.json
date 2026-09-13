@@ -160,6 +160,16 @@
       }
     },
     {
+      "name": "backup_delete",
+      "title": "Delete Backup",
+      "description": "Explicitly delete one selected backup, including a pinned backup.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "detect_line_endings",
       "title": "Detect Line Endings",
       "description": "Detect LF, CRLF, mixed, or absent line endings.",

@@ -58,17 +58,7 @@ func buildIndex(descriptor Descriptor, manifests []Manifest, objects map[string]
 	}
 	targets := make(map[string]TargetSummary)
 	for _, manifest := range sortedManifests {
-		index.Manifests = append(index.Manifests, ManifestSummary{
-			BackupID:           manifest.BackupID,
-			CreatedAt:          manifest.CreatedAt,
-			TargetPath:         manifest.TargetPath,
-			SourceOperation:    manifest.SourceOperation,
-			ObjectDigest:       manifest.ObjectDigest,
-			ObjectBytes:        manifest.ObjectBytes,
-			ContentFingerprint: manifest.ContentFingerprint,
-			Pinned:             manifest.Pinned,
-			ManifestChecksum:   manifest.ManifestChecksum,
-		})
+		index.Manifests = append(index.Manifests, manifestSummaryFromManifest(manifest))
 		index.ManifestCount++
 		if manifest.Pinned {
 			index.PinnedCount++
@@ -264,4 +254,156 @@ func cloneIndex(index Index) Index {
 	copyIndex.Objects = append([]ObjectSummary(nil), index.Objects...)
 	copyIndex.Targets = append([]TargetSummary(nil), index.Targets...)
 	return copyIndex
+}
+
+func manifestSummaryFromManifest(manifest Manifest) ManifestSummary {
+	return ManifestSummary{
+		BackupID:           manifest.BackupID,
+		CreatedAt:          manifest.CreatedAt,
+		TargetPath:         manifest.TargetPath,
+		SourceOperation:    manifest.SourceOperation,
+		ObjectDigest:       manifest.ObjectDigest,
+		ObjectBytes:        manifest.ObjectBytes,
+		ContentFingerprint: manifest.ContentFingerprint,
+		Pinned:             manifest.Pinned,
+		ManifestChecksum:   manifest.ManifestChecksum,
+	}
+}
+
+// deriveIndexAfterCapture updates only derived in-memory state after a known
+// durable manifest commit. It never authorizes deletion: any retention pressure
+// still falls back to an authoritative filesystem scan before removal.
+func deriveIndexAfterCapture(base Index, manifest Manifest, objectCreated bool) (Index, bool) {
+	if base.FormatVersion != IndexVersion || base.StoreID != manifest.StoreID ||
+		base.ManifestCount != len(base.Manifests) || base.ObjectCount != len(base.Objects) ||
+		base.PinnedCount < 0 || base.PinnedCount > base.ManifestCount {
+		return Index{}, false
+	}
+
+	index := cloneIndex(base)
+	for _, existing := range index.Manifests {
+		if existing.BackupID == manifest.BackupID {
+			return Index{}, false
+		}
+	}
+	index.Manifests = append(index.Manifests, manifestSummaryFromManifest(manifest))
+	sort.Slice(index.Manifests, func(i, j int) bool {
+		if index.Manifests[i].CreatedAt != index.Manifests[j].CreatedAt {
+			return index.Manifests[i].CreatedAt < index.Manifests[j].CreatedAt
+		}
+		return index.Manifests[i].BackupID < index.Manifests[j].BackupID
+	})
+
+	objectByDigest := make(map[string]int, len(index.Objects)+1)
+	objectExisted := false
+	for objectIndex, object := range index.Objects {
+		if object.Digest == "" || object.Bytes < 0 || object.References < 0 {
+			return Index{}, false
+		}
+		if _, duplicate := objectByDigest[object.Digest]; duplicate {
+			return Index{}, false
+		}
+		objectByDigest[object.Digest] = objectIndex
+		if object.Digest == manifest.ObjectDigest {
+			objectExisted = true
+			if object.Bytes != manifest.ObjectBytes {
+				return Index{}, false
+			}
+		}
+	}
+	if objectCreated == objectExisted {
+		return Index{}, false
+	}
+	if objectCreated {
+		index.Objects = append(index.Objects, ObjectSummary{Digest: manifest.ObjectDigest, Bytes: manifest.ObjectBytes})
+	}
+	sort.Slice(index.Objects, func(i, j int) bool { return index.Objects[i].Digest < index.Objects[j].Digest })
+	objectByDigest = make(map[string]int, len(index.Objects))
+	var totalObjectBytes int64
+	for objectIndex := range index.Objects {
+		object := &index.Objects[objectIndex]
+		object.References = 0
+		if _, duplicate := objectByDigest[object.Digest]; duplicate || !addNonNegativeInt64(&totalObjectBytes, object.Bytes) {
+			return Index{}, false
+		}
+		objectByDigest[object.Digest] = objectIndex
+	}
+
+	targets := make(map[string]TargetSummary)
+	pinnedCount := 0
+	for _, summary := range index.Manifests {
+		objectIndex, exists := objectByDigest[summary.ObjectDigest]
+		if !exists || index.Objects[objectIndex].Bytes != summary.ObjectBytes {
+			return Index{}, false
+		}
+		index.Objects[objectIndex].References++
+		if summary.Pinned {
+			pinnedCount++
+		}
+		target := targets[summary.TargetPath]
+		target.TargetPath = summary.TargetPath
+		target.ManifestCount++
+		if summary.Pinned {
+			target.PinnedCount++
+		}
+		if target.LatestAt == "" || summary.CreatedAt > target.LatestAt {
+			target.LatestAt = summary.CreatedAt
+		}
+		targets[summary.TargetPath] = target
+	}
+
+	targetPaths := make([]string, 0, len(targets))
+	for targetPath := range targets {
+		targetPaths = append(targetPaths, targetPath)
+	}
+	sort.Strings(targetPaths)
+	index.Targets = make([]TargetSummary, 0, len(targetPaths))
+	for _, targetPath := range targetPaths {
+		index.Targets = append(index.Targets, targets[targetPath])
+	}
+	index.ManifestCount = len(index.Manifests)
+	index.ObjectCount = len(index.Objects)
+	index.PinnedCount = pinnedCount
+	index.TotalObjectBytes = totalObjectBytes
+	index.GeneratedAt = utcTimestamp(time.Now())
+	index.Generation = indexGeneration(index)
+	return index, true
+}
+
+func targetUnpinnedVersions(index Index, targetPath string) (int, bool) {
+	for _, target := range index.Targets {
+		if target.TargetPath != targetPath {
+			continue
+		}
+		if target.ManifestCount < 0 || target.PinnedCount < 0 || target.PinnedCount > target.ManifestCount {
+			return 0, false
+		}
+		return target.ManifestCount - target.PinnedCount, true
+	}
+	return 0, true
+}
+
+// indexWithoutObjects derives the exact post-removal index from an authoritative
+// snapshot taken after manifest removal. Callers hold transactionMu, so no
+// writer can add object references between that snapshot and the verified
+// object moves represented by removed.
+func indexWithoutObjects(index Index, removed map[string]struct{}) Index {
+	if len(removed) == 0 {
+		return index
+	}
+	objects := make([]ObjectSummary, 0, max(0, len(index.Objects)-len(removed)))
+	var totalBytes int64
+	for _, object := range index.Objects {
+		if _, drop := removed[object.Digest]; drop {
+			continue
+		}
+		objects = append(objects, object)
+		totalBytes += object.Bytes
+	}
+	index.Objects = objects
+	index.ObjectCount = len(objects)
+	index.TotalObjectBytes = totalBytes
+	index.GeneratedAt = utcTimestamp(time.Now())
+	index.Generation = indexGeneration(index)
+	return index
 }

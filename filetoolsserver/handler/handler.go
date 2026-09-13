@@ -72,6 +72,12 @@ type BackupStoreGCApplier interface {
 	ApplyGC(context.Context, backupstore.GCPlan) (backupstore.GCResult, error)
 }
 
+// BackupStoreDeleter owns explicit deletion of one selected backup, including
+// pinned manifests that automatic retention and GC must preserve.
+type BackupStoreDeleter interface {
+	DeleteBackup(context.Context, string) (backupstore.DeleteResult, error)
+}
+
 // TaskStore is the transport-independent durable task registry contract.
 type TaskStore interface {
 	Root() string
@@ -106,6 +112,7 @@ type Handler struct {
 	backupRestoreStager            BackupStoreRestoreStager
 	backupGCPlanner                BackupStoreGCPlanner
 	backupGCApplier                BackupStoreGCApplier
+	backupDeleter                  BackupStoreDeleter
 	taskStore                      TaskStore
 	deferredOperations             *deferredoperation.Store
 	responseContinuations          *responsecontinuation.Store
@@ -173,6 +180,7 @@ func WithBackupStore(store BackupStoreReader) Option {
 		h.backupRestoreStager = nil
 		h.backupGCPlanner = nil
 		h.backupGCApplier = nil
+		h.backupDeleter = nil
 		if backupStoreReaderIsNil(store) {
 			return
 		}
@@ -197,6 +205,9 @@ func WithBackupStore(store BackupStoreReader) Option {
 		}
 		if applier, ok := store.(BackupStoreGCApplier); ok {
 			h.backupGCApplier = applier
+		}
+		if deleter, ok := store.(BackupStoreDeleter); ok {
+			h.backupDeleter = deleter
 		}
 		if store != nil && store.Root() != "" {
 			requested, resolved := normalizeAllowedDirectorySets([]string{store.Root()})

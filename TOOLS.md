@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-Scripthold `3.0.0` exposes an authoritative 36-tool catalog and 3 guided prompts. The catalog is transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+Current source exposes an authoritative 38-tool catalog and 3 guided prompts; the published `3.1.6` surface remains unchanged until a later release. The catalog is transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 
@@ -162,9 +162,9 @@ The preview uses the existing encoding/BOM/line-ending-aware edit pipeline, reta
 - `patch` (conditionally required): one strict unified diff for the target
 - `encoding` (optional): explicit file encoding; otherwise conservative auto-detection applies
 - `forceWritable` (optional): approval-bound permission intent retained for apply; preview itself never changes permissions
-- `backupPolicy` (optional): omit to inherit `MCP_BACKUP_DEFAULT_POLICY`, or set exactly `required`; callers cannot weaken an operator default of `required`
+- `backupPolicy` (optional): omit to inherit `MCP_BACKUP_DEFAULT_POLICY`, set `required` for a normal persistent backup, or set `pinned` for an immutable protected backup; callers cannot weaken an operator default of `required`
 
-A logical no-op still returns a capability so approval evidence is explicit, but it needs no backup store and later apply performs no backup or write. A changed preview whose effective backup policy is `required` fails before capability creation if the persistent backup store cannot admit the required pre-state.
+A logical no-op still returns a capability so approval evidence is explicit, but it needs no backup store and later apply performs no backup or write. A changed preview whose effective backup policy is `required` or `pinned` fails before capability creation if the persistent backup store cannot admit the required pre-state.
 
 The edit preview cache is bounded by `MCP_MAX_EDIT_PREVIEWS` (default `128`), `MCP_MAX_EDIT_PREVIEW_BYTES` (default `67108864`), and `MCP_EDIT_PREVIEW_TTL_SECONDS` (default `900`). Expiry, deterministic FIFO eviction, and process restart invalidate capabilities and close retained file identities.
 
@@ -183,7 +183,7 @@ The edit preview cache is bounded by `MCP_MAX_EDIT_PREVIEWS` (default `128`), `M
 
 Apply one previously prepared `edit_file` capability. The **complete input schema is only** `previewId`; path, edits, patch, encoding, `forceWritable`, backup policy, content, and all other overrides are rejected as unknown fields.
 
-The capability is consumed before revalidation, so success, conflict, cancellation, write failure, and replay are terminal. Apply revalidates authorization, path, stable file identity, approved pre-state fingerprint, and retained result fingerprint. For a changed edit with effective policy `required`, the exact approved pre-state is durably captured and verified before permission changes or target replacement, then the target is revalidated again. The exact retained bytes are committed through synced same-directory replacement and verified by final fingerprint. A no-op returns `applied: false`, creates no backup, and leaves metadata/bytes unchanged. A durable backup remains valid if a later target write fails; no automatic rollback is promised.
+The capability is consumed before revalidation, so success, conflict, cancellation, write failure, and replay are terminal. Apply revalidates authorization, path, stable file identity, approved pre-state fingerprint, and retained result fingerprint. For a changed edit with effective policy `required` or `pinned`, the exact approved pre-state is durably captured and verified before permission changes or target replacement, then the target is revalidated again. `pinned` marks that immutable backup protected from automatic per-target retention and ordinary GC. The exact retained bytes are committed through synced same-directory replacement and verified by final fingerprint. A no-op returns `applied: false`, creates no backup, and leaves metadata/bytes unchanged. A durable backup remains valid if a later target write fails; no automatic rollback is promised.
 
 Apply reports actual target evidence rather than reusing the preview prediction: `state` is `unchanged`, `committed`, or `unknown`, and `actualFingerprint` records the observed post-state when classification succeeds. If an error occurs before mutation and the approved fingerprint remains present, `changed` is false. If replacement committed but a later durability/verification step fails, the response is `applied: false`, `state: committed`, `changed: true`, and `PARTIAL_COMMIT`. An unclassifiable post-error state also fails conservatively with `PARTIAL_COMMIT` rather than claiming that no change occurred.
 
@@ -200,7 +200,7 @@ The input and every nested manifest object reject unknown JSON fields. `formatVe
 
 **Read-only actions:**
 - `inspect`: validate package structure, bounds, authorization, aliases, edit/patch shapes, and declared algorithms without reading target contents.
-- `dryRun`: capture a coherent package pre-state, retain stable identities, prepare exact result bytes, verify the final unchanged source state, and return ordered diffs plus aggregate pre/post fingerprints and a one-shot 256-bit `previewId`. Omitted `manifest.backupPolicy` inherits `MCP_BACKUP_DEFAULT_POLICY`; `required` may be supplied explicitly but cannot be weakened by apply. If changed targets require persistent backups, dry-run performs read-only quota/admission preflight and fails before capability creation when admission is impossible. It creates no backup object, manifest, target-adjacent staging file, or target mutation.
+- `dryRun`: capture a coherent package pre-state, retain stable identities, prepare exact result bytes, verify the final unchanged source state, and return ordered diffs plus aggregate pre/post fingerprints and a one-shot 256-bit `previewId`. Omitted `manifest.backupPolicy` inherits `MCP_BACKUP_DEFAULT_POLICY`; `required` creates normal persistent backups and `pinned` creates protected backups that automatic retention/GC never selects. If changed targets require persistent backups, dry-run performs read-only quota/admission preflight and fails before capability creation when admission is impossible. It creates no backup object, manifest, target-adjacent staging file, or target mutation.
 - `verify`: require `expectedResultFingerprint` for every target, read current fingerprints, and return ordered per-target and aggregate matches. A mismatch returns `CONFLICT`.
 
 Each target declares `path`, exact `expectedFingerprint`, optional/verify-required `expectedResultFingerprint`, exactly one of `edits` or `patch`, and optional `encoding`/`forceWritable` with the same preparation semantics as `edit_file`.
@@ -230,7 +230,7 @@ Package capability bounds remain `MCP_MAX_PATCH_PACKAGE_BYTES`, `MCP_MAX_PATCH_P
 
 Apply one prepared patch-package capability. The complete input is only `previewId`; manifest, paths, patches, content, encoding, permissions, and backup overrides are rejected.
 
-Apply atomically consumes the capability, revalidates every target identity/fingerprint, then—when the effective policy is `required`—durably captures and verifies all changed pre-states **before any target-adjacent staging is created**. Every target is revalidated after backup capture; only then are changed result bytes staged and manifest-order commits allowed to begin. No-op targets receive no backup and no write.
+Apply atomically consumes the capability, revalidates every target identity/fingerprint, then—when the effective policy is `required` or `pinned`—durably captures and verifies all changed pre-states **before any target-adjacent staging is created**. `pinned` marks each new immutable backup protected from automatic per-target retention and ordinary GC. Every target is revalidated after backup capture; only then are changed result bytes staged and manifest-order commits allowed to begin. No-op targets receive no backup and no write.
 
 Multi-file replacement is deliberately not transactional. If a later file fails, already committed files are not rolled back automatically. Structured `PARTIAL_COMMIT` evidence classifies targets as `committed`, `unchanged`, or `unknown`, reports the failed target and actual fingerprints when available, and retains every durable `backupId` to support explicit recovery.
 
@@ -650,7 +650,7 @@ Read and review the optional persistent backup store, or prepare restore/GC capa
 - `restorePreview`: requires `backupId`; authorizes only the immutable manifest's original target, verifies the source object, binds current missing/existing identity and fingerprint, and read-only preflights the mandatory safety backup for an existing target. It returns a 256-bit expiring `previewId`, fingerprints, object size, verification state, and optional bounded diff. No staging file, backup object, manifest, permission change, or target mutation is created.
 - `gcDryRun`: creates a deterministic generation-bound, 256-bit expiring GC capability from an authoritative read-only plan. Pinned manifests, active restore sources, and referenced objects remain protected; no record/object is moved or deleted.
 
-`MCP_BACKUP_DEFAULT_POLICY=disabled|required` controls the operator default for eligible approval-bound content mutations (`edit_file`, `patch_package`, `manage_bom`, and `convert_encoding`). The default is `disabled`. A request may explicitly strengthen the policy to `required`; it cannot weaken a configured `required`. No-op mutations create no persistent backup. Restore keeps its independent mandatory safety-backup rule for an existing target, and GC never captures public file content.
+`MCP_BACKUP_DEFAULT_POLICY=disabled|required` controls the operator default for eligible approval-bound content mutations (`edit_file`, `patch_package`, `manage_bom`, and `convert_encoding`). The default is `disabled`. A request may explicitly use `required` for normal persistent capture or the stronger `pinned` policy for a protected immutable backup; neither can weaken a configured `required`. No-op mutations create no persistent backup. `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` defaults to `64` and acts as a post-capture retention target rather than an admission barrier: once a newer unpinned backup is durable, the oldest eligible non-pinned version for that target is rotated as needed. Restore keeps its independent mandatory safety-backup rule for an existing target, and GC never captures public file content.
 
 Restore/GC capabilities use `MCP_BACKUP_PLAN_TTL_SECONDS`; each cache has fixed bounded entry/state limits. `MCP_MAX_OUTPUT_BYTES` bounds responses. Backup target paths appear only where current-root authorization permits them; GC candidate output remains path-free.
 
@@ -674,10 +674,20 @@ For an existing target, the mandatory `sourceOperation=restore` safety backup is
 
 ### backup_gc_apply
 
-Apply one `gcDryRun` capability. The complete input is only `previewId`; the token is consumed before revalidation. The store reconstructs the plan at the original policy timestamp and rejects any generation, pin, manifest, object, active-restore, reservation, or reference-count drift before deletion. Selected manifests are moved to typed trash before verified now-unreferenced objects. The derived index is refreshed after durable partial outcomes; trash cleanup is best effort and reported. GC never mutates public targets and does not claim secure deletion or automatic rollback.
+Apply one `gcDryRun` capability. The complete input is only `previewId`; the token is consumed before revalidation. The store reconstructs the plan at the original policy timestamp and rejects any generation, pin, manifest, object, active-restore, reservation, or reference-count drift before deletion. Selected manifests are moved to typed trash before verified now-unreferenced objects. The derived index is refreshed after durable partial outcomes; trash cleanup is best effort and reported. GC never selects pinned backups, never mutates public targets, and does not claim secure deletion or automatic rollback.
 
 ```json
 {"previewId":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}
+```
+
+### backup_delete
+
+Explicitly delete one selected backup by exact `backupId`. This is a dedicated destructive tool rather than a `backup_store` action, so the review surface remains truthfully read-only. The target recorded by the manifest must still be authorized by current roots. The selected manifest may be pinned: pinned backups are protected from automatic per-target retention and ordinary GC, but this explicit operation is the intentional removal authority.
+
+Deletion is manifest-first and reference-safe. If the object is still referenced by another live backup or retained by an active restore, the object is preserved. An active restore using the selected manifest causes `CONFLICT` before deletion. Typed trash and derived-index recovery follow the same crash-consistency rules as GC.
+
+```json
+{"backupId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 ```
 ### grep_text_files
 
@@ -778,11 +788,11 @@ Prepare exact encoding-conversion bytes for one file or a bounded batch **withou
 - `bom` (optional): `auto` (default), `always`, `never`, or `preserve`
 - `dryRun` (required): exactly `true`
 - `backup` (optional): bind creation/replacement of the adjacent `.bak` file to the later apply; preview itself never creates it
-- `backupPolicy` (optional): omit to inherit `MCP_BACKUP_DEFAULT_POLICY`, or set exactly `required` for persistent-store pre-state capture
+- `backupPolicy` (optional): omit to inherit `MCP_BACKUP_DEFAULT_POLICY`, set `required` for normal persistent capture, or `pinned` for protected persistent capture
 
 Preview retains the **exact converted bytes** plus target identities/fingerprints in one global bounded capability cache shared with BOM mutations. The cache is controlled by `MCP_MAX_BYTE_MUTATION_PREVIEWS` (default `32`), `MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES` (default `268435456`), and `MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS` (default `900`). Capability kind is bound, so a BOM token cannot be used by encoding apply and vice versa. Expiry, eviction, restart, and replay invalidate the token.
 
-A changed preview with effective persistent policy `required` performs only read-only backup admission preflight. A no-op requires no store. Unsupported characters, ambiguous/invalid input, oversized results, aliases, and batch conflicts fail before capability creation and before any `.bak`, temp file, backup manifest, or target write exists.
+A changed preview with effective persistent policy `required` or `pinned` performs only read-only backup admission preflight. A no-op requires no store. Unsupported characters, ambiguous/invalid input, oversized results, aliases, and batch conflicts fail before capability creation and before any `.bak`, temp file, backup manifest, or target write exists.
 
 ```json
 {
@@ -877,7 +887,7 @@ Detect BOM state or prepare an exact BOM mutation **without persistent mutation*
 - `addPreview`: requires `path` and BOM-capable `encoding` (`utf-8`, UTF-16 LE/BE, or UTF-32 LE/BE); prepares exact bytes and returns a capability.
 - `stripPreview`: requires `path`; removes a detected BOM in the retained result. When no BOM exists it prepares an explicit no-op capability.
 
-`backupPolicy` may be omitted to inherit `MCP_BACKUP_DEFAULT_POLICY` or set to `required` for `addPreview`/`stripPreview`; `detect` accepts no mutation-policy fields. Preview retains exact bytes, stable identity, pre/result fingerprints, BOM metadata, and a 256-bit token in the shared byte-mutation cache described under `convert_encoding`. It creates no staging file, persistent backup, permission change, or target mutation. A required no-op needs no backup store.
+`backupPolicy` may be omitted to inherit `MCP_BACKUP_DEFAULT_POLICY`, set to `required`, or set to `pinned` for `addPreview`/`stripPreview`; `detect` accepts no mutation-policy fields. Preview retains exact bytes, stable identity, pre/result fingerprints, BOM metadata, and a 256-bit token in the shared byte-mutation cache described under `convert_encoding`. It creates no staging file, persistent backup, permission change, or target mutation. A required no-op needs no backup store.
 
 ```json
 {"path":"/project/file.php","action":"stripPreview"}
@@ -887,7 +897,7 @@ Detect BOM state or prepare an exact BOM mutation **without persistent mutation*
 
 Apply one prepared BOM capability. The complete input is only `previewId`. The token is kind-bound and consumed before revalidation; stale identity, same-content path replacement, target fingerprint drift, expiry, replay, or a token from another mutation class returns `CONFLICT`.
 
-For a changed result with effective policy `required`, the exact approved pre-state is durably captured and verified before replacement and the target is revalidated again. The exact retained bytes are then atomically replaced and final fingerprint is verified. A no-op reports `applied: false`, creates no backup, and performs no write. No automatic rollback is promised after a durable backup if a later write fails.
+For a changed result with effective policy `required` or `pinned`, the exact approved pre-state is durably captured and verified before replacement and the target is revalidated again. A `pinned` pre-state is protected from automatic per-target retention and ordinary GC. The exact retained bytes are then atomically replaced and final fingerprint is verified. A no-op reports `applied: false`, creates no backup, and performs no write. No automatic rollback is promised after a durable backup if a later write fails.
 
 ```json
 {"previewId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}

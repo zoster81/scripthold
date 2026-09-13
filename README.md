@@ -36,7 +36,7 @@ Scripthold detects encodings from bytes and decoded-text evidence rather than fi
 
 ## Current release and development state
 
-**Scripthold `3.1.6`** is the current public release. It exposes 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers over the same stdio and Streamable HTTP surface. `source_symbols` provides bounded declaration/navigation workflows; `source_query` adds structural search, supported project relations, fingerprint-verified context, and coherent process-local index generations. Capability claims remain provider-specific and fail closed where evidence is insufficient.
+**Scripthold `3.1.6`** is the current public release. The current source exposes 38 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers over the same stdio and Streamable HTTP surface; the published `3.1.6` surface remains unchanged. `source_symbols` provides bounded declaration/navigation workflows; `source_query` adds structural search, supported project relations, fingerprint-verified context, and coherent process-local index generations. Capability claims remain provider-specific and fail closed where evidence is insufficient.
 
 R1-R29 and the pre-R29 verification-architecture maintenance program are complete in current source. R29 logging/diagnostics lifecycle work is not yet part of the `3.1.6` public release; R30-R33 remain planned and no release-scoped milestone is currently active. Connector-reliability maintenance is complete in current unreleased source: every MCP tool call has a bounded cooperative synchronous deadline, oversized completed responses are retained behind bounded `deferred_operation` retrieval, and an explicitly configured deferred-operation store gives `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols` independent durable execution ownership before the frontend wait window. `source_query` remains synchronous because its returned index binding is process-local. When the durable deferred-operation store is configured, modern `2026-07-28` requests that opt into `io.modelcontextprotocol/tasks` can observe that same durable work through native `tools/call` task results plus `tasks/get`, `tasks/update`, and `tasks/cancel`; legacy sessions continue to use `deferred_operation`. See [CHANGELOG.md](CHANGELOG.md) for release changes, [docs/ROADMAP.md](docs/ROADMAP.md) for current/future work, [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md) for concise engineering history, and the subsystem contracts for detailed behavior.
 
@@ -83,6 +83,7 @@ MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stat
 - [`backup_store`](TOOLS.md#backup_store) — read-only status/history/compare/audit plus restore/GC preparation for the optional persistent store.
 - [`backup_restore_apply`](TOOLS.md#backup_restore_apply) — apply one prepared original-target restore.
 - [`backup_gc_apply`](TOOLS.md#backup_gc_apply) — apply one prepared generation-bound backup GC plan.
+- [`backup_delete`](TOOLS.md#backup_delete) — explicitly delete one selected backup, including a pinned backup.
 - [`grep_text_files`](TOOLS.md#grep_text_files) — paged regex search with deterministic partial-coverage reporting.
 ### Encoding and service tools
 
@@ -276,7 +277,14 @@ The most important process-wide variables are summarized below. Subsystem docume
 | `MCP_HTTP_SESSION_TIMEOUT` | Legacy stateful session idle timeout. | `15m` |
 | `MCP_HTTP_ENABLE_EXECUTION` | Additional HTTP-only execution gate. | disabled |
 | `MCP_BACKUP_STORE_DIR` | Enables the dedicated persistent backup store. | unset |
-| `MCP_BACKUP_DEFAULT_POLICY` | Default persistent pre-state policy for approval-bound edit/package/BOM/encoding mutations: `disabled` or `required`. | `disabled` |
+| `MCP_BACKUP_DEFAULT_POLICY` | Default persistent pre-state policy for approval-bound edit/package/BOM/encoding mutations: `disabled` or `required`. Requests may explicitly use the stronger `pinned` policy. | `disabled` |
+| `MCP_BACKUP_MAX_TOTAL_BYTES` | Hard maximum retained unique object bytes before new capture admission fails. | `1073741824` |
+| `MCP_BACKUP_MAX_OBJECT_BYTES` | Hard maximum bytes in one captured object. | `67108864` |
+| `MCP_BACKUP_MAX_MANIFESTS` | Hard maximum live backup manifests. | `10000` |
+| `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` | Newest unpinned versions retained per target; saturation rotates the oldest eligible non-pinned version after the new backup is durable. | `64` |
+| `MCP_BACKUP_MAX_PINNED` | Hard maximum pinned/protected manifests. | `256` |
+| `MCP_BACKUP_RETENTION_DAYS` | Age threshold considered by explicit backup GC. | `30` |
+| `MCP_BACKUP_PLAN_TTL_SECONDS` | Lifetime of restore and GC preview capabilities. | `900` |
 | `MCP_TASK_STORE_DIR` | Enables the owner-only durable task registry. | unset |
 | `MCP_DEFERRED_STORE_DIR` | Enables the separate owner-only durable store for eligible long-running read-only MCP operations. | unset |
 | `MCP_CALL_MAX_SYNC_SECONDS` | Global cooperative ceiling for one synchronous MCP tool call; bounded below the external transport TTL. | `45` |

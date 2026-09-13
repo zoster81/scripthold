@@ -285,7 +285,7 @@ func (h *Handler) HandleConvertEncodingApply(ctx context.Context, _ *mcp.CallToo
 		currents[index] = current
 	}
 
-	if prepared.backupPolicy == editBackupPolicyRequired {
+	if persistentBackupRequired(prepared.backupPolicy) {
 		backupIDs, backupErr := h.captureRequiredMutationBackups(ctx, prepared, backupstore.SourceOperationConvertEncoding)
 		for index := range backupIDs {
 			if backupIDs[index] != "" {

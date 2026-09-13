@@ -216,8 +216,8 @@ func (h *Handler) HandleManageBOMApply(ctx context.Context, _ *mcp.CallToolReque
 		output.Message = "BOM mutation is a no-op; no backup or write was performed"
 		return &mcp.CallToolResult{}, output, nil
 	}
-	if prepared.backupPolicy == editBackupPolicyRequired {
-		output.BackupID, err = h.captureRequiredMutationBackup(ctx, target, backupstore.SourceOperationManageBOM)
+	if persistentBackupRequired(prepared.backupPolicy) {
+		output.BackupID, err = h.captureRequiredMutationBackup(ctx, target, backupstore.SourceOperationManageBOM, prepared.backupPolicy)
 		if err != nil {
 			return errorResultFromError(err), output, nil
 		}

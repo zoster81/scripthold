@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/zoster81/scripthold/internal/operation"
 )
@@ -99,7 +101,7 @@ func TestCaptureDeduplicatesIdenticalObjects(t *testing.T) {
 	}
 }
 
-func TestCaptureEnforcesQuotaManifestVersionAndPinLimits(t *testing.T) {
+func TestCaptureEnforcesByteManifestAndPinLimits(t *testing.T) {
 	tests := []struct {
 		name        string
 		limits      Limits
@@ -122,13 +124,6 @@ func TestCaptureEnforcesQuotaManifestVersionAndPinLimits(t *testing.T) {
 			firstBytes: []byte("first"), secondBytes: []byte("second"),
 		},
 		{
-			name:       "versions per target",
-			limits:     Limits{MaxTotalBytes: 1024, MaxObjectBytes: 64, MaxManifests: 10, MaxVersionsPerTarget: 1, MaxPinned: 10},
-			first:      CaptureRequest{SourceOperation: SourceOperationEdit},
-			second:     CaptureRequest{SourceOperation: SourceOperationEdit},
-			firstBytes: []byte("first"), secondBytes: []byte("second"),
-		},
-		{
 			name:       "pinned count",
 			limits:     Limits{MaxTotalBytes: 1024, MaxObjectBytes: 64, MaxManifests: 10, MaxVersionsPerTarget: 10, MaxPinned: 1},
 			first:      CaptureRequest{SourceOperation: SourceOperationEdit, Pinned: true},
@@ -141,9 +136,6 @@ func TestCaptureEnforcesQuotaManifestVersionAndPinLimits(t *testing.T) {
 			base := canonicalTempDir(t)
 			store := openBackupTestStore(t, filepath.Join(base, "store"), tc.limits)
 			firstTarget := filepath.Join(base, "first.txt")
-			if tc.name == "versions per target" {
-				firstTarget = filepath.Join(base, "same.txt")
-			}
 			if err := os.WriteFile(firstTarget, tc.firstBytes, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -162,9 +154,6 @@ func TestCaptureEnforcesQuotaManifestVersionAndPinLimits(t *testing.T) {
 				t.Fatalf("first capture: %v", firstErr)
 			}
 			secondTarget := filepath.Join(base, "second.txt")
-			if tc.name == "versions per target" {
-				secondTarget = firstTarget
-			}
 			if err := os.WriteFile(secondTarget, tc.secondBytes, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -180,6 +169,97 @@ func TestCaptureEnforcesQuotaManifestVersionAndPinLimits(t *testing.T) {
 	}
 }
 
+func TestCaptureRotatesOldestUnpinnedVersionAtTargetLimit(t *testing.T) {
+	base := canonicalTempDir(t)
+	limits := backupStoreTestLimits()
+	limits.MaxVersionsPerTarget = 2
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
+	target := filepath.Join(base, "target.txt")
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+
+	pinned := captureGCFixture(t, store, target, "pinned", true, now.Add(-4*time.Hour))
+	oldest := captureGCFixture(t, store, target, "oldest", false, now.Add(-3*time.Hour))
+	recent := captureGCFixture(t, store, target, "recent", false, now.Add(-2*time.Hour))
+	refreshGCFixture(t, store)
+
+	if err := os.WriteFile(target, []byte("newest"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit}
+	if err := store.PreflightCaptureBatch(context.Background(), []CaptureRequest{request}); err != nil {
+		t.Fatalf("preflight at target retention limit: %v", err)
+	}
+	newest, err := store.Capture(context.Background(), request)
+	if err != nil {
+		t.Fatalf("capture at target retention limit: %v", err)
+	}
+
+	index := store.Index()
+	if index.ManifestCount != 3 || index.PinnedCount != 1 || len(index.Targets) != 1 ||
+		index.Targets[0].ManifestCount-index.Targets[0].PinnedCount != 2 {
+		t.Fatalf("rotated index = %#v", index)
+	}
+	for _, retained := range []string{pinned.Manifest.BackupID, recent.Manifest.BackupID, newest.Manifest.BackupID} {
+		if !indexContainsManifest(index, retained) {
+			t.Fatalf("retained backup %s is missing: %#v", retained, index.Manifests)
+		}
+	}
+	if indexContainsManifest(index, oldest.Manifest.BackupID) {
+		t.Fatalf("oldest unpinned backup was retained: %#v", index.Manifests)
+	}
+	if _, statErr := os.Stat(manifestPath(store.Root(), oldest.Manifest.BackupID)); !os.IsNotExist(statErr) {
+		t.Fatalf("oldest manifest still exists: %v", statErr)
+	}
+	if _, statErr := os.Stat(objectPath(store.Root(), oldest.Manifest.ObjectDigest)); !os.IsNotExist(statErr) {
+		t.Fatalf("unreferenced oldest object still exists: %v", statErr)
+	}
+	report, err := store.Audit(context.Background(), AuditOptions{Mode: AuditQuick})
+	if err != nil || !report.Healthy || !report.IndexConsistent {
+		t.Fatalf("retention left inconsistent derived state: report=%#v err=%v", report, err)
+	}
+}
+
+func TestCaptureRetentionNeverBlocksNewBackupForActiveRestore(t *testing.T) {
+	base := canonicalTempDir(t)
+	limits := backupStoreTestLimits()
+	limits.MaxVersionsPerTarget = 1
+	store := openBackupTestStore(t, filepath.Join(base, "store"), limits)
+	target := filepath.Join(base, "target.txt")
+
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := store.OpenRestoreSource(context.Background(), old.Manifest.BackupID, RestoreSourceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+
+	if err := os.WriteFile(target, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newest, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
+	if err != nil {
+		t.Fatalf("active restore blocked a newer backup: %v", err)
+	}
+	if newest.Manifest.BackupID == "" || store.Index().ManifestCount != 2 {
+		t.Fatalf("active-restore retention state = %#v result=%#v", store.Index(), newest)
+	}
+}
+
+func indexContainsManifest(index Index, backupID string) bool {
+	for _, manifest := range index.Manifests {
+		if manifest.BackupID == backupID {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPinnedCaptureUsesSeparateQuotaFromUnpinnedTargetVersions(t *testing.T) {
 	base := canonicalTempDir(t)
 	limits := backupStoreTestLimits()
@@ -190,7 +270,8 @@ func TestPinnedCaptureUsesSeparateQuotaFromUnpinnedTargetVersions(t *testing.T) 
 	if err := os.WriteFile(target, []byte("first"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit}); err != nil {
+	first, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(target, []byte("pinned"), 0o600); err != nil {
@@ -202,13 +283,14 @@ func TestPinnedCaptureUsesSeparateQuotaFromUnpinnedTargetVersions(t *testing.T) 
 	if err := os.WriteFile(target, []byte("third"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
-	if operation.KindOf(err) != operation.KindLimit {
-		t.Fatalf("second unpinned capture error = %v, want LIMIT", err)
+	newest, err := store.Capture(context.Background(), CaptureRequest{TargetPath: target, SourceOperation: SourceOperationEdit})
+	if err != nil {
+		t.Fatalf("second unpinned capture was blocked instead of rotating history: %v", err)
 	}
 	index := store.Index()
-	if index.ManifestCount != 2 || index.PinnedCount != 1 || index.Targets[0].ManifestCount != 2 || index.Targets[0].PinnedCount != 1 {
-		t.Fatalf("separate pinned/unpinned accounting = %#v", index)
+	if index.ManifestCount != 2 || index.PinnedCount != 1 || index.Targets[0].ManifestCount != 2 || index.Targets[0].PinnedCount != 1 ||
+		indexContainsManifest(index, first.Manifest.BackupID) || !indexContainsManifest(index, newest.Manifest.BackupID) {
+		t.Fatalf("separate pinned/unpinned retention accounting = %#v", index)
 	}
 }
 
@@ -438,6 +520,71 @@ func TestConcurrentReservationsPreventQuotaOvercommit(t *testing.T) {
 	}
 	if store.Index().ManifestCount != 1 || store.Index().TotalObjectBytes != 8 {
 		t.Fatalf("index after reservation test = %#v", store.Index())
+	}
+}
+
+func TestConcurrentCapturesKeepDerivedIndexConsistent(t *testing.T) {
+	base := canonicalTempDir(t)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
+	const captures = 8
+	start := make(chan struct{})
+	errorsCh := make(chan error, captures)
+	var wait sync.WaitGroup
+	for index := 0; index < captures; index++ {
+		target := filepath.Join(base, fmt.Sprintf("concurrent-%02d.txt", index))
+		if err := os.WriteFile(target, []byte(fmt.Sprintf("payload-%02d", index)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		wait.Add(1)
+		go func(path string) {
+			defer wait.Done()
+			<-start
+			_, err := store.Capture(context.Background(), CaptureRequest{TargetPath: path, SourceOperation: SourceOperationEdit})
+			errorsCh <- err
+		}(target)
+	}
+	close(start)
+	wait.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatalf("concurrent capture: %v", err)
+		}
+	}
+	index := store.Index()
+	if index.ManifestCount != captures || index.ObjectCount != captures {
+		t.Fatalf("concurrent index = %#v", index)
+	}
+	report, err := store.Audit(context.Background(), AuditOptions{Mode: AuditQuick})
+	if err != nil || !report.Healthy || !report.IndexConsistent {
+		t.Fatalf("concurrent captures left inconsistent derived state: report=%#v err=%v", report, err)
+	}
+}
+
+func TestCaptureFallsBackWhenDerivedIndexIsInconsistent(t *testing.T) {
+	base := canonicalTempDir(t)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
+	first := filepath.Join(base, "first.txt")
+	if err := os.WriteFile(first, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Capture(context.Background(), CaptureRequest{TargetPath: first, SourceOperation: SourceOperationEdit}); err != nil {
+		t.Fatal(err)
+	}
+	store.stateMu.Lock()
+	store.index.ManifestCount++
+	store.stateMu.Unlock()
+
+	second := filepath.Join(base, "second.txt")
+	if err := os.WriteFile(second, []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Capture(context.Background(), CaptureRequest{TargetPath: second, SourceOperation: SourceOperationEdit}); err != nil {
+		t.Fatalf("capture did not recover through authoritative scan: %v", err)
+	}
+	report, err := store.Audit(context.Background(), AuditOptions{Mode: AuditQuick})
+	if err != nil || !report.Healthy || !report.IndexConsistent || report.ManifestCount != 2 {
+		t.Fatalf("fallback did not restore derived state: report=%#v err=%v", report, err)
 	}
 }
 

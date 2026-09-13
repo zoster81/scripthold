@@ -18,10 +18,10 @@ import (
 // immutable manifest. The derived index is refreshed only after the manifest is
 // authoritative. A non-zero result may accompany an index-persistence error.
 func (store *Store) Capture(ctx context.Context, request CaptureRequest) (CaptureResult, error) {
-	return store.capture(ctx, request, -1, false)
+	return store.capture(ctx, request, -1, false, false)
 }
 
-func (store *Store) capture(ctx context.Context, request CaptureRequest, expectedSize int64, preReserved bool) (result CaptureResult, err error) {
+func (store *Store) capture(ctx context.Context, request CaptureRequest, expectedSize int64, preReserved, deferIndexPersistence bool) (result CaptureResult, err error) {
 	if store == nil {
 		return CaptureResult{}, operation.New(operation.KindInvalidInput, "backup store is unavailable")
 	}
@@ -135,6 +135,10 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 	if err := ctx.Err(); err != nil {
 		return CaptureResult{}, operation.Wrap(operation.KindCancelled, "capture_backup", "", err)
 	}
+	// Capture the last published derived state before this transaction changes
+	// durable namespaces. When the new manifest remains below retention pressure,
+	// that state can be updated deterministically without rescanning the store.
+	baseIndex := store.Index()
 	objectCreated, installErr := store.installOrVerifyObject(ctx, stagedPath, digestText, stagedSize)
 	if objectCreated {
 		durableStateChanged = true
@@ -166,12 +170,43 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 		return CaptureResult{}, manifestErr
 	}
 	result = CaptureResult{Manifest: manifest, ObjectCreated: objectCreated}
-	refreshErr := store.refreshDerivedIndex(ctx)
+	var (
+		retentionErr     error
+		retentionChanged bool
+		finalIndex       Index
+		indexReady       bool
+	)
+	if derivedIndex, derived := deriveIndexAfterCapture(baseIndex, manifest, objectCreated); derived {
+		if request.Pinned {
+			finalIndex, indexReady = derivedIndex, true
+		} else if versions, valid := targetUnpinnedVersions(derivedIndex, request.TargetPath); valid && versions <= store.limits.MaxVersionsPerTarget {
+			// The derived index is used only to prove that no destructive retention
+			// is necessary. Pressure or uncertainty always falls back to the
+			// authoritative scan below before any old manifest can be removed.
+			finalIndex, indexReady = derivedIndex, true
+		}
+	}
+	if !request.Pinned && !indexReady {
+		retentionChanged, finalIndex, indexReady, retentionErr = store.enforceTargetVersionRetention(ctx, request.TargetPath, manifest.BackupID)
+		if retentionChanged {
+			durableStateChanged = true
+		}
+	}
+	var refreshErr error
+	if indexReady {
+		if deferIndexPersistence && !retentionChanged {
+			store.setDerivedIndex(finalIndex)
+		} else {
+			refreshErr = store.publishDerivedIndex(finalIndex)
+		}
+	} else {
+		refreshErr = store.refreshDerivedIndex(ctx)
+	}
 	if refreshErr != nil {
-		return result, refreshErr
+		return result, errors.Join(retentionErr, refreshErr)
 	}
 	durableStateChanged = false
-	return result, nil
+	return result, retentionErr
 }
 
 func (store *Store) stageTarget(ctx context.Context, target string, expectedSize int64) (path string, digest [sha256.Size]byte, size int64, err error) {
@@ -423,16 +458,9 @@ func (store *Store) reserve(bytes int64, request CaptureRequest) (reservation, e
 	if request.Pinned {
 		reserved.pinned = 1
 	} else {
-		targetCount := store.reservedTargets[request.TargetPath]
-		for _, target := range store.index.Targets {
-			if target.TargetPath == request.TargetPath {
-				targetCount += target.ManifestCount - target.PinnedCount
-				break
-			}
-		}
-		if targetCount >= store.limits.MaxVersionsPerTarget {
-			return reservation{}, operation.New(operation.KindLimit, "backup target-version quota is exhausted")
-		}
+		// MaxVersionsPerTarget is a retention target, not an admission barrier.
+		// The newly committed manifest is protected first; deterministic FIFO
+		// retention of older unpinned versions runs under the transaction lock.
 		reserved.targetPath = request.TargetPath
 	}
 	store.reservedBytes += reserved.bytes
@@ -459,8 +487,16 @@ func (store *Store) release(reserved reservation) {
 }
 
 func (store *Store) refreshDerivedIndex(ctx context.Context) error {
-	if err := store.validateIdentityAndLayout(); err != nil {
+	index, err := store.scanDerivedIndex(ctx)
+	if err != nil {
 		return err
+	}
+	return store.publishDerivedIndex(index)
+}
+
+func (store *Store) scanDerivedIndex(ctx context.Context) (Index, error) {
+	if err := store.validateIdentityAndLayout(); err != nil {
+		return Index{}, err
 	}
 	scan, err := scanStore(ctx, store.root, store.descriptor, scanOptions{
 		mode:       AuditQuick,
@@ -469,17 +505,39 @@ func (store *Store) refreshDerivedIndex(ctx context.Context) error {
 		checkIndex: false,
 	})
 	if err != nil {
-		return err
+		return Index{}, err
 	}
 	if structuralErr := firstStructuralIssue(scan.report); structuralErr != nil {
-		return structuralErr
+		return Index{}, structuralErr
 	}
-	index := buildIndex(store.descriptor, scan.manifests, scan.objects)
+	return buildIndex(store.descriptor, scan.manifests, scan.objects), nil
+}
+
+func (store *Store) setDerivedIndex(index Index) {
 	store.stateMu.Lock()
 	store.index = index
 	store.stateMu.Unlock()
-	if err := store.ops.persistIndex(store.root, index); err != nil {
+}
+
+func (store *Store) publishDerivedIndex(index Index) error {
+	store.setDerivedIndex(index)
+	return store.ops.persistIndex(store.root, index)
+}
+
+// persistCurrentDerivedIndex writes the latest in-memory derived projection
+// while holding the transaction boundary. Batch capture uses this to coalesce
+// cache-index persistence without weakening object/manifest durability.
+func (store *Store) persistCurrentDerivedIndex() error {
+	if store == nil {
+		return operation.New(operation.KindInvalidInput, "backup store is unavailable")
+	}
+	store.transactionMu.Lock()
+	defer store.transactionMu.Unlock()
+	if store.isClosed() {
+		return operation.New(operation.KindConflict, "backup store is closed")
+	}
+	if err := store.validateIdentityAndLayout(); err != nil {
 		return err
 	}
-	return nil
+	return store.ops.persistIndex(store.root, store.Index())
 }

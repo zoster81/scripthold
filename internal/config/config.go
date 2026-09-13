@@ -176,7 +176,7 @@ const (
 	DefaultBackupMaxTotalBytes        = int64(1024 * 1024 * 1024)
 	DefaultBackupMaxObjectBytes       = int64(64 * 1024 * 1024)
 	DefaultBackupMaxManifests         = 10_000
-	DefaultBackupMaxVersionsPerTarget = 32
+	DefaultBackupMaxVersionsPerTarget = 64
 	DefaultBackupMaxPinned            = 256
 	DefaultBackupRetentionDays        = 30
 	DefaultBackupPlanTTLSeconds       = 15 * 60

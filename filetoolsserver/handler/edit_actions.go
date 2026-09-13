@@ -20,6 +20,7 @@ const (
 	editActionPreview        = "preview"
 	editActionApply          = "apply"
 	editBackupPolicyRequired = "required"
+	editBackupPolicyPinned   = "pinned"
 	editApplyStateUnchanged  = "unchanged"
 	editApplyStateCommitted  = "committed"
 	editApplyStateUnknown    = "unknown"
@@ -28,16 +29,27 @@ const (
 )
 
 func normalizeEditBackupPolicy(value string) (string, error) {
-	if value == "" || value == editBackupPolicyRequired {
+	if value == "" || value == editBackupPolicyRequired || value == editBackupPolicyPinned {
 		return value, nil
 	}
-	return "", operation.New(operation.KindInvalidInput, "backupPolicy must be exactly required when provided")
+	return "", operation.New(operation.KindInvalidInput, "backupPolicy must be required or pinned when provided")
+}
+
+func persistentBackupRequired(policy string) bool {
+	return policy == editBackupPolicyRequired || policy == editBackupPolicyPinned
+}
+
+func persistentBackupPinned(policy string) bool {
+	return policy == editBackupPolicyPinned
 }
 
 func (h *Handler) effectivePersistentBackupPolicy(requested string) (string, error) {
 	requested, err := normalizeEditBackupPolicy(requested)
 	if err != nil {
 		return "", err
+	}
+	if requested == editBackupPolicyPinned {
+		return editBackupPolicyPinned, nil
 	}
 	if requested == editBackupPolicyRequired {
 		return editBackupPolicyRequired, nil
@@ -230,7 +242,7 @@ func (h *Handler) handleEditPreview(ctx context.Context, input EditFileInput) (*
 	if failure != nil {
 		return failure, EditFileOutput{}, nil
 	}
-	if prepared.changed && backupPolicy == editBackupPolicyRequired {
+	if prepared.changed && persistentBackupRequired(backupPolicy) {
 		if h.backupCapturePreflight == nil {
 			if prepared.identityFile != nil {
 				_ = prepared.identityFile.Close()
@@ -241,6 +253,7 @@ func (h *Handler) handleEditPreview(ctx context.Context, input EditFileInput) (*
 		if err := h.backupCapturePreflight.PreflightCaptureBatch(ctx, []backupstore.CaptureRequest{{
 			TargetPath:      prepared.resolvedPath,
 			SourceOperation: backupstore.SourceOperationEdit,
+			Pinned:          persistentBackupPinned(backupPolicy),
 		}}); err != nil {
 			if prepared.identityFile != nil {
 				_ = prepared.identityFile.Close()
@@ -318,7 +331,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	worstCase := output
 	worstCase.Applied = true
 	worstCase.ReadOnlyCleared = true
-	if prepared.changed && prepared.backupPolicy == editBackupPolicyRequired {
+	if prepared.changed && persistentBackupRequired(prepared.backupPolicy) {
 		worstCase.BackupID = strings.Repeat("f", editPreviewTokenBytes*2)
 	}
 	if err := h.checkEditResponseLimit(worstCase, editApplyText(worstCase)+"\nRead-only flag was cleared."); err != nil {
@@ -329,7 +342,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 		return errorResultWithCode(ErrCodeConflict, "target file identity changed before edit commit"), EditFileOutput{}, nil
 	}
 
-	if prepared.changed && prepared.backupPolicy == editBackupPolicyRequired {
+	if prepared.changed && persistentBackupRequired(prepared.backupPolicy) {
 		if h.backupCapture == nil {
 			err := operation.New(operation.KindConflict, "required backup store is unavailable")
 			return errorResultFromError(err), output, nil
@@ -337,6 +350,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 		captured, captureErr := h.backupCapture.Capture(ctx, backupstore.CaptureRequest{
 			TargetPath:      validation.Path,
 			SourceOperation: backupstore.SourceOperationEdit,
+			Pinned:          persistentBackupPinned(prepared.backupPolicy),
 		})
 		if captured.Manifest.BackupID == "" {
 			if captureErr == nil {

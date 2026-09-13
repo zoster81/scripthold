@@ -112,7 +112,7 @@ func (h *Handler) revalidateExactMutationTarget(ctx context.Context, target *pre
 }
 
 func (h *Handler) preflightRequiredMutationBackups(ctx context.Context, prepared *preparedByteMutation, sourceOperation backupstore.SourceOperation) error {
-	if prepared == nil || prepared.backupPolicy != editBackupPolicyRequired {
+	if prepared == nil || !persistentBackupRequired(prepared.backupPolicy) {
 		return nil
 	}
 	requests := make([]backupstore.CaptureRequest, 0, len(prepared.targets))
@@ -123,6 +123,7 @@ func (h *Handler) preflightRequiredMutationBackups(ctx context.Context, prepared
 		requests = append(requests, backupstore.CaptureRequest{
 			TargetPath:      prepared.targets[index].resolvedPath,
 			SourceOperation: sourceOperation,
+			Pinned:          persistentBackupPinned(prepared.backupPolicy),
 		})
 	}
 	if len(requests) == 0 {
@@ -143,7 +144,7 @@ func validateCapturedMutationBackup(result backupstore.CaptureResult, target *pr
 	return nil
 }
 
-func (h *Handler) captureRequiredMutationBackup(ctx context.Context, target *preparedByteMutationTarget, sourceOperation backupstore.SourceOperation) (string, error) {
+func (h *Handler) captureRequiredMutationBackup(ctx context.Context, target *preparedByteMutationTarget, sourceOperation backupstore.SourceOperation, backupPolicy string) (string, error) {
 	if target == nil || !target.changed {
 		return "", nil
 	}
@@ -153,6 +154,7 @@ func (h *Handler) captureRequiredMutationBackup(ctx context.Context, target *pre
 	captured, captureErr := h.backupCapture.Capture(ctx, backupstore.CaptureRequest{
 		TargetPath:      target.resolvedPath,
 		SourceOperation: sourceOperation,
+		Pinned:          persistentBackupPinned(backupPolicy),
 	})
 	if captured.Manifest.BackupID == "" {
 		if captureErr == nil {
@@ -181,13 +183,14 @@ func (h *Handler) captureRequiredMutationBackups(ctx context.Context, prepared *
 		requests = append(requests, backupstore.CaptureRequest{
 			TargetPath:      prepared.targets[index].resolvedPath,
 			SourceOperation: sourceOperation,
+			Pinned:          persistentBackupPinned(prepared.backupPolicy),
 		})
 	}
 	if len(requests) == 0 {
 		return backupIDs, nil
 	}
 	if len(requests) == 1 {
-		id, err := h.captureRequiredMutationBackup(ctx, &prepared.targets[changedIndices[0]], sourceOperation)
+		id, err := h.captureRequiredMutationBackup(ctx, &prepared.targets[changedIndices[0]], sourceOperation, prepared.backupPolicy)
 		backupIDs[changedIndices[0]] = id
 		return backupIDs, err
 	}

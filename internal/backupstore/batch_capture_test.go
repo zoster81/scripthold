@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -77,6 +78,79 @@ func TestCaptureBatchCommitsOrderedManifests(t *testing.T) {
 	index := store.Index()
 	if index.ManifestCount != 2 || index.ObjectCount != 2 || index.TotalObjectBytes != int64(len(contents[0])+len(contents[1])) {
 		t.Fatalf("batch index = %#v", index)
+	}
+}
+
+func TestCaptureBatchPersistsDerivedIndexOnceBelowRetentionPressure(t *testing.T) {
+	base := canonicalTempDir(t)
+	store := openBackupTestStore(t, filepath.Join(base, "store"), backupStoreTestLimits())
+	requests := make([]CaptureRequest, 3)
+	for index, name := range []string{"first.txt", "second.txt", "third.txt"} {
+		path := filepath.Join(base, name)
+		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		requests[index] = CaptureRequest{TargetPath: path, SourceOperation: SourceOperationPatchPackage}
+	}
+	originalPersist := store.ops.persistIndex
+	var persists atomic.Int32
+	store.ops.persistIndex = func(root string, index Index) error {
+		persists.Add(1)
+		return originalPersist(root, index)
+	}
+
+	results, err := store.CaptureBatch(context.Background(), requests)
+	if err != nil || len(results) != len(requests) {
+		t.Fatalf("CaptureBatch() results/error = %#v / %v", results, err)
+	}
+	if got := persists.Load(); got != 1 {
+		t.Fatalf("persisted derived index %d times, want 1", got)
+	}
+	report, err := store.Audit(context.Background(), AuditOptions{Mode: AuditQuick})
+	if err != nil || !report.Healthy || !report.IndexConsistent || report.ManifestCount != len(requests) {
+		t.Fatalf("coalesced batch index state = %#v / %v", report, err)
+	}
+}
+
+func TestCaptureBatchFinalIndexPersistenceFailureKeepsDurableResultsRecoverable(t *testing.T) {
+	base := canonicalTempDir(t)
+	limits := backupStoreTestLimits()
+	root := filepath.Join(base, "store")
+	store := openBackupTestStore(t, root, limits)
+	requests := make([]CaptureRequest, 2)
+	for index, name := range []string{"first.txt", "second.txt"} {
+		path := filepath.Join(base, name)
+		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		requests[index] = CaptureRequest{TargetPath: path, SourceOperation: SourceOperationPatchPackage}
+	}
+	store.ops.persistIndex = func(string, Index) error {
+		return errors.New("injected final batch index persistence failure")
+	}
+
+	results, err := store.CaptureBatch(context.Background(), requests)
+	if err == nil || !strings.Contains(err.Error(), "injected final batch index persistence failure") || len(results) != len(requests) {
+		t.Fatalf("CaptureBatch() results/error = %#v / %v", results, err)
+	}
+	if index := store.Index(); index.ManifestCount != len(requests) || index.ObjectCount != len(requests) {
+		t.Fatalf("in-memory durable batch state = %#v", index)
+	}
+	for _, result := range results {
+		if _, statErr := os.Stat(manifestPath(store.Root(), result.Manifest.BackupID)); statErr != nil {
+			t.Fatalf("durable manifest missing after final index failure: %v", statErr)
+		}
+	}
+	if closeErr := store.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	reopened, openErr := Open(Options{Directory: root, Limits: limits})
+	if openErr != nil {
+		t.Fatalf("reopen after derived-index failure: %v", openErr)
+	}
+	defer reopened.Close()
+	if index := reopened.Index(); index.ManifestCount != len(requests) || index.ObjectCount != len(requests) {
+		t.Fatalf("recovered batch state = %#v", index)
 	}
 }
 

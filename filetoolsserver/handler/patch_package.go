@@ -155,8 +155,8 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 	if err := h.verifyPatchPackageDryRunSnapshot(ctx, targets, identities, before); err != nil {
 		return errorResultFromError(err), PatchPackageOutput{}, nil
 	}
-	if manifest.BackupPolicy == editBackupPolicyRequired {
-		requests := patchPackageCaptureRequests(manifest.Label, preparedTargets)
+	if persistentBackupRequired(manifest.BackupPolicy) {
+		requests := patchPackageCaptureRequests(manifest.Label, manifest.BackupPolicy, preparedTargets)
 		if len(requests) > 0 {
 			if h.backupCapturePreflight == nil {
 				return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide package backup preflight authority")), PatchPackageOutput{}, nil
@@ -221,8 +221,8 @@ func (h *Handler) validatePatchPackageManifest(ctx context.Context, manifest Pat
 	if manifest.FingerprintMode != "content-v1" {
 		return nil, operation.New(operation.KindInvalidInput, "fingerprintMode must be content-v1")
 	}
-	if manifest.BackupPolicy != "" && manifest.BackupPolicy != editBackupPolicyRequired {
-		return nil, operation.New(operation.KindInvalidInput, "backupPolicy must be exactly required when provided")
+	if _, err := normalizeEditBackupPolicy(manifest.BackupPolicy); err != nil {
+		return nil, err
 	}
 	if len(manifest.Label) > maxPatchPackageLabelBytes || strings.ContainsRune(manifest.Label, '\x00') {
 		return nil, operation.New(operation.KindInvalidInput, fmt.Sprintf("label must not contain NUL and must be at most %d bytes", maxPatchPackageLabelBytes))
@@ -436,7 +436,7 @@ func (h *Handler) capturePatchPackageFingerprintsOnce(ctx context.Context, targe
 	return fingerprints, nil
 }
 
-func patchPackageCaptureRequests(label string, targets []preparedPatchPackageTarget) []backupstore.CaptureRequest {
+func patchPackageCaptureRequests(label, backupPolicy string, targets []preparedPatchPackageTarget) []backupstore.CaptureRequest {
 	requests := make([]backupstore.CaptureRequest, 0, len(targets))
 	for index := range targets {
 		if !targets[index].prepared.changed {
@@ -446,6 +446,7 @@ func patchPackageCaptureRequests(label string, targets []preparedPatchPackageTar
 			TargetPath:      targets[index].resolvedPath,
 			SourceOperation: backupstore.SourceOperationPatchPackage,
 			Label:           label,
+			Pinned:          persistentBackupPinned(backupPolicy),
 		})
 	}
 	return requests

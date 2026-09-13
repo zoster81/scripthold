@@ -6,7 +6,7 @@ const (
 	defaultMaxTotalBytes        = int64(1024 * 1024 * 1024)
 	defaultMaxObjectBytes       = int64(64 * 1024 * 1024)
 	defaultMaxManifests         = 10_000
-	defaultMaxVersionsPerTarget = 32
+	defaultMaxVersionsPerTarget = 64
 	defaultMaxPinned            = 256
 	defaultRetentionDays        = 30
 	defaultPlanTTLSeconds       = 15 * 60

@@ -100,19 +100,21 @@ The final public split is:
 
 Every apply schema contains only required `previewId`; unknown fields are rejected. There is no `edit_file` direct-mutation compatibility alias. Existing callers that already use `edit_file action=preview`, `patch_package dryRun`, `backup_store restorePreview`/`gcDryRun`, `manage_bom detect`, or `convert_encoding dryRun=true` keep the read-only preparation entry point; callers of the former mutating forms must migrate to the returned capability plus the corresponding apply tool.
 
-R23 also finalizes the operator default as `MCP_BACKUP_DEFAULT_POLICY=disabled|required`, defaulting to `disabled` for compatibility. Eligible approval-bound content mutations are edit, patch package, BOM change, and encoding conversion. A request may explicitly bind `backupPolicy="required"`; omission inherits the operator default. No request value can weaken an operator default of `required`. Restore keeps its independent mandatory safety-backup rule for an existing target, while GC has no content-backup policy. `convert_encoding.backup=true` remains the separate adjacent `.bak` request and is retained inside the preview capability; it is not reinterpreted as the persistent-store policy.
+R23 finalized the operator default as `MCP_BACKUP_DEFAULT_POLICY=disabled|required`, defaulting to `disabled` for compatibility. Eligible approval-bound content mutations are edit, patch package, BOM change, and encoding conversion. Omission inherits the operator default and `backupPolicy="required"` requests a normal persistent pre-state backup. Current unreleased source additionally accepts `backupPolicy="pinned"` as a strictly stronger request: it implies required capture and marks the new immutable manifest protected from automatic per-target retention and ordinary GC. No request value can weaken an operator default of `required`. Restore keeps its independent mandatory safety-backup rule for an existing target, while GC has no content-backup policy. `convert_encoding.backup=true` remains the separate adjacent `.bak` request and is retained inside the preview capability; it is not reinterpreted as the persistent-store policy.
 
 Because R23 removes previously public mutating request forms, it is a semantic-versioning breaking change and therefore ships in Scripthold `3.0.0` rather than as a silent `2.x` compatibility change. The concrete caller migration is documented in [MIGRATION_3.0.md](MIGRATION_3.0.md) and the user-visible changes are recorded in the `3.0.0` changelog; completing R23 did not itself create, tag, or publish that release.
 
 ## Persistent backup UX
 
-The existing backup store remains a separate protected internal authority and keeps its immutable-object/manifest, quota, explicit-GC, no-background-GC, and no-false-rollback invariants from [`PERSISTENT_BACKUP_LIFECYCLE.md`](PERSISTENT_BACKUP_LIFECYCLE.md).
+The existing backup store remains a separate protected internal authority and keeps its immutable-object/manifest, hard global quota, no-background-GC, and no-false-rollback invariants from [`PERSISTENT_BACKUP_LIFECYCLE.md`](PERSISTENT_BACKUP_LIFECYCLE.md). Current unreleased source explicitly revises only per-target history saturation: after a newer unpinned manifest is durable, synchronous oldest-first retention may remove older eligible non-pinned versions for that same target.
 
 R23 improves usability without exposing raw object bytes or internal store paths:
 
 - provide an explicit version-history view for an authorized target;
 - provide read-only comparison of a backup with the current target and, where safely bounded, one backup with another backup;
 - retain restore as preview/apply with mandatory safety backup of an existing target;
+- allow `backupPolicy: "pinned"` when a newly created pre-state backup must survive automatic retention and ordinary GC;
+- expose explicit exact-ID `backup_delete` authority for intentional removal of a selected backup, including a pinned backup, while keeping `backup_store` read-only;
 - allow an operator-configurable default persistent-backup policy for eligible approved mutations so callers do not have to remember `backupPolicy: "required"` on every operation;
 - preview remains side-effect-free and logical no-ops create no backup;
 - required-backup admission failure prevents the target mutation;
