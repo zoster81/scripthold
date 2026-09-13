@@ -5,7 +5,8 @@ This document is the authoritative source for **current and future milestone sta
 ## Current state
 
 - Current public release: **Scripthold `3.1.6`**, published on 2026-08-19.
-- Public surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
+- Public `3.1.6` surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
+- Current unreleased source exposes **38 tools**; maintenance added the explicit `backup_delete` capability while the published `3.1.6` surface remains unchanged.
 - R1-R29 are complete. The pre-R29 test/build/CI architecture optimization is also complete and shipped in `3.1.5` without changing the public MCP surface.
 - R30-R33 remain `PLANNED`. No release-scoped milestone is active until maintainers explicitly activate one.
 - Publication and deployment are separate operator actions; public milestone state never implies a private runtime change.
@@ -51,7 +52,7 @@ The intended planning order is R30 -> R31 -> R32 -> R33. Version mapping may cha
 
 Extend the existing Markdown/source-intelligence foundation into coherent documentation understanding: structure, anchors, local links/fragments, front matter, fenced code, references, and bounded document relationships where evidence is trustworthy.
 
-Any document mutation must reuse verified preview/apply primitives and preserve encoding, BOM, line endings, backup, conflict, and partial-state guarantees. Do not introduce an independent document editor.
+Document mutation must use the dedicated **Marksplice Go module** for Markdown-aware transformation and integrate it behind Scripthold's verified preview/apply primitives. Preserve encoding, BOM, line endings, backup, conflict, and partial-state guarantees. Do not restore the discarded in-repository Markdown mutation prototype or introduce a second document editor.
 
 Completion requires deterministic malformed/ambiguous behavior, compact LLM-facing UX, cross-encoding coverage, and preview/apply regressions for mutating capabilities.
 

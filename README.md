@@ -113,7 +113,7 @@ The detailed schemas, outputs, limits, and examples are authoritative in [TOOLS.
 
 `list_encodings` is authoritative for canonical names, aliases, and capability metadata. Scripthold `3.1.6` exposes 168 canonical read/write encodings across Unicode, IBM/DOS/EBCDIC, ISO-8859, Windows, classic Mac/KOI8/other single-byte families, and East Asian/stateful multibyte families.
 
-The production runtime remains pure Go. Additional mappings and state machines derived from pinned GNU libiconv evidence are checked in and require no libiconv/GCC dependency during ordinary build or execution. UTF-32 LE/BE are full text encodings with strict scalar validation; generic byte-order-unspecified `utf-32` remains intentionally rejected. See [docs/GLOBAL_ENCODING_COVERAGE.md](docs/GLOBAL_ENCODING_COVERAGE.md) for the completed R22 contract.
+The production runtime remains pure Go. Additional mappings and state machines derived from pinned GNU libiconv evidence are checked in and require no libiconv/GCC dependency during ordinary build or execution. UTF-32 LE/BE are full text encodings with strict scalar validation; generic byte-order-unspecified `utf-32` remains intentionally rejected. BOM policy `none` is accepted as a case-insensitive compatibility alias for canonical `never`. See [docs/GLOBAL_ENCODING_COVERAGE.md](docs/GLOBAL_ENCODING_COVERAGE.md) for the completed R22 contract.
 
 ## Installation
 

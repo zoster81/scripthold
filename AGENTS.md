@@ -6,6 +6,13 @@ This file applies to the entire repository. A nested `AGENTS.md` adds or overrid
 
 Do not copy private workstation state, local process details, credentials, or operator-specific paths into tracked files. Public content must be reproducible by an external contributor from a normal clone.
 
+## Operator communication
+
+- Communicate with the operator in Italian unless explicitly requested otherwise.
+- Use simple, direct, understandable language for progress updates and completion reports. Start with what was done, what changed, what remains, and whether the requested work is actually complete.
+- Explain unavoidable technical terms in plain language when they first matter. Do not make hashes, task IDs, counters, or implementation details the main explanation; present them only as supporting evidence after the practical conclusion.
+- When something fails or blocks progress, state the practical consequence first, then the technical cause and verification evidence.
+
 ## Sources of truth
 
 - Product identity, fork scope, transports, and upstream relationship: [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md)

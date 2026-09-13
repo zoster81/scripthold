@@ -114,12 +114,12 @@ The supplied line endings are written exactly as provided. Encoding failures and
 - `path` (required): Path to the file
 - `content` (required): UTF-8 content to write
 - `encoding` (optional): Target encoding. New files use the configured default (`utf-8` by default); existing files preserve a confidently detected encoding. Set `MCP_DEFAULT_ENCODING` or pass `encoding` explicitly for legacy formats such as `cp1251`.
-- `bom` (optional): BOM policy — `auto` (default), `always`, `never`, or `preserve`
+- `bom` (optional): BOM policy — `auto` (default), `always`, `never`, or `preserve`; `none` is accepted as a compatibility alias for `never`
 
 **BOM policy:**
 - `auto`: UTF-8 and legacy encodings have no BOM; UTF-16 LE/BE receive their canonical BOM
 - `always`: Require the target encoding's canonical BOM; fails for encodings without BOM support
-- `never`: Write no BOM
+- `never`: Write no BOM (`none` is accepted as an alias and canonicalized to `never`)
 - `preserve`: Preserve the existing file's BOM presence, using the canonical BOM for the selected target encoding; a new file has no BOM
 
 **Example:**
@@ -785,7 +785,7 @@ Prepare exact encoding-conversion bytes for one file or a bounded batch **withou
 - `path` or `paths` (exactly one form): one file or a bounded ordered batch
 - `from` (optional): explicit source encoding; otherwise conservative detection applies
 - `to` (required): target encoding
-- `bom` (optional): `auto` (default), `always`, `never`, or `preserve`
+- `bom` (optional): `auto` (default), `always`, `never`, or `preserve`; `none` is accepted as a compatibility alias for `never`
 - `dryRun` (required): exactly `true`
 - `backup` (optional): bind creation/replacement of the adjacent `.bak` file to the later apply; preview itself never creates it
 - `backupPolicy` (optional): omit to inherit `MCP_BACKUP_DEFAULT_POLICY`, set `required` for normal persistent capture, or `pinned` for protected persistent capture
