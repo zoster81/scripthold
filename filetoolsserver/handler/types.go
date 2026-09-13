@@ -32,7 +32,7 @@ type ReadTextFileOutput struct {
 // WriteWholeFileInput replaces the complete target contents. New files default
 // to UTF-8 when encoding is omitted and no existing encoding can be preserved.
 // Legacy encodings remain explicit options. BOM accepts "auto" (default),
-// "always", "never", or "preserve".
+// "always", "never" (with "none" as a compatibility alias), or "preserve".
 type WriteWholeFileInput struct {
 	Path     string `json:"path"`
 	Content  string `json:"content"`
@@ -296,7 +296,7 @@ type CopyFileOutput struct {
 }
 
 // ConvertEncodingInput converts between encodings. From is auto-detected if empty.
-// BOM accepts "auto" (default), "always", "never", or "preserve".
+// BOM accepts "auto" (default), "always", "never" (with "none" as a compatibility alias), or "preserve".
 type ConvertEncodingInput struct {
 	Path   string   `json:"path,omitempty"`
 	Paths  []string `json:"paths,omitempty"`

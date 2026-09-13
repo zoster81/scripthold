@@ -45,7 +45,12 @@ func parseBOMPolicy(value string, defaultPolicy bomPolicy) (bomPolicy, error) {
 		return defaultPolicy, nil
 	}
 
-	policy := bomPolicy(strings.ToLower(strings.TrimSpace(value)))
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "none" {
+		return bomNever, nil
+	}
+
+	policy := bomPolicy(normalized)
 	switch policy {
 	case bomPreserve, bomAlways, bomNever, bomAuto:
 		return policy, nil

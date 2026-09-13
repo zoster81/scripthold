@@ -419,6 +419,32 @@ func TestHandleWriteWholeFile_BOMNeverWritesBOMlessUTF16(t *testing.T) {
 	}
 }
 
+func TestHandleWriteWholeFile_BOMNoneAliasesNever(t *testing.T) {
+	tempDir := t.TempDir()
+	h := NewHandler([]string{tempDir})
+	path := filepath.Join(tempDir, "bomless-none.data")
+
+	result, output, err := h.HandleWriteWholeFile(context.Background(), nil, WriteWholeFileInput{
+		Path: path, Content: "value = 1\r\n", Encoding: "utf-16-le", BOM: " NoNe ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("expected none alias to succeed, got %q", extractTextFromResultWrite(result.Content))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := fileEncoding.DetectBOM(data); found {
+		t.Fatal("none alias unexpectedly emitted a BOM")
+	}
+	if output.HasBOM || output.BOMType != "" || output.BOMPolicy != "never" {
+		t.Fatalf("none alias was not canonicalized to never: %+v", output)
+	}
+}
+
 func TestHandleWriteWholeFile_BOMPreserveKeepsUTF8BOM(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
