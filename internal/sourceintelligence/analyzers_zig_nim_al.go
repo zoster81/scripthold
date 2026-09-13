@@ -220,6 +220,10 @@ func (p *zigParser) parseFunction(start, keyword, end int, parent *SymbolParent,
 			break
 		}
 	}
+	if open < 0 && semicolon < 0 {
+		p.builder.MarkIncomplete()
+		return closeParen + 1
+	}
 	terminator := semicolon
 	declarationEnd := p.tokens[closeParen].EndOffset
 	var body *OffsetRange

@@ -96,6 +96,7 @@ func providerRiskSeeds() []providerFuzzSeed {
 		{"dart", "import 'dart:async';\nclass Service {}\n"},
 		{"d", "module demo;\nclass Service {}\n"},
 		{"zig", "const std = @import(\"std\");\npub fn main() void {}\n"},
+		{"zig", "fn A()"},
 		{"nim", "proc run*() = discard\n"},
 		{"solidity", "pragma solidity ^0.8.20;\ncontract Service {}\n"},
 		{"apex", "trigger AccountTrigger on Account (before insert) {}\n"},
