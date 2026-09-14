@@ -92,7 +92,7 @@ func (engine *fakeDeferredEngine) Wait(ctx context.Context, operationID string, 
 
 func newDeferredFingerprintFixture(t *testing.T) (*handler.Handler, *config.Config, *deferredoperation.Store, string) {
 	t.Helper()
-	public := t.TempDir()
+	public := canonicalServerTestDir(t)
 	path := filepath.Join(public, "fixture.txt")
 	if err := os.WriteFile(path, []byte("deferred fingerprint fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func newDeferredFingerprintFixture(t *testing.T) (*handler.Handler, *config.Conf
 	cfg := config.LoadFromEnvironment(func(string) string { return "" })
 	cfg.Reliability.DeferredSyncWaitSeconds = 1
 	cfg.Reliability.DeferredMaxRuntimeSeconds = 30
-	store, err := deferredoperation.Initialize(filepath.Join(t.TempDir(), "deferred"), []string{public}, nil, deferredoperation.Limits{
+	store, err := deferredoperation.Initialize(filepath.Join(canonicalServerTestDir(t), "deferred"), []string{public}, nil, deferredoperation.Limits{
 		MaxConcurrency: 4, MaxQueued: 8, MaxRuntimeSeconds: 30, RetentionSeconds: 3600,
 		MaxTerminal: 8, MaxTotalBytes: 16 * 1024 * 1024, MaxResultBytes: 4 * 1024 * 1024, MaxChunkBytes: 64 * 1024,
 	})

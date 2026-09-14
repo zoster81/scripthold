@@ -28,8 +28,8 @@ func TestHandleDeferredOperationReadsBoundedChunk(t *testing.T) {
 }
 
 func TestHandleDeferredOperationReadsDurableOperationAcrossHandlerInstances(t *testing.T) {
-	public := t.TempDir()
-	store, err := deferredoperation.Initialize(filepath.Join(t.TempDir(), "deferred"), []string{public}, nil, deferredoperation.Limits{
+	public := canonicalHandlerTestDir(t)
+	store, err := deferredoperation.Initialize(filepath.Join(canonicalHandlerTestDir(t), "deferred"), []string{public}, nil, deferredoperation.Limits{
 		MaxConcurrency: 2, MaxQueued: 4, MaxRuntimeSeconds: 30, RetentionSeconds: 3600,
 		MaxTerminal: 8, MaxTotalBytes: 8 * 1024 * 1024, MaxResultBytes: 2 * 1024 * 1024, MaxChunkBytes: 16,
 	})
@@ -60,8 +60,8 @@ func TestHandleDeferredOperationReadsDurableOperationAcrossHandlerInstances(t *t
 }
 
 func TestHandleDeferredOperationCancelsDurableOperation(t *testing.T) {
-	public := t.TempDir()
-	store, err := deferredoperation.Initialize(filepath.Join(t.TempDir(), "deferred"), []string{public}, nil, deferredoperation.Limits{
+	public := canonicalHandlerTestDir(t)
+	store, err := deferredoperation.Initialize(filepath.Join(canonicalHandlerTestDir(t), "deferred"), []string{public}, nil, deferredoperation.Limits{
 		MaxConcurrency: 1, MaxQueued: 2, MaxRuntimeSeconds: 30, RetentionSeconds: 3600,
 		MaxTerminal: 4, MaxTotalBytes: 1024 * 1024, MaxResultBytes: 512 * 1024, MaxChunkBytes: 1024,
 	})

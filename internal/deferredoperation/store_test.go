@@ -24,18 +24,24 @@ func testDeferredLimits() Limits {
 	}
 }
 
-func newDeferredTestStore(t *testing.T) (*Store, string) {
+func canonicalDeferredTestDir(t *testing.T) string {
 	t.Helper()
 	base := t.TempDir()
 	resolved, err := filepath.EvalSymlinks(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	public := filepath.Join(resolved, "public")
+	return filepath.Clean(resolved)
+}
+
+func newDeferredTestStore(t *testing.T) (*Store, string) {
+	t.Helper()
+	base := canonicalDeferredTestDir(t)
+	public := filepath.Join(base, "public")
 	if err := os.Mkdir(public, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	store, err := Initialize(filepath.Join(resolved, "deferred"), []string{public}, nil, testDeferredLimits())
+	store, err := Initialize(filepath.Join(base, "deferred"), []string{public}, nil, testDeferredLimits())
 	if err != nil {
 		t.Fatal(err)
 	}

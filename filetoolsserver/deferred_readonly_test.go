@@ -18,7 +18,7 @@ import (
 
 func newDeferredReadOnlyExecutionFixture(t *testing.T) (string, string, string, *config.Config) {
 	t.Helper()
-	root := t.TempDir()
+	root := canonicalServerTestDir(t)
 	textPath := filepath.Join(root, "notes.txt")
 	if err := os.WriteFile(textPath, []byte("alpha\nneedle\nomega\n"), 0o600); err != nil {
 		t.Fatal(err)

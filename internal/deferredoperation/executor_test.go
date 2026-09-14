@@ -112,7 +112,7 @@ func TestExecuteEnforcesOperationRuntime(t *testing.T) {
 func TestExecuteBoundsCrossProcessConcurrency(t *testing.T) {
 	limits := testDeferredLimits()
 	limits.MaxConcurrency = 1
-	base := t.TempDir()
+	base := canonicalDeferredTestDir(t)
 	public := base
 	store, err := Initialize(base+"-private", []string{public}, nil, limits)
 	if err != nil {

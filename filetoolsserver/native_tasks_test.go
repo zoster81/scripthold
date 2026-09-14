@@ -24,8 +24,8 @@ func nativeTasksTestLimits() deferredoperation.Limits {
 
 func newNativeTasksFixture(t *testing.T) (*handler.Handler, *deferredoperation.Store, string) {
 	t.Helper()
-	public := t.TempDir()
-	store, err := deferredoperation.Initialize(filepath.Join(t.TempDir(), "deferred"), []string{public}, nil, nativeTasksTestLimits())
+	public := canonicalServerTestDir(t)
+	store, err := deferredoperation.Initialize(filepath.Join(canonicalServerTestDir(t), "deferred"), []string{public}, nil, nativeTasksTestLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,8 +626,8 @@ func TestNativeTasksMultiClientReconnectAndStoreRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	public := t.TempDir()
-	storeDir := filepath.Join(t.TempDir(), "deferred")
+	public := canonicalServerTestDir(t)
+	storeDir := filepath.Join(canonicalServerTestDir(t), "deferred")
 	store, err := deferredoperation.Initialize(storeDir, []string{public}, nil, nativeTasksTestLimits())
 	if err != nil {
 		t.Fatal(err)
