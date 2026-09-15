@@ -58,6 +58,33 @@ The following actions remain explicit maintainer decisions and are never inciden
 
 The tag-triggered Release workflow attests the already-completed exact-commit Test Suite gate instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser. That attested push gate already includes Gitleaks and `goreleaser check` in addition to the full native/platform/security evidence.
 
+## Core release and discovery syndication
+
+The **core release** is the product publication authority: exact-SHA Test Suite qualification, annotated tag, GoReleaser assets, GitHub-only MCPB assets, and MCP Registry publication. OpenSSF Scorecard and third-party discovery directories are supporting trust/discovery evidence; their outage or indexing delay must not retroactively make an already-valid core release appear failed.
+
+If a future Registry manifest references an OCI image, that immutable image and its required MCP server annotation must be published and verified **before** the Registry manifest that names it. Do not publish a Registry package that points at an image tag or digest that does not yet exist.
+
+The **discovery/syndication** layer follows successful core publication and reports each destination independently:
+
+- OpenSSF Scorecard publishes signed results and SARIF through its standalone workflow; it is intentionally not a binary-release gate.
+- Glama ownership is declared by the tracked `glama.json`. Claiming is an account-side GitHub action, not a release-workflow API: after adding or changing `glama.json`, rerun Glama's **Claim ownership** flow to make Glama pick up the latest metadata. Do not scrape the Glama web UI as a publication or freshness API.
+- Smithery publication requires the Actions secret `SMITHERY_API_KEY`. Its stdio release API accepts one MCPB bundle per release, while Scripthold currently publishes six platform-specific MCPB bundles. Until Smithery documents multi-platform variants or Scripthold has one portable bundle with equivalent compatibility semantics, automation must not arbitrarily select one platform and call that a complete Scripthold release.
+- MCP.Directory is expected to discover Official MCP Registry entries. Use its normal listing/claim process when required; do not invent a write API or automate its web form.
+- PulseMCP ingests from the Official MCP Registry, crawling, and manual submissions. Its publisher API is partner-gated; do not treat it as a public write endpoint.
+- Docker MCP Catalog is currently excluded for the local-server distribution because Scripthold is GPL-3.0 and Docker's contributor policy does not currently consider GPL suitable for that local-server consumption model. This is a distribution-policy exclusion, not a reason to change Scripthold's license.
+
+A future Smithery publisher may run only after the MCPB assets are already immutable on GitHub: submit the intended bundle, poll the documented release-status endpoint to a terminal state, verify the public release/listing, and report failure as syndication failure without changing the core release result.
+
+### MCP Registry transport posture
+
+Scripthold supports both stdio and authenticated Streamable HTTP at runtime. The Registry package metadata must describe how a published package is actually launched, not every transport the executable is capable of supporting.
+
+The current six platform MCPB packages are therefore correctly declared as `stdio`. Do not add a `remote` localhost URL: Registry `remotes` are for genuinely reachable remote services. Do not change MCPB metadata to `streamable-http` unless the bundle consumer can actually launch that transport with its full security contract.
+
+A self-hosted OCI package is a possible future way to expose Streamable HTTP through Registry package metadata, but it is not publishable until all of the following are represented and tested together: immutable image identity and MCP annotation, `linux/amd64` plus `linux/arm64`, non-root execution, read-only filesystem, explicit authorized-workspace mount, bearer-token secret handling, listener/port mapping, Host policy, TLS certificate/key or trusted-proxy boundary, and a client URL/trust model consistent with [HTTP Security](HTTP_SECURITY.md). Binding `0.0.0.0` without TLS merely to make a container reachable is not acceptable.
+
+Because the existing Registry record already truthfully describes the six published MCPB packages, runtime HTTP support alone is not a reason to mint a patch release. A patch release becomes appropriate only when new versioned package metadata is complete, secure, testable, and ready to publish without rewriting historical Registry versions.
+
 ## GitHub-only MCPB boundary
 
 MCPB artifacts are produced **only by GitHub release workflows**.
@@ -138,8 +165,10 @@ After GitHub publication completes:
 3. download `checksums.txt` plus the 12 normal raw/archive assets and independently verify every SHA-256 entry;
 4. execute `--version` on a representative compatible published binary where infrastructure permits;
 5. confirm the GitHub MCPB job and Registry job both completed successfully and that the expected MCPB asset names/checksum manifest are attached, **without downloading or validating the real MCPB bundles locally**;
-6. verify the Registry reports the intended semantic version;
-7. record publication evidence in durable public history only where useful; keep workstation/runtime state private.
+6. verify the Registry reports the intended semantic version and inspect its package types/transports;
+7. verify discovery destinations independently where a stable supported read API or public listing exists; do not replace missing APIs with form scraping;
+8. report a concise status summary covering GitHub Release, Registry version/package types/transports, Smithery, Glama, MCP.Directory, PulseMCP, and OpenSSF Scorecard publication status. Distinguish `not configured`, `not listed`, `stale`, `unverifiable through a supported API`, and actual publication failures;
+9. record publication evidence in durable public history only where useful; keep workstation/runtime state private.
 
 ## Release verification checklist
 
@@ -166,7 +195,9 @@ After tagging:
 - [ ] GitHub-only MCPB publication succeeds;
 - [ ] GitHub-only Registry publication succeeds;
 - [ ] normal GoReleaser assets independently match `checksums.txt`;
-- [ ] semantic tag, changelog release, embedded binary version, and Registry version agree.
+- [ ] semantic tag, changelog release, embedded binary version, and Registry version agree;
+- [ ] Registry package types and transports match the actually published launch semantics;
+- [ ] Scorecard and discovery/syndication destinations are reported separately from core release success.
 
 Deployment, active rollback, restoration, launcher changes, and runtime restarts are **separate operator actions** and are not implied by this checklist.
 

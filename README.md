@@ -4,14 +4,13 @@
 
 [![Test Suite](https://github.com/zoster81/scripthold/actions/workflows/test.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/test.yml?query=branch%3Amain)
 [![CodeQL](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml?query=branch%3Amain)
-[![golangci-lint](https://img.shields.io/badge/golangci--lint-v2.13.2-4C8EDA?logo=go&logoColor=white)](.golangci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/zoster81/scripthold/badge)](https://scorecard.dev/viewer/?uri=github.com/zoster81/scripthold)
+[![GitHub Release](https://img.shields.io/github/v/release/zoster81/scripthold)](https://github.com/zoster81/scripthold/releases/latest)
+[![Release downloads](https://img.shields.io/github/downloads/zoster81/scripthold/total?label=Release%20downloads)](https://github.com/zoster81/scripthold/releases)
 [![Go](https://img.shields.io/github/go-mod/go-version/zoster81/scripthold?logo=go)](go.mod)
-[![Release](https://img.shields.io/github/v/release/zoster81/scripthold)](https://github.com/zoster81/scripthold/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/github/license/zoster81/scripthold)](LICENSE)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-Scripthold-blue)](https://registry.modelcontextprotocol.io/?search=io.github.zoster81%2Fscripthold)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-555)](.github/workflows/test.yml)
-[![Text encodings](https://img.shields.io/badge/text%20encodings-168-6f42c1)](TOOLS.md#supported-encodings)
-[![Source providers](https://img.shields.io/badge/source%20providers-101-0b7285)](docs/LANGUAGE_CAPABILITIES.md)
+[![Glama](https://glama.ai/mcp/servers/zoster81/scripthold/badges/score.svg)](https://glama.ai/mcp/servers/zoster81/scripthold)
 
 **Code from the web. Work locally. Recover safely.**
 

@@ -10,12 +10,11 @@ import (
 )
 
 var (
-	actionUseLinePattern   = regexp.MustCompile(`(?m)^[ \t]*uses:[ \t]*([^#\s]+)`)
-	semverActionRefPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
-	shaActionRefPattern    = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+	actionUseLinePattern = regexp.MustCompile(`(?m)^[ \t]*uses:[ \t]*([^#\s]+)`)
+	shaActionRefPattern  = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 )
 
-func TestGitHubActionsUseVersionPinnedRefs(t *testing.T) {
+func TestGitHubActionsUseImmutableRefs(t *testing.T) {
 	root := repositoryRoot(t)
 	workflows := filepath.Join(root, ".github", "workflows")
 	var violations []string
@@ -37,7 +36,7 @@ func TestGitHubActionsUseVersionPinnedRefs(t *testing.T) {
 		}
 		for _, match := range actionUseLinePattern.FindAllSubmatch(data, -1) {
 			action := strings.Trim(string(match[1]), `"'`)
-			if actionRefIsVersionPinned(action) {
+			if actionRefIsImmutable(action) {
 				continue
 			}
 			relative, err := filepath.Rel(root, path)
@@ -53,7 +52,7 @@ func TestGitHubActionsUseVersionPinnedRefs(t *testing.T) {
 	}
 	if len(violations) != 0 {
 		sort.Strings(violations)
-		t.Fatalf("GitHub Actions must use local workflows, full semantic-version refs, or commit SHAs: %v", violations)
+		t.Fatalf("GitHub Actions must use local workflows or immutable commit SHAs: %v", violations)
 	}
 }
 
@@ -74,9 +73,9 @@ func TestTestSuiteUsesFailClosedEvidenceTiers(t *testing.T) {
 		"node scripts/run-fuzz.js --profile smoke",
 		"run-targeted --failure-class race --platform linux --race",
 		"run-targeted --failure-class platform --platform",
-		"gitleaks/gitleaks-action@v3.0.0",
+		"gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e",
 		"GITLEAKS_VERSION: '8.30.1'",
-		"goreleaser/goreleaser-action@v7.2.3",
+		"goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94",
 		"args: check",
 		"if: ${{ always() }}",
 	} {
@@ -98,20 +97,20 @@ func TestTestSuiteUsesFailClosedEvidenceTiers(t *testing.T) {
 func TestActionRefPinPolicyRejectsFloatingRefs(t *testing.T) {
 	for action, want := range map[string]bool{
 		"./.github/workflows/reusable.yml":                      true,
-		"actions/checkout@v7.0.1":                               true,
+		"actions/checkout@v7.0.1":                               false,
 		"owner/action@0123456789abcdef0123456789abcdef01234567": true,
 		"actions/checkout@v7":                                   false,
 		"actions/checkout@main":                                 false,
 		"actions/checkout@latest":                               false,
 		"actions/checkout":                                      false,
 	} {
-		if got := actionRefIsVersionPinned(action); got != want {
-			t.Errorf("actionRefIsVersionPinned(%q) = %v, want %v", action, got, want)
+		if got := actionRefIsImmutable(action); got != want {
+			t.Errorf("actionRefIsImmutable(%q) = %v, want %v", action, got, want)
 		}
 	}
 }
 
-func actionRefIsVersionPinned(action string) bool {
+func actionRefIsImmutable(action string) bool {
 	if strings.HasPrefix(action, "./") {
 		return true
 	}
@@ -120,5 +119,5 @@ func actionRefIsVersionPinned(action string) bool {
 		return false
 	}
 	ref := action[at+1:]
-	return semverActionRefPattern.MatchString(ref) || shaActionRefPattern.MatchString(ref)
+	return shaActionRefPattern.MatchString(ref)
 }

@@ -37,6 +37,16 @@ Current behavior is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`TOO
 
 Both transports build the same server and expose the same tools, prompts, encoding behavior, limits, execution policy, and typed errors. HTTP deployment requirements are in [`HTTP_SECURITY.md`](HTTP_SECURITY.md).
 
+## Distribution posture
+
+The Official MCP Registry currently distributes Scripthold through six platform-specific MCPB packages whose package launch transport is `stdio`. That Registry metadata describes the published package launch contract; it does not limit the executable's native Streamable HTTP capability.
+
+Streamable HTTP will be added to Registry package metadata only when a versioned distribution can preserve the complete non-loopback security model, including bearer-token secret handling, explicit workspace mounts, non-root/read-only container hardening, and direct TLS or a trusted proxy boundary. A localhost `remote` entry is not a substitute for a publicly reachable service.
+
+Third-party indexes and trust directories are discovery surfaces rather than product authority. Public badges must be backed by a real workflow result or verified listing. Directory publication failures remain separate from GitHub Release and Official MCP Registry success.
+
+Scripthold remains GPL-3.0. Distribution catalogs whose current local-server policy excludes GPL are not targets for automated submission; distribution policy does not justify relicensing the project.
+
 ## Relationship to upstream
 
 The original project remains an independent product. Scripthold may review upstream ideas, bug reports, tests, and security lessons, but does not promise source-level, schema, release, or deployment compatibility with later upstream versions.

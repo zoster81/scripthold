@@ -1,0 +1,88 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+const root = path.resolve(__dirname, '..');
+
+function read(relativePath) {
+  return fs.readFileSync(path.join(root, relativePath), 'utf8');
+}
+
+function readJSON(relativePath) {
+  return JSON.parse(read(relativePath));
+}
+
+function workflowFiles() {
+  const directory = path.join(root, '.github', 'workflows');
+  return fs.readdirSync(directory)
+    .filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
+    .sort()
+    .map((name) => ({ name, content: fs.readFileSync(path.join(directory, name), 'utf8') }));
+}
+
+test('all external GitHub Actions are pinned to immutable commit SHAs', () => {
+  const externalUse = /^\s*uses:\s*([^\s]+)@([^\s#]+)(?:\s+#.*)?$/gm;
+  const violations = [];
+  for (const workflow of workflowFiles()) {
+    for (const match of workflow.content.matchAll(externalUse)) {
+      const action = match[1];
+      const ref = match[2];
+      if (action.startsWith('./')) continue;
+      if (!/^[0-9a-f]{40}$/.test(ref)) violations.push(`${workflow.name}: ${action}@${ref}`);
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+test('OpenSSF Scorecard workflow publishes results with least privilege and SARIF upload', () => {
+  const scorecard = read('.github/workflows/scorecard.yml');
+  assert.match(scorecard, /^name: OpenSSF Scorecard$/m);
+  assert.match(scorecard, /push:\s*\n\s*branches:\s*\n\s*- main/m);
+  assert.match(scorecard, /schedule:\s*\n\s*- cron:/m);
+  assert.match(scorecard, /permissions:\s*\n\s*contents: read\s*\n\s*security-events: write\s*\n\s*id-token: write/m);
+  assert.match(scorecard, /ossf\/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc/);
+  assert.match(scorecard, /publish_results:\s*true/);
+  assert.match(scorecard, /results_file:\s*results\.sarif/);
+  assert.match(scorecard, /persist-credentials:\s*false/);
+  assert.match(scorecard, /github\/codeql-action\/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63/);
+});
+
+test('README trust badges are evidence-backed and avoid unverified directory claims', () => {
+  const readme = read('README.md');
+  assert.match(readme, /OpenSSF Scorecard/);
+  assert.match(readme, /api\.scorecard\.dev\/projects\/github\.com\/zoster81\/scripthold\/badge/);
+  assert.match(readme, /Release downloads/);
+  assert.match(readme, /github\/downloads\/zoster81\/scripthold\/total/);
+  assert.match(readme, /glama\.ai\/mcp\/servers\/zoster81\/scripthold\/badges\/score\.svg/);
+  assert.doesNotMatch(readme, /Smithery[^\n]*badge/i);
+  assert.doesNotMatch(readme, /MCP\.Directory[^\n]*badge/i);
+  assert.doesNotMatch(readme, /PulseMCP[^\n]*badge/i);
+});
+
+test('Glama ownership metadata belongs to the current Scripthold maintainer', () => {
+  const metadata = readJSON('glama.json');
+  assert.equal(metadata.$schema, 'https://glama.ai/mcp/schemas/server.json');
+  assert.deepEqual(metadata.maintainers, ['zoster81']);
+});
+
+test('Smithery metadata stays aligned with the actual stdio container runtime without hard-coded tool-count drift', () => {
+  const smithery = read('smithery.yaml');
+  assert.doesNotMatch(smithery, /\b30 tools\b/i);
+  assert.match(smithery, /^runtime:\s*"?container"?$/m);
+  assert.match(smithery, /command:\s*['"]\/usr\/local\/bin\/scripthold['"]/);
+  assert.match(smithery, /--transport=stdio/);
+});
+
+test('distribution documentation preserves core release and third-party syndication boundaries', () => {
+  const publishing = read('docs/PUBLISHING.md');
+  assert.match(publishing, /Core release/i);
+  assert.match(publishing, /Discovery.*syndication/is);
+  assert.match(publishing, /SMITHERY_API_KEY/);
+  assert.match(publishing, /Docker MCP Catalog/);
+  assert.match(publishing, /GPL-3\.0/);
+  assert.match(publishing, /Streamable HTTP/);
+  assert.match(publishing, /TLS|trusted proxy/i);
+});
