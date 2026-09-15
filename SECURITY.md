@@ -8,7 +8,7 @@ Security fixes are evaluated for the current public release and the current `mai
 
 Please do not publish exploit details, credentials, sensitive paths, or proof-of-concept payloads in a public issue.
 
-Use GitHub's private vulnerability-reporting or Security Advisory flow for this repository when it is available. If GitHub does not offer a private reporting form, open a minimal public issue that contains no sensitive technical details and asks the maintainer to establish a private channel before sharing the report.
+Use GitHub's private [Security Advisory reporting flow](https://github.com/zoster81/scripthold/security/advisories/new) for this repository. If GitHub does not offer the private reporting form, open a minimal public issue that contains no sensitive technical details and asks the maintainer to establish a private channel before sharing the report.
 
 A useful report includes:
 

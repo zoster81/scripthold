@@ -14,12 +14,11 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
-
 jobs:
   publish:
     if: github.repository == 'zoster81/scripthold' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

@@ -86,3 +86,21 @@ test('distribution documentation preserves core release and third-party syndicat
   assert.match(publishing, /Streamable HTTP/);
   assert.match(publishing, /TLS|trusted proxy/i);
 });
+
+test('release publishing grants write permission only at the job that needs it', () => {
+  const workflow = read('.github/workflows/publish-mcpb-assets.yml');
+  const beforeJobs = workflow.split(/^jobs:\s*$/m, 1)[0];
+  assert.doesNotMatch(beforeJobs, /^\s*contents:\s*write\s*$/m);
+  assert.match(workflow, /jobs:\s*\n\s*publish:.*?permissions:\s*\n\s*contents:\s*write/s);
+});
+
+test('container base images are pinned to immutable digests', () => {
+  const dockerfile = read('Dockerfile');
+  assert.match(dockerfile, /^FROM golang:1\.27\.1-alpine3\.24@sha256:[0-9a-f]{64} AS builder$/m);
+  assert.match(dockerfile, /^FROM alpine:3\.24\.1@sha256:[0-9a-f]{64}$/m);
+});
+
+test('security policy links directly to private vulnerability reporting', () => {
+  const policy = read('SECURITY.md');
+  assert.match(policy, /https:\/\/github\.com\/zoster81\/scripthold\/security\/advisories\/new/);
+});
