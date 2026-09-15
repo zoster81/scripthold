@@ -2,18 +2,19 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
-## Unreleased
+## 3.2.0 - 2026-09-15
 
 ### Added
 
 - Added bounded redacted server diagnostics with optional file rotation/retention, while keeping HTTP access logs and durable-task output separate.
 - Added protected persistent backups through `backupPolicy: "pinned"` and explicit exact-ID `backup_delete` removal.
+- Added `deferred_operation` for bounded observation and cancellation of durable read-only work plus retained retrieval of oversized completed results; modern MCP clients can observe the same durable work through native task APIs.
 
 ### Changed
 
 - Raised the Go baseline to 1.27.1 and refreshed the repository validation/release toolchain, including Node.js 26.8.2, golangci-lint 2.13.2, govulncheck 1.8.0, GoReleaser 2.18.1, Gitleaks 8.30.1, and CodeQL Action 4.38.0.
 - Updated the stable MCP Go SDK to v1.8.0 and refreshed its resolved support dependencies.
-- Improved connector reliability with a bounded synchronous call deadline, retained retrieval for oversized completed responses, and optional durable ownership for eligible long-running read-only calls. Modern MCP clients can observe the same durable work through native task APIs; legacy clients continue to use `deferred_operation`.
+- Improved connector reliability with a bounded synchronous call deadline, retained oversized-response storage, and optional durable ownership for eligible long-running read-only calls.
 - Reduced Source Intelligence memory duplication without changing its public schemas or capability claims.
 - Changed per-target backup history from a hard saturation barrier to synchronous oldest-eligible retention after a newer backup is durable; the default retained version target is now 64.
 

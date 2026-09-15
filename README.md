@@ -21,7 +21,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 ## What Scripthold provides
 
-The current public release is **Scripthold 3.1.6** with 36 tools and 3 guided prompts. Current unreleased source exposes 38 tools.
+The current public release is **Scripthold 3.2.0** with 38 tools and 3 guided prompts.
 
 - **168 registered text encodings** with content-based detection, UTF-32 LE/BE support, and conservative ambiguity handling.
 - **101 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
