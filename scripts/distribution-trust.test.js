@@ -87,11 +87,17 @@ test('distribution documentation preserves core release and third-party syndicat
   assert.match(publishing, /TLS|trusted proxy/i);
 });
 
-test('release publishing grants write permission only at the job that needs it', () => {
+test('release publishing defaults to read-only and grants write permission only at the job that needs it', () => {
   const workflow = read('.github/workflows/publish-mcpb-assets.yml');
   const beforeJobs = workflow.split(/^jobs:\s*$/m, 1)[0];
+  assert.match(beforeJobs, /permissions:\s*\n\s*contents:\s*read/m);
   assert.doesNotMatch(beforeJobs, /^\s*contents:\s*write\s*$/m);
   assert.match(workflow, /jobs:\s*\n\s*publish:.*?permissions:\s*\n\s*contents:\s*write/s);
+});
+
+test('CodeQL scans pull requests targeting maintained branches', () => {
+  const workflow = read('.github/workflows/codeql.yml');
+  assert.match(workflow, /pull_request:\s*\n\s*branches:\s*\n\s*- main\s*\n\s*- master/m);
 });
 
 test('container base images are pinned to immutable digests', () => {

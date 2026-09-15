@@ -11,7 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 ### Changed
 
 - Pinned external GitHub Actions to immutable commit SHAs and added regression coverage for distribution/trust metadata drift.
-- Reduced release-workflow token scope, pinned container base images to immutable digests, and linked the private GitHub Security Advisory reporting flow.
+- Reduced release-workflow token scope, made the reusable MCPB publisher read-only by default, pinned container base images to immutable digests, added CodeQL coverage for pull requests, and linked the private GitHub Security Advisory reporting flow.
 - Reworked the README trust badge set around evidence-backed release, download, security, Registry, and Glama signals.
 - Removed stale Smithery tool-count metadata and documented the boundary between core publication and third-party discovery syndication.
 
