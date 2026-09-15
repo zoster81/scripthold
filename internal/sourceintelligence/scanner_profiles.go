@@ -97,7 +97,7 @@ type ScannerProfile struct {
 	ImplicitContinuation           bool
 }
 
-// CSharpScannerProfile covers the lexical families needed by the R25 C# canary.
+// CSharpScannerProfile covers the lexical families needed by the C# analyzer.
 func CSharpScannerProfile() ScannerProfile {
 	rawPrefixes := []string{"", "$", "$$", "$$$", "$$$$", "$$$$$", "$$$$$$", "$$$$$$$", "$$$$$$$$"}
 	return ScannerProfile{
@@ -121,7 +121,7 @@ func CSharpScannerProfile() ScannerProfile {
 	}
 }
 
-// VBNetScannerProfile covers the line-oriented lexical families needed by R25.
+// VBNetScannerProfile covers the line-oriented lexical families needed by the VB.NET analyzer.
 func VBNetScannerProfile() ScannerProfile {
 	return ScannerProfile{
 		Name:            "vbnet",
@@ -139,7 +139,7 @@ func VBNetScannerProfile() ScannerProfile {
 	}
 }
 
-// PythonScannerProfile covers indentation and opaque string families needed by R25.
+// PythonScannerProfile covers indentation and opaque string families needed by the Python analyzer.
 func PythonScannerProfile() ScannerProfile {
 	prefixes := []string{"", "b", "r", "u", "f", "br", "rb", "fr", "rf"}
 	return ScannerProfile{

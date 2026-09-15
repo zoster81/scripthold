@@ -1,390 +1,112 @@
 # Changelog
 
-This file records changes maintained in the `zoster81/scripthold` fork relative to the upstream `dimitar-grigorov/mcp-file-tools` project.
-
-The upstream baseline for the first fork-specific changes is commit `52665aa080b24f6427e3fc485df76cc0a8ce1238`.
+This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
 ## Unreleased
 
 ### Added
 
-- Completed R29 logging and diagnostics lifecycle in source: process-wide redacted server diagnostics are separated from HTTP/security access logging, MCP SDK logging, and durable-task stdout/stderr; optional startup-configured file logging adds bounded multi-process writer ownership, deterministic rotation, gzip compression, age retention, aggregate-size enforcement, stale-active recovery, and failure-safe degradation to stderr without changing the public MCP tool/prompt surface.
-- Added protected persistent pre-state capture through `backupPolicy: "pinned"` for edit, patch-package, BOM, and encoding approval workflows, plus the dedicated exact-ID `backup_delete` mutation for intentional removal of a selected backup including a pinned manifest. Automatic retention and ordinary GC never select pinned backups.
+- Added bounded redacted server diagnostics with optional file rotation/retention, while keeping HTTP access logs and durable-task output separate.
+- Added protected persistent backups through `backupPolicy: "pinned"` and explicit exact-ID `backup_delete` removal.
 
 ### Changed
 
-- Raised the Go build baseline to 1.27.0 across `go.mod` and the Alpine 3.24 container builder, with repository CI/release jobs continuing to derive their Go version from the module source of truth.
-- Refreshed Go 1.27-compatible validation pins to golangci-lint v2.13.1, Staticcheck v0.8.1, and CodeQL Action v4.37.8 while retaining the existing action major versions and validation architecture.
-- Hardened tool lifecycle logging to emit stable categories, tool names, and error codes without human-readable failure text, raw Go errors, panic values, stacks, or clear filesystem paths; HTTP now receives that category-only `ToolLogger` independently from its access logger while the command runtime leaves the MCP SDK logger disconnected from R29 diagnostics.
-- Hardened connector reliability in unreleased source: all MCP tool calls now have a bounded cooperative synchronous deadline; oversized completed responses are retained behind bounded `deferred_operation` retrieval; an optional separate durable deferred-operation store gives `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols` independent pre-admitted execution ownership with bounded recovery/no-replay semantics; concurrent equivalent legacy `initialize` requests are serialized per session. `source_query` remains synchronous because its returned index binding is process-local. Modern `2026-07-28` requests can now opt into `io.modelcontextprotocol/tasks` and observe the same durable deferred operation through a native `tools/call` task result plus `tasks/get`, `tasks/update`, and `tasks/cancel`; legacy sessions continue to use `deferred_operation`, and oversized completed responses are not converted into native tasks.
-- Reduced Source Intelligence project-query memory amplification without changing the public MCP surface: secondary project symbol indexes now reference canonical per-file records instead of retaining duplicate record values, Go analyzer paths that do not consume normalized return values avoid defensive return copies, and the standard-library Go AST provides a bounded declaration-count reservation hint for retained symbols.
-- Changed `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` from a hard capture-admission barrier to synchronous post-capture FIFO retention, raised its default from 32 to 64, and made the newest backup durable before any older eligible non-pinned history is removed.
-- Optimized high-frequency persistent capture without weakening deletion authority: below retention pressure, committed manifests update the validated derived projection without a full store rescan; multi-file capture coalesces the disposable persisted-index replacement while keeping each object and manifest independently durable and falling back to authoritative scans before retention.
+- Raised the Go baseline to 1.27.1 and refreshed the repository validation/release toolchain, including Node.js 26.8.2, golangci-lint 2.13.2, govulncheck 1.8.0, GoReleaser 2.18.1, Gitleaks 8.30.1, and CodeQL Action 4.38.0.
+- Updated the stable MCP Go SDK to v1.8.0 and refreshed its resolved support dependencies.
+- Improved connector reliability with a bounded synchronous call deadline, retained retrieval for oversized completed responses, and optional durable ownership for eligible long-running read-only calls. Modern MCP clients can observe the same durable work through native task APIs; legacy clients continue to use `deferred_operation`.
+- Reduced Source Intelligence memory duplication without changing its public schemas or capability claims.
+- Changed per-target backup history from a hard saturation barrier to synchronous oldest-eligible retention after a newer backup is durable; the default retained version target is now 64.
 
 ### Fixed
 
-- Hardened Haskell, Julia, PHP, and PHP/HTML Source Intelligence from strict real-project qualification: Haskell character literals and quasiquotes remain opaque to declaration scanning; Julia character literals, inline `end`, multiline strings, and delimiter-continued signatures preserve valid structural scope; PHP multiline quoted strings remain opaque; and PHP/HTML now keeps valid PHP scope across embedded regions while recognizing `?>` only in the lexical contexts where PHP treats it as a real closing tag.
-- Extended Blade Source Intelligence to recognize class-based Livewire Volt components: a real `@volt('name')` directive provides the component identity for anonymous `new class extends Component` PHP members and structural relations, while escaped or malformed directives, unrelated anonymous classes, cross-region associations, and bounded symbol limits remain fail-closed.
-- Hardened Source Intelligence from strict real-project qualification across JavaScript/TypeScript, Lua/Luau, JSP, Erlang, F#, Classic BASIC, Gleam, Jinja/Twig, and Terraform/HCL: nested interpolation/regex and long-string masking preserve lexical ownership and offsets; split JSP scriptlets share one Java scope; Erlang character/triple-quoted literals and F# character/indentation forms no longer create false incomplete coverage; QB64-style `Declare Library` plus `Dim Shared` declarations are handled structurally; Gleam custom-type constructors retain their owning-type hierarchy; nested Jinja/Twig block/macro declarations retain real parent hierarchy with fail-closed malformed-scope diagnostics; and balanced Terraform/HCL structural blocks retain their smallest enclosing structural parent without treating object expressions as scopes. The same maintenance pass consolidated shared scanner/import paths and removed a redundant Jinja/Twig host-analysis pass without changing the public Source Intelligence schema.
-- Fixed deferred-operation state-observation races by serializing Get with durable state/marker publication, preventing readers from observing partial state records or a no-replay started marker before the matching running state is durable. The marker remains the conservative recovery barrier, while externally visible Started requires the persisted StartedAt transition; Unix store-lock waits are now non-blocking and bounded like Windows, and request contexts propagate through deferred observation/result retrieval so MCP cancellation can interrupt lock contention.
-- Fixed hot targets becoming permanently unbackuppable at the exact per-target version limit: read-only preflight no longer rejects saturation, pinned and active-restore records remain protected, and temporary retention excess is preferred over losing the newest durable backup.
-- Fixed explicit `backup_delete` output-budget handling so an impossible response is rejected before the destructive authority runs, preventing a successful backup deletion from being reported only as a later `LIMIT` error.
-- Accepted `none` as a compatibility alias for the `never` BOM policy in `write_whole_file` and encoding-conversion requests; matching is case-insensitive and output metadata remains canonical `never`.
-- Fixed malformed Zig function declarations with no body opener or declaration terminator from panicking Source Intelligence; they now fail closed as incomplete analysis, with the reproducer retained in the provider fuzz seed set.
+- Hardened Source Intelligence across multiple real-world language/provider cases, including Haskell, Julia, PHP/PHP-HTML, Blade, JavaScript/TypeScript, Lua/Luau, JSP, Erlang, F#, BASIC-family providers, Gleam, Jinja/Twig, Terraform/HCL, and malformed Zig declarations.
+- Fixed deferred-operation state-observation races and made cancellation interrupt durable store-lock waits correctly.
+- Fixed saturated backup targets becoming permanently unable to accept a newer backup.
+- Fixed `backup_delete` output-budget handling so destructive authority is rejected before execution when a valid response cannot fit.
+- Accepted `none` as a case-insensitive compatibility alias for BOM policy `never`; returned metadata remains canonical `never`.
 
 ## 3.1.6 - 2026-08-19
 
-### Fixed
-
-- Hardened integer-size handling reported by CodeQL: native-width configuration values are parsed directly as `int` without narrowing from `int64`, and backup-list cursor construction rejects oversized serialized payloads before bounded HMAC/Base64 assembly, avoiding overflow-prone allocation arithmetic without changing the public MCP surface.
+- Hardened integer-size handling reported by CodeQL, including native-width configuration parsing and bounded backup-list cursor assembly.
 
 ## 3.1.5 - 2026-08-19
 
-### Changed
-
-- Redesigned repository verification around an independent invariant-to-evidence map, fail-closed GitHub evidence tiers, one shared risk-based fuzz manifest, and complementary local validation profiles while preserving the exact-SHA `Release candidate` publication authority and the existing public MCP surface.
-
-### Fixed
-
-- Fixed Unicode-sensitive byte-offset handling in Classic ASP, ASP.NET, and Razor case-insensitive composite scanning by using byte-preserving ASCII syntax matching, preventing malformed or adversarial Unicode input from producing invalid source offsets or panics.
+- Redesigned repository verification around fail-closed evidence tiers, one shared risk-based fuzz manifest, exact-SHA release authority, and complementary local validation profiles.
+- Fixed Unicode-sensitive byte-offset handling in Classic ASP, ASP.NET, and Razor composite scanning.
 
 ## 3.1.0 - 2026-08-18
 
-### Changed
-
-- Completed R28 engine hygiene without changing the public MCP surface: consolidated the deprecated package-level backup-store read bridge onto current R23 read primitives where behavior was proven equivalent, removed internal test-only forwarding helpers, replaced historical R27 production filenames in `internal/sourceintelligence` with responsibility-oriented names, and retained non-equivalent compatibility and legacy-encoding paths. Benchmark/profile review established a measured performance baseline but intentionally made no speculative optimization.
+- Completed engine-hygiene work without changing the public MCP surface: removed obsolete internal/test-only paths, consolidated compatible implementations, renamed responsibility-oriented source files, and retained non-equivalent compatibility behavior.
 
 ## 3.0.0 - 2026-08-17
 
 ### Added
 
-- Added a pinned `golangci-lint` v2 quality gate for local development and GitHub Test Suite runs. The initial policy deliberately complements rather than duplicates Go vet, standalone Staticcheck, and govulncheck, and the aggregate `Release candidate` job now depends on it.
-- Added a dedicated Go CodeQL workflow for `main` pushes, weekly scheduled scans, and manual security analysis, plus a public `SECURITY.md` reporting/disclosure policy.
-- Added privacy-bounded Windows atomic-replacement diagnostics for intermittent `MoveFileExW` retry exhaustion. The versioned warning records retry/Win32 evidence, hashed target/staged identities, file/delete-pending state, DELETE and parent-directory access probes, and one bounded Restart Manager query over target plus staged resource; recovered retry episodes are available only at debug level. This evidence isolated the open-destination behavior addressed by the guarded Windows fallback documented below. Source contents, diffs, command lines, executable paths, preview identifiers, and clear filesystem paths are excluded.
-- Added R27 Phase 17 repository-scale validation with deterministic 96-file concurrency/generation-swap/security tests, repeatable cold/warm/one-file-incremental/large-generated/mixed-monorepo/lookup/graph/context/ambiguous-detection benchmarks, static no-network/no-external-execution/no-direct-logging import gates, a heterogeneous in-process MCP `outline -> find/show -> relations -> context` workflow, and complete repository race coverage. The connector workflow exposed and TDD-fixed a Scala 3 class-plus-typed-method detection ambiguity without introducing the Python-colliding generic `class Name:` marker.
-- Added R27 Phase 16 capability/corpus completion with distinct native Scala and Flow structural providers, raising the authoritative matrix to 101 active approved R27 providers across 103 total registry rows while leaving only auxiliary Dockerfile/Make metadata inactive. Scala covers proven brace- and indentation-owned declarations, structural imports and inheritance; Flow uses offset-preserving Flow-only normalization over the typed ECMAScript recognizer, preserves ordinary JavaScript routing, supports aliases/opaque aliases plus structural dependencies/inheritance, and withholds Flow type checking and TypeScript-only namespace/module semantics. New conformance covers mixed public `source_symbols`/`source_query` routing, exact/probable detection evidence, Unicode UTF-16LE/UTF-32BE, Scala CRLF, malformed/opaque boundaries, cancellation, 1,200-declaration/function limits, inheritance evidence, and a mechanical gate that every approved target-catalog row resolves to its matching active analyzer.
-- Added R27 Phase 15 bounded process-local incremental `source_query` generations. The index reuses only unchanged path/content/analyzer-configuration-bound parsed facts, re-analyzes changed files, conservatively rebuilds all bounded project relationships before publishing a changed immutable generation, and binds unavailable/truncated coverage to the same generation fingerprint. Same-scope refreshes suppress duplicate analysis, retained scope/history counts are operator-bounded, generation identities are monotonic across eviction, probe-to-analysis source drift aborts without publication, and explicit generation/fingerprint bindings now enforce stale rejection or exact retained `stalePolicy=allow` selection. Complete source bodies are never retained, persistent on-disk indexing is not introduced, and `context` still reopens and verifies current authorized source before returning text even when historical metadata was selected.
-- Added R27 Phase 14 bounded `source_query` task-context assembly over the request-scoped project model. Context now uses deterministic target/enclosing/dependency/type/deeper priorities, exact decoded UTF-8 byte budgeting, body-to-signature degradation, signature-only deeper relations, all-or-error explicit target retention, and current-source fingerprint revalidation before text materialization. Position targets resolve through proven project references without guessing; post-plan source drift fails with `CONFLICT`; UTF-16 decoded coordinates and direct/HTTP structured-output equivalence are covered. Analyzer-unproven callers/callees remain absent rather than inferred by name; Phase 15 now supplies coherent process-local index generations without changing the current-source text-verification rule.
-- Added R27 Phase 13 bounded request-scoped `source_query` structural search and supported project relations over normalized analyzer facts. The engine now exposes dependencies/dependents, structural references/definitions, inheritance, proven Java implementations, bounded BFS trace/impact, and Tarjan dependency cycles while preserving explicit evidence/resolution state, stale-selector rejection, deterministic truncation, and graph limits. `project-ref`/`project-def` capability is promoted only for the verified C++, Java, Kotlin, TypeScript, Rust, Ruby, and Delphi subset; textual/lexical query modes, analyzer-unproven callers/callees/overrides, context assembly, and index binding remain explicitly deferred.
-- Added R27 Phase 7 production structural providers for distinct MQL4/MQL5, Objective-C/Objective-C++, Dart, D, Zig, Nim, Solidity, Apex, AL, and Arduino source conventions, raising the generated capability matrix to 45 active providers. Shared `.mqh` routing remains fail-closed between MQL4/MQL5 and Objective-C `.m` remains ambiguous with MATLAB/Octave without independent content/project evidence. The providers preserve language-specific declaration/dependency/type-relation structure without claiming macro/compiler/runtime/project/semantic/index resolution; Phase 7 also added decoded legacy/Unicode conformance, malformed/opaque/cancellation tests, generated 1,200-declaration bounds for all twelve providers, public `source_symbols` routing, and a 24,880-execution fuzz campaign. Shared scanner comment precedence was hardened so Nim `#[ ... ]#` block comments cannot be shadowed by the shorter `#` line-comment prefix.
-- Added R27 Phase 6 Basic/.NET/composite declaration breadth with distinct VB6, VBA, VBScript, QBasic, classic BASIC, FreeBASIC, PureBasic, F#, C++/CLI, JScript.NET, CIL, PowerShell, ASP.NET Web Forms, Razor, Blazor, and XAML providers while extending Classic ASP to VBScript/JScript server-region delegation. Shared Basic primitives preserve per-dialect identities and fail-closed `.bas` ambiguity; .NET composite analyzers preserve host coordinates; PowerShell here-strings and XAML attribute quotes are masked/validated conservatively; JScript.NET import/inheritance evidence is reconstructed in host coordinates. Legacy Windows-1252/IBM850 CRLF and UTF-16 fixtures, malformed/cancellation boundaries, generated 1,200-declaration limits for all 17 new-or-extended analyzers, public mixed `source_symbols` routing, and a 29,686-execution fuzz campaign passed without semantic/project/type-resolution overclaim.
-- Added R27 Phase 5 native production declaration/navigation providers for PHP, Ruby, Swift, Pascal, and Delphi. PHP covers namespaces/use, literal includes, classes/interfaces/traits/enums, functions/methods/properties/constants and structural type/trait-use relations with heredoc/nowdoc masking and dynamic include limitations. Ruby covers modules/classes/reopens, instance/singleton methods, constants, literal requires and structural inheritance/mixins while withholding metaprogramming/dynamic dispatch claims. Swift covers imports, types/protocols/extensions, functions/methods/properties/initializers and structural inheritance/conformance. Pascal/Delphi cover programs/units/packages, sections, types, fields/properties/constants/variables, routines/constructors/destructors, uses, forwards, overloads, visibility, nested routines, Delphi generics/helpers, legacy encodings/CRLF and ambiguity-safe routing while compiler directives/project/type/semantic resolution remain unsupported.
-- Added R27 Phase 4 native production declaration/navigation providers for JavaScript/JSX, TypeScript/TSX, and Rust. JavaScript/TypeScript cover literal ES-module and CommonJS dependencies, imports/exports/re-exports, functions/classes/methods/fields, directly named arrow functions, conservative regular-expression masking, and declaration-safe template/JSX/TSX handling; TypeScript additionally covers interfaces, type aliases, enums, namespaces, generics, overload identity, and structural extends/implements facts. Rust covers modules/use, structs/enums/traits/impls, functions/methods, associated constants/types, generics/lifetimes, structural trait implementations, raw strings, nested comments/attributes, and opaque macro boundaries. Dynamic/metaprogramming and non-literal module resolution, TypeScript type checking, Rust macro/cfg/Cargo/type/trait resolution, project/semantic relations, and incremental indexing remain explicitly unsupported.
-- Added R27 Phase 3 native production declaration/navigation providers for C, C++, Java, and Kotlin. C/C++ cover declaration-versus-definition identity, aggregate/types, namespaces, functions/methods, constructors/destructors/operators, templates, overloads, literal includes, ambiguity-aware headers, preprocessor boundaries, raw strings, function-pointer declarators, same-file qualified definitions, and structural inheritance without macro expansion or compile-database/type resolution. Java/Kotlin cover packages/imports, classes/interfaces/enums/records/data/sealed forms, constructors, methods/properties, nested types, generics-aware headers, Java annotations, and structural supertype relationships without classpath/build-model/type resolution. All four retain bounded decoded-source coordinates, deterministic output, malformed/encoding/resource coverage, and structural evidence only.
-- Added the R27 Phase 2 shared native scanner/recognizer foundation: profile-driven identifiers, directives and delimiter pairs; reusable logical-line, indentation, keyword-scope, fixed/free-form line and label primitives; bounded shell heredocs; S-expression coverage; and offset-preserving composite segmentation/masking. The approved R27 target catalog now has mechanically checked capability rows projected into `docs/LANGUAGE_CAPABILITIES.md`; planned entries remain explicitly unimplemented and do not claim analyzer support.
-- Added the R27 Phase 1 `source_query` contract as the 36th Scripthold 3.0.0 tool: one compact read-only `search` / `relations` / `context` surface preserves R25 `source_symbols`, freezes evidence separately from resolved/ambiguous/unresolved/external state, and adds fingerprint/index-generation binding plus bounded graph/context limits. At Phase 1 completion otherwise-valid requests were intentionally `UNSUPPORTED`; later R27 phases activate only the operations whose native facts are now implemented.
-- Added R26 offline `backup-store recover-plan` and `recover-apply` for evidence-preserving salvage into a separate destination: strict path-free persisted plans are recomputed under the existing-store lock before apply, source authoritative state remains immutable, accepted objects are fully SHA-256/size verified, manifests preserve logical identity except the fresh destination `StoreID`/checksum, derived state is rebuilt, promotion is no-replace after a mandatory full audit, and a strict path-free recovery report records the result without automatic adoption or deployment.
-- Added R25 read-only `source_symbols` with strict `outline`, `digest`, `find`, and fingerprint-bound `show` operations over one language-neutral symbol/range/evidence model for Go, C#, VB.NET, Python, and Classic ASP.
-- Added the native R25 source-intelligence foundation: decoded Unicode-scalar coordinates across supported encodings, evidence-based language detection, shared registry/scanner/recognizer infrastructure, normalized hierarchy/diagnostics, composite-region mapping, bounded request-scoped orchestration, and dedicated `MCP_SOURCE_MAX_*` limits without external parser/compiler/LSP runtime dependencies.
-- Added R24 read-only `filesystem_package` plus `previewId`-only `filesystem_package_apply`, with strict `filesystem-package-v1` support for `mkdir`, raw-byte `createFile`, `copyFile`, exact recursive `copyDirectory`, native same-volume `move`, `deleteFile`, and exact recursive `deleteDirectory`.
-- Added dedicated bounded R24 package, recursive-scope, staging, retained-preview, and lifetime limits plus stable `UNSUPPORTED` errors for filesystem behavior that cannot be implemented without weakening the v1 contract.
-- Added R23 read-only backup history and verified backup/current or same-target backup/backup comparison, including bounded text diffs when safe and fingerprint-only evidence for binary or oversized content.
-- Added operator-configurable `MCP_BACKUP_DEFAULT_POLICY=disabled|required` plus bounded exact-byte BOM/encoding capability caches controlled by `MCP_MAX_BYTE_MUTATION_PREVIEWS`, `MCP_MAX_BYTE_MUTATION_PREVIEW_BYTES`, and `MCP_BYTE_MUTATION_PREVIEW_TTL_SECONDS`.
-- Added registry-driven R23 mutation-surface integrity coverage across all 168 encodings, asserting preview/no-op byte identity, exact-result fingerprints, edit/package/conversion applies, BOM capability paths, CRLF conversion, UTF-8 round trips, and non-mutating unrepresentable-output failures.
+- Added broad read-only Source Intelligence with 101 active providers, `source_symbols`, structural `source_query`, bounded project relations/context, fail-closed language ambiguity, and process-local incremental generations.
+- Added offline evidence-preserving backup recovery into a separate destination.
+- Added `filesystem_package` / `filesystem_package_apply` for bounded coordinated create/copy/move/delete operations.
+- Added dedicated mutation apply tools so edit, patch, restore/GC, encoding, and BOM preparation stays read-only until a one-shot `previewId` is applied.
+- Added `golangci-lint` and CodeQL gates to the release-quality pipeline.
 
 ### Changed
 
-- Updated the direct `golang.org/x/text` dependency from v0.40.0 to v0.41.0 while preserving the 168-encoding public registry and passing the dependency-sensitive encoding, filesystem, source-intelligence, full normal, and full race gates.
-- Refreshed repository validation tooling to the current verified stable pins: Node.js 26.7.0 through `actions/setup-node@v7.0.0` with automatic npm caching disabled, govulncheck v1.7.0, and CodeQL Action v4.37.7.
-- Renamed the primary GitHub Actions workflow from `CI` to `Test Suite`, replaced the retired Go Report Card README badge with live Test Suite/CodeQL quality signals, and consolidated duplicated R27 status prose into the roadmap/history/subsystem sources of truth.
-- Completed R27 Phase 18 and the R27 source milestone on 2026-08-16 by synchronizing registry-derived capabilities, README/TOOLS, roadmap/history and the completed design record; adding a 5,000-execution Scala/Flow fuzz gate; and passing the applicable module, full normal/race, vet, Staticcheck, govulncheck, catalog/identity, Node, documentation, leakage and diff checks. This completion does not imply a commit, build, cross-build, release, deployment or runtime migration, which remain separately authorized operations.
-- Completed the R26 recovery verification gate across local normal/race/static/vulnerability/fuzz/platform checks and the exact pushed implementation commit's native Windows/Ubuntu/macOS regression and smoke jobs, six supported cross-builds, container smoke, and aggregate `Release candidate` CI gate.
-- Raised the Go build baseline from 1.26.5 to 1.26.6 after the vulnerability gate identified reachable standard-library issues fixed in the patch release; the container builder now uses `golang:1.26.6-alpine3.24`.
-- Expanded the Scripthold 3.0.0 catalog from 34 to 35 tools for completed R25 while preserving one strict `source_symbols` `oneOf` input contract, read-only annotations, deterministic bounds, and identical stdio/Streamable HTTP registration.
-- Replaced the four overlapping public `create_directory`, `copy_file`, `move_file`, and `delete_file` tools with the two R24 package tools, reducing the Scripthold 3.0.0 catalog from 36 to 34 tools without compatibility aliases or duplicate namespace mutation models.
-- Made R24 namespace mutations no-replace and approval-bound: exact recursive scopes are fully retained/revalidated, destructive regular-file bytes require verified persistent backup before deletion, feasible creation/copy content is staged before the first target commit, cross-volume moves are not emulated, and failures after durable progress expose bounded `PARTIAL_COMMIT` state without automatic rollback claims.
-- Hardened R24 package admission and failure reporting by enforcing actual raw JSON manifest-byte limits, canonical standard Base64 for `createFile`, deterministic cleanup-residue ordering, and worst-case preview/apply response budgets before capability creation.
-- Split the five mixed MCP mutation surfaces into truthful read-only preparation/review tools (`edit_file`, `patch_package`, `backup_store`, `manage_bom`, `convert_encoding`) and six dedicated mutating apply tools (`edit_file_apply`, `patch_package_apply`, `backup_restore_apply`, `backup_gc_apply`, `manage_bom_apply`, `convert_encoding_apply`). Every apply schema accepts only a one-shot `previewId`; the historical direct `edit_file`, in-tool package/restore/GC apply, direct BOM mutation, and `convert_encoding dryRun=false` request forms are intentionally removed.
-- Made edit/package/BOM/encoding required-backup policy monotonic: callers may inherit or strengthen the operator default but cannot weaken `required`; logical no-ops perform no backup or write, while changed previews fail before mutation when required backup admission is unavailable.
-- Made package and restore ordering fail closed by completing required durable backup capture and post-backup revalidation before any target-adjacent staging. Multi-file apply still reports explicit partial-commit evidence and does not claim automatic rollback.
-- Made BOM and encoding approval capabilities retain exact result bytes with stable identity/fingerprint binding, bounded lifetime/memory, cross-kind rejection, replay prevention, and final post-commit fingerprint verification. Adjacent conversion `.bak` remains separate from persistent-store backup policy.
-- Expanded the runtime catalog from 30 to 36 tools for R23 while keeping its serialized discovery payload within the existing conservative connector budget; R24 subsequently replaces four simple namespace mutation entries with two package entries for a 34-tool Scripthold 3.0.0 source surface.
+- Replaced the simple public create/copy/move/delete tools with the safer filesystem-package model.
+- Split mixed read/write MCP surfaces into truthful preparation and mutation tools; apply requests accept only the prepared capability identifier.
+- Strengthened persistent-backup integration for approval-bound mutations and destructive filesystem operations.
 
-### Fixed
-
-- Fixed recurrent Windows atomic-replacement failures when the target remained open through a delete-sharing Scripthold read or identity handle. The normal MoveFileExW fast path and bounded fingerprint revalidation remain unchanged; after a retryable classic-rename failure, Windows may use one DELETE-gated FileRenameInfoEx POSIX replacement of the already-synced same-directory staged file. Handles that do not allow DELETE remain fail-closed, unsupported filesystems fall back to the original retry path, and read sessions now reject a pathname that was replaced while the old object remained open.
-- Removed five ineffectual assignments found while onboarding the new lint gate; each value was overwritten before use, so behavior is unchanged while the dead state is no longer retained.
+See [`docs/MIGRATION_3.0.md`](docs/MIGRATION_3.0.md) for caller migration details.
 
 ## 2.2.0 - 2026-08-11
 
-### Added
+- Expanded the encoding registry to 168 canonical read/write encodings.
+- Added full UTF-32 LE/BE text-pipeline support and strict GB18030:2022 handling.
+- Hardened automatic encoding detection to fail closed on ambiguous, malformed, binary-like, or weakly evidenced input.
+- Made grep/batch partial coverage and encoding failures explicit and bounded.
 
-- Expanded the authoritative encoding registry to 168 canonical read/write encodings by combining the complete applicable repository-pinned `golang.org/x/text v0.40.0` surface with 88 deterministic pure-Go single-byte mappings and 21 multibyte/stateful or residual exact codecs derived and verified from pinned GNU libiconv evidence.
-- Promoted UTF-32 LE/BE to full text-pipeline support, including strict scalar validation, BOM handling, conservative BOMless detection, reading, writing, editing, grep, conversion, line-ending operations, and structured verification. Generic byte-order-unspecified `utf-32` remains intentionally unsupported.
-- Added strict GB18030:2022 support through 2,087 checked-in decode overrides and 2,087 encode overrides derived from exhaustive differential comparison against the pinned GNU libiconv converter.
-- Added registry-driven public-operation coverage across all 168 codecs plus pinned corpus/oracle, malformed-input, chunk-boundary, fuzz, concurrency, cancellation, and bounded-resource verification.
-
-### Changed
-
-- Hardened automatic encoding detection with evidence floors, strict-decoder validation, decoded-text quality, binary rejection, known-confusion handling, and stateful signatures. Explicit codec support remains intentionally broader than safe automatic detection.
-- Made omitted-encoding writes to existing non-empty ambiguous files fail with `ENCODING_AMBIGUOUS` without mutation instead of silently applying the creation default.
-- Made grep and batch partial encoding/I/O failures visible through deterministic coverage metadata, bounded skipped/error summaries, omitted counts, and additive encoding-specific error refinement while preserving valid results from other files.
-- Made incremental UTF-8 and legacy decoding fail closed on malformed input and preserved cancellation as `CANCELLED` through conversion and streaming boundaries.
-- Removed per-sequence heap allocation from the GB18030:2022 differential wrapper while preserving exact differential semantics and bounded-output memory behavior.
-- Completed the six-target, native/container, race/static/vulnerability, deterministic fuzz, GoReleaser reproducibility, exact-commit CI, GitHub Release, GitHub-only MCPB, and MCP Registry publication gates for Scripthold `2.2.0`.
 ## 2.1.1 - 2026-08-10
 
-### Changed
-
-- Consolidated release validation into one exact-commit pre-tag `CI` gate. Tag-triggered Release now verifies the successful `main` push run and its `Release candidate` job for the exact tagged SHA instead of rerunning the same race, static, vulnerability, fuzz, cross-build, and smoke gates before GoReleaser; GoReleaser still runs once, MCPB assets remain GitHub-produced, and Registry publication remains downstream of verified MCPB bundles.
-- Renamed the whole-document replacement tool from `write_file` to `write_whole_file` with no compatibility alias. The old name was too easy to misread as an incremental edit or append operation; the new name makes it explicit that the supplied `content` replaces the complete target contents and omitted text is discarded. Use `edit_file` for partial-document changes.
-
-### Fixed
-
-- Closed a missing-path resolution TOCTOU window exposed by concurrent durable-task store initialization: when a path appears between an initial failed resolve and the following metadata check, Scripthold now re-resolves it once before classifying it as an unresolvable link or reparse point, while still failing closed for broken or persistently unresolvable links.
-- Corrected MCP Registry publication for native releases by making six verified OS/architecture MCPB bundles first-class GitHub Release assets instead of labeling raw executables as `mcpb`; Registry publication now consumes those immutable, checksum-verified bundles read-only, and repair runs remain bound to the original semantic tag.
-- Restored configurable allowed-directory behavior for durable tasks: task-store descriptors no longer persist the root set, and admitted task paths remain authorized across later startup-root changes while retaining exact-path and script-digest revalidation.
-- Made CI and release fuzz smoke gates deterministic by using fixed execution counts instead of wall-clock fuzz deadlines, preventing successful bounded fuzz targets from intermittently failing while the Go fuzz engine shuts down at the time limit.
+- Consolidated release validation around one exact-commit pre-tag gate.
+- Renamed whole-document replacement from `write_file` to `write_whole_file` to make destructive replacement semantics explicit.
+- Fixed a missing-path resolution race and durable-task allowed-root persistence behavior.
+- Corrected MCP Registry publication to consume verified platform MCPB release assets.
 
 ## 2.1.0 - 2026-08-09
 
 ### Added
 
-- Added the release-required durable task subsystem with owner-only persistent storage, idempotent admission, bounded queue/concurrency, optional logical locks, an independent restart supervisor and worker, detached per-task executors, at-most-once crash recovery, process-tree cancellation, immutable bounded lifecycle history, and head/tail cursor logs.
-- Added `task_run`, `task_list`, `task_get`, `task_logs`, and `task_cancel`, plus bounded `MCP_TASK_*` configuration, four task-aware PowerShell launch profiles, and an exact-binary integration gate covering frontend restart, worker crash, supervisor kill/restart/adoption, offline queue recovery, parallelism, lock serialization, logs, and cancellation.
-- Added optional absolute line-number prefixes to `read_text_file`, deterministic name/mtime/size sorting to directory and search results, and default-on nested `.gitignore` filtering with explicit opt-out for recursive tools.
-- Added grep pattern arrays, plural include/exclude filters, paging, matches-only text, and `content`, `files_with_matches`, and `count` output modes under the existing match/output limits.
-- Added bounded batch encoding conversion with dry-run previews, ordered per-file partial results, and machine-readable unsupported-rune code point plus line/column locations.
-- Added strict single-file unified-patch editing and opt-in fuzzy edits with explicit similarity thresholds, deterministic work limits, unique-best-match enforcement, and ambiguity-safe failure.
-- Added the transport-independent `audit_encodings`, `fix_mojibake`, and `migrate_to_utf8` MCP prompts.
-- Added the read-only `fingerprint_paths` tool with deterministic two-pass SHA-256 state records, default-on `.gitignore` handling, unconditional `.git` exclusion, no traversal or inclusion of in-root link entries, fail-closed escaping links, concurrent-change detection, and bounded optional entry details.
-- Added `MCP_MAX_FINGERPRINT_ENTRIES` and `MCP_MAX_FINGERPRINT_ENTRY_DETAILS` to bound fingerprint traversal and returned detail records independently.
-- Added bounded one-shot `edit_file` preview/apply with 256-bit process-local capabilities, exact retained result bytes, target/result fingerprints, deterministic expiry/eviction, stable file-identity checks, replay prevention, and cross-session transport use. Omitted backup policy preserves the original no-persistent-backup behavior.
-- Added `MCP_MAX_EDIT_PREVIEWS`, `MCP_MAX_EDIT_PREVIEW_BYTES`, and `MCP_EDIT_PREVIEW_TTL_SECONDS` to bound preview count, dynamic retained bytes, and lifetime independently.
-- Added the strict `patch_package` tool with versioned `patch-package-v1` manifests, unknown-field rejection, ordered existing-file targets, hard-link/alias rejection, `inspect`, one-shot `dryRun`/`apply`, and read-only `verify`, declared pre/post fingerprints, shared encoding-aware preparation, all-target durable staging before manifest-order commits, final package-wide state evidence, replay prevention, and explicit committed/unchanged/unknown classification.
-- Added `PARTIAL_COMMIT` structured errors for package apply failures that leave at least one committed or unclassifiable target, including bounded failure metadata and per-target actual fingerprints without claiming automatic rollback or multi-file atomicity.
-- Added `MCP_MAX_PATCH_PACKAGE_BYTES`, `MCP_MAX_PATCH_PACKAGE_PREPARED_BYTES`, `MCP_MAX_PATCH_PACKAGE_PREVIEWS`, `MCP_MAX_PATCH_PACKAGE_PREVIEW_BYTES`, and `MCP_PATCH_PACKAGE_PREVIEW_TTL_SECONDS` to bound semantic input, per-dry-run preparation, live capabilities, retained bytes, and capability lifetime independently.
-- Added the read-only `verify_state` tool with strict ordered JSON, text-format, fixed direct `git diff --check`, and shared fingerprint checks; failed expectations remain structured non-error results while operational failures retain stable per-check codes. Git uses no shell or execution feature flag, accepts only validated literal relative pathspecs, disables external diff/textconv and ambient Git configuration, filters inherited environment variables, and bounds timeout, output, diagnostics, paths, lines, and file input.
-- Approved the R17 persistent-backup lifecycle and added the R18 phase-1 store foundation: disabled-by-default configuration, strict canonical non-overlapping path validation, owner-only Windows DACL or Unix mode/owner enforcement, one platform-native lifetime writer lock, immutable `backup-store-v1` descriptor, versioned empty layout, and ordinary-tool denial for the internal root.
-- Added `MCP_BACKUP_STORE_DIR` plus bounded total-byte, object-byte, manifest, per-target-version, pinned, retention, and plan-lifetime configuration with approved defaults and hard maxima. Configuration alone does not capture mutations; public behavior remains approval-bound.
-- Added the R18 phase-2 internal capture core: streamed exact-byte staging with stable-identity revalidation, verified SHA-256 content-addressed objects, deduplication only after full existing-object verification, strict immutable checksummed `backup-manifest-v1` records, conservative concurrent quota reservations, immutable pin-at-creation accounting, and explicit durable-result reporting when a later derived-index update fails.
-- Added bounded startup recovery and internal quick/full audit primitives. Authoritative manifests and all stored objects rebuild a deterministic in-memory projection plus compact generation-and-aggregate `backup-index-v1`; missing, corrupt, stale, or tampered index files are replaced, while malformed manifests, missing referenced objects, unsafe entries, and permission failures stop startup. Quick audit validates structure and references; full audit additionally hashes referenced objects under object and byte limits without repairing or deleting data.
-- Added the always-registered read-only `backup_store` tool with strict `status`, `list`, `inspect`, and `audit` actions. The tool reports disabled state without a configured store, returns only currently authorized redacted metadata, uses authenticated generation/filter/authorization-bound cursors, fully verifies referenced object bytes during inspect, enforces configured audit and output limits, and never returns object bytes, internal store paths, or store identifiers.
-- Added R18 phase-4 approval-bound backup integration for `edit_file`: `action=preview` may set `backupPolicy: "required"`, the one-shot capability retains that policy, and `action=apply` must durably capture and verify the exact approved pre-state before any target mutation. Successful and post-backup failed apply results preserve `backupId`; omitted policy, direct edit, and logical no-ops create no persistent backup.
-- Added R18 phase-5 package-wide backup integration: strict `patch-package-v1` manifests may set exact `backupPolicy: "required"`; dry run performs a side-effect-free conservative all-target quota preflight, and apply atomically reserves the changed set, captures and verifies every changed pre-state before the first commit, returns per-target `backupId` values, preserves durable prefixes on capture failure, and retains existing `PARTIAL_COMMIT` semantics without automatic rollback.
-- Added R18 phase-6 original-target restore through `backup_store.restorePreview` and `restoreApply`. Preview fully verifies and retains immutable manifest/object identities, captures current or missing target state, preflights the mandatory existing-target safety backup, and returns a bounded expiring one-shot capability without mutation. Apply revalidates authorization, source and target state, stages exact digest-checked bytes, commits a durable `sourceOperation=restore` safety backup before replacing an existing target, uses no-replace for a missing target, restores original mode/modification time, and preserves safety IDs plus actual-state classification on errors without automatic rollback.
-- Added R18 phase-7 explicit garbage collection through `backup_store.gcDryRun` and `gcApply`. Dry run computes a bounded deterministic generation-bound plan without mutation, preserves immutable pins and one manifest per target, applies the configured retention age and unpinned version limit, excludes active restore references, includes deduplicated unreferenced and orphan objects, and omits target paths from public output. Apply consumes the one-shot capability, rejects active capture reservations and any changed plan evidence, moves manifests to typed trash before fully verified zero-reference objects, refreshes the derived index after durable partial outcomes, reports cleanup residue, and never runs automatically or claims secure deletion or rollback. Startup removes only recognized verified GC trash and preserves unknown entries.
-- Added a pure strict bounded decoder plus fuzz target for the immutable `backup-store-v1` descriptor, completing persistent-format fuzz coverage for descriptor, manifest, index, authenticated list cursor, and GC plan inputs.
-- Added an end-to-end persistent-backup lifecycle regression covering required edit capture, original-target restore with a durable safety backup, explicit GC, full audit, and repeated store reopen while proving that GC never mutates the public target.
-- Added the R19 offline backup-store diagnostics design baseline. The proposed command is existing-store-only, lock-exclusive, deterministic, bounded, path-free, and strictly non-mutating; repair, cleanup, quarantine, salvage, and migration remain outside the authorized scope.
-- Added the R19 existing-store diagnostic opener. It requires a pre-existing owner-only root and single-link lock, acquires the lock without create flags, retains and revalidates root/lock identity, rejects active writers, and exposes no capture, restore, GC, index-persistence, cleanup, or initialization methods. Mutation-negative tests prove that incomplete layout, missing descriptor/index, staging, trash, bytes, modes, timestamps, and namespace remain unchanged.
-- Added the offline `backup-store diagnose` command with strict unambiguous options, quick/full bounded scanning, deterministic versioned path-free JSON, output limits, cancellation, active-lock rejection, descriptor/layout revalidation, and exit codes `0`, `2`, and `1`. The command never reads `MCP_BACKUP_STORE_DIR`, starts no MCP transport, and performs no repair or filesystem mutation.
-- Added the R20 MCP `2026-07-28` adoption design baseline. It blocks pre-release SDK dependencies, preserves legacy stdio and stateful HTTP, defines same-endpoint stateful/stateless routing behind one security pipeline, and prevents the new protocol from relying on deprecated client roots.
-- Added final MCP `2026-07-28` source support through official stable Go SDK `v1.7.0`: configured-root and roots-disabled stdio can negotiate the new protocol, same-endpoint HTTP routes it to a stateless handler while preserving legacy stateful sessions, and unsupported singleton versions return the protocol-defined structured error without consuming legacy session capacity.
+- Added durable asynchronous task execution with persistent queueing, idempotency, logical locks, bounded logs, cancellation, recovery, and independent supervisor/worker/executor ownership.
+- Added deterministic path fingerprints, one-shot edit/patch approvals, structured verification, richer grep/search, batch conversion, and encoding workflow prompts.
+- Added the optional persistent backup store with bounded review, capture, restore, audit, and explicit GC.
+- Added MCP `2026-07-28` support while retaining compatible legacy stdio/HTTP behavior.
 
 ### Changed
 
-- Hardened GitHub Actions release publication: tag pushes no longer duplicate the ordinary Test workflow, Dependabot pull requests no longer duplicate Test runs, Release reruns every release-critical test gate with least-privilege job permissions, dependency checks are non-mutating, and Registry publication is bound to the exact requested tag, verifies the complete 12-asset checksum set, and validates the generated manifest before authentication instead of reading the default branch or trusting a partial release.
-- Updated the pinned release toolchain and dependencies to actions/checkout 7.0.1, actions/setup-go 7.0.0, GoReleaser action 7.2.3, GoReleaser 2.17.1, MCP Publisher 1.8.1, govulncheck 1.6.0, and golang.org/x/sys 0.47.0.
-- Made the GitHub README identify Scripthold immediately as a Model Context Protocol server and state its clients, workspace boundary, and supported transports before the detailed feature overview.
-- Kept the durable worker liveness heartbeat independent from queue reconciliation, preventing slow store scans or heavy filesystem contention from falsely reporting an offline worker.
-- Simplified current-facing release documentation around the `2.1.0` release line, removed the stale pre-rebrand `releases/latest` asset command, and clarified stateless MCP `2026-07-28` HTTP beside retained stateful legacy sessions.
-- Renamed the product and GitHub repository to **Scripthold**, adopted **Code from the web. Work locally. Recover safely.** as its tagline, and retained permanent attribution to **Dimitar Grigorov** and the original project. The Go module, internal imports, command directory, executable, container paths, updater, workflow guards, release configuration, Registry template, examples, and public documentation now use the Scripthold identity; existing published `2.0.0` assets and Registry records remain historical.
-- Fixed MCP compatibility argument repair so JSON-looking string fields such as `write_file.content` remain strings, while only the exact declared top-level array/object fields for each tool are decoded from stringified JSON.
-- Fixed disabled `backup_store status` calls so a typed nil store passed through server bootstrap is treated as unconfigured and returns the documented `enabled: false` result instead of `INVALID_INPUT`.
-- Expanded the `2.1.0` catalog from 23 to 30 tools while preserving identical stdio and Streamable HTTP schemas and behavior.
-- Replaced the synchronous public `run_script` and `shell` entries with the five-tool asynchronous task API. Their distinct authorization flags and the additional HTTP execution gate retain their security meaning for `task_run` kinds; no task has a default short runtime deadline.
-- Extended `edit_file` additively with `action=direct|preview|apply`, structured approval metadata, and preview-only `backupPolicy: "required"` while preserving omitted-action direct editing and the existing no-backup default.
-- Extended `patch_package` additively with manifest-level `backupPolicy: "required"`, aggregate admission, retained package policy, backup summary fields, and per-target identifiers while preserving omitted-policy behavior, deterministic commit order, and explicit partial-state classification.
-- Extended the existing 27th `backup_store` tool rather than adding a new tool. Its catalog annotations remain non-read-only and destructive because restore and GC may mutate authorized target or internal backup state; status/list/inspect/audit remain individually read-only. Restore and GC capabilities use separate fixed-count/fixed-byte caches, share the configured plan TTL, remain one-shot across stdio and stateful Streamable HTTP, and preserve structured evidence on partial failures.
-- Credited the original project for the R15 feature set and implementation approaches reviewed, documenting the work as reciprocal exchange of functionality and techniques; the resulting code is reworked for this fork's secure walker, bounded-memory pipeline, durable mutation layer, stable 23-tool catalog, and dual-transport architecture rather than mechanically synchronized.
-- Reframed the project documentation around its independent dual-transport product scope: stdio and native stateful Streamable HTTP now have equal prominence, while the OpenAI Secure MCP Tunnel is documented as one supported stdio deployment rather than the project's sole identity.
-- Clarified private combined-launcher guidance: normalize process identifiers across `Start-Process` and CIM object shapes, validate the complete owned process topology before destructive actions, and treat already-exited children as successful idempotent cleanup rather than broadening termination to unrelated process trees.
-- Added `docs/PROJECT_DIRECTION.md` to define the fork's independent maintenance model, transport boundaries, stable relationship to upstream, and criteria for evaluating cross-project ideas without assuming source synchronization.
-- Recorded successful live deployment of the published Windows amd64 `2.0.0` binary through both stdio and authenticated Streamable HTTP, including health/readiness, unauthenticated rejection, session initialization, and complete 23-tool catalog verification.
-- Extended the process-wide root model with protected internal directories so configured or later dynamic public roots cannot expose the dedicated backup store; invalid, permissive, malformed, unexpectedly populated, or concurrently locked stores fail startup without logging their paths.
-- Bound backup listing cursors to the exact target/pinned filters, current allowed/protected-root policy snapshot, and store generation; target visibility is revalidated on every page, and manifests outside current allowed roots are omitted from lists and denied during inspect even if they remain valid in the operator-owned store.
-- Counted durable orphan objects in total-byte quota and the derived index even when a later manifest step fails, retained committed manifests as authoritative when index persistence fails, replaced unbounded directory materialization with deterministic configuration-bounded scans during startup and audit, and added retained-root plus single-hard-link validation across store metadata, manifests, objects, staging, trash, and the derived index.
-- Fixed single pinned-capture reservation accounting so an empty per-target reservation key is never retained after release; GC quiescence checks now inspect positive counters rather than map length.
-- Extended the cross-platform Test workflow with bounded CI fuzz runs for every persistent backup descriptor, manifest, index, cursor, and GC-plan parser, protected by a repository-identity regression.
-- Completed the R18 full-subsystem verification gate across complete tests and race coverage, static and vulnerability analysis, failure injection, five fuzz targets, workflow linting, six native targets, Registry validation, native stdio smoke, and hardened container stdio/direct-TLS HTTP checks for inclusion in `2.1.0`.
-- Completed the R19 offline-diagnostics verification gate across mutation-negative failure injection, complete tests and race coverage, static/vulnerability analysis, six fuzz targets, workflow/release checks, six native targets, native Windows CLI smoke, documentation integrity, and secret scans. The milestone intentionally ends without repair, quarantine, salvage, clone, migration, or other store mutation.
-- Fixed external process cleanup so a descendant that retains inherited output handles cannot leave execution waiting indefinitely after its direct child exits, and bounded the Windows process-tree termination helper independently of the public execution timeout.
-- Fixed stdio interoperability for intermediaries that probe `server/discover` and initialize the same persistent child twice. `MCP_STDIO_LEGACY_HANDSHAKE=1` rejects discovery before SDK session state changes and makes only an equivalent repeated legacy `initialize` idempotent; different parameters remain an error, modern stdio remains the default, and HTTP is unchanged.
-- Compacted tool descriptions and runtime output-schema metadata so the complete 30-tool catalog remains within ChatGPT connector discovery limits while preserving typed input validation and structured results.
-- Added fail-closed PowerShell examples for standalone stdio, standalone authenticated HTTP, tunnel-owned stdio with independent local HTTP, and the reverse topology. The default OpenAI quick start uses `MCP_COMMAND` for the tunnel and keeps HTTP on a separate loopback-only Scripthold process with distinct credentials and backup storage.
-- Completed the R20 compatibility gate with official protocol conformance, an independent TypeScript legacy client, bounded HTTP/JSON-RPC fuzzing, native and hardened-container smoke, full race/static/vulnerability checks, and command plus affected-test compilation on Windows, Linux, and macOS for amd64 and arm64. The `2.0.0` release remains the historical rollback baseline.
-
-### Fixed
-
-- Fixed stdio peer-disconnect handling when an MCP host closes the connection while a response is in flight: transport-level EOF/closed-pipe evidence now terminates the stdio frontend cleanly instead of being promoted to a fatal server exit, while unrelated transport failures continue to propagate.
-- Made failed structured-output MCP tool calls self-describing by merging the stable `errorCode` and human-readable `message` with existing partial-state fields instead of relying only on `_meta` and text content that some connector layers do not surface; the intentionally content-only `check_update` contract remains unchanged.
-- Made `edit_file_apply` and `write_whole_file` classify the bounded actual target state after failures at or beyond a possible commit boundary. Pre-commit failures now report unchanged state instead of preview-predicted changes; committed or unclassifiable post-error states return `PARTIAL_COMMIT` with actual fingerprint/state evidence rather than empty or misleading output.
-- Hardened durable task execution around connector/runtime failures: shell identifiers are validated before admission, cancelled submissions no longer wait through `control.lock` and admit work later, `TASK_START_FAILED` may retain a bounded explicitly safe preparation cause without exposing internal task-store paths or unclassified OS errors, and inherited descendant output handles that outlive the direct process are classified as `PROCESS_OUTPUT_DRAIN_TIMEOUT` with the direct exit code when available instead of generic `PROCESS_WAIT_FAILED`.
-- Added regression coverage proving PowerShell command text is passed as one unexpanded shell argument by Scripthold; native-child exit propagation remains explicit PowerShell semantics rather than an implicit command rewrite.
-- Hardened R25 real-world source analysis through an eight-origin-per-canary acceptance baseline covering 41 public upstreams, 8,945 source files, and 125,607 retained symbols: corroborated unambiguous extensions no longer become falsely ambiguous from incidental cross-language content markers; VB.NET now handles multiline strings, escaped identifiers, declaration modifiers, bodyless/`Declare` callables, custom events, and multiline lambda `End` pairing without leaking locals; C# now handles attributed declarations, indexers, destructors, and multiline interpolated expressions without silent omissions or false members; and Python structural dependencies preserve relative import levels.
-- Hardened R25 cross-platform CI/source-smoke fixtures so contract assertions compare canonical server paths, container source requests use the child-visible bind root, and native stdio source smoke resolves local root aliases such as Windows 8.3 and macOS `/var` -> `/private/var` without changing production source-symbol behavior.
-- Fixed `source_symbols find` so request `maxSymbols` limits retained matches without prematurely truncating bounded per-file declaration analysis, allowing exact/prefix/qualified lookup to find declarations that occur later in large source files.
-- Fixed a production-build regression in the hardened VB.NET analyzer by replacing an accidentally test-only modifier helper dependency with package production code.
-- Serialized durable task-state transitions across frontends, the worker, and detached executors so cancellation, recovery, and completion cannot persist competing events with the same revision.
-- Fixed update checks so cached offline failures actually suppress repeated requests, future or malformed cache entries fail safely, bounded cache writes are atomic, remote responses are size-limited, and a stable release correctly supersedes an equal-numbered internal prerelease build.
-- Made Windows owner-only task-store ACL application set the process user as the explicit owner as well as the sole DACL principal, matching the backup-store policy under elevated and CI runner tokens.
-- Made restore authorization recognize physically equivalent canonical path spellings, including Windows 8.3 aliases and macOS resolved path aliases, without relaxing containment or link checks.
-- Made Windows owner-only backup-store ACL application set the process user as the explicit owner as well as the sole DACL principal, preserving the fail-closed store policy under elevated or runner tokens whose default owner differs from the token user.
+- Replaced synchronous public `run_script` and `shell` with the durable task API.
+- Expanded backup and mutation workflows with stronger conflict, capability, and partial-state evidence.
 
 ## 2.0.0 - 2026-08-02
 
 ### Added
 
-- Added conservative, extension-independent BOMless UTF-16 LE/BE detection using code-unit and surrogate validation, decoded-text quality metrics, NUL-byte parity, exact round-trip checks, and explicit ambiguity.
-- Added multilingual, malformed-Unicode, binary false-positive, filename-independence, chunk-boundary, public read/grep integration, and fuzz coverage for encoding detection.
-- Added a root `AGENTS.md` plus scoped guides for documentation, handlers, encoding, filesystem, security, and release scripts, with a portable `CONTRIBUTING.md` for human contributors.
-- Added a project-identity regression test that rejects private operator workspace and connector markers in tracked text files.
-- Added `internal/execution`, a shared process-preparation primitive for absolute working-directory validation, bounded timeout/output handling, cancellation, process-tree termination, and caller-supplied pre-launch revalidation.
-- Added an embedded authoritative tool catalog consumed by MCP runtime registration and Registry manifest generation, with tests enforcing runtime metadata and README/TOOLS coverage.
-- Added streaming SHA-256 filesystem snapshots for optimistic pre-execution verification without loading complete scripts into memory.
-- Added shared incremental decoder/encoder readers for all 24 registered encodings, bounded decoded-line framing, and context-aware streaming transforms.
-- Added digesting read sessions and reader-based same-directory mutation staging with byte-identical no-op detection.
-- Added focused chunk-boundary, cancellation, output-budget, oversized-line, disk-full, cleanup, concurrent-change, and 1/16/64 MiB benchmark coverage.
-- Added stable single-tool `_meta.errorCode` metadata, matching batch error codes, configurable `MCP_MAX_*` limits, 2.0 schema-contract tests, and a 1.8-to-2.0 migration guide.
-- Added `BuildServer` with explicit process-wide options, a lifecycle-aware stdio runner, signal cancellation, and explicit `--transport=stdio` or `MCP_TRANSPORT=stdio` selection without adding an HTTP listener.
-- Added architecture tests proving that multiple connections to one server expose the same 23-tool catalog, configured roots, and explicitly supplied handler configuration.
-- Added `docs/HTTP_SECURITY.md`, the approved R12 threat model and implementation contract for fail-closed native Streamable HTTP, including authentication, Host/Origin validation, session policy, limits, logging redaction, test requirements, accepted risks, and release blockers.
-- Added native stateful MCP Streamable HTTP with loopback binding, mandatory bearer authentication, exact Host and all-method Origin checks, no CORS, optional TLS, trusted-proxy boundaries, minimal health/readiness endpoints, and graceful shutdown.
-- Added bounded HTTP admission for per-request and aggregate body memory, non-SSE concurrency, live sessions, per-peer request rate, idle session cleanup, forwarded-address parsing, and deterministic saturation responses.
-- Added HTTP equivalence and security tests covering the complete 23-tool metadata, shared process roots, CP1251 reads, typed errors, roots-notification immutability, cancellation, session lifecycle, header/body limits, authentication, proxy trust, logging redaction, and execution policy.
-- Added a hardened transport-neutral container baseline using Go 1.26.5, Alpine 3.24.1, a static binary, UID/GID 10001, explicit `/data` and `/tmp` paths, and `SIGTERM` shutdown semantics.
-- Added independent CI builds for all six Windows/Linux/macOS amd64/arm64 targets and explicit Streamable HTTP integration tests on Linux, Windows, and macOS.
+- Added native authenticated Streamable HTTP beside stdio, including loopback defaults, bearer authentication, Host/Origin checks, bounded admission, TLS/proxy controls, health/readiness, and graceful shutdown.
+- Added stable typed operation errors, configurable resource limits, a shared authoritative tool catalog, and multi-platform release verification.
+- Added bounded streaming text/encoding operations and shared durable mutation primitives.
+- Added conservative extension-independent BOMless UTF-16 detection and broad malformed/binary false-positive protection.
 
 ### Changed
 
-- Unified BOMless UTF-16 decisions across sample, chunked, and full detection modes; chunked analysis now preserves code-unit and surrogate state across 128 KiB boundaries and resolves equal legacy weights deterministically.
-- Updated runtime instructions, tool metadata, README, tool reference, roadmap, and publishing notes for completed R8 detection behavior and completed R9 bounded-memory streaming.
-- Made the public development checklist and roadmap portable to normal repository clones, and replaced the private session-style history with a concise R1-R6 engineering history.
-- Generalized the Windows drive-root security fixture so tests do not embed a private workstation path.
-- Changed the default encoding for newly created files from legacy `cp1251` to standard UTF-8; existing files still preserve a confidently detected encoding, and `MCP_DEFAULT_ENCODING` or an explicit `encoding` can select legacy formats.
-- Replaced the historical active handoff with an authoritative R7-R14 roadmap, a reusable development checklist, and a separate R1-R6 history document; internal commit builds continue without intermediate public releases until `2.0.0`.
-- Generalized encoding documentation, runtime instructions, tool metadata, and acceptance fixtures so detection is explicitly content-based and independent of file extensions; MQL remains only an ordinary possible input domain.
-- Refactored `run_script` and `shell` to share only process-level mechanics while retaining separate authorization policies and independent feature flags.
-- Made both execution tools revalidate their working directory immediately before launch; `run_script` also verifies script metadata and SHA-256 content before execution.
-- Made `server.template.json` release-neutral for tool metadata; `scripts/generate-server-json.js` now injects the Registry projection from the authoritative catalog.
-- Migrated `read_text_file`, `read_multiple_files`, `grep_text_files`, encoding conversion, line-ending detection/conversion, and BOM add/strip to bounded streams or disk staging while preserving deterministic ordering, encoding, BOM, line endings, backups, cancellation, and concurrent-modification checks.
-- Enforced `MCP_MEMORY_THRESHOLD` as the default hard budget for single-read output, aggregate batch output, retained grep state, inconsistent-line lists, and full-document editing; decoded lines above 16 MiB are rejected.
-- Made the legacy byte-slice sample detector private and removed obsolete full-buffer read/grep helpers.
-- Standardized public BOM fields on `hasBOM`, made empty-file and ambiguous-input behavior explicit, kept UTF-32 as BOM-management only, and split the legacy memory threshold into specific hard limits.
-- Separated environment defaults, CLI parsing, shared server construction, and transport startup while preserving stdio protocol output and the existing `NewServer` embedding API.
-- Defined allowed directories as process-wide policy shared by every connection or future HTTP session; sessions remain lifecycle and concurrency units rather than per-agent ACLs, and prompt-level write restrictions are not server-enforced.
-- Limited dynamic MCP roots to roots-capable stdio clients started without configured directories; startup roots remain immutable for the process and future HTTP sessions cannot change them.
-- Marked R12 and R13 complete and R14 active after approving and implementing loopback-by-default, bearer-authenticated Streamable HTTP with no CORS, bounded state, dual execution opt-in, and no initial event store.
-- Added `streamable-http` transport selection while preserving stdio as the default and retaining one shared `BuildServer` registration and process-wide root policy.
-- Required a second `MCP_HTTP_ENABLE_EXECUTION` opt-in before existing execution flags can expose `run_script` or `shell` through HTTP.
-- Removed HTTP token-source variables from the process environment after startup configuration is snapshotted so optional child processes cannot inherit bearer credentials.
-- Made Build and Test workflows run for documentation and catalog changes, pinned release actions to point versions, updated every workflow to `actions/setup-go@v7`, added native binary MCP smoke tests on Linux, Windows, and macOS, and added an Ubuntu container gate covering non-root execution, hardened stdio, direct-TLS HTTP security responses, and graceful shutdown.
-- Made GoReleaser outputs reproducible with `-trimpath` and commit timestamps, emitted one platform-appropriate archive per target, bundled both sanitized Windows launcher examples, and retained the checksum-verified Registry workflow as the sole publication path.
-- Pinned the Registry publisher workflow to the verified MCP Publisher 1.7.9 Linux amd64 artifact.
-- Changed release-version verification to require a semantic tag with a matching dated changelog entry.
+- New files default to UTF-8; existing files continue to preserve confidently detected encodings unless explicitly converted.
+- Dynamic MCP roots are limited to roots-capable stdio clients started without configured directories; HTTP roots remain startup policy.
+- Release/container workflows were hardened around reproducible builds and non-root execution.
 
-### Removed
-
-- Removed the fork-owned Claude Code downloader plugin, marketplace metadata, and version-bump script for 2.0. Direct stdio configuration remains supported without carrying a second network installer, cache, checksum parser, or platform-mapping trust boundary.
-
-### Fixed
-
-- Prevented the legacy detector from accepting non-canonical BOMless UTF-16 aliases without structural validation, while retaining GBK, CP1251, UTF-8, and ASCII detection.
-- Rejected malformed, short, endian-ambiguous, NUL-heavy, executable, image, archive, sparse-NUL, and random inputs instead of forcing a UTF-16 classification.
-- Rejected script replacement or in-place content changes between `run_script` preparation and launch, including same-size and restored-timestamp changes that metadata-only checks can miss.
-- Fixed dynamic roots updates so an empty client roots list removes stale dynamic access instead of leaving previously authorized roots active.
-- Bound asynchronous update checks to the server lifecycle so shutdown cancellation cannot leave a detached update-check context running.
-- Prevented oversized chunked HTTP bodies from reaching unbounded SDK decoding, prevented aggregate concurrent body reservations from exceeding the configured budget, and aligned external session accounting with the SDK by pausing idle expiry for active POST requests while allowing SSE-only sessions to expire without keepalive traffic.
-- Made GoReleaser archives byte-reproducible by normalizing binary and bundled-document owner, group, mode, and modification time to commit-derived values; two independent snapshots now produce identical checksums for all six raw binaries and six platform archives.
-- Hardened the public Windows launch examples with exact tunnel-ID validation, canonical allowed-directory handling, explicit stdio selection, conservative environment restoration, ambient cross-transport credential clearing, and fail-fast non-loopback HTTP TLS/proxy checks.
-- Preserved configured and dynamic allowed-directory aliases alongside their resolved destinations, fixing macOS `/var` to `/private/var` access failures while continuing to reject external symlink or junction entry points.
+See [`docs/MIGRATION_2.0.md`](docs/MIGRATION_2.0.md) for the intentional 1.8-to-2.0 compatibility changes.
 
 ## 1.8.0 - 2026-07-25
 
-### Added
+- Established the fork-owned release/update pipeline and repository identity.
+- Added shared encoding/BOM-aware file operations, typed errors, deterministic traversal, durable file mutation primitives, and the first optional execution tools.
+- Added Windows reparse/junction path hardening and practical concurrent-change protection for file mutations.
 
-- Added the sanitized English Windows PowerShell 5.1 OpenAI Secure MCP Tunnel quick-start example, now named `examples/start-openai-tunnel-stdio-plus-local-http.ps1`.
-- Added real upstream encoding fixtures and byte-identical line-ending round-trip tests for all 24 registered encodings, including UTF-16 LE/BE and GBK/GB18030.
-- Added optional `hasBOM` and `bomType` metadata to single-file and batch read results.
-- Added transport-independent typed operation errors for validation, access control, encoding, decoding, output encoding, conflicts, cancellation, limits, permissions, and filesystem failures.
-- Added a generic bounded ordered concurrency coordinator with deterministic serial commits, cancellation modes, early stop, and run statistics.
+## Earlier fork history
 
-### Changed
-
-- Updated fork installation, download, update, plugin, and release commands to target `zoster81/mcp-file-tools`.
-- Linked the official `openai/tunnel-client` repository and OpenAI Secure MCP Tunnel guide.
-- Added complete PowerShell and Command Prompt launch commands plus explicit instructions for enabling `run_script` and `shell`.
-- Limited original-project references to historical attribution and upstream synchronization documentation.
-- Configured GoReleaser and the plugin launcher to download and publish fork releases.
-- Migrated the Go module path, all internal imports, linker flags, manual test harness, and operational metadata to `github.com/zoster81/mcp-file-tools`.
-- Replaced the inherited registry manifest with a fork-owned release template and checksum-driven generator, and restricted OIDC publication to `zoster81/mcp-file-tools`.
-- Pinned actionlint, ShellCheck, Staticcheck, govulncheck, GoReleaser, and MCP Publisher versions in CI, with SHA-256 verification for downloaded workflow and registry tools.
-- Documented the fork-specific execution tools, environment flags, limits, result fields, and security boundaries.
-- Added an explicit summary of differences from the upstream project to `README.md`.
-- Added the previously missing `check_for_updates` reference and corrected its exposed cache interval from two hours to the implemented 30 minutes.
-- Redirected update checks and release links from the upstream project to `zoster81/mcp-file-tools`.
-- Made update notifications client-neutral for OpenAI Tunnel and other MCP connector transports instead of referring specifically to Claude Code.
-- Added the ChatGPT Web/OpenAI Secure MCP Tunnel deployment purpose to `README.md`, explicitly documenting that the current server transport is stdio and requires a compatible bridge.
-- Recorded native HTTP/JSON or Streamable HTTP transport as a future compatibility direction, not as an implemented capability.
-- Invalidated cached release data when it belongs to a different repository source.
-- Updated the fork documentation and runtime tool descriptions to list all 24 encodings and document MetaTrader 4/5 MQL sources (`.mq4`, `.mq5`, `.mqh`) commonly stored as UTF-16 LE with BOM and CRLF endings.
-- Refactored `read_text_file`, `read_multiple_files`, and `edit_file` to use one shared encoding/BOM-aware document pipeline and consistent batch error classification.
-- Added a shared document encoder with internal BOM-preserve policy for edits.
-- Migrated `grep_text_files` to the shared encoding/BOM-aware document decoder with bounded per-file scanning and deterministic ordered aggregation.
-- Migrated `write_file` and `convert_encoding` to the shared document encoder and added the public `auto`, `always`, `never`, and `preserve` BOM policies.
-- Migrated `detect_line_endings` and `change_line_endings` to shared text-document path, encoding, BOM, mode, and commit validation while retaining byte-exact newline conversion.
-- Consolidated recursive traversal for `search_files`, `grep_text_files`, `tree`, and `directory_tree` into one deterministic, cancellation-aware filesystem walker while preserving each tool's public filtering, limit, ordering, and error behavior.
-- Added a shared durable mutation layer for write, edit, encoding conversion, line-ending conversion, BOM changes, copy, move, and delete operations, with exclusive same-directory staging, file sync, platform-specific atomic/no-replace commits, directory sync where supported, cleanup, and optimistic concurrent-modification snapshots.
-- Made encoding-conversion backups transactional: the original is staged and synced before target commit, an existing backup is preserved until success, and target failures restore the previous backup or remove a newly created backup.
-- Aligned `README.md`, `TOOLS.md`, publishing notes, plugin and marketplace metadata, Smithery metadata, runtime tool descriptions, and the project roadmap with the completed R1-R5 capabilities and fork-owned release pipeline.
-- Centralized conversion of operation failures into MCP error results and `read_multiple_files` per-file error codes, removing duplicated string-based classification while preserving public messages and schemas.
-- Replaced the duplicated `read_multiple_files` and `grep_text_files` worker pools with the shared bounded ordered coordinator while preserving input order, partial failures, cancellation behavior, exact global match limits, and bounded pending results.
-- Kept `tree`, `directory_tree`, and `search_files` on the serial secure walker because traversal-time pruning, deterministic lexical order, and early limits are part of their public behavior.
-- Added a fail-closed release-version check that requires the Git tag, Claude plugin metadata, and marketplace metadata to use the same semantic version before GoReleaser runs.
-
-### Fixed
-
-- Fixed Windows 8.3 short-path roots so canonical long paths remain authorized across repeated validation, backup creation, grep processing, secure traversal callbacks, and junction resolution tests.
-- Fixed the Unix backup-permission regression test so it performs a byte-changing conversion instead of entering the intentional byte-identical no-op path with no backup.
-- Fixed `detect_line_endings` so it decodes the selected or auto-detected encoding before analyzing CRLF/LF sequences, including UTF-16 LE/BE.
-- Fixed `change_line_endings` so it preserves encoding, BOM state, and every non-line-ending byte across all 24 registered encodings.
-- Fixed four Staticcheck `ST1005` diagnostics in execution-tool error messages.
-- Fixed UTF-8 and UTF-16 transport BOMs leaking into `read_text_file` and `read_multiple_files` content while preserving a meaningful leading `U+FEFF` code point.
-- Added deterministic rejection of BOM/encoding conflicts across the shared text-document pipeline, including `detect_line_endings`, instead of decoding with the wrong byte order.
-- Fixed `read_text_file` partial reads so CRLF separators no longer leak a trailing `\r` into paginated lines.
-- Fixed `edit_file` on UTF-16 LE/BE so normal edits preserve the original BOM and consistent CRLF/LF style instead of converting CRLF to LF.
-- Made logical no-op edits byte-identical across all 24 registered encodings.
-- Made edit encoding failures occur before filesystem mutation, leaving the original file unchanged.
-- Fixed UTF-16 LE/BE grep so BOM-bearing files are auto-detected and BOMless files can be searched with an explicit encoding instead of being rejected by raw NUL-byte binary checks.
-- Fixed parallel grep ordering and global `maxMatches` enforcement, including accurate `truncated` reporting when the limit is reached exactly.
-- Revalidated every traversed grep file before reading so file symlinks or junctions resolving outside allowed directories are skipped.
-- Added native Windows final-path resolution for junctions and other reparse points, closing workspace escapes that `filepath.EvalSymlinks` does not resolve on Windows.
-- Rejected existing and deeply nested missing paths whose nearest existing ancestor resolves outside the allowed directories, while retaining support for legitimate missing destinations under safe symlinks or junctions.
-- Made all recursive filesystem tools skip entries resolving outside allowed directories and report deterministic lexical traversal order; `tree` also revalidates immediately before encoding detection.
-- Prevented initially missing write/copy/move destinations from overwriting files created concurrently by committing with native no-replace operations.
-- Rejected practical concurrent changes between read/prepare and commit for document replacements, BOM changes, deletes, and other migrated mutations.
-- Fixed backup replacement so a stale `.bak` is replaced only after the new backup is durably staged, and rollback preserves the prior backup on target-commit failure.
-- Fixed mutation cleanup so staging files are removed and cleanup failures are surfaced instead of silently ignored.
-- Fixed UTF-16 writes and conversions so `auto` emits exactly one canonical BOM, `never` remains BOMless, and UTF-8/legacy `auto` output remains BOM-free.
-- Preserved CRLF, LF, CR, and mixed line-ending sequences exactly during encoding conversion, and rejected invalid, impossible, or unrepresentable output before filesystem mutation.
-- Skipped byte-identical encoding conversions without rewriting the file or creating a requested backup.
-
-### Removed
-
-- Removed the deprecated `directory_tree` MCP tool, its JSON-in-a-string output schema, handler, and tests; use `tree` instead.
-- Removed the duplicated handler-local `atomicWriteFile`, `atomicWriteWithBackup`, and temporary-path implementation after all consumers migrated to the shared filesystem mutation layer.
-- Removed source backup files that were not part of the runtime implementation.
-
-## 2026-07-23
-
-### Added
-
-- Added the optional `run_script` MCP tool for executing supported script and executable files inside an allowed directory.
-- Added the optional `shell` MCP tool for unrestricted shell commands with an allowed working directory.
-- Added independent `MCP_ENABLE_RUN_SCRIPT` and `MCP_ENABLE_SHELL` feature flags, plus the combined `MCP_ENABLE_EXECUTION` flag.
-- Added bounded stdout and stderr capture, execution timeouts, cancellation reporting, and process-tree termination attempts.
-
-### Changed
-
-- CLI-provided allowed directories remain authoritative when an MCP client does not support server-initiated roots requests.
-- MCP roots updates augment rather than replace the CLI directory baseline.
-
-### Fixed
-
-- Fixed Windows drive-root validation so an allowed root such as `D:\` also permits its descendants while continuing to reject paths on other drives.
-
-### Commits
-
-- `e0ef0d8026c615ba055918d04c0b498d3692aa5a` — execution tools and tunnel-compatible roots handling.
-- `db2360e2041b6fc1065d3e89743ab016a8b6f748` — Windows drive-root path validation.
+Earlier development details are preserved in Git history. The changelog intentionally does not duplicate commit-by-commit or phase-by-phase engineering records.

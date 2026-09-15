@@ -38,35 +38,6 @@ type validatedPatchPackageTarget struct {
 	info                      os.FileInfo
 }
 
-// HandlePatchPackage is retained only as a package-level compatibility bridge
-// for pre-R23 regression coverage. It is not registered as an MCP tool.
-// Deprecated: MCP callers use HandlePatchPackageRead and HandlePatchPackageApply.
-func (h *Handler) HandlePatchPackage(ctx context.Context, _ *mcp.CallToolRequest, input PatchPackageInput) (*mcp.CallToolResult, PatchPackageOutput, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	action, err := validatePatchPackageActionInput(input)
-	if err != nil {
-		return errorResultFromError(err), PatchPackageOutput{}, nil
-	}
-	if action == patchPackageActionApply {
-		return h.handlePatchPackageApply(ctx, input.PreviewID)
-	}
-
-	targets, err := h.validatePatchPackageManifest(ctx, input.Manifest)
-	if err != nil {
-		return errorResultFromError(err), PatchPackageOutput{}, nil
-	}
-	switch action {
-	case patchPackageActionInspect:
-		return h.handlePatchPackageInspect(input.Manifest, targets)
-	case patchPackageActionVerify:
-		return h.handlePatchPackageVerify(ctx, input.Manifest, targets)
-	default:
-		return h.handlePatchPackageDryRun(ctx, input.Manifest, targets)
-	}
-}
-
 func (h *Handler) handlePatchPackageInspect(manifest PatchPackageManifest, targets []validatedPatchPackageTarget) (*mcp.CallToolResult, PatchPackageOutput, error) {
 	output := patchPackageBaseOutput(patchPackageActionInspect, manifest, targets)
 	text := fmt.Sprintf("Patch package inspected: %d existing regular-file targets are structurally valid.", len(targets))

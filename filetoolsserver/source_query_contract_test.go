@@ -25,7 +25,7 @@ const (
 	sourceQueryMaxContextItems = 4_096
 )
 
-var sourceQueryEvidenceValues = []string{"textual", "lexical", "structural", "scope-resolved", "project-resolved", "semantic"}
+var sourceQueryContractEvidenceValues = []string{"textual", "lexical", "structural", "scope-resolved", "project-resolved", "semantic"}
 
 func TestSourceQueryPublicContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -268,7 +268,7 @@ func assertSourceQueryEnum(t *testing.T, label string, value any, want []string)
 func assertSourceQueryEvidenceFilter(t *testing.T, label string, value any) {
 	t.Helper()
 	schema := contractSchemaMap(t, value)
-	assertSourceQueryEnum(t, label+".items", schema["items"], sourceQueryEvidenceValues)
+	assertSourceQueryEnum(t, label+".items", schema["items"], sourceQueryContractEvidenceValues)
 }
 
 func assertSourceQueryIndexBinding(t *testing.T, value any) {

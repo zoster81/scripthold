@@ -75,7 +75,7 @@ func TestTestSuiteUsesFailClosedEvidenceTiers(t *testing.T) {
 		"run-targeted --failure-class race --platform linux --race",
 		"run-targeted --failure-class platform --platform",
 		"gitleaks/gitleaks-action@v3.0.0",
-		"GITLEAKS_VERSION: '8.30.0'",
+		"GITLEAKS_VERSION: '8.30.1'",
 		"goreleaser/goreleaser-action@v7.2.3",
 		"args: check",
 		"if: ${{ always() }}",

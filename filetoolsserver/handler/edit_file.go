@@ -1,33 +1,13 @@
 package handler
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pmezard/go-difflib/difflib"
 )
-
-// HandleEditFile is retained only as a package-level compatibility bridge for
-// pre-R23 regression coverage. It is not registered as an MCP tool.
-// Deprecated: MCP callers use HandleEditFilePreview and HandleEditFileApply.
-func (h *Handler) HandleEditFile(ctx context.Context, _ *mcp.CallToolRequest, input EditFileInput) (*mcp.CallToolResult, EditFileOutput, error) {
-	action, err := validateEditActionInput(input)
-	if err != nil {
-		return errorResultFromError(err), EditFileOutput{}, nil
-	}
-	switch action {
-	case editActionPreview:
-		return h.handleEditPreview(ctx, input)
-	case editActionApply:
-		return h.handleEditApply(ctx, input.PreviewID)
-	default:
-		return h.handleDirectEdit(ctx, input)
-	}
-}
 
 // applyEdits applies edits sequentially, trying exact then whitespace-flexible match.
 // On failure it returns ErrEditNoMatch with a hint pointing at the closest match.

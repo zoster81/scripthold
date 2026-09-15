@@ -2,7 +2,7 @@ package filetoolsserver
 
 import "github.com/modelcontextprotocol/go-sdk/mcp"
 
-var r27SourceEvidenceValues = []string{
+var sourceQueryEvidenceValues = []string{
 	"textual", "lexical", "structural", "scope-resolved", "project-resolved", "semantic",
 }
 
@@ -13,8 +13,8 @@ func sourceQueryCatalogTool() *mcp.Tool {
 		"additionalProperties": false,
 		"required":             []string{"operation", "paths"},
 		"$defs": map[string]any{
-			"s": r27SourceSelectorSchema(),
-			"i": r27SourceIndexBindingSchema(),
+			"s": sourceQuerySelectorSchema(),
+			"i": sourceQueryIndexBindingSchema(),
 		},
 		"properties": map[string]any{
 			"operation":        map[string]any{"enum": []string{"search", "relations", "context"}},
@@ -22,7 +22,7 @@ func sourceQueryCatalogTool() *mcp.Tool {
 			"query":            map[string]any{},
 			"mode":             map[string]any{"enum": []string{"textual", "lexical", "structural"}},
 			"match":            map[string]any{"enum": []string{"exact", "prefix", "contains"}},
-			"relation":         map[string]any{"enum": r27SourceRelationKinds()},
+			"relation":         map[string]any{"enum": sourceQueryRelationKinds()},
 			"subject":          map[string]any{"$ref": "#/$defs/s"},
 			"target":           map[string]any{"$ref": "#/$defs/s"},
 			"targets":          map[string]any{"items": map[string]any{"$ref": "#/$defs/s"}},
@@ -34,7 +34,7 @@ func sourceQueryCatalogTool() *mcp.Tool {
 			"includes":         map[string]any{},
 			"excludes":         map[string]any{},
 			"respectGitignore": map[string]any{},
-			"evidence":         r27SourceEvidenceSchema(),
+			"evidence":         sourceQueryEvidenceSchema(),
 			"maxFiles":         map[string]any{},
 			"maxResults":       map[string]any{},
 			"maxNodes":         map[string]any{},
@@ -47,11 +47,11 @@ func sourceQueryCatalogTool() *mcp.Tool {
 	return tool
 }
 
-func r27SourceEvidenceSchema() map[string]any {
-	return map[string]any{"items": map[string]any{"enum": r27SourceEvidenceValues}}
+func sourceQueryEvidenceSchema() map[string]any {
+	return map[string]any{"items": map[string]any{"enum": sourceQueryEvidenceValues}}
 }
 
-func r27SourceIndexBindingSchema() map[string]any {
+func sourceQueryIndexBindingSchema() map[string]any {
 	return map[string]any{
 		"additionalProperties": false,
 		"properties": map[string]any{
@@ -62,7 +62,7 @@ func r27SourceIndexBindingSchema() map[string]any {
 	}
 }
 
-func r27SourceSelectorSchema() map[string]any {
+func sourceQuerySelectorSchema() map[string]any {
 	return map[string]any{
 		"additionalProperties": false,
 		"properties": map[string]any{
@@ -78,7 +78,7 @@ func r27SourceSelectorSchema() map[string]any {
 	}
 }
 
-func r27SourceRelationKinds() []string {
+func sourceQueryRelationKinds() []string {
 	return []string{
 		"dependencies", "dependents", "references", "definitions", "inheritance", "implementations",
 		"overrides", "callers", "callees", "trace", "impact", "cycles",

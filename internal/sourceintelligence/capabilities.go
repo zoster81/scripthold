@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// LanguageCapabilityRow is the mechanically checkable R27 support statement for
+// LanguageCapabilityRow is the mechanically checkable support statement for
 // one canonical language/source-format entry. A row exists even when analysis is
 // intentionally unimplemented, preventing routing metadata from being mistaken
 // for production source-intelligence support.
@@ -54,7 +54,7 @@ func (registry *LanguageRegistry) CapabilityRows() []LanguageCapabilityRow {
 func RenderLanguageCapabilityMatrixMarkdown(registry *LanguageRegistry) string {
 	rows := registry.CapabilityRows()
 	var builder strings.Builder
-	builder.WriteString("# R27 Language Capability Matrix\n\n")
+	builder.WriteString("# Source Intelligence Language Capability Matrix\n\n")
 	builder.WriteString("This file is a generated projection of the native source-intelligence registry. Do not infer production support from detection/routing alone: rows whose analyzer strategy is `unimplemented` are explicitly planned metadata only. The checked-in file is verified byte-for-byte against the registry by tests.\n\n")
 	builder.WriteString("Capability codes: `decl` declarations, `hier` hierarchy, `sig` signatures, `range` decoded-source ranges, `dep` imports/includes/dependencies, `inh` inheritance/implements structural relations, `call` syntactic calls, `scope-ref` scope-resolved references, `project-ref` project-resolved references, `project-def` project-resolved definitions, `impl` implementations, `override` overrides, `semantic` semantic relations, `index` incremental indexing. Missing codes mean the capability is not currently claimed.\n\n")
 	builder.WriteString("| Canonical ID | Family | Detection evidence | Scanner/lexer profile | Composite | Capabilities | Encoding coverage | Analyzer | Known limitations |\n")
@@ -116,7 +116,7 @@ func analyzerSummary(row LanguageCapabilityRow) string {
 	if row.Analyzer == "" {
 		return row.AnalyzerStrategy + "/" + row.AnalyzerVersion
 	}
-	return string(row.Analyzer) + " - " + row.AnalyzerStrategy + "/" + row.AnalyzerVersion
+	return string(row.Analyzer) + " - " + row.AnalyzerStrategy
 }
 
 func markdownCell(value string) string {
@@ -360,8 +360,8 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"project resolution, syntactic call graph, semantic relations, and incremental indexing are not implemented"}
 			}
 		}
-		// R27 Phase 15 provides process-local incremental generations uniformly for
-		// every active source analyzer. Persistent on-disk indexing remains future work.
+		// Process-local incremental generations are available uniformly for every
+		// active source analyzer. Persistent on-disk indexing remains future work.
 		for index := range descriptor.KnownLimitations {
 			descriptor.KnownLimitations[index] = strings.ReplaceAll(descriptor.KnownLimitations[index], "incremental indexing", "persistent on-disk indexing")
 		}
@@ -564,10 +564,10 @@ func detectionEvidenceForDescriptor(descriptor LanguageDescriptor) []EvidenceKin
 
 func validateLanguageCapabilityMetadata(descriptor LanguageDescriptor) error {
 	if descriptor.Family == "" {
-		return fmt.Errorf("language %s has no R27 family classification", descriptor.ID)
+		return fmt.Errorf("language %s has no family classification", descriptor.ID)
 	}
 	if len(descriptor.DetectionEvidence) == 0 || descriptor.ScannerProfile == "" || descriptor.CompositeBehavior == "" || descriptor.EncodingCoverage == "" || descriptor.AnalyzerStrategy == "" || descriptor.AnalyzerVersion == "" {
-		return fmt.Errorf("language %s has incomplete R27 capability metadata", descriptor.ID)
+		return fmt.Errorf("language %s has incomplete capability metadata", descriptor.ID)
 	}
 	seenEvidence := make(map[EvidenceKind]struct{}, len(descriptor.DetectionEvidence))
 	for _, evidence := range descriptor.DetectionEvidence {

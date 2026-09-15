@@ -22,8 +22,8 @@ const (
 	StatePartiallyCommitted = "partially_committed"
 	StateUnknown            = "unknown"
 
-	defaultR24DirectoryMode fs.FileMode = 0o755
-	defaultR24FileMode      fs.FileMode = 0o644
+	defaultPackageDirectoryMode fs.FileMode = 0o755
+	defaultPackageFileMode      fs.FileMode = 0o644
 
 	maxCleanupResidueItems        = 16
 	maxCleanupResidueMessageBytes = 512
@@ -62,7 +62,7 @@ type ApplyOutput struct {
 	Results        []ApplyOperationResult `json:"results"`
 }
 
-// Engine owns R24 one-shot capabilities and apply orchestration.
+// Engine owns one-shot preview capabilities and apply orchestration.
 type Engine struct {
 	planner   *Planner
 	limits    Limits
@@ -113,7 +113,7 @@ func (engine *Engine) Preview(ctx context.Context, manifest Manifest) (PreviewOu
 }
 
 // Apply consumes one previewId, then revalidates, backs up, stages, commits, and
-// verifies in the fixed R24 order. A token is never returned to the cache.
+// verifies in the fixed package order. A token is never returned to the cache.
 func (engine *Engine) Apply(ctx context.Context, previewID string) (ApplyOutput, error) {
 	if engine == nil || engine.previews == nil {
 		return ApplyOutput{}, operation.New(operation.KindConflict, "filesystem package engine is unavailable")
@@ -205,7 +205,7 @@ func (engine *Engine) stagePackage(ctx context.Context, prepared PreparedPackage
 		stagingDir := destinationStagingDirectory(item)
 		switch item.Operation.Type {
 		case OperationCreateFile:
-			file, err := filesystem.StageRawFile(ctx, stagingDir, bytes.NewReader(item.Operation.Content), defaultR24FileMode, nil, int64(len(item.Operation.Content)))
+			file, err := filesystem.StageRawFile(ctx, stagingDir, bytes.NewReader(item.Operation.Content), defaultPackageFileMode, nil, int64(len(item.Operation.Content)))
 			if err != nil {
 				return staged, err
 			}
@@ -240,7 +240,7 @@ func (engine *Engine) commitOperation(ctx context.Context, item PreparedOperatio
 		if err := verifyPreparedIdentity(item.ImmediateParentPath, parentIdentity, "mkdir destination parent"); err != nil {
 			return err
 		}
-		if err := engine.commitOps.createDirectory(item.Path.ResolvedPath, defaultR24DirectoryMode); err != nil {
+		if err := engine.commitOps.createDirectory(item.Path.ResolvedPath, defaultPackageDirectoryMode); err != nil {
 			return err
 		}
 		identity, err := engine.commitOps.captureObjectIdentity(item.Path.ResolvedPath)

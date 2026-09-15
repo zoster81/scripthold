@@ -11,7 +11,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-// PreviewApplyInput is the complete public input for every R23 mutating apply
+// PreviewApplyInput is the complete public input for every preview-backed mutating apply
 // tool. Unknown fields are rejected so an apply call cannot alter the approved
 // operation after preview.
 type PreviewApplyInput struct {

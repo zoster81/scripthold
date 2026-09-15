@@ -83,8 +83,8 @@ function validateLocalTarget(root, markdownPath, target) {
   return {ok: true};
 }
 
-function trackedMarkdownFiles(root) {
-  const result = spawnSync('git', ['ls-files', '-z', '--', '*.md'], {
+function gitListedMarkdownFiles(root, args) {
+  const result = spawnSync('git', ['ls-files', '-z', ...args, '--', '*.md'], {
     cwd: root,
     encoding: null,
     maxBuffer: 16 * 1024 * 1024,
@@ -92,6 +92,11 @@ function trackedMarkdownFiles(root) {
   });
   if (result.error || result.status !== 0) throw new Error('git ls-files failed while enumerating Markdown files');
   return result.stdout.toString('utf8').split('\0').filter(Boolean);
+}
+
+function trackedMarkdownFiles(root) {
+  const deleted = new Set(gitListedMarkdownFiles(root, ['--deleted']));
+  return gitListedMarkdownFiles(root, []).filter((relative) => !deleted.has(relative));
 }
 
 function validateRepository(root) {

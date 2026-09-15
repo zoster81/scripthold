@@ -54,7 +54,7 @@ All values must be positive decimal integers.
 
 ## Transport selection and directory policy
 
-R11 separates process configuration, CLI parsing, shared server construction, and transport startup. Stdio remains the default, while native stateful Streamable HTTP can be selected explicitly:
+Scripthold 2.0 separates process configuration, CLI parsing, shared server construction, and transport startup. Stdio remains the default, while native stateful Streamable HTTP can be selected explicitly:
 
 ```text
 --transport=stdio
@@ -134,4 +134,4 @@ Existing Claude Code users should replace the removed marketplace plugin with an
 
 ## Schema review
 
-Apart from the changes listed above, existing 1.8 input and output field names remain unchanged in R10. Optional fields continue to be omitted when they do not apply. The 2.0 schema tests reject snake_case output tags and verify that runtime registration matches the authoritative tool catalog.
+Apart from the changes listed above, existing 1.8 input and output field names remain unchanged at the 2.0 boundary. Optional fields continue to be omitted when they do not apply. The 2.0 schema tests reject snake_case output tags and verify that runtime registration matches the authoritative tool catalog.

@@ -25,7 +25,7 @@ type AllowedDirsFunc func() []string
 // BackupPreflightFunc is the read-only persistent-backup admission boundary.
 type BackupPreflightFunc func(context.Context, []backupstore.CaptureRequest) error
 
-// Planner is the read-only R24 manifest planner.
+// Planner is the read-only filesystem package manifest planner.
 type Planner struct {
 	limits          Limits
 	authorize       AuthorizeFunc
@@ -84,7 +84,7 @@ type PreparedOperation struct {
 	BackupCount               int
 }
 
-// PreparedPackage is a deterministic, fully read-only R24 plan.
+// PreparedPackage is a deterministic, fully read-only package plan.
 type PreparedPackage struct {
 	FormatVersion      string
 	Operations         []PreparedOperation

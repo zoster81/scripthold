@@ -32,11 +32,13 @@ Use `set -euo pipefail`, quote expansions, use temporary directories with cleanu
 ## Verification
 
 ```bash
+node --test scripts/check-markdown-links.test.js scripts/test-ci-policy.test.js
 node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-candidate-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
+node scripts/check-markdown-links.js
 node scripts/run-fuzz.js --profile smoke
 bash scripts/validate-workflows.sh
 go test ./internal/projectidentity ./internal/toolcatalog -count=1
 git diff --check
 ```
 
-The workflow validator downloads pinned tools, so report when network access prevents running it rather than silently substituting floating versions.
+The workflow validator downloads pinned Linux tool binaries and is intended for the Linux CI environment. On another host, use matching pinned actionlint and ShellCheck versions directly when available; do not substitute floating versions. Report network or platform limitations explicitly.

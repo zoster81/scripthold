@@ -20,7 +20,7 @@ test('docs-only paths use the docs tier', () => {
 });
 
 test('Go changes plus documentation use the go tier', () => {
-  assert.equal(classifyPaths(['internal/security/path.go', 'docs/SAFE_FILESYSTEM_OPERATIONS.md']).tier, 'go');
+  assert.equal(classifyPaths(['internal/security/path.go', 'docs/ARCHITECTURE.md']).tier, 'go');
   assert.equal(classifyPaths(['filetoolsserver/handler/path_test.go']).tier, 'go');
 });
 

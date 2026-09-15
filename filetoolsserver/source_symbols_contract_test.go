@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	sourceSymbolsMaxInputPaths         = 256
-	sourceSymbolsMaxFiles              = 4_096
-	sourceSymbolsMaxSymbols            = 100_000
-	sourceSymbolsMaxShowBytes          = 8 * 1024 * 1024
+	sourceSymbolsContractMaxInputPaths = 256
+	sourceSymbolsContractMaxFiles      = 4_096
+	sourceSymbolsContractMaxSymbols    = 100_000
+	sourceSymbolsContractMaxShowBytes  = 8 * 1024 * 1024
 	sourceSymbolsMaxLanguageCandidates = 16
 	sourceSymbolsMaxLanguageEvidence   = 32
 )
@@ -65,11 +65,11 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	)
 
 	for _, operation := range []string{"outline", "digest", "find"} {
-		assertSourceSymbolsIntegerBound(t, operation+".paths.maxItems", properties["paths"], "maxItems", sourceSymbolsMaxInputPaths)
-		assertSourceSymbolsIntegerBound(t, operation+".maxFiles.maximum", properties["maxFiles"], "maximum", sourceSymbolsMaxFiles)
+		assertSourceSymbolsIntegerBound(t, operation+".paths.maxItems", properties["paths"], "maxItems", sourceSymbolsContractMaxInputPaths)
+		assertSourceSymbolsIntegerBound(t, operation+".maxFiles.maximum", properties["maxFiles"], "maximum", sourceSymbolsContractMaxFiles)
 	}
 	for _, operation := range []string{"outline", "find"} {
-		assertSourceSymbolsIntegerBound(t, operation+".maxSymbols.maximum", properties["maxSymbols"], "maximum", sourceSymbolsMaxSymbols)
+		assertSourceSymbolsIntegerBound(t, operation+".maxSymbols.maximum", properties["maxSymbols"], "maximum", sourceSymbolsContractMaxSymbols)
 		assertSourceSymbolsIntegerBound(t, operation+".kinds.maxItems", properties["kinds"], "maxItems", 32)
 	}
 	if got := contractStringSlice(t, contractSchemaMap(t, properties["match"])["enum"]); !reflect.DeepEqual(got, []string{"exact", "prefix", "qualified"}) {
@@ -77,7 +77,7 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	}
 	assertSourceSymbolsIntegerBound(t, "find.query.maxLength", properties["query"], "maxLength", 512)
 
-	assertSourceSymbolsIntegerBound(t, "show.maxBytes.maximum", properties["maxBytes"], "maximum", sourceSymbolsMaxShowBytes)
+	assertSourceSymbolsIntegerBound(t, "show.maxBytes.maximum", properties["maxBytes"], "maximum", sourceSymbolsContractMaxShowBytes)
 	for _, field := range []string{"symbolId", "sourceFingerprint"} {
 		schema := contractSchemaMap(t, properties[field])
 		if schema["pattern"] != "^[0-9a-f]{64}$" {

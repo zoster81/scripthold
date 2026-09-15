@@ -62,7 +62,7 @@ func (h *Handler) analyzeSourceFile(ctx context.Context, registry *sourceintelli
 		file.Status = "skipped"
 		file.Language = detection.Language
 		file.ErrorCode = ErrCodeUnsupported
-		file.Error = "source language has no R25 analyzer"
+		file.Error = "source language has no supported analyzer"
 		return sourceFileAnalysis{file: file}
 	}
 	analyzer, ok := sourceintelligence.AnalyzerFor(descriptor)

@@ -21,7 +21,7 @@ type SourceSelectorInput struct {
 	SourceFingerprint string               `json:"sourceFingerprint"`
 }
 
-// SourceQueryInput is the compact R27 public request model. The public JSON
+// SourceQueryInput is the compact public source-query request model. The public JSON
 // schema rejects unknown fields; operation-specific legality is validated by
 // SourceQuery so the connector catalog does not duplicate three large schemas.
 type SourceQueryInput struct {

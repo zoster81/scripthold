@@ -18,7 +18,7 @@ This guide applies to `internal/httptransport/`. Follow the repository root [`AG
 - Keep access logs category-only and path-redacted. Never log tokens, query strings, bodies, tool arguments, complete session IDs, commands, or file contents.
 - Clear HTTP credential variables after configuration is snapshotted so child processes cannot inherit them.
 - HTTP execution requires both the legacy tool authorization and `MCP_HTTP_ENABLE_EXECUTION=1`.
-- Use the shared R11 `BuildServer`; do not duplicate tool registration or handler policy.
+- Use the shared `BuildServer`; do not duplicate tool registration or handler policy.
 
 ## Tests
 

@@ -1,98 +1,57 @@
 # Scripthold Development Roadmap
 
-This document is the authoritative source for **current and future milestone state** in `zoster81/scripthold`. Completed engineering history belongs in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release-by-release changes in [CHANGELOG.md](../CHANGELOG.md), and stable subsystem contracts in their dedicated design documents.
+This file tracks **current and future work only**. Completed changes belong in [`CHANGELOG.md`](../CHANGELOG.md); current behavior and invariants belong in [`ARCHITECTURE.md`](ARCHITECTURE.md), [`TOOLS.md`](../TOOLS.md), and the focused operational guides.
 
 ## Current state
 
-- Current public release: **Scripthold `3.1.6`**, published on 2026-08-19.
-- Public `3.1.6` surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers** over stdio and Streamable HTTP.
-- Current unreleased source exposes **38 tools**; maintenance added the explicit `backup_delete` capability while the published `3.1.6` surface remains unchanged.
-- R1-R29 are complete. The pre-R29 test/build/CI architecture optimization is also complete and shipped in `3.1.5` without changing the public MCP surface.
-- R30-R33 remain `PLANNED`. No release-scoped milestone is active until maintainers explicitly activate one.
-- Publication and deployment are separate operator actions; public milestone state never implies a private runtime change.
+- Current public release: **Scripthold 3.1.6**.
+- Public 3.1.6 surface: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
+- Current unreleased source exposes **38 tools** while keeping the published 3.1.6 surface unchanged.
+- Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
+- Four 3.x capability areas are planned; no release-scoped milestone is currently active.
+- Publication, installation, and private deployment are separate actions.
 
-## Operating rules
+## Planning rules
 
-- At most one release-scoped milestone may be `ACTIVE` at a time.
-- Define the user-visible outcome, compatibility boundary, security implications, and completion gate before implementation begins.
-- Keep changes scoped to the active milestone unless maintainers explicitly reprioritize them.
-- Preserve the established encoding, filesystem, mutation, backup, task, transport, and source-intelligence security boundaries unless a milestone explicitly changes a contract.
-- Public MCP functions should remain compact, explicit about effects, clear to an LLM, and difficult to misuse.
-- Public releases require an exact clean commit, a dated changelog entry, the full exact-SHA release-candidate gate, and the procedure in [PUBLISHING.md](PUBLISHING.md).
-- Every milestone uses the reusable engineering checks in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md).
-- Move completed implementation detail to the relevant contract or [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md); do not accumulate historical execution logs here.
-
-## Completed maintenance gate - connector reliability
-
-Connector reliability maintenance is complete in current unreleased source without activating a release-scoped milestone. The completed work addresses two independent request-path failure classes: synchronous tool calls that approach an external transport TTL, and completed MCP responses large enough to be rejected by an intermediary before delivery.
-
-Current unreleased source applies a bounded cooperative synchronous deadline to every MCP tool call and retains oversized completed results behind bounded `deferred_operation` retrieval. When an operator configures the separate deferred-operation store, `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols` are durably admitted before expensive execution and owned independently from the frontend request. Recovery may relaunch only work that never crossed the durable started boundary; a lost executor after that boundary becomes `interrupted` without automatic replay. Current filesystem roots are revalidated before recovered execution and result retrieval.
-
-`source_query` remains synchronous because its returned index binding is process-local and must remain usable by follow-up requests. User-file mutations, preview/capability-producing operations, and the existing durable task API are excluded from automatic deferral. Native negotiated `io.modelcontextprotocol/tasks` support is implemented over the same Deferred Operation Engine, including `tools/call` task results, `tasks/get`, `tasks/update`, and `tasks/cancel`. Qualification covers multi-client mixed traffic, reconnect, durable-store restart retrieval, deliberately over-soft-window concurrency with an unaffected fast path, real-repository source execution, coherent state/marker publication, cancellable store-lock observation, affected race suites, and supported-target cross-compilation. Build, deployment, publication, and live connector qualification remain separate operator/release actions rather than source-completion criteria.
-
-Source Intelligence real-world requalification is no longer blocked by this maintenance gate.
-
-## Completed milestones
-
-R1-R29 are complete. Their concise outcomes and release checkpoints are recorded in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md). The most recent subsystem contracts are:
-
-- R23 — [MCP mutation surface](MCP_MUTATION_SURFACE.md)
-- R24 — [safe filesystem operations](SAFE_FILESYSTEM_OPERATIONS.md)
-- R25 — [source-intelligence foundation](SOURCE_INTELLIGENCE.md)
-- R26 — [backup recovery](BACKUP_RECOVERY.md)
-- R27 — [broad multi-language code intelligence](MULTILANGUAGE_CODE_INTELLIGENCE.md)
-- R28 — [engine hygiene](ENGINE_HYGIENE.md)
-- R29 — [logging and diagnostics lifecycle](LOGGING_DIAGNOSTICS.md)
+- At most one release-scoped milestone may be active at a time.
+- Define the user-visible outcome, compatibility boundary, security impact, and completion gate before implementation.
+- Preserve current filesystem, encoding, mutation, backup, execution, transport, and source-intelligence boundaries unless a milestone explicitly changes them.
+- Keep public MCP concepts compact and difficult to misuse.
+- Require an exact clean commit and the release procedure in [`PUBLISHING.md`](PUBLISHING.md) for public release authority.
+- Do not accumulate implementation diaries or per-phase evidence in this file.
 
 ## Planned 3.x milestones
 
-The intended planning order is R30 -> R31 -> R32 -> R33. Version mapping may change before activation if scope changes materially; architectural boundaries require explicit review rather than being inferred from a version number.
+### Documentation intelligence
 
-### R30 — Documentation intelligence
+Add coherent Markdown/document understanding: structure, anchors, local links/fragments, front matter, fenced code, references, and bounded document relationships where evidence is trustworthy.
 
-Extend the existing Markdown/source-intelligence foundation into coherent documentation understanding: structure, anchors, local links/fragments, front matter, fenced code, references, and bounded document relationships where evidence is trustworthy.
+Markdown mutation must use the dedicated **Marksplice Go module** behind Scripthold's existing preview/apply, encoding, BOM, line-ending, backup, conflict, and partial-state guarantees. Do not restore the discarded in-repository Markdown editor or create a competing parser/editor.
 
-Document mutation must use the dedicated **Marksplice Go module** for Markdown-aware transformation and integrate it behind Scripthold's verified preview/apply primitives. Preserve encoding, BOM, line endings, backup, conflict, and partial-state guarantees. Do not restore the discarded in-repository Markdown mutation prototype or introduce a second document editor.
+Completion requires deterministic malformed/ambiguous behavior, compact MCP UX, cross-encoding coverage, and preview/apply regression coverage for mutating capabilities.
 
-Completion requires deterministic malformed/ambiguous behavior, compact LLM-facing UX, cross-encoding coverage, and preview/apply regressions for mutating capabilities.
+### Unified single/multi-file editing
 
-### R31 — Unified single/multi-file edit
+Unify existing-file editing around one coherent planner/capability model for one or many files while preserving exact preconditions, prepared result bytes, backup preflight, deterministic apply, conflict detection, and truthful partial-state evidence.
 
-Evolve editing toward one clear concept for one or many existing files, reusing one planner/capability model for exact preconditions, retained result bytes, backup preflight, deterministic apply, and truthful partial-state evidence.
+This milestone does not authorize automatic semantic refactoring.
 
-This milestone does **not** authorize automatic semantic refactoring. Source changes remain explicit client-requested edits; removal of historical public concepts requires a separately reviewed compatibility boundary.
+### Verified self-update
 
-Completion requires single/multi-file equivalence, capability lifetime/replay, TOCTOU/conflict, encoding/BOM/EOL, backup, commit-order, crash/partial-commit, and connector-ergonomics evidence.
+Add a failure-safe update lifecycle: discover a release, select the correct platform asset, verify identity/checksum, stage it, retain a known-good binary, switch, verify, and roll back when required.
 
-### R32 — Verified self-update
+Installation state remains separate from the persistent user-file backup store. Interrupted or invalid updates must leave a usable installation or an explicit recoverable state.
 
-Add a failure-safe update lifecycle: discover, select the correct target asset, verify release/version/checksum identity, stage, retain a known-good binary, switch, verify, and roll back when necessary.
+### Source-intelligence completion
 
-Installation state is separate from the persistent user-file backup store. Update failure must leave a usable installation or an explicit recoverable state, with platform-specific replacement semantics designed deliberately.
+Improve analyzer accuracy, trustworthy missing relationships, detection/provider quality, scale, index/query usefulness, and regression corpora without adding mutation authority to Source Intelligence.
 
-Completion requires tamper/mismatch rejection, interrupted-operation tests, rollback coverage, platform replacement tests, and post-switch version verification.
-
-### R33 — Source-intelligence completion
-
-Improve analysis quality, trustworthy missing relations, detector/provider accuracy, scale, indexing, query usefulness, and regression corpora without adding mutation authority to Source Intelligence.
-
-Fail closed where evidence is insufficient. Callers, callees, overrides, or future relations remain unsupported until analyzers can prove them truthfully. Persistent on-disk indexing or external parser/compiler/LSP dependencies require separate architectural approval.
-
-Completion requires provider/capability truthfulness, deterministic bounded behavior, scale evidence, and no automatic source transformation.
+Unsupported relationships remain unsupported until analyzers can prove them. Persistent on-disk source indexing or external parser/compiler/LSP dependencies require separate architectural approval.
 
 ## Reserved 4.0 boundary
 
-Version 4.0 is reserved for an intentionally reviewed major compatibility or capability boundary after the 3.x groundwork. Its scope is not frozen.
+Version 4.0 is reserved for a deliberately reviewed major compatibility or capability boundary after the 3.x work. Its scope is not frozen.
 
-Automatic semantic refactoring/project-wide semantic transformation remains **out of scope** unless maintainers explicitly reopen that safety decision.
+Automatic project-wide semantic refactoring remains out of scope unless maintainers explicitly reopen that decision.
 
-Two concepts remain research-only and are **not approved implementation milestones or APIs**:
-
-- **Visual desktop interaction:** study observation-bound screen/window capture and bounded input, including stale-frame rules, focus/DPI/multi-monitor behavior, delayed UI transitions, privacy, OS permissions, and operator-controlled authorization.
-- **MCP federation/gateway:** study optional hot-pluggable downstream MCP peers without merging remote catalogs into Scripthold's native catalog, including peer trust, authentication, schema changes, prompt-injection boundaries, reconnect behavior, retries, cancellation, loop prevention, and fault isolation.
-
-Either concept requires a dedicated product, architecture, UX, privacy, and threat-model review before implementation is activated. Previous exploratory names or schemas are not commitments.
-
-## Reprioritization rule
-
-Urgent reliability or security work may preempt an active milestone, but the interruption, completion evidence, and resume point must be explicit. Completed milestones remain historical contracts; future release-scoped work starts only after explicit activation.
+Research topics such as visual desktop interaction or MCP federation are not approved milestones or APIs. They require separate product, architecture, privacy, security, and UX review before implementation.

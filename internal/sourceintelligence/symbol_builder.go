@@ -130,7 +130,7 @@ type SymbolSpec struct {
 	Disambiguator string
 }
 
-// NormalizedSymbol is the shared R25 symbol IR. Raw parser/AST types never escape
+// NormalizedSymbol is the shared language-neutral symbol IR. Raw parser/AST types never escape
 // through this record. Internal UTF-8 offsets are intentionally unexported.
 type NormalizedSymbol struct {
 	ID                  string         `json:"id"`
@@ -320,7 +320,7 @@ func (builder *SymbolBuilder) Scopes() *ScopeStack {
 	return builder.scopes
 }
 
-// Add normalizes and appends one declaration while enforcing all common R25
+// Add normalizes and appends one declaration while enforcing all common
 // evidence, range, identity, hierarchy, and retention rules. The returned value
 // is a defensive copy so callers cannot mutate the builder's retained symbol.
 func (builder *SymbolBuilder) Add(spec SymbolSpec) (NormalizedSymbol, error) {

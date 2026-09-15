@@ -2,11 +2,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {spawnSync} = require('node:child_process');
 const test = require('node:test');
 
 const {
   extractLocalTargets,
   validateLocalTarget,
+  validateRepository,
 } = require('./check-markdown-links.js');
 
 test('extracts local inline and reference links while ignoring external links and fenced code', () => {
@@ -50,6 +52,25 @@ test('rejects malformed encodings and links that escape the repository root', ()
     fs.writeFileSync(path.join(root, 'README.md'), '# Root\n');
     assert.equal(validateLocalTarget(root, path.join(root, 'README.md'), '../outside.md').ok, false);
     assert.equal(validateLocalTarget(root, path.join(root, 'README.md'), '%E0%A4%A').ok, false);
+  } finally {
+    fs.rmSync(root, {recursive: true, force: true});
+  }
+});
+
+test('ignores tracked Markdown files deleted from the working tree', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scripthold-links-deleted-'));
+  try {
+    const runGit = (args) => {
+      const result = spawnSync('git', args, {cwd: root, encoding: 'utf8', shell: false});
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+    };
+    runGit(['init', '--quiet']);
+    fs.writeFileSync(path.join(root, 'README.md'), '# Root\n');
+    fs.writeFileSync(path.join(root, 'REMOVED.md'), '# Removed\n');
+    runGit(['add', 'README.md', 'REMOVED.md']);
+    fs.rmSync(path.join(root, 'REMOVED.md'));
+
+    assert.doesNotThrow(() => validateRepository(root));
   } finally {
     fs.rmSync(root, {recursive: true, force: true});
   }

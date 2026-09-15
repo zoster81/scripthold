@@ -87,7 +87,7 @@ type RecoveryReasonCount struct {
 	Count  int                  `json:"count"`
 }
 
-// RecoveryPlan is the persisted, reviewable, non-authorizing R26 recovery plan.
+// RecoveryPlan is the persisted, reviewable, non-authorizing recovery plan.
 type RecoveryPlan struct {
 	FormatVersion         string `json:"formatVersion"`
 	PlanID                string `json:"planId,omitempty"`

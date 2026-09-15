@@ -11,7 +11,7 @@ This guide applies to `internal/backupstore/`. Follow the repository root [`AGEN
 - Create directories and files with owner-only permissions where supported and never expose internal paths or stored bytes through ordinary logs or MCP results.
 - Preserve the ordering invariant that durable objects precede manifests and manifest removal precedes object removal.
 - Never add background deletion, automatic rollback, or multi-process writers without a separately approved design. The approved automatic deletion exception is synchronous per-target FIFO retention after a newer unpinned manifest is already durable; it may remove only the oldest non-pinned versions above `MaxVersionsPerTarget` and must never select pinned or active-restore records.
-- R19 diagnostics are existing-store-only and mutation-free. The diagnostic dependency graph must not reach descriptor/layout creation, index persistence, GC cleanup, capture, restore, or target mutation helpers.
+- Offline diagnostics are existing-store-only and mutation-free. The diagnostic dependency graph must not reach descriptor/layout creation, index persistence, GC cleanup, capture, restore, or target mutation helpers.
 
 ## Implementation guidance
 

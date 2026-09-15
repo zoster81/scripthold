@@ -3,10 +3,10 @@ package filetoolsserver
 import "github.com/modelcontextprotocol/go-sdk/mcp"
 
 const (
-	r25SourceMaxInputPaths = 256
-	r25SourceMaxFiles      = 4096
-	r25SourceMaxSymbols    = 100000
-	r25SourceMaxShowBytes  = 8 * 1024 * 1024
+	sourceSymbolsMaxInputPaths = 256
+	sourceSymbolsMaxFiles      = 4096
+	sourceSymbolsMaxSymbols    = 100000
+	sourceSymbolsMaxShowBytes  = 8 * 1024 * 1024
 )
 
 func sourceSymbolsCatalogTool() *mcp.Tool {
@@ -29,7 +29,7 @@ func sourceSymbolsProperties() map[string]any {
 	return map[string]any{
 		"operation": map[string]any{"type": "string", "enum": []string{"outline", "digest", "find", "show"}},
 		"paths": map[string]any{
-			"type": "array", "minItems": 1, "maxItems": r25SourceMaxInputPaths,
+			"type": "array", "minItems": 1, "maxItems": sourceSymbolsMaxInputPaths,
 			"items": map[string]any{"type": "string", "minLength": 1},
 		},
 		"path":              map[string]any{"type": "string", "minLength": 1},
@@ -42,11 +42,11 @@ func sourceSymbolsProperties() map[string]any {
 		"excludes":          sourceSymbolsPatternsSchema(),
 		"respectGitignore":  map[string]any{"type": "boolean"},
 		"includeSignatures": map[string]any{"type": "boolean"},
-		"maxSymbols":        sourceSymbolsBoundedIntegerSchema(r25SourceMaxSymbols),
-		"maxFiles":          sourceSymbolsBoundedIntegerSchema(r25SourceMaxFiles),
+		"maxSymbols":        sourceSymbolsBoundedIntegerSchema(sourceSymbolsMaxSymbols),
+		"maxFiles":          sourceSymbolsBoundedIntegerSchema(sourceSymbolsMaxFiles),
 		"symbolId":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
 		"sourceFingerprint": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
-		"maxBytes":          sourceSymbolsBoundedIntegerSchema(r25SourceMaxShowBytes),
+		"maxBytes":          sourceSymbolsBoundedIntegerSchema(sourceSymbolsMaxShowBytes),
 	}
 }
 

@@ -119,7 +119,7 @@ func TestEngineStagesAllFeasibleContentBeforeFirstCommit(t *testing.T) {
 			}
 			stagingCount := 0
 			for _, entry := range entries {
-				if strings.HasPrefix(entry.Name(), ".scripthold-r24-file-") {
+				if strings.HasPrefix(entry.Name(), ".scripthold-stage-file-") {
 					stagingCount++
 				}
 			}
@@ -139,7 +139,7 @@ func TestEngineStagesAllFeasibleContentBeforeFirstCommit(t *testing.T) {
 		t.Fatalf("apply = %#v / %v", output, err)
 	}
 	for _, entry := range filesystemPackageTestTreeNames(t, root) {
-		if strings.Contains(entry, ".scripthold-r24-file-") {
+		if strings.Contains(entry, ".scripthold-stage-file-") {
 			t.Fatalf("staging residue remains after successful apply: %s", entry)
 		}
 	}

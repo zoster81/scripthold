@@ -340,7 +340,7 @@ func mergeFortranConditionalVariants(options AnalyzeOptions, variants []Analyzer
 	merged := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
 	seenIDs := make(map[string]struct{})
 	seenLogical := make(map[fortranLogicalSymbolKey]struct{})
-	var legacySeenLogical map[string]struct{}
+	var compatibilitySeenLogical map[string]struct{}
 	for _, variant := range variants {
 		if !variant.Analysis.CoverageComplete {
 			merged.Analysis.CoverageComplete = false
@@ -360,14 +360,14 @@ func mergeFortranConditionalVariants(options AnalyzeOptions, variants []Analyzer
 			if symbol.QualifiedName != "" {
 				kind := string(symbol.Kind)
 				if strings.IndexByte(kind, 0) >= 0 || strings.IndexByte(symbol.QualifiedName, 0) >= 0 {
-					if legacySeenLogical == nil {
-						legacySeenLogical = make(map[string]struct{})
+					if compatibilitySeenLogical == nil {
+						compatibilitySeenLogical = make(map[string]struct{})
 					}
 					logical := kind + "\x00" + symbol.QualifiedName
-					if _, exists := legacySeenLogical[logical]; exists {
+					if _, exists := compatibilitySeenLogical[logical]; exists {
 						continue
 					}
-					legacySeenLogical[logical] = struct{}{}
+					compatibilitySeenLogical[logical] = struct{}{}
 				} else {
 					logical := fortranLogicalSymbolKey{kind: symbol.Kind, qualifiedName: symbol.QualifiedName}
 					if _, exists := seenLogical[logical]; exists {

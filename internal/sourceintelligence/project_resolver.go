@@ -29,7 +29,7 @@ const (
 	ProjectResolutionNone              ProjectResolutionStage = "none"
 )
 
-// ProjectFileFacts is the immutable per-file input consumed by the Phase 12
+// ProjectFileFacts is the immutable per-file input consumed by the project
 // resolver. Facts must already come from the normalized analyzer layer.
 type ProjectFileFacts struct {
 	Path              string
@@ -119,8 +119,8 @@ func (cache *projectLanguageDescriptorCache) resolve(name string) (LanguageDescr
 	return descriptor, true
 }
 
-// ProjectModel is the deterministic, immutable Phase 12 symbol/dependency model.
-// It remains memory-only and may back retained process-local Phase 15 generations;
+// ProjectModel is the deterministic, immutable project symbol/dependency model.
+// It remains memory-only and may back retained process-local index generations;
 // persistent on-disk indexing is not introduced.
 type ProjectModel struct {
 	files                  map[string]projectFileRecord

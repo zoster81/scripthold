@@ -160,7 +160,7 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 			output.Coverage.CoverageComplete = false
 		}
 	default:
-		return errorResultWithCode(ErrCodeUnsupported, "source_query operation is not implemented in this phase"), SourceQueryOutput{}, nil
+		return errorResultWithCode(ErrCodeUnsupported, "source_query operation is not implemented"), SourceQueryOutput{}, nil
 	}
 	if budgetErr := enforceSourceQueryOutputBudget(output, limits.MaxOutputBytes); budgetErr != nil {
 		return errorResultFromError(budgetErr), SourceQueryOutput{}, nil

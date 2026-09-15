@@ -4,7 +4,7 @@ This directory contains pinned, unmodified upstream files used by integration te
 
 ## Coverage
 
-This fixture set is the **24-encoding real-world baseline that predates the R22 registry expansion**. It is intentionally not the complete current encoding inventory.
+This fixture set is the **24-encoding real-world baseline from before the current registry expansion**. It is intentionally not the complete current encoding inventory.
 
 The baseline covers:
 
@@ -16,7 +16,7 @@ The baseline covers:
 
 The source documents contain real non-ASCII text in the relevant languages. The pinned upstream files use LF line endings and are never modified in place by the test suite. Write tests copy each fixture to `t.TempDir()`, convert the real document to CRLF, verify it, convert it back to LF, and require a byte-identical round trip.
 
-The complete current registry is verified separately by registry-driven operation matrices and generated/oracle-backed tests; see [`docs/GLOBAL_ENCODING_COVERAGE.md`](../../../../docs/GLOBAL_ENCODING_COVERAGE.md). `list_encodings` remains authoritative for the runtime inventory.
+The complete current registry is verified separately by registry-driven operation matrices and generated/oracle-backed tests. `list_encodings` remains authoritative for the runtime inventory; the current encoding boundary is summarized in [`docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md).
 
 ## Provenance and integrity
 

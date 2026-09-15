@@ -19,7 +19,7 @@ const (
 	ProjectSelectorPosition ProjectSelectorKind = "position"
 )
 
-// ProjectSelector is the transport-independent selector used by the Phase 13
+// ProjectSelector is the transport-independent selector used by the project
 // query engine. Position selectors prefer a structural reference occurrence and
 // otherwise resolve to the most specific containing declaration.
 type ProjectSelector struct {
@@ -175,7 +175,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 	return finalizeProjectSearch(matches, options.MaxResults), nil
 }
 
-// QueryRelations executes one bounded Phase 13 relationship query.
+// QueryRelations executes one bounded project relationship query.
 func (model *ProjectModel) QueryRelations(ctx context.Context, kind RelationKind, subject, target ProjectSelector, evidence []SymbolEvidence, limits ProjectQueryLimits) (ProjectRelationResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

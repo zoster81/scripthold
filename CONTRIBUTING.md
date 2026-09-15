@@ -4,13 +4,13 @@ Thank you for contributing to Scripthold, currently maintained in `zoster81/scri
 
 ## Before you start
 
-Read the root [`AGENTS.md`](AGENTS.md) and every scoped `AGENTS.md` that applies to the files you plan to change. Product identity, transport scope, and the independent upstream boundary are defined in [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md); current/future milestone state is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md), completed milestone history in [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md), and reusable verification in [`docs/DEVELOPMENT_CHECKLIST.md`](docs/DEVELOPMENT_CHECKLIST.md).
+Read the root [`AGENTS.md`](AGENTS.md) and every scoped `AGENTS.md` that applies to the files you plan to change. Product identity and scope are defined in [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md), current architecture in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), current/future milestone state in [`docs/ROADMAP.md`](docs/ROADMAP.md), and reusable verification in [`docs/DEVELOPMENT_CHECKLIST.md`](docs/DEVELOPMENT_CHECKLIST.md). Completed implementation history belongs in Git and user-visible release history in [`CHANGELOG.md`](CHANGELOG.md).
 
 Prerequisites:
 
 - Go version declared by `go.mod`;
 - Git;
-- Node.js 26.7.0 for parity with the pinned GitHub release-script and publication workflows;
+- Node.js 26.8.2 for parity with the pinned GitHub release-script and publication workflows;
 - Bash, `curl`, `tar`, and `sha256sum` for workflow linting;
 - `golangci-lint` at the repository-pinned version for the full local quality gate;
 - a working C compiler only when running the Go race detector locally.
@@ -42,7 +42,7 @@ go test ./... -count=1
 go vet ./...
 golangci-lint run ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
-go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
 # Release-script and CI-policy tests
 node --test scripts/check-markdown-links.test.js scripts/test-ci-policy.test.js scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-candidate-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js

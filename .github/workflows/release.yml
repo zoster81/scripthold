@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
         with:
-          node-version: '26.7.0'
+          node-version: '26.8.2'
           package-manager-cache: false
 
       - name: Verify tag metadata and exact main commit
@@ -97,7 +97,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7.2.3
         with:
           distribution: goreleaser
-          version: 'v2.17.1'
+          version: 'v2.18.1'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -20,7 +20,7 @@ var Version = "dev"
 // Server instructions for AI assistants
 const serverInstructions = `Scripthold provides secure, encoding-aware filesystem tools and durable asynchronous shell/script tasks.
 
-Use these tools when encoding, BOM, line endings, bounded traversal, source intelligence, atomic mutation, backups, or persistent task execution matter. Filesystem access is limited to startup roots. Encoding detection uses BOM/content evidence, never filenames; ambiguous input requires an explicit encoding. Use source_symbols for bounded read-only outline, digest, find, and fingerprint-bound show. R27 source_query provides bounded read-only structural search, supported project relations, and fingerprint-verified task context; textual/lexical search remains available through grep_text_files, while Phase 15 binds queries to bounded process-local index generations. Mutations revalidate paths and preserve encoding/BOM/line endings where documented.
+Use these tools when encoding, BOM, line endings, bounded traversal, source intelligence, atomic mutation, backups, or persistent task execution matter. Filesystem access is limited to startup roots. Encoding detection uses BOM/content evidence, never filenames; ambiguous input requires an explicit encoding. Use source_symbols for bounded read-only outline, digest, find, and fingerprint-bound show. source_query provides bounded read-only structural search, supported project relations, and fingerprint-verified task context; textual/lexical search remains available through grep_text_files, while bounded process-local index generations bind related queries consistently. Mutations revalidate paths and preserve encoding/BOM/line endings where documented.
 
 For long work use task_run, then task_get/task_logs/task_list; tasks survive MCP reconnects and support cancellation. Oversized MCP results are retained and returned as a compact handle; retrieve their bounded segments with deferred_operation. Use preview/apply workflows for sensitive edits, patch packages, restores, and GC. Tool errors expose stable error codes.
 
@@ -164,7 +164,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 		Logger:             sdkLogger,
 		InitializedHandler: createInitializedHandler(lifecycleCtx, h, version, options.EnableClientRoots),
 	}
-	//lint:ignore SA1019 R20 intentionally preserves legacy stdio roots during the MCP deprecation window.
+	//lint:ignore SA1019 Deprecated MCP roots remain supported for legacy stdio compatibility.
 	serverOpts.RootsListChangedHandler = createRootsListChangedHandler(h, options.EnableClientRoots)
 	server := mcp.NewServer(impl, serverOpts)
 	registerProjectPrompts(server)

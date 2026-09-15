@@ -75,7 +75,7 @@ type structuralDependencyKey struct {
 func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDependency {
 	total := len(base) + len(extra)
 	seen := make(map[structuralDependencyKey]struct{}, total)
-	var legacySeen map[string]struct{}
+	var compatibilitySeen map[string]struct{}
 	result := make([]StructuralDependency, 0, total)
 	for index := 0; index < total; index++ {
 		dependency := StructuralDependency{}
@@ -87,14 +87,14 @@ func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDe
 
 		kind := string(dependency.Kind)
 		if strings.IndexByte(kind, 0) >= 0 || strings.IndexByte(dependency.Value, 0) >= 0 {
-			if legacySeen == nil {
-				legacySeen = make(map[string]struct{})
+			if compatibilitySeen == nil {
+				compatibilitySeen = make(map[string]struct{})
 			}
 			key := kind + "\x00" + dependency.Value
-			if _, ok := legacySeen[key]; ok {
+			if _, ok := compatibilitySeen[key]; ok {
 				continue
 			}
-			legacySeen[key] = struct{}{}
+			compatibilitySeen[key] = struct{}{}
 		} else {
 			key := structuralDependencyKey{kind: dependency.Kind, value: dependency.Value}
 			if _, ok := seen[key]; ok {
@@ -108,7 +108,7 @@ func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDe
 }
 
 // StructuralRelation is a syntax-proven declaration relationship. Targets are
-// source spellings only; R25 does not claim project/type resolution.
+// source spellings only; this layer does not claim project/type resolution.
 type StructuralRelation struct {
 	Kind     string         `json:"kind"`
 	Source   string         `json:"source"`
@@ -145,7 +145,7 @@ type SourceAnalyzer interface {
 }
 
 // AnalyzerFor resolves only analyzers enabled by the current registry descriptor.
-// Future-language metadata therefore cannot accidentally activate R27 behavior.
+// Future-language metadata therefore cannot accidentally activate project-aware behavior.
 func scannerTokenBudget(text string) int {
 	const maxRetainedTokens = 1_000_000
 	budget := len(text) + 1

@@ -58,7 +58,7 @@ type projectContextPlanner struct {
 	seen    map[string]struct{}
 }
 
-// PlanContext builds a deterministic, budget-aware Phase 14 context plan from
+// PlanContext builds a deterministic, budget-aware project context plan from
 // normalized project facts only. Source text is deliberately materialized by
 // the authorized handler after fingerprint revalidation.
 func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSelector, options ProjectContextOptions) (ProjectContextPlan, error) {

@@ -46,7 +46,7 @@ func defaultDelimiterRules() []DelimiterRule {
 	return []DelimiterRule{{Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}}
 }
 
-func (scanner *sourceScanner) validateR27Profile() error {
+func (scanner *sourceScanner) validateScannerProfile() error {
 	if len(scanner.profile.Delimiters) > 32 || len(scanner.profile.DirectiveRules) > 32 || len(scanner.profile.HereDocs) > 16 {
 		return operation.New(operation.KindInvalidInput, "scanner profile contains too many lexical rules")
 	}

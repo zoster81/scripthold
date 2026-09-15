@@ -353,7 +353,7 @@ func scalaHeaderEnd(tokens []Token, start int) int {
 }
 
 // ScalaScannerProfile covers the declaration-oriented Scala 2/3 lexical subset
-// used by the Phase 16 recognizer. Newlines remain visible even inside braces so
+// used by the Scala recognizer. Newlines remain visible even inside braces so
 // brace-owned and indentation-owned declarations can share one logical-line pass.
 func ScalaScannerProfile() ScannerProfile {
 	return ScannerProfile{

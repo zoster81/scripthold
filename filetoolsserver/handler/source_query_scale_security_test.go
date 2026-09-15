@@ -181,7 +181,7 @@ func TestSourceQueryFilesHaveNoHiddenExecutionOrNetworkImports(t *testing.T) {
 	}
 	directory := filepath.Dir(currentFile)
 	files := []string{
-		"source_intelligence_r27.go",
+		"source_query.go",
 		"source_query_engine.go",
 		"source_query_index.go",
 		"source_symbols.go",

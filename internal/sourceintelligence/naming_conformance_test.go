@@ -13,10 +13,11 @@ import (
 	"testing"
 )
 
-var historicalPhaseIdentifierPattern = regexp.MustCompile(`(?i)phase[0-9]+`)
+var historicalMilestoneIdentifierPattern = regexp.MustCompile(`(?i)(?:phase|wave)[0-9]+|r(?:1[0-9]|2[0-9]|3[0-9])`)
+var historicalMilestoneFilenamePattern = regexp.MustCompile(`(?i)(?:^|[_\-.])(?:phase|wave)[0-9]+(?:[_\-.]|$)|(?:^|[_\-.])r(?:1[0-9]|2[0-9]|3[0-9])(?:[_\-.]|$)`)
 var historicalPhaseOperationPattern = regexp.MustCompile(`(?i)analyze_phase[0-9]+`)
 
-func TestGoIdentifiersAndProductionMetadataHaveNoHistoricalPhaseNames(t *testing.T) {
+func TestGoIdentifiersAndFilenamesHaveNoHistoricalMilestoneNames(t *testing.T) {
 	t.Helper()
 
 	_, currentFile, _, ok := runtime.Caller(0)
@@ -37,6 +38,9 @@ func TestGoIdentifiersAndProductionMetadataHaveNoHistoricalPhaseNames(t *testing
 			continue
 		}
 		production := !strings.HasSuffix(name, "_test.go")
+		if historicalMilestoneFilenamePattern.MatchString(name) {
+			violations = append(violations, name+": historical milestone filename")
+		}
 		path := filepath.Join(sourceDir, name)
 		file, err := parser.ParseFile(fileset, path, nil, parser.ParseComments)
 		if err != nil {
@@ -46,7 +50,7 @@ func TestGoIdentifiersAndProductionMetadataHaveNoHistoricalPhaseNames(t *testing
 		ast.Inspect(file, func(node ast.Node) bool {
 			switch value := node.(type) {
 			case *ast.Ident:
-				if historicalPhaseIdentifierPattern.MatchString(value.Name) {
+				if historicalMilestoneIdentifierPattern.MatchString(value.Name) {
 					position := fileset.Position(value.Pos())
 					violations = append(violations, position.String()+": identifier "+value.Name)
 				}
@@ -66,7 +70,7 @@ func TestGoIdentifiersAndProductionMetadataHaveNoHistoricalPhaseNames(t *testing
 		if production {
 			for _, group := range file.Comments {
 				for _, comment := range group.List {
-					if historicalPhaseIdentifierPattern.MatchString(comment.Text) {
+					if historicalMilestoneIdentifierPattern.MatchString(comment.Text) {
 						position := fileset.Position(comment.Pos())
 						violations = append(violations, position.String()+": comment "+comment.Text)
 					}
@@ -76,6 +80,6 @@ func TestGoIdentifiersAndProductionMetadataHaveNoHistoricalPhaseNames(t *testing
 	}
 
 	if len(violations) > 0 {
-		t.Fatalf("historical phase naming remains in Go identifiers or production metadata:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf("historical milestone naming remains in Go identifiers, filenames, or production metadata:\n%s", strings.Join(violations, "\n"))
 	}
 }

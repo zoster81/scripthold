@@ -270,7 +270,7 @@ type Limits struct {
 	MaxSessions                        int
 }
 
-// SourceConfig bounds R25 source-intelligence work independently from ordinary
+// SourceConfig bounds source-intelligence work independently from ordinary
 // file operations. Effective shared limits are the minimum of these values and
 // the corresponding server-wide limits.
 type SourceConfig struct {

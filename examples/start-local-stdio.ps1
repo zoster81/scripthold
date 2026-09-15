@@ -15,6 +15,14 @@
     $AllowedDirectory = "C:\Path\To\AllowedProject"
     $BackupStore = ""
     $TaskStore = "C:\Path\To\PrivateState\tasks"
+    $DeferredStore = "C:\Path\To\PrivateState\deferred"
+    $CallMaxSyncSeconds = 45
+    $DeferredSyncWaitSeconds = 15
+    $DeferredMaxRuntimeSeconds = 300
+    $DeferredMaxConcurrency = 4
+    $DeferredMaxQueued = 64
+    $DeferredRetentionSeconds = 3600
+    $DeferredMaxTotalBytes = 536870912
     $TaskMaxConcurrency = 2
     $TaskMaxQueued = 64
     $TaskMaxLogBytesPerStream = 8388608
@@ -105,6 +113,14 @@
         "MCP_TASK_RETENTION_DAYS",
         "MCP_TASK_MAX_TERMINAL",
         "MCP_TASK_MAX_TOTAL_BYTES",
+        "MCP_DEFERRED_STORE_DIR",
+        "MCP_CALL_MAX_SYNC_SECONDS",
+        "MCP_DEFERRED_SYNC_WAIT_SECONDS",
+        "MCP_DEFERRED_MAX_RUNTIME_SECONDS",
+        "MCP_DEFERRED_MAX_CONCURRENCY",
+        "MCP_DEFERRED_MAX_QUEUED",
+        "MCP_DEFERRED_RETENTION_SECONDS",
+        "MCP_DEFERRED_MAX_TOTAL_BYTES",
         "MCP_STDIO_LEGACY_HANDSHAKE",
         "MCP_ENABLE_RUN_SCRIPT",
         "MCP_ENABLE_SHELL",
@@ -142,6 +158,14 @@
         [Environment]::SetEnvironmentVariable("MCP_TASK_RETENTION_DAYS", $TaskRetentionDays.ToString(), "Process")
         [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_TERMINAL", $TaskMaxTerminal.ToString(), "Process")
         [Environment]::SetEnvironmentVariable("MCP_TASK_MAX_TOTAL_BYTES", $TaskMaxTotalBytes.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DEFERRED_STORE_DIR", $DeferredStore, "Process")
+        [Environment]::SetEnvironmentVariable("MCP_CALL_MAX_SYNC_SECONDS", $CallMaxSyncSeconds.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DEFERRED_SYNC_WAIT_SECONDS", $DeferredSyncWaitSeconds.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DEFERRED_MAX_RUNTIME_SECONDS", $DeferredMaxRuntimeSeconds.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DEFERRED_MAX_CONCURRENCY", $DeferredMaxConcurrency.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DEFERRED_MAX_QUEUED", $DeferredMaxQueued.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DEFERRED_RETENTION_SECONDS", $DeferredRetentionSeconds.ToString(), "Process")
+        [Environment]::SetEnvironmentVariable("MCP_DEFERRED_MAX_TOTAL_BYTES", $DeferredMaxTotalBytes.ToString(), "Process")
         Set-BooleanEnvironmentFlag -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
         Set-BooleanEnvironmentFlag -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
         [void](New-Item -ItemType Directory -Path $LogDirectory -Force)

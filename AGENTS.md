@@ -15,30 +15,20 @@ Do not copy private workstation state, local process details, credentials, or op
 
 ## Sources of truth
 
-- Product identity, fork scope, transports, and upstream relationship: [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md)
-- Current/future milestone state and gates: [`docs/ROADMAP.md`](docs/ROADMAP.md)
-- Completed milestone history: [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md)
+- Product identity, scope, transports, and upstream relationship: [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md)
+- Current architecture and security/durability boundaries: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Current/future milestone state: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - Reusable engineering checks: [`docs/DEVELOPMENT_CHECKLIST.md`](docs/DEVELOPMENT_CHECKLIST.md)
 - Contributor workflow: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- Tool behavior and examples: [`TOOLS.md`](TOOLS.md)
+- Tool behavior, schemas, limits, and examples: [`TOOLS.md`](TOOLS.md)
 - Release procedure: [`docs/PUBLISHING.md`](docs/PUBLISHING.md)
-- Streamable HTTP security design: [`docs/HTTP_SECURITY.md`](docs/HTTP_SECURITY.md)
-- R16 verified-change design: [`docs/VERIFIED_CHANGE_WORKFLOWS.md`](docs/VERIFIED_CHANGE_WORKFLOWS.md)
-- Approved R17 persistent-backup lifecycle design and R18 implementation contract: [`docs/PERSISTENT_BACKUP_LIFECYCLE.md`](docs/PERSISTENT_BACKUP_LIFECYCLE.md)
-- R19 offline backup-store diagnostics design: [`docs/OFFLINE_BACKUP_DIAGNOSTICS.md`](docs/OFFLINE_BACKUP_DIAGNOSTICS.md)
-- R20 MCP `2026-07-28` adoption design: [`docs/MCP_2026_07_28_ADOPTION.md`](docs/MCP_2026_07_28_ADOPTION.md)
-- Completed R22 global encoding coverage and Scripthold 2.2.0 contract: [`docs/GLOBAL_ENCODING_COVERAGE.md`](docs/GLOBAL_ENCODING_COVERAGE.md)
-- Completed R23 MCP mutation-surface and backup-UX contract: [`docs/MCP_MUTATION_SURFACE.md`](docs/MCP_MUTATION_SURFACE.md)
-- Completed R24 safe-filesystem operations contract and verification record: [`docs/SAFE_FILESYSTEM_OPERATIONS.md`](docs/SAFE_FILESYSTEM_OPERATIONS.md)
-- Completed R25 source-intelligence contract and verification record: [`docs/SOURCE_INTELLIGENCE.md`](docs/SOURCE_INTELLIGENCE.md)
-- Completed R26 backup-recovery contract and verification record: [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md)
-- Completed R27 broad multi-language code-intelligence contract and verification record: [`docs/MULTILANGUAGE_CODE_INTELLIGENCE.md`](docs/MULTILANGUAGE_CODE_INTELLIGENCE.md)
-- Completed R28 engine-hygiene contract and verification record: [`docs/ENGINE_HYGIENE.md`](docs/ENGINE_HYGIENE.md)
-- Completed R29 logging/diagnostics lifecycle contract and verification record: [`docs/LOGGING_DIAGNOSTICS.md`](docs/LOGGING_DIAGNOSTICS.md)
-- Mechanically verified R27 language capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
+- Streamable HTTP security contract: [`docs/HTTP_SECURITY.md`](docs/HTTP_SECURITY.md)
+- Durable task execution contract: [`docs/DURABLE_TASKS.md`](docs/DURABLE_TASKS.md)
+- Source Intelligence capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
+- Intentional compatibility changes: [`docs/MIGRATION_2.0.md`](docs/MIGRATION_2.0.md) and [`docs/MIGRATION_3.0.md`](docs/MIGRATION_3.0.md)
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
-Link to these documents instead of duplicating their detailed content. Current milestone state belongs only in `docs/ROADMAP.md`; completed subsystem contracts remain authoritative unless maintainers deliberately revise them. Before milestone work, read the roadmap and the contracts relevant to the affected subsystem, then explicitly activate the intended milestone when required.
+Link to these sources instead of duplicating their content. Release history belongs in `CHANGELOG.md`, implementation history in Git, and current milestone state only in `docs/ROADMAP.md`. Do not create phase diaries, checkpoint documents, or completed-design archives when current behavior can be documented in an existing source of truth.
 
 ## Repository map
 
@@ -48,7 +38,7 @@ Link to these documents instead of duplicating their detailed content. Current m
 - `internal/encoding`: encoding registry and content-based detection.
 - `internal/security`: path normalization, resolution, and allowed-root enforcement.
 - `internal/filesystem`: secure traversal and durable mutation primitives.
-- `internal/filesystempackage`: transport-independent R24 filesystem-package manifest, planner, one-shot capability, revalidation, apply orchestration, and partial-state classification.
+- `internal/filesystempackage`: transport-independent filesystem-package manifest, planner, one-shot capability, revalidation, apply orchestration, and partial-state classification.
 - `internal/backupstore`: dedicated internal backup-store authority, format, locking, integrity, recovery, restore, and garbage-collection primitives.
 - `internal/httptransport`: secured native Streamable HTTP listener, admission, sessions, and lifecycle.
 - `internal/diagnostics`: process-wide redacted server/access diagnostics plus bounded optional file retention and multi-process ownership.
@@ -86,7 +76,7 @@ Use focused TDD when practical: reproduce, confirm the expected failure, impleme
 - Allowed directories are process-wide policy shared by every connection; do not introduce per-session filesystem ACLs or let future HTTP sessions mutate startup roots without an explicit roadmap decision.
 - Dynamic MCP client roots are a stdio-only compatibility path when no startup directories are configured.
 - Native HTTP must follow `docs/HTTP_SECURITY.md`; do not weaken authentication, Host/Origin checks, session limits, logging redaction, or the dual execution opt-in.
-- A configured backup store is a separate process-wide internal authority: it must not overlap public roots, must remain inaccessible to ordinary tools, and must preserve the owner-only, one-writer, immutable-format, no-background-GC, pin protection, manifest-before-object deletion, and no-automatic-rollback decisions in `docs/PERSISTENT_BACKUP_LIFECYCLE.md`. Synchronous per-target FIFO retention after a newer manifest is durable is the only approved automatic deletion path.
+- A configured backup store is a separate process-wide internal authority: it must not overlap public roots, must remain inaccessible to ordinary tools, and must preserve the owner-only, one-writer, immutable-record, no-background-GC, pin protection, manifest-before-object deletion, and no-automatic-rollback boundaries summarized in `docs/ARCHITECTURE.md`. Synchronous per-target FIFO retention after a newer manifest is durable is the only approved automatic deletion path.
 - Preserve stdio behavior while transport work is in progress.
 
 ## Verification commands
@@ -100,8 +90,10 @@ go test ./... -count=1
 go vet ./...
 golangci-lint run ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
-go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+node --test scripts/check-markdown-links.test.js scripts/test-ci-policy.test.js
 node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-candidate-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
+node scripts/check-markdown-links.js
 ```
 
 Run `go test -race ./...` only where a working CGO compiler is available. Run `bash scripts/validate-workflows.sh` when workflows or shell scripts change. Use the full release checks from `docs/PUBLISHING.md` only for release-related work.

@@ -1,8 +1,9 @@
 {
   "schemaVersion": 1,
   "reviewedAgainst": [
-    "docs/SOURCE_INTELLIGENCE.md",
-    "docs/MULTILANGUAGE_CODE_INTELLIGENCE.md"
+    "docs/ARCHITECTURE.md",
+    "docs/LANGUAGE_CAPABILITIES.md",
+    "TOOLS.md"
   ],
   "activeBaselineCapabilities": ["decl", "range", "index"],
   "hierarchyLanguages": ["ada", "al", "ansible-yaml", "apex", "arduino", "aspnet-webforms", "astro", "autohotkey", "blade", "blazor", "c", "cil", "classic-asp", "classic-basic", "clojure", "cobol", "common-lisp", "cpp", "cpp-cli", "csharp", "d", "dart", "delphi", "ejs", "elixir", "erlang", "flow", "fortran", "freebasic", "fsharp", "gleam", "go", "graphql", "groovy", "haskell", "java", "javascript", "jinja", "jscript-net", "json", "jsp", "julia", "kotlin", "markdown", "matlab", "mql4", "mql5", "nim", "objective-c", "objective-cpp", "ocaml", "octave", "pascal", "perl", "php", "php-html", "plsql", "powershell", "proto", "purebasic", "python", "qbasic", "razor", "ruby", "rust", "scala", "solidity", "sql", "svelte", "swift", "systemverilog", "tcl", "terraform", "toml", "twig", "typescript", "vb6", "vba", "vbnet", "vbscript", "verilog", "vhdl", "vue", "xaml", "yaml", "zig"],

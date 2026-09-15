@@ -2,17 +2,17 @@
 
 ## Status
 
-This guide documents the intentional breaking MCP API transition from Scripthold `2.2.0` to `3.0.0`, implemented by completed R23 and R24 and carried forward through the completed R25-R27 release scope. R24 completed its verification gate on 2026-08-13 with local checks, activated-candidate connector preview/apply acceptance, native Windows/Linux/macOS regression suites, and the exact push-event `Release candidate` gate passing. Scripthold `3.0.0` was published on 2026-08-17; operator deployment remains a separate explicitly governed action.
+This guide documents the intentional breaking MCP API transition from Scripthold `2.2.0` to `3.0.0`. Scripthold `3.0.0` was published on 2026-08-17; deployment remains separate from publication.
 
-The authoritative R23 design and completion gate are in [MCP_MUTATION_SURFACE.md](MCP_MUTATION_SURFACE.md). The authoritative R24 filesystem-package contract is in [SAFE_FILESYSTEM_OPERATIONS.md](SAFE_FILESYSTEM_OPERATIONS.md). Tool schemas and examples are in [`TOOLS.md`](../TOOLS.md).
+Current mutation/filesystem boundaries are summarized in [ARCHITECTURE.md](ARCHITECTURE.md). Tool schemas and examples are authoritative in [`TOOLS.md`](../TOOLS.md).
 
 ## Why the surface changes
 
 Scripthold `2.2.0` combines read-only preparation and mutation in several MCP tool definitions. MCP annotations describe a complete tool rather than one action, so harmless preview/review requests can inherit destructive classification from another action in the same tool.
 
-R23 removes that ambiguity. Read-only preparation/review remains on the historical tool names where practical, while actual mutation moves to dedicated apply tools. An apply request accepts only the unguessable one-shot `previewId` returned by preparation; path, content, edits, patches, encoding, permission intent, backup policy, and other mutation payload cannot be resubmitted or changed at apply time.
+Scripthold 3.0 removes that ambiguity. Read-only preparation/review remains on the previous tool names where practical, while actual mutation moves to dedicated apply tools. An apply request accepts only the unguessable one-shot `previewId` returned by preparation; path, content, edits, patches, encoding, permission intent, backup policy, and other mutation payload cannot be resubmitted or changed at apply time.
 
-R24 applies the same capability model to coordinated filesystem mutations and removes four overlapping simple mutation tools from the `3.0.0` catalog. Instead of exposing separate public create/copy/move/delete entry points with different safety envelopes, callers prepare one bounded `filesystem-package-v1` manifest through `filesystem_package` and apply that exact plan through `filesystem_package_apply {previewId}`.
+Scripthold 3.0 applies the same capability model to coordinated filesystem mutations and removes four overlapping simple mutation tools from the catalog. Instead of exposing separate public create/copy/move/delete entry points with different safety envelopes, callers prepare one bounded `filesystem-package-v1` manifest through `filesystem_package` and apply that exact plan through `filesystem_package_apply {previewId}`.
 
 ## Required caller changes
 
@@ -33,9 +33,9 @@ R24 applies the same capability model to coordinated filesystem mutations and re
 
 The read-only `patch_package` actions `inspect`, `dryRun`, and `verify` remain on `patch_package`. `backup_store` remains the read-only review/preparation surface for status, list/history, inspect/compare, audit, restore preview, and GC dry run. `manage_bom detect` remains read-only.
 
-R24 additionally introduces `createFile`, `copyDirectory`, and `deleteDirectory` inside `filesystem-package-v1`. `createFile` accepts exact raw bytes as strict standard `contentBase64`; it is not a text-writing alias and performs no encoding, BOM, or line-ending conversion. Recursive copy/delete uses a complete exact scope that includes hidden entries and `.git` and does not apply `.gitignore` filtering.
+The `filesystem-package-v1` format also introduces `createFile`, `copyDirectory`, and `deleteDirectory`. `createFile` accepts exact raw bytes as strict standard `contentBase64`; it is not a text-writing alias and performs no encoding, BOM, or line-ending conversion. Recursive copy/delete uses a complete exact scope that includes hidden entries and `.git` and does not apply `.gitignore` filtering.
 
-The old `create_directory` behaved like recursive `mkdir -p`; R24 `mkdir` intentionally does not. To create multiple missing levels, declare each directory explicitly and in parent-before-child order. A later operation may rely on an earlier `mkdir` only as its immediate destination parent; no other generated output is consumable inside the same package.
+The old `create_directory` behaved like recursive `mkdir -p`; `filesystem-package-v1` `mkdir` intentionally does not. To create multiple missing levels, declare each directory explicitly and in parent-before-child order. A later operation may rely on an earlier `mkdir` only as its immediate destination parent; no other generated output is consumable inside the same package.
 
 ## Apply contract
 
@@ -55,17 +55,17 @@ For `filesystem_package_apply`, the complete package is revalidated before backu
 
 ## Persistent backup policy
 
-R23 adds the operator setting `MCP_BACKUP_DEFAULT_POLICY=disabled|required`, defaulting to `disabled`. Eligible edit/package/BOM/encoding previews may omit `backupPolicy` to inherit the operator default or explicitly request `required`; a request cannot weaken an operator default of `required`.
+Scripthold 3.0 adds the operator setting `MCP_BACKUP_DEFAULT_POLICY=disabled|required`, defaulting to `disabled`. Eligible edit/package/BOM/encoding previews may omit `backupPolicy` to inherit the operator default or explicitly request `required`; a request cannot weaken an operator default of `required`.
 
 Preview remains side-effect-free. Logical no-ops create no persistent backup and perform no write. A changed operation whose effective policy is `required` fails before mutation when backup admission is unavailable. Required persistent capture is durable and verified before the associated mutation boundary. Restore keeps its separate mandatory safety-backup rule for an existing target.
 
-R24 filesystem deletion is stricter than the optional R23 mutation policy: every regular-file pre-state that would be irreversibly lost by `deleteFile` or `deleteDirectory` **must** be admitted, durably captured, and verified in the persistent backup store before the first target mutation. The operator default cannot weaken this R24 safety requirement. Deleting an empty directory requires no backup object because no regular-file bytes are lost.
+Filesystem deletion is stricter than the optional mutation backup policy: every regular-file pre-state that would be irreversibly lost by `deleteFile` or `deleteDirectory` **must** be admitted, durably captured, and verified in the persistent backup store before the first target mutation. The operator default cannot weaken this safety requirement. Deleting an empty directory requires no backup object because no regular-file bytes are lost.
 
 `convert_encoding backup=true` remains the separate adjacent `.bak` behavior retained inside the conversion capability; it is not an alias for the persistent backup-store policy.
 
 ## Backup review additions
 
-R23 adds read-only backup usability without exposing store object bytes or internal paths:
+Scripthold 3.0 adds read-only backup review without exposing store object bytes or internal paths:
 
 - `backup_store action=history` provides target-scoped version history;
 - `backup_store action=compare` compares one verified backup with the current authorized target or two backups of the same target;
@@ -75,10 +75,10 @@ These review features do not imply transactional undo or automatic rollback.
 
 ## Compatibility expectations
 
-There is no legacy `edit_file direct` alias and no mixed compatibility wrapper that combines preparation and apply under one destructive tool definition. Likewise, the R24/`3.0.0` catalog does not retain `create_directory`, `copy_file`, `move_file`, or `delete_file` alongside `filesystem_package`; callers using those public tool names must migrate.
+There is no legacy `edit_file direct` alias and no mixed compatibility wrapper that combines preparation and apply under one destructive tool definition. Likewise, the `3.0.0` catalog does not retain `create_directory`, `copy_file`, `move_file`, or `delete_file` alongside `filesystem_package`; callers using those public tool names must migrate.
 
 Stdio and Streamable HTTP expose the same `3.0.0` catalog and schemas. A host may still require approval for a genuinely mutating apply tool; the split makes read-only preparation truthfully distinguishable from mutation and does not attempt to bypass client policy.
 
 ## Deployment boundary
 
-Source migration, release publication, and operator deployment are separate actions. Updating a client configuration for this API should be coordinated with installation of Scripthold `3.0.0` or later. Do not point a migrated client at Scripthold `2.2.0` and expect the R23/R24 `3.0.0` tool names or schemas to exist.
+Source migration, release publication, and operator deployment are separate actions. Updating a client configuration for this API should be coordinated with installation of Scripthold `3.0.0` or later. Do not point a migrated client at Scripthold `2.2.0` and expect the `3.0.0` tool names or schemas to exist.

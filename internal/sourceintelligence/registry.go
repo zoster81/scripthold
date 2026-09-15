@@ -223,7 +223,7 @@ var knownAnalyzerIDs = map[AnalyzerID]struct{}{
 var canonicalLanguageIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // LanguageCapabilities describe only capabilities actually enabled in the
-// current milestone. Future registry entries can exist with all capabilities false.
+// current implementation. Future registry entries can exist with all capabilities false.
 type LanguageCapabilities struct {
 	SourceAnalysis             bool
 	Composite                  bool
@@ -587,7 +587,7 @@ func DefaultLanguageRegistry() (*LanguageRegistry, error) {
 		}
 		for _, row := range registry.CapabilityRows() {
 			if row.Family == "custom" {
-				defaultLanguageRegistryCache.err = fmt.Errorf("default language %s has no approved R27 family classification", row.ID)
+				defaultLanguageRegistryCache.err = fmt.Errorf("default language %s has no approved family classification", row.ID)
 				return
 			}
 		}

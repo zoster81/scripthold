@@ -4,54 +4,44 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 
 ## Document responsibilities
 
-- `PROJECT_DIRECTION.md`: stable product identity, transport scope, independent-fork boundary, and upstream relationship.
-- `ROADMAP.md`: authoritative current/future milestone state, operating rules, and completion gates.
-- `DEVELOPMENT_CHECKLIST.md`: reusable, portable engineering and verification checks.
-- `ROADMAP_HISTORY.md`: concise completed milestone history for R1 onward, not an operator session log.
-- `PUBLISHING.md`: maintainer release and distribution procedure.
-- `MIGRATION_2.0.md`: authoritative intentional breaking changes and migration actions for 1.8 to 2.0.
-- `MIGRATION_3.0.md`: Scripthold 2.2.0-to-3.0.0 MCP-surface migration from mixed mutation actions to read-only preparation plus `previewId`-only apply tools.
-- `HTTP_SECURITY.md`: approved Streamable HTTP threat model, secure defaults, implementation constraints, test matrix, and release blockers.
-- `VERIFIED_CHANGE_WORKFLOWS.md`: approved R16 design baseline for fingerprints, preview/apply, patch packages, structured verification, and its relationship to the later backup subsystem.
-- `PERSISTENT_BACKUP_LIFECYCLE.md`: approved R17 design and R18 implementation contract for the internal store boundary, content-addressed objects, manifests, quotas, restore, garbage collection, and crash recovery.
-- `OFFLINE_BACKUP_DIAGNOSTICS.md`: R19 diagnostic-only design for inspecting an existing store without creation, repair, cleanup, or other filesystem mutation.
-- `MCP_2026_07_28_ADOPTION.md`: R20 compatibility and security design for adopting MCP `2026-07-28` without losing legacy stdio or stateful HTTP behavior.
-- `GLOBAL_ENCODING_COVERAGE.md`: completed R22 / 2.2.0 implementation and verification contract for global portable encoding coverage, full UTF-32 text support, detector hardening, corpus provenance, and release gates.
-- `MCP_MUTATION_SURFACE.md`: completed R23 contract for truthful read-only/mutation tool boundaries, capability-bound preview/apply, connector-blocking reduction, and backup-history/default-policy UX.
-- `SAFE_FILESYSTEM_OPERATIONS.md`: completed R24 contract and verification record for typed preview/apply filesystem packages, recursive directory operations, backup-before-loss, and partial-state evidence.
-- `SOURCE_INTELLIGENCE.md`: completed R25 contract and verification record for native language-neutral source navigation, evidence-qualified analysis, shared scanners/detection/composites, and the initial canary analyzers.
-- `BACKUP_RECOVERY.md`: completed R26 contract and verification record for offline evidence-preserving backup-store salvage/reconstruction without mutating the source store.
-- `MULTILANGUAGE_CODE_INTELLIGENCE.md`: completed R27 contract and verification record for broad multi-language source intelligence, capability reporting, relationships, and incremental indexing.
-- `ENGINE_HYGIENE.md`: completed R28 contract and verification record for evidence-driven compatibility consolidation, dead/test-only cleanup, bounded source organization, and measured performance work.
-- `LOGGING_DIAGNOSTICS.md`: completed R29 contract and verification record for redacted process-wide diagnostics, HTTP/access separation, bounded file retention, and multi-process lifecycle/failure handling.
-- `LANGUAGE_CAPABILITIES.md`: deterministic R27 capability projection rendered from the native language registry; update the registry/renderer and keep the byte-for-byte drift test green rather than editing support claims independently.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md): current product architecture and security/durability boundaries. Keep it current; do not turn it into a milestone history.
+- [`PROJECT_DIRECTION.md`](PROJECT_DIRECTION.md): stable product identity, scope, transport model, and upstream relationship.
+- [`ROADMAP.md`](ROADMAP.md): current and future milestone state only.
+- [`DEVELOPMENT_CHECKLIST.md`](DEVELOPMENT_CHECKLIST.md): reusable engineering and verification checks.
+- [`PUBLISHING.md`](PUBLISHING.md): maintainer release and distribution procedure.
+- [`HTTP_SECURITY.md`](HTTP_SECURITY.md): current Streamable HTTP threat model and deployment contract.
+- [`DURABLE_TASKS.md`](DURABLE_TASKS.md): current durable task process, recovery, log, retention, and configuration contract.
+- [`LANGUAGE_CAPABILITIES.md`](LANGUAGE_CAPABILITIES.md): generated source-intelligence capability projection; update its generator/registry rather than editing claims independently.
+- [`MIGRATION_2.0.md`](MIGRATION_2.0.md) and [`MIGRATION_3.0.md`](MIGRATION_3.0.md): user migration guides for intentional compatibility breaks.
 
-Keep operational details in their proper source instead of duplicating them across documents. Current milestone state belongs in `ROADMAP.md`; completed technical contracts remain authoritative unless explicitly revised, while concise historical outcomes belong in `ROADMAP_HISTORY.md` and release-specific changes in `CHANGELOG.md`.
+Detailed tool schemas, examples, limits, and current public behavior belong in [`TOOLS.md`](../TOOLS.md). Release-by-release user-visible changes belong in [`CHANGELOG.md`](../CHANGELOG.md). Implementation chronology belongs in Git, not in new phase diaries or completed-design archives.
 
-## Portability rules
+## Documentation policy
 
-Documentation must be usable by an external contributor from a normal clone.
+Documentation should answer one of these questions:
 
-Do not include:
+1. How do I install, configure, use, secure, migrate, or contribute to Scripthold?
+2. What is the current product/architecture contract?
+3. What work is currently planned?
+4. What changed in a public or unreleased version?
 
-- private workspace or home-directory paths;
-- connector instance names, local PIDs, active binary filenames, or workstation hashes;
-- private handoff files or launcher state;
-- credentials, real tunnel identifiers, or unsanitized configuration;
-- instructions that depend on a specific contributor asking an agent to commit, push, or restart a service.
+If a document mainly records how a completed phase was executed, task IDs, checkpoint evidence, historical design alternatives, local deployment state, or chat continuation instructions, it should not remain part of the maintained documentation set.
 
-Use repository-relative links, environment variables, and obvious placeholders such as `/path/to/project` or `C:\Path\To\AllowedProject`.
+Prefer updating an existing current document over creating a new milestone-specific file. Link to one source of truth instead of copying the same explanation into multiple files.
 
-Historical documents should record architectural outcomes, compatibility decisions, public releases, and reproducible validation—not ephemeral branch tracking, local deployment, or process state.
+## Portability
+
+Public documentation must work from a normal clone. Do not include private workspace paths, connector instance names, local PIDs, active binary filenames, workstation hashes, launcher state, credentials, tunnel identifiers, or operator handoff state.
+
+Use repository-relative links and portable placeholders such as `/path/to/project` or `C:\Path\To\AllowedProject`.
 
 ## Consistency
 
-- Keep project direction, roadmap status, README, tool reference, and publishing notes consistent.
-- Keep current limitations explicit and distinguish current behavior, completed history, and planned work.
-- Keep Streamable HTTP implementation aligned with `HTTP_SECURITY.md`; changes to its trust model or accepted risks require explicit review.
-- Do not imply that filename extensions influence encoding detection.
-- Do not claim streaming, atomicity, sandboxing, or platform support beyond what tests and implementation establish.
-- When tool behavior changes, verify links and descriptions against `internal/toolcatalog/catalog.json` and `TOOLS.md`.
+- Keep README, project direction, roadmap, architecture, tool reference, publishing notes, and migrations consistent.
+- Keep current limitations explicit and separate from planned work.
+- Do not imply filename-based encoding detection.
+- Do not claim streaming, atomicity, sandboxing, platform support, or security properties beyond implementation and tests.
+- When tool behavior changes, verify descriptions against `internal/toolcatalog/catalog.json` and `TOOLS.md`.
 - Use English technical prose and stable headings suitable for direct links.
 
 ## Verification
@@ -60,7 +50,8 @@ For documentation-only changes, run at least:
 
 ```bash
 go test ./internal/projectidentity ./internal/toolcatalog -count=1
+node scripts/check-markdown-links.js
 git diff --check
 ```
 
-Also validate all modified Markdown links. Run broader tests when documentation changes accompany code, metadata, workflow, packaging, or release behavior.
+Run broader checks when documentation changes accompany code, metadata, workflow, packaging, or release behavior.

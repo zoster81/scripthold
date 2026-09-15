@@ -641,7 +641,7 @@ func analyzeBraceLanguage(ctx context.Context, document *SourceDocument, options
 		masked, complete := policy.maskText(document.Text)
 		maskComplete = complete
 		if len(masked) != len(document.Text) {
-			return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "phase 7 masked source must preserve byte offsets")
+			return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "masked source must preserve byte offsets")
 		}
 		clone := *document
 		clone.Text = masked

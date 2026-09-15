@@ -74,7 +74,7 @@ func StageRawFile(ctx context.Context, stagingDir string, source io.Reader, mode
 		return nil, operation.New(operation.KindInvalidInput, "staging path must be a real directory")
 	}
 
-	file, err := os.CreateTemp(stagingDir, ".scripthold-r24-file-*.tmp")
+	file, err := os.CreateTemp(stagingDir, ".scripthold-stage-file-*.tmp")
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +258,7 @@ func StageExactDirectoryCopy(ctx context.Context, expected ExactTree, stagingDir
 	if !stagingIdentity.IsDirectory() {
 		return nil, operation.New(operation.KindInvalidInput, "staging path must be a real directory")
 	}
-	rootPath, err := os.MkdirTemp(stagingDir, ".scripthold-r24-dir-*")
+	rootPath, err := os.MkdirTemp(stagingDir, ".scripthold-stage-dir-*")
 	if err != nil {
 		return nil, err
 	}

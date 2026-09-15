@@ -1,4 +1,4 @@
-// Package filesystempackage implements the transport-independent R24 filesystem package workflow.
+// Package filesystempackage implements the transport-independent filesystem package workflow.
 package filesystempackage
 
 import (

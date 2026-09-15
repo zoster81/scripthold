@@ -1,21 +1,21 @@
 # Streamable HTTP Security Design
 
-This document is the authoritative security contract for native MCP Streamable HTTP in `scripthold`. It originated as the approved R12 design, was implemented in R13, and remains binding on the current transport without weakening the process-wide filesystem policy established in R11.
+This document is the authoritative security contract for native MCP Streamable HTTP in `scripthold`. It defines the current transport security boundary and preserves the process-wide filesystem policy shared with the stdio transport.
 
 ## Scope
 
-R12 defines the trust model, secure defaults, configuration contract, request pipeline, session policy, resource limits, logging rules, negative tests, and release blockers for Streamable HTTP.
+This document defines the trust model, secure defaults, configuration contract, request pipeline, session policy, resource limits, logging rules, negative tests, and release blockers for Streamable HTTP.
 
-R12 approved the design before implementation; R13 implemented it with the pinned MCP Go SDK while preserving stdio.
+The HTTP transport is implemented with the pinned MCP Go SDK while preserving the stdio transport and sharing the same server/tool policy.
 
-R20 extends this design through [MCP_2026_07_28_ADOPTION.md](MCP_2026_07_28_ADOPTION.md). R20 is complete in source: the same endpoint and outer security pipeline route supported legacy versions to the verified stateful handler and exact `2026-07-28` to a stateless SDK handler. Host, Origin, authentication, proxy, rate, body, concurrency, timeout, logging, execution, readiness, and shutdown controls remain common; only legacy traffic enters session admission.
+The same endpoint and outer security pipeline route supported legacy protocol versions to the retained stateful handler and exact `2026-07-28` traffic to the stateless SDK handler. Host, Origin, authentication, proxy, rate, body, concurrency, timeout, logging, execution, readiness, and shutdown controls remain common; only legacy traffic enters session admission.
 
 ## Security objectives
 
 The HTTP transport must:
 
 - prevent unauthenticated access to configured filesystem roots and optional execution tools;
-- preserve the same authoritative 30-tool source catalog, allowed-directory checks, encoding behavior, limits, and error mapping as stdio;
+- preserve the same authoritative source tool catalog, allowed-directory checks, encoding behavior, limits, and error mapping as stdio;
 - prevent browser-origin attacks, DNS rebinding, token leakage, session hijacking, and untrusted proxy spoofing;
 - bound request bodies, headers, concurrent requests, sessions, idle lifetime, and shutdown time;
 - keep credentials, session identifiers, tool arguments, file contents, and sensitive paths out of HTTP logs;
@@ -354,13 +354,13 @@ Logs must not contain:
 
 Session identifiers may be represented only by a short one-way fingerprint when correlation is necessary. Error logging must use stable categories and redact path-bearing details at the HTTP access layer.
 
-R29 routes HTTP tool lifecycle events through the category-only redacted `ToolLogger`; human-readable tool failure text, raw Go errors, panic values, stacks, and clear paths are not logged. The HTTP access logger remains a distinct `http_access` channel, and the MCP SDK logger remains separate and disabled in the command runtime. See [LOGGING_DIAGNOSTICS.md](LOGGING_DIAGNOSTICS.md).
+HTTP tool lifecycle events use the category-only redacted `ToolLogger`; human-readable tool failure text, raw Go errors, panic values, stacks, and clear paths are not logged. The HTTP access logger remains a distinct `http_access` channel, and the MCP SDK logger remains separate and disabled in the command runtime. The shared diagnostic boundary is summarized in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## SDK integration constraints
 
 The pinned `github.com/modelcontextprotocol/go-sdk` provides a stateful Streamable HTTP handler for supported legacy traffic and a stateless handler for `2026-07-28`, both behind the same explicit outer controls:
 
-- return the same R11-built `*mcp.Server` for every legacy session and every stateless request;
+- return the same shared `*mcp.Server` for every legacy session and every stateless request;
 - keep SDK localhost protection enabled;
 - add an explicit all-method Origin validator because browser protection for unsafe methods alone is insufficient for MCP GET streams;
 - bound the body before the SDK can call `io.ReadAll`, while avoiding an additional full-body copy and enforcing an aggregate reservation budget;
@@ -370,7 +370,7 @@ The pinned `github.com/modelcontextprotocol/go-sdk` provides a stateful Streamab
 - populate authenticated principal information in context for legacy SDK session binding;
 - implement an outer bounded session-admission tracker because legacy SDK session storage is internal, while stateless traffic bypasses that tracker;
 - use one idempotent lifecycle record per admitted session to prevent capacity leaks or double release;
-- route handler lifecycle logging only through the R29 category-only redacted `ToolLogger`, separate from the HTTP access logger and MCP SDK logger;
+- route handler lifecycle logging only through the category-only redacted `ToolLogger`, separate from the HTTP access logger and MCP SDK logger;
 - coordinate HTTP shutdown without relying on the SDK's unexported test-only close-all helper.
 
 No SDK fork is required. Any future dependency or SDK-architecture change must preserve these requirements through explicit review and verification.
@@ -482,7 +482,7 @@ The following risks are explicit and accepted for the native HTTP profile:
 
 ## References
 
-- [R20 MCP 2026-07-28 adoption design](MCP_2026_07_28_ADOPTION.md)
+- [Scripthold architecture](ARCHITECTURE.md)
 - [MCP 2026-07-28 specification announcement](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
 - [MCP Streamable HTTP transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 - [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)

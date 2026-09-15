@@ -15,20 +15,19 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-func TestV2PublicJSONTagsUseCamelCase(t *testing.T) {
+func TestPublicJSONTagsUseCamelCase(t *testing.T) {
 	shapes := []any{
 		ReadTextFileInput{}, ReadTextFileOutput{}, WriteWholeFileInput{}, WriteWholeFileOutput{},
 		ListDirectoryInput{}, ListDirectoryOutput{}, ListEncodingsInput{}, ListEncodingsOutput{},
 		DetectEncodingInput{}, DetectEncodingOutput{}, ListAllowedDirectoriesInput{}, ListAllowedDirectoriesOutput{},
-		GetFileInfoInput{}, GetFileInfoOutput{}, CreateDirectoryInput{}, CreateDirectoryOutput{},
-		MoveFileInput{}, MoveFileOutput{}, SearchFilesInput{}, SearchFilesOutput{},
+		GetFileInfoInput{}, GetFileInfoOutput{}, SearchFilesInput{}, SearchFilesOutput{},
 		FingerprintPathsInput{}, FingerprintPathsOutput{}, FingerprintEntry{},
 		EditFileInput{}, EditFileOutput{}, EditOperation{},
 		PatchPackageInput{}, PatchPackageManifest{}, PatchPackageTarget{}, PatchPackageTargetResult{}, PatchPackageOutput{},
 		VerifyStateInput{}, VerificationCheck{}, JSONVerificationCheck{}, TextVerificationCheck{}, GitDiffVerificationCheck{},
 		FingerprintVerificationCheck{}, VerificationDiagnostic{}, VerifyStateResult{}, VerifyStateOutput{},
 		ReadMultipleFilesInput{}, ReadMultipleFilesOutput{}, FileReadResult{},
-		TreeInput{}, TreeOutput{}, DeleteFileInput{}, DeleteFileOutput{}, CopyFileInput{}, CopyFileOutput{},
+		TreeInput{}, TreeOutput{},
 		ConvertEncodingInput{}, ConvertEncodingOutput{}, ConvertFileResult{}, GrepInput{}, GrepOutput{}, GrepMatch{}, GrepFileCount{}, PartialFileError{},
 		DetectLineEndingsInput{}, DetectLineEndingsOutput{}, ChangeLineEndingsInput{}, ChangeLineEndingsOutput{},
 		ManageBomInput{}, ManageBomOutput{}, CheckUpdateInput{}, CheckUpdateOutput{},
@@ -66,7 +65,7 @@ func TestV2PublicJSONTagsUseCamelCase(t *testing.T) {
 	}
 }
 
-func TestV2ConfiguredRequestLimits(t *testing.T) {
+func TestConfiguredRequestLimits(t *testing.T) {
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, "data.txt")
 	if err := os.WriteFile(path, []byte("match\n"), 0644); err != nil {
@@ -103,7 +102,7 @@ func TestV2ConfiguredRequestLimits(t *testing.T) {
 	}
 }
 
-func TestV2AmbiguousAndUTF32Policies(t *testing.T) {
+func TestAmbiguousAndUTF32Policies(t *testing.T) {
 	tempDir := t.TempDir()
 	h := NewHandler([]string{tempDir})
 
@@ -130,7 +129,7 @@ func TestV2AmbiguousAndUTF32Policies(t *testing.T) {
 	}
 }
 
-func TestV2SingleToolErrorsExposeStableCodeInMeta(t *testing.T) {
+func TestSingleToolErrorsExposeStableCodeInMeta(t *testing.T) {
 	result := errorResultFromError(operation.New(operation.KindLimit, "output limit exceeded"))
 	if result == nil || !result.IsError {
 		t.Fatal("expected MCP error result")

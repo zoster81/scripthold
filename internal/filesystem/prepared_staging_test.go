@@ -157,7 +157,7 @@ func TestStageRawFileCancellationCleansPreparedTemp(t *testing.T) {
 		t.Fatal(readErr)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".scripthold-r24-file-") {
+		if strings.HasPrefix(entry.Name(), ".scripthold-stage-file-") {
 			t.Fatalf("cancelled staging residue remains: %s", entry.Name())
 		}
 	}

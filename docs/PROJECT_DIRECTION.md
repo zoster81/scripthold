@@ -1,61 +1,52 @@
-# Scripthold Project Direction and Upstream Relationship
+# Scripthold Project Direction
 
-**Scripthold** is the product identity of `zoster81/scripthold`, an independently versioned downstream fork of the [original `mcp-file-tools` project](https://github.com/dimitar-grigorov/mcp-file-tools), created by **Dimitar Grigorov**. It preserves the original project's GPL-3.0 lineage and encoding-aware text-file purpose while maintaining its own module path, MCP Registry identity, release pipeline, public API, transport architecture, security model, and deployment documentation.
+Scripthold is the independently versioned `zoster81/scripthold` fork of the original [`mcp-file-tools`](https://github.com/dimitar-grigorov/mcp-file-tools) project created by Dimitar Grigorov. It retains the GPL-3.0 lineage while maintaining its own module path, MCP identity, release pipeline, API, transport architecture, security model, and documentation.
 
-Scripthold is not a compatibility branch intended for routine source synchronization with upstream. Ideas, tests, fixes, and implementation techniques may inform either project, but every change is reviewed against the receiving project's current architecture and product boundaries.
+Scripthold is not a compatibility branch that routinely mirrors upstream source. Ideas and fixes may be evaluated in either direction, but every change is reviewed against the receiving project's current architecture.
 
 ## Product identity
 
 **Code from the web. Work locally. Recover safely.**
 
-Scripthold is a secure local-workspace MCP runtime for web, desktop, and CLI agents that need controlled access to real source code and text files inside explicitly authorized directories.
+Scripthold is a secure local-workspace MCP runtime for web, desktop, and CLI agents that need controlled access to source code and text files inside explicitly authorized directories.
 
-**Scripthold was built with Scripthold.** Its development uses the same web-to-local workflow offered to users.
+The product focuses on:
 
-## Product scope
+- safe reading and mutation of mixed/legacy text encodings;
+- deterministic, approval-bound filesystem changes;
+- optional persistent backup and recovery;
+- bounded source navigation and structural code intelligence;
+- optional durable local task execution;
+- stdio and authenticated Streamable HTTP access to the same tool catalog;
+- explicit resource limits and fail-closed path/security behavior.
 
-The maintained product includes:
-
-- one authoritative tool catalog over stdio and Streamable HTTP: 36 tools in the current `3.1.6` release, plus 3 guided prompts;
-- process-wide allowed-directory policy with symlink, junction, reparse-point, missing-ancestor, and Windows path-alias validation;
-- 168 registered text encodings with content-based detection intentionally narrower than explicit codec support;
-- bounded native read-only source intelligence through `source_symbols` and `source_query`, with 101 active approved R27 providers, evidence-qualified detection, capability-specific project relations, bounded task context, coherent process-local indexing, decoded-source coordinates, and no external parser/compiler/LSP runtime dependency;
-- bounded-memory text reading, grep, conversion, BOM, and line-ending operations, with explicit limits for full-document edits;
-- durable staged mutations with practical concurrent-change detection, no-replace creation, platform synchronization, and operation-specific rollback/recovery evidence;
-- deterministic fingerprints, one-shot edit/package approval, strict patch packages, and typed structured verification;
-- an optional dedicated persistent backup store with immutable content-addressed objects, bounded review/audit, approval-bound capture, original-target restore, and explicit garbage collection;
-- mutation-free offline diagnosis of an existing backup store;
-- optional durable `task_run` shell/script execution with idempotent admission, persistent bounded queueing, independent supervisor/worker/executor lifecycle, logical locks, bounded logs, recovery, retention, and cancellation;
-- MCP `2026-07-28` support through the stable Go SDK, with modern stateless HTTP beside retained stateful legacy HTTP behavior under the same outer security pipeline;
-- reproducible multi-platform releases and a non-root transport-neutral container.
-
-Binary/media interpretation and per-agent filesystem ACLs are outside the current product model. Every connection to one server process shares the same startup roots and policy. Run separate processes when technical isolation is required.
+Binary/media interpretation and per-agent filesystem ACLs are outside the current model. Every connection to one server process shares its startup authorization policy; use separate processes when technical isolation is required.
 
 ## Current product state
 
-Scripthold `3.1.6` is the current public release with 36 tools, 3 guided prompts, 168 registered text encodings, and 101 active source-intelligence providers. Current unreleased source exposes 38 tools while leaving the published `3.1.6` surface unchanged. The development surface remains native Go and fail closed: source intelligence does not execute project code or depend on external parser/compiler/LSP runtimes, ambiguous routing is reported rather than guessed, and persistent on-disk source indexing is not enabled.
+The current public release is Scripthold **3.1.6** with 36 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers. Current unreleased source exposes 38 tools while leaving the published release surface unchanged.
 
-Current/future milestone state belongs in [ROADMAP.md](ROADMAP.md), concise completed history in [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md), release changes in [CHANGELOG.md](../CHANGELOG.md), and detailed behavior in the subsystem contracts. Publication and deployment remain separate operations; public product documentation does not track private workstation runtime state.
+Current behavior is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`TOOLS.md`](../TOOLS.md). Current/future work is in [`ROADMAP.md`](ROADMAP.md), and release changes are in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Supported transports
 
 | Transport | Intended use | Authentication boundary | Directory policy |
 |---|---|---|---|
-| stdio | Client-managed local processes, desktop/CLI MCP clients, and secure tunnel bridges | Operating-system process and client configuration | Startup directories are authoritative; dynamic client roots are accepted only when no directories were configured at startup |
-| Streamable HTTP | Persistent local services, containers, trusted reverse proxies, and explicitly secured remote deployments | Bearer token on every MCP request; loopback by default; TLS or a trusted proxy boundary for non-loopback listeners | Startup directories are immutable and shared by all HTTP requests; HTTP clients cannot mutate roots |
+| stdio | Client-managed local processes, desktop/CLI clients, secure bridge/tunnel topologies | Operating-system process and client configuration | Startup directories are authoritative; dynamic client roots are accepted only when no startup directories were configured |
+| Streamable HTTP | Persistent local services, containers, trusted reverse proxies, explicitly secured remote deployments | Bearer token on every MCP request; loopback by default; TLS or a trusted proxy boundary for non-loopback listeners | Startup directories are immutable and shared by all requests; HTTP clients cannot mutate roots |
 
-Both transports construct the same server through `BuildServer` and expose the same tools, prompts, encoding behavior, limits, execution policy, and typed errors. The HTTP threat model and deployment rules are defined in [HTTP_SECURITY.md](HTTP_SECURITY.md).
+Both transports build the same server and expose the same tools, prompts, encoding behavior, limits, execution policy, and typed errors. HTTP deployment requirements are in [`HTTP_SECURITY.md`](HTTP_SECURITY.md).
 
 ## Relationship to upstream
 
-The [original `mcp-file-tools` project](https://github.com/dimitar-grigorov/mcp-file-tools) remains an independent product and the source of Scripthold's original encoding-aware file-tool lineage. Scripthold reviews upstream developments selectively for useful ideas, bug reports, tests, and security lessons; it does not promise source-level, schema, release, or deployment compatibility with later upstream versions.
+The original project remains an independent product. Scripthold may review upstream ideas, bug reports, tests, and security lessons, but does not promise source-level, schema, release, or deployment compatibility with later upstream versions.
 
-R15 explicitly credited upstream concepts and implementation approaches that informed optional line numbers, richer grep, `.gitignore` traversal, bounded sorting, batch encoding dry runs, encoding workflow prompts, unified-patch editing, and opt-in fuzzy matching. The resulting Scripthold implementations were adapted to this fork's secure walker, bounded-memory pipeline, durable mutation layer, process-wide roots, stable schemas, and dual-transport security model rather than copied as a synchronization strategy.
+Attribution to the original project remains permanent. New Scripthold work should describe the user problem and the resulting local design rather than maintaining a running diary of cross-project implementation history.
 
 ## Maintenance policy
 
-- Release and API decisions are made for Scripthold users, not to minimize merge conflicts with upstream.
-- Public behavior is defined by this repository's implementation, tool catalog, tests, and source-of-truth documentation.
-- Upstream ideas are reviewed selectively and adapted only when they fit Scripthold's security, compatibility, resource, and maintenance boundaries.
-- Cross-project proposals should describe the user problem and credit the project where an idea was observed without assuming either repository can accept the other's implementation unchanged.
-- Public documentation must keep reproducible product behavior separate from private operator state, local runtime state, credentials, and workstation-specific orchestration.
+- Product and API decisions are made for Scripthold users.
+- Public behavior is defined by implementation, tests, the tool catalog, and current source-of-truth documentation.
+- Security and compatibility boundaries are changed deliberately, not incidentally.
+- Public documentation must remain reproducible from a normal clone and must not contain private workstation/runtime state.
+- Historical implementation detail belongs in Git; documentation should describe current behavior, migration actions, release changes, and planned work.

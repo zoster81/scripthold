@@ -1,4 +1,4 @@
-//lint:file-ignore SA1019 R20 intentionally preserves deprecated MCP roots during the compatibility window and removes logging from modern discovery.
+//lint:file-ignore SA1019 Deprecated MCP roots remain supported for compatibility; modern discovery omits logging.
 package filetoolsserver
 
 import (

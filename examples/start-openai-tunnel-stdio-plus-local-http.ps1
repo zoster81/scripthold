@@ -24,6 +24,15 @@
     $StdioBackupStore = "C:\Path\To\PrivateState\stdio"
     $HttpBackupStore = "C:\Path\To\PrivateState\http"
     $TaskStore = "C:\Path\To\PrivateState\tasks"
+    $StdioDeferredStore = "C:\Path\To\PrivateState\stdio-deferred"
+    $HttpDeferredStore = "C:\Path\To\PrivateState\http-deferred"
+    $CallMaxSyncSeconds = 45
+    $DeferredSyncWaitSeconds = 15
+    $DeferredMaxRuntimeSeconds = 300
+    $DeferredMaxConcurrency = 4
+    $DeferredMaxQueued = 64
+    $DeferredRetentionSeconds = 3600
+    $DeferredMaxTotalBytes = 536870912
     $TaskMaxConcurrency = 2
     $TaskMaxQueued = 64
     $TaskMaxLogBytesPerStream = 8388608
@@ -67,6 +76,14 @@
         "MCP_TASK_RETENTION_DAYS",
         "MCP_TASK_MAX_TERMINAL",
         "MCP_TASK_MAX_TOTAL_BYTES",
+        "MCP_DEFERRED_STORE_DIR",
+        "MCP_CALL_MAX_SYNC_SECONDS",
+        "MCP_DEFERRED_SYNC_WAIT_SECONDS",
+        "MCP_DEFERRED_MAX_RUNTIME_SECONDS",
+        "MCP_DEFERRED_MAX_CONCURRENCY",
+        "MCP_DEFERRED_MAX_QUEUED",
+        "MCP_DEFERRED_RETENTION_SECONDS",
+        "MCP_DEFERRED_MAX_TOTAL_BYTES",
         "MCP_STDIO_LEGACY_HANDSHAKE",
         "MCP_ENABLE_RUN_SCRIPT",
         "MCP_ENABLE_SHELL",
@@ -129,6 +146,21 @@
         $Values["MCP_TASK_RETENTION_DAYS"] = $TaskRetentionDays.ToString()
         $Values["MCP_TASK_MAX_TERMINAL"] = $TaskMaxTerminal.ToString()
         $Values["MCP_TASK_MAX_TOTAL_BYTES"] = $TaskMaxTotalBytes.ToString()
+    }
+
+    function Add-DeferredEnvironment {
+        param(
+            [Parameter(Mandatory = $true)][hashtable]$Values,
+            [Parameter(Mandatory = $true)][string]$Store
+        )
+        $Values["MCP_DEFERRED_STORE_DIR"] = $Store
+        $Values["MCP_CALL_MAX_SYNC_SECONDS"] = $CallMaxSyncSeconds.ToString()
+        $Values["MCP_DEFERRED_SYNC_WAIT_SECONDS"] = $DeferredSyncWaitSeconds.ToString()
+        $Values["MCP_DEFERRED_MAX_RUNTIME_SECONDS"] = $DeferredMaxRuntimeSeconds.ToString()
+        $Values["MCP_DEFERRED_MAX_CONCURRENCY"] = $DeferredMaxConcurrency.ToString()
+        $Values["MCP_DEFERRED_MAX_QUEUED"] = $DeferredMaxQueued.ToString()
+        $Values["MCP_DEFERRED_RETENTION_SECONDS"] = $DeferredRetentionSeconds.ToString()
+        $Values["MCP_DEFERRED_MAX_TOTAL_BYTES"] = $DeferredMaxTotalBytes.ToString()
     }
 
     function Ensure-TaskSupervisor {
@@ -296,6 +328,7 @@
     Set-BooleanEnvironmentFlag -Values $httpEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
     Set-BooleanEnvironmentFlag -Values $httpEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
     Add-TaskEnvironment -Values $httpEnvironment
+    Add-DeferredEnvironment -Values $httpEnvironment -Store $HttpDeferredStore
 
     $tunnelEnvironment = @{
         "CONTROL_PLANE_API_KEY" = $RuntimeApiKey
@@ -307,6 +340,7 @@
     Set-BooleanEnvironmentFlag -Values $tunnelEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
     Set-BooleanEnvironmentFlag -Values $tunnelEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell
     Add-TaskEnvironment -Values $tunnelEnvironment
+    Add-DeferredEnvironment -Values $tunnelEnvironment -Store $StdioDeferredStore
     $taskEnvironment = @{}
     Set-BooleanEnvironmentFlag -Values $taskEnvironment -Name "MCP_ENABLE_RUN_SCRIPT" -Enabled $EnableRunScript
     Set-BooleanEnvironmentFlag -Values $taskEnvironment -Name "MCP_ENABLE_SHELL" -Enabled $EnableShell

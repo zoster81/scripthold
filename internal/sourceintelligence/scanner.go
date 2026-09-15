@@ -182,7 +182,7 @@ func initialScannerTokenCapacity(textBytes, maxTokens int) int {
 }
 
 func (scanner *sourceScanner) validateProfile() error {
-	if err := scanner.validateR27Profile(); err != nil {
+	if err := scanner.validateScannerProfile(); err != nil {
 		return err
 	}
 	for _, exception := range scanner.profile.LineCommentExceptions {

@@ -214,7 +214,7 @@ func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInpu
 	}
 	analyzer, ok := sourceintelligence.AnalyzerFor(descriptor)
 	if !ok {
-		return errorResultWithCode(ErrCodeUnsupported, "show language has no R25 analyzer"), SourceSymbolsOutput{}, nil
+		return errorResultWithCode(ErrCodeUnsupported, "show language has no supported analyzer"), SourceSymbolsOutput{}, nil
 	}
 	analysis, err := analyzer.Analyze(requestCtx, document, sourceintelligence.AnalyzeOptions{
 		IncludeSignatures: false, MaxNesting: limits.MaxNesting,

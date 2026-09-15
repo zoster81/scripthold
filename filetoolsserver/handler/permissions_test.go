@@ -198,41 +198,6 @@ func TestConvertEncoding_BackupPreservesPermissions(t *testing.T) {
 	}
 }
 
-func TestCopyFile_PreservesPermissions(t *testing.T) {
-	skipOnWindows(t)
-
-	tempDir := t.TempDir()
-	h := NewHandler([]string{tempDir})
-
-	srcFile := filepath.Join(tempDir, "source.txt")
-	dstFile := filepath.Join(tempDir, "dest.txt")
-
-	// Create source with specific permissions
-	if err := os.WriteFile(srcFile, []byte("content"), 0751); err != nil {
-		t.Fatal(err)
-	}
-
-	// Copy file
-	input := CopyFileInput{
-		Source:      srcFile,
-		Destination: dstFile,
-	}
-
-	result, _, err := h.HandleCopyFile(context.Background(), nil, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		t.Errorf("expected success")
-	}
-
-	// Verify destination has source permissions
-	dstInfo, _ := os.Stat(dstFile)
-	if dstInfo.Mode().Perm() != 0751 {
-		t.Errorf("copy should preserve permissions, expected 0751, got %o", dstInfo.Mode().Perm())
-	}
-}
-
 func TestGetFileMode_ExistingFile(t *testing.T) {
 	skipOnWindows(t)
 

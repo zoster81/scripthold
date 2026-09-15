@@ -107,23 +107,6 @@ type GetFileInfoOutput struct {
 	Permissions string `json:"permissions"`
 }
 
-type CreateDirectoryInput struct {
-	Path string `json:"path"`
-}
-
-type CreateDirectoryOutput struct {
-	Message string `json:"message"`
-}
-
-type MoveFileInput struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
-}
-
-type MoveFileOutput struct {
-	Message string `json:"message"`
-}
-
 // SearchFilesInput - pattern supports *.ext and **/*.ext syntax
 type SearchFilesInput struct {
 	Path             string   `json:"path"`
@@ -276,23 +259,6 @@ type TreeOutput struct {
 	FileCount int    `json:"fileCount"`
 	DirCount  int    `json:"dirCount"`
 	Truncated bool   `json:"truncated,omitempty"`
-}
-
-type DeleteFileInput struct {
-	Path string `json:"path"`
-}
-
-type DeleteFileOutput struct {
-	Message string `json:"message"`
-}
-
-type CopyFileInput struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
-}
-
-type CopyFileOutput struct {
-	Message string `json:"message"`
 }
 
 // ConvertEncodingInput converts between encodings. From is auto-detected if empty.

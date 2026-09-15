@@ -49,7 +49,7 @@ type IndexEvidence struct {
 	Staleness   IndexStaleness `json:"staleness"`
 }
 
-// RelationEntity is the common endpoint identity carried by R27 relationships.
+// RelationEntity is the common endpoint identity carried by source relationships.
 // Exact source bodies are deliberately excluded; authoritative source is read
 // separately and fingerprint-verified when body text is required.
 type RelationEntity struct {

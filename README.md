@@ -4,126 +4,41 @@
 
 [![Test Suite](https://github.com/zoster81/scripthold/actions/workflows/test.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/test.yml?query=branch%3Amain)
 [![CodeQL](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/codeql.yml?query=branch%3Amain)
-[![golangci-lint](https://img.shields.io/badge/golangci--lint-v2.13.1-4C8EDA?logo=go&logoColor=white)](.golangci.yml)
+[![golangci-lint](https://img.shields.io/badge/golangci--lint-v2.13.2-4C8EDA?logo=go&logoColor=white)](.golangci.yml)
 [![Go](https://img.shields.io/github/go-mod/go-version/zoster81/scripthold?logo=go)](go.mod)
 [![Release](https://img.shields.io/github/v/release/zoster81/scripthold)](https://github.com/zoster81/scripthold/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/github/license/zoster81/scripthold)](LICENSE)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-Scripthold-blue)](https://registry.modelcontextprotocol.io/?search=io.github.zoster81%2Fscripthold)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-555)](.github/workflows/test.yml)
-[![Text encodings](https://img.shields.io/badge/text%20encodings-168-6f42c1)](docs/GLOBAL_ENCODING_COVERAGE.md)
+[![Text encodings](https://img.shields.io/badge/text%20encodings-168-6f42c1)](TOOLS.md#supported-encodings)
 [![Source providers](https://img.shields.io/badge/source%20providers-101-0b7285)](docs/LANGUAGE_CAPABILITIES.md)
 
 **Code from the web. Work locally. Recover safely.**
 
-Scripthold is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives web, desktop, and CLI agents controlled access to explicitly authorized local workspaces. It reads and writes legacy text safely, exposes deterministic repository-oriented workflows, supports authenticated Streamable HTTP as well as stdio, and can optionally run durable asynchronous local tasks.
+Scripthold is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives web, desktop, and CLI agents controlled access to explicitly authorized local workspaces. It safely handles legacy text encodings, deterministic file changes, source navigation, backups, and optional durable local execution over stdio or authenticated Streamable HTTP.
 
 AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
-Scripthold detects encodings from bytes and decoded-text evidence rather than filenames, presents text to the MCP client as UTF-8, and preserves or deliberately converts encoding, BOM, and line endings through bounded-memory and durable filesystem operations.
+## What Scripthold provides
 
-- **36 tools and 3 guided prompts** over one authoritative catalog in Scripthold `3.1.6`.
-- **168 registered encodings**, including UTF-32 LE/BE and broad portable legacy coverage; automatic detection remains intentionally more conservative than explicit codec support.
-- **101 active source-intelligence providers** across programming languages, dialects, DSLs, document/config formats, and composites, with capability-specific evidence and fail-closed ambiguity.
-- **Secure filesystem boundaries** with resolved-root containment, deterministic traversal, Windows reparse/junction handling, staged mutation, conflict detection, and no-replace creation.
-- **Verified change workflows** with deterministic fingerprints, one-shot edit approval, strict patch packages, persistent backup integration, and typed verification.
-- **Offline backup recovery** with deterministic persisted review plans, immutable source evidence, fully verified reconstruction into a separate staged destination, mandatory full audit, no-replace promotion, and path-free provenance.
-- **Durable asynchronous execution** with idempotent admission, an owner-only task store, bounded queue/logs, independent supervisor/worker/executor lifecycle, recovery, logical locks, and cancellation.
-- **Fail-closed Streamable HTTP** with bearer authentication, loopback defaults, exact Host/Origin checks, bounded resources, no CORS, and explicit TLS/proxy requirements for non-loopback exposure.
+The current public release is **Scripthold 3.1.6** with 36 tools and 3 guided prompts. Current unreleased source exposes 38 tools.
 
-**Scripthold was built with Scripthold.**
+- **168 registered text encodings** with content-based detection, UTF-32 LE/BE support, and conservative ambiguity handling.
+- **101 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
+- **Secure workspace boundaries** with canonical-root containment, Windows reparse/junction handling, deterministic traversal, and missing-path validation.
+- **Approval-bound mutations** using preview/apply capabilities, exact fingerprints, conflict checks, staged writes, and truthful partial-state reporting.
+- **Optional persistent backups** with history, compare, audit, restore, explicit garbage collection, pinning, and exact-ID deletion.
+- **Durable asynchronous tasks** with idempotency, persistent state, bounded logs, recovery, locks, and cancellation.
+- **Reliable long-running read-only calls** through optional deferred-operation storage and bounded retained-result retrieval.
+- **Authenticated Streamable HTTP** with loopback defaults, bearer authentication, Host/Origin validation, resource limits, and explicit TLS/proxy requirements for non-loopback exposure.
 
-> **Lineage:** Scripthold originated from the [original `mcp-file-tools` project](https://github.com/dimitar-grigorov/mcp-file-tools), created by **Dimitar Grigorov**, and retains its GPL-3.0 lineage and permanent attribution. See [Project Direction](docs/PROJECT_DIRECTION.md).
+Scripthold originated from the [original `mcp-file-tools` project](https://github.com/dimitar-grigorov/mcp-file-tools), created by **Dimitar Grigorov**, and retains its GPL-3.0 lineage. See [Project Direction](docs/PROJECT_DIRECTION.md).
 
-## Current release and development state
-
-**Scripthold `3.1.6`** is the current public release. The current source exposes 38 tools, 3 guided prompts, 168 registered encodings, and 101 active source-intelligence providers over the same stdio and Streamable HTTP surface; the published `3.1.6` surface remains unchanged. `source_symbols` provides bounded declaration/navigation workflows; `source_query` adds structural search, supported project relations, fingerprint-verified context, and coherent process-local index generations. Capability claims remain provider-specific and fail closed where evidence is insufficient.
-
-R1-R29 and the pre-R29 verification-architecture maintenance program are complete in current source. R29 logging/diagnostics lifecycle work is not yet part of the `3.1.6` public release; R30-R33 remain planned and no release-scoped milestone is currently active. Connector-reliability maintenance is complete in current unreleased source: every MCP tool call has a bounded cooperative synchronous deadline, oversized completed responses are retained behind bounded `deferred_operation` retrieval, and an explicitly configured deferred-operation store gives `fingerprint_paths`, `grep_text_files`, `search_files`, `tree`, and `source_symbols` independent durable execution ownership before the frontend wait window. `source_query` remains synchronous because its returned index binding is process-local. When the durable deferred-operation store is configured, modern `2026-07-28` requests that opt into `io.modelcontextprotocol/tasks` can observe that same durable work through native `tools/call` task results plus `tasks/get`, `tasks/update`, and `tasks/cancel`; legacy sessions continue to use `deferred_operation`. See [CHANGELOG.md](CHANGELOG.md) for release changes, [docs/ROADMAP.md](docs/ROADMAP.md) for current/future work, [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md) for concise engineering history, and the subsystem contracts for detailed behavior.
-
-## Quality and security
-
-The push-event [Test Suite](.github/workflows/test.yml) is the exact-commit release-candidate gate. It covers Windows/Linux/macOS native regression and race testing, Go vet, standalone Staticcheck, the repository's focused `golangci-lint` policy, govulncheck, deterministic fuzz checks, six supported-target cross-builds, workflow/shell validation, and native/container smoke before the aggregate `Release candidate` job can pass.
-
-[CodeQL](.github/workflows/codeql.yml) adds Go code scanning on `main` pushes, a weekly schedule, and manual runs. Vulnerability reporting and responsible-disclosure guidance are in [SECURITY.md](SECURITY.md). Secret scanning, allowed-root confinement, durable mutation/backup invariants, encoding safety, and transport security remain part of the repository's normal verification model rather than badge-only claims.
-
-## Transport and authorization model
-
-| Transport | Typical use | Security boundary | Roots behavior |
-|---|---|---|---|
-| stdio | Local MCP clients and secure tunnel bridges | Client configuration plus operating-system process boundary | Startup directories are authoritative; dynamic client roots are accepted only when startup roots are empty |
-| Streamable HTTP | Persistent localhost services, containers, trusted proxies, explicitly secured remote services | Bearer token on every MCP request; loopback by default; TLS or trusted proxy boundary for non-loopback | Startup directories are immutable and shared by all requests; HTTP clients cannot mutate roots |
-
-Both transports use the same `BuildServer` path and expose the same tools, prompts, limits, encoding behavior, error model, and execution policy.
-
-Allowed directories are a **process-wide authorization boundary**. Sessions separate protocol lifecycle and cancellation; they are not per-agent filesystem ACLs. If two agents require technical isolation, run separate Scripthold processes with narrower roots and, for concurrent Git writes, separate checkouts or worktrees.
-
-MCP `2026-07-28` is supported through the stable Go SDK. Native HTTP serves stateless modern requests beside retained stateful legacy sessions under the same outer authentication, Host/Origin, resource, logging, and execution controls. See [docs/MCP_2026_07_28_ADOPTION.md](docs/MCP_2026_07_28_ADOPTION.md) and [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md).
-
-## Tool catalog
-
-### File and directory operations
-
-- [`read_text_file`](TOOLS.md#read_text_file) — stream decoded text with bounded output and optional line numbers.
-- [`read_multiple_files`](TOOLS.md#read_multiple_files) — deterministic bounded batch reads with per-file status.
-- [`write_whole_file`](TOOLS.md#write_whole_file) — replace complete file contents through the shared encoder.
-- [`edit_file`](TOOLS.md#edit_file) — read-only exact edit preview with approval fingerprints and a one-shot capability.
-- [`edit_file_apply`](TOOLS.md#edit_file_apply) — apply only the exact prepared edit identified by `previewId`.
-- [`patch_package`](TOOLS.md#patch_package) — read-only inspect/dry-run/verify for declared multi-file edits.
-- [`patch_package_apply`](TOOLS.md#patch_package_apply) — apply only a prepared patch-package capability.
-- [`list_directory`](TOOLS.md#list_directory) — list directory entries with filtering and deterministic sorting.
-- [`tree`](TOOLS.md#tree) — compact `.gitignore`-aware deterministic tree output.
-- [`get_file_info`](TOOLS.md#get_file_info) — read file or directory metadata.
-- [`filesystem_package`](TOOLS.md#filesystem_package) — read-only bounded preparation for coordinated no-replace create/copy/move/delete filesystem changes.
-- [`filesystem_package_apply`](TOOLS.md#filesystem_package_apply) — apply one prepared filesystem package by one-shot `previewId`.
-- [`search_files`](TOOLS.md#search_files) — bounded `.gitignore`-aware glob search.
-- [`source_symbols`](TOOLS.md#source_symbols) — bounded read-only source `outline`, `digest`, `find`, and fingerprint-bound `show` navigation.
-- [`source_query`](TOOLS.md#source_query) — bounded R27 read-only structural search, supported project relations, and fingerprint-verified task-context assembly.
-- [`fingerprint_paths`](TOOLS.md#fingerprint_paths) — deterministic SHA-256 state fingerprints.
-- [`verify_state`](TOOLS.md#verify_state) — bounded typed JSON/text/Git-diff/fingerprint checks.
-- [`backup_store`](TOOLS.md#backup_store) — read-only status/history/compare/audit plus restore/GC preparation for the optional persistent store.
-- [`backup_restore_apply`](TOOLS.md#backup_restore_apply) — apply one prepared original-target restore.
-- [`backup_gc_apply`](TOOLS.md#backup_gc_apply) — apply one prepared generation-bound backup GC plan.
-- [`backup_delete`](TOOLS.md#backup_delete) — explicitly delete one selected backup, including a pinned backup.
-- [`grep_text_files`](TOOLS.md#grep_text_files) — paged regex search with deterministic partial-coverage reporting.
-### Encoding and service tools
-
-- [`detect_encoding`](TOOLS.md#detect_encoding) — conservative encoding detection with confidence or explicit ambiguity.
-- [`convert_encoding`](TOOLS.md#convert_encoding) — read-only exact single/batch conversion preview.
-- [`convert_encoding_apply`](TOOLS.md#convert_encoding_apply) — apply a prepared exact conversion by `previewId`.
-- [`detect_line_endings`](TOOLS.md#detect_line_endings) — bounded LF/CRLF/mixed analysis.
-- [`change_line_endings`](TOOLS.md#change_line_endings) — line-ending conversion while preserving encoding/BOM semantics.
-- [`manage_bom`](TOOLS.md#manage_bom) — detect BOM state or prepare an exact add/strip change.
-- [`manage_bom_apply`](TOOLS.md#manage_bom_apply) — apply one prepared BOM mutation by `previewId`.
-- [`list_encodings`](TOOLS.md#list_encodings) — authoritative runtime encoding inventory.
-- [`list_allowed_directories`](TOOLS.md#list_allowed_directories) — report process-authorized roots.
-- [`check_for_updates`](TOOLS.md#check_for_updates) — notification-only fork release check.
-- [`deferred_operation`](TOOLS.md#deferred_operation) - observe/cancel durable deferred work or retrieve bounded segments of an oversized retained MCP result.
-
-### Durable task execution
-
-- [`task_run`](TOOLS.md#task_run) — durably enqueue idempotent shell or script work.
-- [`task_list`](TOOLS.md#task_list) — page/filter persistent task metadata.
-- [`task_get`](TOOLS.md#task_get) — inspect current/terminal task state and bounded lifecycle history.
-- [`task_logs`](TOOLS.md#task_logs) — read bounded stdout/stderr with absolute cursors.
-- [`task_cancel`](TOOLS.md#task_cancel) — cancel queued work or terminate a running process tree.
-
-The detailed schemas, outputs, limits, and examples are authoritative in [TOOLS.md](TOOLS.md). `internal/toolcatalog/catalog.json` is the source of truth for runtime tool metadata.
-
-### Encoding support
-
-`list_encodings` is authoritative for canonical names, aliases, and capability metadata. Scripthold `3.1.6` exposes 168 canonical read/write encodings across Unicode, IBM/DOS/EBCDIC, ISO-8859, Windows, classic Mac/KOI8/other single-byte families, and East Asian/stateful multibyte families.
-
-The production runtime remains pure Go. Additional mappings and state machines derived from pinned GNU libiconv evidence are checked in and require no libiconv/GCC dependency during ordinary build or execution. UTF-32 LE/BE are full text encodings with strict scalar validation; generic byte-order-unspecified `utf-32` remains intentionally rejected. BOM policy `none` is accepted as a case-insensitive compatibility alias for canonical `never`. See [docs/GLOBAL_ENCODING_COVERAGE.md](docs/GLOBAL_ENCODING_COVERAGE.md) for the completed R22 contract.
-
-## Installation
-
-Choose **stdio** when the MCP client should own the child process or a secure bridge expects a local command. Choose **Streamable HTTP** for a persistent authenticated service. Both expose the same public behavior.
+## Quick start
 
 ### Use a published release
 
-Scripthold-named releases use raw binary names of the form `scripthold_<os>_<arch>` (with `.exe` on Windows) and matching platform archives. Historical `2.0.0` predates the rename and retains its original asset names.
-
-For reproducible installations, use a specific semantic release rather than `@main` or an assumed historical asset name. Verify the published asset against `checksums.txt` before installation.
+Download the asset for your platform from the [latest release](https://github.com/zoster81/scripthold/releases/latest) and verify it against `checksums.txt`.
 
 ### Build from source
 
@@ -136,9 +51,9 @@ go build -o scripthold ./cmd/scripthold
 
 The module path is `github.com/zoster81/scripthold`.
 
-### Local stdio clients
+### Local stdio client
 
-Pass every startup-authorized directory as an argument:
+Pass each authorized directory as a startup argument:
 
 ```json
 {
@@ -152,11 +67,11 @@ Pass every startup-authorized directory as an argument:
 }
 ```
 
-A roots-capable stdio client may provide dynamic roots only when the process starts without directory arguments. `MCP_STDIO_LEGACY_HANDSHAKE=1` exists only for legacy bridges that probe discovery and repeat an equivalent legacy initialization on one persistent child; leave it disabled for normal modern clients.
+Startup roots are authoritative. A roots-capable stdio client may supply dynamic roots only when the process starts without directory arguments.
 
-### Native Streamable HTTP
+### Streamable HTTP
 
-HTTP requires exactly one bearer-token source. A minimal loopback PowerShell start is:
+HTTP requires exactly one bearer-token source. A minimal loopback PowerShell launch is:
 
 ```powershell
 $tokenPath = Join-Path $env:TEMP "scripthold.token"
@@ -170,28 +85,22 @@ $env:MCP_HTTP_ADDR = "127.0.0.1:8765"
 .\scripthold_windows_amd64.exe --transport=streamable-http D:\Projects
 ```
 
-The MCP endpoint is `http://127.0.0.1:8765/mcp`; `/healthz` and `/readyz` expose minimal liveness/readiness status. The token must be sent as `Authorization: Bearer <token>` on every MCP request. Do not put tokens in command-line arguments, URLs, cookies, or query parameters.
+The MCP endpoint is `http://127.0.0.1:8765/mcp`; `/healthz` and `/readyz` expose liveness/readiness. Send the token as `Authorization: Bearer <token>` on every MCP request.
 
-Non-loopback listeners require explicit opt-in plus TLS or an explicitly trusted proxy boundary. Browser CORS is not enabled. See [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) before exposing HTTP beyond loopback.
+Do not expose HTTP beyond loopback without reading [HTTP Security](docs/HTTP_SECURITY.md). Non-loopback use requires explicit opt-in and TLS or a trusted proxy boundary.
 
 ### OpenAI Secure MCP Tunnel
 
-The repository includes sanitized PowerShell examples for tunnel and local topologies:
+Sanitized PowerShell examples are available under [`examples/`](examples/):
 
-| Example | Topology |
-|---|---|
-| [`start-local-stdio.ps1`](examples/start-local-stdio.ps1) | One foreground local stdio server. |
-| [`start-local-http.ps1`](examples/start-local-http.ps1) | One authenticated HTTP server; loopback by default. |
-| [`start-openai-tunnel-stdio-plus-local-http.ps1`](examples/start-openai-tunnel-stdio-plus-local-http.ps1) | Tunnel to a dedicated stdio child plus an independent local HTTP process. |
-| [`start-openai-tunnel-http-plus-local-stdio.ps1`](examples/start-openai-tunnel-http-plus-local-stdio.ps1) | Tunnel to authenticated HTTP plus an independent local stdio child. |
+- [`start-local-stdio.ps1`](examples/start-local-stdio.ps1)
+- [`start-local-http.ps1`](examples/start-local-http.ps1)
+- [`start-openai-tunnel-stdio-plus-local-http.ps1`](examples/start-openai-tunnel-stdio-plus-local-http.ps1)
+- [`start-openai-tunnel-http-plus-local-stdio.ps1`](examples/start-openai-tunnel-http-plus-local-stdio.ps1)
 
-Copy an example outside the Git checkout before replacing placeholders. Never commit Runtime API keys, Tunnel IDs, bearer tokens, or private state paths. The tunnel setup uses OpenAI's official [`tunnel-client`](https://github.com/openai/tunnel-client); consult the official client documentation for current OpenAI control-plane requirements.
+Copy an example outside the checkout before replacing placeholders. Never commit Runtime API keys, Tunnel IDs, bearer tokens, or private state paths.
 
-The example launchers keep `task_run` execution disabled by default. Script and shell execution remain separate authorizations, and HTTP additionally requires `MCP_HTTP_ENABLE_EXECUTION=1`.
-
-### Container image
-
-The repository Dockerfile builds a statically linked binary and runs as unprivileged UID/GID `10001`. The image is transport-neutral.
+### Container
 
 ```bash
 docker build --build-arg VERSION=dev -t scripthold:dev .
@@ -205,124 +114,92 @@ docker run --rm -i \
   scripthold:dev --transport=stdio /data
 ```
 
-The mounted directory must be accessible to UID/GID `10001`. HTTP containers should mount token/TLS files read-only, publish only the intended port, and preserve the security contract in [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md).
+The image runs as unprivileged UID/GID `10001`.
 
-## Security model
+## Tool groups
 
-- File tools access only explicitly authorized roots after canonical path resolution.
-- Recursive operations do not follow escaping symlinks, junctions, or other reparse points.
-- Mutations stage and revalidate before commit; initially missing destinations use no-replace creation. Single-file mutators classify the bounded actual target state after failures that may occur beyond the commit boundary instead of reporting preview-predicted changes as fact.
-- Failed MCP tool calls preserve stable error metadata/text; tools with structured output also expose `errorCode` and human-readable `message` there, retaining any existing partial-state evidence.
-- The optional backup store must be a separate non-overlapping owner-only authority and is inaccessible to ordinary file tools.
-- `task_run` is disabled by default. Script tasks validate/fingerprint the script and execute an owner-only matching snapshot; shell tasks validate the logical shell name before durable admission, confine only the working directory, and otherwise run with the executor identity's operating-system permissions.
-- HTTP adds authentication, Host/Origin, proxy/TLS, resource, logging, and execution boundaries; it is not a replacement for operating-system isolation.
+[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The catalog currently includes:
 
-Detailed contracts: [logging and diagnostics](docs/LOGGING_DIAGNOSTICS.md), [HTTP security](docs/HTTP_SECURITY.md), [verified changes](docs/VERIFIED_CHANGE_WORKFLOWS.md), [persistent backups](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [offline backup diagnostics](docs/OFFLINE_BACKUP_DIAGNOSTICS.md), [R23 mutation surface](docs/MCP_MUTATION_SURFACE.md), [R24 safe filesystem operations](docs/SAFE_FILESYSTEM_OPERATIONS.md), [R25 source intelligence](docs/SOURCE_INTELLIGENCE.md), [R26 backup recovery](docs/BACKUP_RECOVERY.md), and [durable tasks](docs/DURABLE_TASKS.md).
+| Area | Main tools |
+|---|---|
+| Text/files | [`read_text_file`](TOOLS.md#read_text_file), [`read_multiple_files`](TOOLS.md#read_multiple_files), [`write_whole_file`](TOOLS.md#write_whole_file), [`edit_file`](TOOLS.md#edit_file), [`edit_file_apply`](TOOLS.md#edit_file_apply), [`grep_text_files`](TOOLS.md#grep_text_files) |
+| Multi-file changes | [`patch_package`](TOOLS.md#patch_package), [`patch_package_apply`](TOOLS.md#patch_package_apply), [`filesystem_package`](TOOLS.md#filesystem_package), [`filesystem_package_apply`](TOOLS.md#filesystem_package_apply) |
+| Directory/state | [`list_directory`](TOOLS.md#list_directory), [`tree`](TOOLS.md#tree), [`search_files`](TOOLS.md#search_files), [`get_file_info`](TOOLS.md#get_file_info), [`fingerprint_paths`](TOOLS.md#fingerprint_paths), [`verify_state`](TOOLS.md#verify_state) |
+| Encoding | [`detect_encoding`](TOOLS.md#detect_encoding), [`convert_encoding`](TOOLS.md#convert_encoding), [`convert_encoding_apply`](TOOLS.md#convert_encoding_apply), [`detect_line_endings`](TOOLS.md#detect_line_endings), [`change_line_endings`](TOOLS.md#change_line_endings), [`manage_bom`](TOOLS.md#manage_bom), [`manage_bom_apply`](TOOLS.md#manage_bom_apply), [`list_encodings`](TOOLS.md#list_encodings) |
+| Backups | [`backup_store`](TOOLS.md#backup_store), [`backup_restore_apply`](TOOLS.md#backup_restore_apply), [`backup_gc_apply`](TOOLS.md#backup_gc_apply), [`backup_delete`](TOOLS.md#backup_delete) |
+| Source Intelligence | [`source_symbols`](TOOLS.md#source_symbols), [`source_query`](TOOLS.md#source_query) |
+| Durable work | [`task_run`](TOOLS.md#task_run), [`task_list`](TOOLS.md#task_list), [`task_get`](TOOLS.md#task_get), [`task_logs`](TOOLS.md#task_logs), [`task_cancel`](TOOLS.md#task_cancel), [`deferred_operation`](TOOLS.md#deferred_operation) |
+| Service | [`list_allowed_directories`](TOOLS.md#list_allowed_directories), [`check_for_updates`](TOOLS.md#check_for_updates) |
 
-## Configuration
+## Source Intelligence
 
-The most important process-wide variables are summarized below. Subsystem documents contain the precise security and lifecycle semantics.
+Source Intelligence is read-only. It does not execute project code and does not require external parser/compiler/LSP processes.
+
+`source_symbols` provides bounded `outline`, `digest`, `find`, and fingerprint-bound `show`. `source_query` provides structural search, supported project relations, dependency graphs, and fingerprint-verified context. Unsupported or ambiguous relationships fail closed rather than being guessed.
+
+The generated provider/capability matrix is in [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md).
+
+## Safety model
+
+- File access is limited to explicitly authorized roots after canonical path validation.
+- Symlink, junction, reparse-point, alias, and missing-path escapes fail closed.
+- Encoding detection uses bytes and decoded-content evidence, never filenames or extensions.
+- Mutations stage and revalidate before commit; initially missing destinations use no-replace semantics.
+- Preview/apply workflows bind the approved operation to a one-shot capability so mutation parameters cannot be changed at apply time.
+- Multi-file mutations do not claim transactional rollback; failures report committed/unchanged/unknown state where applicable.
+- The optional backup store is a separate protected authority outside public roots.
+- `task_run` execution is disabled by default. Shell and script execution require explicit authorization; HTTP requires an additional HTTP execution opt-in.
+- HTTP is authenticated and loopback-only by default.
+
+Current architectural boundaries are summarized in [Architecture](docs/ARCHITECTURE.md).
+
+## Key configuration
+
+Most installations need only a small subset of environment variables:
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `MCP_TRANSPORT` | `stdio` or `streamable-http`; CLI `--transport` takes precedence. | `stdio` |
-| `MCP_DEFAULT_ENCODING` | Encoding for newly created files when no encoding is supplied. | `utf-8` |
-| `MCP_MAX_FILE_BYTES` | Full-document source-size limit. | `67108864` |
-| `MCP_MAX_DECODED_CHARACTERS` | Maximum decoded characters returned by `read_text_file`. | `16777216` |
-| `MCP_MAX_LINE_BYTES` | Maximum decoded UTF-8 bytes in one line. | `16777216` |
-| `MCP_MAX_BATCH_FILES` | Maximum items in bounded batch/path-list operations. | `256` |
-| `MCP_MAX_MATCHES` | Server maximum for grep matches. | `10000` |
-| `MCP_MAX_OUTPUT_BYTES` | Aggregate structured/text output budget. | `67108864` |
-| `MCP_SOURCE_MAX_FILES` | R25 source files considered per request before stricter global ceilings. | `256` |
-| `MCP_SOURCE_MAX_AGGREGATE_BYTES` | Aggregate raw source bytes selected by one source-intelligence request. | `67108864` |
-| `MCP_SOURCE_MAX_FILE_BYTES` | Per-file source-intelligence byte ceiling. | `8388608` |
-| `MCP_SOURCE_MAX_SYMBOLS` | Retained source-symbol ceiling per request/analyzer budget. | `10000` |
-| `MCP_SOURCE_MAX_CONCURRENCY` | Bounded source-analysis worker count. | `4` |
-| `MCP_SOURCE_MAX_REQUEST_SECONDS` | Source-intelligence request deadline. | `30` |
-| `MCP_SOURCE_MAX_OUTPUT_BYTES` | Source-intelligence structured output budget before the global output ceiling. | `16777216` |
-| `MCP_SOURCE_MAX_RESULTS` | R27 retained search/relation result ceiling. | `10000` |
-| `MCP_SOURCE_MAX_GRAPH_NODES` | R27 graph-node ceiling. | `5000` |
-| `MCP_SOURCE_MAX_GRAPH_EDGES` | R27 graph-edge ceiling. | `20000` |
-| `MCP_SOURCE_MAX_GRAPH_DEPTH` | R27 graph traversal depth ceiling. | `8` |
-| `MCP_SOURCE_MAX_CONTEXT_BYTES` | R27 task-context byte budget. | `1048576` |
-| `MCP_SOURCE_MAX_CONTEXT_ITEMS` | R27 retained context-item ceiling. | `256` |
-| `MCP_SOURCE_MAX_INDEX_PROJECTS` | R27 retained process-local index-scope ceiling. | `4` |
-| `MCP_SOURCE_MAX_INDEX_GENERATIONS` | R27 retained generations per index scope. | `2` |
-| `MCP_MAX_FILESYSTEM_PACKAGE_OPERATIONS` | Maximum operations in one `filesystem-package-v1` manifest. | `256` |
-| `MCP_MAX_FILESYSTEM_PACKAGE_BYTES` | Maximum prepared filesystem-package manifest size. | `16777216` |
-| `MCP_MAX_FILESYSTEM_RECURSIVE_ENTRIES` | Maximum entries in one exact recursive copy/delete scope. | `100000` |
-| `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH` | Maximum exact recursive copy/delete depth. | `128` |
-| `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES` | Maximum aggregate source bytes in one filesystem package. | `1073741824` |
-| `MCP_MAX_FILESYSTEM_STAGING_BYTES` | Maximum aggregate bytes staged before filesystem-package commit. | `1073741824` |
-| `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEWS` | Maximum retained filesystem-package preview capabilities. | `16` |
-| `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES` | Maximum aggregate retained preview state. | `134217728` |
-| `MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS` | Filesystem-package preview lifetime. | `900` |
-| `MCP_MEMORY_THRESHOLD` | Deprecated fallback for file/output byte limits. | unset |
-| `MCP_LOG_LEVEL` | Startup diagnostic level: `debug`, `info`, `warn`, or `error`. | `info` |
-| `MCP_LOG_DIR` | Existing absolute directory enabling bounded diagnostic files; unset keeps stderr-only logging. | unset |
-| `MCP_LOG_MAX_FILE_BYTES` | Maximum bytes per active/plain diagnostic file before rotation. | `8388608` |
-| `MCP_LOG_MAX_TOTAL_BYTES` | Aggregate diagnostic storage ceiling; must be at least four times the per-file limit. | `134217728` |
-| `MCP_LOG_RETENTION_DAYS` | Maximum diagnostic archive retention age. | `7` |
-| `MCP_HTTP_ADDR` | HTTP listen address. | `127.0.0.1:8765` |
-| `MCP_HTTP_PATH` | MCP endpoint path. | `/mcp` |
-| `MCP_HTTP_TOKEN_FILE` / `MCP_HTTP_TOKEN` | Mutually exclusive HTTP bearer-token sources. | unset |
-| `MCP_HTTP_ALLOWED_HOSTS` | Additional exact Host values. | listener-derived |
-| `MCP_HTTP_ALLOWED_ORIGINS` | Exact accepted Origin values; no CORS headers are emitted. | empty |
-| `MCP_HTTP_ALLOW_NON_LOOPBACK` | Required opt-in for non-loopback binding. | disabled |
-| `MCP_HTTP_TLS_CERT_FILE` / `MCP_HTTP_TLS_KEY_FILE` | Direct HTTPS certificate/key pair. | unset |
-| `MCP_HTTP_TRUSTED_PROXY_CIDRS` | Immediate trusted proxy networks. | empty |
-| `MCP_HTTP_MAX_BODY_BYTES` | Per-POST body limit. | `16777216` |
-| `MCP_HTTP_MAX_INFLIGHT_BODY_BYTES` | Aggregate concurrent POST-body reservation. | `67108864` |
-| `MCP_HTTP_MAX_CONCURRENT_REQUESTS` | Concurrent non-SSE HTTP handlers. | `64` |
-| `MCP_HTTP_SESSION_TIMEOUT` | Legacy stateful session idle timeout. | `15m` |
-| `MCP_HTTP_ENABLE_EXECUTION` | Additional HTTP-only execution gate. | disabled |
-| `MCP_BACKUP_STORE_DIR` | Enables the dedicated persistent backup store. | unset |
-| `MCP_BACKUP_DEFAULT_POLICY` | Default persistent pre-state policy for approval-bound edit/package/BOM/encoding mutations: `disabled` or `required`. Requests may explicitly use the stronger `pinned` policy. | `disabled` |
-| `MCP_BACKUP_MAX_TOTAL_BYTES` | Hard maximum retained unique object bytes before new capture admission fails. | `1073741824` |
-| `MCP_BACKUP_MAX_OBJECT_BYTES` | Hard maximum bytes in one captured object. | `67108864` |
-| `MCP_BACKUP_MAX_MANIFESTS` | Hard maximum live backup manifests. | `10000` |
-| `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` | Newest unpinned versions retained per target; saturation rotates the oldest eligible non-pinned version after the new backup is durable. | `64` |
-| `MCP_BACKUP_MAX_PINNED` | Hard maximum pinned/protected manifests. | `256` |
-| `MCP_BACKUP_RETENTION_DAYS` | Age threshold considered by explicit backup GC. | `30` |
-| `MCP_BACKUP_PLAN_TTL_SECONDS` | Lifetime of restore and GC preview capabilities. | `900` |
-| `MCP_TASK_STORE_DIR` | Enables the owner-only durable task registry. | unset |
-| `MCP_DEFERRED_STORE_DIR` | Enables the separate owner-only durable store for eligible long-running read-only MCP operations. | unset |
-| `MCP_CALL_MAX_SYNC_SECONDS` | Global cooperative ceiling for one synchronous MCP tool call; bounded below the external transport TTL. | `45` |
-| `MCP_DEFERRED_SYNC_WAIT_SECONDS` | Frontend observation window for an eligible independently owned read-only operation before returning its handle. | `15` |
-| `MCP_DEFERRED_MAX_RUNTIME_SECONDS` | Global deferred-operation runtime ceiling; stricter tool-specific limits remain authoritative. | `300` |
-| `MCP_DEFERRED_MAX_CONCURRENCY` | Maximum concurrently executing deferred operations. | `4` |
-| `MCP_DEFERRED_MAX_QUEUED` | Maximum queued deferred operations. | `64` |
-| `MCP_DEFERRED_RETENTION_SECONDS` | Terminal deferred-operation retention window. | `3600` |
-| `MCP_DEFERRED_MAX_TOTAL_BYTES` | Aggregate durable deferred-operation store ceiling. | `536870912` |
-| `MCP_MAX_INLINE_RESPONSE_BYTES` | Conservative encoded response-size threshold before Scripthold returns a retained-result handle instead of one large response. | `4194304` |
-| `MCP_RESPONSE_CHUNK_BYTES` | Maximum retained-result bytes returned by one `deferred_operation` segment, further clamped against the inline-response threshold. | `1048576` |
-| `MCP_ENABLE_RUN_SCRIPT` | Authorizes `task_run kind=script`. | disabled |
-| `MCP_ENABLE_SHELL` | Authorizes unrestricted `task_run kind=shell`. | disabled |
-| `MCP_ENABLE_EXECUTION` | Authorizes both task kinds. | disabled |
+| `MCP_TRANSPORT` | `stdio` or `streamable-http` | `stdio` |
+| `MCP_DEFAULT_ENCODING` | Encoding for new text files | `utf-8` |
+| `MCP_HTTP_ADDR` | HTTP listen address | `127.0.0.1:8765` |
+| `MCP_HTTP_TOKEN_FILE` / `MCP_HTTP_TOKEN` | Mutually exclusive bearer-token sources | unset |
+| `MCP_HTTP_ALLOW_NON_LOOPBACK` | Permit non-loopback binding when other security requirements are met | disabled |
+| `MCP_BACKUP_STORE_DIR` | Enable the persistent backup store | unset |
+| `MCP_BACKUP_DEFAULT_POLICY` | Default persistent backup policy for eligible approval-bound mutations | `disabled` |
+| `MCP_TASK_STORE_DIR` | Enable durable task persistence | unset |
+| `MCP_DEFERRED_STORE_DIR` | Enable durable ownership for eligible long-running read-only calls | unset |
+| `MCP_ENABLE_RUN_SCRIPT` | Allow `task_run kind=script` | disabled |
+| `MCP_ENABLE_SHELL` | Allow `task_run kind=shell` | disabled |
+| `MCP_ENABLE_EXECUTION` | Allow both task kinds | disabled |
+| `MCP_HTTP_ENABLE_EXECUTION` | Additional HTTP execution gate | disabled |
 
-Diagnostic logging, backup limits, task-store limits, edit/package preview limits, and the full HTTP configuration contract are documented in [docs/LOGGING_DIAGNOSTICS.md](docs/LOGGING_DIAGNOSTICS.md), [docs/PERSISTENT_BACKUP_LIFECYCLE.md](docs/PERSISTENT_BACKUP_LIFECYCLE.md), [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md), [TOOLS.md](TOOLS.md), and [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md).
+Detailed limits and subsystem-specific options are documented where they are used: [TOOLS.md](TOOLS.md), [Durable Tasks](docs/DURABLE_TASKS.md), and [HTTP Security](docs/HTTP_SECURITY.md).
 
 ## Typical uses
 
-- Read and safely modify legacy source/configuration files without changing their encoding accidentally.
+- Safely edit legacy source/configuration files without corrupting encoding or line endings.
 - Search mixed-encoding repositories with explicit partial-coverage evidence.
-- Navigate heterogeneous repositories across 101 active source providers, query supported project relations, and assemble bounded source context without loading complete projects into the model.
-- Preview and approve edits or multi-file patch packages against deterministic fingerprints.
-- Keep approval-bound persistent backups and restore a selected original target safely.
-- Recover trustworthy records from a damaged backup store offline into a separate audited destination without modifying the source evidence.
-- Run long builds/tests through durable tasks without tying process lifetime to one MCP request.
-- Serve the same workspace tools through local stdio, authenticated HTTP, containers, or a secure tunnel bridge.
+- Navigate heterogeneous source trees without loading entire projects into the model.
+- Preview and approve exact single- or multi-file changes.
+- Keep persistent pre-state backups and restore selected versions.
+- Run long builds/tests without tying process lifetime to one MCP request.
+- Serve the same workspace toolset through local stdio, authenticated HTTP, containers, or a secure tunnel bridge.
 
-Example:
+## Documentation
 
-```text
-User: Read config.ini and change the title to "Настройки".
-Assistant: read_text_file (cp1251) -> edit_file preview preserving cp1251 -> explicit approval -> edit_file_apply(previewId)
-```
+- [Tool Reference](TOOLS.md) — public MCP tools, schemas, examples, and limits.
+- [Architecture](docs/ARCHITECTURE.md) — current product and security boundaries.
+- [HTTP Security](docs/HTTP_SECURITY.md) — HTTP deployment and threat model.
+- [Durable Tasks](docs/DURABLE_TASKS.md) — persistent task execution.
+- [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) — generated Source Intelligence matrix.
+- [Roadmap](docs/ROADMAP.md) — current and future work only.
+- [Migration 2.0](docs/MIGRATION_2.0.md) / [Migration 3.0](docs/MIGRATION_3.0.md) — intentional compatibility changes.
+- [Contributing](CONTRIBUTING.md) / [Publishing](docs/PUBLISHING.md) / [Security](SECURITY.md) — maintainer and contributor guidance.
+- [Changelog](CHANGELOG.md) — concise release and unreleased user-visible changes.
 
-## Development and contribution
+## Development
 
-Prerequisite Go version is declared by `go.mod`. The full local quality gate also uses the repository-pinned `golangci-lint` policy.
+The required Go version is declared by `go.mod`.
 
 ```bash
 go mod verify
@@ -331,9 +208,7 @@ golangci-lint run ./...
 go build -o scripthold ./cmd/scripthold
 ```
 
-Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents should read the root [AGENTS.md](AGENTS.md) and the nearest scoped guide. Reusable verification is in [docs/DEVELOPMENT_CHECKLIST.md](docs/DEVELOPMENT_CHECKLIST.md), current planning in [docs/ROADMAP.md](docs/ROADMAP.md), and publication in [docs/PUBLISHING.md](docs/PUBLISHING.md).
-
-The intentional 1.8-to-2.0 breaking changes remain documented in [docs/MIGRATION_2.0.md](docs/MIGRATION_2.0.md). The Scripthold `3.0.0` R23-R27 surface evolution is documented in [docs/MIGRATION_3.0.md](docs/MIGRATION_3.0.md) and the completed subsystem contracts.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
 
 ## License
 
