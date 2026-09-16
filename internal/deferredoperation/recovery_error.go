@@ -1,6 +1,9 @@
 package deferredoperation
 
-import "errors"
+import (
+	"sort"
+	"strings"
+)
 
 const (
 	recoveryFailureRootPolicy  = "root_policy"
@@ -33,15 +36,45 @@ func wrapRecoveryFailure(reason string, err error) error {
 	return &recoveryFailure{reason: reason, err: err}
 }
 
-// RecoveryFailureReason returns a bounded path-free category suitable for
-// lifecycle diagnostics. The underlying error remains available to internal
-// callers through errors.Is/errors.As but must not be logged directly.
+// RecoveryFailureReason returns a bounded path-free category signature suitable
+// for lifecycle diagnostics. Joined failures retain every distinct category so
+// a persistent condition cannot hide a newly occurring recovery failure.
 func RecoveryFailureReason(err error) string {
-	var failure *recoveryFailure
-	if !errors.As(err, &failure) {
+	reasons := make(map[string]struct{}, 4)
+	collectRecoveryFailureReasons(err, reasons)
+	if len(reasons) == 0 {
 		return recoveryFailureUnknown
 	}
-	switch failure.reason {
+	values := make([]string, 0, len(reasons))
+	for reason := range reasons {
+		values = append(values, reason)
+	}
+	sort.Strings(values)
+	return strings.Join(values, "+")
+}
+
+func collectRecoveryFailureReasons(err error, reasons map[string]struct{}) {
+	if err == nil {
+		return
+	}
+	if failure, ok := err.(*recoveryFailure); ok {
+		reasons[boundedRecoveryFailureReason(failure.reason)] = struct{}{}
+		collectRecoveryFailureReasons(failure.err, reasons)
+		return
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, child := range joined.Unwrap() {
+			collectRecoveryFailureReasons(child, reasons)
+		}
+		return
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		collectRecoveryFailureReasons(wrapped.Unwrap(), reasons)
+	}
+}
+
+func boundedRecoveryFailureReason(reason string) string {
+	switch reason {
 	case recoveryFailureRootPolicy,
 		recoveryFailureControlLock,
 		recoveryFailureStoreScan,
@@ -49,7 +82,7 @@ func RecoveryFailureReason(err error) string {
 		recoveryFailureStateWrite,
 		recoveryFailureHeartbeat,
 		recoveryFailureDispatch:
-		return failure.reason
+		return reason
 	default:
 		return recoveryFailureUnknown
 	}

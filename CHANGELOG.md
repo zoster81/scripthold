@@ -16,6 +16,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Removed stale Smithery tool-count metadata and documented the boundary between core publication and third-party discovery syndication.
 - Deferred-operation recovery diagnostics now report bounded path-free failure categories instead of an undifferentiated recovery error.
 
+### Fixed
+
+- Isolated unreadable deferred-operation records so they remain preserved and reported without blocking recovery of healthy work; repeated identical recovery-failure signatures are suppressed until the condition changes or clears.
+
 ## 3.2.0 - 2026-09-15
 
 ### Added

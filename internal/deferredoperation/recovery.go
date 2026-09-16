@@ -45,6 +45,7 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 
 	now := store.now().UTC()
 	candidates := make([]recoveryCandidate, 0, min(len(entries), store.limits.MaxConcurrency+store.limits.MaxQueued))
+	var recoveryErr error
 	for _, entry := range entries {
 		if !entry.IsDir() || !ValidOperationID(entry.Name()) {
 			continue
@@ -52,7 +53,8 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 		operationID := entry.Name()
 		request, state, readErr := store.readOperationLocked(operationID)
 		if readErr != nil {
-			return nil, wrapRecoveryFailure(recoveryFailureRecordRead, readErr)
+			recoveryErr = errors.Join(recoveryErr, wrapRecoveryFailure(recoveryFailureRecordRead, readErr))
+			continue
 		}
 		if state.Status.Terminal() {
 			continue
@@ -124,7 +126,7 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 	for index, candidate := range candidates {
 		result[index] = candidate.operationID
 	}
-	return result, nil
+	return result, recoveryErr
 }
 
 func recoveryRequestAuthorized(request Request, currentAllowed []string) bool {

@@ -79,7 +79,7 @@ See [`DURABLE_TASKS.md`](DURABLE_TASKS.md).
 
 ### Deferred read-only operations
 
-When a deferred-operation store is configured, eligible expensive read-only calls can be admitted durably before expensive execution and continue independently of the frontend wait window. Work that never crossed the durable started boundary may be recovered; work that lost its executor after durable start is not automatically replayed. Oversized completed MCP responses use the same compact retrieval surface but do not cause re-execution.
+When a deferred-operation store is configured, eligible expensive read-only calls can be admitted durably before expensive execution and continue independently of the frontend wait window. Work that never crossed the durable started boundary may be recovered; work that lost its executor after durable start is not automatically replayed. An unreadable individual operation record is preserved, excluded from replay, and reported through bounded path-free diagnostics without blocking recovery of other readable operations; store-wide policy, lock, scan, or write failures remain fail-closed for the recovery cycle. Oversized completed MCP responses use the same compact retrieval surface but do not cause re-execution.
 
 `source_query` remains synchronous because its returned index binding is process-local and intended for follow-up requests in the same runtime.
 
@@ -101,7 +101,7 @@ Source Intelligence is read-only and fail-closed.
 Diagnostics are intentionally separated by responsibility.
 
 - Process/server diagnostics are redacted and may use stderr or bounded optional files.
-- Deferred-operation recovery failures expose only a bounded path-free failure category; raw store errors, paths, and operation identifiers remain private.
+- Deferred-operation recovery failures expose only a bounded path-free failure signature; repeated identical signatures are suppressed until the condition changes or clears, while raw store errors, paths, and operation identifiers remain private.
 - HTTP access/security logging is a separate channel.
 - Durable task stdout/stderr belongs to task logs, not server diagnostics.
 - Human-readable tool failure text, raw panic values, stacks, secrets, and clear filesystem paths must not leak into category-only lifecycle logs.

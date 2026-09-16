@@ -64,11 +64,7 @@ func (engine *Engine) Recover(ctx context.Context, currentAllowedDirectories []s
 		return ErrDisabled
 	}
 	ctx = nonNilContext(ctx)
-	operationIDs, err := engine.store.prepareRecovery(ctx, currentAllowedDirectories)
-	if err != nil {
-		return err
-	}
-	var recoveryErr error
+	operationIDs, recoveryErr := engine.store.prepareRecovery(ctx, currentAllowedDirectories)
 	for _, operationID := range operationIDs {
 		if err := ctx.Err(); err != nil {
 			return errors.Join(recoveryErr, err)
@@ -96,14 +92,26 @@ func (engine *Engine) runRecoveryLoop(ctx context.Context, currentAllowedDirecto
 	if engine == nil || currentAllowedDirectories == nil || ticks == nil {
 		return
 	}
+	lastReportedReason := ""
 	recoverCurrent := func() {
 		roots := currentAllowedDirectories()
 		if len(roots) == 0 {
 			return
 		}
-		if err := engine.Recover(ctx, roots); err != nil && !errors.Is(err, context.Canceled) && report != nil {
-			report(err)
+		err := engine.Recover(ctx, roots)
+		if err == nil {
+			lastReportedReason = ""
+			return
 		}
+		if errors.Is(err, context.Canceled) || report == nil {
+			return
+		}
+		reason := RecoveryFailureReason(err)
+		if reason == lastReportedReason {
+			return
+		}
+		report(err)
+		lastReportedReason = reason
 	}
 	recoverCurrent()
 	for {

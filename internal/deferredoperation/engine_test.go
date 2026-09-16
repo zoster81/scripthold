@@ -320,6 +320,77 @@ func TestEngineRecoveryLoopWaitsForRootsBeforeRecovering(t *testing.T) {
 	}
 }
 
+func TestEngineRecoveryLoopSuppressesRepeatedIdenticalFailure(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	badOperationID := "op_" + strings.Repeat("0", 64)
+	badDirectory := store.operationDir(badOperationID)
+	if err := os.Mkdir(badDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := securePath(badDirectory, true); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := newEngineWithLauncher(store, func(string) error { return nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ticks := make(chan time.Time, 2)
+	reports := make(chan string, 3)
+	done := make(chan struct{})
+	go func() {
+		engine.runRecoveryLoop(ctx, func() []string { return []string{public} }, ticks, func(err error) {
+			reports <- RecoveryFailureReason(err)
+		})
+		close(done)
+	}()
+
+	select {
+	case reason := <-reports:
+		if reason != "record_read" {
+			t.Fatalf("initial recovery failure reason = %q, want record_read", reason)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("initial recovery failure was not reported")
+	}
+	ticks <- time.Now()
+	ticks <- time.Now()
+	select {
+	case reason := <-reports:
+		t.Fatalf("repeated identical recovery failure was reported again: %s", reason)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("recovery loop did not stop with its lifecycle context")
+	}
+}
+
+func TestEngineRecoverDoesNotLaunchOnGlobalRecoveryFailure(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{
+		Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}, OriginPaths: []string{public},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launches := 0
+	engine := newEngineWithLauncher(store, func(string) error {
+		launches++
+		return nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = engine.Recover(ctx, []string{public})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("global recovery error = %v, want context canceled", err)
+	}
+	if launches != 0 {
+		t.Fatalf("operation %s launched %d times after global recovery failure", operation.OperationID, launches)
+	}
+}
+
 func TestEngineRecoverFailsClosedWhenRootPolicyChanged(t *testing.T) {
 	store, public := newDeferredTestStore(t)
 	operation, err := store.Admit(context.Background(), Request{
@@ -374,6 +445,57 @@ func TestEngineRecoverClassifiesUnreadableOperationRecord(t *testing.T) {
 	}
 	if got := RecoveryFailureReason(err); got != "record_read" {
 		t.Fatalf("recovery failure reason = %q, want record_read", got)
+	}
+}
+
+func TestEngineRecoverContinuesPastUnreadableOperationRecord(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	badOperationID := "op_" + strings.Repeat("0", 64)
+	badDirectory := store.operationDir(badOperationID)
+	if err := os.Mkdir(badDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := securePath(badDirectory, true); err != nil {
+		t.Fatal(err)
+	}
+
+	operation, err := store.Admit(context.Background(), Request{
+		Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}, OriginPaths: []string{public},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launches := 0
+	engine := newEngineWithLauncher(store, func(operationID string) error {
+		if operationID != operation.OperationID {
+			t.Fatalf("launched operation = %s, want %s", operationID, operation.OperationID)
+		}
+		launches++
+		return nil
+	})
+	err = engine.Recover(context.Background(), []string{public})
+	if err == nil {
+		t.Fatal("recovery unexpectedly hid an unreadable operation record")
+	}
+	if got := RecoveryFailureReason(err); got != "record_read" {
+		t.Fatalf("recovery failure reason = %q, want record_read", got)
+	}
+	if launches != 1 {
+		t.Fatalf("recoverable operation launches = %d, want 1", launches)
+	}
+	if _, statErr := os.Stat(badDirectory); statErr != nil {
+		t.Fatalf("unreadable operation record was modified or removed: %v", statErr)
+	}
+}
+
+func TestRecoveryFailureReasonCombinesDistinctCategories(t *testing.T) {
+	err := errors.Join(
+		wrapRecoveryFailure("record_read", errors.New("first")),
+		wrapRecoveryFailure("dispatch", errors.New("second")),
+		wrapRecoveryFailure("record_read", errors.New("third")),
+	)
+	if got := RecoveryFailureReason(err); got != "dispatch+record_read" {
+		t.Fatalf("recovery failure reason = %q, want dispatch+record_read", got)
 	}
 }
 
