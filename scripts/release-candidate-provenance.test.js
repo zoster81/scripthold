@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   selectExactSuccessfulPushRun,
+  selectExactSuccessfulScorecardRun,
   verifySuccessfulReleaseCandidateJob,
 } = require('./release-candidate-provenance');
 
@@ -50,6 +51,34 @@ test('rejects missing exact-SHA push provenance', () => {
       repository: 'zoster81/scripthold',
     }),
     /no successful exact-commit Test Suite push run/,
+  );
+});
+
+test('selects only exact-SHA successful default-branch Scorecard push evidence', () => {
+  const scorecardRun = (overrides = {}) => run({
+    path: '.github/workflows/scorecard.yml',
+    ...overrides,
+  });
+  const payload = {
+    workflow_runs: [
+      scorecardRun({ id: 21, run_number: 4 }),
+      scorecardRun({ id: 22, run_number: 5 }),
+      scorecardRun({ id: 23, run_number: 6, head_branch: 'v3.2.1' }),
+      scorecardRun({ id: 24, run_number: 7, event: 'workflow_dispatch' }),
+      scorecardRun({ id: 25, run_number: 8, conclusion: 'failure' }),
+      scorecardRun({ id: 26, run_number: 9, path: '.github/workflows/test.yml' }),
+    ],
+  };
+  assert.equal(
+    selectExactSuccessfulScorecardRun(payload, { sha: 'abc123', repository: 'zoster81/scripthold' }),
+    22,
+  );
+  assert.throws(
+    () => selectExactSuccessfulScorecardRun({ workflow_runs: [scorecardRun({ head_sha: 'other' })] }, {
+      sha: 'abc123',
+      repository: 'zoster81/scripthold',
+    }),
+    /no successful exact-commit OpenSSF Scorecard push run/,
   );
 });
 
@@ -97,6 +126,17 @@ test('CLI enforces provenance policy over stdin and argv', () => {
   );
   assert.equal(selection.status, 0, selection.stderr);
   assert.equal(selection.stdout, '11');
+
+  const scorecardSelection = spawnSync(
+    process.execPath,
+    [script, 'select-scorecard-run', 'abc123', 'zoster81/scripthold'],
+    {
+      input: JSON.stringify({ workflow_runs: [run({ path: '.github/workflows/scorecard.yml' })] }),
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(scorecardSelection.status, 0, scorecardSelection.stderr);
+  assert.equal(scorecardSelection.stdout, '11');
 
   const verification = spawnSync(
     process.execPath,

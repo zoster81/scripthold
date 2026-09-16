@@ -2,6 +2,12 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
+## Unreleased
+
+### Fixed
+
+- Kept OpenSSF Scorecard on its supported default-branch execution path after upstream rejected release-tag pushes, and made future release verification require successful exact-commit Scorecard evidence from the `main` push.
+
 ## 3.2.1 - 2026-09-16
 
 ### Added

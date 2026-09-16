@@ -172,6 +172,7 @@ Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. This 
 - [ ] release-scoped milestone complete;
 - [ ] exact clean commit and dated changelog entry verified;
 - [ ] complete **full-tier** push-event `Test Suite` (`.github/workflows/test.yml`) `Release candidate` gate passes on the exact pushed SHA; pull-request tier evidence is never publication authority;
+- [ ] OpenSSF Scorecard has a successful supported `push` run on the default `main` branch for that same exact SHA;
 - [ ] annotated tag resolves to that same commit;
 - [ ] normal GoReleaser publication succeeds;
 - [ ] signed Sigstore SLSA build provenance is generated and attached for the normal release assets;

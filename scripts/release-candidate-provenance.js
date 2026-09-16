@@ -7,12 +7,23 @@ function requireArray(payload, field) {
   return payload[field];
 }
 
-function selectExactSuccessfulPushRun(payload, { sha, repository }) {
+function selectExactSuccessfulWorkflowPushRun(payload, {
+  sha,
+  repository,
+  workflowPath,
+  workflowName,
+}) {
   if (typeof sha !== 'string' || sha.length === 0) {
     throw new Error('sha must be a non-empty string');
   }
   if (typeof repository !== 'string' || repository.length === 0) {
     throw new Error('repository must be a non-empty string');
+  }
+  if (typeof workflowPath !== 'string' || workflowPath.length === 0) {
+    throw new Error('workflowPath must be a non-empty string');
+  }
+  if (typeof workflowName !== 'string' || workflowName.length === 0) {
+    throw new Error('workflowName must be a non-empty string');
   }
 
   const matches = requireArray(payload, 'workflow_runs').filter((run) => {
@@ -21,13 +32,13 @@ function selectExactSuccessfulPushRun(payload, { sha, repository }) {
       run.head_branch === 'main' &&
       run.event === 'push' &&
       run.conclusion === 'success' &&
-      run.path === '.github/workflows/test.yml' &&
+      run.path === workflowPath &&
       run.head_repository &&
       run.head_repository.full_name === repository;
   });
 
   if (matches.length === 0) {
-    throw new Error('no successful exact-commit Test Suite push run found');
+    throw new Error(`no successful exact-commit ${workflowName} push run found`);
   }
   matches.sort((a, b) => (Number(a.run_number) || 0) - (Number(b.run_number) || 0));
   const selected = matches[matches.length - 1];
@@ -35,6 +46,24 @@ function selectExactSuccessfulPushRun(payload, { sha, repository }) {
     throw new Error('selected workflow run has no id');
   }
   return selected.id;
+}
+
+function selectExactSuccessfulPushRun(payload, { sha, repository }) {
+  return selectExactSuccessfulWorkflowPushRun(payload, {
+    sha,
+    repository,
+    workflowPath: '.github/workflows/test.yml',
+    workflowName: 'Test Suite',
+  });
+}
+
+function selectExactSuccessfulScorecardRun(payload, { sha, repository }) {
+  return selectExactSuccessfulWorkflowPushRun(payload, {
+    sha,
+    repository,
+    workflowPath: '.github/workflows/scorecard.yml',
+    workflowName: 'OpenSSF Scorecard',
+  });
 }
 
 function verifySuccessfulReleaseCandidateJob(payload) {
@@ -72,6 +101,13 @@ async function main(argv) {
       process.stdout.write(String(runID));
       return;
     }
+    case 'select-scorecard-run': {
+      const sha = argv[3];
+      const repository = argv[4];
+      const runID = selectExactSuccessfulScorecardRun(payload, { sha, repository });
+      process.stdout.write(String(runID));
+      return;
+    }
     case 'verify-jobs':
       verifySuccessfulReleaseCandidateJob(payload);
       return;
@@ -89,5 +125,6 @@ if (require.main === module) {
 
 module.exports = {
   selectExactSuccessfulPushRun,
+  selectExactSuccessfulScorecardRun,
   verifySuccessfulReleaseCandidateJob,
 };

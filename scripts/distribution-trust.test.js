@@ -37,10 +37,11 @@ test('all external GitHub Actions are pinned to immutable commit SHAs', () => {
   assert.deepEqual(violations, []);
 });
 
-test('OpenSSF Scorecard workflow publishes results with least privilege and SARIF upload', () => {
+test('OpenSSF Scorecard workflow stays on supported default-branch triggers', () => {
   const scorecard = read('.github/workflows/scorecard.yml');
   assert.match(scorecard, /^name: OpenSSF Scorecard$/m);
-  assert.match(scorecard, /push:\s*\n\s*branches:\s*\n\s*- main\s*\n\s*tags:\s*\n\s*- ['"]v\*['"]/m);
+  assert.match(scorecard, /push:\s*\n\s*branches:\s*\n\s*- main/m);
+  assert.doesNotMatch(scorecard, /tags:\s*\n\s*- ['"]v\*['"]/m);
   assert.match(scorecard, /schedule:\s*\n\s*- cron:/m);
   assert.match(scorecard, /permissions:\s*\n\s*contents: read\s*\n\s*security-events: write\s*\n\s*id-token: write/m);
   assert.match(scorecard, /ossf\/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc/);
@@ -85,6 +86,8 @@ test('distribution documentation preserves core release and third-party syndicat
   assert.match(publishing, /GPL-3\.0/);
   assert.match(publishing, /Streamable HTTP/);
   assert.match(publishing, /TLS|trusted proxy/i);
+  assert.match(publishing, /OpenSSF Scorecard.*default(?:-| )branch/is);
+  assert.match(publishing, /does not support release-tag pushes/i);
 });
 
 test('release publishing defaults to read-only and grants write permission only at the job that needs it', () => {
@@ -102,8 +105,13 @@ test('CodeQL scans pull requests targeting maintained branches and every pushed 
   assert.doesNotMatch(workflow, /push:\s*\n\s*branches:/m);
 });
 
-test('release workflow publishes pinned Sigstore provenance for GoReleaser assets', () => {
+test('release workflow requires exact-commit Scorecard evidence and publishes pinned Sigstore provenance', () => {
   const workflow = read('.github/workflows/release.yml');
+  assert.match(workflow, /actions\/workflows\/scorecard\.yml\/runs/);
+  assert.match(workflow, /-f branch=main/);
+  assert.match(workflow, /-f event=push/);
+  assert.match(workflow, /-f head_sha="\$\{TAG_COMMIT\}"/);
+  assert.match(workflow, /select-scorecard-run/);
   assert.match(workflow, /release:\s*\n\s*needs: verify.*?permissions:\s*\n\s*contents: write\s*\n\s*id-token: write\s*\n\s*attestations: write\s*\n\s*artifact-metadata: write/s);
   assert.match(workflow, /actions\/attest@1e69f48acb82d1966a394da916b4c1698aa569d6\s+# v4\.2\.2/);
   assert.match(workflow, /subject-checksums:\s*dist\/checksums\.txt/);

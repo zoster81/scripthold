@@ -52,12 +52,13 @@ The following actions remain explicit maintainer decisions and are never inciden
    - matches the dated changelog entry;
    - resolves to the exact current `origin/main` commit at publication time;
    - has a successful push-event `Test Suite` run for that exact SHA;
-   - has a successful `Release candidate` job in that run.
+   - has a successful `Release candidate` job in that run;
+   - has a successful OpenSSF Scorecard `push` run on the default `main` branch for that exact SHA.
 9. GoReleaser publishes the normal release assets: six raw binaries, six platform archives, and `checksums.txt`, with the documentation/support files configured by `.goreleaser.yml`.
 10. The same release job generates signed Sigstore SLSA build provenance for every normal asset listed by `checksums.txt`, persists the attestation through GitHub's attestation service, and attaches the generated `.sigstore.json` bundle to the immutable GitHub Release.
 11. GitHub then runs the MCPB and Registry workflows in order. Those workflows verify the immutable release/tag inputs and published checksums before producing their GitHub-only outputs.
 
-The tag-triggered Release workflow attests the already-completed exact-commit Test Suite gate instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser. That attested push gate already includes Gitleaks and `goreleaser check` in addition to the full native/platform/security evidence.
+The tag-triggered Release workflow attests the already-completed exact-commit Test Suite and OpenSSF Scorecard push evidence instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser. The Test Suite push gate already includes Gitleaks and `goreleaser check` in addition to the full native/platform/security evidence. Scorecard itself remains on its supported default-branch execution path; release tags do not invoke the Scorecard action directly.
 
 ## Core release and discovery syndication
 
@@ -67,7 +68,7 @@ If a future Registry manifest references an OCI image, that immutable image and 
 
 The **discovery/syndication** layer follows successful core publication and reports each destination independently:
 
-- OpenSSF Scorecard publishes signed results and SARIF through its standalone workflow on `main` pushes, release-tag pushes, its schedule, and manual dispatch. It is intentionally not a binary-release gate: external indexing or service delay is reported separately rather than invalidating an otherwise-qualified core release.
+- OpenSSF Scorecard publishes signed results and SARIF through its standalone workflow on default-branch `main` pushes and its schedule; manual dispatch remains available but is experimental upstream. The Scorecard action does not support release-tag pushes. Before publication, the Release workflow requires successful exact-commit Scorecard evidence from the supported `main` push. The release then publishes signed Sigstore provenance for subsequent Scorecard scans. External result indexing remains separate from the core release result.
 - Glama ownership is declared by the tracked `glama.json`. Claiming is an account-side GitHub action, not a release-workflow API: after adding or changing `glama.json`, rerun Glama's **Claim ownership** flow to make Glama pick up the latest metadata. Do not scrape the Glama web UI as a publication or freshness API.
 - Smithery publication requires the Actions secret `SMITHERY_API_KEY`. Its stdio release API accepts one MCPB bundle per release, while Scripthold currently publishes six platform-specific MCPB bundles. Until Smithery documents multi-platform variants or Scripthold has one portable bundle with equivalent compatibility semantics, automation must not arbitrarily select one platform and call that a complete Scripthold release.
 - MCP.Directory is expected to discover Official MCP Registry entries. Use its normal listing/claim process when required; do not invent a write API or automate its web form.
@@ -188,7 +189,8 @@ Before tagging:
 - [ ] deterministic GoReleaser snapshot gate passes when required;
 - [ ] Gitleaks and `git diff --check` pass;
 - [ ] no credentials, private paths, local process state, or generated release output are tracked;
-- [ ] the exact pushed commit's **full-tier** `Release candidate` job is `success`; no pull-request tier result is substituted for it.
+- [ ] the exact pushed commit's **full-tier** `Release candidate` job is `success`; no pull-request tier result is substituted for it;
+- [ ] the exact pushed commit has a successful OpenSSF Scorecard `push` run on the default `main` branch.
 
 After tagging:
 
