@@ -2,16 +2,18 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
-## Unreleased
+## 3.2.1 - 2026-09-16
 
 ### Added
 
 - Added OpenSSF Scorecard publication with SARIF upload to GitHub code scanning and current Glama ownership metadata.
+- Added signed Sigstore SLSA build-provenance attestations for normal GoReleaser release assets, with the generated provenance bundle attached to each GitHub Release.
 
 ### Changed
 
 - Pinned external GitHub Actions to immutable commit SHAs and added regression coverage for distribution/trust metadata drift.
-- Reduced release-workflow token scope, made the reusable MCPB publisher read-only by default, pinned container base images to immutable digests, added CodeQL coverage for pull requests, and linked the private GitHub Security Advisory reporting flow.
+- Reduced release-workflow token scope, made the reusable MCPB publisher read-only by default, pinned container base images to immutable digests, expanded CodeQL coverage to pull requests and every pushed commit, and linked the private GitHub Security Advisory reporting flow.
+- Run OpenSSF Scorecard automatically on both `main` pushes and release-tag pushes in addition to its scheduled and manual execution paths.
 - Reworked the README trust badge set around evidence-backed release, download, security, Registry, and Glama signals.
 - Removed stale Smithery tool-count metadata and documented the boundary between core publication and third-party discovery syndication.
 - Deferred-operation recovery diagnostics now report bounded path-free failure categories instead of an undifferentiated recovery error.

@@ -7,9 +7,6 @@ on:
       - main
       - master
   push:
-    branches:
-      - main
-      - master
   schedule:
     - cron: "23 3 * * 1"
 

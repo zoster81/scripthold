@@ -174,6 +174,7 @@ Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. This 
 - [ ] complete **full-tier** push-event `Test Suite` (`.github/workflows/test.yml`) `Release candidate` gate passes on the exact pushed SHA; pull-request tier evidence is never publication authority;
 - [ ] annotated tag resolves to that same commit;
 - [ ] normal GoReleaser publication succeeds;
+- [ ] signed Sigstore SLSA build provenance is generated and attached for the normal release assets;
 - [ ] GitHub-only MCPB and Registry workflows succeed;
 - [ ] normal published assets independently match `checksums.txt`;
 - [ ] tag, changelog, embedded version, and Registry version agree.

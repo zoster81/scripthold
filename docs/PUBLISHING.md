@@ -54,19 +54,20 @@ The following actions remain explicit maintainer decisions and are never inciden
    - has a successful push-event `Test Suite` run for that exact SHA;
    - has a successful `Release candidate` job in that run.
 9. GoReleaser publishes the normal release assets: six raw binaries, six platform archives, and `checksums.txt`, with the documentation/support files configured by `.goreleaser.yml`.
-10. GitHub then runs the MCPB and Registry workflows in order. Those workflows verify the immutable release/tag inputs and published checksums before producing their GitHub-only outputs.
+10. The same release job generates signed Sigstore SLSA build provenance for every normal asset listed by `checksums.txt`, persists the attestation through GitHub's attestation service, and attaches the generated `.sigstore.json` bundle to the immutable GitHub Release.
+11. GitHub then runs the MCPB and Registry workflows in order. Those workflows verify the immutable release/tag inputs and published checksums before producing their GitHub-only outputs.
 
 The tag-triggered Release workflow attests the already-completed exact-commit Test Suite gate instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser. That attested push gate already includes Gitleaks and `goreleaser check` in addition to the full native/platform/security evidence.
 
 ## Core release and discovery syndication
 
-The **core release** is the product publication authority: exact-SHA Test Suite qualification, annotated tag, GoReleaser assets, GitHub-only MCPB assets, and MCP Registry publication. OpenSSF Scorecard and third-party discovery directories are supporting trust/discovery evidence; their outage or indexing delay must not retroactively make an already-valid core release appear failed.
+The **core release** is the product publication authority: exact-SHA Test Suite qualification, annotated tag, GoReleaser assets, signed Sigstore build provenance for those normal assets, GitHub-only MCPB assets, and MCP Registry publication. OpenSSF Scorecard and third-party discovery directories are supporting trust/discovery evidence; their outage or indexing delay must not retroactively make an already-valid core release appear failed.
 
 If a future Registry manifest references an OCI image, that immutable image and its required MCP server annotation must be published and verified **before** the Registry manifest that names it. Do not publish a Registry package that points at an image tag or digest that does not yet exist.
 
 The **discovery/syndication** layer follows successful core publication and reports each destination independently:
 
-- OpenSSF Scorecard publishes signed results and SARIF through its standalone workflow; it is intentionally not a binary-release gate.
+- OpenSSF Scorecard publishes signed results and SARIF through its standalone workflow on `main` pushes, release-tag pushes, its schedule, and manual dispatch. It is intentionally not a binary-release gate: external indexing or service delay is reported separately rather than invalidating an otherwise-qualified core release.
 - Glama ownership is declared by the tracked `glama.json`. Claiming is an account-side GitHub action, not a release-workflow API: after adding or changing `glama.json`, rerun Glama's **Claim ownership** flow to make Glama pick up the latest metadata. Do not scrape the Glama web UI as a publication or freshness API.
 - Smithery publication requires the Actions secret `SMITHERY_API_KEY`. Its stdio release API accepts one MCPB bundle per release, while Scripthold currently publishes six platform-specific MCPB bundles. Until Smithery documents multi-platform variants or Scripthold has one portable bundle with equivalent compatibility semantics, automation must not arbitrarily select one platform and call that a complete Scripthold release.
 - MCP.Directory is expected to discover Official MCP Registry entries. Use its normal listing/claim process when required; do not invent a write API or automate its web form.
@@ -164,11 +165,12 @@ After GitHub publication completes:
 2. verify the expected normal GoReleaser asset names are present;
 3. download `checksums.txt` plus the 12 normal raw/archive assets and independently verify every SHA-256 entry;
 4. execute `--version` on a representative compatible published binary where infrastructure permits;
-5. confirm the GitHub MCPB job and Registry job both completed successfully and that the expected MCPB asset names/checksum manifest are attached, **without downloading or validating the real MCPB bundles locally**;
-6. verify the Registry reports the intended semantic version and inspect its package types/transports;
-7. verify discovery destinations independently where a stable supported read API or public listing exists; do not replace missing APIs with form scraping;
-8. report a concise status summary covering GitHub Release, Registry version/package types/transports, Smithery, Glama, MCP.Directory, PulseMCP, and OpenSSF Scorecard publication status. Distinguish `not configured`, `not listed`, `stale`, `unverifiable through a supported API`, and actual publication failures;
-9. record publication evidence in durable public history only where useful; keep workstation/runtime state private.
+5. verify that the release contains the expected `.sigstore.json` provenance bundle and that GitHub attestation verification succeeds for at least one independently downloaded normal release asset;
+6. confirm the GitHub MCPB job and Registry job both completed successfully and that the expected MCPB asset names/checksum manifest are attached, **without downloading or validating the real MCPB bundles locally**;
+7. verify the Registry reports the intended semantic version and inspect its package types/transports;
+8. verify discovery destinations independently where a stable supported read API or public listing exists; do not replace missing APIs with form scraping;
+9. report a concise status summary covering GitHub Release, signed provenance, Registry version/package types/transports, Smithery, Glama, MCP.Directory, PulseMCP, and OpenSSF Scorecard publication status. Distinguish `not configured`, `not listed`, `stale`, `unverifiable through a supported API`, and actual publication failures;
+10. record publication evidence in durable public history only where useful; keep workstation/runtime state private.
 
 ## Release verification checklist
 
@@ -192,6 +194,7 @@ After tagging:
 
 - [ ] Release workflow verifies the immutable annotated tag and exact Test Suite-gated commit;
 - [ ] GoReleaser publication succeeds;
+- [ ] signed Sigstore SLSA build provenance is generated for the normal release assets, persisted as a GitHub attestation, and attached to the Release as a `.sigstore.json` bundle;
 - [ ] GitHub-only MCPB publication succeeds;
 - [ ] GitHub-only Registry publication succeeds;
 - [ ] normal GoReleaser assets independently match `checksums.txt`;

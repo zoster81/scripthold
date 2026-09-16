@@ -79,6 +79,9 @@ jobs:
     needs: verify
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -101,6 +104,24 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate signed release provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
+
+      - name: Attach provenance bundle to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          provenance="scripthold-${GITHUB_REF_NAME}-provenance.sigstore.json"
+          test -f "${PROVENANCE_BUNDLE}"
+          cp "${PROVENANCE_BUNDLE}" "${provenance}"
+          gh release upload "${GITHUB_REF_NAME}" "${provenance}"
 
   publish-mcpb:
     needs: release

@@ -20,7 +20,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 ## What Scripthold provides
 
-The current public release is **Scripthold 3.2.0** with 38 tools and 3 guided prompts.
+The current public release is **Scripthold 3.2.1** with 38 tools and 3 guided prompts.
 
 - **168 registered text encodings** with content-based detection, UTF-32 LE/BE support, and conservative ambiguity handling.
 - **101 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
@@ -37,7 +37,7 @@ Scripthold originated from the [original `mcp-file-tools` project](https://githu
 
 ### Use a published release
 
-Download the asset for your platform from the [latest release](https://github.com/zoster81/scripthold/releases/latest) and verify it against `checksums.txt`.
+Download the asset for your platform from the [latest release](https://github.com/zoster81/scripthold/releases/latest) and verify it against `checksums.txt`. Releases also attach a signed Sigstore build-provenance bundle for the normal GoReleaser assets.
 
 ### Build from source
 

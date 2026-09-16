@@ -4,8 +4,8 @@ This file tracks **current and future work only**. Completed changes belong in [
 
 ## Current state
 
-- Current public release: **Scripthold 3.2.0**.
-- Public 3.2.0 surface: **38 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
+- Current public release: **Scripthold 3.2.1**.
+- Public 3.2.1 surface: **38 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
 - Four 3.x capability areas are planned; no release-scoped milestone is currently active.
 - Publication, installation, and private deployment are separate actions.

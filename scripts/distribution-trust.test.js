@@ -40,7 +40,7 @@ test('all external GitHub Actions are pinned to immutable commit SHAs', () => {
 test('OpenSSF Scorecard workflow publishes results with least privilege and SARIF upload', () => {
   const scorecard = read('.github/workflows/scorecard.yml');
   assert.match(scorecard, /^name: OpenSSF Scorecard$/m);
-  assert.match(scorecard, /push:\s*\n\s*branches:\s*\n\s*- main/m);
+  assert.match(scorecard, /push:\s*\n\s*branches:\s*\n\s*- main\s*\n\s*tags:\s*\n\s*- ['"]v\*['"]/m);
   assert.match(scorecard, /schedule:\s*\n\s*- cron:/m);
   assert.match(scorecard, /permissions:\s*\n\s*contents: read\s*\n\s*security-events: write\s*\n\s*id-token: write/m);
   assert.match(scorecard, /ossf\/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc/);
@@ -95,9 +95,20 @@ test('release publishing defaults to read-only and grants write permission only 
   assert.match(workflow, /jobs:\s*\n\s*publish:.*?permissions:\s*\n\s*contents:\s*write/s);
 });
 
-test('CodeQL scans pull requests targeting maintained branches', () => {
+test('CodeQL scans pull requests targeting maintained branches and every pushed commit', () => {
   const workflow = read('.github/workflows/codeql.yml');
   assert.match(workflow, /pull_request:\s*\n\s*branches:\s*\n\s*- main\s*\n\s*- master/m);
+  assert.match(workflow, /^\s{2}push:\s*$/m);
+  assert.doesNotMatch(workflow, /push:\s*\n\s*branches:/m);
+});
+
+test('release workflow publishes pinned Sigstore provenance for GoReleaser assets', () => {
+  const workflow = read('.github/workflows/release.yml');
+  assert.match(workflow, /release:\s*\n\s*needs: verify.*?permissions:\s*\n\s*contents: write\s*\n\s*id-token: write\s*\n\s*attestations: write\s*\n\s*artifact-metadata: write/s);
+  assert.match(workflow, /actions\/attest@1e69f48acb82d1966a394da916b4c1698aa569d6\s+# v4\.2\.2/);
+  assert.match(workflow, /subject-checksums:\s*dist\/checksums\.txt/);
+  assert.match(workflow, /provenance\.sigstore\.json/);
+  assert.match(workflow, /gh release upload/);
 });
 
 test('container base images are pinned to immutable digests', () => {
