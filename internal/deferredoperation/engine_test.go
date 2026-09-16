@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -349,5 +350,39 @@ func TestEngineRecoverFailsClosedWhenRootPolicyChanged(t *testing.T) {
 	}
 	if observed.Status != StatusFailed || observed.ErrorCode != "ACCESS_DENIED" {
 		t.Fatalf("root-revoked operation = %+v", observed)
+	}
+}
+
+func TestEngineRecoverClassifiesUnreadableOperationRecord(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operationID := "op_" + strings.Repeat("0", 64)
+	directory := store.operationDir(operationID)
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := securePath(directory, true); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := newEngineWithLauncher(store, func(string) error {
+		t.Fatal("unreadable operation must not be launched")
+		return nil
+	})
+	err := engine.Recover(context.Background(), []string{public})
+	if err == nil {
+		t.Fatal("recovery unexpectedly accepted an incomplete operation record")
+	}
+	if got := RecoveryFailureReason(err); got != "record_read" {
+		t.Fatalf("recovery failure reason = %q, want record_read", got)
+	}
+}
+
+func TestRecoveryFailureReasonDoesNotExposeUnderlyingError(t *testing.T) {
+	err := wrapRecoveryFailure("record_read", errors.New(`private store record failed at C:\sensitive\store`))
+	if got := RecoveryFailureReason(err); got != "record_read" {
+		t.Fatalf("recovery failure reason = %q, want record_read", got)
+	}
+	if strings.Contains(RecoveryFailureReason(err), "sensitive") {
+		t.Fatal("recovery failure reason exposed the underlying error")
 	}
 }

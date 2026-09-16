@@ -148,10 +148,10 @@ func BuildServer(options ServerOptions) *mcp.Server {
 		if recoveryLogger == nil {
 			recoveryLogger = slog.Default()
 		}
-		go options.DeferredEngine.RunRecoveryLoop(lifecycleCtx, h.ResolvedAllowedDirs, func(error) {
+		go options.DeferredEngine.RunRecoveryLoop(lifecycleCtx, h.ResolvedAllowedDirs, func(err error) {
 			// Recovery errors can contain private-store paths through OS wrappers;
-			// keep lifecycle diagnostics deliberately path-free.
-			recoveryLogger.Error("deferred_operation_recovery_failed")
+			// expose only a bounded category and never the underlying message.
+			recoveryLogger.Error("deferred_operation_recovery_failed", "reason", deferredoperation.RecoveryFailureReason(err))
 		})
 	}
 	impl := &mcp.Implementation{

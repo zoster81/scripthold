@@ -26,21 +26,21 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 	ctx = nonNilContext(ctx)
 	currentAllowed, err := security.NormalizeAllowedDirs(currentAllowedDirectories)
 	if err != nil || len(currentAllowed) == 0 {
-		return nil, ErrAccessDenied
+		return nil, wrapRecoveryFailure(recoveryFailureRootPolicy, ErrAccessDenied)
 	}
 	lock, err := store.acquireControlLock(ctx)
 	if err != nil {
-		return nil, err
+		return nil, wrapRecoveryFailure(recoveryFailureControlLock, err)
 	}
 	defer lock.close()
 
 	entries, err := os.ReadDir(store.operationsRoot)
 	if err != nil {
-		return nil, err
+		return nil, wrapRecoveryFailure(recoveryFailureStoreScan, err)
 	}
 	maximum := store.limits.MaxConcurrency + store.limits.MaxQueued + store.limits.MaxTerminal + 1024
 	if len(entries) > maximum {
-		return nil, ErrCapacity
+		return nil, wrapRecoveryFailure(recoveryFailureStoreScan, ErrCapacity)
 	}
 
 	now := store.now().UTC()
@@ -52,7 +52,7 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 		operationID := entry.Name()
 		request, state, readErr := store.readOperationLocked(operationID)
 		if readErr != nil {
-			return nil, readErr
+			return nil, wrapRecoveryFailure(recoveryFailureRecordRead, readErr)
 		}
 		if state.Status.Terminal() {
 			continue
@@ -60,7 +60,7 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 
 		if !recoveryRequestAuthorized(request.Request, currentAllowed) {
 			if err := store.writeRecoveryTerminal(operationID, state, StatusFailed, "ACCESS_DENIED", "deferred operation is no longer authorized by current roots", now); err != nil {
-				return nil, err
+				return nil, wrapRecoveryFailure(recoveryFailureStateWrite, err)
 			}
 			continue
 		}
@@ -71,14 +71,14 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 				continue
 			}
 			if err := store.writeRecoveryTerminal(operationID, state, StatusInterrupted, "EXECUTOR_LOST", "deferred executor heartbeat was lost; operation was not rerun", now); err != nil {
-				return nil, err
+				return nil, wrapRecoveryFailure(recoveryFailureStateWrite, err)
 			}
 			continue
 		}
 
 		if fileExists(filepath.Join(store.operationDir(operationID), cancelName)) {
 			if err := store.writeRecoveryTerminal(operationID, state, StatusCancelled, "CANCELLED", "deferred operation was cancelled before execution", now); err != nil {
-				return nil, err
+				return nil, wrapRecoveryFailure(recoveryFailureStateWrite, err)
 			}
 			continue
 		}
@@ -93,23 +93,23 @@ func (store *Store) prepareRecovery(ctx context.Context, currentAllowedDirectori
 			}
 		default:
 			if err := store.writeRecoveryTerminal(operationID, state, StatusFailed, "STATE_INVALID", "deferred operation had an invalid pre-start state", now); err != nil {
-				return nil, err
+				return nil, wrapRecoveryFailure(recoveryFailureStateWrite, err)
 			}
 			continue
 		}
 
 		if state.Revision >= maxStateRecords-1 {
 			if err := store.writeRecoveryTerminal(operationID, state, StatusFailed, "DISPATCH_RETRIES_EXHAUSTED", "deferred operation exhausted bounded pre-start recovery attempts", now); err != nil {
-				return nil, err
+				return nil, wrapRecoveryFailure(recoveryFailureStateWrite, err)
 			}
 			continue
 		}
 		lease := stateRecord{Status: StatusStarting, Revision: state.Revision + 1, UpdatedAt: now}
 		if err := store.writeStateExclusive(operationID, lease); err != nil {
-			return nil, err
+			return nil, wrapRecoveryFailure(recoveryFailureStateWrite, err)
 		}
 		if err := touch(filepath.Join(store.operationDir(operationID), heartbeatName)); err != nil {
-			return nil, err
+			return nil, wrapRecoveryFailure(recoveryFailureHeartbeat, err)
 		}
 		candidates = append(candidates, recoveryCandidate{operationID: operationID, createdAt: request.CreatedAt})
 	}

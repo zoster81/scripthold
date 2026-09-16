@@ -14,6 +14,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Reduced release-workflow token scope, made the reusable MCPB publisher read-only by default, pinned container base images to immutable digests, added CodeQL coverage for pull requests, and linked the private GitHub Security Advisory reporting flow.
 - Reworked the README trust badge set around evidence-backed release, download, security, Registry, and Glama signals.
 - Removed stale Smithery tool-count metadata and documented the boundary between core publication and third-party discovery syndication.
+- Deferred-operation recovery diagnostics now report bounded path-free failure categories instead of an undifferentiated recovery error.
 
 ## 3.2.0 - 2026-09-15
 

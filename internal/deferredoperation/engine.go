@@ -75,7 +75,7 @@ func (engine *Engine) Recover(ctx context.Context, currentAllowedDirectories []s
 		}
 		if err := engine.launch(operationID); err != nil {
 			_, failErr := engine.store.Fail(operationID, StatusFailed, "DISPATCH_FAILED", "deferred executor process could not be restarted")
-			recoveryErr = errors.Join(recoveryErr, err, failErr)
+			recoveryErr = errors.Join(recoveryErr, wrapRecoveryFailure(recoveryFailureDispatch, errors.Join(err, failErr)))
 		}
 	}
 	return recoveryErr

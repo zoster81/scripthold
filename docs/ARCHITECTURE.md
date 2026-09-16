@@ -101,6 +101,7 @@ Source Intelligence is read-only and fail-closed.
 Diagnostics are intentionally separated by responsibility.
 
 - Process/server diagnostics are redacted and may use stderr or bounded optional files.
+- Deferred-operation recovery failures expose only a bounded path-free failure category; raw store errors, paths, and operation identifiers remain private.
 - HTTP access/security logging is a separate channel.
 - Durable task stdout/stderr belongs to task logs, not server diagnostics.
 - Human-readable tool failure text, raw panic values, stacks, secrets, and clear filesystem paths must not leak into category-only lifecycle logs.
