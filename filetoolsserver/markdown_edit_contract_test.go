@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 4 {
-		t.Fatalf("operation union = %#v, want four closed variants", items["oneOf"])
+	if !ok || len(oneOf) != 5 {
+		t.Fatalf("operation union = %#v, want five closed variants", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -104,6 +104,29 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if markdownReadSchemaMap(t, removeProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
 		t.Fatalf("paragraph remove targetId schema = %#v", removeProperties["targetId"])
+	}
+
+	insertParagraph := markdownReadSchemaMap(t, oneOf[4])
+	if insertParagraph["type"] != "object" || insertParagraph["additionalProperties"] != false {
+		t.Fatalf("paragraph insert schema = %#v, want strict object", insertParagraph)
+	}
+	markdownReadAssertStringSet(t, "paragraph insert required", insertParagraph["required"], []string{"action", "markdown", "position", "subject", "targetId"})
+	insertProperties := markdownReadSchemaMap(t, insertParagraph["properties"])
+	if markdownReadSchemaMap(t, insertProperties["action"])["const"] != "insert" || markdownReadSchemaMap(t, insertProperties["subject"])["const"] != "paragraph" {
+		t.Fatalf("paragraph insert discriminators = %#v", insertProperties)
+	}
+	position := markdownReadSchemaMap(t, insertProperties["position"])
+	if !reflect.DeepEqual(position["enum"], []string{"before", "after"}) {
+		t.Fatalf("paragraph insert position schema = %#v, want before/after enum", position)
+	}
+	if markdownReadSchemaMap(t, insertProperties["markdown"])["type"] != "string" {
+		t.Fatalf("paragraph insert markdown schema = %#v", insertProperties["markdown"])
+	}
+	if markdownReadSchemaMap(t, insertProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
+		t.Fatalf("paragraph insert targetId schema = %#v", insertProperties["targetId"])
+	}
+	if len(insertProperties) != 5 {
+		t.Fatalf("paragraph insert properties = %#v, want only action/subject/targetId/position/markdown", insertProperties)
 	}
 }
 

@@ -432,9 +432,9 @@ Every successful response includes the source fingerprint and Scripthold physica
 
 ### markdown_edit
 
-Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, replace one paragraph with Markdown content, or remove one paragraph completely. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, rewriting prose while keeping links/emphasis/code markup, or reviewing several related documentation changes together.
+Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, insert a paragraph before or after an existing paragraph, replace one paragraph with Markdown content, or remove one paragraph completely. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, adding guidance next to existing prose, rewriting text while keeping links/emphasis/code markup, or reviewing several related documentation changes together.
 
-Four closed operation forms are available. Heading rename uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. Heading level change uses `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6. Paragraph replacement uses `action: "replace"`, `subject: "paragraph"`, a paragraph `targetId`, and `markdown` containing exactly one paragraph; inline Markdown such as emphasis or links is allowed, while a multi-paragraph fragment is rejected. Paragraph removal uses `action: "remove"`, `subject: "paragraph"`, and only the paragraph `targetId`; it is useful for deleting obsolete prose without matching raw text. The four forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
+Five closed operation forms are available. Heading rename uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. Heading level change uses `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6. Paragraph insertion uses `action: "insert"`, `subject: "paragraph"`, an existing paragraph `targetId`, `position: "before" | "after"`, and `markdown` containing exactly one paragraph; the target is the structural anchor, so callers do not need to calculate line numbers or separators. Paragraph replacement uses `action: "replace"`, `subject: "paragraph"`, a paragraph `targetId`, and `markdown` containing exactly one paragraph. Paragraph removal uses `action: "remove"`, `subject: "paragraph"`, and only the paragraph `targetId`; it is useful for deleting obsolete prose without matching raw text. Inline Markdown such as emphasis or links is allowed for paragraph insertion/replacement, while a multi-paragraph fragment is rejected. The five forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
 
 All requested changes are checked against the same original document. Marksplice combines only changes that can safely coexist; overlapping or interacting changes are rejected instead of being applied in an uncertain sequence. The successful result is a preview with a one-shot `previewId` and diff. Preview does **not** write the target or create a persistent backup.
 
@@ -463,6 +463,13 @@ The current mutation path supports UTF-8 Markdown with or without BOM and preser
       "subject": "paragraph",
       "targetId": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
       "markdown": "Updated **important** guidance with [details](details.md)."
+    },
+    {
+      "action": "insert",
+      "subject": "paragraph",
+      "targetId": "1111111111111111111111111111111111111111111111111111111111111111",
+      "position": "after",
+      "markdown": "A new paragraph placed after the selected paragraph."
     }
   ],
   "backupPolicy": "required"

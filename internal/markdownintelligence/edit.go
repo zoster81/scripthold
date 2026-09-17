@@ -93,6 +93,34 @@ func (s *Snapshot) PrepareReplaceParagraph(targetID string, replacement []byte) 
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareInsertParagraphBefore resolves the opaque Scripthold anchor against
+// this exact snapshot and delegates source-preserving paragraph insertion to Marksplice.
+func (s *Snapshot) PrepareInsertParagraphBefore(targetID string, markdown []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareInsertParagraphBefore(node.ID(), markdown)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareInsertParagraphAfter resolves the opaque Scripthold anchor against
+// this exact snapshot and delegates source-preserving paragraph insertion to Marksplice.
+func (s *Snapshot) PrepareInsertParagraphAfter(targetID string, markdown []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareInsertParagraphAfter(node.ID(), markdown)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareRemoveParagraph resolves the opaque Scripthold target against this
 // exact snapshot and delegates source-preserving paragraph removal to Marksplice.
 func (s *Snapshot) PrepareRemoveParagraph(targetID string) (PreparedChange, error) {

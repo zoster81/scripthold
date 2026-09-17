@@ -32,6 +32,7 @@ type MarkdownEditOperation struct {
 	Text     string `json:"text,omitempty"`
 	Level    int    `json:"level,omitempty"`
 	Markdown string `json:"markdown,omitempty"`
+	Position string `json:"position,omitempty"`
 }
 
 // MarkdownEditInput prepares one source-bound Markdown preview and never writes
@@ -145,6 +146,10 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "remove" && operationInput.Subject == "paragraph":
 			preparedChange, prepareErr = snapshot.PrepareRemoveParagraph(operationInput.TargetID)
+		case operationInput.Action == "insert" && operationInput.Subject == "paragraph" && operationInput.Position == "before":
+			preparedChange, prepareErr = snapshot.PrepareInsertParagraphBefore(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "insert" && operationInput.Subject == "paragraph" && operationInput.Position == "after":
+			preparedChange, prepareErr = snapshot.PrepareInsertParagraphAfter(operationInput.TargetID, []byte(operationInput.Markdown))
 		default:
 			prepareErr = marksplice.ErrInvalidQuery
 		}
@@ -383,20 +388,24 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		}
 		switch {
 		case op.Action == "rename" && op.Subject == "heading":
-			if op.Level != 0 || op.Markdown != "" {
+			if op.Level != 0 || op.Markdown != "" || op.Position != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "rename/heading accepts text only")
 			}
 		case op.Action == "set" && op.Subject == "heading":
-			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" {
+			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" || op.Position != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "set/heading requires level from 1 to 6")
 			}
 		case op.Action == "replace" && op.Subject == "paragraph":
-			if op.Text != "" || op.Level != 0 {
+			if op.Text != "" || op.Level != 0 || op.Position != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/paragraph accepts markdown only")
 			}
 		case op.Action == "remove" && op.Subject == "paragraph":
-			if op.Text != "" || op.Level != 0 || op.Markdown != "" {
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "remove/paragraph accepts targetId only")
+			}
+		case op.Action == "insert" && op.Subject == "paragraph":
+			if (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 {
+				return errorResultWithCode(ErrCodeInvalidInput, "insert/paragraph requires position before or after and markdown")
 			}
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")

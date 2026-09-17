@@ -184,6 +184,53 @@ func TestMarkdownEditRemovesParagraph(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditInsertsParagraphBeforeAndAfter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("first\r\n\r\nmiddle\r\n\r\nlast\r\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"paragraph"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 3 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operations := []MarkdownEditOperation{
+		{Action: "insert", Subject: "paragraph", TargetID: read.Nodes[0].TargetID, Position: "after", Markdown: "after first *insert*"},
+		{Action: "insert", Subject: "paragraph", TargetID: read.Nodes[2].TargetID, Position: "before", Markdown: "before last **insert**"},
+	}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: operations})
+	if err != nil || previewResult.IsError || !preview.Changed || len(preview.Operations) != 2 {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("paragraph insert preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	want := "first\r\n\r\nafter first *insert*\r\n\r\nmiddle\r\n\r\nbefore last **insert**\r\n\r\nlast\r\n"
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("paragraph insert target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidParagraphInsertShapeBeforeFilesystemWork(t *testing.T) {
+	base := MarkdownEditOperation{Action: "insert", Subject: "paragraph", TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Position: "before", Markdown: "Paragraph."}
+	cases := []MarkdownEditOperation{
+		{Action: base.Action, Subject: base.Subject, TargetID: base.TargetID, Position: "inside", Markdown: base.Markdown},
+		{Action: base.Action, Subject: base.Subject, TargetID: base.TargetID, Position: base.Position, Markdown: base.Markdown, Text: "unexpected"},
+	}
+	for _, operation := range cases {
+		result := validateMarkdownEditInput(MarkdownEditInput{Path: "unused.md", Operations: []MarkdownEditOperation{operation}})
+		if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid insert operation=%+v result=%+v", operation, result)
+		}
+	}
+}
+
 func TestMarkdownEditRejectsReplaceAndRemoveSameParagraphWithoutMutation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")

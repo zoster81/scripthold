@@ -201,6 +201,88 @@ func TestPrepareRemoveParagraphIsSnapshotBoundAndRejectsWrongTargetKind(t *testi
 	}
 }
 
+func TestPrepareInsertParagraphBeforeAndAfterAreSnapshotBoundAndSourcePreserving(t *testing.T) {
+	beforeSource := []byte("first\r\n\r\ntarget [link](dest)\r\n")
+	beforeSnapshot, err := Parse(beforeSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeParagraphs, err := beforeSnapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(beforeParagraphs) != 2 {
+		t.Fatalf("before paragraphs=%+v err=%v", beforeParagraphs, err)
+	}
+	before, err := beforeSnapshot.PrepareInsertParagraphBefore(beforeParagraphs[1].TargetID, []byte("new *paragraph*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeResult, err := before.Apply(beforeSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(beforeResult), "first\r\n\r\nnew *paragraph*\r\n\r\ntarget [link](dest)\r\n"; got != want {
+		t.Fatalf("before result=%q want %q", got, want)
+	}
+	if _, err := before.Apply([]byte("first\r\n\r\nexternal\r\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("before stale error=%v, want ErrSourceConflict", err)
+	}
+
+	afterSource := []byte("target\n\nafter\n")
+	afterSnapshot, err := Parse(afterSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterParagraphs, err := afterSnapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(afterParagraphs) != 2 {
+		t.Fatalf("after paragraphs=%+v err=%v", afterParagraphs, err)
+	}
+	after, err := afterSnapshot.PrepareInsertParagraphAfter(afterParagraphs[0].TargetID, []byte("new **paragraph**"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterResult, err := after.Apply(afterSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(afterResult), "target\n\nnew **paragraph**\n\nafter\n"; got != want {
+		t.Fatalf("after result=%q want %q", got, want)
+	}
+}
+
+func TestPrepareInsertParagraphRejectsInvalidContentAndWrongTargetKind(t *testing.T) {
+	snapshot, err := Parse([]byte("# Heading\n\nTarget.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	for _, replacement := range [][]byte{nil, []byte("# heading"), []byte("one\n\ntwo")} {
+		if _, err := snapshot.PrepareInsertParagraphBefore(paragraphs[0].TargetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("before content %q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := snapshot.PrepareInsertParagraphAfter(headings[0].TargetID, []byte("Paragraph.")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("after wrong-kind error=%v, want ErrInvalidTargetKind", err)
+	}
+
+	noEOL, err := Parse([]byte("Target."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	noEOLParagraphs, err := noEOL.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(noEOLParagraphs) != 1 {
+		t.Fatalf("no-EOL paragraphs=%+v err=%v", noEOLParagraphs, err)
+	}
+	if _, err := noEOL.PrepareInsertParagraphAfter(noEOLParagraphs[0].TargetID, []byte("New.")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("after EOF error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

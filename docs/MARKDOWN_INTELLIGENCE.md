@@ -166,7 +166,7 @@ Line numbers, byte ranges, and occurrence counts are diagnostic output, not gene
 
 `markdown_edit` uses one document plus an ordered `operations` array. Every operation contains a closed `action`/`subject` combination and only the fields defined for that combination. Examples of action classes are `create`, `insert`, `replace`, `remove`, `move`, `rename`, `set`, and `sync`.
 
-The currently exposed edit forms are intentionally small and easy to distinguish: rename a heading with `text`, change a heading level with `level`, replace one paragraph with `markdown`, or remove one paragraph using only its `targetId`. Paragraph `markdown` may contain inline Markdown such as links or emphasis, but Marksplice must still prove that the replacement is exactly one valid paragraph.
+The currently exposed edit forms are intentionally small and easy to distinguish: rename a heading with `text`, change a heading level with `level`, insert one paragraph before or after an existing paragraph with `position` plus `markdown`, replace one paragraph with `markdown`, or remove one paragraph using only its `targetId`. For insertion the `targetId` identifies the existing paragraph anchor; callers do not calculate source offsets or separator bytes. Paragraph `markdown` may contain inline Markdown such as links or emphasis, but Marksplice must still prove that inserted or replacement content is exactly one valid paragraph.
 
 All operations are resolved against the same immutable snapshot. R30 does not mutate an in-memory document after operation 1 and then reinterpret operation 2 against changed coordinates. Marksplice `ComposeChanges` is the final authority on whether independently prepared operations can coexist.
 
