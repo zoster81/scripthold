@@ -432,15 +432,15 @@ Every successful response includes the source fingerprint and Scripthold physica
 
 ### markdown_edit
 
-Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, insert a paragraph before or after an existing paragraph, replace one paragraph with Markdown content, or remove one paragraph completely. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, adding guidance next to existing prose, rewriting text while keeping links/emphasis/code markup, or reviewing several related documentation changes together.
+Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, insert a paragraph before or after an existing paragraph, replace or remove one paragraph, or remove an entire section subtree. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, adding guidance next to existing prose, rewriting text while keeping links/emphasis/code markup, deleting an obsolete section together with its nested subsections, or reviewing several related documentation changes together.
 
-Five closed operation forms are available. Heading rename uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. Heading level change uses `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6. Paragraph insertion uses `action: "insert"`, `subject: "paragraph"`, an existing paragraph `targetId`, `position: "before" | "after"`, and `markdown` containing exactly one paragraph; the target is the structural anchor, so callers do not need to calculate line numbers or separators. Paragraph replacement uses `action: "replace"`, `subject: "paragraph"`, a paragraph `targetId`, and `markdown` containing exactly one paragraph. Paragraph removal uses `action: "remove"`, `subject: "paragraph"`, and only the paragraph `targetId`; it is useful for deleting obsolete prose without matching raw text. Inline Markdown such as emphasis or links is allowed for paragraph insertion/replacement, while a multi-paragraph fragment is rejected. The five forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
+Six closed operation forms are available. Heading rename uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. Heading level change uses `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6. Paragraph insertion uses `action: "insert"`, `subject: "paragraph"`, an existing paragraph `targetId`, `position: "before" | "after"`, and `markdown` containing exactly one paragraph; the target is the structural anchor, so callers do not need to calculate line numbers or separators. Paragraph replacement uses `action: "replace"`, `subject: "paragraph"`, a paragraph `targetId`, and `markdown` containing exactly one paragraph. Paragraph removal uses `action: "remove"`, `subject: "paragraph"`, and only the paragraph `targetId`. Section removal uses `action: "remove"`, `subject: "section"`, and the section `targetId` returned by a `markdown_read` sections query; it removes that heading, its body, and every nested subsection in the section subtree. The separate `headingTargetId` is not interchangeable with the section `targetId`. Inline Markdown such as emphasis or links is allowed for paragraph insertion/replacement, while a multi-paragraph fragment is rejected. The six forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
 
 All requested changes are checked against the same original document. Marksplice combines only changes that can safely coexist; overlapping or interacting changes are rejected instead of being applied in an uncertain sequence. The successful result is a preview with a one-shot `previewId` and diff. Preview does **not** write the target or create a persistent backup.
 
 The current mutation path supports UTF-8 Markdown with or without BOM and preserves existing mixed line endings. Other encodings currently fail safely until Scripthold can prove byte-preserving mutation for them.
 
-**Typical workflow:** call `markdown_read` to obtain exact heading `targetId` values, call `markdown_edit` to review the combined result, then pass the returned `previewId` to `markdown_apply`.
+**Typical workflow:** call `markdown_read` to obtain the exact heading, paragraph, or section `targetId` required by the operation, call `markdown_edit` to review the combined result, then pass the returned `previewId` to `markdown_apply`.
 
 ```json
 {
@@ -470,6 +470,11 @@ The current mutation path supports UTF-8 Markdown with or without BOM and preser
       "targetId": "1111111111111111111111111111111111111111111111111111111111111111",
       "position": "after",
       "markdown": "A new paragraph placed after the selected paragraph."
+    },
+    {
+      "action": "remove",
+      "subject": "section",
+      "targetId": "2222222222222222222222222222222222222222222222222222222222222222"
     }
   ],
   "backupPolicy": "required"

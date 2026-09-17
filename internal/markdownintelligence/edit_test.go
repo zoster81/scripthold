@@ -1,7 +1,9 @@
 package markdownintelligence
 
 import (
+	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/marksplice"
@@ -89,6 +91,57 @@ func TestPrepareSetHeadingLevelRejectsOutOfRangeLevel(t *testing.T) {
 		if _, err := snapshot.PrepareSetHeadingLevel(headings[0].TargetID, level); err == nil {
 			t.Fatalf("level %d unexpectedly accepted", level)
 		}
+	}
+}
+
+func TestPrepareRemoveSectionUsesSectionTargetAndRemovesSubtree(t *testing.T) {
+	source := []byte("# Root\r\n\r\nIntro.\r\n\r\n## Remove\r\n\r\nRemove body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sections, truncated, err := snapshot.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(sections) != 2 {
+		t.Fatalf("sections=%+v truncated=%v err=%v", sections, truncated, err)
+	}
+	prepared, err := snapshot.PrepareRemoveSection(sections[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(result), "## Remove") || strings.Contains(string(result), "### Child") || strings.Contains(string(result), "Remove body.") || strings.Contains(string(result), "Child body.") {
+		t.Fatalf("removed section subtree remains in result=%q", result)
+	}
+	if !strings.Contains(string(result), "# Root\r\n") || !strings.Contains(string(result), "## Keep\r\n\r\nKeep body.\r\n") {
+		t.Fatalf("unrelated section content changed unexpectedly: %q", result)
+	}
+	updated, err := Parse(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, truncated, err := updated.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(remaining) != 1 {
+		t.Fatalf("remaining sections=%+v truncated=%v err=%v result=%q", remaining, truncated, err, result)
+	}
+	stale := bytes.Replace(source, []byte("Intro."), []byte("External."), 1)
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareRemoveSection(sections[0].HeadingTargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("heading target error=%v, want ErrInvalidTargetKind", err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) == 0 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareRemoveSection(paragraphs[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+	if _, err := snapshot.PrepareRemoveSection("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); !errors.Is(err, marksplice.ErrNodeNotFound) {
+		t.Fatalf("unknown target error=%v, want ErrNodeNotFound", err)
 	}
 }
 

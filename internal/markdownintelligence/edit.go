@@ -79,6 +79,20 @@ func (s *Snapshot) PrepareSetHeadingLevel(targetID string, level int) (PreparedC
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareRemoveSection resolves the opaque Scripthold section target against
+// this exact snapshot and delegates complete subtree removal to Marksplice.
+func (s *Snapshot) PrepareRemoveSection(targetID string) (PreparedChange, error) {
+	headingID, err := s.sectionHeadingID(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRemoveSection(headingID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceParagraph resolves the opaque Scripthold target against this
 // exact snapshot and delegates source-preserving paragraph replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceParagraph(targetID string, replacement []byte) (PreparedChange, error) {
@@ -133,6 +147,34 @@ func (s *Snapshot) PrepareRemoveParagraph(targetID string) (PreparedChange, erro
 		return PreparedChange{}, err
 	}
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+func (s *Snapshot) sectionHeadingID(sectionTargetID string) (marksplice.NodeID, error) {
+	var zero marksplice.NodeID
+	if s == nil || s.document == nil {
+		return zero, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	if !validTargetID(sectionTargetID) {
+		return zero, fmt.Errorf("%w: markdown section target is invalid", marksplice.ErrNodeNotFound)
+	}
+	sections, err := s.document.QuerySections(marksplice.SectionQuery{Limit: maxTargetScanNodes + 1})
+	if err != nil {
+		return zero, err
+	}
+	if len(sections) > maxTargetScanNodes {
+		return zero, fmt.Errorf("%w: markdown section target scan exceeds %d sections", marksplice.ErrInvalidQuery, maxTargetScanNodes)
+	}
+	for _, section := range sections {
+		if targetID(s.fingerprint, "section", section.Range()) == sectionTargetID {
+			return section.HeadingID(), nil
+		}
+	}
+	if _, ok, err := s.resolveNodeTarget(sectionTargetID); err != nil {
+		return zero, err
+	} else if ok {
+		return zero, marksplice.ErrInvalidTargetKind
+	}
+	return zero, fmt.Errorf("%w: markdown section target was not found", marksplice.ErrNodeNotFound)
 }
 
 func (s *Snapshot) targetNode(targetID string) (marksplice.Node, error) {

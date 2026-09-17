@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 5 {
-		t.Fatalf("operation union = %#v, want five closed variants", items["oneOf"])
+	if !ok || len(oneOf) != 6 {
+		t.Fatalf("operation union = %#v, want six closed variants", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -127,6 +127,22 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if len(insertProperties) != 5 {
 		t.Fatalf("paragraph insert properties = %#v, want only action/subject/targetId/position/markdown", insertProperties)
+	}
+
+	removeSection := markdownReadSchemaMap(t, oneOf[5])
+	if removeSection["type"] != "object" || removeSection["additionalProperties"] != false {
+		t.Fatalf("section remove schema = %#v, want strict object", removeSection)
+	}
+	markdownReadAssertStringSet(t, "section remove required", removeSection["required"], []string{"action", "subject", "targetId"})
+	removeSectionProperties := markdownReadSchemaMap(t, removeSection["properties"])
+	if markdownReadSchemaMap(t, removeSectionProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeSectionProperties["subject"])["const"] != "section" {
+		t.Fatalf("section remove discriminators = %#v", removeSectionProperties)
+	}
+	if len(removeSectionProperties) != 3 {
+		t.Fatalf("section remove properties = %#v, want only action/subject/targetId", removeSectionProperties)
+	}
+	if markdownReadSchemaMap(t, removeSectionProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
+		t.Fatalf("section remove targetId schema = %#v", removeSectionProperties["targetId"])
 	}
 }
 

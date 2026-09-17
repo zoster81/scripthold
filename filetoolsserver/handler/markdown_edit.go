@@ -150,6 +150,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareInsertParagraphBefore(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "insert" && operationInput.Subject == "paragraph" && operationInput.Position == "after":
 			preparedChange, prepareErr = snapshot.PrepareInsertParagraphAfter(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "remove" && operationInput.Subject == "section":
+			preparedChange, prepareErr = snapshot.PrepareRemoveSection(operationInput.TargetID)
 		default:
 			prepareErr = marksplice.ErrInvalidQuery
 		}
@@ -406,6 +408,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "insert" && op.Subject == "paragraph":
 			if (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 {
 				return errorResultWithCode(ErrCodeInvalidInput, "insert/paragraph requires position before or after and markdown")
+			}
+		case op.Action == "remove" && op.Subject == "section":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove/section accepts targetId only")
 			}
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")
