@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 3 {
-		t.Fatalf("operation union = %#v, want three closed variants", items["oneOf"])
+	if !ok || len(oneOf) != 4 {
+		t.Fatalf("operation union = %#v, want four closed variants", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -88,6 +88,22 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if _, ok := replaceProperties["level"]; ok {
 		t.Fatalf("paragraph replace schema unexpectedly accepts level: %#v", replaceProperties)
+	}
+
+	removeParagraph := markdownReadSchemaMap(t, oneOf[3])
+	if removeParagraph["type"] != "object" || removeParagraph["additionalProperties"] != false {
+		t.Fatalf("paragraph remove schema = %#v, want strict object", removeParagraph)
+	}
+	markdownReadAssertStringSet(t, "paragraph remove required", removeParagraph["required"], []string{"action", "subject", "targetId"})
+	removeProperties := markdownReadSchemaMap(t, removeParagraph["properties"])
+	if markdownReadSchemaMap(t, removeProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeProperties["subject"])["const"] != "paragraph" {
+		t.Fatalf("paragraph remove discriminators = %#v", removeProperties)
+	}
+	if len(removeProperties) != 3 {
+		t.Fatalf("paragraph remove properties = %#v, want only action/subject/targetId", removeProperties)
+	}
+	if markdownReadSchemaMap(t, removeProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
+		t.Fatalf("paragraph remove targetId schema = %#v", removeProperties["targetId"])
 	}
 }
 

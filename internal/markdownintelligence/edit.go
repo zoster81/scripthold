@@ -93,6 +93,20 @@ func (s *Snapshot) PrepareReplaceParagraph(targetID string, replacement []byte) 
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareRemoveParagraph resolves the opaque Scripthold target against this
+// exact snapshot and delegates source-preserving paragraph removal to Marksplice.
+func (s *Snapshot) PrepareRemoveParagraph(targetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRemoveParagraph(node.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 func (s *Snapshot) targetNode(targetID string) (marksplice.Node, error) {
 	if s == nil || s.document == nil {
 		return marksplice.Node{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)

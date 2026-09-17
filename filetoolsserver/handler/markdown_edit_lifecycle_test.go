@@ -155,6 +155,59 @@ func TestMarkdownEditReplacesParagraphMarkdown(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditRemovesParagraph(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("before\n\nremove me\n\nafter\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"paragraph"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 3 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operation := MarkdownEditOperation{Action: "remove", Subject: "paragraph", TargetID: read.Nodes[1].TargetID}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("paragraph removal preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "before\n\nafter\n" {
+		t.Fatalf("paragraph removal target=%q err=%v", got, err)
+	}
+}
+
+func TestMarkdownEditRejectsReplaceAndRemoveSameParagraphWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("old paragraph\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"paragraph"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 1 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	targetID := read.Nodes[0].TargetID
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{
+		{Action: "replace", Subject: "paragraph", TargetID: targetID, Markdown: "new paragraph"},
+		{Action: "remove", Subject: "paragraph", TargetID: targetID},
+	}})
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("overlap result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("overlap mutated target: %q err=%v", got, err)
+	}
+}
 func TestMarkdownEditRejectsMultiParagraphReplacementWithoutMutation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")

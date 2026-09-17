@@ -143,6 +143,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
 		case operationInput.Action == "replace" && operationInput.Subject == "paragraph":
 			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "remove" && operationInput.Subject == "paragraph":
+			preparedChange, prepareErr = snapshot.PrepareRemoveParagraph(operationInput.TargetID)
 		default:
 			prepareErr = marksplice.ErrInvalidQuery
 		}
@@ -391,6 +393,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "paragraph":
 			if op.Text != "" || op.Level != 0 {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/paragraph accepts markdown only")
+			}
+		case op.Action == "remove" && op.Subject == "paragraph":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove/paragraph accepts targetId only")
 			}
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")

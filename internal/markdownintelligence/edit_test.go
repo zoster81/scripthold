@@ -163,6 +163,44 @@ func TestPrepareReplaceParagraphRejectsWrongTargetKind(t *testing.T) {
 	}
 }
 
+func TestPrepareRemoveParagraphIsSnapshotBoundAndRejectsWrongTargetKind(t *testing.T) {
+	source := []byte("# Title\r\n\r\nRemove me.\r\n\r\nKeep **this**.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 2 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	prepared, err := snapshot.PrepareRemoveParagraph(paragraphs[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := Parse(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := updated.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(remaining) != 1 {
+		t.Fatalf("remaining paragraphs=%+v err=%v result=%q", remaining, err, result)
+	}
+	if _, err := prepared.Apply([]byte("# Title\r\n\r\nExternal.\r\n\r\nKeep **this**.\r\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := snapshot.PrepareRemoveParagraph(headings[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("wrong-kind error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)
