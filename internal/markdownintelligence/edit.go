@@ -79,6 +79,20 @@ func (s *Snapshot) PrepareSetHeadingLevel(targetID string, level int) (PreparedC
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceParagraph resolves the opaque Scripthold target against this
+// exact snapshot and delegates source-preserving paragraph replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceParagraph(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceParagraph(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 func (s *Snapshot) targetNode(targetID string) (marksplice.Node, error) {
 	if s == nil || s.document == nil {
 		return marksplice.Node{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)

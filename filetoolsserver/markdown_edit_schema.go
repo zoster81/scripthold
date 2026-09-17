@@ -42,6 +42,17 @@ func markdownEditCatalogTool() *mcp.Tool {
 								"level":    map[string]any{"type": "integer", "minimum": 1, "maximum": 6},
 							},
 						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "markdown"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "replace"},
+								"subject":  map[string]any{"const": "paragraph"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"markdown": map[string]any{"type": "string"},
+							},
+						},
 					},
 				},
 			},

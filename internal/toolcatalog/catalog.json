@@ -124,7 +124,7 @@
     {
       "name": "markdown_edit",
       "title": "Preview Markdown Edit",
-      "description": "Prepare a source-bound Marksplice-backed Markdown edit without mutating the target.",
+      "description": "Prepare reviewable, source-bound Markdown heading and paragraph changes without writing the target.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,

@@ -31,6 +31,7 @@ type MarkdownEditOperation struct {
 	TargetID string `json:"targetId"`
 	Text     string `json:"text,omitempty"`
 	Level    int    `json:"level,omitempty"`
+	Markdown string `json:"markdown,omitempty"`
 }
 
 // MarkdownEditInput prepares one source-bound Markdown preview and never writes
@@ -135,11 +136,13 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 	for _, operationInput := range input.Operations {
 		var preparedChange markdownintelligence.PreparedChange
 		var prepareErr error
-		switch operationInput.Action {
-		case "rename":
+		switch {
+		case operationInput.Action == "rename" && operationInput.Subject == "heading":
 			preparedChange, prepareErr = snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
-		case "set":
+		case operationInput.Action == "set" && operationInput.Subject == "heading":
 			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
+		case operationInput.Action == "replace" && operationInput.Subject == "paragraph":
+			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
 		default:
 			prepareErr = marksplice.ErrInvalidQuery
 		}
@@ -373,20 +376,24 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("Markdown edit operations exceed fixed limit %d", markdownintelligence.MaxEditOperations))
 	}
 	for _, op := range input.Operations {
-		if op.Subject != "heading" || !isLowerHexDigest(op.TargetID) {
-			return errorResultWithCode(ErrCodeInvalidInput, "operations must target a heading with a snapshot-bound targetId")
+		if !isLowerHexDigest(op.TargetID) {
+			return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
 		}
-		switch op.Action {
-		case "rename":
-			if op.Level != 0 {
-				return errorResultWithCode(ErrCodeInvalidInput, "rename/heading accepts text but not level")
+		switch {
+		case op.Action == "rename" && op.Subject == "heading":
+			if op.Level != 0 || op.Markdown != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "rename/heading accepts text only")
 			}
-		case "set":
-			if op.Level < 1 || op.Level > 6 || op.Text != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "set/heading requires level from 1 to 6 and does not accept text")
+		case op.Action == "set" && op.Subject == "heading":
+			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "set/heading requires level from 1 to 6")
+			}
+		case op.Action == "replace" && op.Subject == "paragraph":
+			if op.Text != "" || op.Level != 0 {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/paragraph accepts markdown only")
 			}
 		default:
-			return errorResultWithCode(ErrCodeInvalidInput, "heading operation action must be rename or set")
+			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")
 		}
 	}
 	if _, err := normalizeEditBackupPolicy(input.BackupPolicy); err != nil {

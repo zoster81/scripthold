@@ -8,7 +8,7 @@ import (
 	"github.com/zoster81/scripthold/internal/markdownintelligence"
 )
 
-func TestMarkdownEditCatalogSchemaIsClosedForHeadingOperationUnion(t *testing.T) {
+func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	tool := markdownEditCatalogTool()
 	schema := markdownReadSchemaMap(t, tool.InputSchema)
 	if schema["type"] != "object" || schema["additionalProperties"] != false {
@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForHeadingOperationUnion(t *testing.T)
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 2 {
-		t.Fatalf("operation union = %#v, want two closed variants", items["oneOf"])
+	if !ok || len(oneOf) != 3 {
+		t.Fatalf("operation union = %#v, want three closed variants", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -68,6 +68,26 @@ func TestMarkdownEditCatalogSchemaIsClosedForHeadingOperationUnion(t *testing.T)
 	}
 	if _, ok := setProperties["text"]; ok {
 		t.Fatalf("set schema unexpectedly accepts text: %#v", setProperties)
+	}
+
+	replaceParagraph := markdownReadSchemaMap(t, oneOf[2])
+	if replaceParagraph["type"] != "object" || replaceParagraph["additionalProperties"] != false {
+		t.Fatalf("paragraph replace schema = %#v, want strict object", replaceParagraph)
+	}
+	markdownReadAssertStringSet(t, "paragraph replace required", replaceParagraph["required"], []string{"action", "markdown", "subject", "targetId"})
+	replaceProperties := markdownReadSchemaMap(t, replaceParagraph["properties"])
+	if markdownReadSchemaMap(t, replaceProperties["action"])["const"] != "replace" || markdownReadSchemaMap(t, replaceProperties["subject"])["const"] != "paragraph" {
+		t.Fatalf("paragraph replace discriminators = %#v", replaceProperties)
+	}
+	markdown := markdownReadSchemaMap(t, replaceProperties["markdown"])
+	if markdown["type"] != "string" {
+		t.Fatalf("paragraph markdown schema = %#v, want string", markdown)
+	}
+	if _, ok := replaceProperties["text"]; ok {
+		t.Fatalf("paragraph replace schema unexpectedly accepts text: %#v", replaceProperties)
+	}
+	if _, ok := replaceProperties["level"]; ok {
+		t.Fatalf("paragraph replace schema unexpectedly accepts level: %#v", replaceProperties)
 	}
 }
 

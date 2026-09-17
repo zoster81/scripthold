@@ -1,6 +1,8 @@
 # Scripthold Tool Reference
 
-The current public release, Scripthold `3.2.1`, exposes 38 tools and 3 guided prompts. The source tree may document additional unreleased tools below. The catalog is transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+This reference explains what each Scripthold tool does, when to use it, its main inputs, and the important safety or limit behavior. Start with the short purpose and examples in each section; use the detailed rules when you need exact API behavior or troubleshooting information.
+
+The current public release, Scripthold `3.2.1`, exposes 38 tools and 3 guided prompts. The source tree may document additional unreleased tools below. Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
 
 ## Guided Prompts
 
@@ -18,7 +20,9 @@ Stable codes are `INVALID_INPUT`, `INVALID_PATH`, `ACCESS_DENIED`, `SYMLINK_ESCA
 
 ## File Operations
 
-Mutating file tools share a durable filesystem layer. Replacement data is staged in the destination directory, synced before commit, and installed with platform-specific atomic operations. Existing-file snapshots detect practical concurrent modifications; initially missing destinations use no-replace commits. Recursive packages retain exact scope evidence, stable object and volume identity, package-wide staging, mandatory persistent backup before irreversible regular-file deletion, and native same-volume no-replace move. On Unix, containing directories are synced after namespace changes. On Windows, replacement first uses the write-through `MoveFileExW` path; after a retryable existing-file replacement failure and successful state revalidation, a DELETE-gated `FileRenameInfoEx` POSIX replacement may install the already-synced same-directory staged file, while no-replace moves retain the write-through native path. These protections reduce but do not eliminate every path-based TOCTOU window.
+Use these tools to read, create, edit, copy, move, or remove files while keeping changes inside authorized workspace roots. Mutating tools are designed to detect common concurrent changes and avoid silently overwriting a destination that appeared after preparation.
+
+Under the hood, replacement data is staged in the destination directory and synchronized before commit. Existing-file snapshots detect practical concurrent modifications; initially missing destinations use no-replace commits. Recursive packages retain exact scope evidence, stable object and volume identity, package-wide staging, mandatory persistent backup before irreversible regular-file deletion, and native same-volume no-replace move. On Unix, containing directories are synced after namespace changes. On Windows, replacement first uses the write-through `MoveFileExW` path; after a retryable existing-file replacement failure and successful state revalidation, a DELETE-gated `FileRenameInfoEx` POSIX replacement may install the already-synced same-directory staged file. These protections reduce but do not eliminate every path-based TOCTOU window.
 
 ### read_text_file
 
@@ -428,9 +432,9 @@ Every successful response includes the source fingerprint and Scripthold physica
 
 ### markdown_edit
 
-Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. The current editing slice can rename headings or change their level from `h1` to `h6`. A request may contain 1 to 64 operations, which is useful for cleaning up section names, promoting or demoting sections during a reorganization, or making several related heading changes in one reviewable preview.
+Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, and replace a single paragraph with Markdown content. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, rewriting prose while keeping links/emphasis/code markup, or reviewing several related documentation changes together.
 
-Two closed operation forms are available. Rename uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. Level changes use `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6. The forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
+Three closed operation forms are available. Heading rename uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. Heading level change uses `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6. Paragraph replacement uses `action: "replace"`, `subject: "paragraph"`, a paragraph `targetId`, and `markdown` containing exactly one paragraph; inline Markdown such as emphasis or links is allowed, while a multi-paragraph fragment is rejected. The three forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
 
 All requested changes are checked against the same original document. Marksplice combines only changes that can safely coexist; overlapping or interacting changes are rejected instead of being applied in an uncertain sequence. The successful result is a preview with a one-shot `previewId` and diff. Preview does **not** write the target or create a persistent backup.
 
@@ -453,6 +457,12 @@ The current mutation path supports UTF-8 Markdown with or without BOM and preser
       "subject": "heading",
       "targetId": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
       "level": 3
+    },
+    {
+      "action": "replace",
+      "subject": "paragraph",
+      "targetId": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "markdown": "Updated **important** guidance with [details](details.md)."
     }
   ],
   "backupPolicy": "required"

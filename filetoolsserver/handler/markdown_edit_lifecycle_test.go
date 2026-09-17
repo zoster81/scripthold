@@ -126,6 +126,58 @@ func TestMarkdownEditComposesRenameAndHeadingLevelChange(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditReplacesParagraphMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# Title\r\n\r\nOld paragraph.\r\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"paragraph"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 1 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operation := MarkdownEditOperation{Action: "replace", Subject: "paragraph", TargetID: read.Nodes[0].TargetID, Markdown: "New **bold** paragraph."}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("paragraph preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "# Title\r\n\r\nNew **bold** paragraph.\r\n" {
+		t.Fatalf("paragraph target=%q err=%v", got, err)
+	}
+}
+
+func TestMarkdownEditRejectsMultiParagraphReplacementWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("Old paragraph.\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"paragraph"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 1 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{{
+		Action: "replace", Subject: "paragraph", TargetID: read.Nodes[0].TargetID, Markdown: "First.\n\nSecond.",
+	}}})
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("invalid paragraph result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("invalid paragraph mutated target: %q err=%v", got, err)
+	}
+}
+
 func TestMarkdownEditRejectsInvalidHeadingLevelBeforeFilesystemWork(t *testing.T) {
 	result := validateMarkdownEditInput(MarkdownEditInput{Path: "unused.md", Operations: []MarkdownEditOperation{{
 		Action: "set", Subject: "heading", TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Level: 7,

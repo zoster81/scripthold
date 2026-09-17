@@ -92,6 +92,77 @@ func TestPrepareSetHeadingLevelRejectsOutOfRangeLevel(t *testing.T) {
 	}
 }
 
+func TestPrepareReplaceParagraphIsSnapshotBoundAndSourcePreserving(t *testing.T) {
+	source := []byte("Old paragraph.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	prepared, err := snapshot.PrepareReplaceParagraph(paragraphs[0].TargetID, []byte("New paragraph."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result), "New paragraph.\r\n"; got != want {
+		t.Fatalf("result=%q want %q", got, want)
+	}
+	if _, err := prepared.Apply([]byte("External paragraph.\r\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+}
+
+func TestPrepareReplaceParagraphAcceptsInlineMarkdownAndRejectsMultipleParagraphs(t *testing.T) {
+	source := []byte("Old paragraph.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	prepared, err := snapshot.PrepareReplaceParagraph(paragraphs[0].TargetID, []byte("New **bold** paragraph."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := Parse(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strong, err := updated.QueryNodes([]string{"strong"}, 8)
+	if err != nil || len(strong) != 1 {
+		t.Fatalf("strong=%+v err=%v result=%q", strong, err, result)
+	}
+	if _, err := snapshot.PrepareReplaceParagraph(paragraphs[0].TargetID, []byte("First.\n\nSecond.")); err == nil {
+		t.Fatal("multiple paragraphs unexpectedly accepted as one paragraph replacement")
+	}
+}
+
+func TestPrepareReplaceParagraphRejectsWrongTargetKind(t *testing.T) {
+	snapshot, err := Parse([]byte("# Heading\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := snapshot.PrepareReplaceParagraph(headings[0].TargetID, []byte("Paragraph.")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)
