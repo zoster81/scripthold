@@ -79,6 +79,20 @@ func (s *Snapshot) PrepareSetHeadingLevel(targetID string, level int) (PreparedC
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceSectionBody resolves the opaque Scripthold section target
+// against this exact snapshot and delegates direct-body replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceSectionBody(targetID string, replacement []byte) (PreparedChange, error) {
+	headingID, err := s.sectionHeadingID(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceSectionBody(headingID, replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareRemoveSection resolves the opaque Scripthold section target against
 // this exact snapshot and delegates complete subtree removal to Marksplice.
 func (s *Snapshot) PrepareRemoveSection(targetID string) (PreparedChange, error) {

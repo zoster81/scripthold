@@ -145,6 +145,49 @@ func TestPrepareRemoveSectionUsesSectionTargetAndRemovesSubtree(t *testing.T) {
 	}
 }
 
+func TestPrepareReplaceSectionBodyPreservesHeadingAndChildHierarchy(t *testing.T) {
+	source := []byte("# Root\r\n\r\n## Target\r\n\r\nOld body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sections, truncated, err := snapshot.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(sections) != 2 {
+		t.Fatalf("sections=%+v truncated=%v err=%v", sections, truncated, err)
+	}
+	prepared, err := snapshot.PrepareReplaceSectionBody(sections[0].TargetID, []byte("New **body**.\r\n\r\nSecond paragraph.\r\n\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(result), "Old body.") || !strings.Contains(string(result), "New **body**.") || !strings.Contains(string(result), "Second paragraph.") {
+		t.Fatalf("section body replacement result=%q", result)
+	}
+	if !strings.Contains(string(result), "## Target\r\n") || !strings.Contains(string(result), "### Child\r\n\r\nChild body.\r\n") || !strings.Contains(string(result), "## Keep\r\n\r\nKeep body.\r\n") {
+		t.Fatalf("section hierarchy or unrelated content changed unexpectedly: %q", result)
+	}
+	updated, err := Parse(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedSections, truncated, err := updated.QuerySections(nil, nil, 8)
+	if err != nil || truncated || len(updatedSections) != 4 {
+		t.Fatalf("updated sections=%+v truncated=%v err=%v", updatedSections, truncated, err)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("Keep body."), []byte("External."), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareReplaceSectionBody(sections[0].HeadingTargetID, []byte("New body.\r\n")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("heading target error=%v, want ErrInvalidTargetKind", err)
+	}
+	if _, err := snapshot.PrepareReplaceSectionBody(sections[0].TargetID, []byte("### New child\r\n\r\nBody.\r\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("hierarchy-changing body error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestPrepareReplaceParagraphIsSnapshotBoundAndSourcePreserving(t *testing.T) {
 	source := []byte("Old paragraph.\r\n")
 	snapshot, err := Parse(source)

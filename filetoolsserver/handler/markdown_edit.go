@@ -33,6 +33,7 @@ type MarkdownEditOperation struct {
 	Level    int    `json:"level,omitempty"`
 	Markdown string `json:"markdown,omitempty"`
 	Position string `json:"position,omitempty"`
+	Part     string `json:"part,omitempty"`
 }
 
 // MarkdownEditInput prepares one source-bound Markdown preview and never writes
@@ -152,6 +153,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareInsertParagraphAfter(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "remove" && operationInput.Subject == "section":
 			preparedChange, prepareErr = snapshot.PrepareRemoveSection(operationInput.TargetID)
+		case operationInput.Action == "replace" && operationInput.Subject == "section" && operationInput.Part == "body":
+			preparedChange, prepareErr = snapshot.PrepareReplaceSectionBody(operationInput.TargetID, []byte(operationInput.Markdown))
 		default:
 			prepareErr = marksplice.ErrInvalidQuery
 		}
@@ -390,28 +393,32 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		}
 		switch {
 		case op.Action == "rename" && op.Subject == "heading":
-			if op.Level != 0 || op.Markdown != "" || op.Position != "" {
+			if op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "rename/heading accepts text only")
 			}
 		case op.Action == "set" && op.Subject == "heading":
-			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" || op.Position != "" {
+			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "set/heading requires level from 1 to 6")
 			}
 		case op.Action == "replace" && op.Subject == "paragraph":
-			if op.Text != "" || op.Level != 0 || op.Position != "" {
+			if op.Text != "" || op.Level != 0 || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/paragraph accepts markdown only")
 			}
 		case op.Action == "remove" && op.Subject == "paragraph":
-			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "remove/paragraph accepts targetId only")
 			}
 		case op.Action == "insert" && op.Subject == "paragraph":
-			if (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 {
+			if (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "insert/paragraph requires position before or after and markdown")
 			}
 		case op.Action == "remove" && op.Subject == "section":
-			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "remove/section accepts targetId only")
+			}
+		case op.Action == "replace" && op.Subject == "section":
+			if op.Part != "body" || op.Text != "" || op.Level != 0 || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/section body requires part body and markdown")
 			}
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")

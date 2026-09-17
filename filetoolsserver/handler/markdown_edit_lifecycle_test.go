@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -219,6 +220,53 @@ func TestMarkdownEditRejectsInvalidSectionRemoveShapeBeforeFilesystemWork(t *tes
 	result := validateMarkdownEditInput(MarkdownEditInput{Path: "unused.md", Operations: []MarkdownEditOperation{operation}})
 	if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
 		t.Fatalf("invalid section remove result=%+v", result)
+	}
+}
+
+func TestMarkdownEditReplacesSectionBodyAndPreservesChildren(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# Root\r\n\r\n## Target\r\n\r\nOld body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "sections", Levels: []int{2}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Sections) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operation := MarkdownEditOperation{Action: "replace", Subject: "section", TargetID: read.Sections[0].TargetID, Part: "body", Markdown: "New **body**.\r\n\r\nSecond paragraph.\r\n\r\n"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("section body preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "Old body.") || !strings.Contains(string(got), "New **body**.") || !strings.Contains(string(got), "### Child\r\n\r\nChild body.\r\n") || !strings.Contains(string(got), "## Keep\r\n\r\nKeep body.\r\n") {
+		t.Fatalf("section body replacement target=%q", got)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidSectionBodyReplaceShapeBeforeFilesystemWork(t *testing.T) {
+	base := MarkdownEditOperation{Action: "replace", Subject: "section", TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Part: "body", Markdown: "Body."}
+	cases := []MarkdownEditOperation{
+		{Action: base.Action, Subject: base.Subject, TargetID: base.TargetID, Part: "subtree", Markdown: base.Markdown},
+		{Action: base.Action, Subject: base.Subject, TargetID: base.TargetID, Part: base.Part, Markdown: base.Markdown, Position: "after"},
+	}
+	for _, operation := range cases {
+		result := validateMarkdownEditInput(MarkdownEditInput{Path: "unused.md", Operations: []MarkdownEditOperation{operation}})
+		if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid section body operation=%+v result=%+v", operation, result)
+		}
 	}
 }
 
