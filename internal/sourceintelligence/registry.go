@@ -100,7 +100,6 @@ const (
 	AnalyzerJSON           AnalyzerID = "json-native"
 	AnalyzerYAML           AnalyzerID = "yaml-native"
 	AnalyzerTOML           AnalyzerID = "toml-native"
-	AnalyzerMarkdown       AnalyzerID = "markdown-native"
 	AnalyzerOpenAPI        AnalyzerID = "openapi-native"
 	AnalyzerAnsibleYAML    AnalyzerID = "ansible-yaml-native"
 	AnalyzerVue            AnalyzerID = "vue-native"
@@ -204,7 +203,6 @@ var knownAnalyzerIDs = map[AnalyzerID]struct{}{
 	AnalyzerJSON:           {},
 	AnalyzerYAML:           {},
 	AnalyzerTOML:           {},
-	AnalyzerMarkdown:       {},
 	AnalyzerOpenAPI:        {},
 	AnalyzerAnsibleYAML:    {},
 	AnalyzerVue:            {},
@@ -748,7 +746,6 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 	jsonLanguage := analyzable("json", AnalyzerJSON, []string{".json"})
 	yamlLanguage := analyzable("yaml", AnalyzerYAML, []string{".yaml", ".yml"})
 	tomlLanguage := analyzable("toml", AnalyzerTOML, []string{".toml"})
-	markdownLanguage := analyzable("markdown", AnalyzerMarkdown, []string{".md", ".markdown"})
 	openAPILanguage := analyzable("openapi", AnalyzerOpenAPI, nil)
 	ansibleYAMLLanguage := analyzable("ansible-yaml", AnalyzerAnsibleYAML, nil)
 	vueLanguage := analyzable("vue", AnalyzerVue, []string{".vue"})
@@ -836,7 +833,6 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		yamlLanguage,
 		tomlLanguage,
 		xmlLanguage, xamlLanguage,
-		markdownLanguage,
 		openAPILanguage,
 		ansibleYAMLLanguage,
 		webFormsLanguage,

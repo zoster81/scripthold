@@ -43,7 +43,6 @@ func TestDataHardwareDocumentCancellationAndSymbolLimits(t *testing.T) {
 		{"json", JSONAnalyzer{}, generatedJSON(1200)},
 		{"yaml", YAMLAnalyzer{}, generatedYAML(1200)},
 		{"toml", TOMLAnalyzer{}, generatedTOML(1200)},
-		{"markdown", MarkdownAnalyzer{}, generatedMarkdown(1200)},
 		{"openapi", OpenAPIAnalyzer{}, generatedOpenAPI(1200)},
 		{"ansible-yaml", AnsibleYAMLAnalyzer{}, generatedAnsible(1200)},
 	} {
@@ -64,7 +63,7 @@ func dataHardwareDocumentAnalyzers() []SourceAnalyzer {
 		SQLAnalyzer{}, PLSQLAnalyzer{}, GraphQLAnalyzer{}, TerraformAnalyzer{}, NixAnalyzer{}, ProtoAnalyzer{},
 		VHDLAnalyzer{}, VerilogAnalyzer{}, SystemVerilogAnalyzer{}, AssemblyAnalyzer{},
 		HTMLAnalyzer{}, XMLAnalyzer{}, CSSAnalyzer{}, SCSSAnalyzer{}, SassAnalyzer{}, LessAnalyzer{},
-		JSONAnalyzer{}, YAMLAnalyzer{}, TOMLAnalyzer{}, MarkdownAnalyzer{}, OpenAPIAnalyzer{}, AnsibleYAMLAnalyzer{},
+		JSONAnalyzer{}, YAMLAnalyzer{}, TOMLAnalyzer{}, OpenAPIAnalyzer{}, AnsibleYAMLAnalyzer{},
 	}
 }
 
@@ -228,14 +227,6 @@ func generatedTOML(count int) string {
 	var b strings.Builder
 	for i := 0; i < count; i++ {
 		fmt.Fprintf(&b, "k%04d = %d\n", i, i)
-	}
-	return b.String()
-}
-
-func generatedMarkdown(count int) string {
-	var b strings.Builder
-	for i := 0; i < count; i++ {
-		fmt.Fprintf(&b, "# Heading %04d\n", i)
 	}
 	return b.String()
 }

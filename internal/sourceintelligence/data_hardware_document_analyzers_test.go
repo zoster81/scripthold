@@ -131,11 +131,6 @@ func TestProviderIdentityAndStructuralNavigation(t *testing.T) {
 			want: map[string]SymbolKind{"title": SymbolKindKey, "server": SymbolKindSection, "server.host": SymbolKindKey, "server.tls": SymbolKindSection, "server.tls.enabled": SymbolKindKey},
 		},
 		{
-			language: "markdown", analyzer: MarkdownAnalyzer{},
-			text: "# Project\n\n## Usage\nText\n\n### Examples\nMore\n",
-			want: map[string]SymbolKind{"Project": SymbolKindSection, "Project.Usage": SymbolKindSection, "Project.Usage.Examples": SymbolKindSection},
-		},
-		{
 			language: "openapi", analyzer: OpenAPIAnalyzer{},
 			text: "openapi: 3.1.0\ninfo:\n  title: Demo\n  version: 1.0.0\npaths:\n  /users:\n    get:\n      operationId: listUsers\ncomponents:\n  schemas:\n    User:\n      type: object\n",
 			want: map[string]SymbolKind{"listUsers": SymbolKindOperation, "User": SymbolKindType},

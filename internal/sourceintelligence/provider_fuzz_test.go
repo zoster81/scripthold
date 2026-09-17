@@ -144,7 +144,6 @@ func providerRiskSeeds() []providerFuzzSeed {
 		{"json", "{\"service\":{\"name\":\"api\"}}\n"},
 		{"yaml", "service:\n  name: api\n"},
 		{"toml", "[server]\nhost = \"localhost\"\n"},
-		{"markdown", "# Project\n\n## Usage\n"},
 		{"openapi", "openapi: 3.1.0\npaths:\n  /users:\n    get:\n      operationId: listUsers\n"},
 		{"ansible-yaml", "- name: Play\n  hosts: all\n  tasks:\n    - name: Ping\n      debug:\n"},
 		{"vue", `<main id="hero"></main><script lang="ts">function load() {}</script><style>.card {}</style>`},

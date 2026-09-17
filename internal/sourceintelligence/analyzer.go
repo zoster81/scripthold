@@ -246,7 +246,6 @@ var analyzerFactories = map[AnalyzerID]func() SourceAnalyzer{
 	AnalyzerJSON:           func() SourceAnalyzer { return JSONAnalyzer{} },
 	AnalyzerYAML:           func() SourceAnalyzer { return YAMLAnalyzer{} },
 	AnalyzerTOML:           func() SourceAnalyzer { return TOMLAnalyzer{} },
-	AnalyzerMarkdown:       func() SourceAnalyzer { return MarkdownAnalyzer{} },
 	AnalyzerOpenAPI:        func() SourceAnalyzer { return OpenAPIAnalyzer{} },
 	AnalyzerAnsibleYAML:    func() SourceAnalyzer { return AnsibleYAMLAnalyzer{} },
 	AnalyzerVue:            func() SourceAnalyzer { return VueAnalyzer{} },

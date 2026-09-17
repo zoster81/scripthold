@@ -153,7 +153,7 @@ func analyzerStructuralCapabilities(analyzer AnalyzerID) analyzerStructuralCapab
 		AnalyzerVue, AnalyzerZig:
 		return analyzerStructuralCapabilityProfile{hierarchy: true, signatures: true, dependencies: true}
 	case AnalyzerAnsibleYAML, AnalyzerApex, AnalyzerClassicBasic, AnalyzerGraphQL,
-		AnalyzerJSON, AnalyzerMarkdown, AnalyzerPLSQL, AnalyzerQBasic, AnalyzerSystemVerilog,
+		AnalyzerJSON, AnalyzerPLSQL, AnalyzerQBasic, AnalyzerSystemVerilog,
 		AnalyzerTOML, AnalyzerVBScript, AnalyzerVerilog, AnalyzerYAML:
 		return analyzerStructuralCapabilityProfile{hierarchy: true, signatures: true}
 	case AnalyzerAssembly, AnalyzerCSS, AnalyzerHTML, AnalyzerLess, AnalyzerNix,
@@ -340,8 +340,6 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"mapping keys are indentation-based structural navigation; anchors, aliases, tags, merge semantics, complex keys, schema validation, semantic relations, and incremental indexing are not implemented"}
 			case "toml":
 				descriptor.KnownLimitations = []string{"sections and simple keys are structural navigation; arrays-of-tables, dotted/quoted key edge cases, semantic validation, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
-			case "markdown":
-				descriptor.KnownLimitations = []string{"ATX headings outside fenced code are indexed; setext headings, link/reference resolution, embedded-language semantics, semantic relations, and incremental indexing are not implemented"}
 			case "openapi":
 				descriptor.KnownLimitations = []string{"root OpenAPI 3.x detection plus operationId/component-schema navigation is structural only; YAML/JSON schema semantics, $ref resolution, path/parameter validation, code generation, semantic relations, and incremental indexing are not implemented"}
 			case "ansible-yaml":
@@ -524,7 +522,7 @@ func activeProviderMetadata(analyzer AnalyzerID) (scannerProfile, strategy, vers
 		return "style", "native-selector-structural", "r27-p10-v1"
 	case AnalyzerJSON:
 		return "json", "native-document-structural", "r27-p10-v1"
-	case AnalyzerYAML, AnalyzerTOML, AnalyzerMarkdown, AnalyzerOpenAPI, AnalyzerAnsibleYAML:
+	case AnalyzerYAML, AnalyzerTOML, AnalyzerOpenAPI, AnalyzerAnsibleYAML:
 		return "document-line", "native-line-structural", "r27-p10-v1"
 	case AnalyzerPHPHTML:
 		return "composite-template", "native-masked-composite", "r27-p11-v2"
@@ -608,7 +606,7 @@ func languageFamily(id string) string {
 		"mql4": "trading", "mql5": "trading",
 		"assembly": "hardware-low-level", "vhdl": "hardware-low-level", "verilog": "hardware-low-level", "systemverilog": "hardware-low-level", "arduino": "hardware-low-level",
 		"sql": "data-infra-dsl", "plsql": "data-infra-dsl", "graphql": "data-infra-dsl", "terraform": "data-infra-dsl", "nix": "data-infra-dsl", "proto": "data-infra-dsl", "solidity": "data-infra-dsl", "apex": "data-infra-dsl", "al": "data-infra-dsl",
-		"html": "document-config", "xml": "document-config", "css": "document-config", "scss": "document-config", "sass": "document-config", "less": "document-config", "json": "document-config", "yaml": "document-config", "toml": "document-config", "markdown": "document-config", "openapi": "document-config", "ansible-yaml": "document-config",
+		"html": "document-config", "xml": "document-config", "css": "document-config", "scss": "document-config", "sass": "document-config", "less": "document-config", "json": "document-config", "yaml": "document-config", "toml": "document-config", "openapi": "document-config", "ansible-yaml": "document-config",
 		"classic-asp": "composite-template", "aspnet-webforms": "composite-template", "razor": "composite-template", "blazor": "composite-template", "vue": "composite-template", "svelte": "composite-template", "astro": "composite-template", "php-html": "composite-template", "jsp": "composite-template", "jinja": "composite-template", "twig": "composite-template", "blade": "composite-template", "ejs": "composite-template",
 		"dockerfile": "build-config", "make": "build-config",
 	}

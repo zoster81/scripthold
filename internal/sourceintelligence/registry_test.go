@@ -174,6 +174,30 @@ func TestDefaultLanguageRegistryCompletedProvidersAndFutureShapes(t *testing.T) 
 	}
 }
 
+func TestDefaultLanguageRegistryDoesNotClaimMarkdown(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := registry.Resolve("markdown"); ok {
+		t.Fatal("source intelligence must not resolve markdown; R30 delegates Markdown authority to Marksplice")
+	}
+	for _, extension := range []string{".md", ".markdown"} {
+		if candidates := registry.ExtensionCandidates(extension); len(candidates) != 0 {
+			t.Fatalf("source intelligence must not claim %s: %+v", extension, candidates)
+		}
+	}
+	for _, row := range registry.CapabilityRows() {
+		if row.ID == "markdown" {
+			t.Fatalf("source intelligence capability matrix must not contain Markdown: %+v", row)
+		}
+	}
+	if _, ok := analyzerFactories[AnalyzerID("markdown-native")]; ok {
+		t.Fatal("source intelligence must not register a markdown-native analyzer")
+	}
+}
+
 func TestLanguageRegistryRejectsInvalidDefinitions(t *testing.T) {
 	valid := LanguageDescriptor{
 		ID:         "alpha",
@@ -327,7 +351,7 @@ func TestCapabilityMatrixCoversApprovedCatalogWithoutAccidentalActivation(t *tes
 		"fortran", "cobol", "ada", "pascal", "delphi", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp",
 		"shell", "bash", "tcl", "autohotkey", "mql4", "mql5", "assembly", "vhdl", "verilog", "systemverilog", "arduino",
 		"sql", "plsql", "graphql", "terraform", "nix", "proto", "solidity", "apex", "al",
-		"html", "xml", "xaml", "css", "scss", "sass", "less", "json", "yaml", "toml", "markdown", "openapi", "ansible-yaml",
+		"html", "xml", "xaml", "css", "scss", "sass", "less", "json", "yaml", "toml", "openapi", "ansible-yaml",
 		"classic-asp", "aspnet-webforms", "razor", "blazor", "vue", "svelte", "astro", "php-html", "jsp", "jinja", "twig", "blade", "ejs",
 	}
 	for _, id := range approved {

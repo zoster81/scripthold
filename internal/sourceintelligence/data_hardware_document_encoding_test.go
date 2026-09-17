@@ -34,7 +34,6 @@ func TestDataHardwareDocumentConformanceAcrossEncodingsAndDeterminism(t *testing
 		{name: "json-utf32le", extension: ".json", encoding: "utf-32le", bom: true, analyzer: JSONAnalyzer{}, text: "{\"service\":{\"name\":\"café\"}}\n", want: []string{"service", "service.name"}},
 		{name: "yaml-windows1252-crlf", extension: ".yaml", encoding: "windows-1252", analyzer: YAMLAnalyzer{}, text: "# café\r\nservice:\r\n  name: api\r\n", want: []string{"service", "service.name"}},
 		{name: "toml-utf16le", extension: ".toml", encoding: "utf-16le", bom: true, analyzer: TOMLAnalyzer{}, text: "# résumé\n[server]\nhost = \"localhost\"\n", want: []string{"server", "server.host"}},
-		{name: "markdown-utf16be", extension: ".md", encoding: "utf-16be", bom: true, analyzer: MarkdownAnalyzer{}, text: "# Project\n\nRésumé\n\n## Usage\n", want: []string{"Project", "Project.Usage"}},
 		{name: "openapi-utf32le", extension: ".yaml", encoding: "utf-32le", bom: true, analyzer: OpenAPIAnalyzer{}, text: "openapi: 3.1.0\ninfo:\n  title: Café\n  version: 1.0.0\npaths:\n  /users:\n    get:\n      operationId: listUsers\n", want: []string{"listUsers"}},
 		{name: "ansible-windows1252", extension: ".yml", encoding: "windows-1252", analyzer: AnsibleYAMLAnalyzer{}, text: "# café\n- name: Configure web\n  hosts: web\n  tasks:\n    - name: Ping\n      ansible.builtin.ping:\n", want: []string{"Configure web", "Configure web.Ping"}},
 	}

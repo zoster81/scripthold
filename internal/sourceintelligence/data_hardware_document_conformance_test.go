@@ -63,11 +63,6 @@ func TestOpaqueRegionsDoNotEmitDeclarations(t *testing.T) {
 			text: "/* .fake { color: red; } */\n.real { content: \".also-fake { x: y }\"; display: block; }\n",
 			want: ".real", forbidden: []string{".fake", ".also-fake"},
 		},
-		{
-			name: "markdown-fenced-code", analyzer: MarkdownAnalyzer{},
-			text: "# Real\n\n```markdown\n# Fake\n```\n\n## Child\n",
-			want: "Real.Child", forbidden: []string{"Real.Fake"},
-		},
 	}
 
 	for _, tc := range tests {

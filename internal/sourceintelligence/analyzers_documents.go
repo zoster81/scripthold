@@ -15,7 +15,6 @@ type LessAnalyzer struct{}
 type JSONAnalyzer struct{}
 type YAMLAnalyzer struct{}
 type TOMLAnalyzer struct{}
-type MarkdownAnalyzer struct{}
 type OpenAPIAnalyzer struct{}
 type AnsibleYAMLAnalyzer struct{}
 
@@ -37,8 +36,6 @@ func (YAMLAnalyzer) ID() AnalyzerID          { return AnalyzerYAML }
 func (YAMLAnalyzer) Language() string        { return "yaml" }
 func (TOMLAnalyzer) ID() AnalyzerID          { return AnalyzerTOML }
 func (TOMLAnalyzer) Language() string        { return "toml" }
-func (MarkdownAnalyzer) ID() AnalyzerID      { return AnalyzerMarkdown }
-func (MarkdownAnalyzer) Language() string    { return "markdown" }
 func (OpenAPIAnalyzer) ID() AnalyzerID       { return AnalyzerOpenAPI }
 func (OpenAPIAnalyzer) Language() string     { return "openapi" }
 func (AnsibleYAMLAnalyzer) ID() AnalyzerID   { return AnalyzerAnsibleYAML }
@@ -589,61 +586,6 @@ func tomlBracketDelta(text string) int {
 		}
 	}
 	return depth
-}
-
-var markdownHeading = regexp.MustCompile(`^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$`)
-
-func (MarkdownAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "markdown", AnalyzerMarkdown)
-	if err != nil {
-		return AnalyzerResult{}, err
-	}
-	type headingScope struct {
-		level  int
-		parent SymbolParent
-	}
-	var scopes []headingScope
-	inFence := false
-	fenceChar := byte(0)
-	for _, line := range sourceTextLines(document.Text) {
-		if err := ctx.Err(); err != nil {
-			return AnalyzerResult{}, err
-		}
-		trimmed := strings.TrimSpace(line.text)
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			char := trimmed[0]
-			if !inFence {
-				inFence, fenceChar = true, char
-			} else if char == fenceChar {
-				inFence, fenceChar = false, 0
-			}
-			continue
-		}
-		if inFence {
-			continue
-		}
-		match := markdownHeading.FindStringSubmatchIndex(line.trimmed)
-		if match == nil {
-			continue
-		}
-		level := match[3] - match[2]
-		name := strings.TrimSpace(line.trimmed[match[4]:match[5]])
-		for len(scopes) > 0 && scopes[len(scopes)-1].level >= level {
-			scopes = scopes[:len(scopes)-1]
-		}
-		var parent *SymbolParent
-		if len(scopes) > 0 {
-			v := scopes[len(scopes)-1].parent
-			parent = &v
-		}
-		trimStart := line.start + strings.Index(line.text, line.trimmed)
-		nameOffset := strings.Index(line.trimmed, name)
-		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindSection, "heading", name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
-		if ok {
-			scopes = append(scopes, headingScope{level: level, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
-		}
-	}
-	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
 
 func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
