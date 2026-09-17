@@ -224,6 +224,8 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	// process-local and must remain reusable by follow-up frontend requests.
 	addTool(server, toolPolicy, sourceQueryCatalogTool(), handler.Wrap(logger, "source_query", h.SourceQuery))
 
+	addTool(server, toolPolicy, markdownReadCatalogTool(), handler.Wrap(logger, "markdown_read", h.HandleMarkdownRead))
+
 	fingerprintDirect := handler.Wrap(logger, "fingerprint_paths", h.HandleFingerprintPaths)
 	addTool(server, toolPolicy, catalogTool("fingerprint_paths"), deferredFingerprintHandler(h, cfg, options.DeferredEngine, fingerprintDirect))
 

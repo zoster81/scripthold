@@ -30,6 +30,7 @@
     {"id":"go.filesystem","kind":"go-package","directory":"internal/filesystem","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
     {"id":"go.filesystempackage","kind":"go-package","directory":"internal/filesystempackage","classification":"canonical-owner","failureClasses":["deterministic","race","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
     {"id":"go.httptransport","kind":"go-package","directory":"internal/httptransport","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","integration"],"platforms":["all","linux"],"expenseTier":"medium"},
+    {"id":"go.markdownintelligence","kind":"go-package","directory":"internal/markdownintelligence","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
     {"id":"go.operation","kind":"go-package","directory":"internal/operation","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
     {"id":"go.projectidentity","kind":"go-package","directory":"internal/projectidentity","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
     {"id":"go.responsecontinuation","kind":"go-package","directory":"internal/responsecontinuation","classification":"canonical-owner","failureClasses":["deterministic","race"],"platforms":["all"],"expenseTier":"fast"},

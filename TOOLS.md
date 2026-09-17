@@ -409,6 +409,21 @@ Recursively search for files and directories matching a glob pattern through the
 }
 ```
 
+### markdown_read
+
+Read one authorized Markdown document through Marksplice `v1.1.1`, which is the sole authority for Markdown parsing, structural identity, relationships, fragment resolution, TOC generation, and canonical Markdown generation. Scripthold owns path authorization, file/encoding/BOM/EOL handling, input/output limits, and MCP error envelopes. Markdown is not analyzed by Source Intelligence.
+
+`action` is one of `inspect`, `query`, `get`, `resolve`, `validate`, or `generate`. `path` is always required; `encoding` is optional and uses the normal deterministic Scripthold encoding pipeline when omitted.
+
+- `inspect` requires a positive `limit` and returns bounded nodes, sections, relationships, heading anchors, fenced blocks, alerts, footnote references, and front-matter facts.
+- `query` requires `query: "nodes" | "sections" | "relationships"` plus a positive `limit`. Node queries accept `kinds`; section queries accept `levels` and optional `within` source range.
+- `get` requires snapshot-bound `targetId`; `includeSource` optionally returns the exact authored source range proven by Marksplice.
+- `resolve` requires a non-empty `fragment` and fails closed unless Marksplice resolves it uniquely.
+- `validate` requires exactly one of `fragment` or heading `targetId`; the latter reports managed-TOC recognition/staleness.
+- `generate` requires `generate: "toc" | "canonical_markdown"`. Generated output is read-only derived output and is never used as an implicit edit path.
+
+Every successful response includes the source fingerprint and Scripthold physical metadata. `targetId` is opaque and valid only for the exact source snapshot; stale or unknown targets are rejected rather than rebound heuristically. Result-producing collections and encoded responses are bounded by the request/configured limits.
+
 ### source_symbols
 
 Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.

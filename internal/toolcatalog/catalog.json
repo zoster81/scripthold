@@ -111,6 +111,17 @@
       }
     },
     {
+      "name": "markdown_read",
+      "title": "Read Markdown Structure",
+      "description": "Inspect, query, resolve, validate, and generate bounded Markdown structure using Marksplice-backed semantics.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
       "description": "Compute deterministic SHA-256 fingerprints for files or directory trees. Slow calls may hand off through Tasks or deferred_operation.",

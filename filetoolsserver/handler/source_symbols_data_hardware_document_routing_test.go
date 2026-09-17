@@ -44,29 +44,40 @@ func TestSourceSymbolsRoutesDataHardwareAndDocumentLanguages(t *testing.T) {
 		Operation: "outline", Paths: []string{root}, Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 1024,
 	})
 	if err != nil || toolErr != nil {
-		t.Fatalf("Phase 10 outline err=%v toolErr=%+v", err, toolErr)
+		t.Fatalf("outline err=%v toolErr=%+v", err, toolErr)
 	}
-	if result.FilesConsidered != len(files) || result.FilesParsed != len(files) || result.FilesSkipped != 0 || !result.CoverageComplete {
-		t.Fatalf("Phase 10 outline summary=%+v", result)
+	if result.FilesConsidered != len(files) || result.FilesParsed != len(files)-1 || result.FilesSkipped != 1 || result.CoverageComplete {
+		t.Fatalf("outline summary=%+v", result)
 	}
 
 	wantLanguages := map[string]bool{
 		"sql": false, "plsql": false, "graphql": false, "terraform": false, "nix": false, "proto": false,
 		"vhdl": false, "verilog": false, "systemverilog": false, "assembly": false,
 		"html": false, "xml": false, "css": false, "scss": false, "sass": false, "less": false,
-		"json": false, "yaml": false, "toml": false, "markdown": false, "openapi": false, "ansible-yaml": false,
+		"json": false, "yaml": false, "toml": false, "openapi": false, "ansible-yaml": false,
 	}
+	markdownSkipped := false
 	for _, file := range result.Files {
+		if filepath.Base(file.Path) == "README.md" {
+			if file.Status != "skipped" || file.ErrorCode != ErrCodeUnsupported || file.Detection.Language != "" {
+				t.Fatalf("Markdown must remain outside Source Intelligence: %+v", file)
+			}
+			markdownSkipped = true
+			continue
+		}
 		if file.ErrorCode != "" || file.Detection.Language == "" {
-			t.Fatalf("Phase 10 file routing=%+v", file)
+			t.Fatalf("file routing=%+v", file)
 		}
 		if _, expected := wantLanguages[file.Detection.Language]; expected {
 			wantLanguages[file.Detection.Language] = true
 		}
 	}
+	if !markdownSkipped {
+		t.Fatalf("Markdown fixture was not reported as skipped: %+v", result.Files)
+	}
 	for language, found := range wantLanguages {
 		if !found {
-			t.Fatalf("missing auto-routed Phase 10 language %s: %+v", language, result.Files)
+			t.Fatalf("missing auto-routed language %s: %+v", language, result.Files)
 		}
 	}
 
@@ -74,7 +85,7 @@ func TestSourceSymbolsRoutesDataHardwareAndDocumentLanguages(t *testing.T) {
 		"app", "app.users", "demo", "demo.run", "schema", "Query", "Query.ping", "Ping",
 		"demo_resource.main", "answer", "demo.v1", "demo.v1.User", "demo.v1.User.id",
 		"Counter", "Counter.rtl", "Counter.rtl.count", "counter", "counter.ready", "bus_if", "bus_if.ready", "top", "top.active", "main",
-		"hero", "root-item", ".card", "gap", "service", "service.name", "server", "server.host", "Project", "Project.Usage", "listUsers", "Configure web", "Configure web.Ping",
+		"hero", "root-item", ".card", "gap", "service", "service.name", "server", "server.host", "listUsers", "Configure web", "Configure web.Ping",
 	} {
 		found := false
 		for _, symbol := range result.Symbols {
