@@ -8,7 +8,7 @@ import (
 	"github.com/zoster81/scripthold/internal/markdownintelligence"
 )
 
-func TestMarkdownEditCatalogSchemaIsClosedForRenameHeadingSlice(t *testing.T) {
+func TestMarkdownEditCatalogSchemaIsClosedForHeadingOperationUnion(t *testing.T) {
 	tool := markdownEditCatalogTool()
 	schema := markdownReadSchemaMap(t, tool.InputSchema)
 	if schema["type"] != "object" || schema["additionalProperties"] != false {
@@ -31,20 +31,43 @@ func TestMarkdownEditCatalogSchemaIsClosedForRenameHeadingSlice(t *testing.T) {
 	if operations["type"] != "array" || operations["minItems"] != 1 || operations["maxItems"] != markdownintelligence.MaxEditOperations {
 		t.Fatalf("operations schema = %#v, want 1..%d operations", operations, markdownintelligence.MaxEditOperations)
 	}
-	operation := markdownReadSchemaMap(t, operations["items"])
-	if operation["type"] != "object" || operation["additionalProperties"] != false {
-		t.Fatalf("operation schema = %#v, want strict object", operation)
+	items := markdownReadSchemaMap(t, operations["items"])
+	oneOf, ok := items["oneOf"].([]any)
+	if !ok || len(oneOf) != 2 {
+		t.Fatalf("operation union = %#v, want two closed variants", items["oneOf"])
 	}
-	markdownReadAssertStringSet(t, "operation required", operation["required"], []string{"action", "subject", "targetId", "text"})
-	operationProperties := markdownReadSchemaMap(t, operation["properties"])
-	if markdownReadSchemaMap(t, operationProperties["action"])["const"] != "rename" {
-		t.Fatalf("action schema = %#v", operationProperties["action"])
+
+	rename := markdownReadSchemaMap(t, oneOf[0])
+	if rename["type"] != "object" || rename["additionalProperties"] != false {
+		t.Fatalf("rename schema = %#v, want strict object", rename)
 	}
-	if markdownReadSchemaMap(t, operationProperties["subject"])["const"] != "heading" {
-		t.Fatalf("subject schema = %#v", operationProperties["subject"])
+	markdownReadAssertStringSet(t, "rename required", rename["required"], []string{"action", "subject", "targetId", "text"})
+	renameProperties := markdownReadSchemaMap(t, rename["properties"])
+	if markdownReadSchemaMap(t, renameProperties["action"])["const"] != "rename" || markdownReadSchemaMap(t, renameProperties["subject"])["const"] != "heading" {
+		t.Fatalf("rename discriminators = %#v", renameProperties)
 	}
-	if markdownReadSchemaMap(t, operationProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
-		t.Fatalf("targetId schema = %#v", operationProperties["targetId"])
+	if markdownReadSchemaMap(t, renameProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
+		t.Fatalf("rename targetId schema = %#v", renameProperties["targetId"])
+	}
+	if _, ok := renameProperties["level"]; ok {
+		t.Fatalf("rename schema unexpectedly accepts level: %#v", renameProperties)
+	}
+
+	setLevel := markdownReadSchemaMap(t, oneOf[1])
+	if setLevel["type"] != "object" || setLevel["additionalProperties"] != false {
+		t.Fatalf("set schema = %#v, want strict object", setLevel)
+	}
+	markdownReadAssertStringSet(t, "set required", setLevel["required"], []string{"action", "level", "subject", "targetId"})
+	setProperties := markdownReadSchemaMap(t, setLevel["properties"])
+	if markdownReadSchemaMap(t, setProperties["action"])["const"] != "set" || markdownReadSchemaMap(t, setProperties["subject"])["const"] != "heading" {
+		t.Fatalf("set discriminators = %#v", setProperties)
+	}
+	level := markdownReadSchemaMap(t, setProperties["level"])
+	if level["type"] != "integer" || level["minimum"] != 1 || level["maximum"] != 6 {
+		t.Fatalf("level schema = %#v, want integer 1..6", level)
+	}
+	if _, ok := setProperties["text"]; ok {
+		t.Fatalf("set schema unexpectedly accepts text: %#v", setProperties)
 	}
 }
 

@@ -19,14 +19,29 @@ func markdownEditCatalogTool() *mcp.Tool {
 				"minItems": 1,
 				"maxItems": markdownintelligence.MaxEditOperations,
 				"items": map[string]any{
-					"type":                 "object",
-					"additionalProperties": false,
-					"required":             []string{"action", "subject", "targetId", "text"},
-					"properties": map[string]any{
-						"action":   map[string]any{"const": "rename"},
-						"subject":  map[string]any{"const": "heading"},
-						"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
-						"text":     map[string]any{"type": "string"},
+					"oneOf": []any{
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "text"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "rename"},
+								"subject":  map[string]any{"const": "heading"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"text":     map[string]any{"type": "string"},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "level"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "set"},
+								"subject":  map[string]any{"const": "heading"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"level":    map[string]any{"type": "integer", "minimum": 1, "maximum": 6},
+							},
+						},
 					},
 				},
 			},

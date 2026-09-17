@@ -65,6 +65,20 @@ func (s *Snapshot) PrepareRenameHeading(targetID string, replacement []byte) (Pr
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareSetHeadingLevel resolves the opaque Scripthold target against this
+// exact snapshot and delegates the source-preserving hierarchy change to Marksplice.
+func (s *Snapshot) PrepareSetHeadingLevel(targetID string, level int) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareSetHeadingLevel(node.ID(), level)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 func (s *Snapshot) targetNode(targetID string) (marksplice.Node, error) {
 	if s == nil || s.document == nil {
 		return marksplice.Node{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)

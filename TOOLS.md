@@ -428,11 +428,11 @@ Every successful response includes the source fingerprint and Scripthold physica
 
 ### markdown_edit
 
-Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. The current editing slice renames headings: one request can rename from 1 to 64 headings in the same document. This is useful when cleaning up section names, making terminology consistent, or reorganizing a documentation page while preserving the rest of the authored file.
+Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. The current editing slice can rename headings or change their level from `h1` to `h6`. A request may contain 1 to 64 operations, which is useful for cleaning up section names, promoting or demoting sections during a reorganization, or making several related heading changes in one reviewable preview.
 
-Each operation uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
+Two closed operation forms are available. Rename uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. Level changes use `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6. The forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
 
-All requested renames are checked against the same original document. Marksplice combines only changes that can safely coexist; overlapping or interacting changes are rejected instead of being applied in an uncertain sequence. The successful result is a preview with a one-shot `previewId` and diff. Preview does **not** write the target or create a persistent backup.
+All requested changes are checked against the same original document. Marksplice combines only changes that can safely coexist; overlapping or interacting changes are rejected instead of being applied in an uncertain sequence. The successful result is a preview with a one-shot `previewId` and diff. Preview does **not** write the target or create a persistent backup.
 
 The current mutation path supports UTF-8 Markdown with or without BOM and preserves existing mixed line endings. Other encodings currently fail safely until Scripthold can prove byte-preserving mutation for them.
 
@@ -447,6 +447,12 @@ The current mutation path supports UTF-8 Markdown with or without BOM and preser
       "subject": "heading",
       "targetId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "text": "Installation"
+    },
+    {
+      "action": "set",
+      "subject": "heading",
+      "targetId": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "level": 3
     }
   ],
   "backupPolicy": "required"

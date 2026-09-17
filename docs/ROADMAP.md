@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 3.2.1**.
 - Public 3.2.1 surface: **38 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- Four 3.x capability areas are planned; no release-scoped milestone is currently active.
+- Four 3.x capability areas are tracked. Documentation intelligence is active as unreleased development; no release-scoped publication milestone is currently assigned.
 - Publication, installation, and private deployment are separate actions.
 
 ## Planning rules
@@ -19,9 +19,9 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Require an exact clean commit and the release procedure in [`PUBLISHING.md`](PUBLISHING.md) for public release authority.
 - Do not accumulate implementation diaries or per-phase evidence in this file.
 
-## Planned 3.x milestones
+## 3.x milestones
 
-### Documentation intelligence
+### Documentation intelligence — active development
 
 Add coherent Markdown/document understanding: structure, anchors, local links/fragments, front matter, fenced code, references, and bounded document relationships where evidence is trustworthy.
 

@@ -143,11 +143,11 @@ Markdown is intentionally outside Source Intelligence. The dedicated Markdown to
 
 Use `markdown_read` when an agent needs to understand a Markdown document before changing it. It can inspect headings and sections, find structural elements, resolve local fragments and links, validate managed TOCs, and return exact authored source for a selected structure.
 
-Use `markdown_edit` to prepare safe Markdown changes without writing the file. The current editing slice can rename one or more headings in a single preview (up to 64 operations). Every requested rename is checked against the same original document, so conflicting or overlapping changes are rejected instead of being applied in an uncertain order.
+Use `markdown_edit` to prepare safe Markdown changes without writing the file. The current editing slice can rename headings and change their level (`h1` through `h6`), with up to 64 operations in one preview. Every requested change is checked against the same original document, so conflicting or overlapping changes are rejected instead of being applied in an uncertain order.
 
 Use `markdown_apply` only after reviewing the preview. It accepts the returned `previewId`, checks that the file is still the same file with the same approved contents, applies the prepared result, honors backup policy, and reports the actual final state. A typical workflow is therefore: **read the structure → prepare a preview → review it → apply it**.
 
-This is useful for tasks such as reorganizing documentation headings, correcting section names across one document, validating local anchors before editing, or updating documentation while preserving the file's existing formatting and line endings. The current mutation path supports UTF-8 Markdown with or without BOM; unsupported encoding cases fail safely instead of silently rewriting the document.
+This is useful for tasks such as correcting section names, promoting or demoting headings when reorganizing a page, validating local anchors before editing, or updating documentation while preserving the file's existing formatting and line endings. The current mutation path supports UTF-8 Markdown with or without BOM; unsupported encoding cases fail safely instead of silently rewriting the document.
 
 The generated Source Intelligence provider/capability matrix is in [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md). Detailed Markdown schemas and examples are in [TOOLS.md](TOOLS.md#markdown_read).
 

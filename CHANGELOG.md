@@ -6,7 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
-- Added the initial R30 Markdown intelligence surface: Marksplice-backed `markdown_read`, source-bound `markdown_edit` heading-rename previews, and one-shot `markdown_apply` with filesystem revalidation, backup policy, durable replacement, and truthful post-write state. A single `markdown_edit` preview can now combine up to 64 independent heading renames from the same document snapshot; conflicting or overlapping changes are rejected before any file write.
+- Added the initial R30 Markdown intelligence surface: Marksplice-backed `markdown_read`, source-bound `markdown_edit` heading previews, and one-shot `markdown_apply` with filesystem revalidation, backup policy, durable replacement, and truthful post-write state. A single `markdown_edit` preview can combine up to 64 independent heading changes from the same document snapshot, currently including renaming a heading and changing its level from 1 to 6; conflicting or overlapping changes are rejected before any file write.
 
 ### Fixed
 

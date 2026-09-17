@@ -50,6 +50,48 @@ func TestPrepareRenameHeadingRejectsUnknownTarget(t *testing.T) {
 	}
 }
 
+func TestPrepareSetHeadingLevelIsSnapshotBoundAndSourcePreserving(t *testing.T) {
+	source := []byte("# Title\r\n\r\nBody.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	prepared, err := snapshot.PrepareSetHeadingLevel(headings[0].TargetID, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result), "### Title\r\n\r\nBody.\n"; got != want {
+		t.Fatalf("result=%q want %q", got, want)
+	}
+	if _, err := prepared.Apply([]byte("# External\r\n\r\nBody.\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+}
+
+func TestPrepareSetHeadingLevelRejectsOutOfRangeLevel(t *testing.T) {
+	snapshot, err := Parse([]byte("# Title\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	for _, level := range []int{0, 7} {
+		if _, err := snapshot.PrepareSetHeadingLevel(headings[0].TargetID, level); err == nil {
+			t.Fatalf("level %d unexpectedly accepted", level)
+		}
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

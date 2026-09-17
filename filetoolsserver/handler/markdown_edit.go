@@ -23,13 +23,14 @@ const (
 )
 
 // MarkdownEditOperation is one declarative Marksplice-backed mutation request.
-// R30 initially exposes heading rename while the preview/apply lifecycle is
-// qualified; additional reviewed Marksplice operations are added incrementally.
+// The public schema keeps operation-specific fields closed; zero values here
+// exist only because Go uses one transport struct for the discriminated union.
 type MarkdownEditOperation struct {
 	Action   string `json:"action"`
 	Subject  string `json:"subject"`
 	TargetID string `json:"targetId"`
-	Text     string `json:"text"`
+	Text     string `json:"text,omitempty"`
+	Level    int    `json:"level,omitempty"`
 }
 
 // MarkdownEditInput prepares one source-bound Markdown preview and never writes
@@ -132,7 +133,16 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 	}
 	preparedChanges := make([]markdownintelligence.PreparedChange, 0, len(input.Operations))
 	for _, operationInput := range input.Operations {
-		preparedChange, prepareErr := snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
+		var preparedChange markdownintelligence.PreparedChange
+		var prepareErr error
+		switch operationInput.Action {
+		case "rename":
+			preparedChange, prepareErr = snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
+		case "set":
+			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
+		default:
+			prepareErr = marksplice.ErrInvalidQuery
+		}
 		if prepareErr != nil {
 			return markdownEditErrorResult(prepareErr), MarkdownEditOutput{}, nil
 		}
@@ -363,8 +373,20 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("Markdown edit operations exceed fixed limit %d", markdownintelligence.MaxEditOperations))
 	}
 	for _, op := range input.Operations {
-		if op.Action != "rename" || op.Subject != "heading" || !isLowerHexDigest(op.TargetID) {
-			return errorResultWithCode(ErrCodeInvalidInput, "operations must be rename/heading with a snapshot-bound targetId")
+		if op.Subject != "heading" || !isLowerHexDigest(op.TargetID) {
+			return errorResultWithCode(ErrCodeInvalidInput, "operations must target a heading with a snapshot-bound targetId")
+		}
+		switch op.Action {
+		case "rename":
+			if op.Level != 0 {
+				return errorResultWithCode(ErrCodeInvalidInput, "rename/heading accepts text but not level")
+			}
+		case "set":
+			if op.Level < 1 || op.Level > 6 || op.Text != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "set/heading requires level from 1 to 6 and does not accept text")
+			}
+		default:
+			return errorResultWithCode(ErrCodeInvalidInput, "heading operation action must be rename or set")
 		}
 	}
 	if _, err := normalizeEditBackupPolicy(input.BackupPolicy); err != nil {

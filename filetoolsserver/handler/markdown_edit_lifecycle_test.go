@@ -94,6 +94,47 @@ func TestMarkdownEditComposesIndependentHeadingRenames(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditComposesRenameAndHeadingLevelChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# One\r\n\r\n## Two\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operations := []MarkdownEditOperation{
+		{Action: "rename", Subject: "heading", TargetID: read.Nodes[0].TargetID, Text: "First"},
+		{Action: "set", Subject: "heading", TargetID: read.Nodes[1].TargetID, Level: 3},
+	}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: operations})
+	if err != nil || previewResult.IsError || !preview.Changed || len(preview.Operations) != 2 {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("mixed preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "# First\r\n\r\n### Two\n" {
+		t.Fatalf("mixed target=%q err=%v", got, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidHeadingLevelBeforeFilesystemWork(t *testing.T) {
+	result := validateMarkdownEditInput(MarkdownEditInput{Path: "unused.md", Operations: []MarkdownEditOperation{{
+		Action: "set", Subject: "heading", TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Level: 7,
+	}}})
+	if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+		t.Fatalf("invalid level result=%+v", result)
+	}
+}
+
 func TestMarkdownEditRejectsOverlappingHeadingRenamesWithoutMutation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")
