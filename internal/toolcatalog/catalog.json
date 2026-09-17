@@ -122,6 +122,26 @@
       }
     },
     {
+      "name": "markdown_edit",
+      "title": "Preview Markdown Edit",
+      "description": "Prepare a source-bound Marksplice-backed Markdown edit without mutating the target.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "markdown_apply",
+      "title": "Apply Markdown Edit",
+      "description": "Apply one prepared Markdown edit capability by preview ID.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
       "description": "Compute deterministic SHA-256 fingerprints for files or directory trees. Slow calls may hand off through Tasks or deferred_operation.",

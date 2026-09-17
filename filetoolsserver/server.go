@@ -246,12 +246,15 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	addTool(server, toolPolicy, catalogTool("edit_file"), handler.Wrap(logger, "edit_file", h.HandleEditFilePreview))
 
+	addTool(server, toolPolicy, markdownEditCatalogTool(), handler.Wrap(logger, "markdown_edit", h.HandleMarkdownEdit))
+
 	addTool(server, toolPolicy, catalogTool("patch_package"), handler.Wrap(logger, "patch_package", h.HandlePatchPackageRead))
 
 	addTool(server, toolPolicy, catalogTool("convert_encoding"), handler.Wrap(logger, "convert_encoding", h.HandleConvertEncodingPreview))
 
 	// Approval-bound apply tools accept only previewId.
 	addTool(server, toolPolicy, catalogTool("edit_file_apply"), handler.Wrap(logger, "edit_file_apply", h.HandleEditFileApply))
+	addTool(server, toolPolicy, markdownApplyCatalogTool(), handler.Wrap(logger, "markdown_apply", h.HandleMarkdownApply))
 	addTool(server, toolPolicy, catalogTool("patch_package_apply"), handler.Wrap(logger, "patch_package_apply", h.HandlePatchPackageApply))
 	addTool(server, toolPolicy, catalogTool("backup_restore_apply"), handler.Wrap(logger, "backup_restore_apply", h.HandleBackupRestoreApply))
 	addTool(server, toolPolicy, catalogTool("backup_gc_apply"), handler.Wrap(logger, "backup_gc_apply", h.HandleBackupGCApply))

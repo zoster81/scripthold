@@ -4,6 +4,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+### Added
+
+- Added the initial R30 Markdown intelligence surface: Marksplice-backed `markdown_read`, source-bound `markdown_edit` heading-rename previews, and one-shot `markdown_apply` with filesystem revalidation, backup policy, durable replacement, and truthful post-write state.
+
 ### Fixed
 
 - Kept OpenSSF Scorecard on its supported default-branch execution path after upstream rejected release-tag pushes, and made future release verification require successful exact-commit Scorecard evidence from the `main` push.

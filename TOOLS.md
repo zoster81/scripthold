@@ -1,6 +1,6 @@
 # Scripthold Tool Reference
 
-Scripthold `3.2.1` exposes an authoritative 38-tool catalog and 3 guided prompts. The catalog is transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
+The current public release, Scripthold `3.2.1`, exposes 38 tools and 3 guided prompts. The source tree may document additional unreleased tools below. The catalog is transport-independent. Stdio and Streamable HTTP expose the same schemas, annotations, process-wide allowed directories, limits, execution policy, typed errors, and prompt workflows; modern HTTP requests are stateless while retained legacy HTTP sessions remain stateful. Transport setup and security differ, but tool behavior does not; see [README.md](README.md), [docs/PROJECT_DIRECTION.md](docs/PROJECT_DIRECTION.md), [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md), and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md).
 
 ## Guided Prompts
 
@@ -424,6 +424,37 @@ Read one authorized Markdown document through Marksplice `v1.1.1`, which is the 
 
 Every successful response includes the source fingerprint and Scripthold physical metadata. `targetId` is opaque and valid only for the exact source snapshot; stale or unknown targets are rejected rather than rebound heuristically. Result-producing collections and encoded responses are bounded by the request/configured limits.
 
+### markdown_edit
+
+Prepare a Marksplice-backed Markdown mutation **without writing the target**. The current incremental R30 editing slice exposes exactly one closed operation form: `action: "rename"`, `subject: "heading"`, snapshot-bound `targetId`, and replacement `text`. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
+
+The preview reauthorizes and reads the existing regular file, binds its stable identity and physical fingerprint, parses the exact BOM-free decoded UTF-8 snapshot with Marksplice, prepares `PrepareRenameHeading`, applies that `ChangeSet` in memory, and proves the resulting physical bytes before returning a one-shot 256-bit `previewId`. The target is not mutated and no persistent backup is created during preview. UTF-8 with or without BOM preserves exact authored mixed line endings; mutation of other encodings currently fails closed until byte-preserving round-trip behavior is proven.
+
+```json
+{
+  "path": "/project/README.md",
+  "operations": [
+    {
+      "action": "rename",
+      "subject": "heading",
+      "targetId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "text": "Installation"
+    }
+  ],
+  "backupPolicy": "required"
+}
+```
+
+### markdown_apply
+
+Apply one prepared `markdown_edit` capability. The **complete input schema is only** `previewId`; all path, encoding, content, operation, and policy overrides are rejected as unknown fields.
+
+The token is consumed before cancellation/revalidation, so success, cancellation, conflict, write failure, and replay are terminal. Apply reauthorizes the original path, verifies stable file identity, rereads and fingerprint-checks the physical snapshot, revalidates encoding/BOM facts, and rejects a changed preview if the target became read-only; the current Markdown slice has no `forceWritable` override. It then runs the retained Marksplice `ChangeSet.Apply` again against the current semantic source, verifies the approved result bytes, captures any required persistent backup, and uses Scripthold's durable replacement path. Post-write output reports the observed `unchanged`, `committed`, or `unknown` state and actual fingerprint rather than treating preview predictions as fact.
+
+```json
+{"previewId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+```
+
 ### source_symbols
 
 Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.
@@ -665,7 +696,7 @@ Read and review the optional persistent backup store, or prepare restore/GC capa
 - `restorePreview`: requires `backupId`; authorizes only the immutable manifest's original target, verifies the source object, binds current missing/existing identity and fingerprint, and read-only preflights the mandatory safety backup for an existing target. It returns a 256-bit expiring `previewId`, fingerprints, object size, verification state, and optional bounded diff. No staging file, backup object, manifest, permission change, or target mutation is created.
 - `gcDryRun`: creates a deterministic generation-bound, 256-bit expiring GC capability from an authoritative read-only plan. Pinned manifests, active restore sources, and referenced objects remain protected; no record/object is moved or deleted.
 
-`MCP_BACKUP_DEFAULT_POLICY=disabled|required` controls the operator default for eligible approval-bound content mutations (`edit_file`, `patch_package`, `manage_bom`, and `convert_encoding`). The default is `disabled`. A request may explicitly use `required` for normal persistent capture or the stronger `pinned` policy for a protected immutable backup; neither can weaken a configured `required`. No-op mutations create no persistent backup. `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` defaults to `64` and acts as a post-capture retention target rather than an admission barrier: once a newer unpinned backup is durable, the oldest eligible non-pinned version for that target is rotated as needed. Restore keeps its independent mandatory safety-backup rule for an existing target, and GC never captures public file content.
+`MCP_BACKUP_DEFAULT_POLICY=disabled|required` controls the operator default for eligible approval-bound content mutations (`edit_file`, `markdown_edit`, `patch_package`, `manage_bom`, and `convert_encoding`). The default is `disabled`. A request may explicitly use `required` for normal persistent capture or the stronger `pinned` policy for a protected immutable backup; neither can weaken a configured `required`. No-op mutations create no persistent backup. `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` defaults to `64` and acts as a post-capture retention target rather than an admission barrier: once a newer unpinned backup is durable, the oldest eligible non-pinned version for that target is rotated as needed. Restore keeps its independent mandatory safety-backup rule for an existing target, and GC never captures public file content.
 
 Restore/GC capabilities use `MCP_BACKUP_PLAN_TTL_SECONDS`; each cache has fixed bounded entry/state limits. `MCP_MAX_OUTPUT_BYTES` bounds responses. Backup target paths appear only where current-root authorization permits them; GC candidate output remains path-free.
 

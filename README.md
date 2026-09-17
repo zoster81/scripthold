@@ -127,7 +127,7 @@ The image runs as unprivileged UID/GID `10001`.
 | Encoding | [`detect_encoding`](TOOLS.md#detect_encoding), [`convert_encoding`](TOOLS.md#convert_encoding), [`convert_encoding_apply`](TOOLS.md#convert_encoding_apply), [`detect_line_endings`](TOOLS.md#detect_line_endings), [`change_line_endings`](TOOLS.md#change_line_endings), [`manage_bom`](TOOLS.md#manage_bom), [`manage_bom_apply`](TOOLS.md#manage_bom_apply), [`list_encodings`](TOOLS.md#list_encodings) |
 | Backups | [`backup_store`](TOOLS.md#backup_store), [`backup_restore_apply`](TOOLS.md#backup_restore_apply), [`backup_gc_apply`](TOOLS.md#backup_gc_apply), [`backup_delete`](TOOLS.md#backup_delete) |
 | Source Intelligence | [`source_symbols`](TOOLS.md#source_symbols), [`source_query`](TOOLS.md#source_query) |
-| Markdown intelligence | [`markdown_read`](TOOLS.md#markdown_read) |
+| Markdown intelligence | [`markdown_read`](TOOLS.md#markdown_read), [`markdown_edit`](TOOLS.md#markdown_edit), [`markdown_apply`](TOOLS.md#markdown_apply) |
 | Durable work | [`task_run`](TOOLS.md#task_run), [`task_list`](TOOLS.md#task_list), [`task_get`](TOOLS.md#task_get), [`task_logs`](TOOLS.md#task_logs), [`task_cancel`](TOOLS.md#task_cancel), [`deferred_operation`](TOOLS.md#deferred_operation) |
 | Service | [`list_allowed_directories`](TOOLS.md#list_allowed_directories), [`check_for_updates`](TOOLS.md#check_for_updates) |
 
@@ -137,7 +137,7 @@ Source Intelligence is read-only. It does not execute project code and does not 
 
 `source_symbols` provides bounded `outline`, `digest`, `find`, and fingerprint-bound `show`. `source_query` provides structural search, supported project relations, dependency graphs, and fingerprint-verified context. Unsupported or ambiguous relationships fail closed rather than being guessed.
 
-Markdown is intentionally outside Source Intelligence. `markdown_read` uses Marksplice `v1.1.1` as the sole Markdown parsing and semantic authority for bounded inspect/query/get/resolve/validate/generate operations; Scripthold retains filesystem authorization, encoding/BOM handling, physical I/O, limits, and response policy.
+Markdown is intentionally outside Source Intelligence. `markdown_read` uses Marksplice `v1.1.1` as the sole Markdown parsing and semantic authority for bounded inspect/query/get/resolve/validate/generate operations. The current editing slice adds `markdown_edit` for source-bound heading-rename previews and `markdown_apply` for one-shot application; Scripthold retains filesystem authorization, encoding/BOM handling, physical I/O, backups, preview/apply lifecycle, conflict checks, limits, and response policy.
 
 The generated provider/capability matrix is in [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md).
 
