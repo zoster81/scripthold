@@ -256,10 +256,43 @@ func TestMarkdownEditReplacesSectionBodyAndPreservesChildren(t *testing.T) {
 	}
 }
 
-func TestMarkdownEditRejectsInvalidSectionBodyReplaceShapeBeforeFilesystemWork(t *testing.T) {
+func TestMarkdownEditReplacesCompleteSectionSubtree(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# Root\r\n\r\n## Target\r\n\r\nOld body.\r\n\r\n### Old Child\r\n\r\nOld child body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "sections", Levels: []int{2}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Sections) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operation := MarkdownEditOperation{Action: "replace", Subject: "section", TargetID: read.Sections[0].TargetID, Part: "subtree", Markdown: "## Replaced\r\n\r\nNew body.\r\n\r\n### New Child\r\n\r\nNew child body.\r\n"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("section subtree preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "## Target") || strings.Contains(string(got), "### Old Child") || !strings.Contains(string(got), "## Replaced\r\n\r\nNew body.\r\n\r\n### New Child\r\n\r\nNew child body.\r\n") || !strings.Contains(string(got), "## Keep\r\n\r\nKeep body.\r\n") {
+		t.Fatalf("section subtree replacement target=%q", got)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidSectionReplaceShapeBeforeFilesystemWork(t *testing.T) {
 	base := MarkdownEditOperation{Action: "replace", Subject: "section", TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Part: "body", Markdown: "Body."}
 	cases := []MarkdownEditOperation{
-		{Action: base.Action, Subject: base.Subject, TargetID: base.TargetID, Part: "subtree", Markdown: base.Markdown},
+		{Action: base.Action, Subject: base.Subject, TargetID: base.TargetID, Part: "unknown", Markdown: base.Markdown},
 		{Action: base.Action, Subject: base.Subject, TargetID: base.TargetID, Part: base.Part, Markdown: base.Markdown, Position: "after"},
 	}
 	for _, operation := range cases {

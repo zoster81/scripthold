@@ -188,6 +188,46 @@ func TestPrepareReplaceSectionBodyPreservesHeadingAndChildHierarchy(t *testing.T
 	}
 }
 
+func TestPrepareReplaceSectionReplacesCompleteSubtreeAndPreservesSibling(t *testing.T) {
+	source := []byte("# Root\r\n\r\n## Target\r\n\r\nOld body.\r\n\r\n### Old Child\r\n\r\nOld child body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sections, truncated, err := snapshot.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(sections) != 2 {
+		t.Fatalf("sections=%+v truncated=%v err=%v", sections, truncated, err)
+	}
+	replacement := []byte("## Replaced\r\n\r\nNew body.\r\n\r\n### New Child\r\n\r\nNew child body.\r\n")
+	prepared, err := snapshot.PrepareReplaceSection(sections[0].TargetID, replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(result)
+	if strings.Contains(got, "## Target") || strings.Contains(got, "### Old Child") || strings.Contains(got, "Old body.") || strings.Contains(got, "Old child body.") {
+		t.Fatalf("old section subtree remains in result=%q", result)
+	}
+	if !strings.Contains(got, "## Replaced\r\n\r\nNew body.\r\n\r\n### New Child\r\n\r\nNew child body.\r\n") {
+		t.Fatalf("replacement subtree missing or altered: %q", result)
+	}
+	if !strings.Contains(got, "## Keep\r\n\r\nKeep body.\r\n") {
+		t.Fatalf("unrelated sibling changed unexpectedly: %q", result)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("Keep body."), []byte("External."), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareReplaceSection(sections[0].HeadingTargetID, replacement); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("heading target error=%v, want ErrInvalidTargetKind", err)
+	}
+	if _, err := snapshot.PrepareReplaceSection(sections[0].TargetID, []byte("Paragraph only.\r\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("non-section replacement error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestPrepareReplaceParagraphIsSnapshotBoundAndSourcePreserving(t *testing.T) {
 	source := []byte("Old paragraph.\r\n")
 	snapshot, err := Parse(source)

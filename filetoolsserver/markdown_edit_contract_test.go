@@ -151,8 +151,11 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	markdownReadAssertStringSet(t, "section body replace required", replaceSectionBody["required"], []string{"action", "markdown", "part", "subject", "targetId"})
 	replaceSectionBodyProperties := markdownReadSchemaMap(t, replaceSectionBody["properties"])
-	if markdownReadSchemaMap(t, replaceSectionBodyProperties["action"])["const"] != "replace" || markdownReadSchemaMap(t, replaceSectionBodyProperties["subject"])["const"] != "section" || markdownReadSchemaMap(t, replaceSectionBodyProperties["part"])["const"] != "body" {
-		t.Fatalf("section body replace discriminators = %#v", replaceSectionBodyProperties)
+	if markdownReadSchemaMap(t, replaceSectionBodyProperties["action"])["const"] != "replace" || markdownReadSchemaMap(t, replaceSectionBodyProperties["subject"])["const"] != "section" {
+		t.Fatalf("section replace discriminators = %#v", replaceSectionBodyProperties)
+	}
+	if part := markdownReadSchemaMap(t, replaceSectionBodyProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"body", "subtree"}) {
+		t.Fatalf("section replace part schema = %#v, want body/subtree enum", part)
 	}
 	if markdownReadSchemaMap(t, replaceSectionBodyProperties["markdown"])["type"] != "string" {
 		t.Fatalf("section body replace markdown schema = %#v", replaceSectionBodyProperties["markdown"])

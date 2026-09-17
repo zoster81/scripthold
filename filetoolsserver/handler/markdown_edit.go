@@ -155,6 +155,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareRemoveSection(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "section" && operationInput.Part == "body":
 			preparedChange, prepareErr = snapshot.PrepareReplaceSectionBody(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "replace" && operationInput.Subject == "section" && operationInput.Part == "subtree":
+			preparedChange, prepareErr = snapshot.PrepareReplaceSection(operationInput.TargetID, []byte(operationInput.Markdown))
 		default:
 			prepareErr = marksplice.ErrInvalidQuery
 		}
@@ -417,8 +419,8 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 				return errorResultWithCode(ErrCodeInvalidInput, "remove/section accepts targetId only")
 			}
 		case op.Action == "replace" && op.Subject == "section":
-			if op.Part != "body" || op.Text != "" || op.Level != 0 || op.Position != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "replace/section body requires part body and markdown")
+			if (op.Part != "body" && op.Part != "subtree") || op.Text != "" || op.Level != 0 || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/section requires part body or subtree and markdown")
 			}
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")
