@@ -13,6 +13,18 @@ Do not copy private workstation state, local process details, credentials, or op
 - Explain unavoidable technical terms in plain language when they first matter. Do not make hashes, task IDs, counters, or implementation details the main explanation; present them only as supporting evidence after the practical conclusion.
 - When something fails or blocks progress, state the practical consequence first, then the technical cause and verification evidence.
 
+## Public documentation standard
+
+All public documentation is user-facing first, even when it also serves as a technical reference.
+
+- Start a document, feature section, or tool entry by explaining in plain English what it does, why or when someone would use it, and the most important practical applications.
+- Put schemas, limits, implementation details, invariants, and low-level failure mechanics after the reader understands the purpose and normal workflow.
+- Prefer short direct sentences and concrete examples. Define unavoidable technical terms when they first matter; do not assume knowledge of Scripthold internals.
+- Keep exact technical details where they affect correct use, compatibility, security, recovery, or troubleshooting. Clarity must not weaken accuracy or safety claims.
+- Architecture, security, contributor, and maintainer documents may be more technical, but each section should still state the practical consequence before internal mechanics where possible.
+- Generated matrices or exhaustive reference data may remain dense; provide surrounding prose that tells readers what the data means and how to use it.
+- Review the whole affected public section for readability when changing behavior, not only the sentence needed to make a test pass.
+
 ## Sources of truth
 
 - Product identity, scope, transports, and upstream relationship: [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md)

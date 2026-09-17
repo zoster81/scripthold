@@ -1,10 +1,12 @@
 # Streamable HTTP Security Design
 
-This document is the authoritative security contract for native MCP Streamable HTTP in `scripthold`. It defines the current transport security boundary and preserves the process-wide filesystem policy shared with the stdio transport.
+Use this document when running Scripthold over Streamable HTTP, especially when the listener is reachable beyond the local machine. It explains the safe defaults, the protections that are always required, and the extra deployment boundary needed for non-loopback access.
+
+This is the authoritative security contract for native MCP Streamable HTTP in Scripthold. It preserves the same process-wide filesystem authorization used by stdio; HTTP does not create a separate per-client filesystem sandbox.
 
 ## Scope
 
-This document defines the trust model, secure defaults, configuration contract, request pipeline, session policy, resource limits, logging rules, negative tests, and release blockers for Streamable HTTP.
+The sections below define the trust model, secure defaults, configuration, request/session limits, logging rules, negative tests, and release blockers that keep Streamable HTTP within that security boundary.
 
 The HTTP transport is implemented with the pinned MCP Go SDK while preserving the stdio transport and sharing the same server/tool policy.
 

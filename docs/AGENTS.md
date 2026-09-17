@@ -29,6 +29,19 @@ If a document mainly records how a completed phase was executed, task IDs, check
 
 Prefer updating an existing current document over creating a new milestone-specific file. Link to one source of truth instead of copying the same explanation into multiple files.
 
+## Audience and clarity
+
+Public documentation must be understandable without prior knowledge of Scripthold internals.
+
+- Lead with the reader's goal: what the feature or document is for, when to use it, and common applications.
+- Explain the normal workflow before edge cases, internal architecture, storage formats, fingerprints, caches, or recovery mechanics.
+- Keep examples concrete and representative of real use. Prefer one clear example over several internal implementation examples.
+- Use plain English for user-facing behavior. Introduce exact API names, error codes, environment variables, and security terms only when they help the reader use, configure, secure, or troubleshoot the product.
+- Do not remove necessary precision: schemas, limits, security constraints, compatibility rules, and failure behavior must remain exact, but should follow a plain-language explanation when practical.
+- Tool-reference entries should answer, in order: what the tool does, when to use it, its main inputs/workflow, then detailed schema/limits/errors.
+- Architecture and security documents should explain the operational consequence of a boundary before describing the mechanism behind it.
+- When touching a public section, review the whole section for unnecessary jargon, implementation-first wording, and duplicated detail.
+
 ## Portability
 
 Public documentation must work from a normal clone. Do not include private workspace paths, connector instance names, local PIDs, active binary filenames, workstation hashes, launcher state, credentials, tunnel identifiers, or operator handoff state.

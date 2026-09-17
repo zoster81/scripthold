@@ -136,6 +136,10 @@ The complete exact-commit gate retains broad normal regression across Linux/Wind
 ## 7. Documentation and metadata
 
 - [ ] Update only documents whose behavior, status, contract, or navigation changed.
+- [ ] For every affected public document or tool section, explain first what it does, when or why to use it, and representative applications before low-level mechanics.
+- [ ] Prefer plain English, short direct sentences, and concrete examples; define unavoidable technical terms when they first matter.
+- [ ] Keep schemas, limits, security constraints, compatibility rules, and failure behavior exact, but place them after the reader understands the normal workflow where practical.
+- [ ] Review the whole affected public section for jargon, implementation-first wording, duplicated details, and unclear purpose rather than patching only one sentence.
 - [ ] Keep each fact in its designated source of truth and link instead of duplicating detailed procedures or history.
 - [ ] Use repository-relative links and portable placeholders.
 - [ ] Keep README, roadmap, project direction, publishing notes, tool reference, and subsystem contracts consistent.
