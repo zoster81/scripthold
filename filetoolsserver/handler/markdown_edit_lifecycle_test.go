@@ -11,6 +11,7 @@ import (
 	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/config"
 	"github.com/zoster81/scripthold/internal/filesystem"
+	"github.com/zoster81/scripthold/internal/markdownintelligence"
 )
 
 func TestMarkdownEditPreviewApplyLifecycle(t *testing.T) {
@@ -58,6 +59,73 @@ func TestMarkdownEditPreviewApplyLifecycle(t *testing.T) {
 	replayResult, _, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
 	if err != nil || replayResult == nil || !replayResult.IsError {
 		t.Fatalf("replay result=%+v err=%v", replayResult, err)
+	}
+}
+
+func TestMarkdownEditComposesIndependentHeadingRenames(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# One\r\n\r\n## Two\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operations := []MarkdownEditOperation{
+		{Action: "rename", Subject: "heading", TargetID: read.Nodes[0].TargetID, Text: "First"},
+		{Action: "rename", Subject: "heading", TargetID: read.Nodes[1].TargetID, Text: "Second"},
+	}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: operations})
+	if err != nil || previewResult.IsError || !preview.Changed || len(preview.Operations) != 2 {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("multi-edit preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "# First\r\n\r\n## Second\n" {
+		t.Fatalf("multi-edit target=%q err=%v", got, err)
+	}
+}
+
+func TestMarkdownEditRejectsOverlappingHeadingRenamesWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# Old\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	targetID := markdownHeadingTargetID(t, h, path)
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{
+		{Action: "rename", Subject: "heading", TargetID: targetID, Text: "First"},
+		{Action: "rename", Subject: "heading", TargetID: targetID, Text: "Second"},
+	}})
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("overlap result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("overlap target=%q err=%v", got, err)
+	}
+}
+
+func TestMarkdownEditRejectsOperationCountAboveFixedLimit(t *testing.T) {
+	operations := make([]MarkdownEditOperation, markdownintelligence.MaxEditOperations+1)
+	for index := range operations {
+		operations[index] = MarkdownEditOperation{
+			Action: "rename", Subject: "heading",
+			TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Text: "New",
+		}
+	}
+	result, _, err := NewHandler(nil).HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: "unused.md", Operations: operations})
+	if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeLimit {
+		t.Fatalf("over-limit result=%+v err=%v", result, err)
 	}
 }
 

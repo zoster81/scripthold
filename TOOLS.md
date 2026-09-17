@@ -411,7 +411,9 @@ Recursively search for files and directories matching a glob pattern through the
 
 ### markdown_read
 
-Read one authorized Markdown document through Marksplice `v1.1.1`, which is the sole authority for Markdown parsing, structural identity, relationships, fragment resolution, TOC generation, and canonical Markdown generation. Scripthold owns path authorization, file/encoding/BOM/EOL handling, input/output limits, and MCP error envelopes. Markdown is not analyzed by Source Intelligence.
+Use `markdown_read` to understand the structure of one Markdown document without changing it. It is designed for questions such as: "What sections are in this file?", "Which heading does this anchor point to?", "Where is this fenced code block?", or "Is this managed table of contents stale?" The returned `targetId` values can be passed directly to `markdown_edit`, so an agent does not need to guess from line numbers or repeat a text search.
+
+Marksplice `v1.1.1` is the sole authority for Markdown structure, relationships, fragment resolution, TOC generation, and canonical Markdown generation. Scripthold handles file authorization, encoding/BOM/line endings, limits, and MCP errors. Markdown is not analyzed by Source Intelligence.
 
 `action` is one of `inspect`, `query`, `get`, `resolve`, `validate`, or `generate`. `path` is always required; `encoding` is optional and uses the normal deterministic Scripthold encoding pipeline when omitted.
 
@@ -426,9 +428,15 @@ Every successful response includes the source fingerprint and Scripthold physica
 
 ### markdown_edit
 
-Prepare a Marksplice-backed Markdown mutation **without writing the target**. The current incremental R30 editing slice exposes exactly one closed operation form: `action: "rename"`, `subject: "heading"`, snapshot-bound `targetId`, and replacement `text`. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
+Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. The current editing slice renames headings: one request can rename from 1 to 64 headings in the same document. This is useful when cleaning up section names, making terminology consistent, or reorganizing a documentation page while preserving the rest of the authored file.
 
-The preview reauthorizes and reads the existing regular file, binds its stable identity and physical fingerprint, parses the exact BOM-free decoded UTF-8 snapshot with Marksplice, prepares `PrepareRenameHeading`, applies that `ChangeSet` in memory, and proves the resulting physical bytes before returning a one-shot 256-bit `previewId`. The target is not mutated and no persistent backup is created during preview. UTF-8 with or without BOM preserves exact authored mixed line endings; mutation of other encodings currently fails closed until byte-preserving round-trip behavior is proven.
+Each operation uses `action: "rename"`, `subject: "heading"`, a snapshot-bound `targetId` returned by `markdown_read`, and the new `text`. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
+
+All requested renames are checked against the same original document. Marksplice combines only changes that can safely coexist; overlapping or interacting changes are rejected instead of being applied in an uncertain sequence. The successful result is a preview with a one-shot `previewId` and diff. Preview does **not** write the target or create a persistent backup.
+
+The current mutation path supports UTF-8 Markdown with or without BOM and preserves existing mixed line endings. Other encodings currently fail safely until Scripthold can prove byte-preserving mutation for them.
+
+**Typical workflow:** call `markdown_read` to obtain exact heading `targetId` values, call `markdown_edit` to review the combined result, then pass the returned `previewId` to `markdown_apply`.
 
 ```json
 {
@@ -447,9 +455,11 @@ The preview reauthorizes and reads the existing regular file, binds its stable i
 
 ### markdown_apply
 
-Apply one prepared `markdown_edit` capability. The **complete input schema is only** `previewId`; all path, encoding, content, operation, and policy overrides are rejected as unknown fields.
+Use `markdown_apply` after a `markdown_edit` preview has been reviewed and approved. Its **only input is `previewId`**: callers cannot change the path, heading text, encoding, or backup policy during apply. This keeps the applied change identical to the reviewed preview.
 
-The token is consumed before cancellation/revalidation, so success, cancellation, conflict, write failure, and replay are terminal. Apply reauthorizes the original path, verifies stable file identity, rereads and fingerprint-checks the physical snapshot, revalidates encoding/BOM facts, and rejects a changed preview if the target became read-only; the current Markdown slice has no `forceWritable` override. It then runs the retained Marksplice `ChangeSet.Apply` again against the current semantic source, verifies the approved result bytes, captures any required persistent backup, and uses Scripthold's durable replacement path. Post-write output reports the observed `unchanged`, `committed`, or `unknown` state and actual fingerprint rather than treating preview predictions as fact.
+Before writing, Scripthold checks that the target is still authorized, is still the same file, and still contains the exact source that was previewed. It also rechecks encoding/BOM information and refuses a changed target that became read-only. If a required backup policy is active, the approved pre-state is saved before replacement.
+
+The preview token is one-shot. Success, cancellation, conflict, write failure, or replay all consume it, so an old approval cannot be reused after circumstances change. The result reports what was actually observed after apply: `unchanged`, `committed`, or `unknown`, plus the actual fingerprint when available.
 
 ```json
 {"previewId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}

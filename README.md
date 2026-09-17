@@ -137,9 +137,19 @@ Source Intelligence is read-only. It does not execute project code and does not 
 
 `source_symbols` provides bounded `outline`, `digest`, `find`, and fingerprint-bound `show`. `source_query` provides structural search, supported project relations, dependency graphs, and fingerprint-verified context. Unsupported or ambiguous relationships fail closed rather than being guessed.
 
-Markdown is intentionally outside Source Intelligence. `markdown_read` uses Marksplice `v1.1.1` as the sole Markdown parsing and semantic authority for bounded inspect/query/get/resolve/validate/generate operations. The current editing slice adds `markdown_edit` for source-bound heading-rename previews and `markdown_apply` for one-shot application; Scripthold retains filesystem authorization, encoding/BOM handling, physical I/O, backups, preview/apply lifecycle, conflict checks, limits, and response policy.
+Markdown is intentionally outside Source Intelligence. The dedicated Markdown tools understand document structure instead of treating a Markdown file as source code.
 
-The generated provider/capability matrix is in [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md).
+### Markdown and documentation workflows
+
+Use `markdown_read` when an agent needs to understand a Markdown document before changing it. It can inspect headings and sections, find structural elements, resolve local fragments and links, validate managed TOCs, and return exact authored source for a selected structure.
+
+Use `markdown_edit` to prepare safe Markdown changes without writing the file. The current editing slice can rename one or more headings in a single preview (up to 64 operations). Every requested rename is checked against the same original document, so conflicting or overlapping changes are rejected instead of being applied in an uncertain order.
+
+Use `markdown_apply` only after reviewing the preview. It accepts the returned `previewId`, checks that the file is still the same file with the same approved contents, applies the prepared result, honors backup policy, and reports the actual final state. A typical workflow is therefore: **read the structure → prepare a preview → review it → apply it**.
+
+This is useful for tasks such as reorganizing documentation headings, correcting section names across one document, validating local anchors before editing, or updating documentation while preserving the file's existing formatting and line endings. The current mutation path supports UTF-8 Markdown with or without BOM; unsupported encoding cases fail safely instead of silently rewriting the document.
+
+The generated Source Intelligence provider/capability matrix is in [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md). Detailed Markdown schemas and examples are in [TOOLS.md](TOOLS.md#markdown_read).
 
 ## Safety model
 

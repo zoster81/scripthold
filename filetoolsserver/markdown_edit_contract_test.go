@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/zoster81/scripthold/internal/markdownintelligence"
 )
 
 func TestMarkdownEditCatalogSchemaIsClosedForRenameHeadingSlice(t *testing.T) {
@@ -26,8 +28,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForRenameHeadingSlice(t *testing.T) {
 	}
 
 	operations := markdownReadSchemaMap(t, properties["operations"])
-	if operations["type"] != "array" || operations["minItems"] != 1 || operations["maxItems"] != 1 {
-		t.Fatalf("operations schema = %#v, want exactly one operation", operations)
+	if operations["type"] != "array" || operations["minItems"] != 1 || operations["maxItems"] != markdownintelligence.MaxEditOperations {
+		t.Fatalf("operations schema = %#v, want 1..%d operations", operations, markdownintelligence.MaxEditOperations)
 	}
 	operation := markdownReadSchemaMap(t, operations["items"])
 	if operation["type"] != "object" || operation["additionalProperties"] != false {

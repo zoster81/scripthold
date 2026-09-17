@@ -49,3 +49,40 @@ func TestPrepareRenameHeadingRejectsUnknownTarget(t *testing.T) {
 		t.Fatalf("error=%v, want ErrNodeNotFound", err)
 	}
 }
+
+func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
+	source := []byte("# One\n\n## Two\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 2 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	first, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("First"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := snapshot.PrepareRenameHeading(headings[1].TargetID, []byte("Second"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := snapshot.ComposeChanges(first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := combined.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result), "# First\n\n## Second\n"; got != want {
+		t.Fatalf("result=%q want %q", got, want)
+	}
+	if _, err := combined.Apply([]byte("# One\n\n## External\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.ComposeChanges(first, first); err == nil {
+		t.Fatal("overlapping prepared changes unexpectedly composed")
+	}
+}

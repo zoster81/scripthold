@@ -130,8 +130,15 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return markdownEditErrorResult(err), MarkdownEditOutput{}, nil
 	}
-	operationInput := input.Operations[0]
-	preparedChange, err := snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
+	preparedChanges := make([]markdownintelligence.PreparedChange, 0, len(input.Operations))
+	for _, operationInput := range input.Operations {
+		preparedChange, prepareErr := snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
+		if prepareErr != nil {
+			return markdownEditErrorResult(prepareErr), MarkdownEditOutput{}, nil
+		}
+		preparedChanges = append(preparedChanges, preparedChange)
+	}
+	preparedChange, err := snapshot.ComposeChanges(preparedChanges...)
 	if err != nil {
 		return markdownEditErrorResult(err), MarkdownEditOutput{}, nil
 	}
@@ -349,12 +356,16 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 	if input.Path == "" {
 		return errorResultWithCode(ErrCodeInvalidInput, "path is required")
 	}
-	if len(input.Operations) != 1 {
-		return errorResultWithCode(ErrCodeInvalidInput, "this Markdown edit slice requires exactly one operation")
+	if len(input.Operations) == 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "at least one Markdown edit operation is required")
 	}
-	op := input.Operations[0]
-	if op.Action != "rename" || op.Subject != "heading" || !isLowerHexDigest(op.TargetID) {
-		return errorResultWithCode(ErrCodeInvalidInput, "operation must be rename/heading with a snapshot-bound targetId")
+	if len(input.Operations) > markdownintelligence.MaxEditOperations {
+		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("Markdown edit operations exceed fixed limit %d", markdownintelligence.MaxEditOperations))
+	}
+	for _, op := range input.Operations {
+		if op.Action != "rename" || op.Subject != "heading" || !isLowerHexDigest(op.TargetID) {
+			return errorResultWithCode(ErrCodeInvalidInput, "operations must be rename/heading with a snapshot-bound targetId")
+		}
 	}
 	if _, err := normalizeEditBackupPolicy(input.BackupPolicy); err != nil {
 		return errorResultFromError(err)

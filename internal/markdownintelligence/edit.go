@@ -6,6 +6,10 @@ import (
 	"github.com/zoster81/marksplice"
 )
 
+// MaxEditOperations bounds one atomic Markdown edit plan before Marksplice
+// composition so caller-controlled planning work remains finite.
+const MaxEditOperations = 64
+
 // PreparedChange wraps one Marksplice ChangeSet without exposing Marksplice
 // snapshot-local node identity. It remains bound to the exact parsed source.
 type PreparedChange struct {
@@ -22,6 +26,29 @@ func (p PreparedChange) SourceFingerprint() string {
 // Apply delegates source-conflict enforcement to Marksplice.
 func (p PreparedChange) Apply(source []byte) ([]byte, error) {
 	return p.change.Apply(source)
+}
+
+// ComposeChanges delegates atomic multi-edit composition to Marksplice. Every
+// constituent change must have been prepared from this exact snapshot.
+func (s *Snapshot) ComposeChanges(changes ...PreparedChange) (PreparedChange, error) {
+	if s == nil || s.document == nil {
+		return PreparedChange{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	if len(changes) == 0 || len(changes) > MaxEditOperations {
+		return PreparedChange{}, fmt.Errorf("%w: markdown edit requires 1..%d prepared changes", marksplice.ErrInvalidQuery, MaxEditOperations)
+	}
+	markspliceChanges := make([]marksplice.ChangeSet, len(changes))
+	for index, prepared := range changes {
+		if prepared.sourceFingerprint != s.fingerprint {
+			return PreparedChange{}, fmt.Errorf("%w: prepared change belongs to a different markdown snapshot", marksplice.ErrSourceConflict)
+		}
+		markspliceChanges[index] = prepared.change
+	}
+	combined, err := s.document.ComposeChanges(markspliceChanges...)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: combined, sourceFingerprint: s.fingerprint}, nil
 }
 
 // PrepareRenameHeading resolves the opaque Scripthold target against this exact

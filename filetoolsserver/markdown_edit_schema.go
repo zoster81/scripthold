@@ -1,6 +1,9 @@
 package filetoolsserver
 
-import "github.com/modelcontextprotocol/go-sdk/mcp"
+import (
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/zoster81/scripthold/internal/markdownintelligence"
+)
 
 func markdownEditCatalogTool() *mcp.Tool {
 	tool := catalogTool("markdown_edit")
@@ -14,7 +17,7 @@ func markdownEditCatalogTool() *mcp.Tool {
 			"operations": map[string]any{
 				"type":     "array",
 				"minItems": 1,
-				"maxItems": 1,
+				"maxItems": markdownintelligence.MaxEditOperations,
 				"items": map[string]any{
 					"type":                 "object",
 					"additionalProperties": false,
