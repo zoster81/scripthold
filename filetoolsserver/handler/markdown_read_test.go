@@ -69,6 +69,25 @@ func TestHandleMarkdownReadExercisesMarkspliceBackedActions(t *testing.T) {
 	}
 }
 
+func TestHandleMarkdownReadProjectsImageDestination(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "guide.md")
+	if err := os.WriteFile(path, []byte("![alt](images/old.png \"title\")\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+
+	result, queried, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+		Action: "query", Path: path, Encoding: "utf-8", Query: "nodes", Kinds: []string{"image"}, Limit: 4,
+	})
+	if err != nil || result.IsError || len(queried.Nodes) != 1 {
+		t.Fatalf("query result=%+v output=%+v err=%v", result, queried, err)
+	}
+	if got := queried.Nodes[0].Attributes["destination"]; got != "images/old.png" {
+		t.Fatalf("image destination = %#v, want %q", got, "images/old.png")
+	}
+}
+
 func TestHandleMarkdownReadRejectsInvalidUnionLimitsTargetsAndPaths(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "guide.md")

@@ -66,6 +66,25 @@ func TestSnapshotQueryUsesMarkspliceStructureAndSnapshotBoundTargets(t *testing.
 	}
 }
 
+func TestSnapshotQueryProjectsImageDestinationFromTypedRange(t *testing.T) {
+	source := []byte("![alt](images/old.png \"title\")\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	images, err := snapshot.QueryNodes([]string{"image"}, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("images = %+v, want one image", images)
+	}
+	if got := images[0].Attributes["destination"]; got != "images/old.png" {
+		t.Fatalf("image destination = %#v, want %q", got, "images/old.png")
+	}
+}
+
 func TestSnapshotQueryIsBoundedAndKindValidated(t *testing.T) {
 	snapshot, err := Parse([]byte("# A\n\nText\n"))
 	if err != nil {

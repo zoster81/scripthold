@@ -184,6 +184,12 @@ func (s *Snapshot) nodeAttributes(node marksplice.Node) map[string]any {
 				attributes["title"] = title
 			}
 		}
+	case marksplice.KindImage:
+		if value, ok := s.document.Image(id); ok {
+			if destination, ok := s.document.SourceRange(value.Range()); ok {
+				attributes["destination"] = string(destination)
+			}
+		}
 	case marksplice.KindReferenceDefinition:
 		if value, ok := s.document.ReferenceDefinition(id); ok {
 			attributes["label"] = value.Label()
