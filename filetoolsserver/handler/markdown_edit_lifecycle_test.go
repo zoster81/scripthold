@@ -157,14 +157,45 @@ func TestMarkdownEditReplacesListItemContent(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditReplacesListItemSubtree(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("- outer\n  - target\n    - old child\n  - tail\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"list_item"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 4 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operation := MarkdownEditOperation{Action: "replace", Subject: "list_item", TargetID: read.Nodes[1].TargetID, Part: "subtree", Markdown: "  - replaced\n    + new child\n"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("list item subtree preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	want := "- outer\n  - replaced\n    + new child\n  - tail\n"
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("list item subtree target=%q want=%q err=%v", got, want, err)
+	}
+}
+
 func TestMarkdownEditRejectsInvalidListItemReplaceShapeBeforeFilesystemWork(t *testing.T) {
 	h := NewHandler([]string{t.TempDir()})
 	base := MarkdownEditOperation{Action: "replace", Subject: "list_item", TargetID: strings.Repeat("a", 64), Markdown: "new content"}
 	cases := []MarkdownEditOperation{
 		func() MarkdownEditOperation { op := base; op.Text = "extra"; return op }(),
 		func() MarkdownEditOperation { op := base; op.Position = "after"; return op }(),
-		func() MarkdownEditOperation { op := base; op.Part = "subtree"; return op }(),
+		func() MarkdownEditOperation { op := base; op.Part = "body"; return op }(),
 		func() MarkdownEditOperation { op := base; op.AnchorTargetID = strings.Repeat("b", 64); return op }(),
+		func() MarkdownEditOperation { op := base; op.Part = "subtree"; op.Text = "extra"; return op }(),
 	}
 	for _, op := range cases {
 		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{op}})

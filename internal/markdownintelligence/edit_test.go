@@ -671,6 +671,50 @@ func TestPrepareReplaceListItemPreservesMarkerAndChildren(t *testing.T) {
 	}
 }
 
+func TestPrepareReplaceListItemSubtreePreservesSemanticParent(t *testing.T) {
+	source := []byte("- outer\r\n  - target\r\n    - old child\r\n  - tail\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := snapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(items) != 4 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	prepared, err := snapshot.PrepareReplaceListItemSubtree(items[1].TargetID, []byte("  - replaced π\r\n    + new child\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- outer\r\n  - replaced π\r\n    + new child\r\n  - tail\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("tail"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareReplaceListItemSubtree(items[1].TargetID, []byte("  * changed marker\r\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("different-marker error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareReplaceListItemSubtree(items[1].TargetID, []byte("  - one\r\n  - two\r\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("multiple-root error=%v, want ErrInvalidReplacement", err)
+	}
+	taskSnapshot, err := Parse([]byte("- [ ] task\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := taskSnapshot.QueryNodes([]string{"task"}, 8)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("tasks=%+v err=%v", tasks, err)
+	}
+	if _, err := taskSnapshot.PrepareReplaceListItemSubtree(tasks[0].TargetID, []byte("- replacement\n")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("task target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

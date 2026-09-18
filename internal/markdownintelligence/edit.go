@@ -213,6 +213,20 @@ func (s *Snapshot) PrepareReplaceListItem(targetID string, replacement []byte) (
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceListItemSubtree resolves the opaque Scripthold list-item target
+// against this exact snapshot and delegates complete subtree replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceListItemSubtree(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceListItemSubtree(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceParagraph resolves the opaque Scripthold target against this
 // exact snapshot and delegates source-preserving paragraph replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceParagraph(targetID string, replacement []byte) (PreparedChange, error) {

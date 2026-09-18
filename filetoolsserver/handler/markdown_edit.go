@@ -146,6 +146,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
 		case operationInput.Action == "replace" && operationInput.Subject == "paragraph":
 			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
+			preparedChange, prepareErr = snapshot.PrepareReplaceListItemSubtree(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item":
 			preparedChange, prepareErr = snapshot.PrepareReplaceListItem(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "remove" && operationInput.Subject == "paragraph":
@@ -422,6 +424,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "paragraph":
 			if op.Text != "" || op.Level != 0 || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/paragraph accepts markdown only")
+			}
+		case op.Action == "replace" && op.Subject == "list_item" && op.Part == "subtree":
+			if op.Text != "" || op.Level != 0 || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/list_item subtree accepts part subtree and markdown only")
 			}
 		case op.Action == "replace" && op.Subject == "list_item":
 			if op.Text != "" || op.Level != 0 || op.Position != "" || op.Part != "" {

@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 10 {
-		t.Fatalf("operation union = %#v, want ten closed variants", items["oneOf"])
+	if !ok || len(oneOf) != 11 {
+		t.Fatalf("operation union = %#v, want eleven closed variants", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -207,6 +207,19 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if markdownReadSchemaMap(t, replaceListItemProperties["markdown"])["type"] != "string" || len(replaceListItemProperties) != 4 {
 		t.Fatalf("list item replace properties = %#v", replaceListItemProperties)
+	}
+
+	replaceListItemSubtree := markdownReadSchemaMap(t, oneOf[10])
+	if replaceListItemSubtree["type"] != "object" || replaceListItemSubtree["additionalProperties"] != false {
+		t.Fatalf("list item subtree replace schema = %#v, want strict object", replaceListItemSubtree)
+	}
+	markdownReadAssertStringSet(t, "list item subtree replace required", replaceListItemSubtree["required"], []string{"action", "markdown", "part", "subject", "targetId"})
+	replaceListItemSubtreeProperties := markdownReadSchemaMap(t, replaceListItemSubtree["properties"])
+	if markdownReadSchemaMap(t, replaceListItemSubtreeProperties["action"])["const"] != "replace" || markdownReadSchemaMap(t, replaceListItemSubtreeProperties["subject"])["const"] != "list_item" || markdownReadSchemaMap(t, replaceListItemSubtreeProperties["part"])["const"] != "subtree" {
+		t.Fatalf("list item subtree replace discriminators = %#v", replaceListItemSubtreeProperties)
+	}
+	if markdownReadSchemaMap(t, replaceListItemSubtreeProperties["markdown"])["type"] != "string" || len(replaceListItemSubtreeProperties) != 5 {
+		t.Fatalf("list item subtree replace properties = %#v", replaceListItemSubtreeProperties)
 	}
 }
 
