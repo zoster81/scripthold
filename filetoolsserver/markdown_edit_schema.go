@@ -69,7 +69,7 @@ func markdownEditCatalogTool() *mcp.Tool {
 							"required":             []string{"action", "subject", "targetId"},
 							"properties": map[string]any{
 								"action":   map[string]any{"const": "remove"},
-								"subject":  map[string]any{"type": "string", "enum": []string{"paragraph", "section", "list_item", "reference_definition", "front_matter_field"}},
+								"subject":  map[string]any{"type": "string", "enum": []string{"paragraph", "section", "list_item", "reference_definition", "front_matter_field", "thematic_break"}},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
 							},
 						}, map[string]any{

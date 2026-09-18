@@ -1867,6 +1867,65 @@ func TestPrepareRemoveFrontMatterFieldPreservesMarkspliceTargetValidation(t *tes
 	}
 }
 
+func TestPrepareRemoveThematicBreakPreservesCRLFAndSourceBinding(t *testing.T) {
+	source := []byte("before\r\n\r\n  * * *  \r\n\r\nafter\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	breaks, err := snapshot.QueryNodes([]string{"thematic_break"}, 8)
+	if err != nil || len(breaks) != 1 {
+		t.Fatalf("breaks=%+v err=%v", breaks, err)
+	}
+
+	prepared, err := snapshot.PrepareRemoveThematicBreak(breaks[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("before\r\n\r\n\r\nafter\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	stale := []byte("before\r\n\r\n  * * *  \r\n\r\nchanged\r\n")
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+}
+
+func TestPrepareRemoveThematicBreakFailsClosedOnParagraphJoin(t *testing.T) {
+	source := []byte("before\n***\nafter\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	breaks, err := snapshot.QueryNodes([]string{"thematic_break"}, 8)
+	if err != nil || len(breaks) != 1 {
+		t.Fatalf("breaks=%+v err=%v", breaks, err)
+	}
+	if _, err := snapshot.PrepareRemoveThematicBreak(breaks[0].TargetID); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("join-hazard error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestPrepareRemoveThematicBreakPreservesMarkspliceTargetValidation(t *testing.T) {
+	source := []byte("Paragraph.\n\n---\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareRemoveThematicBreak(paragraphs[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReplaceHTMLCommentPreservesWrapperAndSourceBinding(t *testing.T) {
 	source := []byte("before <!--  old comment  --> after\r\n")
 	snapshot, err := Parse(source)

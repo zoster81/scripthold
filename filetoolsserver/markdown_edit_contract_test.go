@@ -34,7 +34,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
 	if !ok || len(oneOf) != 24 {
-		t.Fatalf("operation union = %#v, want twenty-four schema branches covering forty-three closed forms", items["oneOf"])
+		t.Fatalf("operation union = %#v, want twenty-four schema branches covering forty-four closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -117,7 +117,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if markdownReadSchemaMap(t, removeProperties["action"])["const"] != "remove" {
 		t.Fatalf("target-only remove action = %#v", removeProperties)
 	}
-	if subjects := markdownReadSchemaMap(t, removeProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"paragraph", "section", "list_item", "reference_definition", "front_matter_field"}) {
+	if subjects := markdownReadSchemaMap(t, removeProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"paragraph", "section", "list_item", "reference_definition", "front_matter_field", "thematic_break"}) {
 		t.Fatalf("target-only remove subjects = %#v", subjects)
 	}
 	if len(removeProperties) != 3 {
@@ -293,6 +293,10 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	removeFrontMatterField := markdownEditOperationBranch(t, oneOf, "remove", "front_matter_field", "")
 	if !reflect.DeepEqual(removeFrontMatterField, removeParagraph) {
 		t.Fatalf("front matter remove branch = %#v, want shared target-only remove branch", removeFrontMatterField)
+	}
+	removeThematicBreak := markdownEditOperationBranch(t, oneOf, "remove", "thematic_break", "")
+	if !reflect.DeepEqual(removeThematicBreak, removeParagraph) {
+		t.Fatalf("thematic break remove branch = %#v, want shared target-only remove branch", removeThematicBreak)
 	}
 
 	addLinkTitle := markdownEditOperationBranch(t, oneOf, "add", "inline_link", "title")
