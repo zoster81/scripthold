@@ -183,7 +183,7 @@ func markdownEditCatalogTool() *mcp.Tool {
 								"action":   map[string]any{"const": "replace"},
 								"subject":  map[string]any{"const": "inline_link"},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
-								"part":     map[string]any{"type": "string", "enum": []string{"destination", "label"}},
+								"part":     map[string]any{"type": "string", "enum": []string{"destination", "label", "title"}},
 								"text":     map[string]any{"type": "string", "minLength": 1},
 							},
 						}, map[string]any{
@@ -194,7 +194,7 @@ func markdownEditCatalogTool() *mcp.Tool {
 								"action":   map[string]any{"const": "replace"},
 								"subject":  map[string]any{"const": "image"},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
-								"part":     map[string]any{"type": "string", "enum": []string{"destination", "alt"}},
+								"part":     map[string]any{"type": "string", "enum": []string{"destination", "alt", "title"}},
 								"text":     map[string]any{"type": "string", "minLength": 1},
 							},
 						}, map[string]any{
@@ -206,6 +206,27 @@ func markdownEditCatalogTool() *mcp.Tool {
 								"subject":  map[string]any{"const": "autolink"},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
 								"text":     map[string]any{"type": "string", "minLength": 1},
+							},
+						}, map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "part", "text"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "add"},
+								"subject":  map[string]any{"type": "string", "enum": []string{"inline_link", "image"}},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"part":     map[string]any{"const": "title"},
+								"text":     map[string]any{"type": "string", "minLength": 1},
+							},
+						}, map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "part"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "remove"},
+								"subject":  map[string]any{"type": "string", "enum": []string{"inline_link", "image"}},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"part":     map[string]any{"const": "title"},
 							},
 						},
 					},

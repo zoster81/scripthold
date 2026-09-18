@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 18 {
-		t.Fatalf("operation union = %#v, want eighteen schema branches covering twenty-four closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 20 {
+		t.Fatalf("operation union = %#v, want twenty schema branches covering thirty closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -177,8 +177,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	replaceInlineLink := markdownEditOperationBranch(t, oneOf, "replace", "inline_link", "destination")
 	markdownReadAssertStringSet(t, "inline link replace required", replaceInlineLink["required"], []string{"action", "part", "subject", "targetId", "text"})
 	replaceInlineLinkProperties := markdownReadSchemaMap(t, replaceInlineLink["properties"])
-	if part := markdownReadSchemaMap(t, replaceInlineLinkProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"destination", "label"}) {
-		t.Fatalf("inline link replace part schema = %#v, want destination/label enum", part)
+	if part := markdownReadSchemaMap(t, replaceInlineLinkProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"destination", "label", "title"}) {
+		t.Fatalf("inline link replace part schema = %#v, want destination/label/title enum", part)
 	}
 	inlineLinkText := markdownReadSchemaMap(t, replaceInlineLinkProperties["text"])
 	if inlineLinkText["type"] != "string" || inlineLinkText["minLength"] != 1 || len(replaceInlineLinkProperties) != 5 {
@@ -188,8 +188,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	replaceImage := markdownEditOperationBranch(t, oneOf, "replace", "image", "alt")
 	markdownReadAssertStringSet(t, "image replace required", replaceImage["required"], []string{"action", "part", "subject", "targetId", "text"})
 	replaceImageProperties := markdownReadSchemaMap(t, replaceImage["properties"])
-	if part := markdownReadSchemaMap(t, replaceImageProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"destination", "alt"}) {
-		t.Fatalf("image replace part schema = %#v, want destination/alt enum", part)
+	if part := markdownReadSchemaMap(t, replaceImageProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"destination", "alt", "title"}) {
+		t.Fatalf("image replace part schema = %#v, want destination/alt/title enum", part)
 	}
 	imageText := markdownReadSchemaMap(t, replaceImageProperties["text"])
 	if imageText["type"] != "string" || imageText["minLength"] != 1 || len(replaceImageProperties) != 5 {
@@ -202,6 +202,30 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	autoLinkText := markdownReadSchemaMap(t, replaceAutoLinkProperties["text"])
 	if autoLinkText["type"] != "string" || autoLinkText["minLength"] != 1 || len(replaceAutoLinkProperties) != 4 {
 		t.Fatalf("autolink replace properties = %#v", replaceAutoLinkProperties)
+	}
+
+	addLinkTitle := markdownEditOperationBranch(t, oneOf, "add", "inline_link", "title")
+	markdownReadAssertStringSet(t, "add title required", addLinkTitle["required"], []string{"action", "part", "subject", "targetId", "text"})
+	addTitleProperties := markdownReadSchemaMap(t, addLinkTitle["properties"])
+	if subjects := markdownReadSchemaMap(t, addTitleProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"inline_link", "image"}) {
+		t.Fatalf("add title subjects = %#v", subjects)
+	}
+	if markdownReadSchemaMap(t, addTitleProperties["part"])["const"] != "title" {
+		t.Fatalf("add title part = %#v", addTitleProperties["part"])
+	}
+	addTitleText := markdownReadSchemaMap(t, addTitleProperties["text"])
+	if addTitleText["type"] != "string" || addTitleText["minLength"] != 1 || len(addTitleProperties) != 5 {
+		t.Fatalf("add title properties = %#v", addTitleProperties)
+	}
+
+	removeImageTitle := markdownEditOperationBranch(t, oneOf, "remove", "image", "title")
+	markdownReadAssertStringSet(t, "remove title required", removeImageTitle["required"], []string{"action", "part", "subject", "targetId"})
+	removeTitleProperties := markdownReadSchemaMap(t, removeImageTitle["properties"])
+	if subjects := markdownReadSchemaMap(t, removeTitleProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"inline_link", "image"}) {
+		t.Fatalf("remove title subjects = %#v", subjects)
+	}
+	if markdownReadSchemaMap(t, removeTitleProperties["part"])["const"] != "title" || len(removeTitleProperties) != 4 {
+		t.Fatalf("remove title properties = %#v", removeTitleProperties)
 	}
 
 	insertSection := markdownEditOperationBranch(t, oneOf, "insert", "section", "")

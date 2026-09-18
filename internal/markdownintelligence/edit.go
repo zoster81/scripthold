@@ -205,6 +205,90 @@ func (s *Snapshot) PrepareReplaceAutoLink(targetID string, replacement []byte) (
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceInlineLinkTitle resolves the opaque Scripthold inline-link
+// target against this exact snapshot and delegates existing-title replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceInlineLinkTitle(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceInlineLinkTitle(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareAddInlineLinkTitle resolves the opaque Scripthold inline-link target
+// against this exact snapshot and delegates absent-title insertion to Marksplice.
+func (s *Snapshot) PrepareAddInlineLinkTitle(targetID string, title []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareAddInlineLinkTitle(node.ID(), title)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareRemoveInlineLinkTitle resolves the opaque Scripthold inline-link target
+// against this exact snapshot and delegates owned-title removal to Marksplice.
+func (s *Snapshot) PrepareRemoveInlineLinkTitle(targetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRemoveInlineLinkTitle(node.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceImageTitle resolves the opaque Scripthold image target against
+// this exact snapshot and delegates existing-title replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceImageTitle(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceImageTitle(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareAddImageTitle resolves the opaque Scripthold image target against this
+// exact snapshot and delegates absent-title insertion to Marksplice.
+func (s *Snapshot) PrepareAddImageTitle(targetID string, title []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareAddImageTitle(node.ID(), title)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareRemoveImageTitle resolves the opaque Scripthold image target against
+// this exact snapshot and delegates owned-title removal to Marksplice.
+func (s *Snapshot) PrepareRemoveImageTitle(targetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRemoveImageTitle(node.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareSetTaskChecked resolves the opaque Scripthold task target against this
 // exact snapshot and delegates the one-byte checkbox-state mutation to Marksplice.
 func (s *Snapshot) PrepareSetTaskChecked(targetID string, checked bool) (PreparedChange, error) {

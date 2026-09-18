@@ -1089,6 +1089,93 @@ func TestPrepareReplaceDirectLinkFamilyPreservesAuthoredSyntax(t *testing.T) {
 	}
 }
 
+func TestPrepareDirectTitleLifecyclePreservesAuthoredSyntax(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  []byte
+		kind    string
+		text    []byte
+		want    string
+		prepare func(*Snapshot, string, []byte) (PreparedChange, error)
+	}{
+		{name: "replace inline link title", source: []byte("[label](dest   \"old title\")\n"), kind: "inline_link", text: []byte("new"), want: "[label](dest   \"new\")\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceInlineLinkTitle(id, b)
+		}},
+		{name: "add inline link title", source: []byte("[label](<dest path>   )\n"), kind: "inline_link", text: []byte("new title"), want: "[label](<dest path>    \"new title\")\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareAddInlineLinkTitle(id, b)
+		}},
+		{name: "remove inline link title", source: []byte("[label](dest   'old')\n"), kind: "inline_link", want: "[label](dest   )\n", prepare: func(s *Snapshot, id string, _ []byte) (PreparedChange, error) {
+			return s.PrepareRemoveInlineLinkTitle(id)
+		}},
+		{name: "replace image title", source: []byte("![alt](dest  (old title))\r\n"), kind: "image", text: []byte("a longer title"), want: "![alt](dest  (a longer title))\r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceImageTitle(id, b)
+		}},
+		{name: "add image title", source: []byte("![alt](image.png)\r\n"), kind: "image", text: []byte("caption p"), want: "![alt](image.png \"caption p\")\r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareAddImageTitle(id, b)
+		}},
+		{name: "remove image title", source: []byte("![alt](dest 'old')\n"), kind: "image", want: "![alt](dest )\n", prepare: func(s *Snapshot, id string, _ []byte) (PreparedChange, error) {
+			return s.PrepareRemoveImageTitle(id)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes, err := snapshot.QueryNodes([]string{tt.kind}, 4)
+			if err != nil || len(nodes) != 1 {
+				t.Fatalf("nodes=%+v err=%v", nodes, err)
+			}
+			prepared, err := tt.prepare(snapshot, nodes[0].TargetID, tt.text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := prepared.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("result=%q want=%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareDirectTitleLifecyclePreservesMarkspliceStatePreconditions(t *testing.T) {
+	withoutTitle := []byte("[label](dest)\n")
+	snapshot, err := Parse(withoutTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	links, err := snapshot.QueryNodes([]string{"inline_link"}, 4)
+	if err != nil || len(links) != 1 {
+		t.Fatalf("links=%+v err=%v", links, err)
+	}
+	if _, err := snapshot.PrepareReplaceInlineLinkTitle(links[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("replace absent title error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareRemoveInlineLinkTitle(links[0].TargetID); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("remove absent title error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareAddInlineLinkTitle(links[0].TargetID, []byte("bad\ntitle")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("multiline add title error=%v, want ErrInvalidReplacement", err)
+	}
+
+	withTitle := []byte("![alt](dest 'old')\n")
+	imageSnapshot, err := Parse(withTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	images, err := imageSnapshot.QueryNodes([]string{"image"}, 4)
+	if err != nil || len(images) != 1 {
+		t.Fatalf("images=%+v err=%v", images, err)
+	}
+	if _, err := imageSnapshot.PrepareAddImageTitle(images[0].TargetID, []byte("second")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("add existing title error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestPrepareReplaceDirectLinkFamilyPreservesMarkspliceRejections(t *testing.T) {
 	source := []byte("[label](path)\n\n![alt](path)\n\n<https://example.test>\n\nparagraph\n")
 	snapshot, err := Parse(source)

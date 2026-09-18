@@ -467,6 +467,72 @@ func TestMarkdownEditReplacesDirectLinkFamily(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditDirectTitleLifecycle(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  string
+		subject string
+		action  string
+		text    string
+		want    string
+	}{
+		{name: "replace inline link title", source: "[label](dest   \"old title\")\n", subject: "inline_link", action: "replace", text: "new", want: "[label](dest   \"new\")\n"},
+		{name: "add inline link title", source: "[label](<dest path>   )\n", subject: "inline_link", action: "add", text: "new title", want: "[label](<dest path>    \"new title\")\n"},
+		{name: "remove inline link title", source: "[label](dest   'old')\n", subject: "inline_link", action: "remove", want: "[label](dest   )\n"},
+		{name: "replace image title", source: "![alt](dest  (old title))\r\n", subject: "image", action: "replace", text: "a longer title", want: "![alt](dest  (a longer title))\r\n"},
+		{name: "add image title", source: "![alt](image.png)\r\n", subject: "image", action: "add", text: "caption p", want: "![alt](image.png \"caption p\")\r\n"},
+		{name: "remove image title", source: "![alt](dest 'old')\n", subject: "image", action: "remove", want: "![alt](dest )\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{tt.subject}, Limit: 4})
+			if err != nil || result.IsError || len(read.Nodes) != 1 {
+				t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+			}
+			operation := MarkdownEditOperation{Action: tt.action, Subject: tt.subject, TargetID: read.Nodes[0].TargetID, Part: "title", Text: tt.text}
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInvalidTitleLifecycleShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "replace", Subject: "inline_link", TargetID: targetID, Part: "title"},
+		{Action: "add", Subject: "inline_link", TargetID: targetID, Part: "title"},
+		{Action: "add", Subject: "image", TargetID: targetID, Part: "alt", Text: "new"},
+		{Action: "add", Subject: "autolink", TargetID: targetID, Part: "title", Text: "new"},
+		{Action: "remove", Subject: "inline_link", TargetID: targetID, Part: "title", Text: "extra"},
+		{Action: "remove", Subject: "image", TargetID: targetID, Part: "alt"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path:       filepath.Join(t.TempDir(), "missing.md"),
+			Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid title lifecycle shape result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditRejectsInvalidDirectLinkShapesBeforeFilesystemWork(t *testing.T) {
 	h := NewHandler([]string{t.TempDir()})
 	targetID := strings.Repeat("a", 64)

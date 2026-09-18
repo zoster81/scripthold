@@ -161,10 +161,22 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkDestination(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "label":
 			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkLabel(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkTitle(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "add" && operationInput.Subject == "inline_link" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareAddInlineLinkTitle(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "remove" && operationInput.Subject == "inline_link" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareRemoveInlineLinkTitle(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "destination":
 			preparedChange, prepareErr = snapshot.PrepareReplaceImageDestination(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "alt":
 			preparedChange, prepareErr = snapshot.PrepareReplaceImageAlt(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareReplaceImageTitle(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "add" && operationInput.Subject == "image" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareAddImageTitle(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "remove" && operationInput.Subject == "image" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareRemoveImageTitle(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "autolink":
 			preparedChange, prepareErr = snapshot.PrepareReplaceAutoLink(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
@@ -471,12 +483,20 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 				return errorResultWithCode(ErrCodeInvalidInput, "simple inline replacement accepts text only")
 			}
 		case op.Action == "replace" && op.Subject == "inline_link":
-			if (op.Part != "destination" && op.Part != "label") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "replace/inline_link requires part destination or label and text")
+			if (op.Part != "destination" && op.Part != "label" && op.Part != "title") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/inline_link requires part destination, label, or title and text")
 			}
 		case op.Action == "replace" && op.Subject == "image":
-			if (op.Part != "destination" && op.Part != "alt") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "replace/image requires part destination or alt and text")
+			if (op.Part != "destination" && op.Part != "alt" && op.Part != "title") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/image requires part destination, alt, or title and text")
+			}
+		case op.Action == "add" && (op.Subject == "inline_link" || op.Subject == "image"):
+			if op.Part != "title" || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "add title requires part title and text")
+			}
+		case op.Action == "remove" && (op.Subject == "inline_link" || op.Subject == "image") && op.Part == "title":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove title accepts targetId and part title only")
 			}
 		case op.Action == "replace" && op.Subject == "autolink":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
