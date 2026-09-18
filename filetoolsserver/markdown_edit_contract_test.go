@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 15 {
-		t.Fatalf("operation union = %#v, want fifteen schema branches covering nineteen closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 18 {
+		t.Fatalf("operation union = %#v, want eighteen schema branches covering twenty-four closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -172,6 +172,36 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if markdownReadSchemaMap(t, replaceCodeSpanProperties["text"])["type"] != "string" || len(replaceCodeSpanProperties) != 4 {
 		t.Fatalf("code span replace properties = %#v", replaceCodeSpanProperties)
+	}
+
+	replaceInlineLink := markdownEditOperationBranch(t, oneOf, "replace", "inline_link", "destination")
+	markdownReadAssertStringSet(t, "inline link replace required", replaceInlineLink["required"], []string{"action", "part", "subject", "targetId", "text"})
+	replaceInlineLinkProperties := markdownReadSchemaMap(t, replaceInlineLink["properties"])
+	if part := markdownReadSchemaMap(t, replaceInlineLinkProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"destination", "label"}) {
+		t.Fatalf("inline link replace part schema = %#v, want destination/label enum", part)
+	}
+	inlineLinkText := markdownReadSchemaMap(t, replaceInlineLinkProperties["text"])
+	if inlineLinkText["type"] != "string" || inlineLinkText["minLength"] != 1 || len(replaceInlineLinkProperties) != 5 {
+		t.Fatalf("inline link replace properties = %#v", replaceInlineLinkProperties)
+	}
+
+	replaceImage := markdownEditOperationBranch(t, oneOf, "replace", "image", "alt")
+	markdownReadAssertStringSet(t, "image replace required", replaceImage["required"], []string{"action", "part", "subject", "targetId", "text"})
+	replaceImageProperties := markdownReadSchemaMap(t, replaceImage["properties"])
+	if part := markdownReadSchemaMap(t, replaceImageProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"destination", "alt"}) {
+		t.Fatalf("image replace part schema = %#v, want destination/alt enum", part)
+	}
+	imageText := markdownReadSchemaMap(t, replaceImageProperties["text"])
+	if imageText["type"] != "string" || imageText["minLength"] != 1 || len(replaceImageProperties) != 5 {
+		t.Fatalf("image replace properties = %#v", replaceImageProperties)
+	}
+
+	replaceAutoLink := markdownEditOperationBranch(t, oneOf, "replace", "autolink", "")
+	markdownReadAssertStringSet(t, "autolink replace required", replaceAutoLink["required"], []string{"action", "subject", "targetId", "text"})
+	replaceAutoLinkProperties := markdownReadSchemaMap(t, replaceAutoLink["properties"])
+	autoLinkText := markdownReadSchemaMap(t, replaceAutoLinkProperties["text"])
+	if autoLinkText["type"] != "string" || autoLinkText["minLength"] != 1 || len(replaceAutoLinkProperties) != 4 {
+		t.Fatalf("autolink replace properties = %#v", replaceAutoLinkProperties)
 	}
 
 	insertSection := markdownEditOperationBranch(t, oneOf, "insert", "section", "")

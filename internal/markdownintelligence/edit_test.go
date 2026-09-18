@@ -1039,6 +1039,93 @@ func TestPrepareReplaceCodeSpanPreservesFenceAndRejectsUnsafeReplacement(t *test
 	}
 }
 
+func TestPrepareReplaceDirectLinkFamilyPreservesAuthoredSyntax(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      []byte
+		kind        string
+		replacement []byte
+		want        string
+		prepare     func(*Snapshot, string, []byte) (PreparedChange, error)
+	}{
+		{name: "inline link destination", source: []byte("before [label](<old/path> \"title\") after\r\n"), kind: "inline_link", replacement: []byte("new/path"), want: "before [label](<new/path> \"title\") after\r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceInlineLinkDestination(id, b)
+		}},
+		{name: "inline link label", source: []byte("before [old](path) after\n"), kind: "inline_link", replacement: []byte("new"), want: "before [new](path) after\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceInlineLinkLabel(id, b)
+		}},
+		{name: "image destination", source: []byte("before ![alt](<old path> 'title') after\n"), kind: "image", replacement: []byte("new path"), want: "before ![alt](<new path> 'title') after\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceImageDestination(id, b)
+		}},
+		{name: "image alt", source: []byte("before ![old](path) after\n"), kind: "image", replacement: []byte("new"), want: "before ![new](path) after\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceImageAlt(id, b)
+		}},
+		{name: "autolink", source: []byte("before <https://old.example/path> after\n"), kind: "autolink", replacement: []byte("https://new.example/path"), want: "before <https://new.example/path> after\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceAutoLink(id, b)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes, err := snapshot.QueryNodes([]string{tt.kind}, 4)
+			if err != nil || len(nodes) != 1 {
+				t.Fatalf("nodes=%+v err=%v", nodes, err)
+			}
+			prepared, err := tt.prepare(snapshot, nodes[0].TargetID, tt.replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := prepared.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("result=%q want=%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareReplaceDirectLinkFamilyPreservesMarkspliceRejections(t *testing.T) {
+	source := []byte("[label](path)\n\n![alt](path)\n\n<https://example.test>\n\nparagraph\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	links, err := snapshot.QueryNodes([]string{"inline_link"}, 4)
+	if err != nil || len(links) != 1 {
+		t.Fatalf("links=%+v err=%v", links, err)
+	}
+	images, err := snapshot.QueryNodes([]string{"image"}, 4)
+	if err != nil || len(images) != 1 {
+		t.Fatalf("images=%+v err=%v", images, err)
+	}
+	autoLinks, err := snapshot.QueryNodes([]string{"autolink"}, 4)
+	if err != nil || len(autoLinks) != 1 {
+		t.Fatalf("autolinks=%+v err=%v", autoLinks, err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) == 0 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+
+	if _, err := snapshot.PrepareReplaceInlineLinkDestination(links[0].TargetID, []byte("bad)tail")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("unsafe inline-link destination error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareReplaceImageAlt(images[0].TargetID, nil); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("empty image alt error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareReplaceAutoLink(autoLinks[0].TargetID, []byte("not-a-link")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("unsafe autolink error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareReplaceInlineLinkLabel(paragraphs[len(paragraphs)-1].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReplaceSimpleInlinePreservesAuthoredDelimiters(t *testing.T) {
 	tests := []struct {
 		name        string

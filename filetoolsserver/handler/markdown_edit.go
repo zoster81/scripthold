@@ -157,6 +157,16 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceEmphasis(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "strong":
 			preparedChange, prepareErr = snapshot.PrepareReplaceStrong(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "destination":
+			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkDestination(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "label":
+			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkLabel(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "destination":
+			preparedChange, prepareErr = snapshot.PrepareReplaceImageDestination(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "alt":
+			preparedChange, prepareErr = snapshot.PrepareReplaceImageAlt(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "autolink":
+			preparedChange, prepareErr = snapshot.PrepareReplaceAutoLink(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
 			preparedChange, prepareErr = snapshot.PrepareReplaceListItemSubtree(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item":
@@ -459,6 +469,18 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && (op.Subject == "code_span" || op.Subject == "strikethrough" || op.Subject == "emphasis" || op.Subject == "strong"):
 			if op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "simple inline replacement accepts text only")
+			}
+		case op.Action == "replace" && op.Subject == "inline_link":
+			if (op.Part != "destination" && op.Part != "label") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/inline_link requires part destination or label and text")
+			}
+		case op.Action == "replace" && op.Subject == "image":
+			if (op.Part != "destination" && op.Part != "alt") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/image requires part destination or alt and text")
+			}
+		case op.Action == "replace" && op.Subject == "autolink":
+			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/autolink accepts text only")
 			}
 		case op.Action == "replace" && op.Subject == "list_item" && op.Part == "subtree":
 			if op.Text != "" || op.Level != 0 || op.Position != "" {

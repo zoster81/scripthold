@@ -424,6 +424,74 @@ func TestMarkdownEditReplacesSimpleInlineContent(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditReplacesDirectLinkFamily(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  string
+		subject string
+		part    string
+		text    string
+		want    string
+	}{
+		{name: "inline link destination", source: "before [label](<old/path> \"title\") after\n", subject: "inline_link", part: "destination", text: "new/path", want: "before [label](<new/path> \"title\") after\n"},
+		{name: "inline link label", source: "before [old](path) after\n", subject: "inline_link", part: "label", text: "new", want: "before [new](path) after\n"},
+		{name: "image destination", source: "before ![alt](<old path> 'title') after\n", subject: "image", part: "destination", text: "new path", want: "before ![alt](<new path> 'title') after\n"},
+		{name: "image alt", source: "before ![old](path) after\n", subject: "image", part: "alt", text: "new", want: "before ![new](path) after\n"},
+		{name: "autolink", source: "before <https://old.example/path> after\n", subject: "autolink", text: "https://new.example/path", want: "before <https://new.example/path> after\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{tt.subject}, Limit: 4})
+			if err != nil || result.IsError || len(read.Nodes) != 1 {
+				t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+			}
+			operation := MarkdownEditOperation{Action: "replace", Subject: tt.subject, TargetID: read.Nodes[0].TargetID, Part: tt.part, Text: tt.text}
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInvalidDirectLinkShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "replace", Subject: "inline_link", TargetID: targetID, Text: "new"},
+		{Action: "replace", Subject: "inline_link", TargetID: targetID, Part: "destination"},
+		{Action: "replace", Subject: "inline_link", TargetID: targetID, Part: "alt", Text: "new"},
+		{Action: "replace", Subject: "inline_link", TargetID: targetID, Part: "label", Text: "new", Markdown: "extra"},
+		{Action: "replace", Subject: "image", TargetID: targetID, Part: "label", Text: "new"},
+		{Action: "replace", Subject: "image", TargetID: targetID, Part: "alt"},
+		{Action: "replace", Subject: "image", TargetID: targetID, Part: "alt", Text: "new", Position: "after"},
+		{Action: "replace", Subject: "autolink", TargetID: targetID},
+		{Action: "replace", Subject: "autolink", TargetID: targetID, Part: "destination", Text: "https://example.test"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path:       filepath.Join(t.TempDir(), "missing.md"),
+			Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid direct-link shape result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditRejectsInteractingSimpleInlineComposition(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")

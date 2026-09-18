@@ -135,6 +135,76 @@ func (s *Snapshot) PrepareReplaceStrong(targetID string, replacement []byte) (Pr
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceInlineLinkDestination resolves the opaque Scripthold inline-link
+// target against this exact snapshot and delegates destination replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceInlineLinkDestination(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceInlineLinkDestination(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceInlineLinkLabel resolves the opaque Scripthold inline-link target
+// against this exact snapshot and delegates label replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceInlineLinkLabel(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceInlineLinkLabel(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceImageDestination resolves the opaque Scripthold image target
+// against this exact snapshot and delegates destination replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceImageDestination(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceImageDestination(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceImageAlt resolves the opaque Scripthold image target against this
+// exact snapshot and delegates alt-text replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceImageAlt(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceImageAlt(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceAutoLink resolves the opaque Scripthold autolink target against
+// this exact snapshot and delegates value replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceAutoLink(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceAutoLink(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareSetTaskChecked resolves the opaque Scripthold task target against this
 // exact snapshot and delegates the one-byte checkbox-state mutation to Marksplice.
 func (s *Snapshot) PrepareSetTaskChecked(targetID string, checked bool) (PreparedChange, error) {
