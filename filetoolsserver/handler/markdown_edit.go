@@ -183,6 +183,14 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareRemoveImageTitle(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "autolink":
 			preparedChange, prepareErr = snapshot.PrepareReplaceAutoLink(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "destination":
+			preparedChange, prepareErr = snapshot.PrepareReplaceReferenceDefinitionDestination(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareReplaceReferenceDefinitionTitle(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "add" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareAddReferenceDefinitionTitle(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "remove" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
+			preparedChange, prepareErr = snapshot.PrepareRemoveReferenceDefinitionTitle(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
 			preparedChange, prepareErr = snapshot.PrepareReplaceListItemSubtree(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item":
@@ -513,6 +521,18 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "autolink":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/autolink accepts text only")
+			}
+		case op.Action == "replace" && op.Subject == "reference_definition":
+			if (op.Part != "destination" && op.Part != "title") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/reference_definition requires part destination or title and text")
+			}
+		case op.Action == "add" && op.Subject == "reference_definition":
+			if op.Part != "title" || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "add/reference_definition requires part title and text")
+			}
+		case op.Action == "remove" && op.Subject == "reference_definition" && op.Part == "title":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove/reference_definition title accepts targetId and part title only")
 			}
 		case op.Action == "replace" && op.Subject == "list_item" && op.Part == "subtree":
 			if op.Text != "" || op.Level != 0 || op.Position != "" {

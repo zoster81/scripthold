@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 22 {
-		t.Fatalf("operation union = %#v, want twenty-two schema branches covering thirty-two closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 25 {
+		t.Fatalf("operation union = %#v, want twenty-five schema branches covering thirty-six closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -224,6 +224,35 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	autoLinkText := markdownReadSchemaMap(t, replaceAutoLinkProperties["text"])
 	if autoLinkText["type"] != "string" || autoLinkText["minLength"] != 1 || len(replaceAutoLinkProperties) != 4 {
 		t.Fatalf("autolink replace properties = %#v", replaceAutoLinkProperties)
+	}
+
+	replaceReferenceDefinition := markdownEditOperationBranch(t, oneOf, "replace", "reference_definition", "destination")
+	markdownReadAssertStringSet(t, "reference definition replace required", replaceReferenceDefinition["required"], []string{"action", "part", "subject", "targetId", "text"})
+	replaceReferenceDefinitionProperties := markdownReadSchemaMap(t, replaceReferenceDefinition["properties"])
+	if part := markdownReadSchemaMap(t, replaceReferenceDefinitionProperties["part"]); !reflect.DeepEqual(part["enum"], []string{"destination", "title"}) {
+		t.Fatalf("reference definition replace part schema = %#v, want destination/title enum", part)
+	}
+	referenceDefinitionText := markdownReadSchemaMap(t, replaceReferenceDefinitionProperties["text"])
+	if referenceDefinitionText["type"] != "string" || referenceDefinitionText["minLength"] != 1 || len(replaceReferenceDefinitionProperties) != 5 {
+		t.Fatalf("reference definition replace properties = %#v", replaceReferenceDefinitionProperties)
+	}
+
+	addReferenceDefinitionTitle := markdownEditOperationBranch(t, oneOf, "add", "reference_definition", "title")
+	markdownReadAssertStringSet(t, "add reference definition title required", addReferenceDefinitionTitle["required"], []string{"action", "part", "subject", "targetId", "text"})
+	addReferenceDefinitionTitleProperties := markdownReadSchemaMap(t, addReferenceDefinitionTitle["properties"])
+	if markdownReadSchemaMap(t, addReferenceDefinitionTitleProperties["part"])["const"] != "title" {
+		t.Fatalf("add reference definition title part = %#v", addReferenceDefinitionTitleProperties["part"])
+	}
+	addReferenceDefinitionTitleText := markdownReadSchemaMap(t, addReferenceDefinitionTitleProperties["text"])
+	if addReferenceDefinitionTitleText["type"] != "string" || addReferenceDefinitionTitleText["minLength"] != 1 || len(addReferenceDefinitionTitleProperties) != 5 {
+		t.Fatalf("add reference definition title properties = %#v", addReferenceDefinitionTitleProperties)
+	}
+
+	removeReferenceDefinitionTitle := markdownEditOperationBranch(t, oneOf, "remove", "reference_definition", "title")
+	markdownReadAssertStringSet(t, "remove reference definition title required", removeReferenceDefinitionTitle["required"], []string{"action", "part", "subject", "targetId"})
+	removeReferenceDefinitionTitleProperties := markdownReadSchemaMap(t, removeReferenceDefinitionTitle["properties"])
+	if markdownReadSchemaMap(t, removeReferenceDefinitionTitleProperties["part"])["const"] != "title" || len(removeReferenceDefinitionTitleProperties) != 4 {
+		t.Fatalf("remove reference definition title properties = %#v", removeReferenceDefinitionTitleProperties)
 	}
 
 	addLinkTitle := markdownEditOperationBranch(t, oneOf, "add", "inline_link", "title")

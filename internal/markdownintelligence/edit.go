@@ -219,6 +219,63 @@ func (s *Snapshot) PrepareReplaceImageAlt(targetID string, replacement []byte) (
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceReferenceDefinitionDestination resolves the opaque Scripthold
+// reference-definition target against this exact snapshot and delegates destination
+// replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceReferenceDefinitionDestination(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceReferenceDefinitionDestination(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceReferenceDefinitionTitle resolves the opaque Scripthold
+// reference-definition target and delegates existing-title replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceReferenceDefinitionTitle(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceReferenceDefinitionTitle(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareAddReferenceDefinitionTitle resolves the opaque Scripthold
+// reference-definition target and delegates absent-title insertion to Marksplice.
+func (s *Snapshot) PrepareAddReferenceDefinitionTitle(targetID string, title []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareAddReferenceDefinitionTitle(node.ID(), title)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareRemoveReferenceDefinitionTitle resolves the opaque Scripthold
+// reference-definition target and delegates owned-title removal to Marksplice.
+func (s *Snapshot) PrepareRemoveReferenceDefinitionTitle(targetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRemoveReferenceDefinitionTitle(node.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceAutoLink resolves the opaque Scripthold autolink target against
 // this exact snapshot and delegates value replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceAutoLink(targetID string, replacement []byte) (PreparedChange, error) {

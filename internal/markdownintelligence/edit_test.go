@@ -1185,6 +1185,94 @@ func TestPrepareFencedCodeMutationsPreserveMarkspliceRejections(t *testing.T) {
 	}
 }
 
+func TestPrepareReferenceDefinitionPartsPreserveAuthoredSyntax(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      []byte
+		replacement []byte
+		want        string
+		prepare     func(*Snapshot, string, []byte) (PreparedChange, error)
+	}{
+		{name: "replace destination", source: []byte("  [docs]: <old/path>\t'Old title'   \r\n"), replacement: []byte("new/path"), want: "  [docs]: <new/path>\t'Old title'   \r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceReferenceDefinitionDestination(id, b)
+		}},
+		{name: "replace title", source: []byte("  [docs]: <old/path>\t'Old title'   \r\n"), replacement: []byte("New title"), want: "  [docs]: <old/path>\t'New title'   \r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceReferenceDefinitionTitle(id, b)
+		}},
+		{name: "add title", source: []byte("[docs]: <target>\n"), replacement: []byte("Title"), want: "[docs]: <target> \"Title\"\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareAddReferenceDefinitionTitle(id, b)
+		}},
+		{name: "remove title", source: []byte("[docs]: <target> \"Title\"\n"), want: "[docs]: <target>\n", prepare: func(s *Snapshot, id string, _ []byte) (PreparedChange, error) {
+			return s.PrepareRemoveReferenceDefinitionTitle(id)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes, err := snapshot.QueryNodes([]string{"reference_definition"}, 4)
+			if err != nil || len(nodes) != 1 {
+				t.Fatalf("nodes=%+v err=%v", nodes, err)
+			}
+			prepared, err := tt.prepare(snapshot, nodes[0].TargetID, tt.replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := prepared.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("result=%q want=%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareReferenceDefinitionPartsPreserveMarkspliceRejections(t *testing.T) {
+	source := []byte("[docs]: <target>\n\nparagraph\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := snapshot.QueryNodes([]string{"reference_definition"}, 4)
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("definitions=%+v err=%v", definitions, err)
+	}
+	id := definitions[0].TargetID
+	if _, err := snapshot.PrepareReplaceReferenceDefinitionDestination(id, nil); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("empty destination error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareReplaceReferenceDefinitionTitle(id, []byte("new")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("replace absent title error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareRemoveReferenceDefinitionTitle(id); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("remove absent title error=%v, want ErrInvalidReplacement", err)
+	}
+
+	withTitle, err := Parse([]byte("[docs]: <target> \"Old\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withTitleDefinitions, err := withTitle.QueryNodes([]string{"reference_definition"}, 4)
+	if err != nil || len(withTitleDefinitions) != 1 {
+		t.Fatalf("with-title definitions=%+v err=%v", withTitleDefinitions, err)
+	}
+	if _, err := withTitle.PrepareAddReferenceDefinitionTitle(withTitleDefinitions[0].TargetID, []byte("second")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("add existing title error=%v, want ErrInvalidReplacement", err)
+	}
+
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 4)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareReplaceReferenceDefinitionDestination(paragraphs[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareDirectTitleLifecyclePreservesAuthoredSyntax(t *testing.T) {
 	tests := []struct {
 		name    string

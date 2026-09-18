@@ -529,6 +529,71 @@ func TestMarkdownEditRejectsInvalidFencedCodeShapesBeforeFilesystemWork(t *testi
 	}
 }
 
+func TestMarkdownEditReferenceDefinitionParts(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		action string
+		part   string
+		text   string
+		want   string
+	}{
+		{name: "replace destination", source: "  [docs]: <old/path>\t'Old title'   \r\n", action: "replace", part: "destination", text: "new/path", want: "  [docs]: <new/path>\t'Old title'   \r\n"},
+		{name: "replace title", source: "  [docs]: <old/path>\t'Old title'   \r\n", action: "replace", part: "title", text: "New title", want: "  [docs]: <old/path>\t'New title'   \r\n"},
+		{name: "add title", source: "[docs]: <target>\n", action: "add", part: "title", text: "Title", want: "[docs]: <target> \"Title\"\n"},
+		{name: "remove title", source: "[docs]: <target> \"Title\"\n", action: "remove", part: "title", want: "[docs]: <target>\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+				Action: "query", Path: path, Query: "nodes", Kinds: []string{"reference_definition"}, Limit: 4,
+			})
+			if err != nil || result.IsError || len(read.Nodes) != 1 {
+				t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+			}
+			operation := MarkdownEditOperation{Action: tt.action, Subject: "reference_definition", TargetID: read.Nodes[0].TargetID, Part: tt.part, Text: tt.text}
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInvalidReferenceDefinitionShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "replace", Subject: "reference_definition", TargetID: targetID, Part: "destination"},
+		{Action: "replace", Subject: "reference_definition", TargetID: targetID, Part: "label", Text: "new"},
+		{Action: "add", Subject: "reference_definition", TargetID: targetID, Part: "title"},
+		{Action: "remove", Subject: "reference_definition", TargetID: targetID, Part: "title", Text: "extra"},
+		{Action: "remove", Subject: "reference_definition", TargetID: targetID, Part: "destination"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path:       filepath.Join(t.TempDir(), "missing.md"),
+			Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid reference-definition shape result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditDirectTitleLifecycle(t *testing.T) {
 	tests := []struct {
 		name    string
