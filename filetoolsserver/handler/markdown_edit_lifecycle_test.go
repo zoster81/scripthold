@@ -353,6 +353,129 @@ func TestMarkdownEditRejectsInvalidTaskSetShapeBeforeFilesystemWork(t *testing.T
 	}
 }
 
+func TestMarkdownEditReplacesCodeSpanContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("Use ``old`code`` here.\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"code_span"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 1 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operation := MarkdownEditOperation{Action: "replace", Subject: "code_span", TargetID: read.Nodes[0].TargetID, Text: "new`code"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("code-span preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	want := "Use ``new`code`` here.\n"
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("code-span target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditReplacesSimpleInlineContent(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		kind   string
+		text   string
+		want   string
+	}{
+		{name: "strikethrough", source: "before ~~old~~ after\n", kind: "strikethrough", text: "new", want: "before ~~new~~ after\n"},
+		{name: "code span", source: "before `old` after\n", kind: "code_span", text: "new", want: "before `new` after\n"},
+		{name: "emphasis", source: "before _old_ after\n", kind: "emphasis", text: "new", want: "before _new_ after\n"},
+		{name: "strong", source: "before **old** after\n", kind: "strong", text: "new", want: "before **new** after\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{tt.kind}, Limit: 8})
+			if err != nil || result.IsError || len(read.Nodes) != 1 {
+				t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+			}
+			operation := MarkdownEditOperation{Action: "replace", Subject: tt.kind, TargetID: read.Nodes[0].TargetID, Text: tt.text}
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInteractingSimpleInlineComposition(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("~~strike~~ `code` _em_ **strong**\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	cases := []struct {
+		kind string
+		text string
+	}{
+		{kind: "strikethrough", text: "gone"},
+		{kind: "code_span", text: "cmd"},
+		{kind: "emphasis", text: "italic"},
+		{kind: "strong", text: "bold"},
+	}
+	operations := make([]MarkdownEditOperation, 0, len(cases))
+	for _, tt := range cases {
+		result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{tt.kind}, Limit: 8})
+		if err != nil || result.IsError || len(read.Nodes) != 1 {
+			t.Fatalf("kind=%s read=%+v result=%+v err=%v", tt.kind, read, result, err)
+		}
+		operations = append(operations, MarkdownEditOperation{Action: "replace", Subject: tt.kind, TargetID: read.Nodes[0].TargetID, Text: tt.text})
+	}
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: operations})
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("interacting simple-inline composition result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("interacting simple-inline composition mutated target: %q err=%v", got, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidCodeSpanReplaceShapeBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	base := MarkdownEditOperation{Action: "replace", Subject: "code_span", TargetID: strings.Repeat("a", 64), Text: "new"}
+	cases := []MarkdownEditOperation{
+		func() MarkdownEditOperation { op := base; op.Level = 1; return op }(),
+		func() MarkdownEditOperation { op := base; op.Markdown = "extra"; return op }(),
+		func() MarkdownEditOperation { op := base; op.Position = "after"; return op }(),
+		func() MarkdownEditOperation { op := base; op.Part = "subtree"; return op }(),
+		func() MarkdownEditOperation { op := base; op.AnchorTargetID = strings.Repeat("b", 64); return op }(),
+	}
+	for _, op := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{op}})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid code-span replace shape result=%+v err=%v op=%+v", result, err, op)
+		}
+	}
+}
+
 func TestMarkdownEditReplacesParagraphMarkdown(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")

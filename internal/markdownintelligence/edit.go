@@ -79,6 +79,62 @@ func (s *Snapshot) PrepareSetHeadingLevel(targetID string, level int) (PreparedC
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceCodeSpan resolves the opaque Scripthold code-span target against
+// this exact snapshot and delegates source-preserving content replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceCodeSpan(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceCodeSpan(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceStrikethrough resolves the opaque Scripthold strikethrough target
+// against this exact snapshot and delegates source-preserving content replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceStrikethrough(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceStrikethrough(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceEmphasis resolves the opaque Scripthold emphasis target against
+// this exact snapshot and delegates source-preserving content replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceEmphasis(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceEmphasis(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceStrong resolves the opaque Scripthold strong target against this
+// exact snapshot and delegates source-preserving content replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceStrong(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceStrong(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareSetTaskChecked resolves the opaque Scripthold task target against this
 // exact snapshot and delegates the one-byte checkbox-state mutation to Marksplice.
 func (s *Snapshot) PrepareSetTaskChecked(targetID string, checked bool) (PreparedChange, error) {

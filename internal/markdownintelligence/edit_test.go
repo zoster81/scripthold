@@ -1000,6 +1000,85 @@ func TestPrepareSetTaskCheckedUsesTaskTargetAndPreservesNoOpStyle(t *testing.T) 
 	}
 }
 
+func TestPrepareReplaceCodeSpanPreservesFenceAndRejectsUnsafeReplacement(t *testing.T) {
+	source := []byte("before ``old`code`` after\r\n\nparagraph\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spans, err := snapshot.QueryNodes([]string{"code_span"}, 8)
+	if err != nil || len(spans) != 1 {
+		t.Fatalf("spans=%+v err=%v", spans, err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 2 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	prepared, err := snapshot.PrepareReplaceCodeSpan(spans[0].TargetID, []byte("new`code"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "before ``new`code`` after\r\n\nparagraph\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("paragraph"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	for _, replacement := range [][]byte{nil, []byte("line one\nline two"), []byte("``")} {
+		if _, err := snapshot.PrepareReplaceCodeSpan(spans[0].TargetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("unsafe replacement %q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+	if _, err := snapshot.PrepareReplaceCodeSpan(paragraphs[1].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
+func TestPrepareReplaceSimpleInlinePreservesAuthoredDelimiters(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      []byte
+		kind        string
+		replacement []byte
+		want        string
+		prepare     func(*Snapshot, string, []byte) (PreparedChange, error)
+	}{
+		{name: "strikethrough", source: []byte("prefix ~~caffè 東京~~ suffix\n"), kind: "strikethrough", replacement: []byte("nuovo 東京"), want: "prefix ~~nuovo 東京~~ suffix\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceStrikethrough(id, b)
+		}},
+		{name: "emphasis", source: []byte("before _old_ after\r\n"), kind: "emphasis", replacement: []byte("new"), want: "before _new_ after\r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) { return s.PrepareReplaceEmphasis(id, b) }},
+		{name: "strong", source: []byte("before **old** after\r\n"), kind: "strong", replacement: []byte("new"), want: "before **new** after\r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) { return s.PrepareReplaceStrong(id, b) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes, err := snapshot.QueryNodes([]string{tt.kind}, 8)
+			if err != nil || len(nodes) != 1 {
+				t.Fatalf("nodes=%+v err=%v", nodes, err)
+			}
+			prepared, err := tt.prepare(snapshot, nodes[0].TargetID, tt.replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := prepared.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(result) != tt.want {
+				t.Fatalf("result=%q want=%q", result, tt.want)
+			}
+		})
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

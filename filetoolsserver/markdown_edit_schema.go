@@ -165,6 +165,16 @@ func markdownEditCatalogTool() *mcp.Tool {
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
 								"checked":  map[string]any{"type": "boolean"},
 							},
+						}, map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "text"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "replace"},
+								"subject":  map[string]any{"type": "string", "enum": []string{"code_span", "emphasis", "strong", "strikethrough"}},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"text":     map[string]any{"type": "string"},
+							},
 						},
 					},
 				},

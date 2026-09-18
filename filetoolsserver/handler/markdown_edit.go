@@ -149,6 +149,14 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareSetTaskChecked(operationInput.TargetID, *operationInput.Checked)
 		case operationInput.Action == "replace" && operationInput.Subject == "paragraph":
 			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "replace" && operationInput.Subject == "code_span":
+			preparedChange, prepareErr = snapshot.PrepareReplaceCodeSpan(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "strikethrough":
+			preparedChange, prepareErr = snapshot.PrepareReplaceStrikethrough(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "emphasis":
+			preparedChange, prepareErr = snapshot.PrepareReplaceEmphasis(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "strong":
+			preparedChange, prepareErr = snapshot.PrepareReplaceStrong(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
 			preparedChange, prepareErr = snapshot.PrepareReplaceListItemSubtree(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item":
@@ -447,6 +455,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "paragraph":
 			if op.Text != "" || op.Level != 0 || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/paragraph accepts markdown only")
+			}
+		case op.Action == "replace" && (op.Subject == "code_span" || op.Subject == "strikethrough" || op.Subject == "emphasis" || op.Subject == "strong"):
+			if op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "simple inline replacement accepts text only")
 			}
 		case op.Action == "replace" && op.Subject == "list_item" && op.Part == "subtree":
 			if op.Text != "" || op.Level != 0 || op.Position != "" {

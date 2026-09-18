@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 14 {
-		t.Fatalf("operation union = %#v, want fourteen schema branches covering fifteen closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 15 {
+		t.Fatalf("operation union = %#v, want fifteen schema branches covering nineteen closed forms", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -156,6 +156,22 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if len(setTaskProperties) != 4 {
 		t.Fatalf("task set properties = %#v, want only action/subject/targetId/checked", setTaskProperties)
+	}
+
+	replaceCodeSpan := markdownReadSchemaMap(t, oneOf[14])
+	if replaceCodeSpan["type"] != "object" || replaceCodeSpan["additionalProperties"] != false {
+		t.Fatalf("code span replace schema = %#v, want strict object", replaceCodeSpan)
+	}
+	markdownReadAssertStringSet(t, "code span replace required", replaceCodeSpan["required"], []string{"action", "subject", "targetId", "text"})
+	replaceCodeSpanProperties := markdownReadSchemaMap(t, replaceCodeSpan["properties"])
+	if markdownReadSchemaMap(t, replaceCodeSpanProperties["action"])["const"] != "replace" {
+		t.Fatalf("simple inline replace action = %#v", replaceCodeSpanProperties)
+	}
+	if subjects := markdownReadSchemaMap(t, replaceCodeSpanProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"code_span", "emphasis", "strong", "strikethrough"}) {
+		t.Fatalf("simple inline replace subjects = %#v", subjects)
+	}
+	if markdownReadSchemaMap(t, replaceCodeSpanProperties["text"])["type"] != "string" || len(replaceCodeSpanProperties) != 4 {
+		t.Fatalf("code span replace properties = %#v", replaceCodeSpanProperties)
 	}
 
 	insertSection := markdownReadSchemaMap(t, oneOf[5])
