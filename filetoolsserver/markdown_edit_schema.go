@@ -67,7 +67,7 @@ func markdownEditCatalogTool() *mcp.Tool {
 							"required":             []string{"action", "subject", "targetId", "position", "markdown"},
 							"properties": map[string]any{
 								"action":   map[string]any{"const": "insert"},
-								"subject":  map[string]any{"type": "string", "enum": []string{"paragraph", "list_item"}},
+								"subject":  map[string]any{"const": "paragraph"},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
 								"position": map[string]any{"type": "string", "enum": []string{"before", "after"}},
 								"markdown": map[string]any{"type": "string"},
@@ -143,6 +143,17 @@ func markdownEditCatalogTool() *mcp.Tool {
 								"action":   map[string]any{"const": "remove"},
 								"subject":  map[string]any{"const": "list_item"},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+							},
+						}, map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "position", "markdown"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "insert"},
+								"subject":  map[string]any{"const": "list_item"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"position": map[string]any{"type": "string", "enum": []string{"before", "after", "child"}},
+								"markdown": map[string]any{"type": "string"},
 							},
 						},
 					},

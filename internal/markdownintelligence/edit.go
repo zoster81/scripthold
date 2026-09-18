@@ -255,6 +255,20 @@ func (s *Snapshot) PrepareInsertListItemAfter(targetID string, fragment []byte) 
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareAppendListItemChild resolves the opaque Scripthold parent target against
+// this exact snapshot and delegates validated child-subtree insertion to Marksplice.
+func (s *Snapshot) PrepareAppendListItemChild(targetID string, fragment []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareAppendListItemChild(node.ID(), fragment)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareMoveListItemBefore resolves source and anchor list-item targets against
 // this exact snapshot and delegates complete subtree movement to Marksplice.
 func (s *Snapshot) PrepareMoveListItemBefore(targetID, anchorTargetID string) (PreparedChange, error) {

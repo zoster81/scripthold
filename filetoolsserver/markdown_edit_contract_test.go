@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 12 {
-		t.Fatalf("operation union = %#v, want twelve schema branches covering fourteen closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 13 {
+		t.Fatalf("operation union = %#v, want thirteen schema branches covering fourteen closed forms", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -115,8 +115,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if markdownReadSchemaMap(t, insertProperties["action"])["const"] != "insert" {
 		t.Fatalf("insert action discriminator = %#v", insertProperties)
 	}
-	if subject := markdownReadSchemaMap(t, insertProperties["subject"]); !reflect.DeepEqual(subject["enum"], []string{"paragraph", "list_item"}) {
-		t.Fatalf("insert subject schema = %#v, want paragraph/list_item enum", subject)
+	if markdownReadSchemaMap(t, insertProperties["subject"])["const"] != "paragraph" {
+		t.Fatalf("paragraph insert subject schema = %#v", insertProperties["subject"])
 	}
 	position := markdownReadSchemaMap(t, insertProperties["position"])
 	if !reflect.DeepEqual(position["enum"], []string{"before", "after"}) {
@@ -130,6 +130,16 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if len(insertProperties) != 5 {
 		t.Fatalf("paragraph insert properties = %#v, want only action/subject/targetId/position/markdown", insertProperties)
+	}
+
+	insertListItem := markdownReadSchemaMap(t, oneOf[12])
+	markdownReadAssertStringSet(t, "list item insert required", insertListItem["required"], []string{"action", "markdown", "position", "subject", "targetId"})
+	insertListItemProperties := markdownReadSchemaMap(t, insertListItem["properties"])
+	if markdownReadSchemaMap(t, insertListItemProperties["action"])["const"] != "insert" || markdownReadSchemaMap(t, insertListItemProperties["subject"])["const"] != "list_item" {
+		t.Fatalf("list item insert discriminators = %#v", insertListItemProperties)
+	}
+	if position := markdownReadSchemaMap(t, insertListItemProperties["position"]); !reflect.DeepEqual(position["enum"], []string{"before", "after", "child"}) {
+		t.Fatalf("list item insert position schema = %#v, want before/after/child enum", position)
 	}
 
 	insertSection := markdownReadSchemaMap(t, oneOf[5])

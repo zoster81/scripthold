@@ -287,7 +287,7 @@ func TestMarkdownEditRejectsInvalidListItemInsertShapeBeforeFilesystemWork(t *te
 	h := NewHandler([]string{t.TempDir()})
 	base := MarkdownEditOperation{Action: "insert", Subject: "list_item", TargetID: strings.Repeat("a", 64), Position: "before", Markdown: "- inserted\n"}
 	cases := []MarkdownEditOperation{
-		func() MarkdownEditOperation { op := base; op.Position = "child"; return op }(),
+		func() MarkdownEditOperation { op := base; op.Position = "middle"; return op }(),
 		func() MarkdownEditOperation { op := base; op.Text = "extra"; return op }(),
 		func() MarkdownEditOperation { op := base; op.Part = "subtree"; return op }(),
 		func() MarkdownEditOperation { op := base; op.Level = 2; return op }(),
@@ -536,6 +536,36 @@ func TestMarkdownEditMovesSectionAcrossParents(t *testing.T) {
 	want := "# One\n\n# Two\n\n## Anchor\n\nAnchor.\n## Move\n\nMove.\n\n### Child\n\nChild.\n\n"
 	if got, err := os.ReadFile(path); err != nil || string(got) != want {
 		t.Fatalf("move target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditAppendsListItemChild(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("- parent\n- tail\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"list_item"}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Nodes) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	operation := MarkdownEditOperation{Action: "insert", Subject: "list_item", TargetID: read.Nodes[0].TargetID, Position: "child", Markdown: "  - child\n"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("child preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	want := "- parent\n  - child\n- tail\n"
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("child target=%q want=%q err=%v", got, want, err)
 	}
 }
 

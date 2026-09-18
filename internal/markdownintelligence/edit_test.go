@@ -852,6 +852,36 @@ func TestPrepareInsertListItemSiblingPreservesSubtreeAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestPrepareAppendListItemChildAppendsValidatedSubtree(t *testing.T) {
+	source := []byte("- parent\r\n  - existing\r\n- tail\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := snapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	prepared, err := snapshot.PrepareAppendListItemChild(items[0].TargetID, []byte("  - child π\r\n    1. grandchild\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- parent\r\n  - existing\r\n  - child π\r\n    1. grandchild\r\n- tail\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("tail"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareAppendListItemChild(items[0].TargetID, []byte("- wrong level\r\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("wrong-level error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestPrepareMoveListItemBeforeAndAfterMovesCompleteSubtree(t *testing.T) {
 	source := []byte("1. first\r\n   - move π\r\n     - child\r\n2. second\r\n   - anchor\r\n3. tail\r\n")
 	snapshot, err := Parse(source)

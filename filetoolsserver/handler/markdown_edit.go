@@ -154,6 +154,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareInsertListItemBefore(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "insert" && operationInput.Subject == "list_item" && operationInput.Position == "after":
 			preparedChange, prepareErr = snapshot.PrepareInsertListItemAfter(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "insert" && operationInput.Subject == "list_item" && operationInput.Position == "child":
+			preparedChange, prepareErr = snapshot.PrepareAppendListItemChild(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "move" && operationInput.Subject == "list_item" && operationInput.Position == "before":
 			preparedChange, prepareErr = snapshot.PrepareMoveListItemBefore(operationInput.TargetID, operationInput.AnchorTargetID)
 		case operationInput.Action == "move" && operationInput.Subject == "list_item" && operationInput.Position == "after":
@@ -444,8 +446,8 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/list_item accepts markdown only")
 			}
 		case op.Action == "insert" && op.Subject == "list_item":
-			if (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 || op.Part != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "insert/list_item requires position before or after and markdown")
+			if (op.Position != "before" && op.Position != "after" && op.Position != "child") || op.Text != "" || op.Level != 0 || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "insert/list_item requires position before, after, or child and markdown")
 			}
 		case op.Action == "remove" && op.Subject == "list_item":
 			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
