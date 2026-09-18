@@ -189,6 +189,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceAutoLink(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "front_matter_field":
 			preparedChange, prepareErr = snapshot.PrepareReplaceFrontMatterValue(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "remove" && operationInput.Subject == "front_matter_field":
+			preparedChange, prepareErr = snapshot.PrepareRemoveFrontMatterField(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "destination":
 			preparedChange, prepareErr = snapshot.PrepareReplaceReferenceDefinitionDestination(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
@@ -541,6 +543,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "front_matter_field":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/front_matter_field requires non-empty text")
+			}
+		case op.Action == "remove" && op.Subject == "front_matter_field":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove/front_matter_field accepts targetId only")
 			}
 		case op.Action == "replace" && op.Subject == "reference_definition":
 			if (op.Part != "destination" && op.Part != "title") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {

@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 27 {
-		t.Fatalf("operation union = %#v, want twenty-seven schema branches covering forty closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 24 {
+		t.Fatalf("operation union = %#v, want twenty-four schema branches covering forty-one closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -110,18 +110,21 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 
 	removeParagraph := markdownEditOperationBranch(t, oneOf, "remove", "paragraph", "")
 	if removeParagraph["type"] != "object" || removeParagraph["additionalProperties"] != false {
-		t.Fatalf("paragraph remove schema = %#v, want strict object", removeParagraph)
+		t.Fatalf("target-only remove schema = %#v, want strict object", removeParagraph)
 	}
-	markdownReadAssertStringSet(t, "paragraph remove required", removeParagraph["required"], []string{"action", "subject", "targetId"})
+	markdownReadAssertStringSet(t, "target-only remove required", removeParagraph["required"], []string{"action", "subject", "targetId"})
 	removeProperties := markdownReadSchemaMap(t, removeParagraph["properties"])
-	if markdownReadSchemaMap(t, removeProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeProperties["subject"])["const"] != "paragraph" {
-		t.Fatalf("paragraph remove discriminators = %#v", removeProperties)
+	if markdownReadSchemaMap(t, removeProperties["action"])["const"] != "remove" {
+		t.Fatalf("target-only remove action = %#v", removeProperties)
+	}
+	if subjects := markdownReadSchemaMap(t, removeProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"paragraph", "section", "list_item", "reference_definition", "front_matter_field"}) {
+		t.Fatalf("target-only remove subjects = %#v", subjects)
 	}
 	if len(removeProperties) != 3 {
-		t.Fatalf("paragraph remove properties = %#v, want only action/subject/targetId", removeProperties)
+		t.Fatalf("target-only remove properties = %#v, want only action/subject/targetId", removeProperties)
 	}
 	if markdownReadSchemaMap(t, removeProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
-		t.Fatalf("paragraph remove targetId schema = %#v", removeProperties["targetId"])
+		t.Fatalf("target-only remove targetId schema = %#v", removeProperties["targetId"])
 	}
 
 	insertParagraph := markdownEditOperationBranch(t, oneOf, "insert", "paragraph", "")
@@ -282,10 +285,12 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 
 	removeReferenceDefinition := markdownEditOperationBranch(t, oneOf, "remove", "reference_definition", "")
-	markdownReadAssertStringSet(t, "remove reference definition required", removeReferenceDefinition["required"], []string{"action", "subject", "targetId"})
-	removeReferenceDefinitionProperties := markdownReadSchemaMap(t, removeReferenceDefinition["properties"])
-	if markdownReadSchemaMap(t, removeReferenceDefinitionProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeReferenceDefinitionProperties["subject"])["const"] != "reference_definition" || len(removeReferenceDefinitionProperties) != 3 {
-		t.Fatalf("remove reference definition properties = %#v", removeReferenceDefinitionProperties)
+	if !reflect.DeepEqual(removeReferenceDefinition, removeParagraph) {
+		t.Fatalf("reference definition remove branch = %#v, want shared target-only remove branch", removeReferenceDefinition)
+	}
+	removeFrontMatterField := markdownEditOperationBranch(t, oneOf, "remove", "front_matter_field", "")
+	if !reflect.DeepEqual(removeFrontMatterField, removeParagraph) {
+		t.Fatalf("front matter remove branch = %#v, want shared target-only remove branch", removeFrontMatterField)
 	}
 
 	addLinkTitle := markdownEditOperationBranch(t, oneOf, "add", "inline_link", "title")
@@ -329,19 +334,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 
 	removeSection := markdownEditOperationBranch(t, oneOf, "remove", "section", "")
-	if removeSection["type"] != "object" || removeSection["additionalProperties"] != false {
-		t.Fatalf("section remove schema = %#v, want strict object", removeSection)
-	}
-	markdownReadAssertStringSet(t, "section remove required", removeSection["required"], []string{"action", "subject", "targetId"})
-	removeSectionProperties := markdownReadSchemaMap(t, removeSection["properties"])
-	if markdownReadSchemaMap(t, removeSectionProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeSectionProperties["subject"])["const"] != "section" {
-		t.Fatalf("section remove discriminators = %#v", removeSectionProperties)
-	}
-	if len(removeSectionProperties) != 3 {
-		t.Fatalf("section remove properties = %#v, want only action/subject/targetId", removeSectionProperties)
-	}
-	if markdownReadSchemaMap(t, removeSectionProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
-		t.Fatalf("section remove targetId schema = %#v", removeSectionProperties["targetId"])
+	if !reflect.DeepEqual(removeSection, removeParagraph) {
+		t.Fatalf("section remove branch = %#v, want shared target-only remove branch", removeSection)
 	}
 
 	replaceSectionBody := markdownEditOperationBranch(t, oneOf, "replace", "section", "body")
@@ -409,13 +403,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 
 	removeListItem := markdownEditOperationBranch(t, oneOf, "remove", "list_item", "")
-	if removeListItem["type"] != "object" || removeListItem["additionalProperties"] != false {
-		t.Fatalf("list item remove schema = %#v, want strict object", removeListItem)
-	}
-	markdownReadAssertStringSet(t, "list item remove required", removeListItem["required"], []string{"action", "subject", "targetId"})
-	removeListItemProperties := markdownReadSchemaMap(t, removeListItem["properties"])
-	if markdownReadSchemaMap(t, removeListItemProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeListItemProperties["subject"])["const"] != "list_item" || len(removeListItemProperties) != 3 {
-		t.Fatalf("list item remove properties = %#v", removeListItemProperties)
+	if !reflect.DeepEqual(removeListItem, removeParagraph) {
+		t.Fatalf("list item remove branch = %#v, want shared target-only remove branch", removeListItem)
 	}
 
 }

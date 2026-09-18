@@ -334,6 +334,20 @@ func (s *Snapshot) PrepareRenameFrontMatterField(targetID string, key []byte) (P
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareRemoveFrontMatterField resolves the opaque Scripthold front-matter
+// field target against this exact snapshot and delegates physical-line removal to Marksplice.
+func (s *Snapshot) PrepareRemoveFrontMatterField(targetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRemoveFrontMatterField(node.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceAutoLink resolves the opaque Scripthold autolink target against
 // this exact snapshot and delegates value replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceAutoLink(targetID string, replacement []byte) (PreparedChange, error) {

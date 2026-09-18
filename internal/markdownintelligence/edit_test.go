@@ -1789,6 +1789,84 @@ func TestPrepareRenameFrontMatterFieldPreservesMarksplicePreconditions(t *testin
 	}
 }
 
+func TestPrepareRemoveFrontMatterFieldPreservesYAMLCRLFAndSourceBinding(t *testing.T) {
+	source := []byte("---\r\ntitle: \"Old\"\r\nauthor: \"Ada\"\r\n---\r\n\r\nBody.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := snapshot.QueryNodes([]string{"front_matter_field"}, 8)
+	if err != nil || len(fields) != 2 {
+		t.Fatalf("fields=%+v err=%v", fields, err)
+	}
+	var titleTarget string
+	for _, field := range fields {
+		if field.Attributes["key"] == "title" {
+			titleTarget = field.TargetID
+			break
+		}
+	}
+	if titleTarget == "" {
+		t.Fatalf("title field not found: %+v", fields)
+	}
+
+	prepared, err := snapshot.PrepareRemoveFrontMatterField(titleTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("---\r\nauthor: \"Ada\"\r\n---\r\n\r\nBody.\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply([]byte("---\r\ntitle: \"Old\"\r\nauthor: \"Grace\"\r\n---\r\n\r\nBody.\r\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+}
+
+func TestPrepareRemoveFrontMatterFieldPreservesTOMLEnvelopeAndUnrelatedSource(t *testing.T) {
+	source := []byte("+++\ntitle   =   'Old'   # remove whole line\ncount = 1\n+++\n\nBody.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := snapshot.QueryNodes([]string{"front_matter_field"}, 8)
+	if err != nil || len(fields) != 1 || fields[0].Attributes["key"] != "title" {
+		t.Fatalf("fields=%+v err=%v", fields, err)
+	}
+
+	prepared, err := snapshot.PrepareRemoveFrontMatterField(fields[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("+++\ncount = 1\n+++\n\nBody.\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+}
+
+func TestPrepareRemoveFrontMatterFieldPreservesMarkspliceTargetValidation(t *testing.T) {
+	source := []byte("---\ntitle: Old\n---\n\nParagraph.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareRemoveFrontMatterField(paragraphs[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)
