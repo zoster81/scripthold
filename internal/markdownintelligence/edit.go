@@ -199,6 +199,20 @@ func (s *Snapshot) PrepareRemoveSection(targetID string) (PreparedChange, error)
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceListItem resolves the opaque Scripthold list-item target against
+// this exact snapshot and delegates source-preserving item-content replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceListItem(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceListItem(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceParagraph resolves the opaque Scripthold target against this
 // exact snapshot and delegates source-preserving paragraph replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceParagraph(targetID string, replacement []byte) (PreparedChange, error) {

@@ -617,6 +617,60 @@ func TestPrepareInsertParagraphRejectsInvalidContentAndWrongTargetKind(t *testin
 	}
 }
 
+func TestPrepareReplaceListItemPreservesMarkerAndChildren(t *testing.T) {
+	source := []byte("1. parent **old**\r\n   - child\r\n2. tail\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := snapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	prepared, err := snapshot.PrepareReplaceListItem(items[0].TargetID, []byte("parent **new**"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "1. parent **new**\r\n   - child\r\n2. tail\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("tail"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	for _, replacement := range [][]byte{nil, []byte("line one\nline two"), []byte("---")} {
+		if _, err := snapshot.PrepareReplaceListItem(items[0].TargetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("replacement %q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+	wrongKindSnapshot, err := Parse([]byte("# Heading\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := wrongKindSnapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := wrongKindSnapshot.PrepareReplaceListItem(headings[0].TargetID, []byte("wrong")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("wrong-kind error=%v, want ErrInvalidTargetKind", err)
+	}
+	taskSnapshot, err := Parse([]byte("- [ ] task\n- plain\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := taskSnapshot.QueryNodes([]string{"task"}, 8)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("tasks=%+v err=%v", tasks, err)
+	}
+	if _, err := taskSnapshot.PrepareReplaceListItem(tasks[0].TargetID, []byte("wrong")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("task target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)
