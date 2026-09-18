@@ -26,14 +26,15 @@ const (
 // The public schema keeps operation-specific fields closed; zero values here
 // exist only because Go uses one transport struct for the discriminated union.
 type MarkdownEditOperation struct {
-	Action   string `json:"action"`
-	Subject  string `json:"subject"`
-	TargetID string `json:"targetId"`
-	Text     string `json:"text,omitempty"`
-	Level    int    `json:"level,omitempty"`
-	Markdown string `json:"markdown,omitempty"`
-	Position string `json:"position,omitempty"`
-	Part     string `json:"part,omitempty"`
+	Action         string `json:"action"`
+	Subject        string `json:"subject"`
+	TargetID       string `json:"targetId"`
+	AnchorTargetID string `json:"anchorTargetId,omitempty"`
+	Text           string `json:"text,omitempty"`
+	Level          int    `json:"level,omitempty"`
+	Markdown       string `json:"markdown,omitempty"`
+	Position       string `json:"position,omitempty"`
+	Part           string `json:"part,omitempty"`
 }
 
 // MarkdownEditInput prepares one source-bound Markdown preview and never writes
@@ -163,6 +164,10 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceSectionBody(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "section" && operationInput.Part == "subtree":
 			preparedChange, prepareErr = snapshot.PrepareReplaceSection(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "move" && operationInput.Subject == "section" && operationInput.Position == "before":
+			preparedChange, prepareErr = snapshot.PrepareMoveSectionBefore(operationInput.TargetID, operationInput.AnchorTargetID)
+		case operationInput.Action == "move" && operationInput.Subject == "section" && operationInput.Position == "after":
+			preparedChange, prepareErr = snapshot.PrepareMoveSectionAfter(operationInput.TargetID, operationInput.AnchorTargetID)
 		default:
 			prepareErr = marksplice.ErrInvalidQuery
 		}
@@ -399,6 +404,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		if !isLowerHexDigest(op.TargetID) {
 			return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
 		}
+		isSectionMove := op.Action == "move" && op.Subject == "section"
+		if !isSectionMove && op.AnchorTargetID != "" {
+			return errorResultWithCode(ErrCodeInvalidInput, "anchorTargetId is only valid for move/section")
+		}
 		switch {
 		case op.Action == "rename" && op.Subject == "heading":
 			if op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
@@ -431,6 +440,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "section":
 			if (op.Part != "body" && op.Part != "subtree") || op.Text != "" || op.Level != 0 || op.Position != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/section requires part body or subtree and markdown")
+			}
+		case isSectionMove:
+			if !isLowerHexDigest(op.AnchorTargetID) || (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "move/section requires anchorTargetId and position before or after")
 			}
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")

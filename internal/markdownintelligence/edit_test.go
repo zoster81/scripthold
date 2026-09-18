@@ -282,6 +282,67 @@ func TestPrepareAppendSectionChildUsesSectionParentAndRequiresNextLevel(t *testi
 	}
 }
 
+func TestPrepareMoveSectionBeforeAndAfterUseSectionTargets(t *testing.T) {
+	source := []byte("# One\r\n\r\n## Move\r\n\r\nMove body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n# Two\r\n\r\n## Anchor\r\n\r\nAnchor body.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	level2, truncated, err := snapshot.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(level2) != 2 {
+		t.Fatalf("level2=%+v truncated=%v err=%v", level2, truncated, err)
+	}
+	level1, truncated, err := snapshot.QuerySections([]int{1}, nil, 8)
+	if err != nil || truncated || len(level1) != 2 {
+		t.Fatalf("level1=%+v truncated=%v err=%v", level1, truncated, err)
+	}
+	prepared, err := snapshot.PrepareMoveSectionAfter(level2[0].TargetID, level2[1].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# One\r\n\r\n# Two\r\n\r\n## Anchor\r\n\r\nAnchor body.\r\n## Move\r\n\r\nMove body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("Anchor body."), []byte("External."), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareMoveSectionBefore(level2[0].HeadingTargetID, level2[1].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("source heading target error=%v, want ErrInvalidTargetKind", err)
+	}
+	if _, err := snapshot.PrepareMoveSectionBefore(level2[0].TargetID, level2[1].HeadingTargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("anchor heading target error=%v, want ErrInvalidTargetKind", err)
+	}
+	if _, err := snapshot.PrepareMoveSectionBefore(level2[0].TargetID, level1[1].TargetID); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("different-level move error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareMoveSectionBefore(level2[0].TargetID, level2[0].TargetID); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("self move error=%v, want ErrInvalidReplacement", err)
+	}
+
+	noopSource := []byte("# A\nA.\n# B\nB.\n")
+	noopSnapshot, err := Parse(noopSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noopSections, truncated, err := noopSnapshot.QuerySections([]int{1}, nil, 8)
+	if err != nil || truncated || len(noopSections) != 2 {
+		t.Fatalf("noop sections=%+v truncated=%v err=%v", noopSections, truncated, err)
+	}
+	noop, err := noopSnapshot.PrepareMoveSectionBefore(noopSections[0].TargetID, noopSections[1].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noopResult, err := noop.Apply(noopSource)
+	if err != nil || !bytes.Equal(noopResult, noopSource) {
+		t.Fatalf("noop result=%q err=%v want original", noopResult, err)
+	}
+}
+
 func TestPrepareReplaceSectionBodyPreservesHeadingAndChildHierarchy(t *testing.T) {
 	source := []byte("# Root\r\n\r\n## Target\r\n\r\nOld body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
 	snapshot, err := Parse(source)

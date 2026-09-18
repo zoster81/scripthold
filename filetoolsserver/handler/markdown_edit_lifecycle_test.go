@@ -334,6 +334,58 @@ func TestMarkdownEditRejectsInvalidSectionChildWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditMovesSectionAcrossParents(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# One\n\n## Move\n\nMove.\n\n### Child\n\nChild.\n\n# Two\n\n## Anchor\n\nAnchor.\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "sections", Levels: []int{2}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Sections) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{{
+		Action: "move", Subject: "section", TargetID: read.Sections[0].TargetID, AnchorTargetID: read.Sections[1].TargetID, Position: "after",
+	}}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("move preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	want := "# One\n\n# Two\n\n## Anchor\n\nAnchor.\n## Move\n\nMove.\n\n### Child\n\nChild.\n\n"
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("move target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidSectionMoveShapeBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	base := MarkdownEditOperation{Action: "move", Subject: "section", TargetID: strings.Repeat("a", 64), AnchorTargetID: strings.Repeat("b", 64), Position: "before"}
+	cases := []MarkdownEditOperation{
+		func() MarkdownEditOperation { op := base; op.AnchorTargetID = "bad"; return op }(),
+		func() MarkdownEditOperation { op := base; op.Position = "child"; return op }(),
+		func() MarkdownEditOperation { op := base; op.Markdown = "## extra\n"; return op }(),
+	}
+	for _, op := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{op}})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid move shape result=%+v err=%v op=%+v", result, err, op)
+		}
+	}
+	legacy := MarkdownEditOperation{Action: "remove", Subject: "section", TargetID: strings.Repeat("a", 64), AnchorTargetID: strings.Repeat("b", 64)}
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{legacy}})
+	if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+		t.Fatalf("legacy operation accepted anchorTargetId: result=%+v err=%v", result, err)
+	}
+}
+
 func TestMarkdownEditRejectsInvalidSectionInsertShapeBeforeFilesystemWork(t *testing.T) {
 	base := MarkdownEditOperation{Action: "insert", Subject: "section", TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Position: "before", Markdown: "## Section\n"}
 	cases := []MarkdownEditOperation{
