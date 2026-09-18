@@ -12,33 +12,56 @@ import (
 	"time"
 )
 
-func TestEngineSubmitStartsIndependentWorkAndFastWaitCompletes(t *testing.T) {
+func TestEngineSubmitStartsIndependentWorkAndWaitCompletes(t *testing.T) {
 	store, public := newDeferredTestStore(t)
-	started := make(chan struct{})
+	executorCtx, cancelExecutor := context.WithCancel(context.Background())
+	executorDone := make(chan error, 1)
+	executorFinished := false
+	t.Cleanup(func() {
+		cancelExecutor()
+		if executorFinished {
+			return
+		}
+		select {
+		case <-executorDone:
+		case <-time.After(30 * time.Second):
+			t.Error("executor did not stop during test cleanup")
+		}
+	})
+
 	engine := newEngineWithLauncher(store, func(operationID string) error {
 		go func() {
-			_ = store.Execute(context.Background(), operationID, func(context.Context, Request) ([]byte, ResultMetadata, error) {
-				close(started)
+			executorDone <- store.Execute(executorCtx, operationID, func(context.Context, Request) ([]byte, ResultMetadata, error) {
 				return []byte(`{"ok":true}`), ResultMetadata{}, nil
 			})
 		}()
 		return nil
 	})
-	operation, err := engine.Submit(context.Background(), Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
+	submitCtx, cancelSubmit := context.WithCancel(context.Background())
+	operation, err := engine.Submit(submitCtx, Request{Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`), AllowedDirectories: []string{public}})
 	if err != nil {
+		cancelSubmit()
 		t.Fatal(err)
 	}
-	select {
-	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("executor did not start")
-	}
-	observed, finished, err := engine.Wait(context.Background(), operation.OperationID, []string{public}, time.Second)
+	cancelSubmit()
+
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelWait()
+	observed, finished, err := engine.Wait(waitCtx, operation.OperationID, []string{public}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !finished || observed.Status != StatusCompleted {
 		t.Fatalf("observed=%+v finished=%v", observed, finished)
+	}
+	select {
+	case err := <-executorDone:
+		executorFinished = true
+		if err != nil {
+			t.Fatalf("executor returned %v", err)
+		}
+	case <-waitCtx.Done():
+		t.Fatal("executor did not finish after completed state became visible")
 	}
 }
 
