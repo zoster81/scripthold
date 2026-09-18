@@ -3,6 +3,7 @@ package filetoolsserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,24 +57,46 @@ func TestLegacyHandshakeSerializesConcurrentEquivalentInitialize(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("first initialize did not enter the underlying handler")
 	}
+
+	waiterCtx, cancelWaiters := context.WithCancel(ctx)
+	waiterLaunched := make(chan struct{}, 2)
 	for range 2 {
 		go func() {
-			_, err := next(ctx, methodInitialize, request())
+			waiterLaunched <- struct{}{}
+			_, err := next(waiterCtx, methodInitialize, request())
 			results <- err
 		}()
 	}
-	// Give the equivalent requests a chance to race with the blocked first call.
-	time.Sleep(20 * time.Millisecond)
-	close(releaseFirst)
-	for range 3 {
+	for range 2 {
+		select {
+		case <-waiterLaunched:
+		case <-ctx.Done():
+			t.Fatal("concurrent initialize waiter did not launch")
+		}
+	}
+	cancelWaiters()
+	for range 2 {
 		select {
 		case err := <-results:
-			if err != nil {
-				t.Fatalf("concurrent initialize failed: %v", err)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("serialized concurrent initialize error = %v, want context canceled", err)
 			}
 		case <-ctx.Done():
-			t.Fatal("concurrent initialize did not complete")
+			t.Fatal("serialized concurrent initialize did not observe cancellation")
 		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("underlying initialize calls while first request blocked = %d, want 1", got)
+	}
+
+	close(releaseFirst)
+	select {
+	case err := <-results:
+		if err != nil {
+			t.Fatalf("first initialize failed: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("first initialize did not complete")
 	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("underlying initialize calls = %d, want 1", got)
@@ -93,11 +116,14 @@ func TestLegacyHandshakeDoesNotSerializeDifferentSessions(t *testing.T) {
 	firstSession := &mcp.ServerSession{}
 	secondSession := &mcp.ServerSession{}
 	firstEntered := make(chan struct{})
+	secondEntered := make(chan struct{})
 	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
 	secondDone := make(chan error, 1)
 
 	next := middleware(func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-		if req.GetSession() == firstSession {
+		switch req.GetSession() {
+		case firstSession:
 			select {
 			case <-firstEntered:
 			default:
@@ -108,12 +134,19 @@ func TestLegacyHandshakeDoesNotSerializeDifferentSessions(t *testing.T) {
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
+		case secondSession:
+			select {
+			case <-secondEntered:
+			default:
+				close(secondEntered)
+			}
 		}
 		return &mcp.InitializeResult{ProtocolVersion: legacyProtocolVersion}, nil
 	})
 
 	go func() {
-		_, _ = next(ctx, methodInitialize, &mcp.ServerRequest[*mcp.InitializeParams]{Session: firstSession, Params: params})
+		_, err := next(ctx, methodInitialize, &mcp.ServerRequest[*mcp.InitializeParams]{Session: firstSession, Params: params})
+		firstDone <- err
 	}()
 	select {
 	case <-firstEntered:
@@ -125,14 +158,28 @@ func TestLegacyHandshakeDoesNotSerializeDifferentSessions(t *testing.T) {
 		secondDone <- err
 	}()
 	select {
+	case <-secondEntered:
+	case <-ctx.Done():
+		t.Fatal("second session initialize did not reach the underlying handler while first session was blocked")
+	}
+	select {
 	case err := <-secondDone:
 		if err != nil {
 			t.Fatalf("second session initialize failed: %v", err)
 		}
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("different session was serialized behind the blocked first session")
+	case <-ctx.Done():
+		t.Fatal("second session initialize did not complete")
 	}
+
 	close(releaseFirst)
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("first session initialize failed: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("first session initialize did not complete")
+	}
 }
 
 func TestLegacyHandshakeHandlesConcurrentEquivalentInitializeRequests(t *testing.T) {

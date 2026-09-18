@@ -281,37 +281,72 @@ func TestEngineRecoveryLoopWaitsForRootsBeforeRecovering(t *testing.T) {
 	}
 	baseNow := time.Now().UTC()
 	store.now = func() time.Time { return baseNow.Add(30 * time.Second) }
-	var roots atomic.Value
-	roots.Store([]string(nil))
-	launches := make(chan string, 1)
+
+	var rootsCalls atomic.Int32
+	rootsObserved := make(chan int32, 4)
+	releaseBarrier := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseBarrier:
+		default:
+			close(releaseBarrier)
+		}
+	}()
+	currentRoots := func() []string {
+		call := rootsCalls.Add(1)
+		rootsObserved <- call
+		switch call {
+		case 3:
+			return []string{public}
+		case 4:
+			<-releaseBarrier
+		}
+		return nil
+	}
+
+	launches := make(chan string, 2)
 	engine := newEngineWithLauncher(store, func(operationID string) error {
 		launches <- operationID
 		return nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ticks := make(chan time.Time, 2)
+	ticks := make(chan time.Time, 3)
 	done := make(chan struct{})
 	go func() {
-		engine.runRecoveryLoop(ctx, func() []string { return roots.Load().([]string) }, ticks, nil)
+		engine.runRecoveryLoop(ctx, currentRoots, ticks, nil)
 		close(done)
 	}()
+
 	ticks <- time.Now()
-	select {
-	case operationID := <-launches:
-		t.Fatalf("recovery launched %s before roots were available", operationID)
-	case <-time.After(50 * time.Millisecond):
+	ticks <- time.Now()
+	ticks <- time.Now()
+	for want := int32(1); want <= 4; want++ {
+		select {
+		case got := <-rootsObserved:
+			if got != want {
+				t.Fatalf("roots observation call = %d, want %d", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("recovery loop did not reach roots observation %d", want)
+		}
 	}
-	roots.Store([]string{public})
-	ticks <- time.Now()
+
 	select {
 	case operationID := <-launches:
 		if operationID != operation.OperationID {
 			t.Fatalf("recovered operation = %s, want %s", operationID, operation.OperationID)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("recovery did not launch after roots became available")
+	default:
+		t.Fatal("recovery did not launch once roots became available")
 	}
+	select {
+	case operationID := <-launches:
+		t.Fatalf("recovery launched more than once, extra operation %s", operationID)
+	default:
+	}
+
+	close(releaseBarrier)
 	cancel()
 	select {
 	case <-done:
@@ -331,14 +366,34 @@ func TestEngineRecoveryLoopSuppressesRepeatedIdenticalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var rootsCalls atomic.Int32
+	rootsObserved := make(chan int32, 4)
+	releaseBarrier := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseBarrier:
+		default:
+			close(releaseBarrier)
+		}
+	}()
+	currentRoots := func() []string {
+		call := rootsCalls.Add(1)
+		rootsObserved <- call
+		if call == 4 {
+			<-releaseBarrier
+			return nil
+		}
+		return []string{public}
+	}
+
 	engine := newEngineWithLauncher(store, func(string) error { return nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ticks := make(chan time.Time, 2)
+	ticks := make(chan time.Time, 3)
 	reports := make(chan string, 3)
 	done := make(chan struct{})
 	go func() {
-		engine.runRecoveryLoop(ctx, func() []string { return []string{public} }, ticks, func(err error) {
+		engine.runRecoveryLoop(ctx, currentRoots, ticks, func(err error) {
 			reports <- RecoveryFailureReason(err)
 		})
 		close(done)
@@ -352,13 +407,27 @@ func TestEngineRecoveryLoopSuppressesRepeatedIdenticalFailure(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("initial recovery failure was not reported")
 	}
+
 	ticks <- time.Now()
 	ticks <- time.Now()
+	ticks <- time.Now()
+	for want := int32(1); want <= 4; want++ {
+		select {
+		case got := <-rootsObserved:
+			if got != want {
+				t.Fatalf("roots observation call = %d, want %d", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("recovery loop did not reach roots observation %d", want)
+		}
+	}
 	select {
 	case reason := <-reports:
 		t.Fatalf("repeated identical recovery failure was reported again: %s", reason)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
+
+	close(releaseBarrier)
 	cancel()
 	select {
 	case <-done:

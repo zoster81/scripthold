@@ -153,11 +153,17 @@ func TestWithLogging_NilLogger(t *testing.T) {
 
 func TestWithCallDeadline_BoundsCooperativeHandler(t *testing.T) {
 	handler := func(ctx context.Context, req *mcp.CallToolRequest, input testInput) (*mcp.CallToolResult, testOutput, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("deadline wrapper did not provide a handler deadline")
+		}
+		if remaining := time.Until(deadline); remaining > 50*time.Millisecond {
+			t.Fatalf("handler deadline exceeds configured bound: %s remaining", remaining)
+		}
 		<-ctx.Done()
 		return nil, testOutput{}, ctx.Err()
 	}
 
-	started := time.Now()
 	wrapped := WithCallDeadline(25*time.Millisecond, handler)
 	result, _, err := wrapped(context.Background(), &mcp.CallToolRequest{}, testInput{})
 	if err != nil {
@@ -165,9 +171,6 @@ func TestWithCallDeadline_BoundsCooperativeHandler(t *testing.T) {
 	}
 	if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeTimeout {
 		t.Fatalf("deadline result=%+v, want %s", result, ErrCodeTimeout)
-	}
-	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
-		t.Fatalf("deadline wrapper took %s", elapsed)
 	}
 }
 
