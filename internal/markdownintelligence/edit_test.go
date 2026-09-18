@@ -1867,6 +1867,114 @@ func TestPrepareRemoveFrontMatterFieldPreservesMarkspliceTargetValidation(t *tes
 	}
 }
 
+func TestPrepareReplaceHTMLCommentPreservesWrapperAndSourceBinding(t *testing.T) {
+	source := []byte("before <!--  old comment  --> after\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := snapshot.QueryNodes([]string{"html_comment"}, 8)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("comments=%+v err=%v", nodes, err)
+	}
+
+	prepared, err := snapshot.PrepareReplaceHTMLComment(nodes[0].TargetID, []byte("new comment"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("before <!--  new comment  --> after\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply([]byte("before <!--  old comment  --> changed\r\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+
+	noOp, err := snapshot.PrepareReplaceHTMLComment(nodes[0].TargetID, []byte("old comment"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := noOp.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unchanged, source) {
+		t.Fatalf("no-op result=%q want original=%q", unchanged, source)
+	}
+}
+
+func TestPrepareReplaceHTMLAnchorPreservesAttributeStyleAndSourceBinding(t *testing.T) {
+	source := []byte("before <A class='x' ID=\"old-anchor\">text</A> after\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := snapshot.QueryNodes([]string{"html_anchor"}, 8)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("anchors=%+v err=%v", nodes, err)
+	}
+	if nodes[0].Attributes["attribute"] != "id" {
+		t.Fatalf("anchor attributes=%+v, want id", nodes[0].Attributes)
+	}
+
+	prepared, err := snapshot.PrepareReplaceHTMLAnchor(nodes[0].TargetID, []byte("new-anchor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("before <A class='x' ID=\"new-anchor\">text</A> after\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply([]byte("before <A class='x' ID=\"old-anchor\">changed</A> after\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+}
+
+func TestPrepareReplaceRawHTMLPreservesMarkspliceRejections(t *testing.T) {
+	source := []byte("paragraph <!-- old --> <a id=\"old-anchor\">x</a>\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comments, err := snapshot.QueryNodes([]string{"html_comment"}, 8)
+	if err != nil || len(comments) != 1 {
+		t.Fatalf("comments=%+v err=%v", comments, err)
+	}
+	anchors, err := snapshot.QueryNodes([]string{"html_anchor"}, 8)
+	if err != nil || len(anchors) != 1 {
+		t.Fatalf("anchors=%+v err=%v", anchors, err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+
+	for _, replacement := range [][]byte{nil, []byte("line one\nline two"), []byte("bad --> split")} {
+		if _, err := snapshot.PrepareReplaceHTMLComment(comments[0].TargetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("comment replacement=%q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+	for _, replacement := range [][]byte{nil, []byte("line one\nline two"), []byte("bad\"anchor")} {
+		if _, err := snapshot.PrepareReplaceHTMLAnchor(anchors[0].TargetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("anchor replacement=%q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+	if _, err := snapshot.PrepareReplaceHTMLComment(paragraphs[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph comment error=%v, want ErrInvalidTargetKind", err)
+	}
+	if _, err := snapshot.PrepareReplaceHTMLAnchor(paragraphs[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph anchor error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

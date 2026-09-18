@@ -348,6 +348,34 @@ func (s *Snapshot) PrepareRemoveFrontMatterField(targetID string) (PreparedChang
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceHTMLComment resolves the opaque Scripthold HTML comment target
+// against this exact snapshot and delegates payload replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceHTMLComment(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceHTMLComment(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareReplaceHTMLAnchor resolves the opaque Scripthold HTML anchor target
+// against this exact snapshot and delegates id/name value replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceHTMLAnchor(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceHTMLAnchor(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceAutoLink resolves the opaque Scripthold autolink target against
 // this exact snapshot and delegates value replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceAutoLink(targetID string, replacement []byte) (PreparedChange, error) {

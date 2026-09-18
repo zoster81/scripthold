@@ -439,6 +439,8 @@ func TestMarkdownEditReplacesDirectLinkFamily(t *testing.T) {
 		{name: "image destination", source: "before ![alt](<old path> 'title') after\n", subject: "image", part: "destination", text: "new path", want: "before ![alt](<new path> 'title') after\n"},
 		{name: "image alt", source: "before ![old](path) after\n", subject: "image", part: "alt", text: "new", want: "before ![new](path) after\n"},
 		{name: "autolink", source: "before <https://old.example/path> after\n", subject: "autolink", text: "https://new.example/path", want: "before <https://new.example/path> after\n"},
+		{name: "html comment", source: "before <!--  old comment  --> after\r\n", subject: "html_comment", text: "new comment", want: "before <!--  new comment  --> after\r\n"},
+		{name: "html anchor", source: "before <A class='x' ID=\"old-anchor\">text</A> after\n", subject: "html_anchor", text: "new-anchor", want: "before <A class='x' ID=\"new-anchor\">text</A> after\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -988,6 +990,10 @@ func TestMarkdownEditRejectsInvalidDirectLinkShapesBeforeFilesystemWork(t *testi
 		{Action: "replace", Subject: "image", TargetID: targetID, Part: "alt", Text: "new", Position: "after"},
 		{Action: "replace", Subject: "autolink", TargetID: targetID},
 		{Action: "replace", Subject: "autolink", TargetID: targetID, Part: "destination", Text: "https://example.test"},
+		{Action: "replace", Subject: "html_comment", TargetID: targetID},
+		{Action: "replace", Subject: "html_comment", TargetID: targetID, Text: "new", Part: "content"},
+		{Action: "replace", Subject: "html_anchor", TargetID: targetID},
+		{Action: "replace", Subject: "html_anchor", TargetID: targetID, Text: "new-anchor", Markdown: "extra"},
 	}
 	for _, operation := range cases {
 		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
