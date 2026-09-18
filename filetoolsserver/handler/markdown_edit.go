@@ -193,6 +193,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareAddReferenceDefinitionTitle(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "remove" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
 			preparedChange, prepareErr = snapshot.PrepareRemoveReferenceDefinitionTitle(operationInput.TargetID)
+		case operationInput.Action == "remove" && operationInput.Subject == "reference_definition":
+			preparedChange, prepareErr = snapshot.PrepareRemoveReferenceDefinition(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
 			preparedChange, prepareErr = snapshot.PrepareReplaceListItemSubtree(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item":
@@ -539,6 +541,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "remove" && op.Subject == "reference_definition" && op.Part == "title":
 			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "remove/reference_definition title accepts targetId and part title only")
+			}
+		case op.Action == "remove" && op.Subject == "reference_definition":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove/reference_definition accepts targetId only")
 			}
 		case op.Action == "replace" && op.Subject == "list_item" && op.Part == "subtree":
 			if op.Text != "" || op.Level != 0 || op.Position != "" {

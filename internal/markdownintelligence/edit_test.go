@@ -1250,6 +1250,64 @@ func TestPrepareRenameReferenceDefinitionPreservesMarksplicePreconditions(t *tes
 	}
 }
 
+func TestPrepareRemoveReferenceDefinitionRemovesOnlyUnusedDefinition(t *testing.T) {
+	source := []byte("before\r\n\r\n  [unused]: <target> \"Title\"   \r\n\r\nafter\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := snapshot.QueryNodes([]string{"reference_definition"}, 4)
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("definitions=%+v err=%v", definitions, err)
+	}
+	prepared, err := snapshot.PrepareRemoveReferenceDefinition(definitions[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "before\r\n\r\n\r\nafter\r\n"
+	if string(got) != want {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+}
+
+func TestPrepareRemoveReferenceDefinitionPreservesMarksplicePreconditions(t *testing.T) {
+	for _, source := range []string{
+		"[docs]: <target>\n\n[full][docs]\n",
+		"[docs]: <target>\n\n[docs][]\n",
+		"[docs]: <target>\n\n[docs]\n",
+		"[docs]: <target>\n\n![docs]\n",
+	} {
+		snapshot, err := Parse([]byte(source))
+		if err != nil {
+			t.Fatal(err)
+		}
+		definitions, err := snapshot.QueryNodes([]string{"reference_definition"}, 4)
+		if err != nil || len(definitions) != 1 {
+			t.Fatalf("definitions=%+v err=%v", definitions, err)
+		}
+		if _, err := snapshot.PrepareRemoveReferenceDefinition(definitions[0].TargetID); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("used definition error=%v, want ErrInvalidReplacement for %q", err, source)
+		}
+	}
+
+	source := []byte("[unused]: <target>\n\nparagraph\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 4)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareRemoveReferenceDefinition(paragraphs[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReferenceDefinitionPartsPreserveAuthoredSyntax(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 26 {
-		t.Fatalf("operation union = %#v, want twenty-six schema branches covering thirty-seven closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 27 {
+		t.Fatalf("operation union = %#v, want twenty-seven schema branches covering thirty-eight closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -264,6 +264,13 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	removeReferenceDefinitionTitleProperties := markdownReadSchemaMap(t, removeReferenceDefinitionTitle["properties"])
 	if markdownReadSchemaMap(t, removeReferenceDefinitionTitleProperties["part"])["const"] != "title" || len(removeReferenceDefinitionTitleProperties) != 4 {
 		t.Fatalf("remove reference definition title properties = %#v", removeReferenceDefinitionTitleProperties)
+	}
+
+	removeReferenceDefinition := markdownEditOperationBranch(t, oneOf, "remove", "reference_definition", "")
+	markdownReadAssertStringSet(t, "remove reference definition required", removeReferenceDefinition["required"], []string{"action", "subject", "targetId"})
+	removeReferenceDefinitionProperties := markdownReadSchemaMap(t, removeReferenceDefinition["properties"])
+	if markdownReadSchemaMap(t, removeReferenceDefinitionProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeReferenceDefinitionProperties["subject"])["const"] != "reference_definition" || len(removeReferenceDefinitionProperties) != 3 {
+		t.Fatalf("remove reference definition properties = %#v", removeReferenceDefinitionProperties)
 	}
 
 	addLinkTitle := markdownEditOperationBranch(t, oneOf, "add", "inline_link", "title")

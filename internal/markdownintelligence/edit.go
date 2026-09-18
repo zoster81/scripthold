@@ -234,6 +234,21 @@ func (s *Snapshot) PrepareRenameReferenceDefinition(targetID string, replacement
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareRemoveReferenceDefinition resolves the opaque Scripthold
+// reference-definition target against this exact snapshot and delegates guarded
+// definition removal to Marksplice.
+func (s *Snapshot) PrepareRemoveReferenceDefinition(targetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRemoveReferenceDefinition(node.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceReferenceDefinitionDestination resolves the opaque Scripthold
 // reference-definition target against this exact snapshot and delegates destination
 // replacement to Marksplice.
