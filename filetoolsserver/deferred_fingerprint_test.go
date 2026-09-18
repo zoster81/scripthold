@@ -128,7 +128,8 @@ func TestDeferredFingerprintFastCompletionPreservesNormalOutput(t *testing.T) {
 func TestDeferredFingerprintSlowCompletionReturnsRecoverableHandoff(t *testing.T) {
 	h, cfg, store, path := newDeferredFingerprintFixture(t)
 	release := make(chan struct{})
-	engine := &fakeDeferredEngine{store: store, releaseWork: release}
+	// This test exercises slow completion after execution has started, not scheduler latency before startup.
+	engine := &fakeDeferredEngine{store: store, releaseWork: release, handoffAfterStarted: true}
 	wrapped := deferredFingerprintHandler(h, cfg, engine, h.HandleFingerprintPaths)
 	result, raw, err := wrapped(context.Background(), &mcp.CallToolRequest{}, handler.FingerprintPathsInput{Paths: []string{path}})
 	if err != nil || result == nil || result.IsError {
