@@ -79,6 +79,20 @@ func (s *Snapshot) PrepareSetHeadingLevel(targetID string, level int) (PreparedC
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareSetTaskChecked resolves the opaque Scripthold task target against this
+// exact snapshot and delegates the one-byte checkbox-state mutation to Marksplice.
+func (s *Snapshot) PrepareSetTaskChecked(targetID string, checked bool) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareSetTaskChecked(node.ID(), checked)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceSection resolves the opaque Scripthold section target against
 // this exact snapshot and delegates complete subtree replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceSection(targetID string, replacement []byte) (PreparedChange, error) {

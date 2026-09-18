@@ -35,6 +35,7 @@ type MarkdownEditOperation struct {
 	Markdown       string `json:"markdown,omitempty"`
 	Position       string `json:"position,omitempty"`
 	Part           string `json:"part,omitempty"`
+	Checked        *bool  `json:"checked,omitempty"`
 }
 
 // MarkdownEditInput prepares one source-bound Markdown preview and never writes
@@ -144,6 +145,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "set" && operationInput.Subject == "heading":
 			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
+		case operationInput.Action == "set" && operationInput.Subject == "task":
+			preparedChange, prepareErr = snapshot.PrepareSetTaskChecked(operationInput.TargetID, *operationInput.Checked)
 		case operationInput.Action == "replace" && operationInput.Subject == "paragraph":
 			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
@@ -421,8 +424,12 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 			return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
 		}
 		isMove := op.Action == "move" && (op.Subject == "section" || op.Subject == "list_item")
+		isTaskSet := op.Action == "set" && op.Subject == "task"
 		if !isMove && op.AnchorTargetID != "" {
 			return errorResultWithCode(ErrCodeInvalidInput, "anchorTargetId is only valid for move/section or move/list_item")
+		}
+		if !isTaskSet && op.Checked != nil {
+			return errorResultWithCode(ErrCodeInvalidInput, "checked is only valid for set/task")
 		}
 		switch {
 		case op.Action == "rename" && op.Subject == "heading":
@@ -432,6 +439,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "set" && op.Subject == "heading":
 			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "set/heading requires level from 1 to 6")
+			}
+		case isTaskSet:
+			if op.Checked == nil || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "set/task requires checked")
 			}
 		case op.Action == "replace" && op.Subject == "paragraph":
 			if op.Text != "" || op.Level != 0 || op.Position != "" || op.Part != "" {

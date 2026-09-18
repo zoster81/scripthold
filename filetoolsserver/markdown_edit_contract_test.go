@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 13 {
-		t.Fatalf("operation union = %#v, want thirteen schema branches covering fourteen closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 14 {
+		t.Fatalf("operation union = %#v, want fourteen schema branches covering fifteen closed forms", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -140,6 +140,22 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if position := markdownReadSchemaMap(t, insertListItemProperties["position"]); !reflect.DeepEqual(position["enum"], []string{"before", "after", "child"}) {
 		t.Fatalf("list item insert position schema = %#v, want before/after/child enum", position)
+	}
+
+	setTask := markdownReadSchemaMap(t, oneOf[13])
+	if setTask["type"] != "object" || setTask["additionalProperties"] != false {
+		t.Fatalf("task set schema = %#v, want strict object", setTask)
+	}
+	markdownReadAssertStringSet(t, "task set required", setTask["required"], []string{"action", "checked", "subject", "targetId"})
+	setTaskProperties := markdownReadSchemaMap(t, setTask["properties"])
+	if markdownReadSchemaMap(t, setTaskProperties["action"])["const"] != "set" || markdownReadSchemaMap(t, setTaskProperties["subject"])["const"] != "task" {
+		t.Fatalf("task set discriminators = %#v", setTaskProperties)
+	}
+	if checked := markdownReadSchemaMap(t, setTaskProperties["checked"]); checked["type"] != "boolean" {
+		t.Fatalf("task checked schema = %#v, want boolean", checked)
+	}
+	if len(setTaskProperties) != 4 {
+		t.Fatalf("task set properties = %#v, want only action/subject/targetId/checked", setTaskProperties)
 	}
 
 	insertSection := markdownReadSchemaMap(t, oneOf[5])

@@ -947,6 +947,59 @@ func TestPrepareMoveListItemBeforeAndAfterMovesCompleteSubtree(t *testing.T) {
 	}
 }
 
+func TestPrepareSetTaskCheckedUsesTaskTargetAndPreservesNoOpStyle(t *testing.T) {
+	source := []byte("* [X] keep uppercase\r\n- [ ] nested\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := snapshot.QueryNodes([]string{"task"}, 8)
+	if err != nil || len(tasks) != 2 {
+		t.Fatalf("tasks=%+v err=%v", tasks, err)
+	}
+	items, err := snapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	noop, err := snapshot.PrepareSetTaskChecked(tasks[0].TargetID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noopResult, err := noop.Apply(source)
+	if err != nil || !bytes.Equal(noopResult, source) {
+		t.Fatalf("noop result=%q err=%v", noopResult, err)
+	}
+	prepared, err := snapshot.PrepareSetTaskChecked(tasks[1].TargetID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "* [X] keep uppercase\r\n- [x] nested\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("nested"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareSetTaskChecked(items[1].TargetID, true); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("list-item target error=%v, want ErrInvalidTargetKind", err)
+	}
+	unchecked, err := snapshot.PrepareSetTaskChecked(tasks[0].TargetID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uncheckedResult, err := unchecked.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(uncheckedResult), "* [ ] keep uppercase\r\n- [ ] nested\r\n"; got != want {
+		t.Fatalf("unchecked result=%q want=%q", got, want)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)
