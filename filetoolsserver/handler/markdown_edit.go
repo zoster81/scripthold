@@ -154,6 +154,10 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareInsertListItemBefore(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "insert" && operationInput.Subject == "list_item" && operationInput.Position == "after":
 			preparedChange, prepareErr = snapshot.PrepareInsertListItemAfter(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "move" && operationInput.Subject == "list_item" && operationInput.Position == "before":
+			preparedChange, prepareErr = snapshot.PrepareMoveListItemBefore(operationInput.TargetID, operationInput.AnchorTargetID)
+		case operationInput.Action == "move" && operationInput.Subject == "list_item" && operationInput.Position == "after":
+			preparedChange, prepareErr = snapshot.PrepareMoveListItemAfter(operationInput.TargetID, operationInput.AnchorTargetID)
 		case operationInput.Action == "remove" && operationInput.Subject == "list_item":
 			preparedChange, prepareErr = snapshot.PrepareRemoveListItem(operationInput.TargetID)
 		case operationInput.Action == "remove" && operationInput.Subject == "paragraph":
@@ -414,9 +418,9 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		if !isLowerHexDigest(op.TargetID) {
 			return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
 		}
-		isSectionMove := op.Action == "move" && op.Subject == "section"
-		if !isSectionMove && op.AnchorTargetID != "" {
-			return errorResultWithCode(ErrCodeInvalidInput, "anchorTargetId is only valid for move/section")
+		isMove := op.Action == "move" && (op.Subject == "section" || op.Subject == "list_item")
+		if !isMove && op.AnchorTargetID != "" {
+			return errorResultWithCode(ErrCodeInvalidInput, "anchorTargetId is only valid for move/section or move/list_item")
 		}
 		switch {
 		case op.Action == "rename" && op.Subject == "heading":
@@ -467,9 +471,9 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 			if (op.Part != "body" && op.Part != "subtree") || op.Text != "" || op.Level != 0 || op.Position != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/section requires part body or subtree and markdown")
 			}
-		case isSectionMove:
+		case isMove:
 			if !isLowerHexDigest(op.AnchorTargetID) || (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Part != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "move/section requires anchorTargetId and position before or after")
+				return errorResultWithCode(ErrCodeInvalidInput, "move requires anchorTargetId and position before or after")
 			}
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown edit operation")

@@ -852,6 +852,71 @@ func TestPrepareInsertListItemSiblingPreservesSubtreeAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestPrepareMoveListItemBeforeAndAfterMovesCompleteSubtree(t *testing.T) {
+	source := []byte("1. first\r\n   - move π\r\n     - child\r\n2. second\r\n   - anchor\r\n3. tail\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := snapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(items) != 6 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	prepared, err := snapshot.PrepareMoveListItemAfter(items[1].TargetID, items[4].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "1. first\r\n2. second\r\n   - anchor\r\n   - move π\r\n     - child\r\n3. tail\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("tail"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareMoveListItemBefore(items[1].TargetID, items[2].TargetID); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("ancestor/descendant error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareMoveListItemAfter(items[2].TargetID, items[1].TargetID); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("descendant/ancestor error=%v, want ErrInvalidReplacement", err)
+	}
+	noopSource := []byte("- alpha\n- beta\n")
+	noopSnapshot, err := Parse(noopSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noopItems, err := noopSnapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(noopItems) != 2 {
+		t.Fatalf("noop items=%+v err=%v", noopItems, err)
+	}
+	noop, err := noopSnapshot.PrepareMoveListItemBefore(noopItems[0].TargetID, noopItems[1].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noopResult, err := noop.Apply(noopSource)
+	if err != nil || !bytes.Equal(noopResult, noopSource) {
+		t.Fatalf("noop result=%q err=%v", noopResult, err)
+	}
+	taskSnapshot, err := Parse([]byte("- [ ] task\n- plain\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := taskSnapshot.QueryNodes([]string{"task"}, 8)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("tasks=%+v err=%v", tasks, err)
+	}
+	taskItems, err := taskSnapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(taskItems) != 2 {
+		t.Fatalf("task items=%+v err=%v", taskItems, err)
+	}
+	if _, err := taskSnapshot.PrepareMoveListItemBefore(tasks[0].TargetID, taskItems[1].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("task target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

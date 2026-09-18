@@ -255,6 +255,42 @@ func (s *Snapshot) PrepareInsertListItemAfter(targetID string, fragment []byte) 
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareMoveListItemBefore resolves source and anchor list-item targets against
+// this exact snapshot and delegates complete subtree movement to Marksplice.
+func (s *Snapshot) PrepareMoveListItemBefore(targetID, anchorTargetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	anchor, err := s.targetNode(anchorTargetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareMoveListItemBefore(node.ID(), anchor.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareMoveListItemAfter resolves source and anchor list-item targets against
+// this exact snapshot and delegates complete subtree movement to Marksplice.
+func (s *Snapshot) PrepareMoveListItemAfter(targetID, anchorTargetID string) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	anchor, err := s.targetNode(anchorTargetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareMoveListItemAfter(node.ID(), anchor.ID())
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareRemoveListItem resolves the opaque Scripthold list-item target against
 // this exact snapshot and delegates complete supported subtree removal to Marksplice.
 func (s *Snapshot) PrepareRemoveListItem(targetID string) (PreparedChange, error) {
