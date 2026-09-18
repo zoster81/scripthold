@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 7 {
-		t.Fatalf("operation union = %#v, want seven closed variants", items["oneOf"])
+	if !ok || len(oneOf) != 8 {
+		t.Fatalf("operation union = %#v, want eight closed variants", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -129,7 +129,23 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("paragraph insert properties = %#v, want only action/subject/targetId/position/markdown", insertProperties)
 	}
 
-	removeSection := markdownReadSchemaMap(t, oneOf[5])
+	insertSection := markdownReadSchemaMap(t, oneOf[5])
+	if insertSection["type"] != "object" || insertSection["additionalProperties"] != false {
+		t.Fatalf("section insert schema = %#v, want strict object", insertSection)
+	}
+	markdownReadAssertStringSet(t, "section insert required", insertSection["required"], []string{"action", "markdown", "position", "subject", "targetId"})
+	insertSectionProperties := markdownReadSchemaMap(t, insertSection["properties"])
+	if markdownReadSchemaMap(t, insertSectionProperties["action"])["const"] != "insert" || markdownReadSchemaMap(t, insertSectionProperties["subject"])["const"] != "section" {
+		t.Fatalf("section insert discriminators = %#v", insertSectionProperties)
+	}
+	if position := markdownReadSchemaMap(t, insertSectionProperties["position"]); !reflect.DeepEqual(position["enum"], []string{"before", "after"}) {
+		t.Fatalf("section insert position schema = %#v, want before/after enum", position)
+	}
+	if markdownReadSchemaMap(t, insertSectionProperties["markdown"])["type"] != "string" || len(insertSectionProperties) != 5 {
+		t.Fatalf("section insert properties = %#v", insertSectionProperties)
+	}
+
+	removeSection := markdownReadSchemaMap(t, oneOf[6])
 	if removeSection["type"] != "object" || removeSection["additionalProperties"] != false {
 		t.Fatalf("section remove schema = %#v, want strict object", removeSection)
 	}
@@ -145,7 +161,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("section remove targetId schema = %#v", removeSectionProperties["targetId"])
 	}
 
-	replaceSectionBody := markdownReadSchemaMap(t, oneOf[6])
+	replaceSectionBody := markdownReadSchemaMap(t, oneOf[7])
 	if replaceSectionBody["type"] != "object" || replaceSectionBody["additionalProperties"] != false {
 		t.Fatalf("section body replace schema = %#v, want strict object", replaceSectionBody)
 	}

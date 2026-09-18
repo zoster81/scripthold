@@ -145,6 +145,88 @@ func TestPrepareRemoveSectionUsesSectionTargetAndRemovesSubtree(t *testing.T) {
 	}
 }
 
+func TestPrepareInsertSectionBeforeAndAfterUseSectionTargets(t *testing.T) {
+	source := []byte("# Root\r\n\r\n## Alpha\r\n\r\nAlpha body.\r\n\r\n### Alpha Child\r\n\r\nChild body.\r\n\r\n## Beta\r\n\r\nBeta body.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sections, truncated, err := snapshot.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(sections) != 2 {
+		t.Fatalf("sections=%+v truncated=%v err=%v", sections, truncated, err)
+	}
+	before, err := snapshot.PrepareInsertSectionBefore(sections[0].TargetID, []byte("## Before Alpha\r\n\r\nBody.\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := snapshot.PrepareInsertSectionAfter(sections[0].TargetID, []byte("## After Alpha\r\n\r\n### Inserted Child\r\n\r\nBody.\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := snapshot.ComposeChanges(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := combined.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Root\r\n\r\n## Before Alpha\r\n\r\nBody.\r\n## Alpha\r\n\r\nAlpha body.\r\n\r\n### Alpha Child\r\n\r\nChild body.\r\n\r\n## After Alpha\r\n\r\n### Inserted Child\r\n\r\nBody.\r\n## Beta\r\n\r\nBeta body.\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := combined.Apply(bytes.Replace(source, []byte("Beta body."), []byte("External."), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	if _, err := snapshot.PrepareInsertSectionBefore(sections[0].HeadingTargetID, []byte("## Invalid\r\n")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("heading target error=%v, want ErrInvalidTargetKind", err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) == 0 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareInsertSectionAfter(paragraphs[0].TargetID, []byte("## Invalid\r\n")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+	if _, err := snapshot.PrepareInsertSectionBefore(sections[0].TargetID, []byte("Paragraph only.\r\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("invalid fragment error=%v, want ErrInvalidReplacement", err)
+	}
+	conflictingBefore, err := snapshot.PrepareInsertSectionBefore(sections[1].TargetID, []byte("## Conflict\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot.ComposeChanges(after, conflictingBefore); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("adjacent insertion conflict error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestPrepareInsertSectionPreservesLF(t *testing.T) {
+	source := []byte("# Root\n\n## Alpha\n\nAlpha.\n\n## Beta\n\nBeta.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sections, truncated, err := snapshot.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(sections) != 2 {
+		t.Fatalf("sections=%+v truncated=%v err=%v", sections, truncated, err)
+	}
+	prepared, err := snapshot.PrepareInsertSectionAfter(sections[0].TargetID, []byte("## Inserted\n\nBody.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Root\n\n## Alpha\n\nAlpha.\n\n## Inserted\n\nBody.\n## Beta\n\nBeta.\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if bytes.Contains(result, []byte("\r\n")) {
+		t.Fatalf("LF insertion introduced CRLF: %q", result)
+	}
+}
+
 func TestPrepareReplaceSectionBodyPreservesHeadingAndChildHierarchy(t *testing.T) {
 	source := []byte("# Root\r\n\r\n## Target\r\n\r\nOld body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
 	snapshot, err := Parse(source)

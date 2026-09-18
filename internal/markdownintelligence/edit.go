@@ -93,6 +93,34 @@ func (s *Snapshot) PrepareReplaceSection(targetID string, replacement []byte) (P
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareInsertSectionBefore resolves the opaque Scripthold section anchor
+// against this exact snapshot and delegates sibling subtree insertion to Marksplice.
+func (s *Snapshot) PrepareInsertSectionBefore(targetID string, fragment []byte) (PreparedChange, error) {
+	headingID, err := s.sectionHeadingID(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareInsertSectionBefore(headingID, fragment)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareInsertSectionAfter resolves the opaque Scripthold section anchor
+// against this exact snapshot and delegates sibling subtree insertion to Marksplice.
+func (s *Snapshot) PrepareInsertSectionAfter(targetID string, fragment []byte) (PreparedChange, error) {
+	headingID, err := s.sectionHeadingID(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareInsertSectionAfter(headingID, fragment)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceSectionBody resolves the opaque Scripthold section target
 // against this exact snapshot and delegates direct-body replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceSectionBody(targetID string, replacement []byte) (PreparedChange, error) {
