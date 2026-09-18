@@ -227,6 +227,34 @@ func (s *Snapshot) PrepareReplaceListItemSubtree(targetID string, replacement []
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareInsertListItemBefore resolves the opaque Scripthold list-item anchor
+// against this exact snapshot and delegates sibling subtree insertion to Marksplice.
+func (s *Snapshot) PrepareInsertListItemBefore(targetID string, fragment []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareInsertListItemBefore(node.ID(), fragment)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareInsertListItemAfter resolves the opaque Scripthold list-item anchor
+// against this exact snapshot and delegates sibling subtree insertion to Marksplice.
+func (s *Snapshot) PrepareInsertListItemAfter(targetID string, fragment []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareInsertListItemAfter(node.ID(), fragment)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareRemoveListItem resolves the opaque Scripthold list-item target against
 // this exact snapshot and delegates complete supported subtree removal to Marksplice.
 func (s *Snapshot) PrepareRemoveListItem(targetID string) (PreparedChange, error) {

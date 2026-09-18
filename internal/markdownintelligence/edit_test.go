@@ -790,6 +790,68 @@ func TestPrepareRemoveListItemRemovesCompleteSubtreeAndIsSnapshotBound(t *testin
 	}
 }
 
+func TestPrepareInsertListItemSiblingPreservesSubtreeAndSnapshot(t *testing.T) {
+	source := []byte("1. parent\r\n   - anchor\r\n     - child\r\n   - tail\r\n2. end\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := snapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(items) != 5 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	after, err := snapshot.PrepareInsertListItemAfter(items[1].TargetID, []byte("   - inserted π\r\n     - grandchild\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := after.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "1. parent\r\n   - anchor\r\n     - child\r\n   - inserted π\r\n     - grandchild\r\n   - tail\r\n2. end\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := after.Apply(bytes.Replace(source, []byte("tail"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	before, err := snapshot.PrepareInsertListItemBefore(items[3].TargetID, []byte("   - before tail\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeResult, err := before.Apply(source)
+	if err != nil || !bytes.Contains(beforeResult, []byte("   - before tail\r\n   - tail\r\n")) {
+		t.Fatalf("before result=%q err=%v", beforeResult, err)
+	}
+	for _, fragment := range [][]byte{nil, []byte("- wrong indent\r\n"), []byte("   - one\r\n   - two\r\n")} {
+		if _, err := snapshot.PrepareInsertListItemBefore(items[3].TargetID, fragment); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("fragment %q error=%v, want ErrInvalidReplacement", fragment, err)
+		}
+	}
+	unsafe, err := Parse([]byte("- alpha\n- beta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsafeItems, err := unsafe.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(unsafeItems) != 2 {
+		t.Fatalf("unsafe items=%+v err=%v", unsafeItems, err)
+	}
+	if _, err := unsafe.PrepareInsertListItemAfter(unsafeItems[1].TargetID, []byte("- inserted\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("unsafe EOF error=%v, want ErrInvalidReplacement", err)
+	}
+	taskSnapshot, err := Parse([]byte("- [ ] task\n- plain\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := taskSnapshot.QueryNodes([]string{"task"}, 8)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("tasks=%+v err=%v", tasks, err)
+	}
+	if _, err := taskSnapshot.PrepareInsertListItemBefore(tasks[0].TargetID, []byte("- inserted\n")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("task target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)
