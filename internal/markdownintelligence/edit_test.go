@@ -1867,6 +1867,92 @@ func TestPrepareRemoveFrontMatterFieldPreservesMarkspliceTargetValidation(t *tes
 	}
 }
 
+func TestPrepareRemoveBlockquotePreservesContainerOwnershipAndSourceBinding(t *testing.T) {
+	tests := []struct {
+		name   string
+		source []byte
+		want   []byte
+	}{
+		{
+			name:   "ordinary CRLF",
+			source: []byte("before\r\n\r\n> quoted\r\n> second\r\n\r\nafter\r\n"),
+			want:   []byte("before\r\n\r\n\r\nafter\r\n"),
+		},
+		{
+			name:   "GitHub alert CRLF",
+			source: []byte("before\r\n\r\n> [!NOTE]\r\n> Important.\r\n\r\nafter\r\n"),
+			want:   []byte("before\r\n\r\n\r\nafter\r\n"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			blockquotes, err := snapshot.QueryNodes([]string{"blockquote"}, 8)
+			if err != nil || len(blockquotes) != 1 {
+				t.Fatalf("blockquotes=%+v err=%v", blockquotes, err)
+			}
+
+			prepared, err := snapshot.PrepareRemoveBlockquote(blockquotes[0].TargetID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := prepared.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(result, tt.want) {
+				t.Fatalf("result=%q want=%q", result, tt.want)
+			}
+
+			stale := append([]byte(nil), tt.source...)
+			stale[0] = 'B'
+			if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+				t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+			}
+		})
+	}
+
+	snapshot, err := Parse([]byte("Paragraph.\n\n> quote\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareRemoveBlockquote(paragraphs[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
+func TestPrepareRemoveBlockquoteRemovesMarkspliceOwnedLazyContinuation(t *testing.T) {
+	source := []byte("before\n> quoted\nafter\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockquotes, err := snapshot.QueryNodes([]string{"blockquote"}, 8)
+	if err != nil || len(blockquotes) != 1 {
+		t.Fatalf("blockquotes=%+v err=%v", blockquotes, err)
+	}
+	prepared, err := snapshot.PrepareRemoveBlockquote(blockquotes[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("before\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+}
+
 func TestPrepareRemoveThematicBreakPreservesCRLFAndSourceBinding(t *testing.T) {
 	source := []byte("before\r\n\r\n  * * *  \r\n\r\nafter\r\n")
 	snapshot, err := Parse(source)

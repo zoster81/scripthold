@@ -199,6 +199,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareRemoveFrontMatterField(operationInput.TargetID)
 		case operationInput.Action == "remove" && operationInput.Subject == "thematic_break":
 			preparedChange, prepareErr = snapshot.PrepareRemoveThematicBreak(operationInput.TargetID)
+		case operationInput.Action == "remove" && operationInput.Subject == "blockquote":
+			preparedChange, prepareErr = snapshot.PrepareRemoveBlockquote(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "destination":
 			preparedChange, prepareErr = snapshot.PrepareReplaceReferenceDefinitionDestination(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
@@ -567,6 +569,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "remove" && op.Subject == "thematic_break":
 			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "remove/thematic_break accepts targetId only")
+			}
+		case op.Action == "remove" && op.Subject == "blockquote":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove/blockquote accepts targetId only")
 			}
 		case op.Action == "replace" && op.Subject == "reference_definition":
 			if (op.Part != "destination" && op.Part != "title") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
