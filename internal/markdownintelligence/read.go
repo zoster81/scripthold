@@ -322,24 +322,38 @@ type resolvedNodeTarget struct {
 }
 
 func (s *Snapshot) resolveNodeTarget(target string) (resolvedNodeTarget, bool, error) {
+	if s == nil || s.document == nil {
+		return resolvedNodeTarget{}, false, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
 	if !validTargetID(target) {
 		return resolvedNodeTarget{}, false, nil
 	}
-	matches, err := s.document.QueryNodes(marksplice.NodeQuery{Limit: maxTargetScanNodes + 1})
-	if err != nil {
-		return resolvedNodeTarget{}, false, err
-	}
-	if len(matches) > maxTargetScanNodes {
-		return resolvedNodeTarget{}, false, fmt.Errorf("%w: markdown target scan exceeds %d nodes", marksplice.ErrInvalidQuery, maxTargetScanNodes)
-	}
-	for _, match := range matches {
-		node := match.Node()
-		rangeValue := match.Range()
-		if targetID(s.fingerprint, kindName(node.Kind()), rangeValue) == target {
-			return resolvedNodeTarget{node: node, rangeValue: rangeValue}, true, nil
+	s.nodeTargetIndexOnce.Do(func() {
+		matches, err := s.document.QueryNodes(marksplice.NodeQuery{Limit: maxTargetScanNodes + 1})
+		if err != nil {
+			s.nodeTargetIndexErr = err
+			return
 		}
+		if len(matches) > maxTargetScanNodes {
+			s.nodeTargetIndexErr = fmt.Errorf("%w: markdown target scan exceeds %d nodes", marksplice.ErrInvalidQuery, maxTargetScanNodes)
+			return
+		}
+		index := make(map[string]resolvedNodeTarget, len(matches))
+		for _, match := range matches {
+			node := match.Node()
+			rangeValue := match.Range()
+			key := targetID(s.fingerprint, kindName(node.Kind()), rangeValue)
+			if _, exists := index[key]; !exists {
+				index[key] = resolvedNodeTarget{node: node, rangeValue: rangeValue}
+			}
+		}
+		s.nodeTargetIndex = index
+	})
+	if s.nodeTargetIndexErr != nil {
+		return resolvedNodeTarget{}, false, s.nodeTargetIndexErr
 	}
-	return resolvedNodeTarget{}, false, nil
+	resolved, ok := s.nodeTargetIndex[target]
+	return resolved, ok, nil
 }
 
 func (s *Snapshot) queryNodesBounded(kinds []string, limit int) ([]NodeSummary, bool, error) {

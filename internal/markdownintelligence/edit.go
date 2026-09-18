@@ -453,17 +453,30 @@ func (s *Snapshot) sectionHeadingID(sectionTargetID string) (marksplice.NodeID, 
 	if !validTargetID(sectionTargetID) {
 		return zero, fmt.Errorf("%w: markdown section target is invalid", marksplice.ErrNodeNotFound)
 	}
-	sections, err := s.document.QuerySections(marksplice.SectionQuery{Limit: maxTargetScanNodes + 1})
-	if err != nil {
-		return zero, err
-	}
-	if len(sections) > maxTargetScanNodes {
-		return zero, fmt.Errorf("%w: markdown section target scan exceeds %d sections", marksplice.ErrInvalidQuery, maxTargetScanNodes)
-	}
-	for _, section := range sections {
-		if targetID(s.fingerprint, "section", section.Range()) == sectionTargetID {
-			return section.HeadingID(), nil
+	s.sectionTargetIndexOnce.Do(func() {
+		sections, err := s.document.QuerySections(marksplice.SectionQuery{Limit: maxTargetScanNodes + 1})
+		if err != nil {
+			s.sectionTargetIndexErr = err
+			return
 		}
+		if len(sections) > maxTargetScanNodes {
+			s.sectionTargetIndexErr = fmt.Errorf("%w: markdown section target scan exceeds %d sections", marksplice.ErrInvalidQuery, maxTargetScanNodes)
+			return
+		}
+		index := make(map[string]marksplice.NodeID, len(sections))
+		for _, section := range sections {
+			key := targetID(s.fingerprint, "section", section.Range())
+			if _, exists := index[key]; !exists {
+				index[key] = section.HeadingID()
+			}
+		}
+		s.sectionTargetIndex = index
+	})
+	if s.sectionTargetIndexErr != nil {
+		return zero, s.sectionTargetIndexErr
+	}
+	if headingID, ok := s.sectionTargetIndex[sectionTargetID]; ok {
+		return headingID, nil
 	}
 	if _, ok, err := s.resolveNodeTarget(sectionTargetID); err != nil {
 		return zero, err
@@ -474,23 +487,15 @@ func (s *Snapshot) sectionHeadingID(sectionTargetID string) (marksplice.NodeID, 
 }
 
 func (s *Snapshot) targetNode(targetID string) (marksplice.Node, error) {
-	if s == nil || s.document == nil {
-		return marksplice.Node{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
-	}
 	if !validTargetID(targetID) {
 		return marksplice.Node{}, fmt.Errorf("%w: markdown target is invalid", marksplice.ErrNodeNotFound)
 	}
-	matches, err := s.document.QueryNodes(marksplice.NodeQuery{Limit: maxTargetScanNodes + 1})
+	resolved, ok, err := s.resolveNodeTarget(targetID)
 	if err != nil {
 		return marksplice.Node{}, err
 	}
-	if len(matches) > maxTargetScanNodes {
-		return marksplice.Node{}, fmt.Errorf("%w: markdown target scan exceeds %d nodes", marksplice.ErrInvalidQuery, maxTargetScanNodes)
+	if !ok {
+		return marksplice.Node{}, fmt.Errorf("%w: markdown target was not found", marksplice.ErrNodeNotFound)
 	}
-	for _, match := range matches {
-		if s.summarize(match).TargetID == targetID {
-			return match.Node(), nil
-		}
-	}
-	return marksplice.Node{}, fmt.Errorf("%w: markdown target was not found", marksplice.ErrNodeNotFound)
+	return resolved.node, nil
 }

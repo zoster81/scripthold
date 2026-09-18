@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/zoster81/marksplice"
 )
@@ -37,6 +38,14 @@ type Snapshot struct {
 	document    *marksplice.Document
 	source      []byte
 	fingerprint string
+
+	nodeTargetIndexOnce sync.Once
+	nodeTargetIndex     map[string]resolvedNodeTarget
+	nodeTargetIndexErr  error
+
+	sectionTargetIndexOnce sync.Once
+	sectionTargetIndex     map[string]marksplice.NodeID
+	sectionTargetIndexErr  error
 }
 
 // Parse creates an immutable Markdown snapshot using Marksplice as the sole
@@ -89,23 +98,11 @@ func (s *Snapshot) QueryNodes(kinds []string, limit int) ([]NodeSummary, error) 
 // bounded scan is necessary because Marksplice NodeID is intentionally not a
 // persistence or round-trip format.
 func (s *Snapshot) Target(targetID string) (NodeSummary, bool, error) {
-	if !validTargetID(targetID) {
-		return NodeSummary{}, false, nil
+	resolved, ok, err := s.resolveNodeTarget(targetID)
+	if err != nil || !ok {
+		return NodeSummary{}, ok, err
 	}
-	matches, err := s.document.QueryNodes(marksplice.NodeQuery{Limit: maxTargetScanNodes + 1})
-	if err != nil {
-		return NodeSummary{}, false, err
-	}
-	if len(matches) > maxTargetScanNodes {
-		return NodeSummary{}, false, fmt.Errorf("%w: markdown target scan exceeds %d nodes", marksplice.ErrInvalidQuery, maxTargetScanNodes)
-	}
-	for _, match := range matches {
-		summary := s.summarize(match)
-		if summary.TargetID == targetID {
-			return summary, true, nil
-		}
-	}
-	return NodeSummary{}, false, nil
+	return s.summarizeNode(resolved.node, resolved.rangeValue), true, nil
 }
 
 // Source returns a caller-owned copy of an exact Marksplice-backed source range.
@@ -117,8 +114,10 @@ func (s *Snapshot) Source(r Range) ([]byte, bool) {
 }
 
 func (s *Snapshot) summarize(match marksplice.NodeMatch) NodeSummary {
-	node := match.Node()
-	rangeValue := match.Range()
+	return s.summarizeNode(match.Node(), match.Range())
+}
+
+func (s *Snapshot) summarizeNode(node marksplice.Node, rangeValue marksplice.Range) NodeSummary {
 	kind := kindName(node.Kind())
 	return NodeSummary{
 		TargetID:   targetID(s.fingerprint, kind, rangeValue),

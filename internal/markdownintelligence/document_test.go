@@ -88,6 +88,43 @@ func TestSnapshotQueryIsBoundedAndKindValidated(t *testing.T) {
 	}
 }
 
+func TestSnapshotTargetIndexesAreLazyAndReusable(t *testing.T) {
+	snapshot, err := Parse([]byte("# Alpha\n\nBody.\n\n## Child\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.nodeTargetIndex != nil || snapshot.sectionTargetIndex != nil {
+		t.Fatal("target indexes initialized eagerly")
+	}
+	nodes, err := snapshot.QueryNodes([]string{"heading"}, 4)
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("nodes=%+v err=%v", nodes, err)
+	}
+	if _, ok, err := snapshot.Target(nodes[0].TargetID); err != nil || !ok {
+		t.Fatalf("first target lookup ok=%t err=%v", ok, err)
+	}
+	if len(snapshot.nodeTargetIndex) == 0 {
+		t.Fatal("node target index was not initialized")
+	}
+	snapshot.nodeTargetIndex["sentinel"] = resolvedNodeTarget{}
+	if _, ok, err := snapshot.Target(nodes[1].TargetID); err != nil || !ok {
+		t.Fatalf("second target lookup ok=%t err=%v", ok, err)
+	}
+	if _, ok := snapshot.nodeTargetIndex["sentinel"]; !ok {
+		t.Fatal("node target index was rebuilt instead of reused")
+	}
+	sections, truncated, err := snapshot.QuerySections(nil, nil, 4)
+	if err != nil || truncated || len(sections) != 2 {
+		t.Fatalf("sections=%+v truncated=%t err=%v", sections, truncated, err)
+	}
+	if _, err := snapshot.sectionHeadingID(sections[0].TargetID); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.sectionTargetIndex) == 0 {
+		t.Fatal("section target index was not initialized")
+	}
+}
+
 func TestSnapshotTargetAndSourceRangeUseOnlyPublicStructuralIdentity(t *testing.T) {
 	source := []byte("# Alpha\r\n\r\nBody.\r\n")
 	snapshot, err := Parse(source)
