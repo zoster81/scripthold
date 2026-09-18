@@ -470,6 +470,79 @@ func TestMarkdownEditReplacesDirectLinkFamily(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditReplacesMathExpression(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		fenced bool
+		text   string
+		want   string
+	}{
+		{name: "inline dollar", source: "before $x + y$ after\r\n", text: "a + b", want: "before $a + b$ after\r\n"},
+		{name: "inline backtick", source: "before $`x + y`$ after\n", text: "a + b", want: "before $`a + b`$ after\n"},
+		{name: "block dollar", source: "$$x + y$$\r\n", text: "a + b", want: "$$a + b$$\r\n"},
+		{name: "fenced math", source: "```math\nx + y\n```\n", fenced: true, text: "a + b\nc + d", want: "```math\na + b\nc + d\n```\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			var targetID string
+			if tt.fenced {
+				result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "inspect", Path: path, Limit: 4})
+				if err != nil || result.IsError || read.Inspect == nil || len(read.Inspect.FencedBlocks) != 1 || read.Inspect.FencedBlocks[0].Language != "math" {
+					t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+				}
+				targetID = read.Inspect.FencedBlocks[0].TargetID
+			} else {
+				result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"math_expression"}, Limit: 4})
+				if err != nil || result.IsError || len(read.Nodes) != 1 {
+					t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+				}
+				targetID = read.Nodes[0].TargetID
+			}
+			operation := MarkdownEditOperation{Action: "replace", Subject: "math_expression", TargetID: targetID, Text: tt.text}
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.source {
+				t.Fatalf("preview mutated target=%q err=%v", got, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInvalidMathExpressionShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "replace", Subject: "math_expression", TargetID: targetID},
+		{Action: "replace", Subject: "math_expression", TargetID: targetID, Text: "new", Part: "payload"},
+		{Action: "replace", Subject: "math_expression", TargetID: targetID, Text: "new", Markdown: "extra"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path:       filepath.Join(t.TempDir(), "missing.md"),
+			Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid math-expression shape result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditFencedCodeMutations(t *testing.T) {
 	tests := []struct {
 		name   string

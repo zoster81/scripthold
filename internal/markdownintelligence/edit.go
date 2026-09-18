@@ -362,6 +362,33 @@ func (s *Snapshot) PrepareRemoveThematicBreak(targetID string) (PreparedChange, 
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceMathExpression resolves the opaque Scripthold math-expression target
+// against this exact snapshot and delegates payload replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceMathExpression(targetID string, replacement []byte) (PreparedChange, error) {
+	resolved, ok, err := s.resolveNodeTarget(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	var id marksplice.NodeID
+	if ok {
+		id = resolved.node.ID()
+	} else {
+		id, err = s.fencedBlockID(targetID)
+		if err != nil {
+			return PreparedChange{}, err
+		}
+		expression, exists := s.document.MathExpression(id)
+		if !exists || expression.Style() != marksplice.MathExpressionFencedBlock {
+			return PreparedChange{}, marksplice.ErrInvalidTargetKind
+		}
+	}
+	change, err := s.document.PrepareReplaceMathExpression(id, replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceHTMLComment resolves the opaque Scripthold HTML comment target
 // against this exact snapshot and delegates payload replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceHTMLComment(targetID string, replacement []byte) (PreparedChange, error) {

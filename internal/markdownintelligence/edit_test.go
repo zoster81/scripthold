@@ -1926,6 +1926,140 @@ func TestPrepareRemoveThematicBreakPreservesMarkspliceTargetValidation(t *testin
 	}
 }
 
+func TestPrepareReplaceMathExpressionPreservesReviewedStylesAndSourceBinding(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      []byte
+		style       string
+		payload     []byte
+		replacement []byte
+		want        []byte
+	}{
+		{name: "inline dollar CRLF", source: []byte("before $x + y$ after\r\n"), style: "inline_dollar", payload: []byte("x + y"), replacement: []byte("a + b"), want: []byte("before $a + b$ after\r\n")},
+		{name: "inline backtick CRLF", source: []byte("before $`x + y`$ after\r\n"), style: "inline_backtick", payload: []byte("x + y"), replacement: []byte("a + b"), want: []byte("before $`a + b`$ after\r\n")},
+		{name: "block dollar CRLF", source: []byte("$$x + y$$\r\n"), style: "block_dollar", payload: []byte("x + y"), replacement: []byte("a + b"), want: []byte("$$a + b$$\r\n")},
+		{name: "fenced math multiline", source: []byte("```math\nx + y\n```\n"), style: "fenced_block", payload: []byte("x + y"), replacement: []byte("a + b\nc + d"), want: []byte("```math\na + b\nc + d\n```\n")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var targetID string
+			if tt.style == "fenced_block" {
+				inspect, inspectErr := snapshot.Inspect(4)
+				if inspectErr != nil || len(inspect.FencedBlocks) != 1 || inspect.FencedBlocks[0].Language != "math" {
+					t.Fatalf("fenced blocks=%+v err=%v", inspect.FencedBlocks, inspectErr)
+				}
+				targetID = inspect.FencedBlocks[0].TargetID
+			} else {
+				nodes, queryErr := snapshot.QueryNodes([]string{"math_expression"}, 4)
+				if queryErr != nil || len(nodes) != 1 {
+					direct := snapshot.document.MathExpressions()
+					styles := make([]string, 0, len(direct))
+					for _, expression := range direct {
+						styles = append(styles, mathExpressionStyleName(expression.Style()))
+					}
+					t.Fatalf("math expressions=%+v directStyles=%v err=%v", nodes, styles, queryErr)
+				}
+				if got := nodes[0].Attributes["style"]; got != tt.style {
+					t.Fatalf("style=%#v want=%q", got, tt.style)
+				}
+				targetID = nodes[0].TargetID
+			}
+
+			prepared, err := snapshot.PrepareReplaceMathExpression(targetID, tt.replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := prepared.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, tt.want) {
+				t.Fatalf("result=%q want=%q", got, tt.want)
+			}
+
+			noOp, err := snapshot.PrepareReplaceMathExpression(targetID, tt.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			unchanged, err := noOp.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(unchanged, tt.source) {
+				t.Fatalf("no-op result=%q want original=%q", unchanged, tt.source)
+			}
+
+			stale := append(append([]byte(nil), tt.source...), []byte("changed")...)
+			if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+				t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+			}
+		})
+	}
+}
+
+func TestPrepareReplaceMathExpressionPreservesMarkspliceRejections(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      []byte
+		style       string
+		replacement []byte
+	}{
+		{name: "inline dollar delimiter", source: []byte("$x$\n"), style: "inline_dollar", replacement: []byte("bad$split")},
+		{name: "inline backtick delimiter", source: []byte("$`x`$\n"), style: "inline_backtick", replacement: []byte("bad`split")},
+		{name: "block dollar multiline", source: []byte("$$x$$\n"), style: "block_dollar", replacement: []byte("line one\nline two")},
+		{name: "fenced math empty", source: []byte("```math\nx\n```\n"), style: "fenced_block", replacement: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var targetID string
+			if tt.style == "fenced_block" {
+				inspect, inspectErr := snapshot.Inspect(4)
+				if inspectErr != nil || len(inspect.FencedBlocks) != 1 {
+					t.Fatalf("fenced blocks=%+v err=%v", inspect.FencedBlocks, inspectErr)
+				}
+				targetID = inspect.FencedBlocks[0].TargetID
+			} else {
+				nodes, queryErr := snapshot.QueryNodes([]string{"math_expression"}, 4)
+				if queryErr != nil || len(nodes) != 1 || nodes[0].Attributes["style"] != tt.style {
+					t.Fatalf("math expressions=%+v err=%v", nodes, queryErr)
+				}
+				targetID = nodes[0].TargetID
+			}
+			if _, err := snapshot.PrepareReplaceMathExpression(targetID, tt.replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+				t.Fatalf("replacement=%q error=%v, want ErrInvalidReplacement", tt.replacement, err)
+			}
+		})
+	}
+
+	snapshot, err := Parse([]byte("Paragraph.\n\n```go\nbody\n```\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 4)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareReplaceMathExpression(paragraphs[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+	inspect, err := snapshot.Inspect(4)
+	if err != nil || len(inspect.FencedBlocks) != 1 {
+		t.Fatalf("fenced blocks=%+v err=%v", inspect.FencedBlocks, err)
+	}
+	if _, err := snapshot.PrepareReplaceMathExpression(inspect.FencedBlocks[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("non-math fenced target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReplaceHTMLCommentPreservesWrapperAndSourceBinding(t *testing.T) {
 	source := []byte("before <!--  old comment  --> after\r\n")
 	snapshot, err := Parse(source)
