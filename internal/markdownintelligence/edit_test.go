@@ -1560,6 +1560,124 @@ func TestPrepareReplaceSimpleInlinePreservesAuthoredDelimiters(t *testing.T) {
 	}
 }
 
+func TestPrepareReplaceFrontMatterValuePreservesYAMLCRLFAndSourceBinding(t *testing.T) {
+	source := []byte("---\r\ntitle: \"Old\"\r\nkeep: yes\r\n---\r\n\r\nBody.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := snapshot.QueryNodes([]string{"front_matter_field"}, 8)
+	if err != nil || len(fields) != 2 {
+		t.Fatalf("fields=%+v err=%v", fields, err)
+	}
+	var titleTarget string
+	for _, field := range fields {
+		if field.Attributes["key"] == "title" {
+			titleTarget = field.TargetID
+			break
+		}
+	}
+	if titleTarget == "" {
+		t.Fatalf("title field not found: %+v", fields)
+	}
+
+	prepared, err := snapshot.PrepareReplaceFrontMatterValue(titleTarget, []byte("New"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("---\r\ntitle: \"New\"\r\nkeep: yes\r\n---\r\n\r\nBody.\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply([]byte("---\r\ntitle: \"Old\"\r\nkeep: changed\r\n---\r\n\r\nBody.\r\n")); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+}
+
+func TestPrepareReplaceFrontMatterValuePreservesTOMLStyleAndNoOp(t *testing.T) {
+	source := []byte("+++\ntitle   =   'Old'   # keep this comment\ncount = 1\n+++\n\nBody.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := snapshot.QueryNodes([]string{"front_matter_field"}, 8)
+	if err != nil || len(fields) != 1 || fields[0].Attributes["key"] != "title" {
+		t.Fatalf("fields=%+v err=%v", fields, err)
+	}
+	titleTarget := fields[0].TargetID
+
+	prepared, err := snapshot.PrepareReplaceFrontMatterValue(titleTarget, []byte("New"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("+++\ntitle   =   'New'   # keep this comment\ncount = 1\n+++\n\nBody.\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+
+	noOp, err := snapshot.PrepareReplaceFrontMatterValue(titleTarget, []byte("Old"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := noOp.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unchanged, source) {
+		t.Fatalf("no-op result=%q want original=%q", unchanged, source)
+	}
+}
+
+func TestPrepareReplaceFrontMatterValuePreservesMarkspliceRejections(t *testing.T) {
+	source := []byte("---\ntitle: Old\n---\n\nParagraph.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := snapshot.QueryNodes([]string{"front_matter_field"}, 8)
+	if err != nil || len(fields) != 1 {
+		t.Fatalf("fields=%+v err=%v", fields, err)
+	}
+	targetID := fields[0].TargetID
+
+	for _, replacement := range [][]byte{nil, []byte("line one\nline two")} {
+		if _, err := snapshot.PrepareReplaceFrontMatterValue(targetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("replacement=%q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareReplaceFrontMatterValue(paragraphs[0].TargetID, []byte("New")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
+func TestPrepareReplaceFrontMatterValueDoesNotTargetDuplicateKeys(t *testing.T) {
+	source := []byte("---\ntitle: one\ntitle: two\nkeep: yes\n---\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := snapshot.QueryNodes([]string{"front_matter_field"}, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 1 || fields[0].Attributes["key"] != "keep" {
+		t.Fatalf("duplicate-key fields unexpectedly targetable: %+v", fields)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

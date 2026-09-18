@@ -306,6 +306,20 @@ func (s *Snapshot) PrepareRemoveReferenceDefinitionTitle(targetID string) (Prepa
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceFrontMatterValue resolves the opaque Scripthold front-matter
+// field target against this exact snapshot and delegates value replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceFrontMatterValue(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceFrontMatterValue(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceAutoLink resolves the opaque Scripthold autolink target against
 // this exact snapshot and delegates value replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceAutoLink(targetID string, replacement []byte) (PreparedChange, error) {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -525,6 +526,66 @@ func TestMarkdownEditRejectsInvalidFencedCodeShapesBeforeFilesystemWork(t *testi
 		})
 		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
 			t.Fatalf("invalid fenced-code shape result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
+func TestMarkdownEditReplacesFrontMatterField(t *testing.T) {
+	source := []byte("---\r\ntitle: \"Old\"\r\nkeep: yes\r\n---\r\n\r\nBody.\r\n")
+	want := "---\r\ntitle: \"New\"\r\nkeep: yes\r\n---\r\n\r\nBody.\r\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(path, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+		Action: "query", Path: path, Query: "nodes", Kinds: []string{"front_matter_field"}, Limit: 4,
+	})
+	if err != nil || result.IsError || len(read.Nodes) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+	}
+	var targetID string
+	for _, node := range read.Nodes {
+		if node.Attributes["key"] == "title" {
+			targetID = node.TargetID
+			break
+		}
+	}
+	if targetID == "" {
+		t.Fatalf("title front matter field not found: %+v", read.Nodes)
+	}
+	operation := MarkdownEditOperation{Action: "replace", Subject: "front_matter_field", TargetID: targetID, Text: "New"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, source) {
+		t.Fatalf("preview mutated target=%q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidFrontMatterFieldReplaceShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "replace", Subject: "front_matter_field", TargetID: targetID},
+		{Action: "replace", Subject: "front_matter_field", TargetID: targetID, Text: "new", Part: "value"},
+		{Action: "replace", Subject: "front_matter_field", TargetID: targetID, Text: "new", Markdown: "extra"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid front matter field replace result=%+v err=%v operation=%+v", result, err, operation)
 		}
 	}
 }
