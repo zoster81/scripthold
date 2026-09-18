@@ -181,6 +181,28 @@ func markdownEditCatalogTool() *mcp.Tool {
 							"required":             []string{"action", "subject", "targetId", "part", "text"},
 							"properties": map[string]any{
 								"action":   map[string]any{"const": "replace"},
+								"subject":  map[string]any{"const": "fenced_code"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"part":     map[string]any{"const": "body"},
+								"text":     map[string]any{"type": "string", "minLength": 1},
+							},
+						}, map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "part", "text"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "set"},
+								"subject":  map[string]any{"const": "fenced_code"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"part":     map[string]any{"const": "info"},
+								"text":     map[string]any{"type": "string"},
+							},
+						}, map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "part", "text"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "replace"},
 								"subject":  map[string]any{"const": "inline_link"},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
 								"part":     map[string]any{"type": "string", "enum": []string{"destination", "label", "title"}},

@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 20 {
-		t.Fatalf("operation union = %#v, want twenty schema branches covering thirty closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 22 {
+		t.Fatalf("operation union = %#v, want twenty-two schema branches covering thirty-two closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -172,6 +172,28 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if markdownReadSchemaMap(t, replaceCodeSpanProperties["text"])["type"] != "string" || len(replaceCodeSpanProperties) != 4 {
 		t.Fatalf("code span replace properties = %#v", replaceCodeSpanProperties)
+	}
+
+	replaceFencedBody := markdownEditOperationBranch(t, oneOf, "replace", "fenced_code", "body")
+	markdownReadAssertStringSet(t, "fenced body replace required", replaceFencedBody["required"], []string{"action", "part", "subject", "targetId", "text"})
+	replaceFencedBodyProperties := markdownReadSchemaMap(t, replaceFencedBody["properties"])
+	if markdownReadSchemaMap(t, replaceFencedBodyProperties["part"])["const"] != "body" {
+		t.Fatalf("fenced body part schema = %#v", replaceFencedBodyProperties["part"])
+	}
+	fencedBodyText := markdownReadSchemaMap(t, replaceFencedBodyProperties["text"])
+	if fencedBodyText["type"] != "string" || fencedBodyText["minLength"] != 1 || len(replaceFencedBodyProperties) != 5 {
+		t.Fatalf("fenced body replace properties = %#v", replaceFencedBodyProperties)
+	}
+
+	setFencedInfo := markdownEditOperationBranch(t, oneOf, "set", "fenced_code", "info")
+	markdownReadAssertStringSet(t, "fenced info set required", setFencedInfo["required"], []string{"action", "part", "subject", "targetId", "text"})
+	setFencedInfoProperties := markdownReadSchemaMap(t, setFencedInfo["properties"])
+	if markdownReadSchemaMap(t, setFencedInfoProperties["part"])["const"] != "info" {
+		t.Fatalf("fenced info part schema = %#v", setFencedInfoProperties["part"])
+	}
+	fencedInfoText := markdownReadSchemaMap(t, setFencedInfoProperties["text"])
+	if fencedInfoText["type"] != "string" || fencedInfoText["minLength"] != nil || len(setFencedInfoProperties) != 5 {
+		t.Fatalf("fenced info set properties = %#v", setFencedInfoProperties)
 	}
 
 	replaceInlineLink := markdownEditOperationBranch(t, oneOf, "replace", "inline_link", "destination")

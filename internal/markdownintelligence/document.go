@@ -46,6 +46,10 @@ type Snapshot struct {
 	sectionTargetIndexOnce sync.Once
 	sectionTargetIndex     map[string]marksplice.NodeID
 	sectionTargetIndexErr  error
+
+	fencedBlockTargetIndexOnce sync.Once
+	fencedBlockTargetIndex     map[string]marksplice.NodeID
+	fencedBlockTargetIndexErr  error
 }
 
 // Parse creates an immutable Markdown snapshot using Marksplice as the sole

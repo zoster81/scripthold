@@ -1089,6 +1089,102 @@ func TestPrepareReplaceDirectLinkFamilyPreservesAuthoredSyntax(t *testing.T) {
 	}
 }
 
+func TestPrepareFencedCodeMutationsPreserveAuthoredContainer(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      []byte
+		replacement []byte
+		want        string
+		prepare     func(*Snapshot, string, []byte) (PreparedChange, error)
+	}{
+		{name: "replace body", source: []byte("```` go extra\nline one\nline two\n  `````  \n"), replacement: []byte("new one\nnew two"), want: "```` go extra\nnew one\nnew two\n  `````  \n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceFencedCode(id, b)
+		}},
+		{name: "populate empty body", source: []byte("```math\n```\n"), replacement: []byte("x + y"), want: "```math\nx + y\n```\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareReplaceFencedCode(id, b)
+		}},
+		{name: "replace info", source: []byte("  ~~~~  go old  \nbody\n ~~~~~~   \n"), replacement: []byte("typescript module"), want: "  ~~~~  typescript module  \nbody\n ~~~~~~   \n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareSetFencedBlockInfo(id, b)
+		}},
+		{name: "clear info CRLF", source: []byte("```  go extra  \r\nbody\r\n```\r\n"), replacement: []byte(""), want: "```    \r\nbody\r\n```\r\n", prepare: func(s *Snapshot, id string, b []byte) (PreparedChange, error) {
+			return s.PrepareSetFencedBlockInfo(id, b)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inspect, err := snapshot.Inspect(4)
+			if err != nil || len(inspect.FencedBlocks) != 1 {
+				t.Fatalf("inspect=%+v err=%v", inspect, err)
+			}
+			prepared, err := tt.prepare(snapshot, inspect.FencedBlocks[0].TargetID, tt.replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := prepared.Apply(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("result=%q want=%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareFencedCodeMutationsAcceptQueryNodeTargetsWhenAvailable(t *testing.T) {
+	source := []byte("```go\nold body\n```\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := snapshot.QueryNodes([]string{"fenced_code"}, 4)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("nodes=%+v err=%v", nodes, err)
+	}
+
+	prepared, err := snapshot.PrepareReplaceFencedCode(nodes[0].TargetID, []byte("new body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "```go\nnew body\n```\n"; string(got) != want {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+}
+
+func TestPrepareFencedCodeMutationsPreserveMarkspliceRejections(t *testing.T) {
+	source := []byte("```go\nbody\n```\n\nparagraph\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspect, err := snapshot.Inspect(4)
+	if err != nil || len(inspect.FencedBlocks) != 1 {
+		t.Fatalf("inspect=%+v err=%v", inspect, err)
+	}
+	targetID := inspect.FencedBlocks[0].TargetID
+	if _, err := snapshot.PrepareReplaceFencedCode(targetID, nil); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("empty body error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareSetFencedBlockInfo(targetID, []byte("bad\ninfo")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("multiline info error=%v, want ErrInvalidReplacement", err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 4)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareReplaceFencedCode(paragraphs[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareDirectTitleLifecyclePreservesAuthoredSyntax(t *testing.T) {
 	tests := []struct {
 		name    string

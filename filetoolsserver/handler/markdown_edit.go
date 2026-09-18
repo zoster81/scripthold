@@ -157,6 +157,10 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceEmphasis(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "strong":
 			preparedChange, prepareErr = snapshot.PrepareReplaceStrong(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "fenced_code" && operationInput.Part == "body":
+			preparedChange, prepareErr = snapshot.PrepareReplaceFencedCode(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "set" && operationInput.Subject == "fenced_code" && operationInput.Part == "info":
+			preparedChange, prepareErr = snapshot.PrepareSetFencedBlockInfo(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "destination":
 			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkDestination(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "label":
@@ -481,6 +485,14 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && (op.Subject == "code_span" || op.Subject == "strikethrough" || op.Subject == "emphasis" || op.Subject == "strong"):
 			if op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "simple inline replacement accepts text only")
+			}
+		case op.Action == "replace" && op.Subject == "fenced_code":
+			if op.Part != "body" || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/fenced_code requires part body and non-empty text")
+			}
+		case op.Action == "set" && op.Subject == "fenced_code":
+			if op.Part != "info" || op.Level != 0 || op.Markdown != "" || op.Position != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "set/fenced_code requires part info and text")
 			}
 		case op.Action == "replace" && op.Subject == "inline_link":
 			if (op.Part != "destination" && op.Part != "label" && op.Part != "title") || op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" {

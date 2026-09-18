@@ -467,6 +467,68 @@ func TestMarkdownEditReplacesDirectLinkFamily(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditFencedCodeMutations(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		action string
+		part   string
+		text   string
+		want   string
+	}{
+		{name: "replace body", source: "```` go extra\nline one\nline two\n  `````  \n", action: "replace", part: "body", text: "new one\nnew two", want: "```` go extra\nnew one\nnew two\n  `````  \n"},
+		{name: "populate empty body", source: "```math\n```\n", action: "replace", part: "body", text: "x + y", want: "```math\nx + y\n```\n"},
+		{name: "set info", source: "  ~~~~  go old  \nbody\n ~~~~~~   \n", action: "set", part: "info", text: "typescript module", want: "  ~~~~  typescript module  \nbody\n ~~~~~~   \n"},
+		{name: "clear info", source: "```  go extra  \r\nbody\r\n```\r\n", action: "set", part: "info", text: "", want: "```    \r\nbody\r\n```\r\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "inspect", Path: path, Limit: 4})
+			if err != nil || result.IsError || read.Inspect == nil || len(read.Inspect.FencedBlocks) != 1 {
+				t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+			}
+			operation := MarkdownEditOperation{Action: tt.action, Subject: "fenced_code", TargetID: read.Inspect.FencedBlocks[0].TargetID, Part: tt.part, Text: tt.text}
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInvalidFencedCodeShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "replace", Subject: "fenced_code", TargetID: targetID, Part: "body"},
+		{Action: "replace", Subject: "fenced_code", TargetID: targetID, Part: "info", Text: "body"},
+		{Action: "set", Subject: "fenced_code", TargetID: targetID, Part: "body", Text: "go"},
+		{Action: "set", Subject: "fenced_code", TargetID: targetID, Part: "info", Markdown: "extra"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path:       filepath.Join(t.TempDir(), "missing.md"),
+			Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid fenced-code shape result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditDirectTitleLifecycle(t *testing.T) {
 	tests := []struct {
 		name    string

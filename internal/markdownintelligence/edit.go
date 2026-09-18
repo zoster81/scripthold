@@ -135,6 +135,34 @@ func (s *Snapshot) PrepareReplaceStrong(targetID string, replacement []byte) (Pr
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareReplaceFencedCode resolves the opaque Scripthold fenced-code target
+// against this exact snapshot and delegates body replacement to Marksplice.
+func (s *Snapshot) PrepareReplaceFencedCode(targetID string, replacement []byte) (PreparedChange, error) {
+	id, err := s.fencedBlockID(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareReplaceFencedCode(id, replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareSetFencedBlockInfo resolves the opaque Scripthold fenced-code target
+// against this exact snapshot and delegates info-string mutation to Marksplice.
+func (s *Snapshot) PrepareSetFencedBlockInfo(targetID string, info []byte) (PreparedChange, error) {
+	id, err := s.fencedBlockID(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareSetFencedBlockInfo(id, info)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceInlineLinkDestination resolves the opaque Scripthold inline-link
 // target against this exact snapshot and delegates destination replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceInlineLinkDestination(targetID string, replacement []byte) (PreparedChange, error) {
@@ -597,6 +625,51 @@ func (s *Snapshot) PrepareRemoveParagraph(targetID string) (PreparedChange, erro
 		return PreparedChange{}, err
 	}
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+func (s *Snapshot) fencedBlockID(fencedBlockTargetID string) (marksplice.NodeID, error) {
+	var zero marksplice.NodeID
+	if s == nil || s.document == nil {
+		return zero, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	if !validTargetID(fencedBlockTargetID) {
+		return zero, fmt.Errorf("%w: markdown fenced-block target is invalid", marksplice.ErrNodeNotFound)
+	}
+	s.fencedBlockTargetIndexOnce.Do(func() {
+		blocks := s.document.FencedBlocks()
+		if len(blocks) > maxTargetScanNodes {
+			s.fencedBlockTargetIndexErr = fmt.Errorf("%w: markdown fenced-block target scan exceeds %d blocks", marksplice.ErrInvalidQuery, maxTargetScanNodes)
+			return
+		}
+		index := make(map[string]marksplice.NodeID, len(blocks))
+		for _, block := range blocks {
+			key := targetID(s.fingerprint, "fenced_block", block.Range())
+			if _, exists := index[key]; !exists {
+				index[key] = block.ID()
+			}
+		}
+		s.fencedBlockTargetIndex = index
+	})
+	if s.fencedBlockTargetIndexErr != nil {
+		return zero, s.fencedBlockTargetIndexErr
+	}
+	if id, ok := s.fencedBlockTargetIndex[fencedBlockTargetID]; ok {
+		return id, nil
+	}
+	resolved, ok, err := s.resolveNodeTarget(fencedBlockTargetID)
+	if err != nil {
+		return zero, err
+	}
+	if ok {
+		if resolved.node.Kind() != marksplice.KindFencedCode {
+			return zero, marksplice.ErrInvalidTargetKind
+		}
+		if _, exists := s.document.FencedBlock(resolved.node.ID()); !exists {
+			return zero, marksplice.ErrInvalidTargetKind
+		}
+		return resolved.node.ID(), nil
+	}
+	return zero, fmt.Errorf("%w: markdown fenced-block target was not found", marksplice.ErrNodeNotFound)
 }
 
 func (s *Snapshot) sectionHeadingID(sectionTargetID string) (marksplice.NodeID, error) {
