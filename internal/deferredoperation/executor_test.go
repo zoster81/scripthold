@@ -90,15 +90,23 @@ func TestExecuteEnforcesOperationRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
+	var executionErr error
 	if err := store.Execute(context.Background(), operation.OperationID, func(ctx context.Context, request Request) ([]byte, ResultMetadata, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			return nil, ResultMetadata{}, errors.New("execution context has no deadline")
+		}
+		if remaining := time.Until(deadline); remaining > 1500*time.Millisecond {
+			return nil, ResultMetadata{}, errors.New("execution deadline exceeds requested runtime")
+		}
 		<-ctx.Done()
-		return nil, ResultMetadata{}, ctx.Err()
+		executionErr = ctx.Err()
+		return nil, ResultMetadata{}, executionErr
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > 3*time.Second {
-		t.Fatalf("runtime deadline took %s", elapsed)
+	if !errors.Is(executionErr, context.DeadlineExceeded) {
+		t.Fatalf("execution error = %v, want context deadline exceeded", executionErr)
 	}
 	observed, err := store.Get(operation.OperationID, []string{public})
 	if err != nil {
