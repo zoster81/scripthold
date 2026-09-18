@@ -155,6 +155,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareInsertSectionBefore(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "insert" && operationInput.Subject == "section" && operationInput.Position == "after":
 			preparedChange, prepareErr = snapshot.PrepareInsertSectionAfter(operationInput.TargetID, []byte(operationInput.Markdown))
+		case operationInput.Action == "insert" && operationInput.Subject == "section" && operationInput.Position == "child":
+			preparedChange, prepareErr = snapshot.PrepareAppendSectionChild(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "remove" && operationInput.Subject == "section":
 			preparedChange, prepareErr = snapshot.PrepareRemoveSection(operationInput.TargetID)
 		case operationInput.Action == "replace" && operationInput.Subject == "section" && operationInput.Part == "body":
@@ -419,8 +421,8 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 				return errorResultWithCode(ErrCodeInvalidInput, "insert/paragraph requires position before or after and markdown")
 			}
 		case op.Action == "insert" && op.Subject == "section":
-			if (op.Position != "before" && op.Position != "after") || op.Text != "" || op.Level != 0 || op.Part != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "insert/section requires position before or after and markdown")
+			if (op.Position != "before" && op.Position != "after" && op.Position != "child") || op.Text != "" || op.Level != 0 || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "insert/section requires position before, after, or child and markdown")
 			}
 		case op.Action == "remove" && op.Subject == "section":
 			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {

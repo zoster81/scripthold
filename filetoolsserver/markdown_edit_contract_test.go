@@ -138,8 +138,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if markdownReadSchemaMap(t, insertSectionProperties["action"])["const"] != "insert" || markdownReadSchemaMap(t, insertSectionProperties["subject"])["const"] != "section" {
 		t.Fatalf("section insert discriminators = %#v", insertSectionProperties)
 	}
-	if position := markdownReadSchemaMap(t, insertSectionProperties["position"]); !reflect.DeepEqual(position["enum"], []string{"before", "after"}) {
-		t.Fatalf("section insert position schema = %#v, want before/after enum", position)
+	if position := markdownReadSchemaMap(t, insertSectionProperties["position"]); !reflect.DeepEqual(position["enum"], []string{"before", "after", "child"}) {
+		t.Fatalf("section insert position schema = %#v, want before/after/child enum", position)
 	}
 	if markdownReadSchemaMap(t, insertSectionProperties["markdown"])["type"] != "string" || len(insertSectionProperties) != 5 {
 		t.Fatalf("section insert properties = %#v", insertSectionProperties)

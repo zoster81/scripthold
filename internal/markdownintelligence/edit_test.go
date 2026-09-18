@@ -227,6 +227,61 @@ func TestPrepareInsertSectionPreservesLF(t *testing.T) {
 	}
 }
 
+func TestPrepareAppendSectionChildUsesSectionParentAndRequiresNextLevel(t *testing.T) {
+	source := []byte("# Root\r\n\r\n## Parent\r\n\r\nBody.\r\n\r\n### Existing\r\n\r\nExisting.\r\n\r\n## Sibling\r\n\r\nSibling.\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sections, truncated, err := snapshot.QuerySections([]int{2}, nil, 8)
+	if err != nil || truncated || len(sections) != 2 {
+		t.Fatalf("sections=%+v truncated=%v err=%v", sections, truncated, err)
+	}
+	prepared, err := snapshot.PrepareAppendSectionChild(sections[0].TargetID, []byte("### Added\r\n\r\nAdded body.\r\n\r\n#### Grandchild\r\n\r\nGrandchild body.\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Root\r\n\r\n## Parent\r\n\r\nBody.\r\n\r\n### Existing\r\n\r\nExisting.\r\n\r\n### Added\r\n\r\nAdded body.\r\n\r\n#### Grandchild\r\n\r\nGrandchild body.\r\n## Sibling\r\n\r\nSibling.\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("Sibling."), []byte("External."), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	siblingAfter, err := snapshot.PrepareInsertSectionAfter(sections[0].TargetID, []byte("## Peer\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot.ComposeChanges(prepared, siblingAfter); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("child/after conflict error=%v, want ErrInvalidReplacement", err)
+	}
+	if _, err := snapshot.PrepareAppendSectionChild(sections[0].HeadingTargetID, []byte("### Invalid\r\n")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("heading target error=%v, want ErrInvalidTargetKind", err)
+	}
+	for _, fragment := range [][]byte{[]byte("## Wrong sibling\r\n"), []byte("#### Too deep\r\n"), []byte("Paragraph only.\r\n")} {
+		if _, err := snapshot.PrepareAppendSectionChild(sections[0].TargetID, fragment); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("fragment %q error=%v, want ErrInvalidReplacement", fragment, err)
+		}
+	}
+
+	h6Source := []byte("###### Leaf\n")
+	h6Snapshot, err := Parse(h6Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h6Sections, truncated, err := h6Snapshot.QuerySections([]int{6}, nil, 8)
+	if err != nil || truncated || len(h6Sections) != 1 {
+		t.Fatalf("h6 sections=%+v truncated=%v err=%v", h6Sections, truncated, err)
+	}
+	if _, err := h6Snapshot.PrepareAppendSectionChild(h6Sections[0].TargetID, []byte("###### Impossible\n")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("h6 child error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestPrepareReplaceSectionBodyPreservesHeadingAndChildHierarchy(t *testing.T) {
 	source := []byte("# Root\r\n\r\n## Target\r\n\r\nOld body.\r\n\r\n### Child\r\n\r\nChild body.\r\n\r\n## Keep\r\n\r\nKeep body.\r\n")
 	snapshot, err := Parse(source)

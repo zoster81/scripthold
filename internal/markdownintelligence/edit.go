@@ -121,6 +121,20 @@ func (s *Snapshot) PrepareInsertSectionAfter(targetID string, fragment []byte) (
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareAppendSectionChild resolves the opaque Scripthold parent section
+// against this exact snapshot and delegates direct-child subtree insertion to Marksplice.
+func (s *Snapshot) PrepareAppendSectionChild(targetID string, fragment []byte) (PreparedChange, error) {
+	headingID, err := s.sectionHeadingID(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareAppendSectionChild(headingID, fragment)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceSectionBody resolves the opaque Scripthold section target
 // against this exact snapshot and delegates direct-body replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceSectionBody(targetID string, replacement []byte) (PreparedChange, error) {

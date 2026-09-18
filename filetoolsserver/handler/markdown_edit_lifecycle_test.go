@@ -280,6 +280,60 @@ func TestMarkdownEditRejectsConflictingSectionInsertionsWithoutMutation(t *testi
 	}
 }
 
+func TestMarkdownEditAppendsSectionChild(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# Root\n\n## Parent\n\nBody.\n\n### Existing\n\nExisting.\n\n## Sibling\n\nSibling.\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "sections", Levels: []int{2}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Sections) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{{
+		Action: "insert", Subject: "section", TargetID: read.Sections[0].TargetID, Position: "child", Markdown: "### Added\n\nAdded.\n",
+	}}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("child preview mutated target: %q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied || output.State != editApplyStateCommitted {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	want := "# Root\n\n## Parent\n\nBody.\n\n### Existing\n\nExisting.\n\n### Added\n\nAdded.\n## Sibling\n\nSibling.\n"
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("child target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidSectionChildWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("# Root\n\n## Parent\n\nBody.\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "sections", Levels: []int{2}, Limit: 8})
+	if err != nil || readResult.IsError || len(read.Sections) != 1 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{{
+		Action: "insert", Subject: "section", TargetID: read.Sections[0].TargetID, Position: "child", Markdown: "## Wrong level\n",
+	}}})
+	if err != nil || result == nil || !result.IsError || result.Meta[MarkdownErrorCodeMetaKey] != MarkdownErrInvalidStructure {
+		t.Fatalf("invalid child result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(original) {
+		t.Fatalf("invalid child mutated target: %q err=%v", got, err)
+	}
+}
+
 func TestMarkdownEditRejectsInvalidSectionInsertShapeBeforeFilesystemWork(t *testing.T) {
 	base := MarkdownEditOperation{Action: "insert", Subject: "section", TargetID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Position: "before", Markdown: "## Section\n"}
 	cases := []MarkdownEditOperation{
