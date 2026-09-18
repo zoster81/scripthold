@@ -1185,6 +1185,71 @@ func TestPrepareFencedCodeMutationsPreserveMarkspliceRejections(t *testing.T) {
 	}
 }
 
+func TestPrepareRenameReferenceDefinitionUpdatesBoundOccurrences(t *testing.T) {
+	source := []byte("[one]: <dest> \"Title\"\r\n\r\n[visible][one] [one][] [one] ![alt][one]\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := snapshot.QueryNodes([]string{"reference_definition"}, 4)
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("definitions=%+v err=%v", definitions, err)
+	}
+	prepared, err := snapshot.PrepareRenameReferenceDefinition(definitions[0].TargetID, []byte("renamed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "[renamed]: <dest> \"Title\"\r\n\r\n[visible][renamed] [one][renamed] [one][renamed] ![alt][renamed]\r\n"
+	if string(got) != want {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+}
+
+func TestPrepareRenameReferenceDefinitionPreservesMarksplicePreconditions(t *testing.T) {
+	source := []byte("[one]: <dest-one>\n[two]: <dest-two>\n\n[visible][one]\n\nparagraph\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := snapshot.QueryNodes([]string{"reference_definition"}, 4)
+	if err != nil || len(definitions) != 2 {
+		t.Fatalf("definitions=%+v err=%v", definitions, err)
+	}
+	var oneTarget string
+	for _, definition := range definitions {
+		if definition.Attributes["label"] == "one" {
+			oneTarget = definition.TargetID
+			break
+		}
+	}
+	if oneTarget == "" {
+		t.Fatal("reference definition one not found")
+	}
+	for _, replacement := range [][]byte{nil, []byte("bad]label"), []byte("bad\nlabel"), []byte("TWO")} {
+		if _, err := snapshot.PrepareRenameReferenceDefinition(oneTarget, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("rename %q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+	noOp, err := snapshot.PrepareRenameReferenceDefinition(oneTarget, []byte("one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := noOp.Apply(source); err != nil || !bytes.Equal(got, source) {
+		t.Fatalf("no-op result=%q err=%v", got, err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 4)
+	if err != nil || len(paragraphs) != 2 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareRenameReferenceDefinition(paragraphs[0].TargetID, []byte("renamed")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReferenceDefinitionPartsPreserveAuthoredSyntax(t *testing.T) {
 	tests := []struct {
 		name        string

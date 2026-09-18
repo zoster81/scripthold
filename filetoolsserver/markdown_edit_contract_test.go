@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 25 {
-		t.Fatalf("operation union = %#v, want twenty-five schema branches covering thirty-six closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 26 {
+		t.Fatalf("operation union = %#v, want twenty-six schema branches covering thirty-seven closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -51,6 +51,17 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if _, ok := renameProperties["level"]; ok {
 		t.Fatalf("rename schema unexpectedly accepts level: %#v", renameProperties)
+	}
+
+	renameReferenceDefinition := markdownEditOperationBranch(t, oneOf, "rename", "reference_definition", "")
+	markdownReadAssertStringSet(t, "reference definition rename required", renameReferenceDefinition["required"], []string{"action", "subject", "targetId", "text"})
+	renameReferenceDefinitionProperties := markdownReadSchemaMap(t, renameReferenceDefinition["properties"])
+	if markdownReadSchemaMap(t, renameReferenceDefinitionProperties["action"])["const"] != "rename" || markdownReadSchemaMap(t, renameReferenceDefinitionProperties["subject"])["const"] != "reference_definition" {
+		t.Fatalf("reference definition rename discriminators = %#v", renameReferenceDefinitionProperties)
+	}
+	renameReferenceText := markdownReadSchemaMap(t, renameReferenceDefinitionProperties["text"])
+	if renameReferenceText["type"] != "string" || renameReferenceText["minLength"] != 1 || len(renameReferenceDefinitionProperties) != 4 {
+		t.Fatalf("reference definition rename properties = %#v", renameReferenceDefinitionProperties)
 	}
 
 	setLevel := markdownEditOperationBranch(t, oneOf, "set", "heading", "")

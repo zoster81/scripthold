@@ -219,6 +219,21 @@ func (s *Snapshot) PrepareReplaceImageAlt(targetID string, replacement []byte) (
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareRenameReferenceDefinition resolves the opaque Scripthold
+// reference-definition target against this exact snapshot and delegates coordinated
+// definition/occurrence renaming to Marksplice.
+func (s *Snapshot) PrepareRenameReferenceDefinition(targetID string, replacement []byte) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRenameReferenceDefinition(node.ID(), replacement)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceReferenceDefinitionDestination resolves the opaque Scripthold
 // reference-definition target against this exact snapshot and delegates destination
 // replacement to Marksplice.
