@@ -37,7 +37,7 @@ func markdownEditCatalogTool() *mcp.Tool {
 							"required":             []string{"action", "subject", "targetId", "text"},
 							"properties": map[string]any{
 								"action":   map[string]any{"const": "rename"},
-								"subject":  map[string]any{"const": "reference_definition"},
+								"subject":  map[string]any{"type": "string", "enum": []string{"reference_definition", "front_matter_field"}},
 								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
 								"text":     map[string]any{"type": "string", "minLength": 1},
 							},

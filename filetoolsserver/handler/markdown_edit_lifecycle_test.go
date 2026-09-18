@@ -638,6 +638,67 @@ func TestMarkdownEditRejectsInvalidReferenceDefinitionRenameShapesBeforeFilesyst
 	}
 }
 
+func TestMarkdownEditRenameFrontMatterField(t *testing.T) {
+	source := "---\r\ntitle: \"Old\"\r\nkeep: yes\r\n---\r\n\r\nBody.\r\n"
+	want := "---\r\nname: \"Old\"\r\nkeep: yes\r\n---\r\n\r\nBody.\r\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+		Action: "query", Path: path, Query: "nodes", Kinds: []string{"front_matter_field"}, Limit: 8,
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+	}
+	var titleTarget string
+	for _, node := range read.Nodes {
+		if node.Attributes["key"] == "title" {
+			titleTarget = node.TargetID
+			break
+		}
+	}
+	if titleTarget == "" {
+		t.Fatalf("title field not found: %+v", read.Nodes)
+	}
+	operation := MarkdownEditOperation{Action: "rename", Subject: "front_matter_field", TargetID: titleTarget, Text: "name"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != source {
+		t.Fatalf("preview mutated target=%q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidFrontMatterFieldRenameShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "rename", Subject: "front_matter_field", TargetID: targetID},
+		{Action: "rename", Subject: "front_matter_field", TargetID: targetID, Text: "name", Part: "key"},
+		{Action: "rename", Subject: "front_matter_field", TargetID: targetID, Text: "name", Markdown: "extra"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path:       filepath.Join(t.TempDir(), "missing.md"),
+			Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid front-matter rename result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditRemoveReferenceDefinition(t *testing.T) {
 	source := "before\r\n\r\n  [unused]: <target> \"Title\"   \r\n\r\nafter\r\n"
 	want := "before\r\n\r\n\r\nafter\r\n"

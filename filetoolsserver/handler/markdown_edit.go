@@ -145,6 +145,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "rename" && operationInput.Subject == "reference_definition":
 			preparedChange, prepareErr = snapshot.PrepareRenameReferenceDefinition(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "rename" && operationInput.Subject == "front_matter_field":
+			preparedChange, prepareErr = snapshot.PrepareRenameFrontMatterField(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "set" && operationInput.Subject == "heading":
 			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
 		case operationInput.Action == "set" && operationInput.Subject == "task":
@@ -487,6 +489,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "rename" && op.Subject == "reference_definition":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "rename/reference_definition requires non-empty text")
+			}
+		case op.Action == "rename" && op.Subject == "front_matter_field":
+			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "rename/front_matter_field requires non-empty text")
 			}
 		case op.Action == "set" && op.Subject == "heading":
 			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" || op.Position != "" || op.Part != "" {
