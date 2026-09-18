@@ -37,7 +37,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("operation union = %#v, want fifteen schema branches covering nineteen closed forms", items["oneOf"])
 	}
 
-	rename := markdownReadSchemaMap(t, oneOf[0])
+	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
 	if rename["type"] != "object" || rename["additionalProperties"] != false {
 		t.Fatalf("rename schema = %#v, want strict object", rename)
 	}
@@ -53,7 +53,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("rename schema unexpectedly accepts level: %#v", renameProperties)
 	}
 
-	setLevel := markdownReadSchemaMap(t, oneOf[1])
+	setLevel := markdownEditOperationBranch(t, oneOf, "set", "heading", "")
 	if setLevel["type"] != "object" || setLevel["additionalProperties"] != false {
 		t.Fatalf("set schema = %#v, want strict object", setLevel)
 	}
@@ -70,7 +70,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("set schema unexpectedly accepts text: %#v", setProperties)
 	}
 
-	replaceParagraph := markdownReadSchemaMap(t, oneOf[2])
+	replaceParagraph := markdownEditOperationBranch(t, oneOf, "replace", "paragraph", "")
 	if replaceParagraph["type"] != "object" || replaceParagraph["additionalProperties"] != false {
 		t.Fatalf("paragraph replace schema = %#v, want strict object", replaceParagraph)
 	}
@@ -90,7 +90,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("paragraph replace schema unexpectedly accepts level: %#v", replaceProperties)
 	}
 
-	removeParagraph := markdownReadSchemaMap(t, oneOf[3])
+	removeParagraph := markdownEditOperationBranch(t, oneOf, "remove", "paragraph", "")
 	if removeParagraph["type"] != "object" || removeParagraph["additionalProperties"] != false {
 		t.Fatalf("paragraph remove schema = %#v, want strict object", removeParagraph)
 	}
@@ -106,7 +106,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("paragraph remove targetId schema = %#v", removeProperties["targetId"])
 	}
 
-	insertParagraph := markdownReadSchemaMap(t, oneOf[4])
+	insertParagraph := markdownEditOperationBranch(t, oneOf, "insert", "paragraph", "")
 	if insertParagraph["type"] != "object" || insertParagraph["additionalProperties"] != false {
 		t.Fatalf("paragraph insert schema = %#v, want strict object", insertParagraph)
 	}
@@ -132,7 +132,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("paragraph insert properties = %#v, want only action/subject/targetId/position/markdown", insertProperties)
 	}
 
-	insertListItem := markdownReadSchemaMap(t, oneOf[12])
+	insertListItem := markdownEditOperationBranch(t, oneOf, "insert", "list_item", "")
 	markdownReadAssertStringSet(t, "list item insert required", insertListItem["required"], []string{"action", "markdown", "position", "subject", "targetId"})
 	insertListItemProperties := markdownReadSchemaMap(t, insertListItem["properties"])
 	if markdownReadSchemaMap(t, insertListItemProperties["action"])["const"] != "insert" || markdownReadSchemaMap(t, insertListItemProperties["subject"])["const"] != "list_item" {
@@ -142,7 +142,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("list item insert position schema = %#v, want before/after/child enum", position)
 	}
 
-	setTask := markdownReadSchemaMap(t, oneOf[13])
+	setTask := markdownEditOperationBranch(t, oneOf, "set", "task", "")
 	if setTask["type"] != "object" || setTask["additionalProperties"] != false {
 		t.Fatalf("task set schema = %#v, want strict object", setTask)
 	}
@@ -158,7 +158,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("task set properties = %#v, want only action/subject/targetId/checked", setTaskProperties)
 	}
 
-	replaceCodeSpan := markdownReadSchemaMap(t, oneOf[14])
+	replaceCodeSpan := markdownEditOperationBranch(t, oneOf, "replace", "code_span", "")
 	if replaceCodeSpan["type"] != "object" || replaceCodeSpan["additionalProperties"] != false {
 		t.Fatalf("code span replace schema = %#v, want strict object", replaceCodeSpan)
 	}
@@ -174,7 +174,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("code span replace properties = %#v", replaceCodeSpanProperties)
 	}
 
-	insertSection := markdownReadSchemaMap(t, oneOf[5])
+	insertSection := markdownEditOperationBranch(t, oneOf, "insert", "section", "")
 	if insertSection["type"] != "object" || insertSection["additionalProperties"] != false {
 		t.Fatalf("section insert schema = %#v, want strict object", insertSection)
 	}
@@ -190,7 +190,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("section insert properties = %#v", insertSectionProperties)
 	}
 
-	removeSection := markdownReadSchemaMap(t, oneOf[6])
+	removeSection := markdownEditOperationBranch(t, oneOf, "remove", "section", "")
 	if removeSection["type"] != "object" || removeSection["additionalProperties"] != false {
 		t.Fatalf("section remove schema = %#v, want strict object", removeSection)
 	}
@@ -206,7 +206,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("section remove targetId schema = %#v", removeSectionProperties["targetId"])
 	}
 
-	replaceSectionBody := markdownReadSchemaMap(t, oneOf[7])
+	replaceSectionBody := markdownEditOperationBranch(t, oneOf, "replace", "section", "body")
 	if replaceSectionBody["type"] != "object" || replaceSectionBody["additionalProperties"] != false {
 		t.Fatalf("section body replace schema = %#v, want strict object", replaceSectionBody)
 	}
@@ -225,7 +225,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("section body replace properties = %#v, want only action/subject/targetId/part/markdown", replaceSectionBodyProperties)
 	}
 
-	moveSection := markdownReadSchemaMap(t, oneOf[8])
+	moveSection := markdownEditOperationBranch(t, oneOf, "move", "section", "")
 	if moveSection["type"] != "object" || moveSection["additionalProperties"] != false {
 		t.Fatalf("section move schema = %#v, want strict object", moveSection)
 	}
@@ -244,7 +244,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("section move properties = %#v", moveSectionProperties)
 	}
 
-	replaceListItem := markdownReadSchemaMap(t, oneOf[9])
+	replaceListItem := markdownEditOperationBranch(t, oneOf, "replace", "list_item", "")
 	if replaceListItem["type"] != "object" || replaceListItem["additionalProperties"] != false {
 		t.Fatalf("list item replace schema = %#v, want strict object", replaceListItem)
 	}
@@ -257,7 +257,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("list item replace properties = %#v", replaceListItemProperties)
 	}
 
-	replaceListItemSubtree := markdownReadSchemaMap(t, oneOf[10])
+	replaceListItemSubtree := markdownEditOperationBranch(t, oneOf, "replace", "list_item", "subtree")
 	if replaceListItemSubtree["type"] != "object" || replaceListItemSubtree["additionalProperties"] != false {
 		t.Fatalf("list item subtree replace schema = %#v, want strict object", replaceListItemSubtree)
 	}
@@ -270,7 +270,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("list item subtree replace properties = %#v", replaceListItemSubtreeProperties)
 	}
 
-	removeListItem := markdownReadSchemaMap(t, oneOf[11])
+	removeListItem := markdownEditOperationBranch(t, oneOf, "remove", "list_item", "")
 	if removeListItem["type"] != "object" || removeListItem["additionalProperties"] != false {
 		t.Fatalf("list item remove schema = %#v, want strict object", removeListItem)
 	}
@@ -280,6 +280,53 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("list item remove properties = %#v", removeListItemProperties)
 	}
 
+}
+
+func markdownEditOperationBranch(t *testing.T, branches []any, action, subject, part string) map[string]any {
+	t.Helper()
+	var match map[string]any
+	for _, raw := range branches {
+		branch := markdownReadSchemaMap(t, raw)
+		properties := markdownReadSchemaMap(t, branch["properties"])
+		actionSchema := markdownReadSchemaMap(t, properties["action"])
+		if actionSchema["const"] != action || !markdownEditSchemaStringMatches(t, properties["subject"], subject) {
+			continue
+		}
+		partSchema, hasPart := properties["part"]
+		if part == "" {
+			if hasPart {
+				continue
+			}
+		} else if !hasPart || !markdownEditSchemaStringMatches(t, partSchema, part) {
+			continue
+		}
+		if match != nil {
+			t.Fatalf("duplicate markdown_edit operation branches for action=%q subject=%q part=%q", action, subject, part)
+		}
+		match = branch
+	}
+	if match == nil {
+		t.Fatalf("missing markdown_edit operation branch for action=%q subject=%q part=%q", action, subject, part)
+	}
+	return match
+}
+
+func markdownEditSchemaStringMatches(t *testing.T, value any, want string) bool {
+	t.Helper()
+	schema := markdownReadSchemaMap(t, value)
+	if schema["const"] == want {
+		return true
+	}
+	values, ok := schema["enum"].([]string)
+	if !ok {
+		return false
+	}
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMarkdownApplyCatalogSchemaAcceptsOnlyPreviewID(t *testing.T) {
