@@ -715,6 +715,81 @@ func TestPrepareReplaceListItemSubtreePreservesSemanticParent(t *testing.T) {
 	}
 }
 
+func TestPrepareRemoveListItemRemovesCompleteSubtreeAndIsSnapshotBound(t *testing.T) {
+	source := []byte("- root\r\n  - parent π\r\n    - child\r\n  - sibling\r\n- tail\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := snapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(items) != 5 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	prepared, err := snapshot.PrepareRemoveListItem(items[1].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- root\r\n  - sibling\r\n- tail\r\n"
+	if string(result) != want {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	if _, err := prepared.Apply(bytes.Replace(source, []byte("tail"), []byte("external"), 1)); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	wrongKindSnapshot, err := Parse([]byte("# Heading\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := wrongKindSnapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := wrongKindSnapshot.PrepareRemoveListItem(headings[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("wrong-kind error=%v, want ErrInvalidTargetKind", err)
+	}
+
+	taskSource := []byte("- [ ] remove\r\n- [x] keep\r\n")
+	taskSnapshot, err := Parse(taskSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskItems, err := taskSnapshot.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(taskItems) != 2 {
+		t.Fatalf("task list items=%+v err=%v", taskItems, err)
+	}
+	tasks, err := taskSnapshot.QueryNodes([]string{"task"}, 8)
+	if err != nil || len(tasks) != 2 {
+		t.Fatalf("tasks=%+v err=%v", tasks, err)
+	}
+	taskRemoval, err := taskSnapshot.PrepareRemoveListItem(taskItems[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskResult, err := taskRemoval.Apply(taskSource)
+	if err != nil || string(taskResult) != "- [x] keep\r\n" {
+		t.Fatalf("task result=%q err=%v", taskResult, err)
+	}
+	if _, err := taskSnapshot.PrepareRemoveListItem(tasks[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("task target error=%v, want ErrInvalidTargetKind", err)
+	}
+
+	incomplete, err := Parse([]byte("- parent\n  - complex\n\n    second paragraph\n- tail\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	incompleteItems, err := incomplete.QueryNodes([]string{"list_item"}, 8)
+	if err != nil || len(incompleteItems) < 1 {
+		t.Fatalf("incomplete items=%+v err=%v", incompleteItems, err)
+	}
+	if _, err := incomplete.PrepareRemoveListItem(incompleteItems[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("incomplete subtree error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestComposeChangesCombinesIndependentPreparedEditsAndRejectsOverlap(t *testing.T) {
 	source := []byte("# One\n\n## Two\n")
 	snapshot, err := Parse(source)

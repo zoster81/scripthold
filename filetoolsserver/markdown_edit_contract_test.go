@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 11 {
-		t.Fatalf("operation union = %#v, want eleven closed variants", items["oneOf"])
+	if !ok || len(oneOf) != 12 {
+		t.Fatalf("operation union = %#v, want twelve closed variants", items["oneOf"])
 	}
 
 	rename := markdownReadSchemaMap(t, oneOf[0])
@@ -220,6 +220,16 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if markdownReadSchemaMap(t, replaceListItemSubtreeProperties["markdown"])["type"] != "string" || len(replaceListItemSubtreeProperties) != 5 {
 		t.Fatalf("list item subtree replace properties = %#v", replaceListItemSubtreeProperties)
+	}
+
+	removeListItem := markdownReadSchemaMap(t, oneOf[11])
+	if removeListItem["type"] != "object" || removeListItem["additionalProperties"] != false {
+		t.Fatalf("list item remove schema = %#v, want strict object", removeListItem)
+	}
+	markdownReadAssertStringSet(t, "list item remove required", removeListItem["required"], []string{"action", "subject", "targetId"})
+	removeListItemProperties := markdownReadSchemaMap(t, removeListItem["properties"])
+	if markdownReadSchemaMap(t, removeListItemProperties["action"])["const"] != "remove" || markdownReadSchemaMap(t, removeListItemProperties["subject"])["const"] != "list_item" || len(removeListItemProperties) != 3 {
+		t.Fatalf("list item remove properties = %#v", removeListItemProperties)
 	}
 }
 

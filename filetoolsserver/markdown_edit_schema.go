@@ -135,6 +135,15 @@ func markdownEditCatalogTool() *mcp.Tool {
 								"part":     map[string]any{"const": "subtree"},
 								"markdown": map[string]any{"type": "string"},
 							},
+						}, map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "remove"},
+								"subject":  map[string]any{"const": "list_item"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+							},
 						},
 					},
 				},
