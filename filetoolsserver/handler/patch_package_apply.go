@@ -6,14 +6,12 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/textstream"
@@ -94,194 +92,23 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 		return errorResultFromError(err), PatchPackageOutput{}, nil
 	}
 
-	preflight := make([]patchPackageApplyPreflight, len(prepared.targets))
-	for index := range prepared.targets {
-		target := &prepared.targets[index]
-		if filesystem.FingerprintRegularFileData(target.prepared.data) != target.prepared.resultFingerprint {
-			return errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target %d prepared result no longer matches its fingerprint", index)), PatchPackageOutput{}, nil
-		}
-		current, failure := h.revalidatePreparedPatchPackageTarget(ctx, target, "before staging")
-		if failure != nil {
-			return failure, PatchPackageOutput{}, nil
-		}
-		preflight[index] = patchPackageApplyPreflight{mode: current.Mode.Perm()}
+	preflight, failure := h.preflightPatchPackageApply(ctx, prepared)
+	if failure != nil {
+		return failure, PatchPackageOutput{}, nil
 	}
-
 	staged := make([]*filesystem.StagedReplacement, len(prepared.targets))
-	if persistentBackupRequired(prepared.backupPolicy) {
-		if h.backupBatchCapture == nil {
-			failure := operation.New(operation.KindConflict, "required package backup authority is unavailable")
-			return h.patchPackageApplyFailure(prepared, output, -1, failure, staged)
-		}
-		requests := patchPackageCaptureRequests(prepared.label, prepared.backupPolicy, prepared.targets)
-		if len(requests) > 0 {
-			captures, captureErr := h.backupBatchCapture.CaptureBatch(ctx, requests)
-			changedIndices := make([]int, 0, len(requests))
-			for index := range prepared.targets {
-				if prepared.targets[index].prepared.changed {
-					changedIndices = append(changedIndices, index)
-				}
-			}
-			invalidBatchResult := len(captures) > len(changedIndices)
-			if invalidBatchResult {
-				captureErr = errors.Join(operation.New(operation.KindConflict, "backup batch returned unexpected results"), captureErr)
-				captures = captures[:len(changedIndices)]
-			}
-			verifiedCaptures := 0
-			for captureIndex, captured := range captures {
-				targetIndex := changedIndices[captureIndex]
-				manifest := captured.Manifest
-				if validPatchPackagePreviewID(manifest.BackupID) {
-					output.Results[targetIndex].BackupID = manifest.BackupID
-					output.BackupCount++
-				}
-				if !validPatchPackagePreviewID(manifest.BackupID) || manifest.TargetPath != prepared.targets[targetIndex].resolvedPath ||
-					manifest.SourceOperation != backupstore.SourceOperationPatchPackage ||
-					manifest.ContentFingerprint != prepared.targets[targetIndex].prepared.targetFingerprint {
-					captureErr = errors.Join(captureErr, operation.New(operation.KindConflict, "durable package backup does not match the approved pre-state"))
-					break
-				}
-				verifiedCaptures++
-			}
-			if invalidBatchResult || verifiedCaptures != len(requests) {
-				failedIndex := -1
-				if verifiedCaptures < len(changedIndices) {
-					failedIndex = changedIndices[verifiedCaptures]
-				}
-				if captureErr == nil {
-					captureErr = operation.New(operation.KindFilesystem, "required package backup batch is incomplete")
-				}
-				return h.patchPackageApplyFailure(prepared, output, failedIndex, captureErr, staged)
-			}
-			if captureErr != nil {
-				// Every authoritative manifest is durable; only derived projection work failed.
-				slog.Warn("package backup manifests committed but derived index refresh reported an error", "backupCount", output.BackupCount)
-			}
-		}
-		for index := range prepared.targets {
-			current, failure := h.revalidatePreparedPatchPackageTarget(ctx, &prepared.targets[index], "after package backup")
-			if failure != nil {
-				if ctx.Err() != nil {
-					cancelled := operation.Wrap(operation.KindCancelled, "verify_package_after_backup", prepared.targets[index].resolvedPath, ctx.Err())
-					return h.patchPackageApplyFailure(prepared, output, index, cancelled, staged)
-				}
-				conflict := operation.New(operation.KindConflict, extractPatchPackageFailureMessage(failure))
-				return h.patchPackageApplyFailure(prepared, output, index, conflict, staged)
-			}
-			preflight[index].mode = current.Mode.Perm()
-		}
+	if phaseFailure := h.capturePatchPackageApplyBackups(ctx, prepared, &output, preflight); phaseFailure != nil {
+		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, staged)
 	}
-
-	for index := range prepared.targets {
-		target := &prepared.targets[index]
-		if !target.prepared.changed {
-			continue
-		}
-		mode := preflight[index].mode
-		if isReadOnly(mode) {
-			mode |= 0200
-		}
-		replacement, stageErr := h.patchPackageStageReplacement(ctx, target.prepared.resolvedPath, target.prepared.data, mode)
-		if stageErr != nil {
-			if ctx.Err() != nil {
-				stageErr = operation.Wrap(operation.KindCancelled, "stage_patch_package", target.prepared.resolvedPath, ctx.Err())
-			}
-			stageErr = h.joinPatchPackageStagingCleanup(stageErr, staged)
-			return errorResultFromError(stageErr), PatchPackageOutput{}, nil
-		}
-		staged[index] = replacement
+	if err := h.stagePatchPackageApply(ctx, prepared, preflight, staged); err != nil {
+		return errorResultFromError(err), PatchPackageOutput{}, nil
 	}
 	actualFingerprints := make([]string, len(prepared.targets))
-	for index := range prepared.targets {
-		target := &prepared.targets[index]
-		if !target.prepared.changed {
-			output.Results[index].State = patchPackageStateUnchanged
-			output.Results[index].ActualFingerprint = target.prepared.targetFingerprint
-			output.UnchangedCount++
-			actualFingerprints[index] = target.prepared.targetFingerprint
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			cancelled := operation.Wrap(operation.KindCancelled, "commit_patch_package", target.prepared.resolvedPath, err)
-			return h.patchPackageApplyFailure(prepared, output, index, cancelled, staged)
-		}
-		current, failure := h.revalidatePreparedPatchPackageTarget(ctx, target, "before commit")
-		if failure != nil {
-			return h.patchPackageApplyFailure(prepared, output, index, operation.New(operation.KindConflict, extractPatchPackageFailureMessage(failure)), staged)
-		}
-		if target.prepared.identityFile == nil {
-			return h.patchPackageApplyFailure(prepared, output, index, operation.New(operation.KindConflict, "patch package target identity is unavailable"), staged)
-		}
-		if err := target.prepared.identityFile.Close(); err != nil {
-			return h.patchPackageApplyFailure(prepared, output, index, operation.WrapFilesystem("close_patch_package_identity", target.prepared.resolvedPath, err), staged)
-		}
-		target.prepared.identityFile = nil
-
-		currentMode := current.Mode.Perm()
-		readOnlyCleared := false
-		if isReadOnly(currentMode) {
-			if !target.prepared.forceWritable {
-				return h.patchPackageApplyFailure(prepared, output, index, operation.New(operation.KindPermission, "target became read-only after patch package dryRun"), staged)
-			}
-			if err := clearReadOnly(target.prepared.resolvedPath, currentMode); err != nil {
-				return h.patchPackageApplyFailure(prepared, output, index, operation.WrapFilesystem("clear_patch_package_read_only", target.prepared.resolvedPath, err), staged)
-			}
-			readOnlyCleared = true
-			refreshed, refreshErr := current.RefreshMetadata(target.prepared.resolvedPath)
-			if refreshErr != nil {
-				if restoreErr := os.Chmod(target.prepared.resolvedPath, currentMode); restoreErr != nil {
-					refreshErr = errors.Join(refreshErr, operation.WrapFilesystem("restore_patch_package_read_only", target.prepared.resolvedPath, restoreErr))
-				}
-				return h.patchPackageApplyFailure(prepared, output, index, refreshErr, staged)
-			}
-			current = refreshed
-		}
-
-		_, commitErr := h.patchPackageCommitReplacement(index, staged[index], filesystem.ReplaceOptions{Expected: &current})
-		if commitErr != nil {
-			if readOnlyCleared {
-				commitErr = errors.Join(commitErr, h.restorePatchPackageReadOnlyIfUnchanged(target, currentMode))
-			}
-			return h.patchPackageApplyFailure(prepared, output, index, commitErr, staged)
-		}
-		staged[index] = nil
-		post, postErr := filesystem.CaptureRegularFileSnapshotBounded(ctx, target.prepared.resolvedPath, h.maxFileBytes())
-		if postErr != nil {
-			return h.patchPackageApplyFailure(prepared, output, index, postErr, staged)
-		}
-		actual, fingerprintErr := filesystem.FingerprintRegularFileSnapshot(post)
-		if fingerprintErr != nil {
-			return h.patchPackageApplyFailure(prepared, output, index, fingerprintErr, staged)
-		}
-		if actual != target.prepared.resultFingerprint {
-			return h.patchPackageApplyFailure(prepared, output, index, operation.New(operation.KindConflict, "committed target does not match the prepared result fingerprint"), staged)
-		}
-		output.Results[index].State = patchPackageStateCommitted
-		output.Results[index].ActualFingerprint = actual
-		output.Results[index].Applied = true
-		output.Results[index].ReadOnlyCleared = readOnlyCleared
-		output.CommittedCount++
-		actualFingerprints[index] = actual
+	if phaseFailure := h.commitPatchPackageApply(ctx, prepared, &output, staged, actualFingerprints); phaseFailure != nil {
+		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, staged)
 	}
-
-	if cleanupErr := h.cleanupPatchPackageStaging(staged); cleanupErr != nil {
-		return h.patchPackageApplyFailure(prepared, output, max(0, len(prepared.targets)-1), cleanupErr, staged)
-	}
-	finalTargets := make([]validatedPatchPackageTarget, len(prepared.targets))
-	for index := range prepared.targets {
-		finalTargets[index].resolvedPath = prepared.targets[index].resolvedPath
-	}
-	finalFingerprints, finalErr := h.capturePatchPackageFingerprints(ctx, finalTargets)
-	if finalErr != nil {
-		return h.patchPackageApplyFailure(prepared, output, -1, finalErr, staged)
-	}
-	for index := range prepared.targets {
-		if finalFingerprints[index] != prepared.targets[index].prepared.resultFingerprint {
-			conflict := operation.New(operation.KindConflict, fmt.Sprintf("patch package target %d changed during final package verification", index))
-			return h.patchPackageApplyFailure(prepared, output, index, conflict, staged)
-		}
-		output.Results[index].ActualFingerprint = finalFingerprints[index]
-		actualFingerprints[index] = finalFingerprints[index]
+	if phaseFailure := h.verifyPatchPackageApplyFinal(ctx, prepared, &output, staged, actualFingerprints); phaseFailure != nil {
+		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, staged)
 	}
 	output.Applied = true
 	output.ActualAggregateFingerprint = patchPackageAggregatePrepared(prepared.targets, actualFingerprints)
@@ -389,54 +216,7 @@ func (h *Handler) patchPackageApplyFailure(prepared *preparedPatchPackage, outpu
 	output.CommittedCount = 0
 	output.UnchangedCount = 0
 	output.UnknownCount = 0
-	actualFingerprints := make([]string, len(prepared.targets))
-	completeAggregate := true
-
-	for index := range prepared.targets {
-		target := &prepared.targets[index]
-		result := &output.Results[index]
-		result.State = ""
-		result.ActualFingerprint = ""
-		result.Applied = false
-		result.Verified = false
-		result.ErrorCode = ""
-		result.Error = ""
-		validation := h.ValidatePath(target.requestedPath)
-		if !validation.Ok() || validation.Path != target.resolvedPath || classificationCtx.Err() != nil {
-			result.State = patchPackageStateUnknown
-			output.UnknownCount++
-			completeAggregate = false
-			continue
-		}
-		fingerprints, err := h.capturePatchPackageFingerprints(classificationCtx, []validatedPatchPackageTarget{{resolvedPath: validation.Path}})
-		if err != nil || len(fingerprints) != 1 {
-			result.State = patchPackageStateUnknown
-			output.UnknownCount++
-			completeAggregate = false
-			continue
-		}
-		actual := fingerprints[0]
-		if actual == "" {
-			result.State = patchPackageStateUnknown
-			output.UnknownCount++
-			completeAggregate = false
-			continue
-		}
-		result.ActualFingerprint = actual
-		actualFingerprints[index] = actual
-		switch {
-		case actual == target.prepared.targetFingerprint:
-			result.State = patchPackageStateUnchanged
-			output.UnchangedCount++
-		case target.prepared.changed && actual == target.prepared.resultFingerprint:
-			result.State = patchPackageStateCommitted
-			result.Applied = true
-			output.CommittedCount++
-		default:
-			result.State = patchPackageStateUnknown
-			output.UnknownCount++
-		}
-	}
+	actualFingerprints, completeAggregate := h.classifyPatchPackageFailureTargets(classificationCtx, prepared, &output)
 	if completeAggregate {
 		output.ActualAggregateFingerprint = patchPackageAggregatePrepared(prepared.targets, actualFingerprints)
 	}
@@ -455,7 +235,6 @@ func (h *Handler) patchPackageApplyFailure(prepared *preparedPatchPackage, outpu
 	}
 	return errorResultWithCode(code, text), output, nil
 }
-
 func (h *Handler) handlePatchPackageVerify(ctx context.Context, manifest PatchPackageManifest, targets []validatedPatchPackageTarget) (*mcp.CallToolResult, PatchPackageOutput, error) {
 	expected := make([]string, len(targets))
 	for index := range targets {
