@@ -19,9 +19,9 @@ type patchPackageApplyPhaseFailure struct {
 }
 
 func (h *Handler) preflightPatchPackageApply(ctx context.Context, prepared *preparedPatchPackage) ([]patchPackageApplyPreflight, *mcp.CallToolResult) {
-	preflight := make([]patchPackageApplyPreflight, len(prepared.targets))
-	for index := range prepared.targets {
-		target := &prepared.targets[index]
+	preflight := make([]patchPackageApplyPreflight, len(prepared.plan.targets))
+	for index := range prepared.plan.targets {
+		target := &prepared.plan.targets[index]
 		if filesystem.FingerprintRegularFileData(target.prepared.data) != target.prepared.resultFingerprint {
 			return nil, errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target %d prepared result no longer matches its fingerprint", index))
 		}
@@ -42,7 +42,7 @@ func (h *Handler) capturePatchPackageApplyBackups(ctx context.Context, prepared 
 		return &patchPackageApplyPhaseFailure{index: -1, err: operation.New(operation.KindConflict, "required package backup authority is unavailable")}
 	}
 
-	requests := patchPackageCaptureRequests(prepared.label, prepared.backupPolicy, prepared.targets)
+	requests := patchPackageCaptureRequests(prepared.label, prepared.backupPolicy, prepared.plan.targets)
 	if len(requests) > 0 {
 		captures, captureErr := h.backupBatchCapture.CaptureBatch(ctx, requests)
 		if failure := validatePatchPackageBackupCaptures(prepared, output, requests, captures, captureErr); failure != nil {
@@ -57,7 +57,7 @@ func (h *Handler) capturePatchPackageApplyBackups(ctx context.Context, prepared 
 }
 
 func validatePatchPackageBackupCaptures(prepared *preparedPatchPackage, output *PatchPackageOutput, requests []backupstore.CaptureRequest, captures []backupstore.CaptureResult, captureErr error) *patchPackageApplyPhaseFailure {
-	changedIndices := patchPackageChangedTargetIndices(prepared.targets)
+	changedIndices := patchPackageChangedTargetIndices(prepared.plan.targets)
 	invalidBatchResult := len(captures) > len(changedIndices)
 	if invalidBatchResult {
 		captureErr = errors.Join(operation.New(operation.KindConflict, "backup batch returned unexpected results"), captureErr)
@@ -72,7 +72,7 @@ func validatePatchPackageBackupCaptures(prepared *preparedPatchPackage, output *
 			output.Results[targetIndex].BackupID = manifest.BackupID
 			output.BackupCount++
 		}
-		if !patchPackageBackupMatches(manifest, prepared.targets[targetIndex]) {
+		if !patchPackageBackupMatches(manifest, prepared.plan.targets[targetIndex]) {
 			captureErr = errors.Join(captureErr, operation.New(operation.KindConflict, "durable package backup does not match the approved pre-state"))
 			break
 		}
@@ -115,8 +115,8 @@ func patchPackageFirstUnverifiedTarget(changedIndices []int, verified int) int {
 }
 
 func (h *Handler) revalidatePatchPackageAfterBackups(ctx context.Context, prepared *preparedPatchPackage, preflight []patchPackageApplyPreflight) *patchPackageApplyPhaseFailure {
-	for index := range prepared.targets {
-		current, failure := h.revalidatePreparedPatchPackageTarget(ctx, &prepared.targets[index], "after package backup")
+	for index := range prepared.plan.targets {
+		current, failure := h.revalidatePreparedPatchPackageTarget(ctx, &prepared.plan.targets[index], "after package backup")
 		if failure == nil {
 			preflight[index].mode = current.Mode.Perm()
 			continue
@@ -124,7 +124,7 @@ func (h *Handler) revalidatePatchPackageAfterBackups(ctx context.Context, prepar
 		if ctx.Err() != nil {
 			return &patchPackageApplyPhaseFailure{
 				index: index,
-				err:   operation.Wrap(operation.KindCancelled, "verify_package_after_backup", prepared.targets[index].resolvedPath, ctx.Err()),
+				err:   operation.Wrap(operation.KindCancelled, "verify_package_after_backup", prepared.plan.targets[index].resolvedPath, ctx.Err()),
 			}
 		}
 		return &patchPackageApplyPhaseFailure{
@@ -136,10 +136,10 @@ func (h *Handler) revalidatePatchPackageAfterBackups(ctx context.Context, prepar
 }
 
 func (h *Handler) stagePatchPackageApply(ctx context.Context, prepared *preparedPatchPackage, preflight []patchPackageApplyPreflight) (*existingFileReplacementBatch, error) {
-	replacements := make([]preparedExistingFileReplacement, len(prepared.targets))
-	modes := make([]os.FileMode, len(prepared.targets))
-	for index := range prepared.targets {
-		replacements[index] = preparedEditPlanReplacement(&prepared.targets[index])
+	replacements := make([]preparedExistingFileReplacement, len(prepared.plan.targets))
+	modes := make([]os.FileMode, len(prepared.plan.targets))
+	for index := range prepared.plan.targets {
+		replacements[index] = preparedEditPlanReplacement(&prepared.plan.targets[index])
 		modes[index] = preflight[index].mode
 	}
 	return h.stageExistingFileReplacementBatch(
@@ -153,8 +153,8 @@ func (h *Handler) stagePatchPackageApply(ctx context.Context, prepared *prepared
 }
 
 func (h *Handler) commitPatchPackageApply(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput, batch *existingFileReplacementBatch, actualFingerprints []string) *patchPackageApplyPhaseFailure {
-	for index := range prepared.targets {
-		target := &prepared.targets[index]
+	for index := range prepared.plan.targets {
+		target := &prepared.plan.targets[index]
 		if !target.prepared.changed {
 			markPatchPackageTargetUnchanged(output, actualFingerprints, index, target)
 			continue
@@ -246,15 +246,15 @@ func (h *Handler) prepareExistingFileReplacementWritable(replacement preparedExi
 
 func (h *Handler) verifyPatchPackageApplyFinal(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput, batch *existingFileReplacementBatch, actualFingerprints []string) *patchPackageApplyPhaseFailure {
 	if err := batch.cleanup("cleanup_patch_package_stage"); err != nil {
-		return &patchPackageApplyPhaseFailure{index: max(0, len(prepared.targets)-1), err: err}
+		return &patchPackageApplyPhaseFailure{index: max(0, len(prepared.plan.targets)-1), err: err}
 	}
-	finalTargets := patchPackageFinalTargets(prepared.targets)
+	finalTargets := patchPackageFinalTargets(prepared.plan.targets)
 	finalFingerprints, err := h.capturePatchPackageFingerprints(ctx, finalTargets)
 	if err != nil {
 		return &patchPackageApplyPhaseFailure{index: -1, err: err}
 	}
-	for index := range prepared.targets {
-		if finalFingerprints[index] != prepared.targets[index].prepared.resultFingerprint {
+	for index := range prepared.plan.targets {
+		if finalFingerprints[index] != prepared.plan.targets[index].prepared.resultFingerprint {
 			return &patchPackageApplyPhaseFailure{
 				index: index,
 				err:   operation.New(operation.KindConflict, fmt.Sprintf("patch package target %d changed during final package verification", index)),
@@ -275,10 +275,10 @@ func patchPackageFinalTargets(targets []preparedEditPlanTarget) []validatedPatch
 }
 
 func (h *Handler) classifyPatchPackageFailureTargets(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput) ([]string, bool) {
-	actualFingerprints := make([]string, len(prepared.targets))
+	actualFingerprints := make([]string, len(prepared.plan.targets))
 	completeAggregate := true
-	for index := range prepared.targets {
-		state, actual, applied := h.classifyPatchPackageFailureTarget(ctx, &prepared.targets[index])
+	for index := range prepared.plan.targets {
+		state, actual, applied := h.classifyPatchPackageFailureTarget(ctx, &prepared.plan.targets[index])
 		result := &output.Results[index]
 		resetPatchPackageFailureResult(result)
 		result.State = state

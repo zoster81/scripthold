@@ -61,7 +61,10 @@ func TestHandleEditFilePreviewApplyIsExactAndOneShot(t *testing.T) {
 	if storedPreview == nil {
 		t.Fatal("edit preview capability was not retained")
 	}
-	storedTarget := storedPreview.target
+	if len(storedPreview.plan.targets) != 1 {
+		t.Fatalf("prepared edit plan targets=%d, want 1", len(storedPreview.plan.targets))
+	}
+	storedTarget := storedPreview.plan.targets[0]
 	if storedTarget.index != 0 || storedTarget.requestedPath != path || storedTarget.resolvedPath == "" {
 		t.Fatalf("unexpected prepared edit plan target: %+v", storedTarget)
 	}

@@ -104,7 +104,7 @@ func TestPatchPackagePreviewExpiryEvictionRestartAndCleanup(t *testing.T) {
 
 	manifest2 := patchPackageManifestForApplyTest(t, []patchPackageApplyFixture{{path: paths[1], oldText: "alpha", newText: "second"}})
 	_, second, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest2})
-	if firstEntry == nil || firstEntry.prepared.targets[0].prepared.identityFile != nil {
+	if firstEntry == nil || firstEntry.prepared.plan.targets[0].prepared.identityFile != nil {
 		t.Fatalf("eviction did not close retained identity: %+v", firstEntry)
 	}
 	evicted, _, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionApply, PreviewID: first.PreviewID})

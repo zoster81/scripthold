@@ -93,7 +93,7 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 	if stageErr != nil {
 		return errorResultFromError(stageErr), PatchPackageOutput{}, nil
 	}
-	actualFingerprints := make([]string, len(prepared.targets))
+	actualFingerprints := make([]string, len(prepared.plan.targets))
 	if phaseFailure := h.commitPatchPackageApply(ctx, prepared, &output, batch, actualFingerprints); phaseFailure != nil {
 		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, batch)
 	}
@@ -101,7 +101,7 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, batch)
 	}
 	output.Applied = true
-	output.ActualAggregateFingerprint = patchPackageAggregatePrepared(prepared.targets, actualFingerprints)
+	output.ActualAggregateFingerprint = patchPackageAggregatePrepared(prepared.plan.targets, actualFingerprints)
 	text := patchPackageApplyText(output)
 	if err := h.checkPatchPackageResponseLimit(output, text); err != nil {
 		return errorResultFromError(err), PatchPackageOutput{}, nil
@@ -174,9 +174,9 @@ func (h *Handler) patchPackageApplyFailure(prepared *preparedPatchPackage, outpu
 	output.Applied = false
 	output.FailedIndex = nil
 	output.FailedPath = ""
-	if failedIndex >= 0 && failedIndex < len(prepared.targets) {
+	if failedIndex >= 0 && failedIndex < len(prepared.plan.targets) {
 		output.FailedIndex = intPointer(failedIndex)
-		output.FailedPath = prepared.targets[failedIndex].requestedPath
+		output.FailedPath = prepared.plan.targets[failedIndex].requestedPath
 	}
 	output.FailureCode = mapping.BatchCode
 	output.FailureMessage = boundedPatchPackageFailureMessage(mapping.Message)
@@ -185,7 +185,7 @@ func (h *Handler) patchPackageApplyFailure(prepared *preparedPatchPackage, outpu
 	output.UnknownCount = 0
 	actualFingerprints, completeAggregate := h.classifyPatchPackageFailureTargets(classificationCtx, prepared, &output)
 	if completeAggregate {
-		output.ActualAggregateFingerprint = patchPackageAggregatePrepared(prepared.targets, actualFingerprints)
+		output.ActualAggregateFingerprint = patchPackageAggregatePrepared(prepared.plan.targets, actualFingerprints)
 	}
 	output.PartialCommit = output.CommittedCount > 0 || output.UnknownCount > 0
 	code := mapping.BatchCode
@@ -258,10 +258,10 @@ func patchPackageOutputFromPreview(preview *patchPackagePreview, action string) 
 		PreviewID:                  preview.id,
 		CreatedAt:                  preview.createdAt.Format(timeRFC3339Nano),
 		ExpiresAt:                  preview.expiresAt.Format(timeRFC3339Nano),
-		TargetCount:                len(prepared.targets),
-		Results:                    make([]PatchPackageTargetResult, len(prepared.targets)),
+		TargetCount:                len(prepared.plan.targets),
+		Results:                    make([]PatchPackageTargetResult, len(prepared.plan.targets)),
 	}
-	for index, target := range prepared.targets {
+	for index, target := range prepared.plan.targets {
 		output.Results[index] = PatchPackageTargetResult{
 			Index:                     index,
 			Path:                      target.requestedPath,

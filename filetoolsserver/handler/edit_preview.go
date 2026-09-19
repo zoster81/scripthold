@@ -40,7 +40,7 @@ type editPreview struct {
 	id            string
 	createdAt     time.Time
 	expiresAt     time.Time
-	target        preparedEditPlanTarget
+	plan          preparedEditPlan
 	retainedBytes int64
 	element       *list.Element
 }
@@ -82,6 +82,17 @@ func (store *editPreviewStore) put(prepared preparedEdit) (*editPreview, error) 
 	}
 
 	prepared.data = append([]byte(nil), prepared.data...)
+	plan, err := newPreparedEditPlan([]preparedEditPlanTarget{{
+		index:                     0,
+		requestedPath:             prepared.requestedPath,
+		resolvedPath:              prepared.resolvedPath,
+		expectedFingerprint:       prepared.targetFingerprint,
+		expectedResultFingerprint: prepared.resultFingerprint,
+		prepared:                  prepared,
+	}})
+	if err != nil {
+		return nil, err
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
@@ -100,17 +111,10 @@ func (store *editPreviewStore) put(prepared preparedEdit) (*editPreview, error) 
 		return nil, err
 	}
 	preview := &editPreview{
-		id:        id,
-		createdAt: now,
-		expiresAt: now.Add(store.ttl),
-		target: preparedEditPlanTarget{
-			index:                     0,
-			requestedPath:             prepared.requestedPath,
-			resolvedPath:              prepared.resolvedPath,
-			expectedFingerprint:       prepared.targetFingerprint,
-			expectedResultFingerprint: prepared.resultFingerprint,
-			prepared:                  prepared,
-		},
+		id:            id,
+		createdAt:     now,
+		expiresAt:     now.Add(store.ttl),
+		plan:          plan,
 		retainedBytes: retainedBytes,
 	}
 	preview.element = store.order.PushBack(id)
@@ -194,10 +198,7 @@ func (store *editPreviewStore) removeLocked(id string) {
 	if store.totalBytes < 0 {
 		store.totalBytes = 0
 	}
-	if preview.target.prepared.identityFile != nil {
-		_ = preview.target.prepared.identityFile.Close()
-		preview.target.prepared.identityFile = nil
-	}
+	preview.plan.close()
 }
 
 func cloneEditPreview(preview *editPreview) *editPreview {
@@ -206,8 +207,11 @@ func cloneEditPreview(preview *editPreview) *editPreview {
 	}
 	copy := *preview
 	copy.element = nil
-	copy.target.prepared.data = append([]byte(nil), preview.target.prepared.data...)
-	copy.target.prepared.identityFile = nil
+	copy.plan.targets = append([]preparedEditPlanTarget(nil), preview.plan.targets...)
+	for index := range copy.plan.targets {
+		copy.plan.targets[index].prepared.data = append([]byte(nil), preview.plan.targets[index].prepared.data...)
+		copy.plan.targets[index].prepared.identityFile = nil
+	}
 	return &copy
 }
 

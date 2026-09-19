@@ -23,6 +23,37 @@ type preparedEditPlanTarget struct {
 	prepared                  preparedEdit
 }
 
+type preparedEditPlan struct {
+	targets []preparedEditPlanTarget
+}
+
+func newPreparedEditPlan(targets []preparedEditPlanTarget) (preparedEditPlan, error) {
+	if len(targets) == 0 {
+		return preparedEditPlan{}, operation.New(operation.KindInvalidInput, "prepared edit plan must contain at least one target")
+	}
+	plan := preparedEditPlan{targets: append([]preparedEditPlanTarget(nil), targets...)}
+	for index := range plan.targets {
+		if plan.targets[index].index != index {
+			return preparedEditPlan{}, operation.New(operation.KindInvalidInput, "prepared edit plan target indices must match target order")
+		}
+	}
+	return plan, nil
+}
+
+func (plan *preparedEditPlan) close() {
+	if plan == nil {
+		return
+	}
+	for index := range plan.targets {
+		identity := plan.targets[index].prepared.identityFile
+		if identity == nil {
+			continue
+		}
+		_ = identity.Close()
+		plan.targets[index].prepared.identityFile = nil
+	}
+}
+
 // preparedExistingFileReplacement is a non-owning view of one approved
 // replacement of an existing regular file. The preview that created the view
 // retains ownership of resultData and the file-identity slot.

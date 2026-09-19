@@ -138,6 +138,10 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 		}
 	}
 
+	plan, err := newPreparedEditPlan(preparedTargets)
+	if err != nil {
+		return errorResultFromError(err), PatchPackageOutput{}, nil
+	}
 	preparedPackage := preparedPatchPackage{
 		formatVersion:              manifest.FormatVersion,
 		label:                      manifest.Label,
@@ -147,7 +151,7 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 		aggregateMode:              patchPackageAggregateModeV1,
 		aggregateBeforeFingerprint: patchPackageAggregate(targets, before),
 		aggregateAfterFingerprint:  patchPackageAggregate(targets, resultFingerprints),
-		targets:                    preparedTargets,
+		plan:                       plan,
 	}
 	retainedPackageBytes, err := preparedPackage.retainedBytes()
 	if err != nil {
@@ -157,8 +161,8 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 		err := operation.New(operation.KindLimit, fmt.Sprintf("patch package prepared state exceeds limit %d bytes", h.maxPatchPackagePreparedBytes()))
 		return errorResultFromError(err), PatchPackageOutput{}, nil
 	}
-	for index := range preparedPackage.targets {
-		preparedPackage.targets[index].prepared.identityFile = identities[index]
+	for index := range preparedPackage.plan.targets {
+		preparedPackage.plan.targets[index].prepared.identityFile = identities[index]
 		identities[index] = nil
 	}
 	preview, err := h.patchPackagePreviews.put(preparedPackage)

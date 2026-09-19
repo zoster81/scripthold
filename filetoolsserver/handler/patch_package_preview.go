@@ -24,7 +24,7 @@ type preparedPatchPackage struct {
 	aggregateMode              string
 	aggregateBeforeFingerprint string
 	aggregateAfterFingerprint  string
-	targets                    []preparedEditPlanTarget
+	plan                       preparedEditPlan
 }
 
 type patchPackagePreview struct {
@@ -189,13 +189,7 @@ func (prepared *preparedPatchPackage) close() {
 	if prepared == nil {
 		return
 	}
-	for index := range prepared.targets {
-		identity := prepared.targets[index].prepared.identityFile
-		if identity != nil {
-			_ = identity.Close()
-			prepared.targets[index].prepared.identityFile = nil
-		}
-	}
+	prepared.plan.close()
 }
 
 func (prepared preparedPatchPackage) retainedBytes() (int64, error) {
@@ -211,7 +205,7 @@ func (prepared preparedPatchPackage) retainedBytes() (int64, error) {
 		}
 		total += int64(part)
 	}
-	for _, target := range prepared.targets {
+	for _, target := range prepared.plan.targets {
 		retained, err := target.prepared.retainedBytes()
 		if err != nil {
 			return 0, err

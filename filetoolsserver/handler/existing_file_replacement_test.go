@@ -9,6 +9,27 @@ import (
 	"github.com/zoster81/scripthold/internal/filesystem"
 )
 
+func TestPreparedEditPlanRequiresOrderedTargets(t *testing.T) {
+	if _, err := newPreparedEditPlan(nil); err == nil {
+		t.Fatal("empty prepared edit plan was accepted")
+	}
+	targets := []preparedEditPlanTarget{{index: 0}, {index: 1}}
+	plan, err := newPreparedEditPlan(targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.targets) != 2 || plan.targets[0].index != 0 || plan.targets[1].index != 1 {
+		t.Fatalf("plan targets=%+v", plan.targets)
+	}
+	targets[0].index = 9
+	if plan.targets[0].index != 0 {
+		t.Fatal("prepared edit plan did not retain its own ordered target slice")
+	}
+	if _, err := newPreparedEditPlan([]preparedEditPlanTarget{{index: 1}}); err == nil {
+		t.Fatal("out-of-order prepared edit plan target was accepted")
+	}
+}
+
 func TestExistingFileReplacementBatchStagesAndCommitsPreparedReplacement(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "target.txt")
