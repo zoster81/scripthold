@@ -72,6 +72,13 @@ func TestMarkdownPhysicalResultPreservesFixedWidthUnicodeEncodings(t *testing.T)
 			if !bytes.Equal(physical, want) {
 				t.Fatalf("physical=%x want=%x", physical, want)
 			}
+			noOp, err := markdownPhysicalResult(document, original, sourceUTF8, sourceUTF8)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(noOp, original) {
+				t.Fatalf("no-op=%x want exact original=%x", noOp, original)
+			}
 		})
 	}
 }

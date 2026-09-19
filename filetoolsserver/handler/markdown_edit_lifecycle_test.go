@@ -665,37 +665,48 @@ func TestMarkdownEditRejectsInvalidFrontMatterFieldReplaceShapesBeforeFilesystem
 	}
 }
 
-func TestMarkdownEditPreservesUTF16BOMAndCRLF(t *testing.T) {
+func TestMarkdownEditPreservesFixedWidthUnicodeBOMAndCRLF(t *testing.T) {
 	source := "# Old\r\n\r\nBody Città 🌍.\r\n"
 	want := "# New\r\n\r\nBody Città 🌍.\r\n"
-	dir := t.TempDir()
-	path := filepath.Join(dir, "doc.md")
-	original := encodeUTF16LEWithBOM(t, source)
-	if err := os.WriteFile(path, original, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	h := NewHandler([]string{dir})
-	result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
-		Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 4,
-	})
-	if err != nil || result.IsError || len(read.Nodes) != 1 || read.Encoding != "utf-16-le" || !read.HasBOM {
-		t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
-	}
-	operation := MarkdownEditOperation{Action: "rename", Subject: "heading", TargetID: read.Nodes[0].TargetID, Text: "New"}
-	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
-	if err != nil || previewResult.IsError || !preview.Changed || preview.Encoding != "utf-16-le" || !preview.HasBOM {
-		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
-	}
-	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, original) {
-		t.Fatalf("preview mutated target=%x err=%v", got, err)
-	}
-	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
-	if err != nil || applyResult.IsError || !output.Applied {
-		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
-	}
-	wantBytes := encodeUTF16LEWithBOM(t, want)
-	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, wantBytes) {
-		t.Fatalf("target=%x want=%x err=%v", got, wantBytes, err)
+	for _, charset := range []string{"utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"} {
+		t.Run(charset, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			document := textDocument{Charset: charset}
+			original, err := encodeTextDocument(document, source, bomAlways)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, original, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+				Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 4,
+			})
+			if err != nil || result.IsError || len(read.Nodes) != 1 || read.Encoding != charset || !read.HasBOM {
+				t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+			}
+			operation := MarkdownEditOperation{Action: "rename", Subject: "heading", TargetID: read.Nodes[0].TargetID, Text: "New"}
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed || preview.Encoding != charset || !preview.HasBOM {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, original) {
+				t.Fatalf("preview mutated target=%x err=%v", got, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			wantBytes, err := encodeTextDocument(document, want, bomAlways)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, wantBytes) {
+				t.Fatalf("target=%x want=%x err=%v", got, wantBytes, err)
+			}
+		})
 	}
 }
 
