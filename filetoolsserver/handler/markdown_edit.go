@@ -197,6 +197,9 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceHTMLAnchor(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "math_expression":
 			preparedChange, prepareErr = snapshot.PrepareReplaceMathExpression(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "set" && operationInput.Subject == "alert":
+			kind, _ := markdownAlertKind(operationInput.Text)
+			preparedChange, prepareErr = snapshot.PrepareSetAlertKind(operationInput.TargetID, kind)
 		case operationInput.Action == "replace" && operationInput.Subject == "blockquote":
 			preparedChange, prepareErr = snapshot.PrepareReplaceBlockquoteContent(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "alert":
@@ -481,6 +484,23 @@ func (h *Handler) HandleMarkdownApply(ctx context.Context, _ *mcp.CallToolReques
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: markdownApplyText(output)}}}, output, nil
 }
 
+func markdownAlertKind(value string) (marksplice.AlertKind, bool) {
+	switch value {
+	case "note":
+		return marksplice.AlertKindNote, true
+	case "tip":
+		return marksplice.AlertKindTip, true
+	case "important":
+		return marksplice.AlertKindImportant, true
+	case "warning":
+		return marksplice.AlertKindWarning, true
+	case "caution":
+		return marksplice.AlertKindCaution, true
+	default:
+		return marksplice.AlertKindUnknown, false
+	}
+}
+
 func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 	if input.Path == "" {
 		return errorResultWithCode(ErrCodeInvalidInput, "path is required")
@@ -579,6 +599,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "blockquote":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/blockquote requires non-empty text")
+			}
+		case op.Action == "set" && op.Subject == "alert":
+			if _, ok := markdownAlertKind(op.Text); !ok || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "set/alert requires text note, tip, important, warning, or caution")
 			}
 		case op.Action == "replace" && op.Subject == "alert":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {

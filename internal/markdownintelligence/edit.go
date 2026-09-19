@@ -390,6 +390,20 @@ func (s *Snapshot) PrepareRemoveFootnoteDefinition(targetID string) (PreparedCha
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareSetAlertKind resolves the opaque Scripthold blockquote target
+// against this exact snapshot and delegates GitHub-alert kind mutation to Marksplice.
+func (s *Snapshot) PrepareSetAlertKind(targetID string, kind marksplice.AlertKind) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareSetAlertKind(node.ID(), kind)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceAlertBody resolves the opaque Scripthold blockquote target
 // against this exact snapshot and delegates GitHub-alert body replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceAlertBody(targetID string, replacement []byte) (PreparedChange, error) {

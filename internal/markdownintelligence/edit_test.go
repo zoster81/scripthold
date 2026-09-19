@@ -2050,6 +2050,52 @@ func TestPrepareRemoveFootnoteDefinitionPreservesExternalOccurrenceBytesAndSourc
 	}
 }
 
+func TestPrepareSetAlertKindPreservesShapeAndSourceBinding(t *testing.T) {
+	source := []byte("before\r\n\r\n> [!NOTE]\r\n> body\r\n\r\nafter\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockquotes, err := snapshot.QueryNodes([]string{"blockquote"}, 8)
+	if err != nil || len(blockquotes) != 1 {
+		t.Fatalf("blockquotes=%+v err=%v", blockquotes, err)
+	}
+	prepared, err := snapshot.PrepareSetAlertKind(blockquotes[0].TargetID, marksplice.AlertKindWarning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("before\r\n\r\n> [!WARNING]\r\n> body\r\n\r\nafter\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	noOp, err := snapshot.PrepareSetAlertKind(blockquotes[0].TargetID, marksplice.AlertKindNote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := noOp.Apply(source); err != nil || !bytes.Equal(got, source) {
+		t.Fatalf("no-op result=%q err=%v", got, err)
+	}
+	if _, err := snapshot.PrepareSetAlertKind(blockquotes[0].TargetID, marksplice.AlertKindUnknown); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("unknown kind error=%v, want ErrInvalidReplacement", err)
+	}
+	stale := append([]byte(nil), source...)
+	stale[0] = 'B'
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) == 0 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareSetAlertKind(paragraphs[0].TargetID, marksplice.AlertKindTip); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReplaceAlertBodyPreservesMarkerShapeAndSourceBinding(t *testing.T) {
 	source := []byte("before\r\n\r\n> [!NOTE]\r\n> old\r\n\r\nafter\r\n")
 	snapshot, err := Parse(source)

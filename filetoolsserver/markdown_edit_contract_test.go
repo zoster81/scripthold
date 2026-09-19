@@ -33,8 +33,18 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 24 {
-		t.Fatalf("operation union = %#v, want twenty-four schema branches covering fifty-one closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 25 {
+		t.Fatalf("operation union = %#v, want twenty-five schema branches covering fifty-two closed forms", items["oneOf"])
+	}
+
+	setAlert := markdownEditOperationBranch(t, oneOf, "set", "alert", "")
+	markdownReadAssertStringSet(t, "set alert required", setAlert["required"], []string{"action", "subject", "targetId", "text"})
+	setAlertProperties := markdownReadSchemaMap(t, setAlert["properties"])
+	if kinds := markdownReadSchemaMap(t, setAlertProperties["text"])["enum"]; !reflect.DeepEqual(kinds, []string{"note", "tip", "important", "warning", "caution"}) {
+		t.Fatalf("set alert kinds = %#v", kinds)
+	}
+	if len(setAlertProperties) != 4 {
+		t.Fatalf("set alert properties = %#v", setAlertProperties)
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
