@@ -1,6 +1,7 @@
 package markdownintelligence
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/zoster81/marksplice"
@@ -65,34 +66,64 @@ func (s *Snapshot) PrepareRenameHeading(targetID string, replacement []byte) (Pr
 		return PreparedChange{}, err
 	}
 	relationships := s.document.LinkRelationships()
-	if !hasResolvedHeadingFragmentRelationship(relationships) {
+	if !hasResolvedLocalFragmentRelationship(relationships) {
 		return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 	}
 	candidate, err := change.Apply(s.source)
 	if err != nil {
 		return PreparedChange{}, err
 	}
+	if bytes.Equal(candidate, s.source) {
+		return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	}
+	heading, ok := s.document.Heading(node.ID())
+	if !ok {
+		return PreparedChange{}, marksplice.ErrInvalidTargetKind
+	}
 	candidateDocument, err := marksplice.Parse(candidate)
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	if headingRenameChangesReferencedAnchor(s.document, candidateDocument, relationships) {
+	if headingRenameInvalidatesResolvedFragment(s.document, candidateDocument, heading.Range(), relationships) {
 		return PreparedChange{}, fmt.Errorf("%w: heading rename would invalidate a resolved local fragment relationship", marksplice.ErrInvalidReplacement)
 	}
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
-func hasResolvedHeadingFragmentRelationship(relationships []marksplice.LinkRelationship) bool {
+func hasResolvedLocalFragmentRelationship(relationships []marksplice.LinkRelationship) bool {
 	for _, relationship := range relationships {
-		if relationship.FragmentStatus() != marksplice.LinkFragmentResolved {
-			continue
-		}
-		target, ok := relationship.FragmentTarget()
-		if ok && target.Kind() == marksplice.FragmentTargetHeading {
+		if relationship.FragmentStatus() == marksplice.LinkFragmentResolved {
 			return true
 		}
 	}
 	return false
+}
+
+func headingRenameInvalidatesResolvedFragment(before, after *marksplice.Document, renamedRange marksplice.Range, relationships []marksplice.LinkRelationship) bool {
+	for _, relationship := range relationships {
+		if relationship.FragmentStatus() != marksplice.LinkFragmentResolved {
+			continue
+		}
+		originalTarget, ok := relationship.FragmentTarget()
+		if !ok {
+			return true
+		}
+		candidateTarget, ok := after.ResolveFragment(relationship.Destination())
+		if !ok || candidateTarget.Kind() != originalTarget.Kind() || candidateTarget.Value() != originalTarget.Value() {
+			return true
+		}
+		if originalTarget.Kind() == marksplice.FragmentTargetHTMLAnchor {
+			anchor, ok := before.HTMLAnchor(originalTarget.NodeID())
+			if !ok || rangesOverlap(anchor.Range(), renamedRange) {
+				return true
+			}
+		}
+	}
+	return headingRenameChangesReferencedAnchor(before, after, relationships)
+}
+
+func rangesOverlap(left, right marksplice.Range) bool {
+	return left.Start < right.End && right.Start < left.End
 }
 
 func headingRenameChangesReferencedAnchor(before, after *marksplice.Document, relationships []marksplice.LinkRelationship) bool {

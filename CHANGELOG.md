@@ -12,7 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
-- Made `rename/heading` fail closed when the rename would change a Marksplice-resolved heading anchor still targeted by a local fragment link, including duplicate-heading anchor cascades, preventing silent broken or retargeted local links.
+- Made `rename/heading` fail closed when a currently resolved local fragment would stop resolving to the same Marksplice target kind/value, when a referenced HTML anchor lies inside the replaced heading content, or when duplicate-heading anchor ownership would change, preventing silent broken, ambiguous, or retargeted local links without local Markdown slug/link rules.
 - Kept OpenSSF Scorecard on its supported default-branch execution path after upstream rejected release-tag pushes, and made future release verification require successful exact-commit Scorecard evidence from the `main` push.
 
 ## 3.2.1 - 2026-09-16

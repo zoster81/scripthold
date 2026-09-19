@@ -56,6 +56,82 @@ func TestPrepareRenameHeadingRejectsResolvedLocalFragmentBreakage(t *testing.T) 
 	}
 }
 
+func TestPrepareRenameHeadingRejectsCollisionWithReferencedHTMLAnchor(t *testing.T) {
+	source := []byte("[HTML](#shared)\n\n<a id=\"shared\"></a>\n\n# Old\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("Shared")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestPrepareRenameHeadingRejectsReferencedHTMLAnchorInsideRenamedContent(t *testing.T) {
+	source := []byte("[HTML](#shared)\n\n# Old <a id=\"shared\"></a>\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New <a id=\"shared\"></a>")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestPrepareRenameHeadingAllowsUnrelatedReferencedHTMLAnchor(t *testing.T) {
+	source := []byte("[HTML](#shared)\n\n<a id=\"shared\"></a>\n\n# Old\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	prepared, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []byte("[HTML](#shared)\n\n<a id=\"shared\"></a>\n\n# New\n"); !bytes.Equal(got, want) {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+}
+
+func TestPrepareRenameHeadingNoOpPreservesReferencedHTMLAnchor(t *testing.T) {
+	source := []byte("[HTML](#shared)\n\n# Old <a id=\"shared\"></a>\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	prepared, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("Old <a id=\"shared\"></a>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, source) {
+		t.Fatalf("no-op result=%q want original %q", got, source)
+	}
+}
+
 func TestPrepareRenameHeadingRejectsDuplicateAnchorCascadeBreakage(t *testing.T) {
 	source := []byte("[Second](#same-1)\n\n# Same\n\n# Same\n")
 	snapshot, err := Parse(source)
