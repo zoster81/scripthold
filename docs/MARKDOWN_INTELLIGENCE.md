@@ -28,6 +28,7 @@ HTML rendering and Markdown-to-HTML source maps are intentionally outside R30.
 8. Marksplice `NodeID` values are snapshot-local implementation identities. They are never exposed as durable public identities.
 9. Every query that can allocate an unbounded result requires a positive caller-visible limit and remains bounded by Scripthold's configured output/file/workspace limits.
 10. Workspace discovery never broadens filesystem authority. Marksplice `workspacefs` receives only an `fs.FS` backed by paths already authorized by Scripthold.
+11. If a Markdown capability or relationship-safety proof requires semantic authority that the pinned Marksplice API does not expose, R30 leaves that capability or unsafe context unavailable rather than implementing a host-side heuristic, parser rule, identity scheme, or rewrite fallback. The capability remains planned until Marksplice can prove it.
 
 ## Marksplice v1.1.1 public capability mapping
 
