@@ -170,53 +170,81 @@ func (s *createState) measureDocument(document CreateDocument, depth int) error 
 
 func (s *createState) measureBlocks(blocks []CreateBlock, depth int) error {
 	for _, block := range blocks {
+		if err := s.measureBlock(block, depth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *createState) measureBlock(block CreateBlock, depth int) error {
+	if err := s.addElement(depth); err != nil {
+		return err
+	}
+	if err := s.measureTextValues(
+		block.RawMarkdown, block.Kind, block.Code, block.Info, block.Label,
+		block.Destination, block.Title, block.Body, block.Payload,
+	); err != nil {
+		return err
+	}
+	if err := s.measureListItems(block.Items, depth+1); err != nil {
+		return err
+	}
+	if err := s.measureTable(block, depth+1); err != nil {
+		return err
+	}
+	if err := s.measureInline(block.Content, depth+1); err != nil {
+		return err
+	}
+	return s.measureBlocks(block.Blocks, depth+1)
+}
+
+func (s *createState) measureTextValues(values ...string) error {
+	for _, value := range values {
+		if err := s.addText(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *createState) measureListItems(items []CreateListItem, depth int) error {
+	for _, item := range items {
 		if err := s.addElement(depth); err != nil {
 			return err
 		}
-		for _, value := range []string{block.RawMarkdown, block.Kind, block.Code, block.Info, block.Label, block.Destination, block.Title, block.Body, block.Payload} {
-			if err := s.addText(value); err != nil {
-				return err
-			}
+		if err := s.addText(item.Markdown); err != nil {
+			return err
 		}
-		for _, item := range block.Items {
-			if err := s.addElement(depth + 1); err != nil {
-				return err
-			}
-			if err := s.addText(item.Markdown); err != nil {
-				return err
-			}
+	}
+	return nil
+}
+
+func (s *createState) measureTable(block CreateBlock, depth int) error {
+	for _, cell := range block.Header {
+		if err := s.addElement(depth); err != nil {
+			return err
 		}
-		for _, cell := range block.Header {
+		if err := s.addText(cell); err != nil {
+			return err
+		}
+	}
+	for range block.Alignments {
+		if err := s.addElement(depth); err != nil {
+			return err
+		}
+	}
+	for _, row := range block.Rows {
+		if err := s.addElement(depth); err != nil {
+			return err
+		}
+		for _, cell := range row {
 			if err := s.addElement(depth + 1); err != nil {
 				return err
 			}
 			if err := s.addText(cell); err != nil {
 				return err
 			}
-		}
-		for range block.Alignments {
-			if err := s.addElement(depth + 1); err != nil {
-				return err
-			}
-		}
-		for _, row := range block.Rows {
-			if err := s.addElement(depth + 1); err != nil {
-				return err
-			}
-			for _, cell := range row {
-				if err := s.addElement(depth + 2); err != nil {
-					return err
-				}
-				if err := s.addText(cell); err != nil {
-					return err
-				}
-			}
-		}
-		if err := s.measureInline(block.Content, depth+1); err != nil {
-			return err
-		}
-		if err := s.measureBlocks(block.Blocks, depth+1); err != nil {
-			return err
 		}
 	}
 	return nil
