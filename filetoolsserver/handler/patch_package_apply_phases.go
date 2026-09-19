@@ -90,7 +90,7 @@ func validatePatchPackageBackupCaptures(prepared *preparedPatchPackage, output *
 	}
 }
 
-func patchPackageChangedTargetIndices(targets []preparedPatchPackageTarget) []int {
+func patchPackageChangedTargetIndices(targets []preparedEditPlanTarget) []int {
 	indices := make([]int, 0, len(targets))
 	for index := range targets {
 		if targets[index].prepared.changed {
@@ -100,7 +100,7 @@ func patchPackageChangedTargetIndices(targets []preparedPatchPackageTarget) []in
 	return indices
 }
 
-func patchPackageBackupMatches(manifest backupstore.Manifest, target preparedPatchPackageTarget) bool {
+func patchPackageBackupMatches(manifest backupstore.Manifest, target preparedEditPlanTarget) bool {
 	return validPatchPackagePreviewID(manifest.BackupID) &&
 		manifest.TargetPath == target.resolvedPath &&
 		manifest.SourceOperation == backupstore.SourceOperationPatchPackage &&
@@ -139,7 +139,7 @@ func (h *Handler) stagePatchPackageApply(ctx context.Context, prepared *prepared
 	replacements := make([]preparedExistingFileReplacement, len(prepared.targets))
 	modes := make([]os.FileMode, len(prepared.targets))
 	for index := range prepared.targets {
-		replacements[index] = preparedPatchPackageReplacement(&prepared.targets[index])
+		replacements[index] = preparedEditPlanReplacement(&prepared.targets[index])
 		modes[index] = preflight[index].mode
 	}
 	return h.stageExistingFileReplacementBatch(
@@ -168,7 +168,7 @@ func (h *Handler) commitPatchPackageApply(ctx context.Context, prepared *prepare
 	return nil
 }
 
-func markPatchPackageTargetUnchanged(output *PatchPackageOutput, actualFingerprints []string, index int, target *preparedPatchPackageTarget) {
+func markPatchPackageTargetUnchanged(output *PatchPackageOutput, actualFingerprints []string, index int, target *preparedEditPlanTarget) {
 	output.Results[index].State = patchPackageStateUnchanged
 	output.Results[index].ActualFingerprint = target.prepared.targetFingerprint
 	output.UnchangedCount++
@@ -184,8 +184,8 @@ func markPatchPackageTargetCommitted(output *PatchPackageOutput, actualFingerpri
 	actualFingerprints[index] = actual
 }
 
-func (h *Handler) commitPatchPackageApplyTarget(ctx context.Context, index int, target *preparedPatchPackageTarget, batch *existingFileReplacementBatch) (string, bool, error) {
-	replacement := preparedPatchPackageReplacement(target)
+func (h *Handler) commitPatchPackageApplyTarget(ctx context.Context, index int, target *preparedEditPlanTarget, batch *existingFileReplacementBatch) (string, bool, error) {
+	replacement := preparedEditPlanReplacement(target)
 	current, originalMode, readOnlyCleared, err := h.preparePatchPackageCommitTarget(ctx, target, replacement)
 	if err != nil {
 		return "", false, err
@@ -206,7 +206,7 @@ func (h *Handler) commitPatchPackageApplyTarget(ctx context.Context, index int, 
 	return actual, readOnlyCleared, nil
 }
 
-func (h *Handler) preparePatchPackageCommitTarget(ctx context.Context, target *preparedPatchPackageTarget, replacement preparedExistingFileReplacement) (filesystem.FileSnapshot, os.FileMode, bool, error) {
+func (h *Handler) preparePatchPackageCommitTarget(ctx context.Context, target *preparedEditPlanTarget, replacement preparedExistingFileReplacement) (filesystem.FileSnapshot, os.FileMode, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return filesystem.FileSnapshot{}, 0, false, operation.Wrap(operation.KindCancelled, "commit_patch_package", replacement.resolvedPath, err)
 	}
@@ -266,7 +266,7 @@ func (h *Handler) verifyPatchPackageApplyFinal(ctx context.Context, prepared *pr
 	return nil
 }
 
-func patchPackageFinalTargets(targets []preparedPatchPackageTarget) []validatedPatchPackageTarget {
+func patchPackageFinalTargets(targets []preparedEditPlanTarget) []validatedPatchPackageTarget {
 	finalTargets := make([]validatedPatchPackageTarget, len(targets))
 	for index := range targets {
 		finalTargets[index].resolvedPath = targets[index].resolvedPath
@@ -307,7 +307,7 @@ func resetPatchPackageFailureResult(result *PatchPackageTargetResult) {
 	result.Error = ""
 }
 
-func (h *Handler) classifyPatchPackageFailureTarget(ctx context.Context, target *preparedPatchPackageTarget) (string, string, bool) {
-	state, actual, applied := h.classifyExistingFileReplacement(ctx, preparedPatchPackageReplacement(target))
+func (h *Handler) classifyPatchPackageFailureTarget(ctx context.Context, target *preparedEditPlanTarget) (string, string, bool) {
+	state, actual, applied := h.classifyExistingFileReplacement(ctx, preparedEditPlanReplacement(target))
 	return string(state), actual, applied
 }

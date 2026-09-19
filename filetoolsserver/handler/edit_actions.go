@@ -283,7 +283,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	if err != nil {
 		return errorResultFromError(err), EditFileOutput{}, nil
 	}
-	prepared := preview.prepared
+	prepared := preview.target.prepared
 	if prepared.identityFile != nil {
 		defer prepared.identityFile.Close()
 	}
@@ -520,7 +520,7 @@ func editOutputFromPrepared(action string, prepared preparedEdit) EditFileOutput
 }
 
 func editOutputFromPreview(preview *editPreview) EditFileOutput {
-	output := editOutputFromPrepared(editActionPreview, preview.prepared)
+	output := editOutputFromPrepared(editActionPreview, preview.target.prepared)
 	output.PreviewID = preview.id
 	output.CreatedAt = preview.createdAt.Format(timeRFC3339Nano)
 	output.ExpiresAt = preview.expiresAt.Format(timeRFC3339Nano)

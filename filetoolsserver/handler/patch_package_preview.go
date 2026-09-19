@@ -15,16 +15,6 @@ import (
 
 const patchPackagePreviewTokenBytes = 32
 
-type preparedPatchPackageTarget struct {
-	index                     int
-	requestedPath             string
-	resolvedPath              string
-	canonicalManifestPath     string
-	expectedFingerprint       string
-	expectedResultFingerprint string
-	prepared                  preparedEdit
-}
-
 type preparedPatchPackage struct {
 	formatVersion              string
 	label                      string
@@ -34,7 +24,7 @@ type preparedPatchPackage struct {
 	aggregateMode              string
 	aggregateBeforeFingerprint string
 	aggregateAfterFingerprint  string
-	targets                    []preparedPatchPackageTarget
+	targets                    []preparedEditPlanTarget
 }
 
 type patchPackagePreview struct {

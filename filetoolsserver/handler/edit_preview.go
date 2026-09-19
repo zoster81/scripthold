@@ -40,7 +40,7 @@ type editPreview struct {
 	id            string
 	createdAt     time.Time
 	expiresAt     time.Time
-	prepared      preparedEdit
+	target        preparedEditPlanTarget
 	retainedBytes int64
 	element       *list.Element
 }
@@ -100,10 +100,17 @@ func (store *editPreviewStore) put(prepared preparedEdit) (*editPreview, error) 
 		return nil, err
 	}
 	preview := &editPreview{
-		id:            id,
-		createdAt:     now,
-		expiresAt:     now.Add(store.ttl),
-		prepared:      prepared,
+		id:        id,
+		createdAt: now,
+		expiresAt: now.Add(store.ttl),
+		target: preparedEditPlanTarget{
+			index:                     0,
+			requestedPath:             prepared.requestedPath,
+			resolvedPath:              prepared.resolvedPath,
+			expectedFingerprint:       prepared.targetFingerprint,
+			expectedResultFingerprint: prepared.resultFingerprint,
+			prepared:                  prepared,
+		},
 		retainedBytes: retainedBytes,
 	}
 	preview.element = store.order.PushBack(id)
@@ -187,9 +194,9 @@ func (store *editPreviewStore) removeLocked(id string) {
 	if store.totalBytes < 0 {
 		store.totalBytes = 0
 	}
-	if preview.prepared.identityFile != nil {
-		_ = preview.prepared.identityFile.Close()
-		preview.prepared.identityFile = nil
+	if preview.target.prepared.identityFile != nil {
+		_ = preview.target.prepared.identityFile.Close()
+		preview.target.prepared.identityFile = nil
 	}
 }
 
@@ -199,8 +206,8 @@ func cloneEditPreview(preview *editPreview) *editPreview {
 	}
 	copy := *preview
 	copy.element = nil
-	copy.prepared.data = append([]byte(nil), preview.prepared.data...)
-	copy.prepared.identityFile = nil
+	copy.target.prepared.data = append([]byte(nil), preview.target.prepared.data...)
+	copy.target.prepared.identityFile = nil
 	return &copy
 }
 

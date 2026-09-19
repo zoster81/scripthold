@@ -70,7 +70,7 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 		}
 	}
 
-	preparedTargets := make([]preparedPatchPackageTarget, len(targets))
+	preparedTargets := make([]preparedEditPlanTarget, len(targets))
 	resultFingerprints := make([]string, len(targets))
 	var preparedBytes int64
 	for index, target := range targets {
@@ -111,7 +111,7 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 			err := operation.New(operation.KindLimit, fmt.Sprintf("patch package prepared state exceeds limit %d bytes", h.maxPatchPackagePreparedBytes()))
 			return errorResultFromError(err), PatchPackageOutput{}, nil
 		}
-		preparedTargets[index] = preparedPatchPackageTarget{
+		preparedTargets[index] = preparedEditPlanTarget{
 			index:                     index,
 			requestedPath:             target.declared.Path,
 			resolvedPath:              target.resolvedPath,
@@ -407,7 +407,7 @@ func (h *Handler) capturePatchPackageFingerprintsOnce(ctx context.Context, targe
 	return fingerprints, nil
 }
 
-func patchPackageCaptureRequests(label, backupPolicy string, targets []preparedPatchPackageTarget) []backupstore.CaptureRequest {
+func patchPackageCaptureRequests(label, backupPolicy string, targets []preparedEditPlanTarget) []backupstore.CaptureRequest {
 	requests := make([]backupstore.CaptureRequest, 0, len(targets))
 	for index := range targets {
 		if !targets[index].prepared.changed {

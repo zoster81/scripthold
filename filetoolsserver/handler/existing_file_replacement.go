@@ -11,6 +11,18 @@ import (
 	"github.com/zoster81/scripthold/internal/textstream"
 )
 
+// preparedEditPlanTarget is the cardinality-neutral prepared state shared by
+// single-file and multi-file existing-text edit capabilities.
+type preparedEditPlanTarget struct {
+	index                     int
+	requestedPath             string
+	resolvedPath              string
+	canonicalManifestPath     string
+	expectedFingerprint       string
+	expectedResultFingerprint string
+	prepared                  preparedEdit
+}
+
 // preparedExistingFileReplacement is a non-owning view of one approved
 // replacement of an existing regular file. The preview that created the view
 // retains ownership of resultData and the file-identity slot.
@@ -45,7 +57,7 @@ const (
 	existingFileReplacementStateUnknown   existingFileReplacementState = "unknown"
 )
 
-func preparedPatchPackageReplacement(target *preparedPatchPackageTarget) preparedExistingFileReplacement {
+func preparedEditPlanReplacement(target *preparedEditPlanTarget) preparedExistingFileReplacement {
 	return preparedExistingFileReplacement{
 		requestedPath:     target.requestedPath,
 		resolvedPath:      target.resolvedPath,

@@ -109,7 +109,7 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output, nil
 }
 
-func (h *Handler) restorePatchPackageReadOnlyIfUnchanged(target *preparedPatchPackageTarget, originalMode os.FileMode) error {
+func (h *Handler) restorePatchPackageReadOnlyIfUnchanged(target *preparedEditPlanTarget, originalMode os.FileMode) error {
 	ctx, cancel := context.WithTimeout(context.Background(), patchPackageClassificationTimeout)
 	defer cancel()
 	current, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, target.prepared.resolvedPath, h.maxFileBytes())
@@ -129,7 +129,7 @@ func (h *Handler) restorePatchPackageReadOnlyIfUnchanged(target *preparedPatchPa
 	return nil
 }
 
-func (h *Handler) revalidatePreparedPatchPackageTarget(ctx context.Context, target *preparedPatchPackageTarget, phase string) (filesystem.FileSnapshot, *mcp.CallToolResult) {
+func (h *Handler) revalidatePreparedPatchPackageTarget(ctx context.Context, target *preparedEditPlanTarget, phase string) (filesystem.FileSnapshot, *mcp.CallToolResult) {
 	validation := h.ValidatePath(target.requestedPath)
 	if !validation.Ok() {
 		return filesystem.FileSnapshot{}, validation.Result
@@ -286,7 +286,7 @@ func patchPackageOutputFromPreview(preview *patchPackagePreview, action string) 
 	return output
 }
 
-func patchPackageAggregatePrepared(targets []preparedPatchPackageTarget, fingerprints []string) string {
+func patchPackageAggregatePrepared(targets []preparedEditPlanTarget, fingerprints []string) string {
 	canonical := make([]string, len(targets))
 	for index := range targets {
 		canonical[index] = targets[index].canonicalManifestPath

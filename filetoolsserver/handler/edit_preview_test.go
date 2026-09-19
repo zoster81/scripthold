@@ -55,6 +55,22 @@ func TestHandleEditFilePreviewApplyIsExactAndOneShot(t *testing.T) {
 	if preview.Encoding != "utf-8" || preview.LineEndingStyle != LineEndingNone {
 		t.Fatalf("unexpected text metadata: %+v", preview)
 	}
+	h.editPreviews.mu.Lock()
+	storedPreview := h.editPreviews.entries[preview.PreviewID]
+	h.editPreviews.mu.Unlock()
+	if storedPreview == nil {
+		t.Fatal("edit preview capability was not retained")
+	}
+	storedTarget := storedPreview.target
+	if storedTarget.index != 0 || storedTarget.requestedPath != path || storedTarget.resolvedPath == "" {
+		t.Fatalf("unexpected prepared edit plan target: %+v", storedTarget)
+	}
+	if storedTarget.expectedFingerprint != preview.TargetFingerprint || storedTarget.expectedResultFingerprint != preview.ResultFingerprint {
+		t.Fatalf("prepared target fingerprints diverged: target=%+v preview=%+v", storedTarget, preview)
+	}
+	if storedTarget.prepared.targetFingerprint != storedTarget.expectedFingerprint || storedTarget.prepared.resultFingerprint != storedTarget.expectedResultFingerprint {
+		t.Fatalf("prepared target does not bind exact approved fingerprints: %+v", storedTarget)
+	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "Hello World" {
 		t.Fatalf("preview changed target: %q err=%v", data, err)
 	}
