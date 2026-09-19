@@ -216,7 +216,7 @@ The host performs the physical encoding bridge:
 5. re-encode using the approved original encoding/BOM policy only when the host can prove the physical representation is safe;
 6. reject mutation if the source encoding path is ambiguous, invalid, non-round-trippable, or otherwise cannot satisfy unrelated-byte preservation.
 
-At minimum, the original decoded snapshot must round-trip byte-identically through the selected encoder before an edit preview can be approved. This is a necessary guard, not permission to normalize stateful encodings. The implementation may further restrict mutation to encoding profiles for which unchanged source segments remain physically stable. Read-only Markdown operations remain available when mutation must fail closed.
+At minimum, the original decoded snapshot must round-trip byte-identically through the selected encoder before an edit preview can be approved. This is a necessary guard, not permission to normalize stateful encodings. The current mutation bridge is proven only for UTF-8 plus fixed-width Unicode UTF-16 LE/BE and UTF-32 LE/BE, preserving BOM presence and decoded line endings; other registered encodings remain read-only for R30 mutation until unchanged-byte stability is proven. Read-only Markdown operations remain available when mutation must fail closed.
 
 Mixed EOL documents are preserved because Marksplice receives the exact decoded EOL bytes and owns the replacement spans. Scripthold must not globally normalize LF/CRLF around a Marksplice change.
 

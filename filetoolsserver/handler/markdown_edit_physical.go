@@ -10,7 +10,7 @@ import (
 )
 
 func markdownPhysicalResult(document textDocument, originalData, sourceUTF8, resultUTF8 []byte) ([]byte, error) {
-	if !fileEncoding.IsUTF8(document.Charset) {
+	if !markdownPhysicalReencodingSupported(document.Charset) {
 		return nil, operation.New(
 			operation.KindUnsupported,
 			fmt.Sprintf("byte-preserving markdown mutation is not proven for encoding %s", document.Charset),
@@ -20,23 +20,19 @@ func markdownPhysicalResult(document textDocument, originalData, sourceUTF8, res
 		return nil, operation.New(operation.KindEncodingOutput, "markdown mutation requires valid UTF-8 semantic bytes")
 	}
 
-	payload := originalData
-	if document.BOM.HasBOM {
-		if len(document.BOM.Bytes) == 0 || len(originalData) < len(document.BOM.Bytes) || !bytes.Equal(originalData[:len(document.BOM.Bytes)], document.BOM.Bytes) {
-			return nil, operation.New(operation.KindConflict, "markdown source BOM changed after preview")
-		}
-		payload = originalData[len(document.BOM.Bytes):]
-	} else if _, found := fileEncoding.DetectBOM(originalData); found {
-		return nil, operation.New(operation.KindConflict, "markdown source BOM changed after preview")
+	roundTrippedSource, err := encodeTextDocument(document, string(sourceUTF8), bomPreserve)
+	if err != nil {
+		return nil, err
 	}
-	if !bytes.Equal(payload, sourceUTF8) {
+	if !bytes.Equal(originalData, roundTrippedSource) {
 		return nil, operation.New(operation.KindConflict, "markdown source bytes no longer match the semantic snapshot")
 	}
-
-	result := make([]byte, 0, len(document.BOM.Bytes)+len(resultUTF8))
-	if document.BOM.HasBOM {
-		result = append(result, document.BOM.Bytes...)
+	if bytes.Equal(sourceUTF8, resultUTF8) {
+		return append([]byte(nil), originalData...), nil
 	}
-	result = append(result, resultUTF8...)
-	return result, nil
+	return encodeTextDocument(document, string(resultUTF8), bomPreserve)
+}
+
+func markdownPhysicalReencodingSupported(charset string) bool {
+	return fileEncoding.IsUTF8(charset) || fileEncoding.IsUTF16(charset) || fileEncoding.IsUTF32(charset)
 }
