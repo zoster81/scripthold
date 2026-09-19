@@ -1,8 +1,10 @@
 package filetoolsserver
 
+import "github.com/zoster81/scripthold/internal/markdownintelligence"
+
 const (
-	markdownCreateMaxElements = 4096
-	markdownCreateMaxDepth    = 64
+	markdownCreateMaxElements = markdownintelligence.MaxCreateElements
+	markdownCreateMaxDepth    = markdownintelligence.MaxCreateDepth
 )
 
 func markdownCreateInputSchema() map[string]any {
