@@ -455,6 +455,37 @@ Returned lists are deterministically cut at `limit` and set `truncated` when mor
 }
 ```
 
+### markdown_create
+
+Use `markdown_create` to **prepare and review a complete new Markdown document** at an authorized path that does not exist yet. Marksplice builds the semantic document; Scripthold binds the preview to the missing destination, its existing parent directory, the generated physical bytes, and the selected encoding/BOM policy. Previewing never creates the file.
+
+The request requires `path` and may contain `frontMatter`, an ordered `blocks` array, optional `encoding`, and `bom: "auto" | "always" | "never"`. Omitting `encoding` uses the configured new-file default. New Markdown uses Marksplice's canonical LF output. Typed construction supports YAML/TOML front matter; headings, paragraphs, thematic breaks, nested blockquotes and GitHub alerts; ordered/unordered lists and task lists; fenced code; reference and footnote definitions, including deferred definitions; math blocks; GFM tables with alignments; and recursive inline text, code, emphasis/strong/strikethrough, links/images, autolinks, reference forms, footnote references, and math. `rawMarkdown` is available only on construction shapes for which Marksplice itself accepts and reparses the fragment.
+
+A successful preview returns `previewId`, canonical Markdown, result fingerprint, encoding/BOM/EOL metadata, and physical size. The generated physical result is bounded by the normal file/output limits. The immediate parent must already exist as an authorized real directory, and the target must still be absent. Creation has no persistent backup because there is no approved pre-state.
+
+After review, pass only the returned `previewId` to `markdown_apply`. Apply reauthorizes the same destination, verifies that the parent is still the same directory and the target is still missing, then uses the filesystem no-replace primitive. If another actor creates the destination first, Scripthold reports a conflict and does not overwrite it.
+
+```json
+{
+  "path": "/project/docs/guide.md",
+  "frontMatter": {
+    "format": "yaml",
+    "fields": [{"key": "title", "value": "Guide"}]
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "content": [{"type": "text", "text": "Guide"}]
+    },
+    {
+      "type": "paragraph",
+      "content": [{"type": "text", "text": "Generated through Marksplice."}]
+    }
+  ]
+}
+```
+
 ### markdown_edit
 
 Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, set task checkboxes checked or unchecked, set one GFM table column alignment or atomically replace a table's complete alignment vector, replace simple inline content such as code spans, emphasis, strong emphasis, and strikethrough, replace direct inline-link destinations, labels, or existing titles, add or remove inline-link titles, replace inline-image destinations, alt text, or existing titles, add or remove inline-image titles, replace autolink values, replace YAML/TOML front-matter field values, rename or remove YAML/TOML front-matter fields, replace source-proven raw-HTML comment payloads and anchor id/name values, replace reviewed math-expression payloads while preserving their authored form, replace source-proven non-alert top-level blockquote content while preserving its authored container shape, set recognized GitHub alert kinds and replace alert bodies while preserving source-proven container shape, synchronize one explicitly managed TOC, remove source-proven top-level thematic breaks, remove complete source-proven top-level blockquotes including GitHub alerts, replace fenced-code bodies, set or clear fenced-block info strings, rename reference definitions and their bound occurrences, retarget one parser-proven reference occurrence, remove unused reference definitions, rename footnote definitions together with parser-bound references, replace footnote-definition bodies while preserving source-proven layout, remove footnote definitions while preserving external occurrence bytes, replace reference-definition destinations or existing titles, add or remove reference-definition titles, and insert a paragraph before or after an existing paragraph, replace or remove one paragraph, replace either the direct content or a complete subtree of a list item, remove a complete list-item subtree, insert a list-item sibling before or after an existing item or append a validated child subtree, move a complete list-item subtree before or after another compatible item, insert a sibling section before or after an existing section or append a direct child section, move a complete section subtree before or after another same-level section, replace either a section's direct body or its complete subtree, or remove an entire section subtree. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, adding guidance next to existing prose, adding a peer topic or a nested subsection, rewriting text while keeping links/emphasis/code markup, deleting an obsolete section together with its nested subsections, or reviewing several related documentation changes together.
@@ -510,9 +541,9 @@ Markdown semantic text is canonical UTF-8. The current mutation bridge also pres
 
 ### markdown_apply
 
-Use `markdown_apply` after a `markdown_edit` preview has been reviewed and approved. Its **only input is `previewId`**: callers cannot change the path, heading text, encoding, or backup policy during apply. This keeps the applied change identical to the reviewed preview.
+Use `markdown_apply` after a `markdown_edit` or `markdown_create` preview has been reviewed and approved. Its **only input is `previewId`**: callers cannot change the target, Markdown content, encoding, or backup policy during apply. This keeps the applied result identical to the reviewed preview.
 
-Before writing, Scripthold checks that the target is still authorized, is still the same file, and still contains the exact source that was previewed. It also rechecks encoding/BOM information and refuses a changed target that became read-only. If a required backup policy is active, the approved pre-state is saved before replacement.
+For an edit preview, Scripthold checks that the target is still authorized, is still the same file, and still contains the exact approved source; it rechecks encoding/BOM facts and required backup policy before replacement. For a create preview, it verifies the same authorized path, unchanged parent-directory identity, target absence, and prepared result bytes before a no-replace creation. Creation has no persistent backup because no prior file existed.
 
 The preview token is one-shot. Success, cancellation, conflict, write failure, or replay all consume it, so an old approval cannot be reused after circumstances change. The result reports what was actually observed after apply: `unchanged`, `committed`, or `unknown`, plus the actual fingerprint when available.
 

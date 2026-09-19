@@ -143,6 +143,16 @@
       }
     },
     {
+      "name": "markdown_create",
+      "title": "Preview Markdown Creation",
+      "description": "Preview a Marksplice Markdown file for no-replace creation.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "markdown_apply",
       "title": "Apply Markdown Edit",
       "description": "Apply one prepared Markdown edit capability by preview ID.",

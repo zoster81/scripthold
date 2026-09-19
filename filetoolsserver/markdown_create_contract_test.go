@@ -3,7 +3,8 @@ package filetoolsserver
 import "testing"
 
 func TestMarkdownCreateInputSchemaIsClosedRecursiveDocumentModel(t *testing.T) {
-	schema := markdownCreateInputSchema()
+	tool := markdownCreateCatalogTool()
+	schema := markdownReadSchemaMap(t, tool.InputSchema)
 	if schema["type"] != "object" || schema["additionalProperties"] != false {
 		t.Fatalf("top-level schema is not closed: %#v", schema)
 	}
@@ -75,8 +76,7 @@ func TestMarkdownCreateInputSchemaIsClosedRecursiveDocumentModel(t *testing.T) {
 		if !ok {
 			continue
 		}
-		items := blocks["items"].(map[string]any)
-		if items["$ref"] == "#/$defs/block" {
+		if blocks["$ref"] == "#/$defs/childBlocks" {
 			foundRecursiveBlocks = true
 			break
 		}
@@ -94,8 +94,7 @@ func TestMarkdownCreateInputSchemaIsClosedRecursiveDocumentModel(t *testing.T) {
 		if !ok {
 			continue
 		}
-		items := children["items"].(map[string]any)
-		if items["$ref"] == "#/$defs/inline" {
+		if children["$ref"] == "#/$defs/inlineContent" {
 			foundRecursiveInline = true
 			break
 		}
@@ -119,11 +118,17 @@ func schemaTaggedKinds(t *testing.T, schema map[string]any) map[string]bool {
 		}
 		props := branch["properties"].(map[string]any)
 		typeSchema := props["type"].(map[string]any)
-		kind, _ := typeSchema["const"].(string)
-		if kind == "" {
-			t.Fatalf("branch type const missing: %#v", branch)
+		if kind, ok := typeSchema["const"].(string); ok && kind != "" {
+			kinds[kind] = true
+			continue
 		}
-		kinds[kind] = true
+		enum, ok := typeSchema["enum"].([]string)
+		if !ok || len(enum) == 0 {
+			t.Fatalf("branch type discriminator missing: %#v", branch)
+		}
+		for _, kind := range enum {
+			kinds[kind] = true
+		}
 	}
 	return kinds
 }

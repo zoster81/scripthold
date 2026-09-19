@@ -2,10 +2,11 @@
 
 ## Status and authority
 
-R30's Markdown/document-intelligence surface now exposes four MCP tools:
+R30's Markdown/document-intelligence surface now exposes five MCP tools:
 
 - `markdown_read`
 - `markdown_workspace`
+- `markdown_create`
 - `markdown_edit`
 - `markdown_apply`
 
@@ -65,7 +66,7 @@ The mapping below covers the public non-rendering v1.1.1 API. Optional third-par
 
 `markdown_edit` always prepares a preview. It never writes a file directly. A request contains one authorized document target and one or more declarative operations evaluated against the same immutable source snapshot. Independent prepared changes are combined with `Document.ComposeChanges`; overlap or semantic interaction rejected by Marksplice rejects the entire preview.
 
-The table below is the R30 target mapping, not a claim that every Marksplice preparation API is already registered publicly. The exact currently exposed operation forms are authoritative in [`TOOLS.md`](../TOOLS.md) and the runtime schema. Table content/row/column editing and new-document construction remain planned until their public contracts converge; alignment-only table mutation is exposed because it changes only Marksplice-owned delimiter syntax. Existing-document targetless construction is exposed only through the closed `create/*` forms described below.
+The table below is the R30 target mapping, not a claim that every Marksplice preparation API is registered publicly. The exact currently exposed operation forms are authoritative in [`TOOLS.md`](../TOOLS.md) and the runtime schema. Table content/row/column editing remains planned; alignment-only table mutation is exposed because it changes only Marksplice-owned delimiter syntax. Existing-document targetless construction remains limited to the closed `create/*` edit forms described below, while complete new-document construction is exposed separately through `markdown_create`.
 
 Existing-document operation mapping:
 
@@ -92,7 +93,11 @@ Existing-document operation mapping:
 | Managed TOC | `PrepareSyncTOC` |
 | Multi-operation atomic preparation | `ComposeChanges` |
 
-Planned new-document construction will map the reviewed `DocumentBuilder` API into typed construction blocks and inline values; it is not exposed by the current runtime:
+### `markdown_create`
+
+`markdown_create` prepares a complete new document through the reviewed Marksplice `DocumentBuilder` API and returns a one-shot preview consumed by `markdown_apply`. It requires an authorized missing destination whose immediate parent already exists as a real authorized directory. Scripthold captures the parent identity and missing-target snapshot, generates and encodes the exact result bytes, and performs no write during preview.
+
+The public construction model exposes:
 
 - YAML/TOML front matter;
 - headings and paragraphs;
@@ -106,7 +111,7 @@ Planned new-document construction will map the reviewed `DocumentBuilder` API in
 - GFM tables with optional alignments;
 - typed inline text, code, emphasis, strong, strikethrough, links/images with optional titles, autolinks, direct/reference/forward/collapsed/shortcut references, footnote references, and math inline forms.
 
-Typed construction is the default. An advanced `rawMarkdown` construction/edit fragment is accepted only where the corresponding Marksplice API already accepts raw GFM and reparses/proves the requested structure. R30 never performs its own Markdown escaping or validation as a fallback.
+Typed construction is the default. An advanced `rawMarkdown` construction fragment is accepted only where the corresponding Marksplice API already accepts raw GFM and reparses/proves the requested structure. R30 never performs its own Markdown escaping or validation as a fallback. Creation uses Marksplice canonical LF Markdown, optional new-file encoding and `auto`/`always`/`never` BOM policy, normal file/output limits, and filesystem no-replace commit. It creates no persistent backup because there is no approved pre-state.
 
 ### `markdown_workspace`
 

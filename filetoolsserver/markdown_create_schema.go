@@ -1,11 +1,20 @@
 package filetoolsserver
 
-import "github.com/zoster81/scripthold/internal/markdownintelligence"
+import (
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/zoster81/scripthold/internal/markdownintelligence"
+)
 
 const (
 	markdownCreateMaxElements = markdownintelligence.MaxCreateElements
 	markdownCreateMaxDepth    = markdownintelligence.MaxCreateDepth
 )
+
+func markdownCreateCatalogTool() *mcp.Tool {
+	tool := catalogTool("markdown_create")
+	tool.InputSchema = markdownCreateInputSchema()
+	return tool
+}
 
 func markdownCreateInputSchema() map[string]any {
 	return map[string]any{
@@ -26,7 +35,7 @@ func markdownCreateInputSchema() map[string]any {
 		"$defs": map[string]any{
 			"frontMatterField": markdownCreateObject([]string{"key", "value"}, map[string]any{
 				"key":   map[string]any{"type": "string", "minLength": 1},
-				"value": map[string]any{"type": "string"},
+				"value": map[string]any{"type": "string", "minLength": 1},
 			}),
 			"frontMatter": markdownCreateObject([]string{"format", "fields"}, map[string]any{
 				"format": map[string]any{"type": "string", "enum": []string{"yaml", "toml"}},
@@ -36,7 +45,17 @@ func markdownCreateInputSchema() map[string]any {
 					"items":    map[string]any{"$ref": "#/$defs/frontMatterField"},
 				},
 			}),
-			"inline": markdownCreateInlineSchema(),
+			"inlineContent": map[string]any{
+				"type": "array", "minItems": 1, "maxItems": markdownCreateMaxElements,
+				"items": map[string]any{"$ref": "#/$defs/inline"},
+			},
+			"childBlocks": map[string]any{
+				"type": "array", "minItems": 1, "maxItems": markdownCreateMaxElements,
+				"items": map[string]any{"$ref": "#/$defs/block"},
+			},
+			"blockDepth": map[string]any{"type": "integer", "minimum": 1, "maximum": markdownCreateMaxDepth},
+			"alertKind":  map[string]any{"type": "string", "enum": []string{"note", "tip", "important", "warning", "caution"}},
+			"inline":     markdownCreateInlineSchema(),
 			"listItem": markdownCreateObject([]string{"markdown", "depth"}, map[string]any{
 				"markdown": map[string]any{"type": "string", "minLength": 1},
 				"depth":    map[string]any{"type": "integer", "minimum": 0, "maximum": markdownCreateMaxDepth - 1},
@@ -52,79 +71,49 @@ func markdownCreateInputSchema() map[string]any {
 }
 
 func markdownCreateInlineSchema() map[string]any {
-	children := map[string]any{
-		"type":     "array",
-		"minItems": 1,
-		"maxItems": markdownCreateMaxElements,
-		"items":    map[string]any{"$ref": "#/$defs/inline"},
-	}
+	children := map[string]any{"$ref": "#/$defs/inlineContent"}
 	branches := []any{
-		markdownCreateTaggedObject("text", []string{"text"}, map[string]any{"text": map[string]any{"type": "string"}}),
-		markdownCreateTaggedObject("code", []string{"text"}, map[string]any{"text": map[string]any{"type": "string"}}),
-	}
-	for _, kind := range []string{"emphasis", "strong", "strikethrough"} {
-		branches = append(branches, markdownCreateTaggedObject(kind, []string{"children"}, map[string]any{"children": children}))
-	}
-	for _, kind := range []string{"link", "image"} {
-		branches = append(branches, markdownCreateTaggedObject(kind, []string{"destination", "children"}, map[string]any{
+		markdownCreateTaggedObjects([]string{"text", "code"}, []string{"text"}, map[string]any{"text": map[string]any{"type": "string"}}),
+		markdownCreateTaggedObjects([]string{"emphasis", "strong", "strikethrough"}, []string{"children"}, map[string]any{"children": children}),
+		markdownCreateTaggedObjects([]string{"link", "image"}, []string{"destination", "children"}, map[string]any{
 			"destination": map[string]any{"type": "string", "minLength": 1},
 			"title":       map[string]any{"type": "string", "minLength": 1},
 			"children":    children,
-		}))
-	}
-	for _, kind := range []string{"autolink", "bare_autolink"} {
-		branches = append(branches, markdownCreateTaggedObject(kind, []string{"value"}, map[string]any{
-			"value": map[string]any{"type": "string", "minLength": 1},
-		}))
-	}
-	for _, kind := range []string{"reference_link", "reference_image", "forward_reference_link", "forward_reference_image"} {
-		branches = append(branches, markdownCreateTaggedObject(kind, []string{"reference", "children"}, map[string]any{
+		}),
+		markdownCreateTaggedObjects([]string{"autolink", "bare_autolink"}, []string{"value"}, map[string]any{
+			"value": map[string]any{"type": "string"},
+		}),
+		markdownCreateTaggedObjects([]string{"reference_link", "reference_image", "forward_reference_link", "forward_reference_image"}, []string{"reference", "children"}, map[string]any{
 			"reference": map[string]any{"type": "string", "minLength": 1},
 			"children":  children,
-		}))
-	}
-	for _, kind := range []string{"collapsed_reference_link", "collapsed_reference_image", "shortcut_reference_link", "shortcut_reference_image"} {
-		branches = append(branches, markdownCreateTaggedObject(kind, []string{"children"}, map[string]any{"children": children}))
-	}
-	branches = append(branches,
+		}),
+		markdownCreateTaggedObjects([]string{"collapsed_reference_link", "collapsed_reference_image", "shortcut_reference_link", "shortcut_reference_image"}, []string{"children"}, map[string]any{"children": children}),
 		markdownCreateTaggedObject("footnote_reference", []string{"label"}, map[string]any{"label": map[string]any{"type": "string", "minLength": 1}}),
-		markdownCreateTaggedObject("math", []string{"payload"}, map[string]any{"payload": map[string]any{"type": "string"}}),
-		markdownCreateTaggedObject("math_backtick", []string{"payload"}, map[string]any{"payload": map[string]any{"type": "string"}}),
-	)
+		markdownCreateTaggedObjects([]string{"math", "math_backtick"}, []string{"payload"}, map[string]any{"payload": map[string]any{"type": "string"}}),
+	}
 	return map[string]any{"oneOf": branches}
 }
 
 func markdownCreateBlockSchema() map[string]any {
-	inlineContent := map[string]any{
-		"type":     "array",
-		"minItems": 1,
-		"maxItems": markdownCreateMaxElements,
-		"items":    map[string]any{"$ref": "#/$defs/inline"},
-	}
-	childBlocks := map[string]any{
-		"type":     "array",
-		"minItems": 1,
-		"maxItems": markdownCreateMaxElements,
-		"items":    map[string]any{"$ref": "#/$defs/block"},
-	}
-	depth := map[string]any{"type": "integer", "minimum": 1, "maximum": markdownCreateMaxDepth}
-	alertKind := map[string]any{"type": "string", "enum": []string{"note", "tip", "important", "warning", "caution"}}
+	inlineContent := map[string]any{"$ref": "#/$defs/inlineContent"}
+	childBlocks := map[string]any{"$ref": "#/$defs/childBlocks"}
+	depth := map[string]any{"$ref": "#/$defs/blockDepth"}
+	alertKind := map[string]any{"$ref": "#/$defs/alertKind"}
 	branches := []any{
-		markdownCreateTaggedObject("heading", []string{"level", "content"}, map[string]any{
-			"level": map[string]any{"type": "integer", "minimum": 1, "maximum": 6}, "content": inlineContent,
-		}),
-		markdownCreateTaggedObject("heading", []string{"level", "rawMarkdown"}, map[string]any{
-			"level": map[string]any{"type": "integer", "minimum": 1, "maximum": 6}, "rawMarkdown": map[string]any{"type": "string", "minLength": 1},
-		}),
-		markdownCreateTaggedObject("paragraph", []string{"content"}, map[string]any{"content": inlineContent}),
-		markdownCreateTaggedObject("paragraph", []string{"rawMarkdown"}, map[string]any{"rawMarkdown": map[string]any{"type": "string", "minLength": 1}}),
+		markdownCreateTaggedAlternatives("heading", []string{"level"}, map[string]any{
+			"level":   map[string]any{"type": "integer", "minimum": 1, "maximum": 6},
+			"content": inlineContent, "rawMarkdown": map[string]any{"type": "string", "minLength": 1},
+		}, []string{"content"}, []string{"rawMarkdown"}),
+		markdownCreateTaggedAlternatives("paragraph", nil, map[string]any{
+			"content": inlineContent, "rawMarkdown": map[string]any{"type": "string", "minLength": 1},
+		}, []string{"content"}, []string{"rawMarkdown"}),
 		markdownCreateTaggedObject("thematic_break", nil, nil),
-		markdownCreateTaggedObject("blockquote", []string{"depth", "content"}, map[string]any{"depth": depth, "content": inlineContent}),
-		markdownCreateTaggedObject("blockquote", []string{"depth", "rawMarkdown"}, map[string]any{"depth": depth, "rawMarkdown": map[string]any{"type": "string", "minLength": 1}}),
-		markdownCreateTaggedObject("blockquote", []string{"depth", "blocks"}, map[string]any{"depth": depth, "blocks": childBlocks}),
-		markdownCreateTaggedObject("alert", []string{"kind", "content"}, map[string]any{"kind": alertKind, "content": inlineContent}),
-		markdownCreateTaggedObject("alert", []string{"kind", "rawMarkdown"}, map[string]any{"kind": alertKind, "rawMarkdown": map[string]any{"type": "string", "minLength": 1}}),
-		markdownCreateTaggedObject("alert", []string{"kind", "blocks"}, map[string]any{"kind": alertKind, "blocks": childBlocks}),
+		markdownCreateTaggedAlternatives("blockquote", []string{"depth"}, map[string]any{
+			"depth": depth, "content": inlineContent, "rawMarkdown": map[string]any{"type": "string", "minLength": 1}, "blocks": childBlocks,
+		}, []string{"content"}, []string{"rawMarkdown"}, []string{"blocks"}),
+		markdownCreateTaggedAlternatives("alert", []string{"kind"}, map[string]any{
+			"kind": alertKind, "content": inlineContent, "rawMarkdown": map[string]any{"type": "string", "minLength": 1}, "blocks": childBlocks,
+		}, []string{"content"}, []string{"rawMarkdown"}, []string{"blocks"}),
 		markdownCreateTaggedObject("list", []string{"ordered", "items"}, map[string]any{
 			"ordered": map[string]any{"type": "boolean"},
 			"items":   map[string]any{"type": "array", "minItems": 1, "maxItems": markdownCreateMaxElements, "items": map[string]any{"$ref": "#/$defs/listItem"}},
@@ -159,8 +148,26 @@ func markdownCreateBlockSchema() map[string]any {
 }
 
 func markdownCreateTaggedObject(kind string, required []string, properties map[string]any) map[string]any {
+	return markdownCreateTaggedObjects([]string{kind}, required, properties)
+}
+
+func markdownCreateTaggedAlternatives(kind string, required []string, properties map[string]any, alternatives ...[]string) map[string]any {
+	schema := markdownCreateTaggedObject(kind, required, properties)
+	oneOf := make([]any, 0, len(alternatives))
+	for _, alternative := range alternatives {
+		oneOf = append(oneOf, map[string]any{"required": alternative})
+	}
+	schema["oneOf"] = oneOf
+	return schema
+}
+
+func markdownCreateTaggedObjects(kinds []string, required []string, properties map[string]any) map[string]any {
 	allRequired := append([]string{"type"}, required...)
-	allProperties := map[string]any{"type": map[string]any{"const": kind}}
+	typeSchema := map[string]any{"enum": kinds}
+	if len(kinds) == 1 {
+		typeSchema = map[string]any{"const": kinds[0]}
+	}
+	allProperties := map[string]any{"type": typeSchema}
 	for name, schema := range properties {
 		allProperties[name] = schema
 	}

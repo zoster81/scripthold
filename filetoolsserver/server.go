@@ -248,6 +248,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	addTool(server, toolPolicy, catalogTool("edit_file"), handler.Wrap(logger, "edit_file", h.HandleEditFilePreview))
 
 	addTool(server, toolPolicy, markdownEditCatalogTool(), handler.Wrap(logger, "markdown_edit", h.HandleMarkdownEdit))
+	addTool(server, toolPolicy, markdownCreateCatalogTool(), handler.Wrap(logger, "markdown_create", h.HandleMarkdownCreate))
 
 	addTool(server, toolPolicy, catalogTool("patch_package"), handler.Wrap(logger, "patch_package", h.HandlePatchPackageRead))
 
