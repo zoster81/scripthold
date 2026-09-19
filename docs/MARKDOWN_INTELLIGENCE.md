@@ -109,7 +109,7 @@ Typed construction is the default. An advanced `rawMarkdown` construction/edit f
 
 ### Planned `markdown_workspace`
 
-`markdown_workspace` is the planned multi-document surface. It is not registered in the current runtime yet. Its intended action vocabulary is `inspect`, `query`, `validate`, and `repair`.
+`markdown_workspace` is the planned multi-document surface. It is not registered in the current runtime yet. The first public increment is intentionally read-only and uses `inspect`, `query`, and `validate`. `repair` remains planned separately until its own bounded preview/apply lifecycle, source binding, conflict revalidation, and backup semantics are designed and verified.
 
 | Marksplice capability | R30 mapping |
 |---|---|
@@ -121,11 +121,11 @@ Typed construction is the default. An advanced `rawMarkdown` construction/edit f
 | `DocumentGraph` keys/edges/outgoing/backlinks/reachable/related | `query` graph operations |
 | `Workspace.Validate` / `ValidateWorkspace` | `validate` |
 | Workspace diagnostics | `validate` structured diagnostics: missing/ambiguous/invalid fragment, missing document, unresolved reference, orphan document, stale/unrecognized generated index |
-| `WorkspaceRepairPlan` / `WorkspaceRepair.Change` | `repair` preview; only Marksplice-proven repairs are eligible |
+| `WorkspaceRepairPlan` / `WorkspaceRepair.Change` | Planned later `repair` preview; excluded from the initial read-only registration |
 | `BuildKnowledgeIndex` | Optional caller-provided syntax-independent aliases/tags/logical references over the already-authorized graph |
 | Knowledge aliases/tags/references/related/reachable queries | `query` knowledge operations |
 
-R30 does not invent repair heuristics. Workspace repair authority is limited to repairs produced by Marksplice's conservative repair plan, currently including explicitly managed TOC synchronization. A repair action produces preview state; it never writes directly.
+R30 does not invent repair heuristics. When workspace repair is added later, authority remains limited to repairs produced by Marksplice's conservative repair plan, currently including explicitly managed TOC synchronization. Repair will require an approval-bound preview/apply path and will never write directly from `markdown_workspace`.
 
 ### `markdown_apply`
 
