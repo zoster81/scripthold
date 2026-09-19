@@ -65,11 +65,11 @@ Link to these sources instead of duplicating their content. Release history belo
 For non-trivial changes:
 
 1. Restate the intended behavior and identify compatibility, security, encoding, filesystem, concurrency, and platform edge cases.
-2. Define the smallest coherent design and focused tests before implementation.
-3. Challenge the design iteratively: identify concrete failure/regression risks and credible alternatives, revise when an alternative is materially better, then challenge the revision again until no materially better solution remains.
-4. Implement the smallest correct change, review the complete diff, and report exactly what was verified.
+2. Define the smallest coherent candidate design and focused tests before implementation. Consider credible alternatives using repository evidence and actual constraints.
+3. Challenge that candidate as a strict Devil's Advocate: identify concrete failure/regression risks and determine whether a materially better alternative exists. If criticism changes the design, return to phase 2 to revise the architecture/test strategy, then run phase 3 again. Repeat the phase 2 -> phase 3 loop until the latest candidate survives review with no materially better alternative. Reopen phase 1 only when new evidence changes requirements or edge cases.
+4. Implement the smallest correct converged design, review the complete diff, and report exactly what was verified.
 
-Use focused TDD when practical: reproduce, confirm the expected failure, implement, rerun focused tests, then run the relevant regression suite. Design convergence is not trial-and-error: inspect repository evidence and compare alternatives before implementation.
+Use focused TDD when practical: reproduce, confirm the expected failure, implement, rerun focused tests, then run the relevant regression suite. Design convergence is not trial-and-error: phase 2 proposes or revises; phase 3 criticizes; implementation begins only after that loop converges.
 
 While long verification tasks run, use waiting time only for safe independent work such as read-only analysis, documentation/diff review, or test planning. Do not modify the tree or inputs currently being qualified unless intentionally invalidating and restarting that qualification.
 
