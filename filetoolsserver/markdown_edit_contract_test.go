@@ -34,7 +34,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
 	if !ok || len(oneOf) != 24 {
-		t.Fatalf("operation union = %#v, want twenty-four schema branches covering forty-four closed forms", items["oneOf"])
+		t.Fatalf("operation union = %#v, want twenty-four schema branches covering fifty closed forms", items["oneOf"])
 	}
 
 	rename := markdownEditOperationBranch(t, oneOf, "rename", "heading", "")
@@ -54,13 +54,13 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 
 	renameReferenceDefinition := markdownEditOperationBranch(t, oneOf, "rename", "reference_definition", "")
-	markdownReadAssertStringSet(t, "reference/front matter rename required", renameReferenceDefinition["required"], []string{"action", "subject", "targetId", "text"})
+	markdownReadAssertStringSet(t, "definition/front matter rename required", renameReferenceDefinition["required"], []string{"action", "subject", "targetId", "text"})
 	renameReferenceDefinitionProperties := markdownReadSchemaMap(t, renameReferenceDefinition["properties"])
 	if markdownReadSchemaMap(t, renameReferenceDefinitionProperties["action"])["const"] != "rename" {
 		t.Fatalf("reference/front matter rename action = %#v", renameReferenceDefinitionProperties)
 	}
-	if subjects := markdownReadSchemaMap(t, renameReferenceDefinitionProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"reference_definition", "front_matter_field"}) {
-		t.Fatalf("reference/front matter rename subjects = %#v", subjects)
+	if subjects := markdownReadSchemaMap(t, renameReferenceDefinitionProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"reference_definition", "front_matter_field", "footnote_definition"}) {
+		t.Fatalf("definition/front matter rename subjects = %#v", subjects)
 	}
 	renameReferenceText := markdownReadSchemaMap(t, renameReferenceDefinitionProperties["text"])
 	if renameReferenceText["type"] != "string" || renameReferenceText["minLength"] != 1 || len(renameReferenceDefinitionProperties) != 4 {
@@ -68,7 +68,11 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	renameFrontMatterField := markdownEditOperationBranch(t, oneOf, "rename", "front_matter_field", "")
 	if !reflect.DeepEqual(renameFrontMatterField, renameReferenceDefinition) {
-		t.Fatalf("front matter rename branch = %#v, want shared reference/front matter branch", renameFrontMatterField)
+		t.Fatalf("front matter rename branch = %#v, want shared definition/front matter branch", renameFrontMatterField)
+	}
+	renameFootnoteDefinition := markdownEditOperationBranch(t, oneOf, "rename", "footnote_definition", "")
+	if !reflect.DeepEqual(renameFootnoteDefinition, renameReferenceDefinition) {
+		t.Fatalf("footnote definition rename branch = %#v, want shared definition/front matter branch", renameFootnoteDefinition)
 	}
 
 	setLevel := markdownEditOperationBranch(t, oneOf, "set", "heading", "")

@@ -1867,6 +1867,77 @@ func TestPrepareRemoveFrontMatterFieldPreservesMarkspliceTargetValidation(t *tes
 	}
 }
 
+func TestPrepareRenameFootnoteDefinitionPreservesBoundReferencesAndMarkspliceSemantics(t *testing.T) {
+	source := []byte("Use[^One] and `[^One]` plus [^ghost].\r\n\r\n[^One]: Alpha\r\n[^two]: Beta\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := snapshot.QueryNodes([]string{"footnote_definition"}, 8)
+	if err != nil || len(definitions) != 2 {
+		t.Fatalf("definitions=%+v err=%v", definitions, err)
+	}
+
+	prepared, err := snapshot.PrepareRenameFootnoteDefinition(definitions[0].TargetID, []byte("renamed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("Use[^renamed] and `[^One]` plus [^ghost].\r\n\r\n[^renamed]: Alpha\r\n[^two]: Beta\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+
+	noOp, err := snapshot.PrepareRenameFootnoteDefinition(definitions[0].TargetID, []byte("One"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := noOp.Apply(source); err != nil || !bytes.Equal(got, source) {
+		t.Fatalf("no-op result=%q err=%v", got, err)
+	}
+	for _, replacement := range [][]byte{nil, []byte("two"), []byte("bad]label"), []byte("[bad")} {
+		if _, err := snapshot.PrepareRenameFootnoteDefinition(definitions[0].TargetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("rename %q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+	caseVariant, err := snapshot.PrepareRenameFootnoteDefinition(definitions[0].TargetID, []byte("Two"))
+	if err != nil {
+		t.Fatalf("case-distinct label unexpectedly rejected: %v", err)
+	}
+	if got, err := caseVariant.Apply(source); err != nil || !bytes.Contains(got, []byte("[^Two]: Alpha")) {
+		t.Fatalf("case-distinct result=%q err=%v", got, err)
+	}
+
+	renameSecond, err := snapshot.PrepareRenameFootnoteDefinition(definitions[1].TargetID, []byte("dos"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	composed, err := snapshot.ComposeChanges(prepared, renameSecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := composed.Apply(source); err != nil || !bytes.Equal(got, []byte("Use[^renamed] and `[^One]` plus [^ghost].\r\n\r\n[^renamed]: Alpha\r\n[^dos]: Beta\r\n")) {
+		t.Fatalf("composed result=%q err=%v", got, err)
+	}
+
+	stale := append([]byte(nil), source...)
+	stale[0] = 'u'
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareRenameFootnoteDefinition(paragraphs[0].TargetID, []byte("renamed")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareRemoveFootnoteDefinitionPreservesExternalOccurrenceBytesAndSourceBinding(t *testing.T) {
 	source := []byte("See[^n] and [^m]\r\n\r\n[^n]: remove\r\n[^m]: keep\r\n")
 	snapshot, err := Parse(source)
