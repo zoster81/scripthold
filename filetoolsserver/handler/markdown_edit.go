@@ -197,6 +197,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceHTMLAnchor(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "math_expression":
 			preparedChange, prepareErr = snapshot.PrepareReplaceMathExpression(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "sync" && operationInput.Subject == "toc":
+			preparedChange, prepareErr = snapshot.PrepareSyncTOC(operationInput.TargetID)
 		case operationInput.Action == "set" && operationInput.Subject == "alert":
 			kind, _ := markdownAlertKind(operationInput.Text)
 			preparedChange, prepareErr = snapshot.PrepareSetAlertKind(operationInput.TargetID, kind)
@@ -511,6 +513,13 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 	if len(input.Operations) > markdownintelligence.MaxEditOperations {
 		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("Markdown edit operations exceed fixed limit %d", markdownintelligence.MaxEditOperations))
 	}
+	if len(input.Operations) != 1 {
+		for _, op := range input.Operations {
+			if op.Action == "sync" && op.Subject == "toc" {
+				return errorResultWithCode(ErrCodeInvalidInput, "sync/toc must be the only Markdown edit operation")
+			}
+		}
+	}
 	for _, op := range input.Operations {
 		if !isLowerHexDigest(op.TargetID) {
 			return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
@@ -543,6 +552,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "set" && op.Subject == "heading":
 			if op.Level < 1 || op.Level > 6 || op.Text != "" || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "set/heading requires level from 1 to 6")
+			}
+		case op.Action == "sync" && op.Subject == "toc":
+			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "sync/toc accepts targetId only")
 			}
 		case isTaskSet:
 			if op.Checked == nil || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {

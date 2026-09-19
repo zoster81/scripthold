@@ -33,8 +33,15 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 25 {
-		t.Fatalf("operation union = %#v, want twenty-five schema branches covering fifty-two closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 26 {
+		t.Fatalf("operation union = %#v, want twenty-six schema branches covering fifty-three closed forms", items["oneOf"])
+	}
+
+	syncTOC := markdownEditOperationBranch(t, oneOf, "sync", "toc", "")
+	markdownReadAssertStringSet(t, "sync toc required", syncTOC["required"], []string{"action", "subject", "targetId"})
+	syncTOCProperties := markdownReadSchemaMap(t, syncTOC["properties"])
+	if len(syncTOCProperties) != 3 {
+		t.Fatalf("sync toc properties = %#v", syncTOCProperties)
 	}
 
 	setAlert := markdownEditOperationBranch(t, oneOf, "set", "alert", "")

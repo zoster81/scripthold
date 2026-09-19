@@ -56,6 +56,16 @@ func markdownEditCatalogTool() *mcp.Tool {
 						map[string]any{
 							"type":                 "object",
 							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "sync"},
+								"subject":  map[string]any{"const": "toc"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
 							"required":             []string{"action", "subject", "targetId", "markdown"},
 							"properties": map[string]any{
 								"action":   map[string]any{"const": "replace"},

@@ -906,6 +906,50 @@ func TestMarkdownEditReplacesAlertBody(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditSyncTOC(t *testing.T) {
+	source := "# Root\r\n\r\n## Contents\r\n\r\n- [Root](#old-root)\r\n- [Child](#child)\r\n\r\n## Child\r\nbody\r\n"
+	want := "# Root\r\n\r\n## Contents\r\n\r\n- [Root](#root)\r\n  - [Contents](#contents)\r\n  - [Child](#child)\r\n\r\n## Child\r\nbody\r\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+		Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 8,
+	})
+	if err != nil || result.IsError || len(read.Nodes) != 3 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+	}
+	operation := MarkdownEditOperation{Action: "sync", Subject: "toc", TargetID: read.Nodes[1].TargetID}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsCombinedTOCSyncBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+		Path: filepath.Join(t.TempDir(), "missing.md"),
+		Operations: []MarkdownEditOperation{
+			{Action: "sync", Subject: "toc", TargetID: targetID},
+			{Action: "rename", Subject: "heading", TargetID: targetID, Text: "Renamed"},
+		},
+	})
+	if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+		t.Fatalf("combined sync result=%+v err=%v", result, err)
+	}
+}
+
 func TestMarkdownEditSetAlertKind(t *testing.T) {
 	source := "before\r\n\r\n> [!NOTE]\r\n> body\r\n\r\nafter\r\n"
 	want := "before\r\n\r\n> [!WARNING]\r\n> body\r\n\r\nafter\r\n"

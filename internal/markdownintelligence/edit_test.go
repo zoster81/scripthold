@@ -2050,6 +2050,42 @@ func TestPrepareRemoveFootnoteDefinitionPreservesExternalOccurrenceBytesAndSourc
 	}
 }
 
+func TestPrepareSyncTOCPreservesManagedSectionAndSourceBinding(t *testing.T) {
+	source := []byte("# Root\r\n\r\n## Contents\r\n\r\n- [Root](#old-root)\r\n- [Child](#child)\r\n\r\n## Child\r\nbody\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 3 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	prepared, err := snapshot.PrepareSyncTOC(headings[1].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("# Root\r\n\r\n## Contents\r\n\r\n- [Root](#root)\r\n  - [Contents](#contents)\r\n  - [Child](#child)\r\n\r\n## Child\r\nbody\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	stale := append([]byte(nil), source...)
+	stale[0] = 'X'
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) == 0 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareSyncTOC(paragraphs[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareSetAlertKindPreservesShapeAndSourceBinding(t *testing.T) {
 	source := []byte("before\r\n\r\n> [!NOTE]\r\n> body\r\n\r\nafter\r\n")
 	snapshot, err := Parse(source)
