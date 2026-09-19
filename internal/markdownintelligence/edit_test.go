@@ -1938,6 +1938,69 @@ func TestPrepareRenameFootnoteDefinitionPreservesBoundReferencesAndMarkspliceSem
 	}
 }
 
+func TestPrepareReplaceFootnoteDefinitionBodyPreservesLayoutAndMarkspliceSemantics(t *testing.T) {
+	source := []byte("Use[^n] and [^m].\r\n\r\n[^n]: first\r\n\r\n    second\r\n[^m]: keep\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := snapshot.QueryNodes([]string{"footnote_definition"}, 8)
+	if err != nil || len(definitions) != 2 {
+		t.Fatalf("definitions=%+v err=%v", definitions, err)
+	}
+
+	prepared, err := snapshot.PrepareReplaceFootnoteDefinitionBody(definitions[0].TargetID, []byte("alpha\n\nbeta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("Use[^n] and [^m].\r\n\r\n[^n]: alpha\r\n\r\n    beta\r\n[^m]: keep\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+
+	noOp, err := snapshot.PrepareReplaceFootnoteDefinitionBody(definitions[0].TargetID, []byte("first\n\nsecond"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := noOp.Apply(source); err != nil || !bytes.Equal(got, source) {
+		t.Fatalf("no-op result=%q err=%v", got, err)
+	}
+	for _, replacement := range [][]byte{nil, []byte(""), []byte("bad\r\nbody")} {
+		if _, err := snapshot.PrepareReplaceFootnoteDefinitionBody(definitions[0].TargetID, replacement); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+			t.Fatalf("replace %q error=%v, want ErrInvalidReplacement", replacement, err)
+		}
+	}
+
+	renameSecond, err := snapshot.PrepareRenameFootnoteDefinition(definitions[1].TargetID, []byte("other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	composed, err := snapshot.ComposeChanges(prepared, renameSecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := composed.Apply(source); err != nil || !bytes.Equal(got, []byte("Use[^n] and [^other].\r\n\r\n[^n]: alpha\r\n\r\n    beta\r\n[^other]: keep\r\n")) {
+		t.Fatalf("composed result=%q err=%v", got, err)
+	}
+
+	stale := append([]byte(nil), source...)
+	stale[0] = 'u'
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareReplaceFootnoteDefinitionBody(paragraphs[0].TargetID, []byte("replacement")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareRemoveFootnoteDefinitionPreservesExternalOccurrenceBytesAndSourceBinding(t *testing.T) {
 	source := []byte("See[^n] and [^m]\r\n\r\n[^n]: remove\r\n[^m]: keep\r\n")
 	snapshot, err := Parse(source)
