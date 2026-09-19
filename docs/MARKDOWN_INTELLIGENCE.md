@@ -205,7 +205,7 @@ A no-op preview remains safe to apply and produces truthful unchanged state with
 
 ## Encoding and physical byte preservation
 
-Scripthold's tracked Markdown documentation uses UTF-8 as the canonical project standard. R30 support for other text encodings is a compatibility path for authorized external or user-managed files, not a preferred Markdown storage format.
+R30 treats Markdown as canonical UTF-8 text. Other text encodings are compatibility/transcoding paths for authorized legacy or external files, not alternative Markdown semantics.
 
 The host performs the physical encoding bridge:
 
