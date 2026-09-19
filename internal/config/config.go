@@ -41,6 +41,8 @@ const (
 	EnvMaxFilesystemPackagePreviews       = "MCP_MAX_FILESYSTEM_PACKAGE_PREVIEWS"
 	EnvMaxFilesystemPackagePreviewBytes   = "MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES"
 	EnvFilesystemPackagePreviewTTLSeconds = "MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS"
+	EnvMarkdownWorkspaceMaxDocuments      = "MCP_MARKDOWN_WORKSPACE_MAX_DOCUMENTS"
+	EnvMarkdownWorkspaceMaxRelationships  = "MCP_MARKDOWN_WORKSPACE_MAX_RELATIONSHIPS"
 	EnvMaxSessions                        = "MCP_MAX_SESSIONS" // Maximum live native Streamable HTTP sessions.
 	EnvSourceMaxInputPaths                = "MCP_SOURCE_MAX_INPUT_PATHS"
 	EnvSourceMaxFiles                     = "MCP_SOURCE_MAX_FILES"
@@ -123,6 +125,8 @@ const (
 	DefaultMaxFilesystemPackagePreviews       = 16
 	DefaultMaxFilesystemPackagePreviewBytes   = int64(128 * 1024 * 1024)
 	DefaultFilesystemPackagePreviewTTLSeconds = 15 * 60
+	DefaultMarkdownWorkspaceMaxDocuments      = 1_000
+	DefaultMarkdownWorkspaceMaxRelationships  = 25_000
 	DefaultMaxSessions                        = 128
 
 	DefaultSourceMaxInputPaths       = 32
@@ -198,6 +202,8 @@ const (
 	HardMaxFilesystemPackagePreviews       = 1_024
 	HardMaxFilesystemPackagePreviewBytes   = int64(1 << 30)
 	HardFilesystemPackagePreviewTTLSeconds = 24 * 60 * 60
+	HardMarkdownWorkspaceMaxDocuments      = 10_000
+	HardMarkdownWorkspaceMaxRelationships  = 250_000
 
 	DefaultTaskMaxConcurrency       = 2
 	DefaultTaskMaxQueued            = 64
@@ -267,6 +273,8 @@ type Limits struct {
 	MaxFilesystemPackagePreviews       int
 	MaxFilesystemPackagePreviewBytes   int64
 	FilesystemPackagePreviewTTLSeconds int
+	MaxMarkdownWorkspaceDocuments      int
+	MaxMarkdownWorkspaceRelationships  int
 	MaxSessions                        int
 }
 
@@ -408,6 +416,8 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 			MaxFilesystemPackagePreviews:       DefaultMaxFilesystemPackagePreviews,
 			MaxFilesystemPackagePreviewBytes:   DefaultMaxFilesystemPackagePreviewBytes,
 			FilesystemPackagePreviewTTLSeconds: DefaultFilesystemPackagePreviewTTLSeconds,
+			MaxMarkdownWorkspaceDocuments:      DefaultMarkdownWorkspaceMaxDocuments,
+			MaxMarkdownWorkspaceRelationships:  DefaultMarkdownWorkspaceMaxRelationships,
 			MaxSessions:                        DefaultMaxSessions,
 		},
 		Source: SourceConfig{
@@ -513,6 +523,8 @@ func LoadFromEnvironment(getenv func(string) string) *Config {
 	cfg.Limits.MaxFilesystemPackagePreviews = boundedIntEnvironment(getenv, EnvMaxFilesystemPackagePreviews, cfg.Limits.MaxFilesystemPackagePreviews, HardMaxFilesystemPackagePreviews)
 	cfg.Limits.MaxFilesystemPackagePreviewBytes = boundedInt64Environment(getenv, EnvMaxFilesystemPackagePreviewBytes, cfg.Limits.MaxFilesystemPackagePreviewBytes, HardMaxFilesystemPackagePreviewBytes)
 	cfg.Limits.FilesystemPackagePreviewTTLSeconds = boundedIntEnvironment(getenv, EnvFilesystemPackagePreviewTTLSeconds, cfg.Limits.FilesystemPackagePreviewTTLSeconds, HardFilesystemPackagePreviewTTLSeconds)
+	cfg.Limits.MaxMarkdownWorkspaceDocuments = boundedIntEnvironment(getenv, EnvMarkdownWorkspaceMaxDocuments, cfg.Limits.MaxMarkdownWorkspaceDocuments, HardMarkdownWorkspaceMaxDocuments)
+	cfg.Limits.MaxMarkdownWorkspaceRelationships = boundedIntEnvironment(getenv, EnvMarkdownWorkspaceMaxRelationships, cfg.Limits.MaxMarkdownWorkspaceRelationships, HardMarkdownWorkspaceMaxRelationships)
 	cfg.Limits.MaxSessions = intEnvironment(getenv, EnvMaxSessions, cfg.Limits.MaxSessions)
 
 	cfg.Source.MaxInputPaths = boundedIntEnvironment(getenv, EnvSourceMaxInputPaths, cfg.Source.MaxInputPaths, HardMaxSourceInputPaths)

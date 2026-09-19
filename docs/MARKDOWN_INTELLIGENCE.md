@@ -111,6 +111,8 @@ Typed construction is the default. An advanced `rawMarkdown` construction/edit f
 
 `markdown_workspace` is the planned multi-document surface. It is not registered in the current runtime yet. The first public increment is intentionally read-only and uses `inspect`, `query`, and `validate`. `repair` remains planned separately until its own bounded preview/apply lifecycle, source binding, conflict revalidation, and backup semantics are designed and verified.
 
+Workspace cardinality has dedicated Scripthold policy rather than borrowing batch, match, or Source Intelligence limits. The server defaults are 1,000 documents and 25,000 relationships; operators may raise them only up to hard ceilings of 10,000 documents and 250,000 relationships through `MCP_MARKDOWN_WORKSPACE_MAX_DOCUMENTS` and `MCP_MARKDOWN_WORKSPACE_MAX_RELATIONSHIPS`. Request-level `maxDocuments` and `maxRelationships` may only narrow the configured ceilings. Per-document bytes remain bounded by `MCP_MAX_FILE_BYTES`, aggregate decoded workspace bytes by `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, traversal depth by `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, and serialized output by `MCP_MAX_OUTPUT_BYTES`.
+
 | Marksplice capability | R30 mapping |
 |---|---|
 | `workspacefs.Scan` | Authorized recursive Markdown workspace load |
