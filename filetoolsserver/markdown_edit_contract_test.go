@@ -242,7 +242,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	replaceAutoLink := markdownEditOperationBranch(t, oneOf, "replace", "autolink", "")
 	markdownReadAssertStringSet(t, "simple text replace required", replaceAutoLink["required"], []string{"action", "subject", "targetId", "text"})
 	replaceAutoLinkProperties := markdownReadSchemaMap(t, replaceAutoLink["properties"])
-	if subjects := markdownReadSchemaMap(t, replaceAutoLinkProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"autolink", "front_matter_field", "html_comment", "html_anchor", "math_expression"}) {
+	if subjects := markdownReadSchemaMap(t, replaceAutoLinkProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"autolink", "front_matter_field", "html_comment", "html_anchor", "math_expression", "blockquote"}) {
 		t.Fatalf("simple text replace subjects = %#v", subjects)
 	}
 	autoLinkText := markdownReadSchemaMap(t, replaceAutoLinkProperties["text"])
@@ -250,7 +250,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 		t.Fatalf("simple text replace properties = %#v", replaceAutoLinkProperties)
 	}
 
-	for _, subject := range []string{"front_matter_field", "html_comment", "html_anchor", "math_expression"} {
+	for _, subject := range []string{"front_matter_field", "html_comment", "html_anchor", "math_expression", "blockquote"} {
 		branch := markdownEditOperationBranch(t, oneOf, "replace", subject, "")
 		if !reflect.DeepEqual(branch, replaceAutoLink) {
 			t.Fatalf("%s replace branch = %#v, want shared simple-text replace branch", subject, branch)
