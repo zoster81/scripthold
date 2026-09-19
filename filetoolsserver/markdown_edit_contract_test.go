@@ -117,7 +117,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if markdownReadSchemaMap(t, removeProperties["action"])["const"] != "remove" {
 		t.Fatalf("target-only remove action = %#v", removeProperties)
 	}
-	if subjects := markdownReadSchemaMap(t, removeProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"paragraph", "section", "list_item", "reference_definition", "front_matter_field", "thematic_break", "blockquote"}) {
+	if subjects := markdownReadSchemaMap(t, removeProperties["subject"])["enum"]; !reflect.DeepEqual(subjects, []string{"paragraph", "section", "list_item", "reference_definition", "front_matter_field", "thematic_break", "blockquote", "footnote_definition"}) {
 		t.Fatalf("target-only remove subjects = %#v", subjects)
 	}
 	if len(removeProperties) != 3 {
@@ -301,6 +301,10 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	removeBlockquote := markdownEditOperationBranch(t, oneOf, "remove", "blockquote", "")
 	if !reflect.DeepEqual(removeBlockquote, removeParagraph) {
 		t.Fatalf("blockquote remove branch = %#v, want shared target-only remove branch", removeBlockquote)
+	}
+	removeFootnoteDefinition := markdownEditOperationBranch(t, oneOf, "remove", "footnote_definition", "")
+	if !reflect.DeepEqual(removeFootnoteDefinition, removeParagraph) {
+		t.Fatalf("footnote definition remove branch = %#v, want shared target-only remove branch", removeFootnoteDefinition)
 	}
 
 	addLinkTitle := markdownEditOperationBranch(t, oneOf, "add", "inline_link", "title")

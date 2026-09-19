@@ -874,6 +874,56 @@ func TestMarkdownEditRejectsInvalidBlockquoteReplaceShapesBeforeFilesystemWork(t
 	}
 }
 
+func TestMarkdownEditRemoveFootnoteDefinition(t *testing.T) {
+	source := "See[^n]\r\n\r\n[^n]: body\r\n"
+	want := "See[^n]\r\n\r\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+		Action: "query", Path: path, Query: "nodes", Kinds: []string{"footnote_definition"}, Limit: 4,
+	})
+	if err != nil || result.IsError || len(read.Nodes) != 1 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+	}
+	operation := MarkdownEditOperation{Action: "remove", Subject: "footnote_definition", TargetID: read.Nodes[0].TargetID}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != source {
+		t.Fatalf("preview mutated target=%q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidFootnoteDefinitionRemoveShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "remove", Subject: "footnote_definition", TargetID: targetID, Text: "unexpected"},
+		{Action: "remove", Subject: "footnote_definition", TargetID: targetID, Part: "body"},
+		{Action: "remove", Subject: "footnote_definition", TargetID: targetID, Markdown: "extra"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid footnote definition remove result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditRemoveBlockquote(t *testing.T) {
 	tests := []struct {
 		name   string

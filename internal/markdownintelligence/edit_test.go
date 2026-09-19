@@ -1867,6 +1867,55 @@ func TestPrepareRemoveFrontMatterFieldPreservesMarkspliceTargetValidation(t *tes
 	}
 }
 
+func TestPrepareRemoveFootnoteDefinitionPreservesExternalOccurrenceBytesAndSourceBinding(t *testing.T) {
+	source := []byte("See[^n] and [^m]\r\n\r\n[^n]: remove\r\n[^m]: keep\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := snapshot.QueryNodes([]string{"footnote_definition"}, 8)
+	if err != nil || len(definitions) != 2 {
+		t.Fatalf("definitions=%+v err=%v", definitions, err)
+	}
+	prepared, err := snapshot.PrepareRemoveFootnoteDefinition(definitions[0].TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("See[^n] and [^m]\r\n\r\n[^m]: keep\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	candidate, err := Parse(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := candidate.QueryNodes([]string{"footnote_definition"}, 8); err != nil || len(got) != 1 {
+		t.Fatalf("remaining definitions=%+v err=%v", got, err)
+	}
+	stale := append([]byte(nil), source...)
+	stale[0] = 's'
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+
+	paragraphSource := []byte("Paragraph.\n\n[^n]: body\n")
+	paragraphSnapshot, err := Parse(paragraphSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := paragraphSnapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := paragraphSnapshot.PrepareRemoveFootnoteDefinition(paragraphs[0].TargetID); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReplaceAlertBodyPreservesMarkerShapeAndSourceBinding(t *testing.T) {
 	source := []byte("before\r\n\r\n> [!NOTE]\r\n> old\r\n\r\nafter\r\n")
 	snapshot, err := Parse(source)
