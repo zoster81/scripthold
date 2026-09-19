@@ -23,7 +23,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 
 ## 2. Architecture and test strategy
 
-- [ ] Define the smallest coherent candidate component and file set before editing.
+- [ ] Generate multiple credible candidate designs before editing, including the smallest obvious solution and materially different alternatives.
 - [ ] Keep transport, MCP adapters, domain logic, and filesystem primitives separated.
 - [ ] Reuse shared internal primitives instead of adding local copies.
 - [ ] Define data flow, ownership, memory bounds, and cleanup responsibilities.
@@ -31,7 +31,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 - [ ] Keep persistent backup retention, restore, and garbage-collection policy behind the approved backup contract.
 - [ ] Define typed errors and public error mapping.
 - [ ] State meaningful time/space complexity where relevant.
-- [ ] Compare credible candidate designs against repository evidence and actual constraints before selecting the focused failing tests.
+- [ ] For each candidate, record affected components, data flow, compatibility impact, meaningful complexity/trade-offs, and the focused tests that would prove or disprove it.
 - [ ] Include normal, edge, invalid-input, regression, filesystem-failure, encoding/BOM, line-ending, cancellation, concurrency, and platform cases as applicable.
 - [ ] Include security-negative tests, not only successful paths.
 - [ ] For durable tasks, cover idempotency conflict, queue/concurrency bounds, logical locks, frontend/worker/supervisor failure, stale recovery, at-most-once behavior, process-tree cancellation, cursor gaps, retention, and allowed-directory changes between restarts.
@@ -39,7 +39,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 
 ## 3. Devil's advocate review
 
-- [ ] Challenge the current phase-2 candidate with concrete implementation or operational risks and search for materially better alternatives.
+- [ ] Challenge every phase-2 candidate with concrete implementation or operational risks; compare all candidates against the same repository evidence and constraints.
 - [ ] Review allowed-root escape and path-based race windows.
 - [ ] Review data loss, non-atomic writes, rollback, cleanup, and recovery artifacts.
 - [ ] Review unbounded memory, output, lines, requests, sessions, queues, caches, manifests, and retained recovery state.
@@ -48,8 +48,9 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 - [ ] Review encoding corruption, malformed Unicode, and binary false positives.
 - [ ] Review dependency, platform, API, metadata, and documentation drift.
 - [ ] Review whether any supposedly read-only MCP tool can reach filesystem, backup-store, task-store, or other persistent mutation paths.
-- [ ] If criticism finds a materially better alternative or exposes an insufficient design, return to phase 2 and revise the architecture/test strategy there.
-- [ ] Run phase 3 again against the revised phase-2 candidate. Repeat the `phase 2 -> phase 3 -> phase 2` loop until the latest candidate survives review with no materially better alternative.
+- [ ] Eliminate dominated candidates explicitly and identify whether criticism requires a new or revised candidate.
+- [ ] If the design space changes, return to phase 2, add or revise candidates, then run phase 3 against the complete candidate set again.
+- [ ] Repeat the `phase 2 -> phase 3 -> phase 2` loop until no materially better candidate remains and the preferred design is justified by repository evidence.
 - [ ] Reopen phase 1 only if the review reveals a new or changed requirement/edge case; do not substitute random trial-and-error for design convergence.
 
 ## 4. Repository safety before editing
