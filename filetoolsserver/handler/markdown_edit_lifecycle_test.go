@@ -64,6 +64,34 @@ func TestMarkdownEditPreviewApplyLifecycle(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditRejectsHeadingRenameThatBreaksResolvedLocalFragment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	original := []byte("[Old](#old)\n\n# Old\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+		Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 4,
+	})
+	if err != nil || readResult.IsError || len(read.Nodes) != 1 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+	}
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+		Path: path,
+		Operations: []MarkdownEditOperation{{
+			Action: "rename", Subject: "heading", TargetID: read.Nodes[0].TargetID, Text: "New",
+		}},
+	})
+	if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput || result.Meta[MarkdownErrorCodeMetaKey] != MarkdownErrInvalidStructure {
+		t.Fatalf("rename result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, original) {
+		t.Fatalf("unsafe heading rename mutated target=%q err=%v", got, err)
+	}
+}
+
 func TestMarkdownEditComposesIndependentHeadingRenames(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")

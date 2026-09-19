@@ -52,7 +52,9 @@ func (s *Snapshot) ComposeChanges(changes ...PreparedChange) (PreparedChange, er
 }
 
 // PrepareRenameHeading resolves the opaque Scripthold target against this exact
-// snapshot and delegates the source-preserving mutation to Marksplice.
+// snapshot and delegates the source-preserving mutation to Marksplice. It fails
+// closed when the rename would change an anchor that a resolved local fragment
+// relationship currently targets.
 func (s *Snapshot) PrepareRenameHeading(targetID string, replacement []byte) (PreparedChange, error) {
 	node, err := s.targetNode(targetID)
 	if err != nil {
@@ -62,7 +64,65 @@ func (s *Snapshot) PrepareRenameHeading(targetID string, replacement []byte) (Pr
 	if err != nil {
 		return PreparedChange{}, err
 	}
+	relationships := s.document.LinkRelationships()
+	if !hasResolvedHeadingFragmentRelationship(relationships) {
+		return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	}
+	candidate, err := change.Apply(s.source)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	candidateDocument, err := marksplice.Parse(candidate)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	if headingRenameChangesReferencedAnchor(s.document, candidateDocument, relationships) {
+		return PreparedChange{}, fmt.Errorf("%w: heading rename would invalidate a resolved local fragment relationship", marksplice.ErrInvalidReplacement)
+	}
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+func hasResolvedHeadingFragmentRelationship(relationships []marksplice.LinkRelationship) bool {
+	for _, relationship := range relationships {
+		if relationship.FragmentStatus() != marksplice.LinkFragmentResolved {
+			continue
+		}
+		target, ok := relationship.FragmentTarget()
+		if ok && target.Kind() == marksplice.FragmentTargetHeading {
+			return true
+		}
+	}
+	return false
+}
+
+func headingRenameChangesReferencedAnchor(before, after *marksplice.Document, relationships []marksplice.LinkRelationship) bool {
+	beforeAnchors := before.HeadingAnchors()
+	afterAnchors := after.HeadingAnchors()
+	if len(beforeAnchors) != len(afterAnchors) {
+		return true
+	}
+	changed := make(map[marksplice.NodeID]struct{})
+	for index, beforeAnchor := range beforeAnchors {
+		if beforeAnchor.Value() != afterAnchors[index].Value() {
+			changed[beforeAnchor.HeadingID()] = struct{}{}
+		}
+	}
+	if len(changed) == 0 {
+		return false
+	}
+	for _, relationship := range relationships {
+		if relationship.FragmentStatus() != marksplice.LinkFragmentResolved {
+			continue
+		}
+		target, ok := relationship.FragmentTarget()
+		if !ok || target.Kind() != marksplice.FragmentTargetHeading {
+			continue
+		}
+		if _, ok := changed[target.NodeID()]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // PrepareSetHeadingLevel resolves the opaque Scripthold target against this

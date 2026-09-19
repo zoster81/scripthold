@@ -41,6 +41,60 @@ func TestPrepareRenameHeadingIsSnapshotBoundAndSourcePreserving(t *testing.T) {
 	}
 }
 
+func TestPrepareRenameHeadingRejectsResolvedLocalFragmentBreakage(t *testing.T) {
+	source := []byte("[Old](#old)\n\n# Old\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestPrepareRenameHeadingRejectsDuplicateAnchorCascadeBreakage(t *testing.T) {
+	source := []byte("[Second](#same-1)\n\n# Same\n\n# Same\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 2 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("Other")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestPrepareRenameHeadingAllowsUnchangedReferencedAnchors(t *testing.T) {
+	source := []byte("[Keep](#keep)\n\n# Old\n\n## Keep\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 2 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	prepared, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("[Keep](#keep)\n\n# New\n\n## Keep\n")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+}
+
 func TestPrepareRenameHeadingRejectsUnknownTarget(t *testing.T) {
 	snapshot, err := Parse([]byte("# Old\n"))
 	if err != nil {
