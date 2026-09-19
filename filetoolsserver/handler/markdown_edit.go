@@ -355,7 +355,7 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 		hasBOM:            document.BOM.HasBOM,
 		changed:           changed,
 	}
-	preview, err := h.markdownEditPreviews.put(prepared)
+	preview, err := h.markdownPreviews.putEdit(prepared)
 	if err != nil {
 		return errorResultFromError(err), MarkdownEditOutput{}, nil
 	}
@@ -363,18 +363,21 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 	output := markdownEditOutputFromPreview(preview, input.Operations)
 	text := markdownEditPreviewText(output)
 	if err := h.checkMarkdownMutationResponseLimit(output, text); err != nil {
-		h.markdownEditPreviews.discard(preview.id)
+		h.markdownPreviews.discard(preview.id)
 		return errorResultFromError(err), MarkdownEditOutput{}, nil
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output, nil
 }
 
 func (h *Handler) HandleMarkdownApply(ctx context.Context, _ *mcp.CallToolRequest, input MarkdownApplyInput) (*mcp.CallToolResult, MarkdownApplyOutput, error) {
-	preview, err := h.markdownEditPreviews.claim(input.PreviewID)
+	preview, err := h.markdownPreviews.claim(input.PreviewID)
 	if err != nil {
 		return errorResultFromError(err), MarkdownApplyOutput{}, nil
 	}
-	prepared := preview.prepared
+	if preview.kind != markdownPreviewEdit || preview.edit == nil {
+		return errorResultWithCode(ErrCodeConflict, "Markdown preview is not an edit preview"), MarkdownApplyOutput{}, nil
+	}
+	prepared := *preview.edit
 	defer func() {
 		if prepared.identityFile != nil {
 			_ = prepared.identityFile.Close()
@@ -838,22 +841,26 @@ func markdownEditErrorResult(err error) *mcp.CallToolResult {
 	}
 }
 
-func markdownEditOutputFromPreview(preview *markdownEditPreview, operations []MarkdownEditOperation) MarkdownEditOutput {
+func markdownEditOutputFromPreview(preview *markdownPreview, operations []MarkdownEditOperation) MarkdownEditOutput {
+	if preview == nil || preview.edit == nil {
+		return MarkdownEditOutput{}
+	}
+	prepared := preview.edit
 	return MarkdownEditOutput{
 		PreviewID:         preview.id,
 		CreatedAt:         preview.createdAt.Format(timeRFC3339Nano),
 		ExpiresAt:         preview.expiresAt.Format(timeRFC3339Nano),
-		Path:              preview.prepared.requestedPath,
+		Path:              prepared.requestedPath,
 		Operations:        append([]MarkdownEditOperation(nil), operations...),
-		TargetFingerprint: preview.prepared.targetFingerprint,
-		ResultFingerprint: preview.prepared.resultFingerprint,
-		Encoding:          preview.prepared.encoding,
-		HasBOM:            preview.prepared.hasBOM,
-		BOMType:           preview.prepared.bomType,
-		LineEndingStyle:   preview.prepared.lineEndingStyle,
-		BackupPolicy:      preview.prepared.backupPolicy,
-		Diff:              preview.prepared.diff,
-		Changed:           preview.prepared.changed,
+		TargetFingerprint: prepared.targetFingerprint,
+		ResultFingerprint: prepared.resultFingerprint,
+		Encoding:          prepared.encoding,
+		HasBOM:            prepared.hasBOM,
+		BOMType:           prepared.bomType,
+		LineEndingStyle:   prepared.lineEndingStyle,
+		BackupPolicy:      prepared.backupPolicy,
+		Diff:              prepared.diff,
+		Changed:           prepared.changed,
 	}
 }
 

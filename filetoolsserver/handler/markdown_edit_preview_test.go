@@ -12,8 +12,8 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-func TestMarkdownEditPreviewStoreIsOneShotBoundedAndExpiring(t *testing.T) {
-	store := newMarkdownEditPreviewStore(2, 1024, time.Minute)
+func TestMarkdownPreviewStoreIsOneShotBoundedAndExpiring(t *testing.T) {
+	store := newMarkdownPreviewStore(2, 1024, time.Minute)
 	now := time.Date(2026, 9, 17, 17, 0, 0, 0, time.UTC)
 	store.now = func() time.Time { return now }
 
@@ -27,7 +27,7 @@ func TestMarkdownEditPreviewStoreIsOneShotBoundedAndExpiring(t *testing.T) {
 		lineEndingStyle:   LineEndingLF,
 		semantic:          markdownintelligence.PreparedChange{},
 	}
-	preview, err := store.put(prepared)
+	preview, err := store.putEdit(prepared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestMarkdownEditPreviewStoreIsOneShotBoundedAndExpiring(t *testing.T) {
 		t.Fatalf("replay error=%v, want conflict", err)
 	}
 
-	expiring, err := store.put(prepared)
+	expiring, err := store.putEdit(prepared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,23 +53,23 @@ func TestMarkdownEditPreviewStoreIsOneShotBoundedAndExpiring(t *testing.T) {
 	}
 }
 
-func TestMarkdownEditPreviewStoreRejectsOversizedPreparedState(t *testing.T) {
-	store := newMarkdownEditPreviewStore(1, 32, time.Minute)
-	_, err := store.put(preparedMarkdownEdit{resultUTF8: []byte(strings.Repeat("x", 64))})
+func TestMarkdownPreviewStoreRejectsOversizedPreparedState(t *testing.T) {
+	store := newMarkdownPreviewStore(1, 32, time.Minute)
+	_, err := store.putEdit(preparedMarkdownEdit{resultUTF8: []byte(strings.Repeat("x", 64))})
 	if err == nil || operation.KindOf(err) != operation.KindLimit {
 		t.Fatalf("error=%v, want limit", err)
 	}
 }
 
-func TestMarkdownEditPreviewStoreRejectsInvalidID(t *testing.T) {
-	store := newMarkdownEditPreviewStore(1, 1024, time.Minute)
+func TestMarkdownPreviewStoreRejectsInvalidID(t *testing.T) {
+	store := newMarkdownPreviewStore(1, 1024, time.Minute)
 	_, err := store.claim("not-a-preview")
 	if err == nil || operation.KindOf(err) != operation.KindInvalidInput {
 		t.Fatalf("error=%v, want invalid input", err)
 	}
 }
 
-func TestMarkdownEditPreviewStoreTransfersIdentityOwnershipOnClaim(t *testing.T) {
+func TestMarkdownPreviewStoreTransfersIdentityOwnershipOnClaim(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "document.md")
 	if err := os.WriteFile(path, []byte("# Title\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -80,15 +80,15 @@ func TestMarkdownEditPreviewStoreTransfersIdentityOwnershipOnClaim(t *testing.T)
 	}
 	t.Cleanup(func() { _ = identity.Close() })
 
-	store := newMarkdownEditPreviewStore(1, 1024, time.Minute)
-	preview, err := store.put(preparedMarkdownEdit{
+	store := newMarkdownPreviewStore(1, 1024, time.Minute)
+	preview, err := store.putEdit(preparedMarkdownEdit{
 		resultUTF8:   []byte("# Changed\n"),
 		identityFile: identity,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.prepared.identityFile != nil {
+	if preview.edit.identityFile != nil {
 		t.Fatal("put result must not expose the store-owned file identity")
 	}
 
@@ -96,7 +96,7 @@ func TestMarkdownEditPreviewStoreTransfersIdentityOwnershipOnClaim(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claimed.prepared.identityFile != identity {
+	if claimed.edit.identityFile != identity {
 		t.Fatal("claim did not transfer the stored file identity")
 	}
 	store.discard(preview.id)
@@ -105,7 +105,69 @@ func TestMarkdownEditPreviewStoreTransfersIdentityOwnershipOnClaim(t *testing.T)
 	}
 }
 
-func TestMarkdownEditPreviewStoreClosesIdentityOnEvictionAndExpiry(t *testing.T) {
+func TestMarkdownPreviewStoreSeparatesCreateAndEditPayloads(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "new.md")
+	parentIdentity, err := filesystem.CaptureObjectIdentity(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing, err := filesystem.CaptureSnapshot(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missing.Exists {
+		t.Fatal("expected missing target snapshot")
+	}
+
+	store := newMarkdownPreviewStore(2, 4096, time.Minute)
+	source := []byte("# New\\n")
+	createPreview, err := store.putCreate(preparedMarkdownCreate{
+		requestedPath:     target,
+		resolvedPath:      target,
+		parentPath:        dir,
+		resultData:        source,
+		resultFingerprint: strings.Repeat("c", 64),
+		encoding:          "utf-8",
+		lineEndingStyle:   LineEndingLF,
+		expectedTarget:    missing,
+		parentIdentity:    parentIdentity,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source[0] = 'X'
+	if createPreview.kind != markdownPreviewCreate || createPreview.create == nil || createPreview.edit != nil {
+		t.Fatalf("create preview payload = %+v", createPreview)
+	}
+	if string(createPreview.create.resultData) != "# New\\n" {
+		t.Fatalf("create preview aliases caller bytes: %q", createPreview.create.resultData)
+	}
+
+	claimed, err := store.claim(createPreview.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.kind != markdownPreviewCreate || claimed.create == nil || claimed.edit != nil {
+		t.Fatalf("claimed create payload = %+v", claimed)
+	}
+	if matches, err := claimed.create.parentIdentity.Matches(dir); err != nil || !matches {
+		t.Fatalf("parent identity mismatch: matches=%v err=%v", matches, err)
+	}
+	if err := claimed.create.expectedTarget.Verify(target); err != nil {
+		t.Fatalf("missing target snapshot changed: %v", err)
+	}
+
+	editPreview, err := store.putEdit(preparedMarkdownEdit{resultUTF8: []byte("# Edit\\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if editPreview.kind != markdownPreviewEdit || editPreview.edit == nil || editPreview.create != nil {
+		t.Fatalf("edit preview payload = %+v", editPreview)
+	}
+}
+
+func TestMarkdownPreviewStoreClosesIdentityOnEvictionAndExpiry(t *testing.T) {
 	dir := t.TempDir()
 	openIdentity := func(name string) (*filesystem.FileIdentity, string) {
 		t.Helper()
@@ -122,15 +184,15 @@ func TestMarkdownEditPreviewStoreClosesIdentityOnEvictionAndExpiry(t *testing.T)
 	}
 
 	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
-	store := newMarkdownEditPreviewStore(1, 4096, time.Minute)
+	store := newMarkdownPreviewStore(1, 4096, time.Minute)
 	store.now = func() time.Time { return now }
 
 	evictedIdentity, evictedPath := openIdentity("evicted.md")
-	if _, err := store.put(preparedMarkdownEdit{resultUTF8: []byte("one"), identityFile: evictedIdentity}); err != nil {
+	if _, err := store.putEdit(preparedMarkdownEdit{resultUTF8: []byte("one"), identityFile: evictedIdentity}); err != nil {
 		t.Fatal(err)
 	}
 	expiringIdentity, expiringPath := openIdentity("expiring.md")
-	expiring, err := store.put(preparedMarkdownEdit{resultUTF8: []byte("two"), identityFile: expiringIdentity})
+	expiring, err := store.putEdit(preparedMarkdownEdit{resultUTF8: []byte("two"), identityFile: expiringIdentity})
 	if err != nil {
 		t.Fatal(err)
 	}

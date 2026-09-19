@@ -117,7 +117,7 @@ type Handler struct {
 	deferredOperations             *deferredoperation.Store
 	responseContinuations          *responsecontinuation.Store
 	editPreviews                   *editPreviewStore
-	markdownEditPreviews           *markdownEditPreviewStore
+	markdownPreviews               *markdownPreviewStore
 	restorePreviews                *restorePreviewStore
 	gcPreviews                     *gcPreviewStore
 	patchPackagePreviews           *patchPackagePreviewStore
@@ -301,7 +301,7 @@ func NewHandler(allowedDirs []string, opts ...Option) *Handler {
 		h.maxEditPreviewBytes(),
 		time.Duration(h.editPreviewTTLSeconds())*time.Second,
 	)
-	h.markdownEditPreviews = newMarkdownEditPreviewStore(
+	h.markdownPreviews = newMarkdownPreviewStore(
 		h.maxEditPreviews(),
 		h.maxEditPreviewBytes(),
 		time.Duration(h.editPreviewTTLSeconds())*time.Second,

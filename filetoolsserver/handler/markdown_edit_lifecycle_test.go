@@ -25,8 +25,8 @@ func TestMarkdownEditPreviewApplyLifecycle(t *testing.T) {
 	}
 
 	h := NewHandler([]string{dir})
-	if h.markdownEditPreviews == nil {
-		t.Fatal("markdown edit preview store is not initialized")
+	if h.markdownPreviews == nil {
+		t.Fatal("markdown preview store is not initialized")
 	}
 	readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 8})
 	if err != nil || readResult.IsError || len(read.Nodes) != 1 {
