@@ -442,6 +442,96 @@ func connectExistingProtocolTestClient(t *testing.T, ctx context.Context, server
 	return clientSession
 }
 
+func TestRecursiveToolSchemaSurvivesModernAndLegacyDiscovery(t *testing.T) {
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"$defs": map[string]any{
+			"node": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"text": map[string]any{"type": "string"},
+					"children": map[string]any{
+						"type":  "array",
+						"items": map[string]any{"$ref": "#/$defs/node"},
+					},
+				},
+			},
+		},
+		"required": []string{"root"},
+		"properties": map[string]any{
+			"root": map[string]any{"$ref": "#/$defs/node"},
+		},
+	}
+
+	tests := []struct {
+		name         string
+		legacy       bool
+		wantProtocol string
+	}{
+		{name: "modern", wantProtocol: modernProtocolVersion},
+		{name: "legacy", legacy: true, wantProtocol: legacyProtocolVersion},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			server := BuildServer(ServerOptions{
+				Version:                "recursive-schema-discovery-test",
+				AllowedDirectories:     []string{t.TempDir()},
+				Config:                 config.Load(),
+				EnableClientRoots:      true,
+				DisableModernDiscovery: tt.legacy,
+				LifecycleContext:       ctx,
+			})
+			mcp.AddTool(server, &mcp.Tool{
+				Name:        "recursive_schema_probe",
+				Description: "test-only recursive schema probe",
+				InputSchema: schema,
+			}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, struct{}, error) {
+				return &mcp.CallToolResult{}, struct{}{}, nil
+			})
+
+			_, session := connectProtocolTestClient(t, ctx, server, "recursive-schema-"+tt.name)
+			if got := session.InitializeResult().ProtocolVersion; got != tt.wantProtocol {
+				t.Fatalf("protocol version = %q, want %q", got, tt.wantProtocol)
+			}
+			listed, err := session.ListTools(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var probe *mcp.Tool
+			for _, tool := range listed.Tools {
+				if tool.Name == "recursive_schema_probe" {
+					probe = tool
+					break
+				}
+			}
+			if probe == nil {
+				t.Fatal("recursive schema probe missing from tools/list")
+			}
+			got, ok := probe.InputSchema.(map[string]any)
+			if !ok {
+				t.Fatalf("input schema type = %T, want map[string]any", probe.InputSchema)
+			}
+			defs, ok := got["$defs"].(map[string]any)
+			if !ok || defs["node"] == nil {
+				t.Fatalf("$defs did not survive discovery: %#v", got)
+			}
+			properties, ok := got["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("properties did not survive discovery: %#v", got)
+			}
+			root, ok := properties["root"].(map[string]any)
+			if !ok || root["$ref"] != "#/$defs/node" {
+				t.Fatalf("recursive $ref did not survive discovery: %#v", root)
+			}
+		})
+	}
+}
+
 func assertProtocolCatalog(t *testing.T, ctx context.Context, session *mcp.ClientSession) {
 	t.Helper()
 	tools, err := session.ListTools(ctx, nil)
