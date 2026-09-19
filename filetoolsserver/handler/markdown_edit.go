@@ -1,18 +1,14 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/marksplice"
-	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/filesystem"
-	"github.com/zoster81/scripthold/internal/markdownintelligence"
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
@@ -109,256 +105,31 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return errorResultFromError(err), MarkdownEditOutput{}, nil
 	}
-	validated := h.ValidatePath(input.Path)
-	if !validated.Ok() {
-		return validated.Result, MarkdownEditOutput{}, nil
-	}
-
-	identityFile, err := filesystem.OpenFileIdentity(validated.Path)
-	if err != nil {
-		return errorResultFromError(err), MarkdownEditOutput{}, nil
+	source, failure := h.openMarkdownEditSource(ctx, input)
+	if failure != nil {
+		return failure, MarkdownEditOutput{}, nil
 	}
 	keepIdentity := false
 	defer func() {
 		if !keepIdentity {
-			_ = identityFile.Close()
+			_ = source.identityFile.Close()
 		}
 	}()
 
-	document, sourceData, err := h.readTextDocumentWithData(ctx, validated.Path, input.Encoding)
-	if err != nil {
-		return errorResultFromError(err), MarkdownEditOutput{}, nil
+	semantic, resultUTF8, failure := prepareMarkdownEditSemantic(source.sourceUTF8, input.Operations)
+	if failure != nil {
+		return failure, MarkdownEditOutput{}, nil
 	}
-	matches, err := identityFile.Matches(validated.Path)
-	if err != nil || !matches {
-		return errorResultWithCode(ErrCodeConflict, "Markdown target identity changed while preparing preview"), MarkdownEditOutput{}, nil
-	}
-	if isReadOnly(document.Mode) {
-		return errorResultWithCode(ErrCodePermission, "Markdown target is read-only"), MarkdownEditOutput{}, nil
-	}
-	if !utf8.ValidString(document.Text) {
-		return errorResultFromError(operation.Wrap(operation.KindEncoding, "markdown_edit", validated.Path, fmt.Errorf("decoded Markdown is not valid UTF-8"))), MarkdownEditOutput{}, nil
-	}
-
-	sourceUTF8 := []byte(document.Text)
-	snapshot, err := markdownintelligence.Parse(sourceUTF8)
-	if err != nil {
-		return markdownEditErrorResult(err), MarkdownEditOutput{}, nil
-	}
-	preparedChanges := make([]markdownintelligence.PreparedChange, 0, len(input.Operations))
-	for _, operationInput := range input.Operations {
-		var preparedChange markdownintelligence.PreparedChange
-		var prepareErr error
-		switch {
-		case operationInput.Action == "create" && operationInput.Subject == "front_matter":
-			format, _ := markdownFrontMatterFormat(operationInput.Format)
-			preparedChange, prepareErr = snapshot.PrepareAddFrontMatter(format)
-		case operationInput.Action == "remove" && operationInput.Subject == "front_matter":
-			preparedChange, prepareErr = snapshot.PrepareRemoveFrontMatter()
-		case operationInput.Action == "create" && operationInput.Subject == "front_matter_field":
-			preparedChange, prepareErr = snapshot.PrepareAppendFrontMatterField([]byte(operationInput.Key), []byte(operationInput.Value))
-		case operationInput.Action == "create" && operationInput.Subject == "reference_definition":
-			preparedChange, prepareErr = snapshot.PrepareAppendReferenceDefinition([]byte(operationInput.Label), []byte(operationInput.Destination), []byte(operationInput.Title))
-		case operationInput.Action == "create" && operationInput.Subject == "footnote_definition":
-			preparedChange, prepareErr = snapshot.PrepareAppendFootnoteDefinition([]byte(operationInput.Label), []byte(operationInput.Body))
-		case operationInput.Action == "rename" && operationInput.Subject == "heading":
-			preparedChange, prepareErr = snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "rename" && operationInput.Subject == "reference_definition":
-			preparedChange, prepareErr = snapshot.PrepareRenameReferenceDefinition(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "retarget" && operationInput.Subject == "reference_occurrence":
-			preparedChange, prepareErr = snapshot.PrepareRetargetReferenceOccurrence(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "rename" && operationInput.Subject == "front_matter_field":
-			preparedChange, prepareErr = snapshot.PrepareRenameFrontMatterField(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "rename" && operationInput.Subject == "footnote_definition":
-			preparedChange, prepareErr = snapshot.PrepareRenameFootnoteDefinition(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "set" && operationInput.Subject == "heading":
-			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
-		case operationInput.Action == "set" && operationInput.Subject == "task":
-			preparedChange, prepareErr = snapshot.PrepareSetTaskChecked(operationInput.TargetID, *operationInput.Checked)
-		case operationInput.Action == "set" && operationInput.Subject == "table" && operationInput.Part == "column_alignment":
-			alignment, _ := markdownTableAlignment(operationInput.Alignment)
-			preparedChange, prepareErr = snapshot.PrepareSetTableColumnAlignment(operationInput.TargetID, *operationInput.Column, alignment)
-		case operationInput.Action == "set" && operationInput.Subject == "table" && operationInput.Part == "alignments":
-			alignments := make([]marksplice.TableAlignment, len(operationInput.Alignments))
-			for index, value := range operationInput.Alignments {
-				alignments[index], _ = markdownTableAlignment(value)
-			}
-			preparedChange, prepareErr = snapshot.PrepareSetTableAlignments(operationInput.TargetID, alignments)
-		case operationInput.Action == "replace" && operationInput.Subject == "paragraph":
-			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "replace" && operationInput.Subject == "code_span":
-			preparedChange, prepareErr = snapshot.PrepareReplaceCodeSpan(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "strikethrough":
-			preparedChange, prepareErr = snapshot.PrepareReplaceStrikethrough(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "emphasis":
-			preparedChange, prepareErr = snapshot.PrepareReplaceEmphasis(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "strong":
-			preparedChange, prepareErr = snapshot.PrepareReplaceStrong(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "fenced_code" && operationInput.Part == "body":
-			preparedChange, prepareErr = snapshot.PrepareReplaceFencedCode(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "set" && operationInput.Subject == "fenced_code" && operationInput.Part == "info":
-			preparedChange, prepareErr = snapshot.PrepareSetFencedBlockInfo(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "destination":
-			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkDestination(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "label":
-			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkLabel(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "inline_link" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareReplaceInlineLinkTitle(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "add" && operationInput.Subject == "inline_link" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareAddInlineLinkTitle(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "remove" && operationInput.Subject == "inline_link" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareRemoveInlineLinkTitle(operationInput.TargetID)
-		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "destination":
-			preparedChange, prepareErr = snapshot.PrepareReplaceImageDestination(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "alt":
-			preparedChange, prepareErr = snapshot.PrepareReplaceImageAlt(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "image" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareReplaceImageTitle(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "add" && operationInput.Subject == "image" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareAddImageTitle(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "remove" && operationInput.Subject == "image" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareRemoveImageTitle(operationInput.TargetID)
-		case operationInput.Action == "replace" && operationInput.Subject == "autolink":
-			preparedChange, prepareErr = snapshot.PrepareReplaceAutoLink(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "front_matter_field":
-			preparedChange, prepareErr = snapshot.PrepareReplaceFrontMatterValue(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "html_comment":
-			preparedChange, prepareErr = snapshot.PrepareReplaceHTMLComment(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "html_anchor":
-			preparedChange, prepareErr = snapshot.PrepareReplaceHTMLAnchor(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "math_expression":
-			preparedChange, prepareErr = snapshot.PrepareReplaceMathExpression(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "sync" && operationInput.Subject == "toc":
-			preparedChange, prepareErr = snapshot.PrepareSyncTOC(operationInput.TargetID)
-		case operationInput.Action == "set" && operationInput.Subject == "alert":
-			kind, _ := markdownAlertKind(operationInput.Text)
-			preparedChange, prepareErr = snapshot.PrepareSetAlertKind(operationInput.TargetID, kind)
-		case operationInput.Action == "replace" && operationInput.Subject == "blockquote":
-			preparedChange, prepareErr = snapshot.PrepareReplaceBlockquoteContent(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "alert":
-			preparedChange, prepareErr = snapshot.PrepareReplaceAlertBody(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "footnote_definition":
-			preparedChange, prepareErr = snapshot.PrepareReplaceFootnoteDefinitionBody(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "remove" && operationInput.Subject == "front_matter_field":
-			preparedChange, prepareErr = snapshot.PrepareRemoveFrontMatterField(operationInput.TargetID)
-		case operationInput.Action == "remove" && operationInput.Subject == "thematic_break":
-			preparedChange, prepareErr = snapshot.PrepareRemoveThematicBreak(operationInput.TargetID)
-		case operationInput.Action == "remove" && operationInput.Subject == "blockquote":
-			preparedChange, prepareErr = snapshot.PrepareRemoveBlockquote(operationInput.TargetID)
-		case operationInput.Action == "remove" && operationInput.Subject == "footnote_definition":
-			preparedChange, prepareErr = snapshot.PrepareRemoveFootnoteDefinition(operationInput.TargetID)
-		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "destination":
-			preparedChange, prepareErr = snapshot.PrepareReplaceReferenceDefinitionDestination(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "replace" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareReplaceReferenceDefinitionTitle(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "add" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareAddReferenceDefinitionTitle(operationInput.TargetID, []byte(operationInput.Text))
-		case operationInput.Action == "remove" && operationInput.Subject == "reference_definition" && operationInput.Part == "title":
-			preparedChange, prepareErr = snapshot.PrepareRemoveReferenceDefinitionTitle(operationInput.TargetID)
-		case operationInput.Action == "remove" && operationInput.Subject == "reference_definition":
-			preparedChange, prepareErr = snapshot.PrepareRemoveReferenceDefinition(operationInput.TargetID)
-		case operationInput.Action == "replace" && operationInput.Subject == "list_item" && operationInput.Part == "subtree":
-			preparedChange, prepareErr = snapshot.PrepareReplaceListItemSubtree(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "replace" && operationInput.Subject == "list_item":
-			preparedChange, prepareErr = snapshot.PrepareReplaceListItem(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "insert" && operationInput.Subject == "list_item" && operationInput.Position == "before":
-			preparedChange, prepareErr = snapshot.PrepareInsertListItemBefore(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "insert" && operationInput.Subject == "list_item" && operationInput.Position == "after":
-			preparedChange, prepareErr = snapshot.PrepareInsertListItemAfter(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "insert" && operationInput.Subject == "list_item" && operationInput.Position == "child":
-			preparedChange, prepareErr = snapshot.PrepareAppendListItemChild(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "move" && operationInput.Subject == "list_item" && operationInput.Position == "before":
-			preparedChange, prepareErr = snapshot.PrepareMoveListItemBefore(operationInput.TargetID, operationInput.AnchorTargetID)
-		case operationInput.Action == "move" && operationInput.Subject == "list_item" && operationInput.Position == "after":
-			preparedChange, prepareErr = snapshot.PrepareMoveListItemAfter(operationInput.TargetID, operationInput.AnchorTargetID)
-		case operationInput.Action == "remove" && operationInput.Subject == "list_item":
-			preparedChange, prepareErr = snapshot.PrepareRemoveListItem(operationInput.TargetID)
-		case operationInput.Action == "remove" && operationInput.Subject == "paragraph":
-			preparedChange, prepareErr = snapshot.PrepareRemoveParagraph(operationInput.TargetID)
-		case operationInput.Action == "insert" && operationInput.Subject == "paragraph" && operationInput.Position == "before":
-			preparedChange, prepareErr = snapshot.PrepareInsertParagraphBefore(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "insert" && operationInput.Subject == "paragraph" && operationInput.Position == "after":
-			preparedChange, prepareErr = snapshot.PrepareInsertParagraphAfter(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "insert" && operationInput.Subject == "section" && operationInput.Position == "before":
-			preparedChange, prepareErr = snapshot.PrepareInsertSectionBefore(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "insert" && operationInput.Subject == "section" && operationInput.Position == "after":
-			preparedChange, prepareErr = snapshot.PrepareInsertSectionAfter(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "insert" && operationInput.Subject == "section" && operationInput.Position == "child":
-			preparedChange, prepareErr = snapshot.PrepareAppendSectionChild(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "remove" && operationInput.Subject == "section":
-			preparedChange, prepareErr = snapshot.PrepareRemoveSection(operationInput.TargetID)
-		case operationInput.Action == "replace" && operationInput.Subject == "section" && operationInput.Part == "body":
-			preparedChange, prepareErr = snapshot.PrepareReplaceSectionBody(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "replace" && operationInput.Subject == "section" && operationInput.Part == "subtree":
-			preparedChange, prepareErr = snapshot.PrepareReplaceSection(operationInput.TargetID, []byte(operationInput.Markdown))
-		case operationInput.Action == "move" && operationInput.Subject == "section" && operationInput.Position == "before":
-			preparedChange, prepareErr = snapshot.PrepareMoveSectionBefore(operationInput.TargetID, operationInput.AnchorTargetID)
-		case operationInput.Action == "move" && operationInput.Subject == "section" && operationInput.Position == "after":
-			preparedChange, prepareErr = snapshot.PrepareMoveSectionAfter(operationInput.TargetID, operationInput.AnchorTargetID)
-		default:
-			prepareErr = marksplice.ErrInvalidQuery
-		}
-		if prepareErr != nil {
-			return markdownEditErrorResult(prepareErr), MarkdownEditOutput{}, nil
-		}
-		preparedChanges = append(preparedChanges, preparedChange)
-	}
-	preparedChange, err := snapshot.ComposeChanges(preparedChanges...)
-	if err != nil {
-		return markdownEditErrorResult(err), MarkdownEditOutput{}, nil
-	}
-	resultUTF8, err := preparedChange.Apply(sourceUTF8)
-	if err != nil {
-		return markdownEditErrorResult(err), MarkdownEditOutput{}, nil
-	}
-	resultData, err := markdownPhysicalResult(document, sourceData, sourceUTF8, resultUTF8)
-	if err != nil {
-		return errorResultFromError(err), MarkdownEditOutput{}, nil
-	}
-	if int64(len(resultData)) > h.maxFileBytes() {
-		return errorResultFromError(operation.New(operation.KindLimit, fmt.Sprintf("prepared Markdown file size %d exceeds limit %d", len(resultData), h.maxFileBytes()))), MarkdownEditOutput{}, nil
-	}
-
-	targetFingerprint, err := filesystem.FingerprintRegularFileSnapshot(document.Snapshot)
-	if err != nil {
-		return errorResultFromError(err), MarkdownEditOutput{}, nil
-	}
-	resultFingerprint := filesystem.FingerprintRegularFileData(resultData)
-	changed := !bytes.Equal(sourceData, resultData)
-	if changed && persistentBackupRequired(backupPolicy) {
-		if h.backupCapturePreflight == nil {
-			return errorResultFromError(operation.New(operation.KindInvalidInput, "required backup preflight authority is unavailable")), MarkdownEditOutput{}, nil
-		}
-		if err := h.backupCapturePreflight.PreflightCaptureBatch(ctx, []backupstore.CaptureRequest{{
-			TargetPath:      validated.Path,
-			SourceOperation: backupstore.SourceOperationEdit,
-			Pinned:          persistentBackupPinned(backupPolicy),
-		}}); err != nil {
-			return errorResultFromError(err), MarkdownEditOutput{}, nil
-		}
-	}
-
-	prepared := preparedMarkdownEdit{
-		requestedPath:     input.Path,
-		resolvedPath:      validated.Path,
-		resultUTF8:        resultUTF8,
-		targetFingerprint: targetFingerprint,
-		resultFingerprint: resultFingerprint,
-		encoding:          document.Charset,
-		bomType:           document.BOM.Type,
-		lineEndingStyle:   document.LineEndings.Style,
-		diff:              createUnifiedDiff(string(sourceUTF8), string(resultUTF8), input.Path),
-		backupPolicy:      backupPolicy,
-		semantic:          preparedChange,
-		identityFile:      identityFile,
-		hasBOM:            document.BOM.HasBOM,
-		changed:           changed,
+	prepared, failure := h.buildPreparedMarkdownEdit(ctx, input, backupPolicy, source, semantic, resultUTF8)
+	if failure != nil {
+		return failure, MarkdownEditOutput{}, nil
 	}
 	preview, err := h.markdownPreviews.putEdit(prepared)
 	if err != nil {
 		return errorResultFromError(err), MarkdownEditOutput{}, nil
 	}
 	keepIdentity = true
+
 	output := markdownEditOutputFromPreview(preview, input.Operations)
 	text := markdownEditPreviewText(output)
 	if err := h.checkMarkdownMutationResponseLimit(output, text); err != nil {
