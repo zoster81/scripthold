@@ -767,6 +767,62 @@ func TestMarkdownEditRenameReferenceDefinition(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditRetargetReferenceOccurrence(t *testing.T) {
+	source := "[one]: <dest-one>\n[two]: <dest-two>\n\n[visible][one] [one][]\n"
+	want := "[one]: <dest-one>\n[two]: <dest-two>\n\n[visible][one] [one][two]\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{
+		Action: "query", Path: path, Query: "relationships", Limit: 8,
+	})
+	if err != nil || result.IsError || len(read.Relationships) != 2 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+	}
+	targetID := read.Relationships[1].TargetID
+	if targetID == "" {
+		t.Fatal("reference relationship targetId is empty")
+	}
+	operation := MarkdownEditOperation{Action: "retarget", Subject: "reference_occurrence", TargetID: targetID, Text: "two"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != source {
+		t.Fatalf("preview mutated target=%q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsInvalidReferenceOccurrenceRetargetShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "retarget", Subject: "reference_occurrence", Text: "two"},
+		{Action: "retarget", Subject: "reference_occurrence", TargetID: targetID},
+		{Action: "retarget", Subject: "reference_occurrence", TargetID: targetID, Text: "two", Part: "reference"},
+		{Action: "retarget", Subject: "reference_occurrence", TargetID: targetID, Text: "two", Markdown: "extra"},
+		{Action: "retarget", Subject: "reference_occurrence", TargetID: targetID, Text: "two", AnchorTargetID: targetID},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid reference-occurrence retarget result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditRenameFootnoteDefinition(t *testing.T) {
 	source := "Use[^n] and `[^n]` plus [^ghost].\r\n\r\n[^n]: body\r\n"
 	want := "Use[^renamed] and `[^n]` plus [^ghost].\r\n\r\n[^renamed]: body\r\n"

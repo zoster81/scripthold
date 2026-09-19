@@ -1411,6 +1411,51 @@ func TestPrepareFencedCodeMutationsPreserveMarkspliceRejections(t *testing.T) {
 	}
 }
 
+func TestPrepareRetargetReferenceOccurrenceDelegatesOccurrenceAuthorityToMarksplice(t *testing.T) {
+	source := []byte("[one]: <dest-one>\n[two]: <dest-two>\n\n[visible][one] [one][] [one] ![alt][one]\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relationships, truncated, err := snapshot.Relationships(8)
+	if err != nil || truncated || len(relationships) != 4 {
+		t.Fatalf("relationships=%+v truncated=%v err=%v", relationships, truncated, err)
+	}
+	targetID := relationships[1].TargetID
+	if targetID == "" {
+		t.Fatal("reference relationship targetId is empty")
+	}
+	prepared, err := snapshot.PrepareRetargetReferenceOccurrence(targetID, []byte("two"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "[one]: <dest-one>\n[two]: <dest-two>\n\n[visible][one] [one][two] [one] ![alt][one]\n"
+	if string(got) != want {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+	noOp, err := snapshot.PrepareRetargetReferenceOccurrence(relationships[0].TargetID, []byte("one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := noOp.Apply(source); err != nil || !bytes.Equal(got, source) {
+		t.Fatalf("no-op result=%q err=%v", got, err)
+	}
+	if _, err := snapshot.PrepareRetargetReferenceOccurrence(targetID, []byte("missing")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("missing definition error=%v, want ErrInvalidReplacement", err)
+	}
+	changed, err := Parse(append([]byte("prefix\n"), source...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := changed.PrepareRetargetReferenceOccurrence(targetID, []byte("two")); !errors.Is(err, marksplice.ErrNodeNotFound) {
+		t.Fatalf("stale target error=%v, want ErrNodeNotFound", err)
+	}
+}
+
 func TestPrepareRenameReferenceDefinitionUpdatesBoundOccurrences(t *testing.T) {
 	source := []byte("[one]: <dest> \"Title\"\r\n\r\n[visible][one] [one][] [one] ![alt][one]\r\n")
 	snapshot, err := Parse(source)

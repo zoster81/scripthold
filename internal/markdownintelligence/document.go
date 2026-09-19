@@ -51,6 +51,10 @@ type Snapshot struct {
 	fencedBlockTargetIndex     map[string]marksplice.NodeID
 	fencedBlockTargetIndexErr  error
 
+	relationshipTargetIndexOnce sync.Once
+	relationshipTargetIndex     map[string]int
+	relationshipTargetIndexErr  error
+
 	resolvedLocalFragmentOnce    sync.Once
 	resolvedLocalFragmentPresent bool
 }
@@ -248,6 +252,17 @@ func targetID(sourceFingerprint, kind string, r marksplice.Range) string {
 	_, _ = hasher.Write(strconv.AppendInt(nil, int64(r.Start), 10))
 	_, _ = hasher.Write([]byte{'\x00'})
 	_, _ = hasher.Write(strconv.AppendInt(nil, int64(r.End), 10))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func relationshipTargetID(sourceFingerprint string, relationship marksplice.LinkRelationship) string {
+	hasher := sha256.New()
+	_, _ = hasher.Write([]byte("scripthold-markdown-relationship-target-v1\x00"))
+	_, _ = hasher.Write([]byte(sourceFingerprint))
+	_, _ = hasher.Write([]byte{'\x00'})
+	_, _ = hasher.Write([]byte(relationshipKindName(relationship.Kind())))
+	_, _ = hasher.Write([]byte{'\x00'})
+	_, _ = hasher.Write(strconv.AppendInt(nil, int64(relationship.SourceOffset()), 10))
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 

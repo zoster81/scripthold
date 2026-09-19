@@ -426,6 +426,57 @@ func (s *Snapshot) PrepareRemoveReferenceDefinitionTitle(targetID string) (Prepa
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareRetargetReferenceOccurrence resolves one snapshot-bound relationship
+// target to Marksplice's parser-proven source offset, then delegates retargeting.
+func (s *Snapshot) PrepareRetargetReferenceOccurrence(targetID string, reference []byte) (PreparedChange, error) {
+	sourceOffset, err := s.referenceOccurrenceSourceOffset(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareRetargetReferenceOccurrence(sourceOffset, reference)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+func (s *Snapshot) referenceOccurrenceSourceOffset(target string) (int, error) {
+	if s == nil || s.document == nil {
+		return 0, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	if !validTargetID(target) {
+		return 0, fmt.Errorf("%w: invalid reference occurrence target", marksplice.ErrNodeNotFound)
+	}
+	s.relationshipTargetIndexOnce.Do(func() {
+		relationships := s.document.LinkRelationships()
+		if len(relationships) > maxTargetScanNodes {
+			s.relationshipTargetIndexErr = fmt.Errorf("%w: markdown relationship target scan exceeds %d relationships", marksplice.ErrInvalidQuery, maxTargetScanNodes)
+			return
+		}
+		index := make(map[string]int)
+		for _, relationship := range relationships {
+			if _, _, ok := relationship.Reference(); !ok {
+				continue
+			}
+			key := relationshipTargetID(s.fingerprint, relationship)
+			if _, exists := index[key]; exists {
+				s.relationshipTargetIndexErr = fmt.Errorf("%w: ambiguous reference occurrence target", marksplice.ErrInvalidQuery)
+				return
+			}
+			index[key] = relationship.SourceOffset()
+		}
+		s.relationshipTargetIndex = index
+	})
+	if s.relationshipTargetIndexErr != nil {
+		return 0, s.relationshipTargetIndexErr
+	}
+	sourceOffset, ok := s.relationshipTargetIndex[target]
+	if !ok {
+		return 0, fmt.Errorf("%w: reference occurrence target was not found", marksplice.ErrNodeNotFound)
+	}
+	return sourceOffset, nil
+}
+
 // PrepareReplaceFrontMatterValue resolves the opaque Scripthold front-matter
 // field target against this exact snapshot and delegates value replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceFrontMatterValue(targetID string, replacement []byte) (PreparedChange, error) {

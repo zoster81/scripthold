@@ -19,6 +19,7 @@ type SectionSummary struct {
 // RelationshipSummary exposes one parser-resolved Marksplice relationship
 // without serializing Marksplice node identities.
 type RelationshipSummary struct {
+	TargetID                    string `json:"targetId,omitempty"`
 	Kind                        string `json:"kind"`
 	Destination                 string `json:"destination"`
 	SourceOffset                int    `json:"sourceOffset"`
@@ -406,6 +407,7 @@ func (s *Snapshot) relationshipSummary(value marksplice.LinkRelationship) Relati
 		summary.Title = title
 	}
 	if reference, form, ok := value.Reference(); ok {
+		summary.TargetID = relationshipTargetID(s.fingerprint, value)
 		summary.Reference = reference
 		summary.ReferenceForm = referenceFormName(form)
 	}

@@ -145,6 +145,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "rename" && operationInput.Subject == "reference_definition":
 			preparedChange, prepareErr = snapshot.PrepareRenameReferenceDefinition(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "retarget" && operationInput.Subject == "reference_occurrence":
+			preparedChange, prepareErr = snapshot.PrepareRetargetReferenceOccurrence(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "rename" && operationInput.Subject == "front_matter_field":
 			preparedChange, prepareErr = snapshot.PrepareRenameFrontMatterField(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "rename" && operationInput.Subject == "footnote_definition":
@@ -521,6 +523,7 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		}
 	}
 	for _, op := range input.Operations {
+		isReferenceRetarget := op.Action == "retarget" && op.Subject == "reference_occurrence"
 		if !isLowerHexDigest(op.TargetID) {
 			return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
 		}
@@ -540,6 +543,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "rename" && op.Subject == "reference_definition":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "rename/reference_definition requires non-empty text")
+			}
+		case isReferenceRetarget:
+			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "retarget/reference_occurrence requires a relationship targetId and non-empty text")
 			}
 		case op.Action == "rename" && op.Subject == "front_matter_field":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
