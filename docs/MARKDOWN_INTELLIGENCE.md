@@ -2,12 +2,13 @@
 
 ## Status and authority
 
-R30 introduces Markdown and documentation intelligence through four MCP tools:
+R30's target Markdown/document-intelligence surface contains four MCP tools. The current implementation exposes three of them:
 
 - `markdown_read`
 - `markdown_edit`
-- `markdown_workspace`
 - `markdown_apply`
+
+`markdown_workspace` remains the planned multi-document surface and is not registered in the current runtime yet.
 
 The semantic authority is `github.com/zoster81/marksplice v1.1.1`. Scripthold does not implement a competing Markdown parser, Markdown regular-expression fallback, or Markdown string-replacement engine.
 
@@ -62,6 +63,8 @@ The mapping below covers the public non-rendering v1.1.1 API. Optional third-par
 
 `markdown_edit` always prepares a preview. It never writes a file directly. A request contains one authorized document target and one or more declarative operations evaluated against the same immutable source snapshot. Independent prepared changes are combined with `Document.ComposeChanges`; overlap or semantic interaction rejected by Marksplice rejects the entire preview.
 
+The table below is the R30 target mapping, not a claim that every Marksplice preparation API is already registered publicly. The exact currently exposed operation forms are authoritative in [`TOOLS.md`](../TOOLS.md) and the runtime schema. Table editing, targetless append/construction operations, whole-front-matter lifecycle operations, and reference-occurrence retargeting remain planned until their public targeting/construction contracts converge.
+
 Existing-document operation mapping:
 
 | Operation family | Marksplice preparation authority |
@@ -87,7 +90,7 @@ Existing-document operation mapping:
 | Managed TOC | `PrepareSyncTOC` |
 | Multi-operation atomic preparation | `ComposeChanges` |
 
-New-document construction maps the reviewed `DocumentBuilder` API into typed construction blocks and inline values:
+Planned new-document construction will map the reviewed `DocumentBuilder` API into typed construction blocks and inline values; it is not exposed by the current runtime:
 
 - YAML/TOML front matter;
 - headings and paragraphs;
@@ -103,9 +106,9 @@ New-document construction maps the reviewed `DocumentBuilder` API into typed con
 
 Typed construction is the default. An advanced `rawMarkdown` construction/edit fragment is accepted only where the corresponding Marksplice API already accepts raw GFM and reparses/proves the requested structure. R30 never performs its own Markdown escaping or validation as a fallback.
 
-### `markdown_workspace`
+### Planned `markdown_workspace`
 
-`markdown_workspace` is the multi-document surface. Its action vocabulary is `inspect`, `query`, `validate`, and `repair`.
+`markdown_workspace` is the planned multi-document surface. It is not registered in the current runtime yet. Its intended action vocabulary is `inspect`, `query`, `validate`, and `repair`.
 
 | Marksplice capability | R30 mapping |
 |---|---|
