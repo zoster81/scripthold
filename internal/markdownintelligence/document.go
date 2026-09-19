@@ -165,6 +165,13 @@ func (s *Snapshot) nodeAttributes(node marksplice.Node) map[string]any {
 		if value, ok := s.document.Table(id); ok {
 			attributes["columnCount"] = value.ColumnCount()
 			attributes["bodyRowCount"] = value.BodyRowCount()
+			if alignments, ok := s.document.TableAlignments(id); ok {
+				names := make([]string, len(alignments))
+				for index, alignment := range alignments {
+					names[index] = tableAlignmentName(alignment)
+				}
+				attributes["alignments"] = names
+			}
 		}
 	case marksplice.KindTableRow:
 		if value, ok := s.document.TableRow(id); ok {
@@ -406,6 +413,21 @@ func headingStyleName(style marksplice.HeadingStyle) string {
 		return "atx"
 	case marksplice.HeadingStyleSetext:
 		return "setext"
+	default:
+		return "unknown"
+	}
+}
+
+func tableAlignmentName(alignment marksplice.TableAlignment) string {
+	switch alignment {
+	case marksplice.TableAlignmentDefault:
+		return "default"
+	case marksplice.TableAlignmentLeft:
+		return "left"
+	case marksplice.TableAlignmentRight:
+		return "right"
+	case marksplice.TableAlignmentCenter:
+		return "center"
 	default:
 		return "unknown"
 	}

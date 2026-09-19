@@ -869,6 +869,32 @@ func (s *Snapshot) PrepareSetTaskChecked(targetID string, checked bool) (Prepare
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareSetTableColumnAlignment resolves one table target and delegates one-column alignment mutation to Marksplice.
+func (s *Snapshot) PrepareSetTableColumnAlignment(targetID string, column int, alignment marksplice.TableAlignment) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareSetTableColumnAlignment(node.ID(), column, alignment)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareSetTableAlignments resolves one table target and delegates atomic full-vector alignment mutation to Marksplice.
+func (s *Snapshot) PrepareSetTableAlignments(targetID string, alignments []marksplice.TableAlignment) (PreparedChange, error) {
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	change, err := s.document.PrepareSetTableAlignments(node.ID(), alignments)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareReplaceSection resolves the opaque Scripthold section target against
 // this exact snapshot and delegates complete subtree replacement to Marksplice.
 func (s *Snapshot) PrepareReplaceSection(targetID string, replacement []byte) (PreparedChange, error) {

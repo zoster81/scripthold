@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 30 {
-		t.Fatalf("operation union = %#v, want thirty schema branches covering fifty-eight closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 32 {
+		t.Fatalf("operation union = %#v, want thirty-two schema branches covering sixty closed forms", items["oneOf"])
 	}
 
 	createFrontMatter := markdownEditOperationBranch(t, oneOf, "create", "front_matter", "")
@@ -52,6 +52,21 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	createReferenceProperties := markdownReadSchemaMap(t, createReference["properties"])
 	if len(createReferenceProperties) != 5 || markdownReadSchemaMap(t, createReferenceProperties["title"])["minLength"] != 1 {
 		t.Fatalf("create reference properties = %#v", createReferenceProperties)
+	}
+
+	setTableColumnAlignment := markdownEditOperationBranch(t, oneOf, "set", "table", "column_alignment")
+	markdownReadAssertStringSet(t, "set table column alignment required", setTableColumnAlignment["required"], []string{"action", "alignment", "column", "part", "subject", "targetId"})
+	columnAlignmentProperties := markdownReadSchemaMap(t, setTableColumnAlignment["properties"])
+	if markdownReadSchemaMap(t, columnAlignmentProperties["column"])["minimum"] != 0 || !reflect.DeepEqual(markdownReadSchemaMap(t, columnAlignmentProperties["alignment"])["enum"], []string{"default", "left", "right", "center"}) || len(columnAlignmentProperties) != 6 {
+		t.Fatalf("set table column alignment properties = %#v", columnAlignmentProperties)
+	}
+
+	setTableAlignments := markdownEditOperationBranch(t, oneOf, "set", "table", "alignments")
+	markdownReadAssertStringSet(t, "set table alignments required", setTableAlignments["required"], []string{"action", "alignments", "part", "subject", "targetId"})
+	alignmentsProperties := markdownReadSchemaMap(t, setTableAlignments["properties"])
+	alignments := markdownReadSchemaMap(t, alignmentsProperties["alignments"])
+	if alignments["type"] != "array" || alignments["minItems"] != 1 || !reflect.DeepEqual(markdownReadSchemaMap(t, alignments["items"])["enum"], []string{"default", "left", "right", "center"}) || len(alignmentsProperties) != 5 {
+		t.Fatalf("set table alignments properties = %#v", alignmentsProperties)
 	}
 
 	syncTOC := markdownEditOperationBranch(t, oneOf, "sync", "toc", "")

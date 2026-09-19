@@ -67,6 +67,35 @@ func markdownEditCatalogTool() *mcp.Tool {
 						map[string]any{
 							"type":                 "object",
 							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "part", "column", "alignment"},
+							"properties": map[string]any{
+								"action":    map[string]any{"const": "set"},
+								"subject":   map[string]any{"const": "table"},
+								"targetId":  map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"part":      map[string]any{"const": "column_alignment"},
+								"column":    map[string]any{"type": "integer", "minimum": 0},
+								"alignment": map[string]any{"type": "string", "enum": []string{"default", "left", "right", "center"}},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "targetId", "part", "alignments"},
+							"properties": map[string]any{
+								"action":   map[string]any{"const": "set"},
+								"subject":  map[string]any{"const": "table"},
+								"targetId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+								"part":     map[string]any{"const": "alignments"},
+								"alignments": map[string]any{
+									"type":     "array",
+									"minItems": 1,
+									"items":    map[string]any{"type": "string", "enum": []string{"default", "left", "right", "center"}},
+								},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
 							"required":             []string{"action", "subject", "targetId", "text"},
 							"properties": map[string]any{
 								"action":   map[string]any{"const": "rename"},

@@ -738,6 +738,82 @@ func TestMarkdownEditPreservesFixedWidthUnicodeBOMAndCRLF(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditSetTableAlignments(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		operation func(string) MarkdownEditOperation
+		want      string
+	}{
+		{
+			name:   "single column",
+			source: " | A | B | C | \r\n | :----- | ---: | :----: | \r\n | x | y | z | \r\n",
+			operation: func(targetID string) MarkdownEditOperation {
+				column := 0
+				return MarkdownEditOperation{Action: "set", Subject: "table", TargetID: targetID, Part: "column_alignment", Column: &column, Alignment: "right"}
+			},
+			want: " | A | B | C | \r\n | -----: | ---: | :----: | \r\n | x | y | z | \r\n",
+		},
+		{
+			name:   "alignment vector",
+			source: "| A | B | C |\r\n| :----- | ---: | :----: |\r\n| x | y | z |\r\n",
+			operation: func(targetID string) MarkdownEditOperation {
+				return MarkdownEditOperation{Action: "set", Subject: "table", TargetID: targetID, Part: "alignments", Alignments: []string{"center", "default", "left"}}
+			},
+			want: "| A | B | C |\r\n| :-----: | --- | :---- |\r\n| x | y | z |\r\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			readResult, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"table"}, Limit: 4})
+			if err != nil || readResult.IsError || len(read.Nodes) != 1 {
+				t.Fatalf("read=%+v result=%+v err=%v", read, readResult, err)
+			}
+			if got, ok := read.Nodes[0].Attributes["alignments"].([]string); !ok || len(got) != 3 {
+				t.Fatalf("table alignments=%#v", read.Nodes[0].Attributes["alignments"])
+			}
+			operation := tt.operation(read.Nodes[0].TargetID)
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInvalidTableAlignmentShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	zero := 0
+	negative := -1
+	cases := []MarkdownEditOperation{
+		{Action: "set", Subject: "table", TargetID: targetID, Part: "column_alignment", Alignment: "left"},
+		{Action: "set", Subject: "table", TargetID: targetID, Part: "column_alignment", Column: &negative, Alignment: "left"},
+		{Action: "set", Subject: "table", TargetID: targetID, Part: "column_alignment", Column: &zero, Alignment: "diagonal"},
+		{Action: "set", Subject: "table", TargetID: targetID, Part: "alignments"},
+		{Action: "set", Subject: "table", TargetID: targetID, Part: "alignments", Alignments: []string{"left", "diagonal"}},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{operation}})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid table alignment result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditCreateDocumentLevelStructures(t *testing.T) {
 	tests := []struct {
 		name      string

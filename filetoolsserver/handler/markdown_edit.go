@@ -26,23 +26,26 @@ const (
 // The public schema keeps operation-specific fields closed; zero values here
 // exist only because Go uses one transport struct for the discriminated union.
 type MarkdownEditOperation struct {
-	Action         string `json:"action"`
-	Subject        string `json:"subject"`
-	TargetID       string `json:"targetId,omitempty"`
-	AnchorTargetID string `json:"anchorTargetId,omitempty"`
-	Text           string `json:"text,omitempty"`
-	Format         string `json:"format,omitempty"`
-	Key            string `json:"key,omitempty"`
-	Value          string `json:"value,omitempty"`
-	Label          string `json:"label,omitempty"`
-	Destination    string `json:"destination,omitempty"`
-	Title          string `json:"title,omitempty"`
-	Body           string `json:"body,omitempty"`
-	Level          int    `json:"level,omitempty"`
-	Markdown       string `json:"markdown,omitempty"`
-	Position       string `json:"position,omitempty"`
-	Part           string `json:"part,omitempty"`
-	Checked        *bool  `json:"checked,omitempty"`
+	Action         string   `json:"action"`
+	Subject        string   `json:"subject"`
+	TargetID       string   `json:"targetId,omitempty"`
+	AnchorTargetID string   `json:"anchorTargetId,omitempty"`
+	Text           string   `json:"text,omitempty"`
+	Format         string   `json:"format,omitempty"`
+	Key            string   `json:"key,omitempty"`
+	Value          string   `json:"value,omitempty"`
+	Label          string   `json:"label,omitempty"`
+	Destination    string   `json:"destination,omitempty"`
+	Title          string   `json:"title,omitempty"`
+	Body           string   `json:"body,omitempty"`
+	Column         *int     `json:"column,omitempty"`
+	Alignment      string   `json:"alignment,omitempty"`
+	Alignments     []string `json:"alignments,omitempty"`
+	Level          int      `json:"level,omitempty"`
+	Markdown       string   `json:"markdown,omitempty"`
+	Position       string   `json:"position,omitempty"`
+	Part           string   `json:"part,omitempty"`
+	Checked        *bool    `json:"checked,omitempty"`
 }
 
 // MarkdownEditInput prepares one source-bound Markdown preview and never writes
@@ -171,6 +174,15 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareSetHeadingLevel(operationInput.TargetID, operationInput.Level)
 		case operationInput.Action == "set" && operationInput.Subject == "task":
 			preparedChange, prepareErr = snapshot.PrepareSetTaskChecked(operationInput.TargetID, *operationInput.Checked)
+		case operationInput.Action == "set" && operationInput.Subject == "table" && operationInput.Part == "column_alignment":
+			alignment, _ := markdownTableAlignment(operationInput.Alignment)
+			preparedChange, prepareErr = snapshot.PrepareSetTableColumnAlignment(operationInput.TargetID, *operationInput.Column, alignment)
+		case operationInput.Action == "set" && operationInput.Subject == "table" && operationInput.Part == "alignments":
+			alignments := make([]marksplice.TableAlignment, len(operationInput.Alignments))
+			for index, value := range operationInput.Alignments {
+				alignments[index], _ = markdownTableAlignment(value)
+			}
+			preparedChange, prepareErr = snapshot.PrepareSetTableAlignments(operationInput.TargetID, alignments)
 		case operationInput.Action == "replace" && operationInput.Subject == "paragraph":
 			preparedChange, prepareErr = snapshot.PrepareReplaceParagraph(operationInput.TargetID, []byte(operationInput.Markdown))
 		case operationInput.Action == "replace" && operationInput.Subject == "code_span":
@@ -504,6 +516,21 @@ func (h *Handler) HandleMarkdownApply(ctx context.Context, _ *mcp.CallToolReques
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: markdownApplyText(output)}}}, output, nil
 }
 
+func markdownTableAlignment(value string) (marksplice.TableAlignment, bool) {
+	switch value {
+	case "default":
+		return marksplice.TableAlignmentDefault, true
+	case "left":
+		return marksplice.TableAlignmentLeft, true
+	case "right":
+		return marksplice.TableAlignmentRight, true
+	case "center":
+		return marksplice.TableAlignmentCenter, true
+	default:
+		return marksplice.TableAlignmentDefault, false
+	}
+}
+
 func markdownFrontMatterFormat(value string) (marksplice.FrontMatterFormat, bool) {
 	switch value {
 	case "yaml":
@@ -552,6 +579,7 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 	for _, op := range input.Operations {
 		isCreate := op.Action == "create" && (op.Subject == "front_matter" || op.Subject == "front_matter_field" || op.Subject == "reference_definition" || op.Subject == "footnote_definition")
 		isReferenceRetarget := op.Action == "retarget" && op.Subject == "reference_occurrence"
+		isTableAlignment := op.Action == "set" && op.Subject == "table" && (op.Part == "column_alignment" || op.Part == "alignments")
 		if isCreate {
 			if op.TargetID != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "create operations do not accept targetId")
@@ -571,6 +599,9 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		}
 		if !isTaskSet && op.Checked != nil {
 			return errorResultWithCode(ErrCodeInvalidInput, "checked is only valid for set/task")
+		}
+		if !isTableAlignment && (op.Column != nil || op.Alignment != "" || len(op.Alignments) != 0) {
+			return errorResultWithCode(ErrCodeInvalidInput, "table alignment fields are only valid for set/table alignment operations")
 		}
 		switch {
 		case op.Action == "create" && op.Subject == "front_matter":
@@ -620,6 +651,22 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case isTaskSet:
 			if op.Checked == nil || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "set/task requires checked")
+			}
+		case op.Action == "set" && op.Subject == "table" && op.Part == "column_alignment":
+			if op.Column == nil || *op.Column < 0 || op.Alignment == "" || len(op.Alignments) != 0 || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.AnchorTargetID != "" || op.Checked != nil {
+				return errorResultWithCode(ErrCodeInvalidInput, "set/table column_alignment requires zero-based column and alignment")
+			}
+			if _, ok := markdownTableAlignment(op.Alignment); !ok {
+				return errorResultWithCode(ErrCodeInvalidInput, "table alignment must be default, left, right, or center")
+			}
+		case op.Action == "set" && op.Subject == "table" && op.Part == "alignments":
+			if len(op.Alignments) == 0 || op.Column != nil || op.Alignment != "" || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.AnchorTargetID != "" || op.Checked != nil {
+				return errorResultWithCode(ErrCodeInvalidInput, "set/table alignments requires a non-empty alignment vector")
+			}
+			for _, alignment := range op.Alignments {
+				if _, ok := markdownTableAlignment(alignment); !ok {
+					return errorResultWithCode(ErrCodeInvalidInput, "table alignments must contain only default, left, right, or center")
+				}
 			}
 		case op.Action == "replace" && op.Subject == "paragraph":
 			if op.Text != "" || op.Level != 0 || op.Position != "" || op.Part != "" {
