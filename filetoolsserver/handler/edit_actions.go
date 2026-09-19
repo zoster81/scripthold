@@ -424,25 +424,24 @@ func (h *Handler) classifyEditApplyFailure(prepared preparedEdit, output EditFil
 
 	classificationCtx, cancel := context.WithTimeout(context.Background(), editApplyClassificationTimeout)
 	defer cancel()
-	validation := h.ValidatePath(prepared.requestedPath)
-	if validation.Ok() && validation.Path == prepared.resolvedPath && classificationCtx.Err() == nil {
-		post, err := filesystem.CaptureRegularFileSnapshotBounded(classificationCtx, validation.Path, h.maxFileBytes())
-		if err == nil {
-			if actual, fingerprintErr := filesystem.FingerprintRegularFileSnapshot(post); fingerprintErr == nil {
-				output.ActualFingerprint = actual
-				switch actual {
-				case prepared.targetFingerprint:
-					output.State = editApplyStateUnchanged
-					output.Changed = false
-				case prepared.resultFingerprint:
-					output.State = editApplyStateCommitted
-					output.Changed = prepared.changed
-				default:
-					output.State = editApplyStateUnknown
-					output.Changed = actual != prepared.targetFingerprint
-				}
-			}
-		}
+	state, actual, _ := h.classifyExistingFileReplacement(classificationCtx, preparedExistingFileReplacement{
+		requestedPath:     prepared.requestedPath,
+		resolvedPath:      prepared.resolvedPath,
+		targetFingerprint: prepared.targetFingerprint,
+		resultFingerprint: prepared.resultFingerprint,
+		changed:           prepared.changed,
+	})
+	output.ActualFingerprint = actual
+	switch state {
+	case existingFileReplacementStateUnchanged:
+		output.State = editApplyStateUnchanged
+		output.Changed = false
+	case existingFileReplacementStateCommitted:
+		output.State = editApplyStateCommitted
+		output.Changed = prepared.changed
+	default:
+		output.State = editApplyStateUnknown
+		output.Changed = actual != "" && actual != prepared.targetFingerprint
 	}
 
 	if output.State == editApplyStateUnchanged {
