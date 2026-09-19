@@ -138,20 +138,21 @@ func (h *Handler) revalidatePatchPackageAfterBackups(ctx context.Context, prepar
 func (h *Handler) stagePatchPackageApply(ctx context.Context, prepared *preparedPatchPackage, preflight []patchPackageApplyPreflight, staged []*filesystem.StagedReplacement) error {
 	for index := range prepared.targets {
 		target := &prepared.targets[index]
-		if !target.prepared.changed {
+		replacementTarget := preparedPatchPackageReplacement(target)
+		if !replacementTarget.changed {
 			continue
 		}
 		mode := preflight[index].mode
 		if isReadOnly(mode) {
 			mode |= 0o200
 		}
-		replacement, err := h.patchPackageStageReplacement(ctx, target.prepared.resolvedPath, target.prepared.data, mode)
+		replacement, err := h.patchPackageStageReplacement(ctx, replacementTarget.resolvedPath, replacementTarget.resultData, mode)
 		if err == nil {
 			staged[index] = replacement
 			continue
 		}
 		if ctx.Err() != nil {
-			err = operation.Wrap(operation.KindCancelled, "stage_patch_package", target.prepared.resolvedPath, ctx.Err())
+			err = operation.Wrap(operation.KindCancelled, "stage_patch_package", replacementTarget.resolvedPath, ctx.Err())
 		}
 		return h.joinPatchPackageStagingCleanup(err, staged)
 	}
@@ -191,7 +192,8 @@ func markPatchPackageTargetCommitted(output *PatchPackageOutput, actualFingerpri
 }
 
 func (h *Handler) commitPatchPackageApplyTarget(ctx context.Context, index int, target *preparedPatchPackageTarget, staged **filesystem.StagedReplacement) (string, bool, error) {
-	current, originalMode, readOnlyCleared, err := h.preparePatchPackageCommitTarget(ctx, target)
+	replacement := preparedPatchPackageReplacement(target)
+	current, originalMode, readOnlyCleared, err := h.preparePatchPackageCommitTarget(ctx, target, replacement)
 	if err != nil {
 		return "", false, err
 	}
@@ -203,51 +205,50 @@ func (h *Handler) commitPatchPackageApplyTarget(ctx context.Context, index int, 
 		return "", false, commitErr
 	}
 	*staged = nil
-	actual, err := h.verifyPatchPackageCommittedTarget(ctx, target)
+	actual, err := h.verifyExistingFileReplacementCommitted(ctx, replacement, "committed target does not match the prepared result fingerprint")
 	return actual, readOnlyCleared, err
 }
 
-func (h *Handler) preparePatchPackageCommitTarget(ctx context.Context, target *preparedPatchPackageTarget) (filesystem.FileSnapshot, os.FileMode, bool, error) {
+func (h *Handler) preparePatchPackageCommitTarget(ctx context.Context, target *preparedPatchPackageTarget, replacement preparedExistingFileReplacement) (filesystem.FileSnapshot, os.FileMode, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return filesystem.FileSnapshot{}, 0, false, operation.Wrap(operation.KindCancelled, "commit_patch_package", target.prepared.resolvedPath, err)
+		return filesystem.FileSnapshot{}, 0, false, operation.Wrap(operation.KindCancelled, "commit_patch_package", replacement.resolvedPath, err)
 	}
 	current, failure := h.revalidatePreparedPatchPackageTarget(ctx, target, "before commit")
 	if failure != nil {
 		return filesystem.FileSnapshot{}, 0, false, operation.New(operation.KindConflict, extractPatchPackageFailureMessage(failure))
 	}
-	if target.prepared.identityFile == nil {
+	if replacement.identity() == nil {
 		return filesystem.FileSnapshot{}, 0, false, operation.New(operation.KindConflict, "patch package target identity is unavailable")
 	}
-	if err := target.prepared.identityFile.Close(); err != nil {
-		return filesystem.FileSnapshot{}, 0, false, operation.WrapFilesystem("close_patch_package_identity", target.prepared.resolvedPath, err)
+	if err := replacement.closeIdentity(); err != nil {
+		return filesystem.FileSnapshot{}, 0, false, operation.WrapFilesystem("close_patch_package_identity", replacement.resolvedPath, err)
 	}
-	target.prepared.identityFile = nil
-	return h.preparePatchPackageWritableTarget(target, current)
+	return h.prepareExistingFileReplacementWritable(replacement, current, "target became read-only after patch package dryRun")
 }
 
-func (h *Handler) preparePatchPackageWritableTarget(target *preparedPatchPackageTarget, current filesystem.FileSnapshot) (filesystem.FileSnapshot, os.FileMode, bool, error) {
+func (h *Handler) prepareExistingFileReplacementWritable(replacement preparedExistingFileReplacement, current filesystem.FileSnapshot, readOnlyMessage string) (filesystem.FileSnapshot, os.FileMode, bool, error) {
 	currentMode := current.Mode.Perm()
 	if !isReadOnly(currentMode) {
 		return current, currentMode, false, nil
 	}
-	if !target.prepared.forceWritable {
-		return filesystem.FileSnapshot{}, currentMode, false, operation.New(operation.KindPermission, "target became read-only after patch package dryRun")
+	if !replacement.forceWritable {
+		return filesystem.FileSnapshot{}, currentMode, false, operation.New(operation.KindPermission, readOnlyMessage)
 	}
-	if err := clearReadOnly(target.prepared.resolvedPath, currentMode); err != nil {
-		return filesystem.FileSnapshot{}, currentMode, false, operation.WrapFilesystem("clear_patch_package_read_only", target.prepared.resolvedPath, err)
+	if err := clearReadOnly(replacement.resolvedPath, currentMode); err != nil {
+		return filesystem.FileSnapshot{}, currentMode, false, operation.WrapFilesystem("clear_patch_package_read_only", replacement.resolvedPath, err)
 	}
-	refreshed, err := current.RefreshMetadata(target.prepared.resolvedPath)
+	refreshed, err := current.RefreshMetadata(replacement.resolvedPath)
 	if err == nil {
 		return refreshed, currentMode, true, nil
 	}
-	if restoreErr := os.Chmod(target.prepared.resolvedPath, currentMode); restoreErr != nil {
-		err = errors.Join(err, operation.WrapFilesystem("restore_patch_package_read_only", target.prepared.resolvedPath, restoreErr))
+	if restoreErr := os.Chmod(replacement.resolvedPath, currentMode); restoreErr != nil {
+		err = errors.Join(err, operation.WrapFilesystem("restore_patch_package_read_only", replacement.resolvedPath, restoreErr))
 	}
 	return filesystem.FileSnapshot{}, currentMode, true, err
 }
 
-func (h *Handler) verifyPatchPackageCommittedTarget(ctx context.Context, target *preparedPatchPackageTarget) (string, error) {
-	post, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, target.prepared.resolvedPath, h.maxFileBytes())
+func (h *Handler) verifyExistingFileReplacementCommitted(ctx context.Context, replacement preparedExistingFileReplacement, mismatchMessage string) (string, error) {
+	post, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, replacement.resolvedPath, h.maxFileBytes())
 	if err != nil {
 		return "", err
 	}
@@ -255,8 +256,8 @@ func (h *Handler) verifyPatchPackageCommittedTarget(ctx context.Context, target 
 	if err != nil {
 		return "", err
 	}
-	if actual != target.prepared.resultFingerprint {
-		return "", operation.New(operation.KindConflict, "committed target does not match the prepared result fingerprint")
+	if actual != replacement.resultFingerprint {
+		return "", operation.New(operation.KindConflict, mismatchMessage)
 	}
 	return actual, nil
 }
@@ -325,8 +326,12 @@ func resetPatchPackageFailureResult(result *PatchPackageTargetResult) {
 }
 
 func (h *Handler) classifyPatchPackageFailureTarget(ctx context.Context, target *preparedPatchPackageTarget) (string, string, bool) {
-	validation := h.ValidatePath(target.requestedPath)
-	if !validation.Ok() || validation.Path != target.resolvedPath || ctx.Err() != nil {
+	return h.classifyExistingFileReplacement(ctx, preparedPatchPackageReplacement(target))
+}
+
+func (h *Handler) classifyExistingFileReplacement(ctx context.Context, replacement preparedExistingFileReplacement) (string, string, bool) {
+	validation := h.ValidatePath(replacement.requestedPath)
+	if !validation.Ok() || validation.Path != replacement.resolvedPath || ctx.Err() != nil {
 		return patchPackageStateUnknown, "", false
 	}
 	fingerprints, err := h.capturePatchPackageFingerprints(ctx, []validatedPatchPackageTarget{{resolvedPath: validation.Path}})
@@ -334,10 +339,10 @@ func (h *Handler) classifyPatchPackageFailureTarget(ctx context.Context, target 
 		return patchPackageStateUnknown, "", false
 	}
 	actual := fingerprints[0]
-	if actual == target.prepared.targetFingerprint {
+	if actual == replacement.targetFingerprint {
 		return patchPackageStateUnchanged, actual, false
 	}
-	if target.prepared.changed && actual == target.prepared.resultFingerprint {
+	if replacement.changed && actual == replacement.resultFingerprint {
 		return patchPackageStateCommitted, actual, true
 	}
 	return patchPackageStateUnknown, actual, false
