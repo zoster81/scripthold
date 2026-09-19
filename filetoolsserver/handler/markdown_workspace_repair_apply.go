@@ -182,6 +182,20 @@ type markdownWorkspaceRepairApplyResult struct {
 	Results        []markdownWorkspaceRepairApplyDocumentResult `json:"results"`
 }
 
+func (h *Handler) applyMarkdownWorkspaceRepairPreview(ctx context.Context, previewID string) (markdownWorkspaceRepairApplyResult, *mcp.CallToolResult) {
+	preview, err := h.markdownPreviews.claim(previewID)
+	if err != nil {
+		return markdownWorkspaceRepairApplyResult{}, errorResultFromError(err)
+	}
+	if preview.kind != markdownPreviewWorkspaceRepair || preview.workspaceRepair == nil {
+		preview.releaseOwnedResources()
+		return markdownWorkspaceRepairApplyResult{}, errorResultWithCode(ErrCodeConflict, "Markdown preview is not a workspace repair preview")
+	}
+	prepared := preview.workspaceRepair
+	defer prepared.close()
+	return h.applyPreparedMarkdownWorkspaceRepair(ctx, prepared)
+}
+
 func (h *Handler) applyPreparedMarkdownWorkspaceRepair(ctx context.Context, prepared *preparedMarkdownWorkspaceRepair) (markdownWorkspaceRepairApplyResult, *mcp.CallToolResult) {
 	output := newMarkdownWorkspaceRepairApplyResult(prepared)
 	if err := ctx.Err(); err != nil {

@@ -284,6 +284,191 @@ func TestApplyPreparedMarkdownWorkspaceRepairClassifiesPartialCommit(t *testing.
 	}
 }
 
+func TestApplyPreparedMarkdownWorkspaceRepairStagingFailureCleansAllStagesWithoutWrites(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "a.md", "b.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	defer prepared.close()
+
+	original := make([][]byte, len(prepared.targets))
+	for index := range prepared.targets {
+		data, err := os.ReadFile(prepared.targets[index].resolvedPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		original[index] = data
+	}
+
+	originalStage := h.existingFileReplacementOps.stage
+	originalCleanup := h.existingFileReplacementOps.cleanup
+	stageCalls := 0
+	cleanupCalls := 0
+	h.existingFileReplacementOps.stage = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+		stageCalls++
+		if stageCalls == 2 {
+			return nil, errors.New("injected staging failure")
+		}
+		return originalStage(ctx, path, data, mode)
+	}
+	h.existingFileReplacementOps.cleanup = func(staged *filesystem.StagedReplacement) error {
+		cleanupCalls++
+		return originalCleanup(staged)
+	}
+
+	applied, failure := h.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure == nil || !failure.IsError {
+		t.Fatalf("staging failure=%+v output=%+v", failure, applied)
+	}
+	if stageCalls != 2 || cleanupCalls != 1 || applied.CommittedCount != 0 || applied.UnchangedCount != 2 || applied.UnknownCount != 0 {
+		t.Fatalf("staging state stages=%d cleanups=%d output=%+v", stageCalls, cleanupCalls, applied)
+	}
+	for index := range prepared.targets {
+		got, err := os.ReadFile(prepared.targets[index].resolvedPath)
+		if err != nil || !bytes.Equal(got, original[index]) {
+			t.Fatalf("target %d changed after staging failure: bytes=%q err=%v", index, got, err)
+		}
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairCancellationAfterStagingCleansWithoutCommit(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "a.md", "b.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	defer prepared.close()
+
+	original := make([][]byte, len(prepared.targets))
+	for index := range prepared.targets {
+		data, err := os.ReadFile(prepared.targets[index].resolvedPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		original[index] = data
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	originalStage := h.existingFileReplacementOps.stage
+	originalCleanup := h.existingFileReplacementOps.cleanup
+	stageCalls := 0
+	cleanupCalls := 0
+	commitCalls := 0
+	h.existingFileReplacementOps.stage = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+		stageCalls++
+		staged, err := originalStage(ctx, path, data, mode)
+		if err == nil && stageCalls == len(prepared.targets) {
+			cancel()
+		}
+		return staged, err
+	}
+	h.existingFileReplacementOps.cleanup = func(staged *filesystem.StagedReplacement) error {
+		cleanupCalls++
+		return originalCleanup(staged)
+	}
+	h.existingFileReplacementOps.commit = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
+		commitCalls++
+		return false, errors.New("commit must not be reached")
+	}
+
+	applied, failure := h.applyPreparedMarkdownWorkspaceRepair(ctx, &prepared)
+	if failure == nil || !failure.IsError || failure.Meta[ErrorCodeMetaKey] != ErrCodeCancelled {
+		t.Fatalf("cancellation failure=%+v output=%+v", failure, applied)
+	}
+	if stageCalls != 2 || cleanupCalls != 2 || commitCalls != 0 || applied.CommittedCount != 0 || applied.UnchangedCount != 2 || applied.UnknownCount != 0 {
+		t.Fatalf("cancellation state stages=%d cleanups=%d commits=%d output=%+v", stageCalls, cleanupCalls, commitCalls, applied)
+	}
+	for index := range prepared.targets {
+		got, err := os.ReadFile(prepared.targets[index].resolvedPath)
+		if err != nil || !bytes.Equal(got, original[index]) {
+			t.Fatalf("target %d changed after cancellation: bytes=%q err=%v", index, got, err)
+		}
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairFinalVerificationDetectsExternalChange(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "a.md", "b.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	defer prepared.close()
+
+	external := []byte("external after commits")
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+		changed, err := originalCommit(index, staged, options)
+		if err == nil && index == len(prepared.targets)-1 {
+			err = os.WriteFile(prepared.targets[0].resolvedPath, external, 0o600)
+		}
+		return changed, err
+	}
+
+	applied, failure := h.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure == nil || !failure.IsError || failure.Meta[ErrorCodeMetaKey] != ErrCodePartialCommit {
+		t.Fatalf("final verification failure=%+v output=%+v", failure, applied)
+	}
+	if !applied.PartialCommit || applied.CommittedCount != 1 || applied.UnchangedCount != 0 || applied.UnknownCount != 1 {
+		t.Fatalf("final verification output=%+v", applied)
+	}
+	if applied.Results[0].State != string(existingFileReplacementStateUnknown) ||
+		applied.Results[1].State != string(existingFileReplacementStateCommitted) {
+		t.Fatalf("final verification results=%+v", applied.Results)
+	}
+	got, err := os.ReadFile(prepared.targets[0].resolvedPath)
+	if err != nil || !bytes.Equal(got, external) {
+		t.Fatalf("external mutation not preserved: bytes=%q err=%v", got, err)
+	}
+}
+
+func TestApplyMarkdownWorkspaceRepairPreviewConsumesCapabilityOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "doc.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	preview, err := h.markdownPreviews.putWorkspaceRepair(prepared)
+	if err != nil {
+		prepared.close()
+		t.Fatal(err)
+	}
+
+	applied, failure := h.applyMarkdownWorkspaceRepairPreview(context.Background(), preview.id)
+	if failure != nil || applied.CommittedCount != 1 || applied.UnknownCount != 0 {
+		t.Fatalf("apply failure=%+v output=%+v", failure, applied)
+	}
+	if _, replay := h.applyMarkdownWorkspaceRepairPreview(context.Background(), preview.id); replay == nil || !replay.IsError || replay.Meta[ErrorCodeMetaKey] != ErrCodeConflict {
+		t.Fatalf("replay=%+v, want consumed-preview conflict", replay)
+	}
+	assertMarkdownWorkspaceRepairResultFingerprint(t, prepared.targets[0])
+}
+
+func TestApplyMarkdownWorkspaceRepairPreviewConsumesCapabilityOnFailedAttempt(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "doc.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	preview, err := h.markdownPreviews.putWorkspaceRepair(prepared)
+	if err != nil {
+		prepared.close()
+		t.Fatal(err)
+	}
+	path := prepared.targets[0].resolvedPath
+	external := []byte("external before apply")
+	if err := os.WriteFile(path, external, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	applied, failure := h.applyMarkdownWorkspaceRepairPreview(context.Background(), preview.id)
+	if failure == nil || !failure.IsError || applied.CommittedCount != 0 {
+		t.Fatalf("failed apply failure=%+v output=%+v", failure, applied)
+	}
+	if _, replay := h.applyMarkdownWorkspaceRepairPreview(context.Background(), preview.id); replay == nil || !replay.IsError || replay.Meta[ErrorCodeMetaKey] != ErrCodeConflict {
+		t.Fatalf("replay=%+v, want consumed-preview conflict", replay)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, external) {
+		t.Fatalf("failed attempt changed source: bytes=%q err=%v", got, err)
+	}
+}
+
 func writeMarkdownWorkspaceRepairApplyDocs(t *testing.T, root string, names ...string) {
 	t.Helper()
 	source := "# Root\n\n## Contents\n\n- [Root](#old-root)\n"
