@@ -50,6 +50,9 @@ type Snapshot struct {
 	fencedBlockTargetIndexOnce sync.Once
 	fencedBlockTargetIndex     map[string]marksplice.NodeID
 	fencedBlockTargetIndexErr  error
+
+	resolvedLocalFragmentOnce    sync.Once
+	resolvedLocalFragmentPresent bool
 }
 
 // Parse creates an immutable Markdown snapshot using Marksplice as the sole

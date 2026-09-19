@@ -582,6 +582,102 @@ func TestPrepareReplaceParagraphIsSnapshotBoundAndSourcePreserving(t *testing.T)
 	}
 }
 
+func TestPrepareReplaceParagraphFailsClosedWhenResolvedFragmentContinuityIsUnprovable(t *testing.T) {
+	source := []byte("# Target\n\n[go](#target)\n\nOld paragraph.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 2 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	prepared, err := snapshot.PrepareReplaceParagraph(paragraphs[1].TargetID, []byte("New paragraph."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepared.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("apply error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestPrepareReplaceParagraphNoOpRemainsAllowedWithResolvedFragment(t *testing.T) {
+	source := []byte("# Target\n\n[go](#target)\n\nOld paragraph.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 2 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	prepared, err := snapshot.PrepareReplaceParagraph(paragraphs[1].TargetID, []byte("Old paragraph."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, source) {
+		t.Fatalf("no-op result=%q want original %q", got, source)
+	}
+}
+
+func TestPrepareReplaceCodeSpanRemainsAllowedWithResolvedFragment(t *testing.T) {
+	source := []byte("# Target\n\n[go](#target) and `old`\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := snapshot.QueryNodes([]string{"code_span"}, 8)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("code spans=%+v err=%v", nodes, err)
+	}
+	prepared, err := snapshot.PrepareReplaceCodeSpan(nodes[0].TargetID, []byte("new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []byte("# Target\n\n[go](#target) and `new`\n"); !bytes.Equal(got, want) {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+}
+
+func TestComposeChangesPreservesFragmentContinuityRestriction(t *testing.T) {
+	source := []byte("# Target\n\n[go](#target) and `old`\n\nOld paragraph.\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 2 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	codes, err := snapshot.QueryNodes([]string{"code_span"}, 8)
+	if err != nil || len(codes) != 1 {
+		t.Fatalf("code spans=%+v err=%v", codes, err)
+	}
+	paragraphChange, err := snapshot.PrepareReplaceParagraph(paragraphs[1].TargetID, []byte("New paragraph."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	codeChange, err := snapshot.PrepareReplaceCodeSpan(codes[0].TargetID, []byte("new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := snapshot.ComposeChanges(paragraphChange, codeChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := combined.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("apply error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestPrepareReplaceParagraphAcceptsInlineMarkdownAndRejectsMultipleParagraphs(t *testing.T) {
 	source := []byte("Old paragraph.\n")
 	snapshot, err := Parse(source)
@@ -2798,6 +2894,25 @@ func TestPrepareReplaceHTMLCommentPreservesWrapperAndSourceBinding(t *testing.T)
 	}
 	if !bytes.Equal(unchanged, source) {
 		t.Fatalf("no-op result=%q want original=%q", unchanged, source)
+	}
+}
+
+func TestPrepareReplaceHTMLAnchorFailsClosedWhenReferenced(t *testing.T) {
+	source := []byte("[go](#old-anchor)\n\n<a id=\"old-anchor\"></a>\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := snapshot.QueryNodes([]string{"html_anchor"}, 8)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("anchors=%+v err=%v", nodes, err)
+	}
+	prepared, err := snapshot.PrepareReplaceHTMLAnchor(nodes[0].TargetID, []byte("new-anchor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepared.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("apply error=%v, want ErrInvalidReplacement", err)
 	}
 }
 

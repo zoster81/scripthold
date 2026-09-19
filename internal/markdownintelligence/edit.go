@@ -14,8 +14,9 @@ const MaxEditOperations = 64
 // PreparedChange wraps one Marksplice ChangeSet without exposing Marksplice
 // snapshot-local node identity. It remains bound to the exact parsed source.
 type PreparedChange struct {
-	change            marksplice.ChangeSet
-	sourceFingerprint string
+	change                           marksplice.ChangeSet
+	sourceFingerprint                string
+	requiresFragmentTargetContinuity bool
 }
 
 // SourceFingerprint reports the exact Markdown snapshot for which this change
@@ -24,9 +25,17 @@ func (p PreparedChange) SourceFingerprint() string {
 	return p.sourceFingerprint
 }
 
-// Apply delegates source-conflict enforcement to Marksplice.
+// Apply delegates source-conflict enforcement to Marksplice, then applies the
+// conservative host policy for fragment-target continuity gaps.
 func (p PreparedChange) Apply(source []byte) ([]byte, error) {
-	return p.change.Apply(source)
+	result, err := p.change.Apply(source)
+	if err != nil {
+		return nil, err
+	}
+	if p.requiresFragmentTargetContinuity && !bytes.Equal(result, source) {
+		return nil, fmt.Errorf("%w: mutation requires fragment-target continuity that Marksplice does not expose", marksplice.ErrInvalidReplacement)
+	}
+	return result, nil
 }
 
 // ComposeChanges delegates atomic multi-edit composition to Marksplice. Every
@@ -39,17 +48,37 @@ func (s *Snapshot) ComposeChanges(changes ...PreparedChange) (PreparedChange, er
 		return PreparedChange{}, fmt.Errorf("%w: markdown edit requires 1..%d prepared changes", marksplice.ErrInvalidQuery, MaxEditOperations)
 	}
 	markspliceChanges := make([]marksplice.ChangeSet, len(changes))
+	requiresFragmentTargetContinuity := false
 	for index, prepared := range changes {
 		if prepared.sourceFingerprint != s.fingerprint {
 			return PreparedChange{}, fmt.Errorf("%w: prepared change belongs to a different markdown snapshot", marksplice.ErrSourceConflict)
 		}
 		markspliceChanges[index] = prepared.change
+		requiresFragmentTargetContinuity = requiresFragmentTargetContinuity || prepared.requiresFragmentTargetContinuity
 	}
 	combined, err := s.document.ComposeChanges(markspliceChanges...)
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: combined, sourceFingerprint: s.fingerprint}, nil
+	return PreparedChange{change: combined, sourceFingerprint: s.fingerprint, requiresFragmentTargetContinuity: requiresFragmentTargetContinuity}, nil
+}
+
+func (s *Snapshot) fragmentTopologyChange(change marksplice.ChangeSet) PreparedChange {
+	return PreparedChange{
+		change:                           change,
+		sourceFingerprint:                s.fingerprint,
+		requiresFragmentTargetContinuity: s.hasResolvedLocalFragment(),
+	}
+}
+
+func (s *Snapshot) hasResolvedLocalFragment() bool {
+	if s == nil || s.document == nil {
+		return false
+	}
+	s.resolvedLocalFragmentOnce.Do(func() {
+		s.resolvedLocalFragmentPresent = hasResolvedLocalFragmentRelationship(s.document.LinkRelationships())
+	})
+	return s.resolvedLocalFragmentPresent
 }
 
 // PrepareRenameHeading resolves the opaque Scripthold target against this exact
@@ -195,7 +224,7 @@ func (s *Snapshot) PrepareReplaceStrikethrough(targetID string, replacement []by
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceEmphasis resolves the opaque Scripthold emphasis target against
@@ -209,7 +238,7 @@ func (s *Snapshot) PrepareReplaceEmphasis(targetID string, replacement []byte) (
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceStrong resolves the opaque Scripthold strong target against this
@@ -223,7 +252,7 @@ func (s *Snapshot) PrepareReplaceStrong(targetID string, replacement []byte) (Pr
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceFencedCode resolves the opaque Scripthold fenced-code target
@@ -279,7 +308,7 @@ func (s *Snapshot) PrepareReplaceInlineLinkLabel(targetID string, replacement []
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceImageDestination resolves the opaque Scripthold image target
@@ -307,7 +336,7 @@ func (s *Snapshot) PrepareReplaceImageAlt(targetID string, replacement []byte) (
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareRenameReferenceDefinition resolves the opaque Scripthold
@@ -464,7 +493,7 @@ func (s *Snapshot) PrepareReplaceFootnoteDefinitionBody(targetID string, replace
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareRemoveFootnoteDefinition resolves the opaque Scripthold footnote-definition
@@ -478,7 +507,7 @@ func (s *Snapshot) PrepareRemoveFootnoteDefinition(targetID string) (PreparedCha
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareSyncTOC resolves the opaque Scripthold heading target against this
@@ -520,7 +549,7 @@ func (s *Snapshot) PrepareReplaceAlertBody(targetID string, replacement []byte) 
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceBlockquoteContent resolves the opaque Scripthold blockquote
@@ -534,7 +563,7 @@ func (s *Snapshot) PrepareReplaceBlockquoteContent(targetID string, replacement 
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareRemoveBlockquote resolves the opaque Scripthold blockquote target
@@ -548,7 +577,7 @@ func (s *Snapshot) PrepareRemoveBlockquote(targetID string) (PreparedChange, err
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareRemoveThematicBreak resolves the opaque Scripthold thematic-break
@@ -617,7 +646,7 @@ func (s *Snapshot) PrepareReplaceHTMLAnchor(targetID string, replacement []byte)
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceAutoLink resolves the opaque Scripthold autolink target against
@@ -743,7 +772,7 @@ func (s *Snapshot) PrepareReplaceSection(targetID string, replacement []byte) (P
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareInsertSectionBefore resolves the opaque Scripthold section anchor
@@ -757,7 +786,7 @@ func (s *Snapshot) PrepareInsertSectionBefore(targetID string, fragment []byte) 
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareInsertSectionAfter resolves the opaque Scripthold section anchor
@@ -771,7 +800,7 @@ func (s *Snapshot) PrepareInsertSectionAfter(targetID string, fragment []byte) (
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareAppendSectionChild resolves the opaque Scripthold parent section
@@ -785,7 +814,7 @@ func (s *Snapshot) PrepareAppendSectionChild(targetID string, fragment []byte) (
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareMoveSectionBefore resolves the opaque Scripthold source and anchor sections
@@ -803,7 +832,7 @@ func (s *Snapshot) PrepareMoveSectionBefore(targetID, anchorTargetID string) (Pr
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareMoveSectionAfter resolves the opaque Scripthold source and anchor sections
@@ -821,7 +850,7 @@ func (s *Snapshot) PrepareMoveSectionAfter(targetID, anchorTargetID string) (Pre
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceSectionBody resolves the opaque Scripthold section target
@@ -835,7 +864,7 @@ func (s *Snapshot) PrepareReplaceSectionBody(targetID string, replacement []byte
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareRemoveSection resolves the opaque Scripthold section target against
@@ -849,7 +878,7 @@ func (s *Snapshot) PrepareRemoveSection(targetID string) (PreparedChange, error)
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceListItem resolves the opaque Scripthold list-item target against
@@ -863,7 +892,7 @@ func (s *Snapshot) PrepareReplaceListItem(targetID string, replacement []byte) (
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceListItemSubtree resolves the opaque Scripthold list-item target
@@ -877,7 +906,7 @@ func (s *Snapshot) PrepareReplaceListItemSubtree(targetID string, replacement []
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareInsertListItemBefore resolves the opaque Scripthold list-item anchor
@@ -891,7 +920,7 @@ func (s *Snapshot) PrepareInsertListItemBefore(targetID string, fragment []byte)
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareInsertListItemAfter resolves the opaque Scripthold list-item anchor
@@ -905,7 +934,7 @@ func (s *Snapshot) PrepareInsertListItemAfter(targetID string, fragment []byte) 
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareAppendListItemChild resolves the opaque Scripthold parent target against
@@ -919,7 +948,7 @@ func (s *Snapshot) PrepareAppendListItemChild(targetID string, fragment []byte) 
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareMoveListItemBefore resolves source and anchor list-item targets against
@@ -937,7 +966,7 @@ func (s *Snapshot) PrepareMoveListItemBefore(targetID, anchorTargetID string) (P
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareMoveListItemAfter resolves source and anchor list-item targets against
@@ -955,7 +984,7 @@ func (s *Snapshot) PrepareMoveListItemAfter(targetID, anchorTargetID string) (Pr
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareRemoveListItem resolves the opaque Scripthold list-item target against
@@ -969,7 +998,7 @@ func (s *Snapshot) PrepareRemoveListItem(targetID string) (PreparedChange, error
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareReplaceParagraph resolves the opaque Scripthold target against this
@@ -983,7 +1012,7 @@ func (s *Snapshot) PrepareReplaceParagraph(targetID string, replacement []byte) 
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareInsertParagraphBefore resolves the opaque Scripthold anchor against
@@ -997,7 +1026,7 @@ func (s *Snapshot) PrepareInsertParagraphBefore(targetID string, markdown []byte
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareInsertParagraphAfter resolves the opaque Scripthold anchor against
@@ -1011,7 +1040,7 @@ func (s *Snapshot) PrepareInsertParagraphAfter(targetID string, markdown []byte)
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 // PrepareRemoveParagraph resolves the opaque Scripthold target against this
@@ -1025,7 +1054,7 @@ func (s *Snapshot) PrepareRemoveParagraph(targetID string) (PreparedChange, erro
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+	return s.fragmentTopologyChange(change), nil
 }
 
 func (s *Snapshot) fencedBlockID(fencedBlockTargetID string) (marksplice.NodeID, error) {

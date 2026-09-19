@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Made fragment-target-affecting Markdown edits fail closed when the source already contains resolved local-fragment relationships and Marksplice cannot prove cross-snapshot target continuity; source-bound no-ops and target-topology-independent mutations remain available without adding local Markdown identity heuristics.
 - Made `rename/heading` fail closed when a currently resolved local fragment would stop resolving to the same Marksplice target kind/value, when a referenced HTML anchor lies inside the replaced heading content, or when duplicate-heading anchor ownership would change, preventing silent broken, ambiguous, or retargeted local links without local Markdown slug/link rules.
 - Kept OpenSSF Scorecard on its supported default-branch execution path after upstream rejected release-tag pushes, and made future release verification require successful exact-commit Scorecard evidence from the `main` push.
 
