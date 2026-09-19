@@ -16,7 +16,25 @@ func TestMarkdownWorkspaceCatalogSchemaIsClosedReadOnlyUnion(t *testing.T) {
 		t.Fatalf("discovery schema = %#v, want strict object", discovery)
 	}
 	branches, ok := schema["oneOf"].([]any)
-	if !ok || len(branches) != 7 {
-		t.Fatalf("markdown_workspace oneOf = %#v, want 7 closed variants", schema["oneOf"])
+	if !ok || len(branches) != 4 {
+		t.Fatalf("markdown_workspace oneOf = %#v, want 4 closed shape variants", schema["oneOf"])
+	}
+	foundDocumentQueries := false
+	for _, raw := range branches {
+		branch := markdownReadSchemaMap(t, raw)
+		branchProperties := markdownReadSchemaMap(t, branch["properties"])
+		query, ok := branchProperties["query"]
+		if !ok {
+			continue
+		}
+		querySchema := markdownReadSchemaMap(t, query)
+		values, ok := querySchema["enum"].([]string)
+		if ok && len(values) == 4 {
+			markdownReadAssertStringSet(t, "document query enum", values, []string{"backlinks", "outgoing", "reachable", "related"})
+			foundDocumentQueries = true
+		}
+	}
+	if !foundDocumentQueries {
+		t.Fatalf("markdown_workspace document-query branch missing: %#v", branches)
 	}
 }

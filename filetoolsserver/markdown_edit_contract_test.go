@@ -16,6 +16,11 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	markdownReadAssertStringSet(t, "markdown_edit required", schema["required"], []string{"operations", "path"})
 
+	defs := markdownReadSchemaMap(t, schema["$defs"])
+	if target := markdownReadSchemaMap(t, defs["targetId"]); target["type"] != "string" || target["pattern"] != "^[0-9a-f]{64}$" {
+		t.Fatalf("markdown_edit targetId definition = %#v", target)
+	}
+
 	properties := markdownReadSchemaMap(t, schema["properties"])
 	gotProperties := make([]string, 0, len(properties))
 	for name := range properties {
@@ -101,9 +106,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if markdownReadSchemaMap(t, renameProperties["action"])["const"] != "rename" || markdownReadSchemaMap(t, renameProperties["subject"])["const"] != "heading" {
 		t.Fatalf("rename discriminators = %#v", renameProperties)
 	}
-	if markdownReadSchemaMap(t, renameProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
-		t.Fatalf("rename targetId schema = %#v", renameProperties["targetId"])
-	}
+	markdownEditAssertTargetRef(t, renameProperties["targetId"])
 	if _, ok := renameProperties["level"]; ok {
 		t.Fatalf("rename schema unexpectedly accepts level: %#v", renameProperties)
 	}
@@ -182,9 +185,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if len(removeProperties) != 3 {
 		t.Fatalf("target-only remove properties = %#v, want only action/subject/targetId", removeProperties)
 	}
-	if markdownReadSchemaMap(t, removeProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
-		t.Fatalf("target-only remove targetId schema = %#v", removeProperties["targetId"])
-	}
+	markdownEditAssertTargetRef(t, removeProperties["targetId"])
 
 	insertParagraph := markdownEditOperationBranch(t, oneOf, "insert", "paragraph", "")
 	if insertParagraph["type"] != "object" || insertParagraph["additionalProperties"] != false {
@@ -205,9 +206,7 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if markdownReadSchemaMap(t, insertProperties["markdown"])["type"] != "string" {
 		t.Fatalf("paragraph insert markdown schema = %#v", insertProperties["markdown"])
 	}
-	if markdownReadSchemaMap(t, insertProperties["targetId"])["pattern"] != "^[0-9a-f]{64}$" {
-		t.Fatalf("paragraph insert targetId schema = %#v", insertProperties["targetId"])
-	}
+	markdownEditAssertTargetRef(t, insertProperties["targetId"])
 	if len(insertProperties) != 5 {
 		t.Fatalf("paragraph insert properties = %#v, want only action/subject/targetId/position/markdown", insertProperties)
 	}
@@ -445,7 +444,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	if position := markdownReadSchemaMap(t, moveSectionProperties["position"]); !reflect.DeepEqual(position["enum"], []string{"before", "after"}) {
 		t.Fatalf("section move position schema = %#v, want before/after enum", position)
 	}
-	if markdownReadSchemaMap(t, moveSectionProperties["anchorTargetId"])["pattern"] != "^[0-9a-f]{64}$" || len(moveSectionProperties) != 5 {
+	markdownEditAssertTargetRef(t, moveSectionProperties["anchorTargetId"])
+	if len(moveSectionProperties) != 5 {
 		t.Fatalf("section move properties = %#v", moveSectionProperties)
 	}
 
@@ -527,6 +527,14 @@ func markdownEditSchemaStringMatches(t *testing.T, value any, want string) bool 
 		}
 	}
 	return false
+}
+
+func markdownEditAssertTargetRef(t *testing.T, value any) {
+	t.Helper()
+	schema := markdownReadSchemaMap(t, value)
+	if schema["$ref"] != "#/$defs/targetId" {
+		t.Fatalf("target schema = %#v, want targetId $ref", schema)
+	}
 }
 
 func TestMarkdownApplyCatalogSchemaAcceptsOnlyPreviewID(t *testing.T) {

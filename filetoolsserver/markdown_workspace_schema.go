@@ -16,10 +16,7 @@ func markdownWorkspaceCatalogTool() *mcp.Tool {
 		"oneOf": []any{
 			markdownWorkspaceBranchSchema("inspect", []string{"action", "root", "discovery", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit"}, nil),
 			markdownWorkspaceBranchSchema("query", []string{"action", "root", "discovery", "query", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "query"}, map[string]string{"query": "edges"}),
-			markdownWorkspaceBranchSchema("query", []string{"action", "root", "discovery", "query", "document", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "query", "document"}, map[string]string{"query": "outgoing"}),
-			markdownWorkspaceBranchSchema("query", []string{"action", "root", "discovery", "query", "document", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "query", "document"}, map[string]string{"query": "backlinks"}),
-			markdownWorkspaceBranchSchema("query", []string{"action", "root", "discovery", "query", "document", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "query", "document"}, map[string]string{"query": "reachable"}),
-			markdownWorkspaceBranchSchema("query", []string{"action", "root", "discovery", "query", "document", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "query", "document"}, map[string]string{"query": "related"}),
+			markdownWorkspaceDocumentQueryBranchSchema(),
 			markdownWorkspaceBranchSchema("validate", []string{"action", "root", "discovery", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "roots"}, nil),
 		},
 	}
@@ -70,6 +67,18 @@ func markdownWorkspaceProperties() map[string]any {
 			"items": map[string]any{"type": "string", "minLength": 1},
 		},
 	}
+}
+
+func markdownWorkspaceDocumentQueryBranchSchema() map[string]any {
+	schema := markdownWorkspaceBranchSchema(
+		"query",
+		[]string{"action", "root", "discovery", "query", "document", "limit"},
+		[]string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "query", "document"},
+		nil,
+	)
+	properties := schema["properties"].(map[string]any)
+	properties["query"] = map[string]any{"type": "string", "enum": []string{"outgoing", "backlinks", "reachable", "related"}}
+	return schema
 }
 
 func markdownWorkspaceBranchSchema(action string, required, legal []string, constants map[string]string) map[string]any {
