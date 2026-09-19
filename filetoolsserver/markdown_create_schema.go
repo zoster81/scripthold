@@ -133,8 +133,8 @@ func markdownCreateBlockSchema() map[string]any {
 			"ordered": map[string]any{"type": "boolean"},
 			"items":   map[string]any{"type": "array", "minItems": 1, "maxItems": markdownCreateMaxElements, "items": map[string]any{"$ref": "#/$defs/taskListItem"}},
 		}),
-		markdownCreateTaggedObject("fenced_code", []string{"content"}, map[string]any{
-			"content": map[string]any{"type": "string"}, "info": map[string]any{"type": "string"},
+		markdownCreateTaggedObject("fenced_code", []string{"code"}, map[string]any{
+			"code": map[string]any{"type": "string"}, "info": map[string]any{"type": "string"},
 		}),
 		markdownCreateTaggedObject("reference_definition", []string{"label", "destination"}, map[string]any{
 			"label": map[string]any{"type": "string", "minLength": 1}, "destination": map[string]any{"type": "string", "minLength": 1},

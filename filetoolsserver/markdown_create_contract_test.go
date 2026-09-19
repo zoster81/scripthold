@@ -50,6 +50,23 @@ func TestMarkdownCreateInputSchemaIsClosedRecursiveDocumentModel(t *testing.T) {
 	}
 
 	blockBranches := defs["block"].(map[string]any)["oneOf"].([]any)
+	foundFencedCode := false
+	for _, raw := range blockBranches {
+		branch := raw.(map[string]any)
+		props := branch["properties"].(map[string]any)
+		typeSchema := props["type"].(map[string]any)
+		if typeSchema["const"] != "fenced_code" {
+			continue
+		}
+		if props["code"] == nil || props["content"] != nil {
+			t.Fatalf("fenced_code transport must use code, not content: %#v", props)
+		}
+		foundFencedCode = true
+	}
+	if !foundFencedCode {
+		t.Fatal("fenced_code branch missing")
+	}
+
 	foundRecursiveBlocks := false
 	for _, raw := range blockBranches {
 		branch := raw.(map[string]any)
