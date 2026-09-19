@@ -3,9 +3,15 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/zoster81/marksplice"
+	"github.com/zoster81/marksplice/workspacefs"
+	"github.com/zoster81/scripthold/internal/backupstore"
+	"github.com/zoster81/scripthold/internal/filesystem"
 )
 
 func TestPrepareMarkdownWorkspaceRepairApplyTargetsRevalidatesSemanticAndPhysicalState(t *testing.T) {
@@ -92,5 +98,243 @@ func TestPrepareMarkdownWorkspaceRepairApplyTargetsRejectsTamperedPreparedResult
 	prepared.targets[0].resultData = append(prepared.targets[0].resultData, []byte("tampered")...)
 	if _, failure := h.prepareMarkdownWorkspaceRepairApplyTargets(context.Background(), &prepared); failure == nil || !failure.IsError {
 		t.Fatalf("tampered result unexpectedly revalidated: %+v", failure)
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairCommitsInPlanOrder(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "a.md", "b.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	defer prepared.close()
+
+	originalCommit := h.existingFileReplacementOps.commit
+	var commitOrder []int
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+		commitOrder = append(commitOrder, index)
+		return originalCommit(index, staged, options)
+	}
+
+	applied, failure := h.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure != nil {
+		t.Fatalf("apply failure=%+v output=%+v", failure, applied)
+	}
+	if applied.CommittedCount != 2 || applied.UnchangedCount != 0 || applied.UnknownCount != 0 || applied.PartialCommit {
+		t.Fatalf("apply output=%+v", applied)
+	}
+	if len(commitOrder) != 2 || commitOrder[0] != 0 || commitOrder[1] != 1 {
+		t.Fatalf("commit order=%v", commitOrder)
+	}
+	for index := range prepared.targets {
+		if applied.Results[index].State != string(existingFileReplacementStateCommitted) || !applied.Results[index].Applied {
+			t.Fatalf("result %d=%+v", index, applied.Results[index])
+		}
+		assertMarkdownWorkspaceRepairResultFingerprint(t, prepared.targets[index])
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairCapturesAllBackupsBeforeCommit(t *testing.T) {
+	fixture := newBackupStoreHandlerFixture(t)
+	writeMarkdownWorkspaceRepairApplyDocs(t, fixture.publicRoot, "a.md", "b.md")
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, fixture.handler, fixture.publicRoot, editBackupPolicyRequired)
+	defer prepared.close()
+
+	originalCommit := fixture.handler.existingFileReplacementOps.commit
+	fixture.handler.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+		if index == 0 && fixture.store.Index().ManifestCount != 2 {
+			t.Fatalf("first commit began with %d durable manifests, want 2", fixture.store.Index().ManifestCount)
+		}
+		return originalCommit(index, staged, options)
+	}
+
+	applied, failure := fixture.handler.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure != nil {
+		t.Fatalf("apply failure=%+v output=%+v", failure, applied)
+	}
+	if applied.BackupCount != 2 || fixture.store.Index().ManifestCount != 2 {
+		t.Fatalf("backup state output=%+v index=%+v", applied, fixture.store.Index())
+	}
+	for index := range applied.Results {
+		if len(applied.Results[index].BackupID) != 64 {
+			t.Fatalf("result %d backupId=%q", index, applied.Results[index].BackupID)
+		}
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairIncompleteBackupPreservesDurablePrefixWithoutCommit(t *testing.T) {
+	fixture := newBackupStoreHandlerFixture(t)
+	writeMarkdownWorkspaceRepairApplyDocs(t, fixture.publicRoot, "a.md", "b.md")
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, fixture.handler, fixture.publicRoot, editBackupPolicyRequired)
+	defer prepared.close()
+
+	wrapped := &patchPackageBackupStoreWrapper{Store: fixture.store}
+	wrapped.captureBatch = func(ctx context.Context, requests []backupstore.CaptureRequest) ([]backupstore.CaptureResult, error) {
+		results, err := fixture.store.CaptureBatch(ctx, requests[:1])
+		return results, errors.Join(err, errors.New("injected incomplete backup batch"))
+	}
+	fixture.handler.backupBatchCapture = wrapped
+	commits := 0
+	fixture.handler.existingFileReplacementOps.commit = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
+		commits++
+		return false, errors.New("commit must not be reached")
+	}
+
+	applied, failure := fixture.handler.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure == nil || !failure.IsError {
+		t.Fatalf("incomplete backup failure=%+v output=%+v", failure, applied)
+	}
+	if commits != 0 || applied.BackupCount != 1 || applied.CommittedCount != 0 || applied.UnchangedCount != 2 || applied.UnknownCount != 0 {
+		t.Fatalf("incomplete backup state commits=%d output=%+v", commits, applied)
+	}
+	if len(applied.Results[0].BackupID) != 64 || applied.Results[1].BackupID != "" {
+		t.Fatalf("incomplete backup IDs=%+v", applied.Results)
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairPostBackupChangePreservesBackupsAndObservedState(t *testing.T) {
+	fixture := newBackupStoreHandlerFixture(t)
+	writeMarkdownWorkspaceRepairApplyDocs(t, fixture.publicRoot, "a.md", "b.md")
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, fixture.handler, fixture.publicRoot, editBackupPolicyRequired)
+	defer prepared.close()
+
+	changedPath := prepared.targets[1].resolvedPath
+	wrapped := &patchPackageBackupStoreWrapper{Store: fixture.store}
+	wrapped.captureBatch = func(ctx context.Context, requests []backupstore.CaptureRequest) ([]backupstore.CaptureResult, error) {
+		results, err := fixture.store.CaptureBatch(ctx, requests)
+		if err == nil {
+			err = os.WriteFile(changedPath, []byte("external"), 0o600)
+		}
+		return results, err
+	}
+	fixture.handler.backupBatchCapture = wrapped
+	commits := 0
+	fixture.handler.existingFileReplacementOps.commit = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
+		commits++
+		return false, errors.New("commit must not be reached")
+	}
+
+	applied, failure := fixture.handler.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure == nil || !failure.IsError {
+		t.Fatalf("post-backup change failure=%+v output=%+v", failure, applied)
+	}
+	if commits != 0 || applied.BackupCount != 2 || applied.CommittedCount != 0 || applied.UnchangedCount != 1 || applied.UnknownCount != 1 {
+		t.Fatalf("post-backup state commits=%d output=%+v", commits, applied)
+	}
+	for index := range applied.Results {
+		if len(applied.Results[index].BackupID) != 64 {
+			t.Fatalf("result %d backupId=%q", index, applied.Results[index].BackupID)
+		}
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairOutputLimitPreventsStaging(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "doc.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	defer prepared.close()
+	original, err := os.ReadFile(prepared.targets[0].resolvedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.config.Limits.MaxOutputBytes = 1
+	staged := 0
+	originalStage := h.existingFileReplacementOps.stage
+	h.existingFileReplacementOps.stage = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+		staged++
+		return originalStage(ctx, path, data, mode)
+	}
+
+	applied, failure := h.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure == nil || !failure.IsError || failure.Meta[ErrorCodeMetaKey] != ErrCodeLimit {
+		t.Fatalf("output-limit failure=%+v output=%+v", failure, applied)
+	}
+	if staged != 0 {
+		t.Fatalf("staged=%d, want 0", staged)
+	}
+	if got, err := os.ReadFile(prepared.targets[0].resolvedPath); err != nil || !bytes.Equal(got, original) {
+		t.Fatalf("output-limit apply mutated source: bytes=%q err=%v", got, err)
+	}
+}
+
+func TestApplyPreparedMarkdownWorkspaceRepairClassifiesPartialCommit(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "a.md", "b.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	defer prepared.close()
+
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+		if index == 1 {
+			return false, errors.New("injected second commit failure")
+		}
+		return originalCommit(index, staged, options)
+	}
+
+	applied, failure := h.applyPreparedMarkdownWorkspaceRepair(context.Background(), &prepared)
+	if failure == nil || !failure.IsError {
+		t.Fatalf("partial apply failure=%+v output=%+v", failure, applied)
+	}
+	if !applied.PartialCommit || applied.CommittedCount != 1 || applied.UnchangedCount != 1 || applied.UnknownCount != 0 {
+		t.Fatalf("partial output=%+v", applied)
+	}
+	if applied.Results[0].State != string(existingFileReplacementStateCommitted) || applied.Results[1].State != string(existingFileReplacementStateUnchanged) {
+		t.Fatalf("partial results=%+v", applied.Results)
+	}
+}
+
+func writeMarkdownWorkspaceRepairApplyDocs(t *testing.T, root string, names ...string) {
+	t.Helper()
+	source := "# Root\n\n## Contents\n\n- [Root](#old-root)\n"
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func prepareMarkdownWorkspaceRepairApplyFixture(t *testing.T, h *Handler, root, backupPolicy string) preparedMarkdownWorkspaceRepair {
+	t.Helper()
+	adapter, err := newMarkdownWorkspaceFS(context.Background(), h, root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := workspacefs.Scan(adapter, ".", workspacefs.DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	documents := workspace.Documents()
+	managed := make([]marksplice.ManagedTOC, 0, len(documents))
+	for _, item := range documents {
+		target, ok := item.Document.ResolveFragment("#contents")
+		if !ok {
+			t.Fatalf("%s managed TOC did not resolve", item.Key)
+		}
+		managed = append(managed, marksplice.ManagedTOC{Document: item.Key, HeadingID: target.NodeID()})
+	}
+	report, err := workspace.Validate(marksplice.WorkspaceValidationOptions{ManagedTOCs: managed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, failure := h.prepareMarkdownWorkspaceRepairPreview(context.Background(), root, report.RepairPlan().Repairs(), backupPolicy)
+	if failure != nil {
+		t.Fatalf("prepare failure=%+v", failure)
+	}
+	return prepared
+}
+
+func assertMarkdownWorkspaceRepairResultFingerprint(t *testing.T, target preparedMarkdownWorkspaceRepairTarget) {
+	t.Helper()
+	snapshot, err := filesystem.CaptureRegularFileSnapshotBounded(context.Background(), target.resolvedPath, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual != target.resultFingerprint {
+		t.Fatalf("actual fingerprint=%q want %q", actual, target.resultFingerprint)
 	}
 }
