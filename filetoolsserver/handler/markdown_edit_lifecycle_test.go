@@ -814,6 +814,43 @@ func TestMarkdownEditRejectsInvalidTableAlignmentShapesBeforeFilesystemWork(t *t
 	}
 }
 
+func TestMarkdownEditRemoveFrontMatter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	source := "---\r\ntitle: \"Doc\"\r\n---\r\n\r\n# Body\r\n"
+	want := "# Body\r\n"
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	operation := MarkdownEditOperation{Action: "remove", Subject: "front_matter"}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{operation}})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != source {
+		t.Fatalf("preview mutated target=%q err=%v", got, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("target=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestMarkdownEditRejectsTargetedFrontMatterRemovalBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+		Path:       filepath.Join(t.TempDir(), "missing.md"),
+		Operations: []MarkdownEditOperation{{Action: "remove", Subject: "front_matter", TargetID: strings.Repeat("a", 64)}},
+	})
+	if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+		t.Fatalf("targeted front matter removal result=%+v err=%v", result, err)
+	}
+}
+
 func TestMarkdownEditCreateDocumentLevelStructures(t *testing.T) {
 	tests := []struct {
 		name      string

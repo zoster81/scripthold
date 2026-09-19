@@ -33,6 +33,15 @@ func markdownEditCatalogTool() *mcp.Tool {
 						map[string]any{
 							"type":                 "object",
 							"additionalProperties": false,
+							"required":             []string{"action", "subject"},
+							"properties": map[string]any{
+								"action":  map[string]any{"const": "remove"},
+								"subject": map[string]any{"const": "front_matter"},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
 							"required":             []string{"action", "subject", "key", "value"},
 							"properties": map[string]any{
 								"action":  map[string]any{"const": "create"},

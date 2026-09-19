@@ -351,6 +351,18 @@ func (s *Snapshot) PrepareAddFrontMatter(format marksplice.FrontMatterFormat) (P
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
+// PrepareRemoveFrontMatter delegates complete document-envelope removal to Marksplice.
+func (s *Snapshot) PrepareRemoveFrontMatter() (PreparedChange, error) {
+	if s == nil || s.document == nil {
+		return PreparedChange{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	change, err := s.document.PrepareRemoveFrontMatter()
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
 // PrepareAppendFrontMatterField delegates canonical field construction to Marksplice.
 func (s *Snapshot) PrepareAppendFrontMatterField(key, value []byte) (PreparedChange, error) {
 	if s == nil || s.document == nil {

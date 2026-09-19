@@ -33,8 +33,8 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 32 {
-		t.Fatalf("operation union = %#v, want thirty-two schema branches covering sixty closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 33 {
+		t.Fatalf("operation union = %#v, want thirty-three schema branches covering sixty-one closed forms", items["oneOf"])
 	}
 
 	createFrontMatter := markdownEditOperationBranch(t, oneOf, "create", "front_matter", "")
@@ -45,6 +45,12 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	if _, ok := createFrontMatterProperties["targetId"]; ok {
 		t.Fatalf("create front matter unexpectedly accepts targetId: %#v", createFrontMatterProperties)
+	}
+
+	removeFrontMatter := markdownEditOperationBranch(t, oneOf, "remove", "front_matter", "")
+	markdownReadAssertStringSet(t, "remove front matter required", removeFrontMatter["required"], []string{"action", "subject"})
+	if properties := markdownReadSchemaMap(t, removeFrontMatter["properties"]); len(properties) != 2 {
+		t.Fatalf("remove front matter properties = %#v", properties)
 	}
 
 	createReference := markdownEditOperationBranch(t, oneOf, "create", "reference_definition", "")

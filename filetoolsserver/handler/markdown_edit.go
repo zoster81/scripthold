@@ -154,6 +154,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 		case operationInput.Action == "create" && operationInput.Subject == "front_matter":
 			format, _ := markdownFrontMatterFormat(operationInput.Format)
 			preparedChange, prepareErr = snapshot.PrepareAddFrontMatter(format)
+		case operationInput.Action == "remove" && operationInput.Subject == "front_matter":
+			preparedChange, prepareErr = snapshot.PrepareRemoveFrontMatter()
 		case operationInput.Action == "create" && operationInput.Subject == "front_matter_field":
 			preparedChange, prepareErr = snapshot.PrepareAppendFrontMatterField([]byte(operationInput.Key), []byte(operationInput.Value))
 		case operationInput.Action == "create" && operationInput.Subject == "reference_definition":
@@ -578,11 +580,12 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 	}
 	for _, op := range input.Operations {
 		isCreate := op.Action == "create" && (op.Subject == "front_matter" || op.Subject == "front_matter_field" || op.Subject == "reference_definition" || op.Subject == "footnote_definition")
+		isTargetless := isCreate || op.Action == "remove" && op.Subject == "front_matter"
 		isReferenceRetarget := op.Action == "retarget" && op.Subject == "reference_occurrence"
 		isTableAlignment := op.Action == "set" && op.Subject == "table" && (op.Part == "column_alignment" || op.Part == "alignments")
-		if isCreate {
+		if isTargetless {
 			if op.TargetID != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "create operations do not accept targetId")
+				return errorResultWithCode(ErrCodeInvalidInput, "document-level operations do not accept targetId")
 			}
 		} else {
 			if !isLowerHexDigest(op.TargetID) {
@@ -607,6 +610,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "create" && op.Subject == "front_matter":
 			if _, ok := markdownFrontMatterFormat(op.Format); !ok || op.Key != "" || op.Value != "" || op.Label != "" || op.Destination != "" || op.Title != "" || op.Body != "" || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" || op.AnchorTargetID != "" || op.Checked != nil {
 				return errorResultWithCode(ErrCodeInvalidInput, "create/front_matter requires format yaml or toml")
+			}
+		case op.Action == "remove" && op.Subject == "front_matter":
+			if op.Format != "" || op.Key != "" || op.Value != "" || op.Label != "" || op.Destination != "" || op.Title != "" || op.Body != "" || op.Column != nil || op.Alignment != "" || len(op.Alignments) != 0 || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" || op.AnchorTargetID != "" || op.Checked != nil {
+				return errorResultWithCode(ErrCodeInvalidInput, "remove/front_matter accepts no operation fields")
 			}
 		case op.Action == "create" && op.Subject == "front_matter_field":
 			if op.Key == "" || op.Value == "" || op.Format != "" || op.Label != "" || op.Destination != "" || op.Title != "" || op.Body != "" || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" || op.AnchorTargetID != "" || op.Checked != nil {

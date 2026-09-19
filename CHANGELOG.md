@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
+- Added targetless Marksplice-backed removal of a complete recognized leading front-matter envelope.
 - Added Marksplice-backed GFM table alignment editing for one column or an atomic full-column vector, plus current alignment metadata on table read targets.
 - Added four closed Marksplice-backed existing-document constructors for front-matter envelopes/fields, reference definitions, and footnote definitions without exposing raw insertion offsets.
 - Added Marksplice-backed retargeting for one parser-proven reference link/image occurrence through a snapshot-bound relationship target, with full/collapsed/shortcut handling and no generic offset-edit authority.
