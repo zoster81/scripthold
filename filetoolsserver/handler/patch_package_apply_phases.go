@@ -146,11 +146,7 @@ func (h *Handler) stagePatchPackageApply(ctx context.Context, prepared *prepared
 		ctx,
 		replacements,
 		modes,
-		existingFileReplacementOps{
-			stage:   h.patchPackageStageReplacement,
-			commit:  h.patchPackageCommitReplacement,
-			cleanup: h.patchPackageCleanupReplacement,
-		},
+		h.existingFileReplacementOps,
 		"stage_patch_package",
 		"cleanup_patch_package_stage",
 	)

@@ -34,9 +34,9 @@ func TestPatchPackageDryRunApplyVerifyOneShot(t *testing.T) {
 		{path: second, oldText: "beta", newText: "gamma"},
 	})
 	h := NewHandler([]string{root})
-	originalCommit := h.patchPackageCommitReplacement
+	originalCommit := h.existingFileReplacementOps.commit
 	var commitOrder []int
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		commitOrder = append(commitOrder, index)
 		return originalCommit(index, staged, options)
 	}
@@ -104,9 +104,9 @@ func TestPatchPackageApplyStagesAllTargetsBeforeCommit(t *testing.T) {
 	manifest := patchPackageManifestForApplyTest(t, fixtures)
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
 
-	originalStage := h.patchPackageStageReplacement
+	originalStage := h.existingFileReplacementOps.stage
 	var staged atomic.Int32
-	h.patchPackageStageReplacement = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+	h.existingFileReplacementOps.stage = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
 		staged.Add(1)
 		if staged.Load() == 3 {
 			return nil, errors.New("injected staging failure")
@@ -144,17 +144,17 @@ func TestPatchPackageStagingCleanupFailureIsSurfaced(t *testing.T) {
 	h := NewHandler([]string{root})
 	manifest := patchPackageManifestForApplyTest(t, fixtures)
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
-	originalStage := h.patchPackageStageReplacement
+	originalStage := h.existingFileReplacementOps.stage
 	var staged atomic.Int32
-	h.patchPackageStageReplacement = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+	h.existingFileReplacementOps.stage = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
 		if staged.Add(1) == 3 {
 			return nil, errors.New("injected staging failure")
 		}
 		return originalStage(ctx, path, data, mode)
 	}
-	originalCleanup := h.patchPackageCleanupReplacement
+	originalCleanup := h.existingFileReplacementOps.cleanup
 	var cleanups atomic.Int32
-	h.patchPackageCleanupReplacement = func(replacement *filesystem.StagedReplacement) error {
+	h.existingFileReplacementOps.cleanup = func(replacement *filesystem.StagedReplacement) error {
 		err := originalCleanup(replacement)
 		if cleanups.Add(1) == 1 {
 			return errors.Join(err, errors.New("injected cleanup failure"))
@@ -192,8 +192,8 @@ func TestPatchPackageApplyReportsPartialCommit(t *testing.T) {
 	h := NewHandler([]string{root})
 	manifest := patchPackageManifestForApplyTest(t, fixtures)
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
-	originalCommit := h.patchPackageCommitReplacement
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		if index == 1 {
 			return false, errors.New("injected second commit failure")
 		}
@@ -234,8 +234,8 @@ func TestPatchPackageFinalVerificationCatchesEarlierTargetChange(t *testing.T) {
 		{path: second, oldText: "beta", newText: "gamma"},
 	})
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
-	originalCommit := h.patchPackageCommitReplacement
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		changed, err := originalCommit(index, staged, options)
 		if err == nil && index == 1 {
 			if writeErr := os.WriteFile(first, []byte("external"), 0644); writeErr != nil {
@@ -268,8 +268,8 @@ func TestPatchPackageApplyClassifiesCommitThenError(t *testing.T) {
 	h := NewHandler([]string{root})
 	manifest := patchPackageManifestForApplyTest(t, []patchPackageApplyFixture{{path: path, oldText: "alpha", newText: "omega"}})
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
-	originalCommit := h.patchPackageCommitReplacement
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		_, commitErr := originalCommit(index, staged, options)
 		if commitErr != nil {
 			return false, commitErr
@@ -384,8 +384,8 @@ func TestPatchPackageApplyFailureAtEveryCommitPosition(t *testing.T) {
 			h := NewHandler([]string{root})
 			manifest := patchPackageManifestForApplyTest(t, fixtures)
 			_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
-			originalCommit := h.patchPackageCommitReplacement
-			h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+			originalCommit := h.existingFileReplacementOps.commit
+			h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 				if index == failureIndex {
 					return false, errors.New("injected commit failure")
 				}
@@ -458,8 +458,8 @@ func TestPatchPackageExternalChangeAfterStagingReturnsUnknownPartialCommit(t *te
 	h := NewHandler([]string{root})
 	manifest := patchPackageManifestForApplyTest(t, []patchPackageApplyFixture{{path: path, oldText: "alpha", newText: "omega"}})
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
-	originalStage := h.patchPackageStageReplacement
-	h.patchPackageStageReplacement = func(ctx context.Context, targetPath string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+	originalStage := h.existingFileReplacementOps.stage
+	h.existingFileReplacementOps.stage = func(ctx context.Context, targetPath string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
 		replacement, stageErr := originalStage(ctx, targetPath, data, mode)
 		if stageErr != nil {
 			return replacement, stageErr
@@ -493,8 +493,8 @@ func TestPatchPackageCancellationDuringStagingCleansUpAndConsumesCapability(t *t
 	manifest := patchPackageManifestForApplyTest(t, []patchPackageApplyFixture{{path: path, oldText: "alpha", newText: strings.Repeat("omega", 4096)}})
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
 	ctx, cancel := context.WithCancel(context.Background())
-	originalStage := h.patchPackageStageReplacement
-	h.patchPackageStageReplacement = func(stageCtx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+	originalStage := h.existingFileReplacementOps.stage
+	h.existingFileReplacementOps.stage = func(stageCtx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
 		cancel()
 		return originalStage(stageCtx, path, data, mode)
 	}
@@ -523,8 +523,8 @@ func TestPatchPackageCancellationAfterStagingLeavesTargetsUnchanged(t *testing.T
 	manifest := patchPackageManifestForApplyTest(t, []patchPackageApplyFixture{{path: path, oldText: "alpha", newText: "omega"}})
 	_, dryRun, _ := h.HandlePatchPackage(context.Background(), nil, PatchPackageInput{Action: patchPackageActionDryRun, Manifest: manifest})
 	ctx, cancel := context.WithCancel(context.Background())
-	originalStage := h.patchPackageStageReplacement
-	h.patchPackageStageReplacement = func(stageCtx context.Context, targetPath string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+	originalStage := h.existingFileReplacementOps.stage
+	h.existingFileReplacementOps.stage = func(stageCtx context.Context, targetPath string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
 		replacement, stageErr := originalStage(stageCtx, targetPath, data, mode)
 		if stageErr == nil {
 			cancel()

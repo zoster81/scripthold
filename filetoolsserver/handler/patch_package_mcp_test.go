@@ -62,8 +62,8 @@ func TestPatchPackagePartialCommitPreservesStructuredContentThroughMCP(t *testin
 		t.Fatalf("previewId=%q", prepared.PreviewID)
 	}
 
-	originalCommit := h.patchPackageCommitReplacement
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		if index == 1 {
 			return false, errors.New("injected commit failure")
 		}
@@ -147,8 +147,8 @@ func TestPatchPackageRequiredBackupsPreserveStructuredContentThroughMCP(t *testi
 		t.Fatalf("prepared output=%+v", prepared)
 	}
 
-	originalCommit := h.patchPackageCommitReplacement
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		if index == 1 {
 			return false, errors.New("injected commit failure")
 		}

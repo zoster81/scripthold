@@ -96,47 +96,45 @@ const (
 
 // Handler handles all file tool operations
 type Handler struct {
-	config                         *config.Config
-	executionPolicy                *ExecutionPolicy
-	configuredRequestedDirs        []string // immutable lexical baseline; always allowed
-	configuredDirs                 []string // immutable resolved baseline; always allowed
-	allowedRequestedDirs           []string
-	allowedDirs                    []string
-	protectedRequestedDirs         []string // immutable internal roots denied to public tools
-	protectedDirs                  []string // resolved internal roots denied to public tools
-	backupStore                    BackupStoreReader
-	backupCapture                  BackupStoreCapturer
-	backupCapturePreflight         BackupStoreCapturePreflighter
-	backupBatchCapture             BackupStoreBatchCapturer
-	backupRestoreReader            BackupStoreRestoreReader
-	backupRestoreStager            BackupStoreRestoreStager
-	backupGCPlanner                BackupStoreGCPlanner
-	backupGCApplier                BackupStoreGCApplier
-	backupDeleter                  BackupStoreDeleter
-	taskStore                      TaskStore
-	deferredOperations             *deferredoperation.Store
-	responseContinuations          *responsecontinuation.Store
-	editPreviews                   *editPreviewStore
-	markdownPreviews               *markdownPreviewStore
-	restorePreviews                *restorePreviewStore
-	gcPreviews                     *gcPreviewStore
-	patchPackagePreviews           *patchPackagePreviewStore
-	byteMutationPreviews           *byteMutationPreviewStore
-	filesystemPackageEngine        *filesystempackage.Engine
-	filesystemPackageInitErr       error
-	patchPackageStageReplacement   func(context.Context, string, []byte, os.FileMode) (*filesystem.StagedReplacement, error)
-	patchPackageCommitReplacement  func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error)
-	patchPackageCleanupReplacement func(*filesystem.StagedReplacement) error
-	restoreStageReplacement        func(context.Context, *backupstore.ReadSource, string, os.FileMode, *time.Time) (*filesystem.StagedReplacement, error)
-	restoreCommitReplacement       func(*filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error)
-	restoreCleanupReplacement      func(*filesystem.StagedReplacement) error
-	verifyGitExecutable            func() (string, error)
-	verifyGitRun                   func(context.Context, verificationGitRequest) (execution.Result, error)
-	replaceFile                    func(string, []byte, filesystem.ReplaceOptions) error
-	sourceIndexOnce                sync.Once
-	sourceIndex                    *sourceintelligence.ProjectIndexManager
-	sourceIndexInitErr             error
-	mu                             sync.RWMutex
+	config                     *config.Config
+	executionPolicy            *ExecutionPolicy
+	configuredRequestedDirs    []string // immutable lexical baseline; always allowed
+	configuredDirs             []string // immutable resolved baseline; always allowed
+	allowedRequestedDirs       []string
+	allowedDirs                []string
+	protectedRequestedDirs     []string // immutable internal roots denied to public tools
+	protectedDirs              []string // resolved internal roots denied to public tools
+	backupStore                BackupStoreReader
+	backupCapture              BackupStoreCapturer
+	backupCapturePreflight     BackupStoreCapturePreflighter
+	backupBatchCapture         BackupStoreBatchCapturer
+	backupRestoreReader        BackupStoreRestoreReader
+	backupRestoreStager        BackupStoreRestoreStager
+	backupGCPlanner            BackupStoreGCPlanner
+	backupGCApplier            BackupStoreGCApplier
+	backupDeleter              BackupStoreDeleter
+	taskStore                  TaskStore
+	deferredOperations         *deferredoperation.Store
+	responseContinuations      *responsecontinuation.Store
+	editPreviews               *editPreviewStore
+	markdownPreviews           *markdownPreviewStore
+	restorePreviews            *restorePreviewStore
+	gcPreviews                 *gcPreviewStore
+	patchPackagePreviews       *patchPackagePreviewStore
+	byteMutationPreviews       *byteMutationPreviewStore
+	filesystemPackageEngine    *filesystempackage.Engine
+	filesystemPackageInitErr   error
+	existingFileReplacementOps existingFileReplacementOps
+	restoreStageReplacement    func(context.Context, *backupstore.ReadSource, string, os.FileMode, *time.Time) (*filesystem.StagedReplacement, error)
+	restoreCommitReplacement   func(*filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error)
+	restoreCleanupReplacement  func(*filesystem.StagedReplacement) error
+	verifyGitExecutable        func() (string, error)
+	verifyGitRun               func(context.Context, verificationGitRequest) (execution.Result, error)
+	replaceFile                func(string, []byte, filesystem.ReplaceOptions) error
+	sourceIndexOnce            sync.Once
+	sourceIndex                *sourceintelligence.ProjectIndexManager
+	sourceIndexInitErr         error
+	mu                         sync.RWMutex
 }
 
 // Option is a functional option for configuring Handler
@@ -327,9 +325,11 @@ func NewHandler(allowedDirs []string, opts ...Option) *Handler {
 		h.maxByteMutationPreviewBytes(),
 		time.Duration(h.byteMutationPreviewTTLSeconds())*time.Second,
 	)
-	h.patchPackageStageReplacement = stagePatchPackageReplacement
-	h.patchPackageCommitReplacement = commitPatchPackageReplacement
-	h.patchPackageCleanupReplacement = func(staged *filesystem.StagedReplacement) error { return staged.Cleanup() }
+	h.existingFileReplacementOps = existingFileReplacementOps{
+		stage:   stageExistingFileReplacement,
+		commit:  commitExistingFileReplacement,
+		cleanup: func(staged *filesystem.StagedReplacement) error { return staged.Cleanup() },
+	}
 	h.restoreStageReplacement = func(ctx context.Context, source *backupstore.ReadSource, target string, mode os.FileMode, modTime *time.Time) (*filesystem.StagedReplacement, error) {
 		if h.backupRestoreStager == nil {
 			return nil, operation.New(operation.KindConflict, "backup restore staging authority is unavailable")

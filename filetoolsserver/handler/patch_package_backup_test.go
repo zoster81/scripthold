@@ -26,9 +26,9 @@ func TestPatchPackageRequiredBackupCapturesAllChangedTargetsBeforeCommit(t *test
 		t.Fatalf("dryRun backup state output=%+v index=%+v", dryRun, store.Index())
 	}
 
-	originalCommit := h.patchPackageCommitReplacement
+	originalCommit := h.existingFileReplacementOps.commit
 	var commits atomic.Int32
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		if commits.Add(1) == 1 && store.Index().ManifestCount != 2 {
 			t.Fatalf("first commit began with %d durable manifests, want 2", store.Index().ManifestCount)
 		}
@@ -139,12 +139,12 @@ func TestPatchPackageRequiredBackupFailureReturnsDurablePrefixWithoutCommit(t *t
 	}
 	var commits atomic.Int32
 	var staged atomic.Int32
-	originalStage := h.patchPackageStageReplacement
-	h.patchPackageStageReplacement = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
+	originalStage := h.existingFileReplacementOps.stage
+	h.existingFileReplacementOps.stage = func(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
 		staged.Add(1)
 		return originalStage(ctx, path, data, mode)
 	}
-	h.patchPackageCommitReplacement = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
+	h.existingFileReplacementOps.commit = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
 		commits.Add(1)
 		return false, errors.New("commit must not be reached")
 	}
@@ -198,7 +198,7 @@ func TestPatchPackageRequiredBackupRevalidatesAllTargetsBeforeFirstCommit(t *tes
 		t.Fatal(err)
 	}
 	var commits atomic.Int32
-	h.patchPackageCommitReplacement = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
+	h.existingFileReplacementOps.commit = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
 		commits.Add(1)
 		return false, errors.New("commit must not be reached")
 	}
@@ -255,7 +255,7 @@ func TestPatchPackageRequiredBackupRejectsUnexpectedExtraCaptureResult(t *testin
 		t.Fatal(err)
 	}
 	var commits atomic.Int32
-	h.patchPackageCommitReplacement = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
+	h.existingFileReplacementOps.commit = func(int, *filesystem.StagedReplacement, filesystem.ReplaceOptions) (bool, error) {
 		commits.Add(1)
 		return false, errors.New("commit must not be reached")
 	}
@@ -275,8 +275,8 @@ func TestPatchPackageRequiredBackupPartialCommitPreservesEveryBackupID(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalCommit := h.patchPackageCommitReplacement
-	h.patchPackageCommitReplacement = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	originalCommit := h.existingFileReplacementOps.commit
+	h.existingFileReplacementOps.commit = func(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
 		if index == 1 {
 			return false, errors.New("injected second commit failure")
 		}

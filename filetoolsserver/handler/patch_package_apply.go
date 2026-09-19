@@ -59,14 +59,6 @@ func patchPackageManifestEmpty(manifest PatchPackageManifest) bool {
 		manifest.FingerprintMode == "" && manifest.BackupPolicy == "" && len(manifest.Targets) == 0
 }
 
-func stagePatchPackageReplacement(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
-	return stageExistingFileReplacement(ctx, path, data, mode)
-}
-
-func commitPatchPackageReplacement(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
-	return commitExistingFileReplacement(index, staged, options)
-}
-
 func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string) (*mcp.CallToolResult, PatchPackageOutput, error) {
 	preview, err := h.patchPackagePreviews.claim(previewID)
 	if err != nil {
