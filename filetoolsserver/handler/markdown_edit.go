@@ -79,6 +79,26 @@ type MarkdownApplyInput struct {
 // MarkdownApplyOutput reports observed post-apply state rather than preview
 // predictions.
 type MarkdownApplyOutput struct {
+	Path              string                        `json:"path"`
+	TargetFingerprint string                        `json:"targetFingerprint"`
+	ResultFingerprint string                        `json:"resultFingerprint"`
+	ActualFingerprint string                        `json:"actualFingerprint,omitempty"`
+	Encoding          string                        `json:"encoding"`
+	HasBOM            bool                          `json:"hasBOM"`
+	BOMType           string                        `json:"bomType,omitempty"`
+	LineEndingStyle   string                        `json:"lineEndingStyle"`
+	BackupPolicy      string                        `json:"backupPolicy,omitempty"`
+	BackupID          string                        `json:"backupId,omitempty"`
+	State             string                        `json:"state"`
+	Changed           bool                          `json:"changed"`
+	Applied           bool                          `json:"applied"`
+	Workspace         *MarkdownWorkspaceApplyOutput `json:"workspace,omitempty"`
+}
+
+// MarkdownWorkspaceApplyDocumentOutput reports observed state for one workspace
+// repair target.
+type MarkdownWorkspaceApplyDocumentOutput struct {
+	Document          string `json:"document"`
 	Path              string `json:"path"`
 	TargetFingerprint string `json:"targetFingerprint"`
 	ResultFingerprint string `json:"resultFingerprint"`
@@ -87,11 +107,38 @@ type MarkdownApplyOutput struct {
 	HasBOM            bool   `json:"hasBOM"`
 	BOMType           string `json:"bomType,omitempty"`
 	LineEndingStyle   string `json:"lineEndingStyle"`
-	BackupPolicy      string `json:"backupPolicy,omitempty"`
 	BackupID          string `json:"backupId,omitempty"`
 	State             string `json:"state"`
 	Changed           bool   `json:"changed"`
 	Applied           bool   `json:"applied"`
+	ErrorCode         string `json:"errorCode,omitempty"`
+	Error             string `json:"error,omitempty"`
+}
+
+// MarkdownWorkspaceApplyOutput reports observed multi-file apply state.
+type MarkdownWorkspaceApplyOutput struct {
+	BackupPolicy   string                                 `json:"backupPolicy,omitempty"`
+	TotalTargets   int                                    `json:"totalTargets"`
+	CommittedCount int                                    `json:"committedCount"`
+	UnchangedCount int                                    `json:"unchangedCount"`
+	UnknownCount   int                                    `json:"unknownCount"`
+	BackupCount    int                                    `json:"backupCount"`
+	PartialCommit  bool                                   `json:"partialCommit"`
+	FailedIndex    *int                                   `json:"failedIndex,omitempty"`
+	FailedDocument string                                 `json:"failedDocument,omitempty"`
+	FailureCode    string                                 `json:"failureCode,omitempty"`
+	FailureMessage string                                 `json:"failureMessage,omitempty"`
+	Results        []MarkdownWorkspaceApplyDocumentOutput `json:"results"`
+}
+
+func (output MarkdownApplyOutput) MarshalJSON() ([]byte, error) {
+	if output.Workspace != nil {
+		return json.Marshal(struct {
+			Workspace *MarkdownWorkspaceApplyOutput `json:"workspace"`
+		}{Workspace: output.Workspace})
+	}
+	type markdownApplyOutputAlias MarkdownApplyOutput
+	return json.Marshal(markdownApplyOutputAlias(output))
 }
 
 func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest, input MarkdownEditInput) (*mcp.CallToolResult, MarkdownEditOutput, error) {

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -466,6 +467,57 @@ func TestApplyMarkdownWorkspaceRepairPreviewConsumesCapabilityOnFailedAttempt(t 
 	}
 	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, external) {
 		t.Fatalf("failed attempt changed source: bytes=%q err=%v", got, err)
+	}
+}
+
+func TestMarkdownApplyOutputMarshalPreservesSingleFileWireShape(t *testing.T) {
+	output := MarkdownApplyOutput{
+		Path: "doc.md", TargetFingerprint: "before", ResultFingerprint: "after",
+		Encoding: "utf-8", HasBOM: false, LineEndingStyle: "lf",
+		State: editApplyStateUnchanged, Changed: false, Applied: false,
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"path":"doc.md","targetFingerprint":"before","resultFingerprint":"after","encoding":"utf-8","hasBOM":false,"lineEndingStyle":"lf","state":"unchanged","changed":false,"applied":false}`
+	if string(encoded) != want {
+		t.Fatalf("single-file wire shape=%s want=%s", encoded, want)
+	}
+}
+
+func TestHandleMarkdownApplyProjectsWorkspaceRepairWithoutLegacyZeroFields(t *testing.T) {
+	root := t.TempDir()
+	writeMarkdownWorkspaceRepairApplyDocs(t, root, "doc.md")
+	h := NewHandler([]string{root})
+	prepared := prepareMarkdownWorkspaceRepairApplyFixture(t, h, root, "")
+	preview, err := h.markdownPreviews.putWorkspaceRepair(prepared)
+	if err != nil {
+		prepared.close()
+		t.Fatal(err)
+	}
+
+	result, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.id})
+	if err != nil || result == nil || result.IsError || output.Workspace == nil {
+		t.Fatalf("workspace apply result=%+v output=%+v err=%v", result, output, err)
+	}
+	if output.Workspace.CommittedCount != 1 || output.Workspace.TotalTargets != 1 || len(output.Workspace.Results) != 1 {
+		t.Fatalf("workspace output=%+v", output.Workspace)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope) != 1 || envelope["workspace"] == nil {
+		t.Fatalf("workspace wire shape=%s", encoded)
+	}
+	replay, _, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.id})
+	if err != nil || replay == nil || !replay.IsError || replay.Meta[ErrorCodeMetaKey] != ErrCodeConflict {
+		t.Fatalf("replay result=%+v err=%v", replay, err)
 	}
 }
 

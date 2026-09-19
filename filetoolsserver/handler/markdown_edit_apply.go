@@ -26,10 +26,14 @@ func (h *Handler) HandleMarkdownApply(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return errorResultFromError(err), MarkdownApplyOutput{}, nil
 	}
-	if preview.kind == markdownPreviewCreate {
+	switch preview.kind {
+	case markdownPreviewCreate:
 		return h.handleMarkdownCreateApply(ctx, preview)
+	case markdownPreviewWorkspaceRepair:
+		return h.handleMarkdownWorkspaceRepairApply(ctx, preview)
+	default:
+		return h.handleMarkdownEditApply(ctx, preview)
 	}
-	return h.handleMarkdownEditApply(ctx, preview)
 }
 
 func (h *Handler) handleMarkdownEditApply(ctx context.Context, preview *markdownPreview) (*mcp.CallToolResult, MarkdownApplyOutput, error) {

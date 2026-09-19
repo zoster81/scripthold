@@ -187,13 +187,52 @@ func (h *Handler) applyMarkdownWorkspaceRepairPreview(ctx context.Context, previ
 	if err != nil {
 		return markdownWorkspaceRepairApplyResult{}, errorResultFromError(err)
 	}
-	if preview.kind != markdownPreviewWorkspaceRepair || preview.workspaceRepair == nil {
-		preview.releaseOwnedResources()
+	return h.applyClaimedMarkdownWorkspaceRepair(ctx, preview)
+}
+
+func (h *Handler) applyClaimedMarkdownWorkspaceRepair(ctx context.Context, preview *markdownPreview) (markdownWorkspaceRepairApplyResult, *mcp.CallToolResult) {
+	if preview == nil || preview.kind != markdownPreviewWorkspaceRepair || preview.workspaceRepair == nil {
+		if preview != nil {
+			preview.releaseOwnedResources()
+		}
 		return markdownWorkspaceRepairApplyResult{}, errorResultWithCode(ErrCodeConflict, "Markdown preview is not a workspace repair preview")
 	}
 	prepared := preview.workspaceRepair
 	defer prepared.close()
 	return h.applyPreparedMarkdownWorkspaceRepair(ctx, prepared)
+}
+
+func (h *Handler) handleMarkdownWorkspaceRepairApply(ctx context.Context, preview *markdownPreview) (*mcp.CallToolResult, MarkdownApplyOutput, error) {
+	internal, failure := h.applyClaimedMarkdownWorkspaceRepair(ctx, preview)
+	output := markdownWorkspaceApplyOutput(internal)
+	if failure != nil {
+		return failure, output, nil
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: markdownWorkspaceRepairApplyText(internal)}}}, output, nil
+}
+
+func markdownWorkspaceApplyOutput(internal markdownWorkspaceRepairApplyResult) MarkdownApplyOutput {
+	workspace := &MarkdownWorkspaceApplyOutput{
+		BackupPolicy: internal.BackupPolicy, TotalTargets: internal.TotalTargets,
+		CommittedCount: internal.CommittedCount, UnchangedCount: internal.UnchangedCount,
+		UnknownCount: internal.UnknownCount, BackupCount: internal.BackupCount,
+		PartialCommit: internal.PartialCommit, FailedIndex: internal.FailedIndex,
+		FailedDocument: internal.FailedDocument, FailureCode: internal.FailureCode,
+		FailureMessage: internal.FailureMessage,
+		Results:        make([]MarkdownWorkspaceApplyDocumentOutput, len(internal.Results)),
+	}
+	for index := range internal.Results {
+		result := internal.Results[index]
+		workspace.Results[index] = MarkdownWorkspaceApplyDocumentOutput{
+			Document: result.Document, Path: result.Path,
+			TargetFingerprint: result.TargetFingerprint, ResultFingerprint: result.ResultFingerprint,
+			ActualFingerprint: result.ActualFingerprint, Encoding: result.Encoding,
+			HasBOM: result.HasBOM, BOMType: result.BOMType, LineEndingStyle: result.LineEndingStyle,
+			BackupID: result.BackupID, State: result.State, Changed: result.Changed,
+			Applied: result.Applied, ErrorCode: result.ErrorCode, Error: result.Error,
+		}
+	}
+	return MarkdownApplyOutput{Workspace: workspace}
 }
 
 func (h *Handler) applyPreparedMarkdownWorkspaceRepair(ctx context.Context, prepared *preparedMarkdownWorkspaceRepair) (markdownWorkspaceRepairApplyResult, *mcp.CallToolResult) {
