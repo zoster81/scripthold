@@ -339,6 +339,63 @@ func (s *Snapshot) PrepareReplaceImageAlt(targetID string, replacement []byte) (
 	return s.fragmentTopologyChange(change), nil
 }
 
+// PrepareAddFrontMatter delegates targetless front-matter envelope construction to Marksplice.
+func (s *Snapshot) PrepareAddFrontMatter(format marksplice.FrontMatterFormat) (PreparedChange, error) {
+	if s == nil || s.document == nil {
+		return PreparedChange{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	change, err := s.document.PrepareAddFrontMatter(format)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareAppendFrontMatterField delegates canonical field construction to Marksplice.
+func (s *Snapshot) PrepareAppendFrontMatterField(key, value []byte) (PreparedChange, error) {
+	if s == nil || s.document == nil {
+		return PreparedChange{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	change, err := s.document.PrepareAppendFrontMatterField(key, value)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareAppendReferenceDefinition delegates canonical document-level definition construction to Marksplice.
+func (s *Snapshot) PrepareAppendReferenceDefinition(label, destination, title []byte) (PreparedChange, error) {
+	if s == nil || s.document == nil {
+		return PreparedChange{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	var (
+		change marksplice.ChangeSet
+		err    error
+	)
+	if len(title) == 0 {
+		change, err = s.document.PrepareAppendReferenceDefinition(label, destination)
+	} else {
+		change, err = s.document.PrepareAppendReferenceDefinitionWithTitle(label, destination, title)
+	}
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
+}
+
+// PrepareAppendFootnoteDefinition delegates canonical footnote construction to Marksplice.
+// Footnote body Markdown can contain fragment targets, so the existing continuity policy applies.
+func (s *Snapshot) PrepareAppendFootnoteDefinition(label, body []byte) (PreparedChange, error) {
+	if s == nil || s.document == nil {
+		return PreparedChange{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	change, err := s.document.PrepareAppendFootnoteDefinition(label, body)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	return s.fragmentTopologyChange(change), nil
+}
+
 // PrepareRenameReferenceDefinition resolves the opaque Scripthold
 // reference-definition target against this exact snapshot and delegates coordinated
 // definition/occurrence renaming to Marksplice.

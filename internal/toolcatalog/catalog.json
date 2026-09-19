@@ -124,7 +124,7 @@
     {
       "name": "markdown_edit",
       "title": "Preview Markdown Edit",
-      "description": "Prepare reviewable, source-bound structural and inline Markdown changes without writing the target.",
+      "description": "Prepare reviewable, source-bound Markdown construction, structural, and inline changes without writing the target.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,

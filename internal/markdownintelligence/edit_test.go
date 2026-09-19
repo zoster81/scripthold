@@ -1411,6 +1411,21 @@ func TestPrepareFencedCodeMutationsPreserveMarkspliceRejections(t *testing.T) {
 	}
 }
 
+func TestPrepareAppendFootnoteDefinitionUsesFragmentContinuityPolicy(t *testing.T) {
+	source := []byte("[go](#x)\n\n<a id=\"x\"></a>\n\nSee[^new]\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := snapshot.PrepareAppendFootnoteDefinition([]byte("new"), []byte("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepared.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("Apply() error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
 func TestPrepareRetargetReferenceOccurrenceDelegatesOccurrenceAuthorityToMarksplice(t *testing.T) {
 	source := []byte("[one]: <dest-one>\n[two]: <dest-two>\n\n[visible][one] [one][] [one] ![alt][one]\n")
 	snapshot, err := Parse(source)

@@ -33,8 +33,25 @@ func TestMarkdownEditCatalogSchemaIsClosedForOperationUnion(t *testing.T) {
 	}
 	items := markdownReadSchemaMap(t, operations["items"])
 	oneOf, ok := items["oneOf"].([]any)
-	if !ok || len(oneOf) != 26 {
-		t.Fatalf("operation union = %#v, want twenty-six schema branches covering fifty-three closed forms", items["oneOf"])
+	if !ok || len(oneOf) != 30 {
+		t.Fatalf("operation union = %#v, want thirty schema branches covering fifty-eight closed forms", items["oneOf"])
+	}
+
+	createFrontMatter := markdownEditOperationBranch(t, oneOf, "create", "front_matter", "")
+	markdownReadAssertStringSet(t, "create front matter required", createFrontMatter["required"], []string{"action", "format", "subject"})
+	createFrontMatterProperties := markdownReadSchemaMap(t, createFrontMatter["properties"])
+	if format := markdownReadSchemaMap(t, createFrontMatterProperties["format"]); !reflect.DeepEqual(format["enum"], []string{"yaml", "toml"}) || len(createFrontMatterProperties) != 3 {
+		t.Fatalf("create front matter properties = %#v", createFrontMatterProperties)
+	}
+	if _, ok := createFrontMatterProperties["targetId"]; ok {
+		t.Fatalf("create front matter unexpectedly accepts targetId: %#v", createFrontMatterProperties)
+	}
+
+	createReference := markdownEditOperationBranch(t, oneOf, "create", "reference_definition", "")
+	markdownReadAssertStringSet(t, "create reference required", createReference["required"], []string{"action", "destination", "label", "subject"})
+	createReferenceProperties := markdownReadSchemaMap(t, createReference["properties"])
+	if len(createReferenceProperties) != 5 || markdownReadSchemaMap(t, createReferenceProperties["title"])["minLength"] != 1 {
+		t.Fatalf("create reference properties = %#v", createReferenceProperties)
 	}
 
 	syncTOC := markdownEditOperationBranch(t, oneOf, "sync", "toc", "")

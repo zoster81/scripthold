@@ -28,9 +28,16 @@ const (
 type MarkdownEditOperation struct {
 	Action         string `json:"action"`
 	Subject        string `json:"subject"`
-	TargetID       string `json:"targetId"`
+	TargetID       string `json:"targetId,omitempty"`
 	AnchorTargetID string `json:"anchorTargetId,omitempty"`
 	Text           string `json:"text,omitempty"`
+	Format         string `json:"format,omitempty"`
+	Key            string `json:"key,omitempty"`
+	Value          string `json:"value,omitempty"`
+	Label          string `json:"label,omitempty"`
+	Destination    string `json:"destination,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Body           string `json:"body,omitempty"`
 	Level          int    `json:"level,omitempty"`
 	Markdown       string `json:"markdown,omitempty"`
 	Position       string `json:"position,omitempty"`
@@ -141,6 +148,15 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 		var preparedChange markdownintelligence.PreparedChange
 		var prepareErr error
 		switch {
+		case operationInput.Action == "create" && operationInput.Subject == "front_matter":
+			format, _ := markdownFrontMatterFormat(operationInput.Format)
+			preparedChange, prepareErr = snapshot.PrepareAddFrontMatter(format)
+		case operationInput.Action == "create" && operationInput.Subject == "front_matter_field":
+			preparedChange, prepareErr = snapshot.PrepareAppendFrontMatterField([]byte(operationInput.Key), []byte(operationInput.Value))
+		case operationInput.Action == "create" && operationInput.Subject == "reference_definition":
+			preparedChange, prepareErr = snapshot.PrepareAppendReferenceDefinition([]byte(operationInput.Label), []byte(operationInput.Destination), []byte(operationInput.Title))
+		case operationInput.Action == "create" && operationInput.Subject == "footnote_definition":
+			preparedChange, prepareErr = snapshot.PrepareAppendFootnoteDefinition([]byte(operationInput.Label), []byte(operationInput.Body))
 		case operationInput.Action == "rename" && operationInput.Subject == "heading":
 			preparedChange, prepareErr = snapshot.PrepareRenameHeading(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "rename" && operationInput.Subject == "reference_definition":
@@ -488,6 +504,17 @@ func (h *Handler) HandleMarkdownApply(ctx context.Context, _ *mcp.CallToolReques
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: markdownApplyText(output)}}}, output, nil
 }
 
+func markdownFrontMatterFormat(value string) (marksplice.FrontMatterFormat, bool) {
+	switch value {
+	case "yaml":
+		return marksplice.FrontMatterFormatYAML, true
+	case "toml":
+		return marksplice.FrontMatterFormatTOML, true
+	default:
+		return marksplice.FrontMatterFormatUnknown, false
+	}
+}
+
 func markdownAlertKind(value string) (marksplice.AlertKind, bool) {
 	switch value {
 	case "note":
@@ -523,9 +550,19 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		}
 	}
 	for _, op := range input.Operations {
+		isCreate := op.Action == "create" && (op.Subject == "front_matter" || op.Subject == "front_matter_field" || op.Subject == "reference_definition" || op.Subject == "footnote_definition")
 		isReferenceRetarget := op.Action == "retarget" && op.Subject == "reference_occurrence"
-		if !isLowerHexDigest(op.TargetID) {
-			return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
+		if isCreate {
+			if op.TargetID != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "create operations do not accept targetId")
+			}
+		} else {
+			if !isLowerHexDigest(op.TargetID) {
+				return errorResultWithCode(ErrCodeInvalidInput, "operations require a snapshot-bound targetId")
+			}
+			if op.Format != "" || op.Key != "" || op.Value != "" || op.Label != "" || op.Destination != "" || op.Title != "" || op.Body != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "construction fields are only valid for create operations")
+			}
 		}
 		isMove := op.Action == "move" && (op.Subject == "section" || op.Subject == "list_item")
 		isTaskSet := op.Action == "set" && op.Subject == "task"
@@ -536,6 +573,22 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 			return errorResultWithCode(ErrCodeInvalidInput, "checked is only valid for set/task")
 		}
 		switch {
+		case op.Action == "create" && op.Subject == "front_matter":
+			if _, ok := markdownFrontMatterFormat(op.Format); !ok || op.Key != "" || op.Value != "" || op.Label != "" || op.Destination != "" || op.Title != "" || op.Body != "" || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" || op.AnchorTargetID != "" || op.Checked != nil {
+				return errorResultWithCode(ErrCodeInvalidInput, "create/front_matter requires format yaml or toml")
+			}
+		case op.Action == "create" && op.Subject == "front_matter_field":
+			if op.Key == "" || op.Value == "" || op.Format != "" || op.Label != "" || op.Destination != "" || op.Title != "" || op.Body != "" || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" || op.AnchorTargetID != "" || op.Checked != nil {
+				return errorResultWithCode(ErrCodeInvalidInput, "create/front_matter_field requires key and value")
+			}
+		case op.Action == "create" && op.Subject == "reference_definition":
+			if op.Label == "" || op.Destination == "" || op.Format != "" || op.Key != "" || op.Value != "" || op.Body != "" || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" || op.AnchorTargetID != "" || op.Checked != nil {
+				return errorResultWithCode(ErrCodeInvalidInput, "create/reference_definition requires label and destination; title is optional")
+			}
+		case op.Action == "create" && op.Subject == "footnote_definition":
+			if op.Label == "" || op.Body == "" || op.Format != "" || op.Key != "" || op.Value != "" || op.Destination != "" || op.Title != "" || op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" || op.AnchorTargetID != "" || op.Checked != nil {
+				return errorResultWithCode(ErrCodeInvalidInput, "create/footnote_definition requires label and body")
+			}
 		case op.Action == "rename" && op.Subject == "heading":
 			if op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "rename/heading accepts text only")

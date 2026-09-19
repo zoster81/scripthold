@@ -23,6 +23,50 @@ func markdownEditCatalogTool() *mcp.Tool {
 						map[string]any{
 							"type":                 "object",
 							"additionalProperties": false,
+							"required":             []string{"action", "subject", "format"},
+							"properties": map[string]any{
+								"action":  map[string]any{"const": "create"},
+								"subject": map[string]any{"const": "front_matter"},
+								"format":  map[string]any{"type": "string", "enum": []string{"yaml", "toml"}},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "key", "value"},
+							"properties": map[string]any{
+								"action":  map[string]any{"const": "create"},
+								"subject": map[string]any{"const": "front_matter_field"},
+								"key":     map[string]any{"type": "string", "minLength": 1},
+								"value":   map[string]any{"type": "string", "minLength": 1},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "label", "destination"},
+							"properties": map[string]any{
+								"action":      map[string]any{"const": "create"},
+								"subject":     map[string]any{"const": "reference_definition"},
+								"label":       map[string]any{"type": "string", "minLength": 1},
+								"destination": map[string]any{"type": "string", "minLength": 1},
+								"title":       map[string]any{"type": "string", "minLength": 1},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"action", "subject", "label", "body"},
+							"properties": map[string]any{
+								"action":  map[string]any{"const": "create"},
+								"subject": map[string]any{"const": "footnote_definition"},
+								"label":   map[string]any{"type": "string", "minLength": 1},
+								"body":    map[string]any{"type": "string", "minLength": 1},
+							},
+						},
+						map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
 							"required":             []string{"action", "subject", "targetId", "text"},
 							"properties": map[string]any{
 								"action":   map[string]any{"const": "rename"},

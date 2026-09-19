@@ -738,6 +738,85 @@ func TestMarkdownEditPreservesFixedWidthUnicodeBOMAndCRLF(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditCreateDocumentLevelStructures(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		operation MarkdownEditOperation
+		want      string
+	}{
+		{
+			name:      "front matter",
+			source:    "# Body\r\n",
+			operation: MarkdownEditOperation{Action: "create", Subject: "front_matter", Format: "toml"},
+			want:      "+++\r\n+++\r\n\r\n# Body\r\n",
+		},
+		{
+			name:      "front matter field",
+			source:    "---\n---\n\n# Body\n",
+			operation: MarkdownEditOperation{Action: "create", Subject: "front_matter_field", Key: "title", Value: "Doc"},
+			want:      "---\ntitle: \"Doc\"\n---\n\n# Body\n",
+		},
+		{
+			name:      "reference definition",
+			source:    "Paragraph [visible][new].\n",
+			operation: MarkdownEditOperation{Action: "create", Subject: "reference_definition", Label: "new", Destination: "dest", Title: "Title"},
+			want:      "Paragraph [visible][new].\n\n[new]: <dest> \"Title\"\n",
+		},
+		{
+			name:      "footnote definition",
+			source:    "See[^new]\n",
+			operation: MarkdownEditOperation{Action: "create", Subject: "footnote_definition", Label: "new", Body: "first\n\nsecond"},
+			want:      "See[^new]\n\n[^new]: first\n\n    second\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "doc.md")
+			if err := os.WriteFile(path, []byte(tt.source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{dir})
+			previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: []MarkdownEditOperation{tt.operation}})
+			if err != nil || previewResult.IsError || !preview.Changed {
+				t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.source {
+				t.Fatalf("preview mutated target=%q err=%v", got, err)
+			}
+			applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+			if err != nil || applyResult.IsError || !output.Applied {
+				t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != tt.want {
+				t.Fatalf("target=%q want=%q err=%v", got, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestMarkdownEditRejectsInvalidCreateShapesBeforeFilesystemWork(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	targetID := strings.Repeat("a", 64)
+	cases := []MarkdownEditOperation{
+		{Action: "create", Subject: "front_matter"},
+		{Action: "create", Subject: "front_matter", Format: "yaml", TargetID: targetID},
+		{Action: "create", Subject: "front_matter_field", Key: "title"},
+		{Action: "create", Subject: "reference_definition", Label: "ref"},
+		{Action: "create", Subject: "footnote_definition", Label: "n"},
+		{Action: "rename", Subject: "heading", TargetID: targetID, Text: "new", Label: "unexpected"},
+	}
+	for _, operation := range cases {
+		result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
+			Path: filepath.Join(t.TempDir(), "missing.md"), Operations: []MarkdownEditOperation{operation},
+		})
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+			t.Fatalf("invalid create result=%+v err=%v operation=%+v", result, err, operation)
+		}
+	}
+}
+
 func TestMarkdownEditRenameReferenceDefinition(t *testing.T) {
 	source := "[one]: <dest> \"Title\"\r\n\r\n[visible][one] [one][] [one] ![alt][one]\r\n"
 	want := "[renamed]: <dest> \"Title\"\r\n\r\n[visible][renamed] [one][renamed] [one][renamed] ![alt][renamed]\r\n"
