@@ -1867,6 +1867,119 @@ func TestPrepareRemoveFrontMatterFieldPreservesMarkspliceTargetValidation(t *tes
 	}
 }
 
+func TestPrepareReplaceAlertBodyPreservesMarkerShapeAndSourceBinding(t *testing.T) {
+	source := []byte("before\r\n\r\n> [!NOTE]\r\n> old\r\n\r\nafter\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockquotes, err := snapshot.QueryNodes([]string{"blockquote"}, 8)
+	if err != nil || len(blockquotes) != 1 {
+		t.Fatalf("blockquotes=%+v err=%v", blockquotes, err)
+	}
+	prepared, err := snapshot.PrepareReplaceAlertBody(blockquotes[0].TargetID, []byte("new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("before\r\n\r\n> [!NOTE]\r\n> new\r\n\r\nafter\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+	stale := append([]byte(nil), source...)
+	stale[0] = 'B'
+	if _, err := prepared.Apply(stale); !errors.Is(err, marksplice.ErrSourceConflict) {
+		t.Fatalf("stale error=%v, want ErrSourceConflict", err)
+	}
+
+	noOp, err := snapshot.PrepareReplaceAlertBody(blockquotes[0].TargetID, []byte("old"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	noOpResult, err := noOp.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(noOpResult, source) {
+		t.Fatalf("no-op result=%q want original", noOpResult)
+	}
+}
+
+func TestPrepareReplaceAlertBodyPreservesUniformMultilineShape(t *testing.T) {
+	source := []byte("before\r\n\r\n  > [!WARNING]\r\n  > one\r\n  > two\r\n\r\nafter\r\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockquotes, err := snapshot.QueryNodes([]string{"blockquote"}, 8)
+	if err != nil || len(blockquotes) != 1 {
+		t.Fatalf("blockquotes=%+v err=%v", blockquotes, err)
+	}
+	prepared, err := snapshot.PrepareReplaceAlertBody(blockquotes[0].TargetID, []byte("alpha\nbeta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := prepared.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("before\r\n\r\n  > [!WARNING]\r\n  > alpha\r\n  > beta\r\n\r\nafter\r\n")
+	if !bytes.Equal(result, want) {
+		t.Fatalf("result=%q want=%q", result, want)
+	}
+}
+
+func TestPrepareReplaceAlertBodyPreservesMarkspliceRejections(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  []byte
+		wantErr error
+	}{
+		{name: "ordinary blockquote", source: []byte("> ordinary\n"), wantErr: marksplice.ErrInvalidTargetKind},
+		{name: "marker only", source: []byte("> [!NOTE]\n"), wantErr: marksplice.ErrInvalidTargetKind},
+		{name: "lazy continuation", source: []byte("> [!NOTE]\n> body\nafter\n"), wantErr: marksplice.ErrInvalidReplacement},
+		{name: "mixed prefix", source: []byte("> [!NOTE]\n> body one\n>body two\n"), wantErr: marksplice.ErrInvalidReplacement},
+		{name: "mixed EOL", source: []byte("> [!NOTE]\r\n> one\r\n> two\n"), wantErr: marksplice.ErrInvalidReplacement},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := Parse(tt.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			blockquotes, err := snapshot.QueryNodes([]string{"blockquote"}, 8)
+			if err != nil || len(blockquotes) != 1 {
+				t.Fatalf("blockquotes=%+v err=%v", blockquotes, err)
+			}
+			if _, err := snapshot.PrepareReplaceAlertBody(blockquotes[0].TargetID, []byte("new")); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error=%v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+
+	snapshot, err := Parse([]byte("Paragraph.\n\n> [!TIP]\n> body\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockquotes, err := snapshot.QueryNodes([]string{"blockquote"}, 8)
+	if err != nil || len(blockquotes) != 1 {
+		t.Fatalf("blockquotes=%+v err=%v", blockquotes, err)
+	}
+	if _, err := snapshot.PrepareReplaceAlertBody(blockquotes[0].TargetID, nil); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("empty replacement error=%v, want ErrInvalidReplacement", err)
+	}
+	paragraphs, err := snapshot.QueryNodes([]string{"paragraph"}, 8)
+	if err != nil || len(paragraphs) != 1 {
+		t.Fatalf("paragraphs=%+v err=%v", paragraphs, err)
+	}
+	if _, err := snapshot.PrepareReplaceAlertBody(paragraphs[0].TargetID, []byte("new")); !errors.Is(err, marksplice.ErrInvalidTargetKind) {
+		t.Fatalf("paragraph target error=%v, want ErrInvalidTargetKind", err)
+	}
+}
+
 func TestPrepareReplaceBlockquoteContentPreservesSourceShapeAndBinding(t *testing.T) {
 	source := []byte("before\r\n\r\n> old\r\n\r\nafter\r\n")
 	snapshot, err := Parse(source)

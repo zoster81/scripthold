@@ -197,6 +197,8 @@ func (h *Handler) HandleMarkdownEdit(ctx context.Context, _ *mcp.CallToolRequest
 			preparedChange, prepareErr = snapshot.PrepareReplaceMathExpression(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "replace" && operationInput.Subject == "blockquote":
 			preparedChange, prepareErr = snapshot.PrepareReplaceBlockquoteContent(operationInput.TargetID, []byte(operationInput.Text))
+		case operationInput.Action == "replace" && operationInput.Subject == "alert":
+			preparedChange, prepareErr = snapshot.PrepareReplaceAlertBody(operationInput.TargetID, []byte(operationInput.Text))
 		case operationInput.Action == "remove" && operationInput.Subject == "front_matter_field":
 			preparedChange, prepareErr = snapshot.PrepareRemoveFrontMatterField(operationInput.TargetID)
 		case operationInput.Action == "remove" && operationInput.Subject == "thematic_break":
@@ -567,6 +569,10 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 		case op.Action == "replace" && op.Subject == "blockquote":
 			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
 				return errorResultWithCode(ErrCodeInvalidInput, "replace/blockquote requires non-empty text")
+			}
+		case op.Action == "replace" && op.Subject == "alert":
+			if op.Text == "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
+				return errorResultWithCode(ErrCodeInvalidInput, "replace/alert requires non-empty text")
 			}
 		case op.Action == "remove" && op.Subject == "front_matter_field":
 			if op.Text != "" || op.Level != 0 || op.Markdown != "" || op.Position != "" || op.Part != "" {
