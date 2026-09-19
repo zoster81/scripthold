@@ -440,9 +440,9 @@ Optional `maxDocuments`, `maxRelationships`, `maxBytes`, and `maxDepth` can only
 
 - `inspect` returns the deterministic document inventory and total document count.
 - `query` accepts `edges`, `outgoing`, `backlinks`, `reachable`, or `related`. All except `edges` require a caller-visible workspace document key. Results expose document keys and Marksplice relationship facts; Marksplice `NodeID` values are never public workspace identities.
-- `validate` accepts optional `roots` for orphan analysis and returns Marksplice diagnostics such as missing/ambiguous/invalid fragments, missing documents, unresolved references, and orphan documents. Managed-TOC targeting and repair plans are intentionally not exposed by this initial read-only surface.
+- `validate` accepts optional `roots` for orphan analysis and optional `managedTocs` entries of `{document, fragment}`. Each managed fragment must resolve uniquely to a heading through Marksplice. Validation returns ordinary workspace diagnostics plus stale/unrecognized generated-index diagnostics; when Marksplice proves one or more managed TOCs stale, `totalRepairs` and bounded `repairDocuments` project its conservative repair plan without exposing `ChangeSet` internals.
 
-Returned lists are deterministically cut at `limit` and set `truncated` when more results exist. `workspace_budget_exceeded` reports Marksplice workspace budget exhaustion; invalid graph/workspace input fails closed with `invalid_workspace`. `markdown_workspace` never writes or prepares repair state.
+Returned lists are deterministically cut at `limit` and set `truncated` when more results exist. `workspace_budget_exceeded` reports Marksplice workspace budget exhaustion; invalid graph/workspace input fails closed with `invalid_workspace`. `markdown_workspace` never writes or prepares apply state: managed-TOC repair planning is read-only and must not be confused with a `markdown_apply` preview.
 
 ```json
 {

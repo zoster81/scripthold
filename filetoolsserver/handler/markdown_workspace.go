@@ -26,18 +26,24 @@ type MarkdownWorkspaceDiscovery struct {
 	Entries []string `json:"entries,omitempty"`
 }
 
+type MarkdownWorkspaceManagedTOC struct {
+	Document string `json:"document"`
+	Fragment string `json:"fragment"`
+}
+
 type MarkdownWorkspaceInput struct {
-	Action           string                     `json:"action"`
-	Root             string                     `json:"root"`
-	Discovery        MarkdownWorkspaceDiscovery `json:"discovery"`
-	MaxDocuments     *int                       `json:"maxDocuments,omitempty"`
-	MaxRelationships *int                       `json:"maxRelationships,omitempty"`
-	MaxBytes         *int64                     `json:"maxBytes,omitempty"`
-	MaxDepth         *int                       `json:"maxDepth,omitempty"`
-	Limit            int                        `json:"limit"`
-	Query            string                     `json:"query,omitempty"`
-	Document         string                     `json:"document,omitempty"`
-	Roots            []string                   `json:"roots,omitempty"`
+	Action           string                        `json:"action"`
+	Root             string                        `json:"root"`
+	Discovery        MarkdownWorkspaceDiscovery    `json:"discovery"`
+	MaxDocuments     *int                          `json:"maxDocuments,omitempty"`
+	MaxRelationships *int                          `json:"maxRelationships,omitempty"`
+	MaxBytes         *int64                        `json:"maxBytes,omitempty"`
+	MaxDepth         *int                          `json:"maxDepth,omitempty"`
+	Limit            int                           `json:"limit"`
+	Query            string                        `json:"query,omitempty"`
+	Document         string                        `json:"document,omitempty"`
+	Roots            []string                      `json:"roots,omitempty"`
+	ManagedTOCs      []MarkdownWorkspaceManagedTOC `json:"managedTocs,omitempty"`
 }
 
 type MarkdownWorkspaceEdge struct {
@@ -63,17 +69,19 @@ type MarkdownWorkspaceDiagnostic struct {
 }
 
 type MarkdownWorkspaceOutput struct {
-	Action         string                        `json:"action"`
-	Root           string                        `json:"root"`
-	Discovery      string                        `json:"discovery"`
-	Query          string                        `json:"query,omitempty"`
-	Document       string                        `json:"document,omitempty"`
-	TotalDocuments int                           `json:"totalDocuments"`
-	TotalEdges     int                           `json:"totalEdges,omitempty"`
-	Documents      []string                      `json:"documents,omitempty"`
-	Edges          []MarkdownWorkspaceEdge       `json:"edges,omitempty"`
-	Diagnostics    []MarkdownWorkspaceDiagnostic `json:"diagnostics,omitempty"`
-	Truncated      bool                          `json:"truncated,omitempty"`
+	Action          string                        `json:"action"`
+	Root            string                        `json:"root"`
+	Discovery       string                        `json:"discovery"`
+	Query           string                        `json:"query,omitempty"`
+	Document        string                        `json:"document,omitempty"`
+	TotalDocuments  int                           `json:"totalDocuments"`
+	TotalEdges      int                           `json:"totalEdges,omitempty"`
+	Documents       []string                      `json:"documents,omitempty"`
+	Edges           []MarkdownWorkspaceEdge       `json:"edges,omitempty"`
+	Diagnostics     []MarkdownWorkspaceDiagnostic `json:"diagnostics,omitempty"`
+	TotalRepairs    int                           `json:"totalRepairs,omitempty"`
+	RepairDocuments []string                      `json:"repairDocuments,omitempty"`
+	Truncated       bool                          `json:"truncated,omitempty"`
 }
 
 func (h *Handler) HandleMarkdownWorkspace(ctx context.Context, _ *mcp.CallToolRequest, input MarkdownWorkspaceInput) (*mcp.CallToolResult, MarkdownWorkspaceOutput, error) {
@@ -138,7 +146,11 @@ func (h *Handler) HandleMarkdownWorkspace(ctx context.Context, _ *mcp.CallToolRe
 		for i, root := range input.Roots {
 			roots[i] = marksplice.DocumentKey(root)
 		}
-		report, validationErr := workspace.Validate(marksplice.WorkspaceValidationOptions{Roots: roots})
+		managedTOCs, managedResult := resolveMarkdownWorkspaceManagedTOCs(documents, input.ManagedTOCs)
+		if managedResult != nil {
+			return managedResult, MarkdownWorkspaceOutput{}, nil
+		}
+		report, validationErr := workspace.Validate(marksplice.WorkspaceValidationOptions{Roots: roots, ManagedTOCs: managedTOCs})
 		if validationErr != nil {
 			return markdownWorkspaceErrorResult(validationErr), MarkdownWorkspaceOutput{}, nil
 		}
@@ -151,6 +163,15 @@ func (h *Handler) HandleMarkdownWorkspace(ctx context.Context, _ *mcp.CallToolRe
 			projected[i] = projectMarkdownWorkspaceDiagnostic(diagnostic)
 		}
 		output.Diagnostics, output.Truncated = truncateWorkspaceDiagnostics(projected, input.Limit)
+		repairs := report.RepairPlan().Repairs()
+		output.TotalRepairs = len(repairs)
+		repairDocuments := make([]string, len(repairs))
+		for i, repair := range repairs {
+			repairDocuments[i] = string(repair.Document())
+		}
+		var repairsTruncated bool
+		output.RepairDocuments, repairsTruncated = truncateWorkspaceStrings(repairDocuments, input.Limit)
+		output.Truncated = output.Truncated || repairsTruncated
 	}
 
 	if err := enforceMarkdownWorkspaceOutputBudget(output, h.maxOutputBytes()); err != nil {
@@ -210,11 +231,14 @@ func (h *Handler) validateMarkdownWorkspaceInput(input MarkdownWorkspaceInput) *
 	if len(input.Discovery.Entries) > effectiveDocuments || len(input.Roots) > effectiveDocuments {
 		return errorResultWithCode(ErrCodeLimit, "workspace entry/root count exceeds the effective document ceiling")
 	}
+	if len(input.ManagedTOCs) > markdownWorkspaceMaxItems {
+		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("managedTocs count exceeds Markdown workspace item limit %d", markdownWorkspaceMaxItems))
+	}
 
 	switch input.Action {
 	case "inspect":
-		if input.Query != "" || input.Document != "" || len(input.Roots) != 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "inspect does not accept query, document, or roots")
+		if input.Query != "" || input.Document != "" || len(input.Roots) != 0 || len(input.ManagedTOCs) != 0 {
+			return errorResultWithCode(ErrCodeInvalidInput, "inspect does not accept query, document, roots, or managedTocs")
 		}
 	case "query":
 		switch input.Query {
@@ -229,8 +253,8 @@ func (h *Handler) validateMarkdownWorkspaceInput(input MarkdownWorkspaceInput) *
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown workspace query")
 		}
-		if len(input.Roots) != 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "query does not accept validation roots")
+		if len(input.Roots) != 0 || len(input.ManagedTOCs) != 0 {
+			return errorResultWithCode(ErrCodeInvalidInput, "query does not accept validation roots or managedTocs")
 		}
 	case "validate":
 		if input.Query != "" || input.Document != "" {
@@ -240,6 +264,34 @@ func (h *Handler) validateMarkdownWorkspaceInput(input MarkdownWorkspaceInput) *
 		return errorResultWithCode(ErrCodeInvalidInput, "action must be inspect, query, or validate")
 	}
 	return nil
+}
+
+func resolveMarkdownWorkspaceManagedTOCs(documents []marksplice.GraphDocument, requested []MarkdownWorkspaceManagedTOC) ([]marksplice.ManagedTOC, *mcp.CallToolResult) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	index := make(map[marksplice.DocumentKey]*marksplice.Document, len(documents))
+	for _, item := range documents {
+		index[item.Key] = item.Document
+	}
+	result := make([]marksplice.ManagedTOC, 0, len(requested))
+	for _, item := range requested {
+		documentKey := marksplice.DocumentKey(item.Document)
+		fragment := item.Fragment
+		document := index[documentKey]
+		if strings.TrimSpace(item.Document) == "" || strings.TrimSpace(fragment) == "" || document == nil {
+			return nil, markdownSemanticErrorResult(ErrCodeNotFound, MarkdownErrTargetNotFound, "managed TOC document and fragment must resolve inside the discovered workspace")
+		}
+		target, ok := document.ResolveFragment(fragment)
+		if !ok {
+			return nil, markdownSemanticErrorResult(ErrCodeNotFound, MarkdownErrTargetNotFound, "managed TOC fragment does not resolve uniquely inside its document")
+		}
+		if target.Kind() != marksplice.FragmentTargetHeading {
+			return nil, markdownSemanticErrorResult(ErrCodeUnsupported, MarkdownErrUnsupportedTargetKind, "managed TOC fragment must resolve to a heading")
+		}
+		result = append(result, marksplice.ManagedTOC{Document: documentKey, HeadingID: target.NodeID()})
+	}
+	return result, nil
 }
 
 func workspaceNarrowingLimitResult(name string, requested, ceiling int64) *mcp.CallToolResult {

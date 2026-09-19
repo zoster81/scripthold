@@ -67,6 +67,34 @@ func TestMarkdownWorkspaceFollowReachableAndValidate(t *testing.T) {
 	}
 }
 
+func TestMarkdownWorkspaceValidateProjectsManagedTOCRepairPlan(t *testing.T) {
+	root := t.TempDir()
+	source := "# Root\n\n## Contents\n\n- [Root](#old-root)\n- [Child](#child)\n\n## Child\nbody\n"
+	if err := os.WriteFile(filepath.Join(root, "doc.md"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	result, output, err := h.HandleMarkdownWorkspace(context.Background(), nil, MarkdownWorkspaceInput{
+		Action: "validate", Root: root, Discovery: MarkdownWorkspaceDiscovery{Mode: "scan"}, Limit: 10,
+		ManagedTOCs: []MarkdownWorkspaceManagedTOC{{Document: "doc.md", Fragment: "#contents"}},
+	})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("validate result=%+v output=%+v err=%v", result, output, err)
+	}
+	if output.TotalRepairs != 1 || len(output.RepairDocuments) != 1 || output.RepairDocuments[0] != "doc.md" {
+		t.Fatalf("repair plan=%+v", output)
+	}
+	found := false
+	for _, diagnostic := range output.Diagnostics {
+		if diagnostic.Kind == "stale_generated_index" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("diagnostics=%+v, want stale_generated_index", output.Diagnostics)
+	}
+}
+
 func TestMarkdownWorkspaceReportsMarkspliceBudgetExhaustion(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte("# A\n\n[B](b.md)\n[C](c.md)\n"), 0o644); err != nil {

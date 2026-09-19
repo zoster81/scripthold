@@ -8,6 +8,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 - Added `markdown_create`, a Marksplice-backed preview for complete new Markdown documents with typed recursive construction, explicit new-file encoding/BOM policy, parent-identity binding, one-shot `markdown_apply`, and race-safe no-replace creation.
 - Added read-only `markdown_workspace` for bounded authorized multi-document discovery, graph queries, and workspace validation through Marksplice `workspacefs`, with explicit `scan`/`follow` discovery and dedicated document/relationship ceilings.
+- Extended `markdown_workspace validate` with explicit managed-TOC targeting by document plus unique heading fragment and read-only projection of Marksplice's conservative repair plan; no workspace mutation or apply preview is created.
 - Added targetless Marksplice-backed removal of a complete recognized leading front-matter envelope.
 - Added Marksplice-backed GFM table alignment editing for one column or an atomic full-column vector, plus current alignment metadata on table read targets.
 - Added four closed Marksplice-backed existing-document constructors for front-matter envelopes/fields, reference definitions, and footnote definitions without exposing raw insertion offsets.

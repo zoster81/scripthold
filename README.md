@@ -143,7 +143,7 @@ Markdown is intentionally outside Source Intelligence. The dedicated Markdown to
 
 Use `markdown_read` when an agent needs to understand a Markdown document before changing it. It can inspect headings and sections, find structural elements, resolve local fragments and links, validate managed TOCs, and return exact authored source for a selected structure.
 
-Use `markdown_workspace` when the question spans several Markdown files. It can scan an authorized documentation tree or follow local Markdown relationships from explicit entry files, then inspect document inventory, query graph edges/backlinks/reachability, or validate missing documents, fragment problems, unresolved references, and orphan documents. It is read-only and never repairs files directly.
+Use `markdown_workspace` when the question spans several Markdown files. It can scan an authorized documentation tree or follow local Markdown relationships from explicit entry files, then inspect document inventory, query graph edges/backlinks/reachability, validate workspace problems, and report Marksplice-proven repair plans for explicitly managed TOCs. It is read-only and never repairs files directly.
 
 Use `markdown_create` to prepare a complete new Markdown document at an authorized path that does not yet exist. It builds typed front matter, blocks, inline content, lists, references, footnotes, math, and tables through Marksplice, returns the exact generated Markdown and physical-file metadata for review, and does not create the file until its one-shot preview is passed to `markdown_apply`.
 

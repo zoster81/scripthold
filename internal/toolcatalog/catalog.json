@@ -124,7 +124,7 @@
     {
       "name": "markdown_workspace",
       "title": "Inspect Markdown Workspace",
-      "description": "Inspect, query, and validate bounded authorized Markdown workspaces using Marksplice-backed discovery and graph semantics.",
+      "description": "Inspect, query, validate, and plan managed-TOC repairs in bounded authorized Markdown workspaces using Marksplice semantics.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,

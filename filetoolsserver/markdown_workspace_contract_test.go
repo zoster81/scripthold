@@ -15,6 +15,11 @@ func TestMarkdownWorkspaceCatalogSchemaIsClosedReadOnlyUnion(t *testing.T) {
 	if discovery["type"] != "object" || discovery["additionalProperties"] != false {
 		t.Fatalf("discovery schema = %#v, want strict object", discovery)
 	}
+	managedTOCs := markdownReadSchemaMap(t, properties["managedTocs"])
+	managedTOCItem := markdownReadSchemaMap(t, managedTOCs["items"])
+	if managedTOCs["type"] != "array" || managedTOCItem["additionalProperties"] != false {
+		t.Fatalf("managedTocs schema = %#v, want bounded array of strict objects", managedTOCs)
+	}
 	branches, ok := schema["oneOf"].([]any)
 	if !ok || len(branches) != 4 {
 		t.Fatalf("markdown_workspace oneOf = %#v, want 4 closed shape variants", schema["oneOf"])
