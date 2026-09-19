@@ -37,6 +37,14 @@ type existingFileReplacementBatch struct {
 	ops          existingFileReplacementOps
 }
 
+type existingFileReplacementState string
+
+const (
+	existingFileReplacementStateCommitted existingFileReplacementState = "committed"
+	existingFileReplacementStateUnchanged existingFileReplacementState = "unchanged"
+	existingFileReplacementStateUnknown   existingFileReplacementState = "unknown"
+)
+
 func preparedPatchPackageReplacement(target *preparedPatchPackageTarget) preparedExistingFileReplacement {
 	return preparedExistingFileReplacement{
 		requestedPath:     target.requestedPath,
@@ -157,4 +165,41 @@ func (h *Handler) commitExistingFileReplacementBatchTarget(
 	}
 	batch.staged[index] = nil
 	return h.verifyExistingFileReplacementCommitted(ctx, replacement, mismatchMessage)
+}
+
+func (h *Handler) verifyExistingFileReplacementCommitted(ctx context.Context, replacement preparedExistingFileReplacement, mismatchMessage string) (string, error) {
+	post, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, replacement.resolvedPath, h.maxFileBytes())
+	if err != nil {
+		return "", err
+	}
+	actual, err := filesystem.FingerprintRegularFileSnapshot(post)
+	if err != nil {
+		return "", err
+	}
+	if actual != replacement.resultFingerprint {
+		return "", operation.New(operation.KindConflict, mismatchMessage)
+	}
+	return actual, nil
+}
+
+func (h *Handler) classifyExistingFileReplacement(ctx context.Context, replacement preparedExistingFileReplacement) (existingFileReplacementState, string, bool) {
+	validation := h.ValidatePath(replacement.requestedPath)
+	if !validation.Ok() || validation.Path != replacement.resolvedPath || ctx.Err() != nil {
+		return existingFileReplacementStateUnknown, "", false
+	}
+	current, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, validation.Path, h.maxFileBytes())
+	if err != nil {
+		return existingFileReplacementStateUnknown, "", false
+	}
+	actual, err := filesystem.FingerprintRegularFileSnapshot(current)
+	if err != nil || actual == "" {
+		return existingFileReplacementStateUnknown, "", false
+	}
+	if actual == replacement.targetFingerprint {
+		return existingFileReplacementStateUnchanged, actual, false
+	}
+	if replacement.changed && actual == replacement.resultFingerprint {
+		return existingFileReplacementStateCommitted, actual, true
+	}
+	return existingFileReplacementStateUnknown, actual, false
 }

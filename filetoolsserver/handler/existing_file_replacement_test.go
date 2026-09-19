@@ -83,6 +83,42 @@ func TestExistingFileReplacementBatchStagesAndCommitsPreparedReplacement(t *test
 	}
 }
 
+func TestClassifyExistingFileReplacementUsesNeutralObservedStates(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "target.txt")
+	source := []byte("alpha")
+	result := []byte("omega")
+	if err := os.WriteFile(path, source, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	replacement := preparedExistingFileReplacement{
+		requestedPath:     path,
+		resolvedPath:      path,
+		targetFingerprint: filesystem.FingerprintRegularFileData(source),
+		resultFingerprint: filesystem.FingerprintRegularFileData(result),
+		changed:           true,
+	}
+	state, actual, applied := h.classifyExistingFileReplacement(context.Background(), replacement)
+	if state != existingFileReplacementStateUnchanged || actual != replacement.targetFingerprint || applied {
+		t.Fatalf("unchanged classification=%q %q %v", state, actual, applied)
+	}
+	if err := os.WriteFile(path, result, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, actual, applied = h.classifyExistingFileReplacement(context.Background(), replacement)
+	if state != existingFileReplacementStateCommitted || actual != replacement.resultFingerprint || !applied {
+		t.Fatalf("committed classification=%q %q %v", state, actual, applied)
+	}
+	if err := os.WriteFile(path, []byte("external"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, actual, applied = h.classifyExistingFileReplacement(context.Background(), replacement)
+	if state != existingFileReplacementStateUnknown || actual == "" || applied {
+		t.Fatalf("unknown classification=%q %q %v", state, actual, applied)
+	}
+}
+
 func TestExistingFileReplacementBatchStageFailureCleansEarlierStages(t *testing.T) {
 	root := t.TempDir()
 	paths := []string{filepath.Join(root, "a.txt"), filepath.Join(root, "b.txt")}

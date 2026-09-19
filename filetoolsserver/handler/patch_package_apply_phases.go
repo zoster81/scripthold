@@ -248,21 +248,6 @@ func (h *Handler) prepareExistingFileReplacementWritable(replacement preparedExi
 	return filesystem.FileSnapshot{}, currentMode, true, err
 }
 
-func (h *Handler) verifyExistingFileReplacementCommitted(ctx context.Context, replacement preparedExistingFileReplacement, mismatchMessage string) (string, error) {
-	post, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, replacement.resolvedPath, h.maxFileBytes())
-	if err != nil {
-		return "", err
-	}
-	actual, err := filesystem.FingerprintRegularFileSnapshot(post)
-	if err != nil {
-		return "", err
-	}
-	if actual != replacement.resultFingerprint {
-		return "", operation.New(operation.KindConflict, mismatchMessage)
-	}
-	return actual, nil
-}
-
 func (h *Handler) verifyPatchPackageApplyFinal(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput, batch *existingFileReplacementBatch, actualFingerprints []string) *patchPackageApplyPhaseFailure {
 	if err := batch.cleanup("cleanup_patch_package_stage"); err != nil {
 		return &patchPackageApplyPhaseFailure{index: max(0, len(prepared.targets)-1), err: err}
@@ -327,24 +312,6 @@ func resetPatchPackageFailureResult(result *PatchPackageTargetResult) {
 }
 
 func (h *Handler) classifyPatchPackageFailureTarget(ctx context.Context, target *preparedPatchPackageTarget) (string, string, bool) {
-	return h.classifyExistingFileReplacement(ctx, preparedPatchPackageReplacement(target))
-}
-
-func (h *Handler) classifyExistingFileReplacement(ctx context.Context, replacement preparedExistingFileReplacement) (string, string, bool) {
-	validation := h.ValidatePath(replacement.requestedPath)
-	if !validation.Ok() || validation.Path != replacement.resolvedPath || ctx.Err() != nil {
-		return patchPackageStateUnknown, "", false
-	}
-	fingerprints, err := h.capturePatchPackageFingerprints(ctx, []validatedPatchPackageTarget{{resolvedPath: validation.Path}})
-	if err != nil || len(fingerprints) != 1 || fingerprints[0] == "" {
-		return patchPackageStateUnknown, "", false
-	}
-	actual := fingerprints[0]
-	if actual == replacement.targetFingerprint {
-		return patchPackageStateUnchanged, actual, false
-	}
-	if replacement.changed && actual == replacement.resultFingerprint {
-		return patchPackageStateCommitted, actual, true
-	}
-	return patchPackageStateUnknown, actual, false
+	state, actual, applied := h.classifyExistingFileReplacement(ctx, preparedPatchPackageReplacement(target))
+	return string(state), actual, applied
 }
