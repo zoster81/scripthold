@@ -135,38 +135,35 @@ func (h *Handler) revalidatePatchPackageAfterBackups(ctx context.Context, prepar
 	return nil
 }
 
-func (h *Handler) stagePatchPackageApply(ctx context.Context, prepared *preparedPatchPackage, preflight []patchPackageApplyPreflight, staged []*filesystem.StagedReplacement) error {
+func (h *Handler) stagePatchPackageApply(ctx context.Context, prepared *preparedPatchPackage, preflight []patchPackageApplyPreflight) (*existingFileReplacementBatch, error) {
+	replacements := make([]preparedExistingFileReplacement, len(prepared.targets))
+	modes := make([]os.FileMode, len(prepared.targets))
 	for index := range prepared.targets {
-		target := &prepared.targets[index]
-		replacementTarget := preparedPatchPackageReplacement(target)
-		if !replacementTarget.changed {
-			continue
-		}
-		mode := preflight[index].mode
-		if isReadOnly(mode) {
-			mode |= 0o200
-		}
-		replacement, err := h.patchPackageStageReplacement(ctx, replacementTarget.resolvedPath, replacementTarget.resultData, mode)
-		if err == nil {
-			staged[index] = replacement
-			continue
-		}
-		if ctx.Err() != nil {
-			err = operation.Wrap(operation.KindCancelled, "stage_patch_package", replacementTarget.resolvedPath, ctx.Err())
-		}
-		return h.joinPatchPackageStagingCleanup(err, staged)
+		replacements[index] = preparedPatchPackageReplacement(&prepared.targets[index])
+		modes[index] = preflight[index].mode
 	}
-	return nil
+	return h.stageExistingFileReplacementBatch(
+		ctx,
+		replacements,
+		modes,
+		existingFileReplacementOps{
+			stage:   h.patchPackageStageReplacement,
+			commit:  h.patchPackageCommitReplacement,
+			cleanup: h.patchPackageCleanupReplacement,
+		},
+		"stage_patch_package",
+		"cleanup_patch_package_stage",
+	)
 }
 
-func (h *Handler) commitPatchPackageApply(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput, staged []*filesystem.StagedReplacement, actualFingerprints []string) *patchPackageApplyPhaseFailure {
+func (h *Handler) commitPatchPackageApply(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput, batch *existingFileReplacementBatch, actualFingerprints []string) *patchPackageApplyPhaseFailure {
 	for index := range prepared.targets {
 		target := &prepared.targets[index]
 		if !target.prepared.changed {
 			markPatchPackageTargetUnchanged(output, actualFingerprints, index, target)
 			continue
 		}
-		actual, readOnlyCleared, err := h.commitPatchPackageApplyTarget(ctx, index, target, &staged[index])
+		actual, readOnlyCleared, err := h.commitPatchPackageApplyTarget(ctx, index, target, batch)
 		if err != nil {
 			return &patchPackageApplyPhaseFailure{index: index, err: err}
 		}
@@ -191,22 +188,26 @@ func markPatchPackageTargetCommitted(output *PatchPackageOutput, actualFingerpri
 	actualFingerprints[index] = actual
 }
 
-func (h *Handler) commitPatchPackageApplyTarget(ctx context.Context, index int, target *preparedPatchPackageTarget, staged **filesystem.StagedReplacement) (string, bool, error) {
+func (h *Handler) commitPatchPackageApplyTarget(ctx context.Context, index int, target *preparedPatchPackageTarget, batch *existingFileReplacementBatch) (string, bool, error) {
 	replacement := preparedPatchPackageReplacement(target)
 	current, originalMode, readOnlyCleared, err := h.preparePatchPackageCommitTarget(ctx, target, replacement)
 	if err != nil {
 		return "", false, err
 	}
-	_, commitErr := h.patchPackageCommitReplacement(index, *staged, filesystem.ReplaceOptions{Expected: &current})
+	actual, commitErr := h.commitExistingFileReplacementBatchTarget(
+		ctx,
+		batch,
+		index,
+		current,
+		"committed target does not match the prepared result fingerprint",
+	)
 	if commitErr != nil {
 		if readOnlyCleared {
 			commitErr = errors.Join(commitErr, h.restorePatchPackageReadOnlyIfUnchanged(target, originalMode))
 		}
 		return "", false, commitErr
 	}
-	*staged = nil
-	actual, err := h.verifyExistingFileReplacementCommitted(ctx, replacement, "committed target does not match the prepared result fingerprint")
-	return actual, readOnlyCleared, err
+	return actual, readOnlyCleared, nil
 }
 
 func (h *Handler) preparePatchPackageCommitTarget(ctx context.Context, target *preparedPatchPackageTarget, replacement preparedExistingFileReplacement) (filesystem.FileSnapshot, os.FileMode, bool, error) {
@@ -262,8 +263,8 @@ func (h *Handler) verifyExistingFileReplacementCommitted(ctx context.Context, re
 	return actual, nil
 }
 
-func (h *Handler) verifyPatchPackageApplyFinal(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput, staged []*filesystem.StagedReplacement, actualFingerprints []string) *patchPackageApplyPhaseFailure {
-	if err := h.cleanupPatchPackageStaging(staged); err != nil {
+func (h *Handler) verifyPatchPackageApplyFinal(ctx context.Context, prepared *preparedPatchPackage, output *PatchPackageOutput, batch *existingFileReplacementBatch, actualFingerprints []string) *patchPackageApplyPhaseFailure {
+	if err := batch.cleanup("cleanup_patch_package_stage"); err != nil {
 		return &patchPackageApplyPhaseFailure{index: max(0, len(prepared.targets)-1), err: err}
 	}
 	finalTargets := patchPackageFinalTargets(prepared.targets)

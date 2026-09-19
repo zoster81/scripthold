@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -14,7 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
-	"github.com/zoster81/scripthold/internal/textstream"
 )
 
 const (
@@ -62,11 +60,11 @@ func patchPackageManifestEmpty(manifest PatchPackageManifest) bool {
 }
 
 func stagePatchPackageReplacement(ctx context.Context, path string, data []byte, mode os.FileMode) (*filesystem.StagedReplacement, error) {
-	return filesystem.StageReplacement(path, textstream.WithContext(ctx, bytes.NewReader(data)), mode, nil)
+	return stageExistingFileReplacement(ctx, path, data, mode)
 }
 
-func commitPatchPackageReplacement(_ int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
-	return staged.Commit(options)
+func commitPatchPackageReplacement(index int, staged *filesystem.StagedReplacement, options filesystem.ReplaceOptions) (bool, error) {
+	return commitExistingFileReplacement(index, staged, options)
 }
 
 func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string) (*mcp.CallToolResult, PatchPackageOutput, error) {
@@ -96,19 +94,19 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 	if failure != nil {
 		return failure, PatchPackageOutput{}, nil
 	}
-	staged := make([]*filesystem.StagedReplacement, len(prepared.targets))
 	if phaseFailure := h.capturePatchPackageApplyBackups(ctx, prepared, &output, preflight); phaseFailure != nil {
-		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, staged)
+		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, nil)
 	}
-	if err := h.stagePatchPackageApply(ctx, prepared, preflight, staged); err != nil {
-		return errorResultFromError(err), PatchPackageOutput{}, nil
+	batch, stageErr := h.stagePatchPackageApply(ctx, prepared, preflight)
+	if stageErr != nil {
+		return errorResultFromError(stageErr), PatchPackageOutput{}, nil
 	}
 	actualFingerprints := make([]string, len(prepared.targets))
-	if phaseFailure := h.commitPatchPackageApply(ctx, prepared, &output, staged, actualFingerprints); phaseFailure != nil {
-		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, staged)
+	if phaseFailure := h.commitPatchPackageApply(ctx, prepared, &output, batch, actualFingerprints); phaseFailure != nil {
+		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, batch)
 	}
-	if phaseFailure := h.verifyPatchPackageApplyFinal(ctx, prepared, &output, staged, actualFingerprints); phaseFailure != nil {
-		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, staged)
+	if phaseFailure := h.verifyPatchPackageApplyFinal(ctx, prepared, &output, batch, actualFingerprints); phaseFailure != nil {
+		return h.patchPackageApplyFailure(prepared, output, phaseFailure.index, phaseFailure.err, batch)
 	}
 	output.Applied = true
 	output.ActualAggregateFingerprint = patchPackageAggregatePrepared(prepared.targets, actualFingerprints)
@@ -117,31 +115,6 @@ func (h *Handler) handlePatchPackageApply(ctx context.Context, previewID string)
 		return errorResultFromError(err), PatchPackageOutput{}, nil
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output, nil
-}
-
-func (h *Handler) cleanupPatchPackageStaging(staged []*filesystem.StagedReplacement) error {
-	var cleanupErrors []error
-	for index, replacement := range staged {
-		if replacement == nil {
-			continue
-		}
-		if err := h.patchPackageCleanupReplacement(replacement); err != nil {
-			cleanupErrors = append(cleanupErrors, operation.WrapFilesystem("cleanup_patch_package_stage", "", err))
-		}
-		staged[index] = nil
-	}
-	return errors.Join(cleanupErrors...)
-}
-
-func (h *Handler) joinPatchPackageStagingCleanup(cause error, staged []*filesystem.StagedReplacement) error {
-	cleanupErr := h.cleanupPatchPackageStaging(staged)
-	if cleanupErr == nil {
-		return cause
-	}
-	if cause == nil {
-		return cleanupErr
-	}
-	return errors.Join(cause, cleanupErr)
 }
 
 func (h *Handler) restorePatchPackageReadOnlyIfUnchanged(target *preparedPatchPackageTarget, originalMode os.FileMode) error {
@@ -199,8 +172,10 @@ func (h *Handler) revalidatePreparedPatchPackageTarget(ctx context.Context, targ
 	return current, nil
 }
 
-func (h *Handler) patchPackageApplyFailure(prepared *preparedPatchPackage, output PatchPackageOutput, failedIndex int, cause error, staged []*filesystem.StagedReplacement) (*mcp.CallToolResult, PatchPackageOutput, error) {
-	cause = h.joinPatchPackageStagingCleanup(cause, staged)
+func (h *Handler) patchPackageApplyFailure(prepared *preparedPatchPackage, output PatchPackageOutput, failedIndex int, cause error, batch *existingFileReplacementBatch) (*mcp.CallToolResult, PatchPackageOutput, error) {
+	if cleanupErr := batch.cleanup("cleanup_patch_package_stage"); cleanupErr != nil {
+		cause = errors.Join(cause, cleanupErr)
+	}
 	classificationCtx, cancel := context.WithTimeout(context.Background(), patchPackageClassificationTimeout)
 	defer cancel()
 	mapping := mapOperationError(cause, "")
