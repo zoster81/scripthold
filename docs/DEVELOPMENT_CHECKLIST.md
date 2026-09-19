@@ -39,7 +39,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 
 ## 3. Devil's advocate review
 
-- [ ] Identify at least two concrete implementation or operational risks.
+- [ ] Challenge the current design with concrete implementation or operational risks and credible alternatives.
 - [ ] Review allowed-root escape and path-based race windows.
 - [ ] Review data loss, non-atomic writes, rollback, cleanup, and recovery artifacts.
 - [ ] Review unbounded memory, output, lines, requests, sessions, queues, caches, manifests, and retained recovery state.
@@ -48,7 +48,8 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 - [ ] Review encoding corruption, malformed Unicode, and binary false positives.
 - [ ] Review dependency, platform, API, metadata, and documentation drift.
 - [ ] Review whether any supposedly read-only MCP tool can reach filesystem, backup-store, task-store, or other persistent mutation paths.
-- [ ] Revise the design before implementation if a mitigation is insufficient.
+- [ ] Compare credible alternatives against repository evidence and actual constraints; revise when an alternative is materially better.
+- [ ] Challenge the revised design again until no materially better solution remains; do not substitute random trial-and-error for design convergence.
 
 ## 4. Repository safety before editing
 
@@ -77,7 +78,15 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 
 ## 6. Verification ladder
 
-Run checks from focused to broad and record exact outcomes.
+Run checks from focused to broad and record exact outcomes. During implementation, stop at the narrowest level that covers the changed component and its integration boundaries unless evidence or change scope justifies expansion. Do not treat the full repository, full race, fuzz, or release-adjacent gates as mandatory after every isolated edit.
+
+Use three practical local levels:
+
+1. **Focused iteration** — changed package(s), directly affected handler/integration/schema/catalog tests, relevant documentation/policy checks, formatting, diff review, and targeted race/fuzz only when the touched behavior warrants them.
+2. **Pre-push/promotion** — full normal regression plus repository-wide static/vulnerability checks and the canonical bounded fuzz smoke. Use this before pushing a meaningful batch, after cross-cutting changes, or when focused evidence leaves uncertainty.
+3. **Release/full qualification** — exact-commit cross-platform race/build/smoke/security/release evidence required by CI and publication policy. Do not reproduce this entire tier locally after every incremental commit.
+
+Independent focused checks may run in parallel when they do not mutate shared inputs or compete for the same scarce resource. Prefer one Go invocation over several competing full-package invocations because the Go tool already parallelizes package work; avoid concurrent CPU-heavy full test/race/fuzz jobs that oversubscribe the machine or make timing-sensitive tests flaky.
 
 GitHub CI applies fail-closed evidence tiers to pull requests. Documentation-only changes run repository policy, generated capability/documentation drift, local Markdown-link validation, release/script policy tests, and secret scanning. Go-only changes add the normal Linux regression suite, evidence-map-derived Windows/macOS platform tests and race-sensitive package tests, module verification, static/vulnerability analysis, and the canonical risk-based fuzz smoke. Changes to workflows, scripts, test architecture, build/release/configuration metadata, fixtures, or any unclassified path require full qualification. Pushes to `main`/`master`, manual runs, classifier bootstrap, and classification failures also require full qualification.
 
@@ -90,16 +99,24 @@ The complete exact-commit gate retains broad normal regression across Linux/Wind
 - [ ] metadata or script tests;
 - [ ] platform-specific focused tests.
 
-### Go baseline
+### Go verification
+
+For focused iteration:
 
 - [ ] `gofmt` on changed Go files;
-- [ ] `go mod verify`;
+- [ ] affected package and integration tests with `-count=1`;
+- [ ] `go mod verify` when Go module/dependency integrity is relevant;
+- [ ] targeted vet/static/race/fuzz checks when the touched code or failure class warrants them.
+
+For pre-push/promotion or cross-cutting changes:
+
 - [ ] `go test ./... -count=1`;
 - [ ] `go vet ./...`;
 - [ ] `golangci-lint run ./...` with the repository-pinned policy;
 - [ ] Staticcheck at the repository-pinned version;
 - [ ] govulncheck at the repository-pinned version;
-- [ ] race detector where a working CGO compiler is available;
+- [ ] canonical bounded fuzz smoke when applicable;
+- [ ] race coverage at the scope justified by the change; full repository race belongs to full/promotion evidence rather than routine isolated iteration;
 - [ ] coverage/benchmark review when the risk justifies it.
 
 ### Build and platform checks

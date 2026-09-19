@@ -35,7 +35,7 @@ Keep pull requests focused. Separate unrelated refactors, dependency updates, ge
 # Focused package test
 go test ./internal/encoding -count=1
 
-# Baseline verification
+# Pre-push/promotion baseline (not required after every focused edit)
 gofmt -w path/to/changed.go
 go mod verify
 go test ./... -count=1
@@ -58,7 +58,7 @@ bash scripts/validate-workflows.sh
 go test -race ./...
 ```
 
-Run only checks relevant to the change during iteration, but complete the applicable gates in [`docs/DEVELOPMENT_CHECKLIST.md`](docs/DEVELOPMENT_CHECKLIST.md) before requesting review.
+During iteration, run the changed package and its direct integration boundaries first. Use the full normal/static/vulnerability/fuzz baseline before push or promotion, after cross-cutting changes, or when focused evidence leaves uncertainty. Full race and release-grade gates are not per-edit defaults; complete the applicable gates in [`docs/DEVELOPMENT_CHECKLIST.md`](docs/DEVELOPMENT_CHECKLIST.md) before requesting review.
 
 ## Testing expectations
 

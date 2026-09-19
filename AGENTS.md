@@ -2,7 +2,7 @@
 
 ## Scope and precedence
 
-This file applies to the entire repository. A nested `AGENTS.md` adds or overrides instructions only for files below its directory. Read this file, then the nearest scoped guide before editing.
+This file applies to the entire repository. A nested `AGENTS.md` may add stricter or more specific instructions for files below its directory, but it must not relax repository-wide safety rules, invariants, or source-of-truth boundaries. Read this file, then every applicable scoped guide before editing.
 
 Do not copy private workstation state, local process details, credentials, or operator-specific paths into tracked files. Public content must be reproducible by an external contributor from a normal clone.
 
@@ -66,10 +66,12 @@ For non-trivial changes:
 
 1. Restate the intended behavior and identify compatibility, security, encoding, filesystem, concurrency, and platform edge cases.
 2. Define the smallest coherent design and focused tests before implementation.
-3. Review at least two concrete failure or regression risks and their mitigations.
+3. Challenge the design iteratively: identify concrete failure/regression risks and credible alternatives, revise when an alternative is materially better, then challenge the revision again until no materially better solution remains.
 4. Implement the smallest correct change, review the complete diff, and report exactly what was verified.
 
-Use focused TDD when practical: reproduce, confirm the expected failure, implement, rerun focused tests, then run the relevant regression suite.
+Use focused TDD when practical: reproduce, confirm the expected failure, implement, rerun focused tests, then run the relevant regression suite. Design convergence is not trial-and-error: inspect repository evidence and compare alternatives before implementation.
+
+While long verification tasks run, use waiting time only for safe independent work such as read-only analysis, documentation/diff review, or test planning. Do not modify the tree or inputs currently being qualified unless intentionally invalidating and restarting that qualification.
 
 ## Project invariants
 
@@ -93,11 +95,12 @@ Use focused TDD when practical: reproduce, confirm the expected failure, impleme
 
 ## Verification commands
 
-Start with the narrowest applicable tests, then expand as needed:
+Start with the narrowest applicable tests, then expand according to the change's risk and promotion stage. During ordinary iteration, prefer affected packages and integration boundaries; do not run the full repository, full race, fuzz, or release-adjacent gates after every isolated change unless the change is cross-cutting or evidence shows broader risk. Reserve the expensive baseline for pre-push/promotion, release preparation, or explicitly broad changes.
 
 ```bash
 go test ./path/to/affected/package -count=1
 go mod verify
+# Pre-push/promotion baseline, not a per-edit default:
 go test ./... -count=1
 go vet ./...
 golangci-lint run ./...
