@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 3.2.1**.
 - Public 3.2.1 surface: **38 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- Four 3.x capability areas are tracked. Documentation intelligence is active as unreleased development; no release-scoped publication milestone is currently assigned.
+- Three 3.x capability areas remain tracked. The next capability milestone is unified single/multi-file editing; no release-scoped publication milestone is currently assigned.
 - Publication, installation, and private deployment are separate actions.
 
 ## Planning rules
@@ -20,14 +20,6 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Do not accumulate implementation diaries or per-phase evidence in this file.
 
 ## 3.x milestones
-
-### Documentation intelligence — active development
-
-Add coherent Markdown/document understanding: structure, anchors, local links/fragments, front matter, fenced code, references, and bounded document relationships where evidence is trustworthy.
-
-Markdown mutation must use the dedicated **Marksplice Go module** behind Scripthold's existing preview/apply, encoding, BOM, line-ending, backup, conflict, and partial-state guarantees. Do not restore the discarded in-repository Markdown editor or create a competing parser/editor.
-
-Completion requires deterministic malformed/ambiguous behavior, compact MCP UX, cross-encoding coverage, and preview/apply regression coverage for mutating capabilities.
 
 ### Unified single/multi-file editing
 

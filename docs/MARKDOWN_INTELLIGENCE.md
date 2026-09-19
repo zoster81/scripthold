@@ -18,6 +18,14 @@ Marksplice owns Markdown parsing, GFM/CommonMark semantics, structural identific
 
 HTML rendering and Markdown-to-HTML source maps are intentionally outside R30.
 
+The R30 implementation is complete for the capability boundary provided by the pinned Marksplice v1.1.1 and Scripthold's current safety model. The completion audit found no remaining host-side implementation gap. Residual scope is classified deliberately:
+
+- **Intentionally deferred:** Marksplice knowledge overlays (`BuildKnowledgeIndex` and alias/tag/logical-reference queries); table cell/row/column content and structural mutation beyond the implemented alignment operations; mutation through arbitrary legacy or stateful encodings beyond the proven UTF-8/UTF-16/UTF-32 bridge.
+- **Blocked on future released Marksplice authority:** relaxing the fail-closed restrictions for fragment-target-topology-changing edits requires a released cross-snapshot fragment-target continuity proof; relaxing exclusive `sync/toc` previews likewise requires released combined semantic authority that can prove the final composed result.
+- **Outside R30:** HTML rendering/source maps, caller-defined Marksplice extension recognizers, host-invented semantic inference or repair, and background indexing/discovery outside authorized roots.
+
+These residual items are not R30 completion blockers and must not be reopened without new evidence or newly released upstream authority.
+
 ## Boundary invariants
 
 1. Markdown is not a Source Intelligence language/provider. `.md` and `.markdown` content is handled only by the R30 Markdown tools.
