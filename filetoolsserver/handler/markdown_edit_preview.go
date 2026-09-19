@@ -20,8 +20,9 @@ const markdownPreviewTokenBytes = 32
 type markdownPreviewKind string
 
 const (
-	markdownPreviewEdit   markdownPreviewKind = "edit"
-	markdownPreviewCreate markdownPreviewKind = "create"
+	markdownPreviewEdit            markdownPreviewKind = "edit"
+	markdownPreviewCreate          markdownPreviewKind = "create"
+	markdownPreviewWorkspaceRepair markdownPreviewKind = "workspace_repair"
 )
 
 type preparedMarkdownEdit struct {
@@ -56,14 +57,15 @@ type preparedMarkdownCreate struct {
 }
 
 type markdownPreview struct {
-	id            string
-	createdAt     time.Time
-	expiresAt     time.Time
-	kind          markdownPreviewKind
-	edit          *preparedMarkdownEdit
-	create        *preparedMarkdownCreate
-	retainedBytes int64
-	element       *list.Element
+	id              string
+	createdAt       time.Time
+	expiresAt       time.Time
+	kind            markdownPreviewKind
+	edit            *preparedMarkdownEdit
+	create          *preparedMarkdownCreate
+	workspaceRepair *preparedMarkdownWorkspaceRepair
+	retainedBytes   int64
+	element         *list.Element
 }
 
 type markdownPreviewStore struct {
@@ -102,6 +104,15 @@ func (store *markdownPreviewStore) putCreate(prepared preparedMarkdownCreate) (*
 	return store.put(&markdownPreview{kind: markdownPreviewCreate, create: &owned})
 }
 
+func (store *markdownPreviewStore) putWorkspaceRepair(prepared preparedMarkdownWorkspaceRepair) (*markdownPreview, error) {
+	owned := prepared
+	owned.targets = append([]preparedMarkdownWorkspaceRepairTarget(nil), prepared.targets...)
+	for index := range owned.targets {
+		owned.targets[index].resultData = append([]byte(nil), prepared.targets[index].resultData...)
+	}
+	return store.put(&markdownPreview{kind: markdownPreviewWorkspaceRepair, workspaceRepair: &owned})
+}
+
 func (store *markdownPreviewStore) put(candidate *markdownPreview) (*markdownPreview, error) {
 	if store == nil || store.maxEntries <= 0 || store.maxBytes <= 0 || store.ttl <= 0 {
 		return nil, operation.New(operation.KindInvalidInput, "markdown preview cache is not configured")
@@ -133,13 +144,14 @@ func (store *markdownPreviewStore) put(candidate *markdownPreview) (*markdownPre
 		return nil, err
 	}
 	preview := &markdownPreview{
-		id:            id,
-		createdAt:     now,
-		expiresAt:     now.Add(store.ttl),
-		kind:          candidate.kind,
-		edit:          candidate.edit,
-		create:        candidate.create,
-		retainedBytes: retainedBytes,
+		id:              id,
+		createdAt:       now,
+		expiresAt:       now.Add(store.ttl),
+		kind:            candidate.kind,
+		edit:            candidate.edit,
+		create:          candidate.create,
+		workspaceRepair: candidate.workspaceRepair,
+		retainedBytes:   retainedBytes,
 	}
 	preview.element = store.order.PushBack(id)
 	store.entries[id] = preview
@@ -255,6 +267,15 @@ func cloneMarkdownPreview(preview *markdownPreview) *markdownPreview {
 		create.resultData = append([]byte(nil), preview.create.resultData...)
 		copy.create = &create
 	}
+	if preview.workspaceRepair != nil {
+		workspaceRepair := *preview.workspaceRepair
+		workspaceRepair.targets = append([]preparedMarkdownWorkspaceRepairTarget(nil), preview.workspaceRepair.targets...)
+		for index := range workspaceRepair.targets {
+			workspaceRepair.targets[index].resultData = append([]byte(nil), preview.workspaceRepair.targets[index].resultData...)
+			workspaceRepair.targets[index].identityFile = nil
+		}
+		copy.workspaceRepair = &workspaceRepair
+	}
 	return &copy
 }
 
@@ -264,12 +285,16 @@ func (preview *markdownPreview) validatePayload() error {
 	}
 	switch preview.kind {
 	case markdownPreviewEdit:
-		if preview.edit == nil || preview.create != nil {
+		if preview.edit == nil || preview.create != nil || preview.workspaceRepair != nil {
 			return operation.New(operation.KindInvalidInput, "markdown edit preview payload is invalid")
 		}
 	case markdownPreviewCreate:
-		if preview.create == nil || preview.edit != nil {
+		if preview.create == nil || preview.edit != nil || preview.workspaceRepair != nil {
 			return operation.New(operation.KindInvalidInput, "markdown create preview payload is invalid")
+		}
+	case markdownPreviewWorkspaceRepair:
+		if preview.workspaceRepair == nil || preview.edit != nil || preview.create != nil || len(preview.workspaceRepair.targets) == 0 {
+			return operation.New(operation.KindInvalidInput, "markdown workspace repair preview payload is invalid")
 		}
 	default:
 		return operation.New(operation.KindInvalidInput, "markdown preview kind is invalid")
@@ -284,15 +309,23 @@ func (preview *markdownPreview) payloadRetainedBytes() (int64, error) {
 	if preview.edit != nil {
 		return preview.edit.retainedBytes()
 	}
-	return preview.create.retainedBytes()
+	if preview.create != nil {
+		return preview.create.retainedBytes()
+	}
+	return preview.workspaceRepair.retainedBytes()
 }
 
 func (preview *markdownPreview) releaseOwnedResources() {
-	if preview == nil || preview.edit == nil || preview.edit.identityFile == nil {
+	if preview == nil {
 		return
 	}
-	_ = preview.edit.identityFile.Close()
-	preview.edit.identityFile = nil
+	if preview.edit != nil && preview.edit.identityFile != nil {
+		_ = preview.edit.identityFile.Close()
+		preview.edit.identityFile = nil
+	}
+	if preview.workspaceRepair != nil {
+		preview.workspaceRepair.close()
+	}
 }
 
 func validMarkdownEditPreviewID(id string) bool {
