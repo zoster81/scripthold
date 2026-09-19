@@ -18,6 +18,7 @@ func markdownWorkspaceCatalogTool() *mcp.Tool {
 			markdownWorkspaceBranchSchema("query", []string{"action", "root", "discovery", "query", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "query"}, map[string]string{"query": "edges"}),
 			markdownWorkspaceDocumentQueryBranchSchema(),
 			markdownWorkspaceBranchSchema("validate", []string{"action", "root", "discovery", "limit"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "roots", "managedTocs"}, nil),
+			markdownWorkspaceBranchSchema("repairPreview", []string{"action", "root", "discovery", "limit", "managedTocs"}, []string{"root", "discovery", "maxDocuments", "maxRelationships", "maxBytes", "maxDepth", "limit", "managedTocs", "backupPolicy"}, nil),
 		},
 	}
 	return tool
@@ -25,7 +26,7 @@ func markdownWorkspaceCatalogTool() *mcp.Tool {
 
 func markdownWorkspaceProperties() map[string]any {
 	return map[string]any{
-		"action": map[string]any{"type": "string", "enum": []string{"inspect", "query", "validate"}},
+		"action": map[string]any{"type": "string", "enum": []string{"inspect", "query", "validate", "repairPreview"}},
 		"root":   map[string]any{"type": "string", "minLength": 1},
 		"discovery": map[string]any{
 			"type":                 "object",
@@ -66,6 +67,7 @@ func markdownWorkspaceProperties() map[string]any {
 			"type": "array", "maxItems": config.HardMarkdownWorkspaceMaxDocuments,
 			"items": map[string]any{"type": "string", "minLength": 1},
 		},
+		"backupPolicy": map[string]any{"type": "string", "enum": []string{"required", "pinned"}},
 		"managedTocs": map[string]any{
 			"type": "array", "maxItems": markdownWorkspaceMaxItems,
 			"items": map[string]any{

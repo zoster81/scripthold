@@ -44,6 +44,7 @@ type MarkdownWorkspaceInput struct {
 	Document         string                        `json:"document,omitempty"`
 	Roots            []string                      `json:"roots,omitempty"`
 	ManagedTOCs      []MarkdownWorkspaceManagedTOC `json:"managedTocs,omitempty"`
+	BackupPolicy     string                        `json:"backupPolicy,omitempty"`
 }
 
 type MarkdownWorkspaceEdge struct {
@@ -68,20 +69,42 @@ type MarkdownWorkspaceDiagnostic struct {
 	Image            bool   `json:"image,omitempty"`
 }
 
+type MarkdownWorkspaceRepairPreviewTarget struct {
+	Document          string `json:"document"`
+	Path              string `json:"path"`
+	TargetFingerprint string `json:"targetFingerprint"`
+	ResultFingerprint string `json:"resultFingerprint"`
+	Encoding          string `json:"encoding"`
+	HasBOM            bool   `json:"hasBOM"`
+	BOMType           string `json:"bomType,omitempty"`
+	LineEndingStyle   string `json:"lineEndingStyle"`
+	Diff              string `json:"diff,omitempty"`
+	Changed           bool   `json:"changed"`
+}
+
+type MarkdownWorkspaceRepairPreviewOutput struct {
+	PreviewID    string                                 `json:"previewId"`
+	CreatedAt    string                                 `json:"createdAt"`
+	ExpiresAt    string                                 `json:"expiresAt"`
+	BackupPolicy string                                 `json:"backupPolicy,omitempty"`
+	Targets      []MarkdownWorkspaceRepairPreviewTarget `json:"targets"`
+}
+
 type MarkdownWorkspaceOutput struct {
-	Action          string                        `json:"action"`
-	Root            string                        `json:"root"`
-	Discovery       string                        `json:"discovery"`
-	Query           string                        `json:"query,omitempty"`
-	Document        string                        `json:"document,omitempty"`
-	TotalDocuments  int                           `json:"totalDocuments"`
-	TotalEdges      int                           `json:"totalEdges,omitempty"`
-	Documents       []string                      `json:"documents,omitempty"`
-	Edges           []MarkdownWorkspaceEdge       `json:"edges,omitempty"`
-	Diagnostics     []MarkdownWorkspaceDiagnostic `json:"diagnostics,omitempty"`
-	TotalRepairs    int                           `json:"totalRepairs,omitempty"`
-	RepairDocuments []string                      `json:"repairDocuments,omitempty"`
-	Truncated       bool                          `json:"truncated,omitempty"`
+	Action          string                                `json:"action"`
+	Root            string                                `json:"root"`
+	Discovery       string                                `json:"discovery"`
+	Query           string                                `json:"query,omitempty"`
+	Document        string                                `json:"document,omitempty"`
+	TotalDocuments  int                                   `json:"totalDocuments"`
+	TotalEdges      int                                   `json:"totalEdges,omitempty"`
+	Documents       []string                              `json:"documents,omitempty"`
+	Edges           []MarkdownWorkspaceEdge               `json:"edges,omitempty"`
+	Diagnostics     []MarkdownWorkspaceDiagnostic         `json:"diagnostics,omitempty"`
+	TotalRepairs    int                                   `json:"totalRepairs,omitempty"`
+	RepairDocuments []string                              `json:"repairDocuments,omitempty"`
+	RepairPreview   *MarkdownWorkspaceRepairPreviewOutput `json:"repairPreview,omitempty"`
+	Truncated       bool                                  `json:"truncated,omitempty"`
 }
 
 func (h *Handler) HandleMarkdownWorkspace(ctx context.Context, _ *mcp.CallToolRequest, input MarkdownWorkspaceInput) (*mcp.CallToolResult, MarkdownWorkspaceOutput, error) {
@@ -95,10 +118,31 @@ func (h *Handler) HandleMarkdownWorkspace(ctx context.Context, _ *mcp.CallToolRe
 	if err := ctx.Err(); err != nil {
 		return errorResultFromError(operation.Wrap(operation.KindCancelled, "markdown_workspace", validated.Path, err)), MarkdownWorkspaceOutput{}, nil
 	}
+	workspace, failure := h.openMarkdownWorkspace(ctx, validated.Path, input)
+	if failure != nil {
+		return failure, MarkdownWorkspaceOutput{}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return errorResultFromError(operation.Wrap(operation.KindCancelled, "markdown_workspace", validated.Path, err)), MarkdownWorkspaceOutput{}, nil
+	}
+	documents := workspace.Documents()
+	output := MarkdownWorkspaceOutput{
+		Action: input.Action, Root: validated.Path, Discovery: input.Discovery.Mode,
+		Query: input.Query, Document: input.Document, TotalDocuments: len(documents),
+	}
+	if result := h.executeMarkdownWorkspaceAction(ctx, workspace, documents, input, &output); result != nil {
+		return result, MarkdownWorkspaceOutput{}, nil
+	}
+	if err := enforceMarkdownWorkspaceOutputBudget(output, h.maxOutputBytes()); err != nil {
+		return errorResultFromError(err), MarkdownWorkspaceOutput{}, nil
+	}
+	return &mcp.CallToolResult{}, output, nil
+}
 
-	adapter, err := newMarkdownWorkspaceFS(ctx, h, validated.Path, "")
+func (h *Handler) openMarkdownWorkspace(ctx context.Context, root string, input MarkdownWorkspaceInput) (*workspacefs.Workspace, *mcp.CallToolResult) {
+	adapter, err := newMarkdownWorkspaceFS(ctx, h, root, "")
 	if err != nil {
-		return markdownWorkspaceErrorResult(err), MarkdownWorkspaceOutput{}, nil
+		return nil, markdownWorkspaceErrorResult(err)
 	}
 	options := h.markdownWorkspaceOptions(input)
 	var workspace *workspacefs.Workspace
@@ -109,22 +153,12 @@ func (h *Handler) HandleMarkdownWorkspace(ctx context.Context, _ *mcp.CallToolRe
 		workspace, err = workspacefs.Follow(adapter, ".", input.Discovery.Entries, options)
 	}
 	if err != nil {
-		return markdownWorkspaceErrorResult(err), MarkdownWorkspaceOutput{}, nil
+		return nil, markdownWorkspaceErrorResult(err)
 	}
-	if err := ctx.Err(); err != nil {
-		return errorResultFromError(operation.Wrap(operation.KindCancelled, "markdown_workspace", validated.Path, err)), MarkdownWorkspaceOutput{}, nil
-	}
+	return workspace, nil
+}
 
-	documents := workspace.Documents()
-	output := MarkdownWorkspaceOutput{
-		Action:         input.Action,
-		Root:           validated.Path,
-		Discovery:      input.Discovery.Mode,
-		Query:          input.Query,
-		Document:       input.Document,
-		TotalDocuments: len(documents),
-	}
-
+func (h *Handler) executeMarkdownWorkspaceAction(ctx context.Context, workspace *workspacefs.Workspace, documents []marksplice.GraphDocument, input MarkdownWorkspaceInput, output *MarkdownWorkspaceOutput) *mcp.CallToolResult {
 	switch input.Action {
 	case "inspect":
 		keys := make([]string, len(documents))
@@ -132,55 +166,99 @@ func (h *Handler) HandleMarkdownWorkspace(ctx context.Context, _ *mcp.CallToolRe
 			keys[i] = string(document.Key)
 		}
 		output.Documents, output.Truncated = truncateWorkspaceStrings(keys, input.Limit)
+		return nil
 	case "query":
-		graph, graphErr := workspace.BuildGraph()
-		if graphErr != nil {
-			return markdownWorkspaceErrorResult(graphErr), MarkdownWorkspaceOutput{}, nil
+		graph, err := workspace.BuildGraph()
+		if err != nil {
+			return markdownWorkspaceErrorResult(err)
 		}
 		output.TotalEdges = len(graph.Edges())
-		if result := executeMarkdownWorkspaceQuery(graph, input, &output); result != nil {
-			return result, MarkdownWorkspaceOutput{}, nil
-		}
-	case "validate":
-		roots := make([]marksplice.DocumentKey, len(input.Roots))
-		for i, root := range input.Roots {
-			roots[i] = marksplice.DocumentKey(root)
-		}
-		managedTOCs, managedResult := resolveMarkdownWorkspaceManagedTOCs(documents, input.ManagedTOCs)
-		if managedResult != nil {
-			return managedResult, MarkdownWorkspaceOutput{}, nil
-		}
-		report, validationErr := workspace.Validate(marksplice.WorkspaceValidationOptions{Roots: roots, ManagedTOCs: managedTOCs})
-		if validationErr != nil {
-			return markdownWorkspaceErrorResult(validationErr), MarkdownWorkspaceOutput{}, nil
-		}
-		if graph := report.Graph(); graph != nil {
-			output.TotalEdges = len(graph.Edges())
-		}
-		diagnostics := report.Diagnostics()
-		projected := make([]MarkdownWorkspaceDiagnostic, len(diagnostics))
-		for i, diagnostic := range diagnostics {
-			projected[i] = projectMarkdownWorkspaceDiagnostic(diagnostic)
-		}
-		output.Diagnostics, output.Truncated = truncateWorkspaceDiagnostics(projected, input.Limit)
-		repairs := report.RepairPlan().Repairs()
-		output.TotalRepairs = len(repairs)
-		repairDocuments := make([]string, len(repairs))
-		for i, repair := range repairs {
-			repairDocuments[i] = string(repair.Document())
-		}
-		var repairsTruncated bool
-		output.RepairDocuments, repairsTruncated = truncateWorkspaceStrings(repairDocuments, input.Limit)
-		output.Truncated = output.Truncated || repairsTruncated
+		return executeMarkdownWorkspaceQuery(graph, input, output)
+	case "validate", "repairPreview":
+		return h.executeMarkdownWorkspaceValidation(ctx, workspace, documents, input, output)
+	default:
+		return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown workspace action")
 	}
+}
 
-	if err := enforceMarkdownWorkspaceOutputBudget(output, h.maxOutputBytes()); err != nil {
-		return errorResultFromError(err), MarkdownWorkspaceOutput{}, nil
+func (h *Handler) executeMarkdownWorkspaceValidation(ctx context.Context, workspace *workspacefs.Workspace, documents []marksplice.GraphDocument, input MarkdownWorkspaceInput, output *MarkdownWorkspaceOutput) *mcp.CallToolResult {
+	roots := make([]marksplice.DocumentKey, len(input.Roots))
+	for i, root := range input.Roots {
+		roots[i] = marksplice.DocumentKey(root)
 	}
-	return &mcp.CallToolResult{}, output, nil
+	managedTOCs, failure := resolveMarkdownWorkspaceManagedTOCs(documents, input.ManagedTOCs)
+	if failure != nil {
+		return failure
+	}
+	report, err := workspace.Validate(marksplice.WorkspaceValidationOptions{Roots: roots, ManagedTOCs: managedTOCs})
+	if err != nil {
+		return markdownWorkspaceErrorResult(err)
+	}
+	if graph := report.Graph(); graph != nil {
+		output.TotalEdges = len(graph.Edges())
+	}
+	diagnostics := report.Diagnostics()
+	projected := make([]MarkdownWorkspaceDiagnostic, len(diagnostics))
+	for i, diagnostic := range diagnostics {
+		projected[i] = projectMarkdownWorkspaceDiagnostic(diagnostic)
+	}
+	output.Diagnostics, output.Truncated = truncateWorkspaceDiagnostics(projected, input.Limit)
+	repairs := report.RepairPlan().Repairs()
+	output.TotalRepairs = len(repairs)
+	repairDocuments := markdownWorkspaceRepairDocuments(repairs)
+	if input.Action == "validate" {
+		var truncated bool
+		output.RepairDocuments, truncated = truncateWorkspaceStrings(repairDocuments, input.Limit)
+		output.Truncated = output.Truncated || truncated
+		return nil
+	}
+	output.RepairDocuments = repairDocuments
+	return h.prepareMarkdownWorkspaceRepairAction(ctx, input, repairs, output)
+}
+
+func markdownWorkspaceRepairDocuments(repairs []marksplice.WorkspaceRepair) []string {
+	documents := make([]string, len(repairs))
+	for i, repair := range repairs {
+		documents[i] = string(repair.Document())
+	}
+	return documents
+}
+
+func (h *Handler) prepareMarkdownWorkspaceRepairAction(ctx context.Context, input MarkdownWorkspaceInput, repairs []marksplice.WorkspaceRepair, output *MarkdownWorkspaceOutput) *mcp.CallToolResult {
+	if len(repairs) > input.Limit {
+		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("Markdown workspace repair plan contains %d targets, exceeding limit %d", len(repairs), input.Limit))
+	}
+	if len(repairs) == 0 {
+		return nil
+	}
+	prepared, failure := h.prepareMarkdownWorkspaceRepairPreview(ctx, output.Root, repairs, input.BackupPolicy)
+	if failure != nil {
+		return failure
+	}
+	preview, err := h.markdownPreviews.putWorkspaceRepair(prepared)
+	if err != nil {
+		prepared.close()
+		return errorResultFromError(err)
+	}
+	output.RepairPreview = markdownWorkspaceRepairPreviewOutput(preview, prepared)
+	if err := enforceMarkdownWorkspaceOutputBudget(*output, h.maxOutputBytes()); err != nil {
+		h.markdownPreviews.discard(preview.id)
+		return errorResultFromError(err)
+	}
+	return nil
 }
 
 func (h *Handler) validateMarkdownWorkspaceInput(input MarkdownWorkspaceInput) *mcp.CallToolResult {
+	if result := validateMarkdownWorkspaceShape(input); result != nil {
+		return result
+	}
+	if result := h.validateMarkdownWorkspaceLimits(input); result != nil {
+		return result
+	}
+	return validateMarkdownWorkspaceAction(input)
+}
+
+func validateMarkdownWorkspaceShape(input MarkdownWorkspaceInput) *mcp.CallToolResult {
 	if strings.TrimSpace(input.Root) == "" {
 		return errorResultWithCode(ErrCodeInvalidInput, "root is required")
 	}
@@ -193,36 +271,36 @@ func (h *Handler) validateMarkdownWorkspaceInput(input MarkdownWorkspaceInput) *
 	if input.Limit > markdownWorkspaceMaxItems {
 		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("limit %d exceeds Markdown workspace item limit %d", input.Limit, markdownWorkspaceMaxItems))
 	}
-	if input.Discovery.Mode != "scan" && input.Discovery.Mode != "follow" {
+	switch input.Discovery.Mode {
+	case "scan":
+		if len(input.Discovery.Entries) != 0 {
+			return errorResultWithCode(ErrCodeInvalidInput, "scan discovery does not accept entries")
+		}
+	case "follow":
+		if len(input.Discovery.Entries) == 0 {
+			return errorResultWithCode(ErrCodeInvalidInput, "follow discovery requires at least one entry")
+		}
+	default:
 		return errorResultWithCode(ErrCodeInvalidInput, "discovery.mode must be scan or follow")
 	}
-	if input.Discovery.Mode == "scan" && len(input.Discovery.Entries) != 0 {
-		return errorResultWithCode(ErrCodeInvalidInput, "scan discovery does not accept entries")
-	}
-	if input.Discovery.Mode == "follow" && len(input.Discovery.Entries) == 0 {
-		return errorResultWithCode(ErrCodeInvalidInput, "follow discovery requires at least one entry")
-	}
+	return nil
+}
 
+func (h *Handler) validateMarkdownWorkspaceLimits(input MarkdownWorkspaceInput) *mcp.CallToolResult {
 	maxDocuments := h.maxMarkdownWorkspaceDocuments()
-	maxRelationships := h.maxMarkdownWorkspaceRelationships()
-	maxBytes := h.maxFilesystemAggregateBytes()
-	maxDepth := h.maxFilesystemRecursiveDepth()
 	if input.MaxDocuments != nil && (*input.MaxDocuments <= 0 || *input.MaxDocuments > maxDocuments) {
 		return workspaceNarrowingLimitResult("maxDocuments", int64(*input.MaxDocuments), int64(maxDocuments))
 	}
+	maxRelationships := h.maxMarkdownWorkspaceRelationships()
 	if input.MaxRelationships != nil && (*input.MaxRelationships <= 0 || *input.MaxRelationships > maxRelationships) {
 		return workspaceNarrowingLimitResult("maxRelationships", int64(*input.MaxRelationships), int64(maxRelationships))
 	}
+	maxBytes := h.maxFilesystemAggregateBytes()
 	if input.MaxBytes != nil && (*input.MaxBytes <= 0 || *input.MaxBytes > maxBytes) {
 		return workspaceNarrowingLimitResult("maxBytes", *input.MaxBytes, maxBytes)
 	}
-	if input.MaxDepth != nil {
-		if *input.MaxDepth < 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "maxDepth must not be negative")
-		}
-		if *input.MaxDepth > maxDepth {
-			return workspaceNarrowingLimitResult("maxDepth", int64(*input.MaxDepth), int64(maxDepth))
-		}
+	if result := h.validateMarkdownWorkspaceDepth(input.MaxDepth); result != nil {
+		return result
 	}
 	effectiveDocuments := maxDocuments
 	if input.MaxDocuments != nil {
@@ -234,34 +312,77 @@ func (h *Handler) validateMarkdownWorkspaceInput(input MarkdownWorkspaceInput) *
 	if len(input.ManagedTOCs) > markdownWorkspaceMaxItems {
 		return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("managedTocs count exceeds Markdown workspace item limit %d", markdownWorkspaceMaxItems))
 	}
+	return nil
+}
 
+func (h *Handler) validateMarkdownWorkspaceDepth(requested *int) *mcp.CallToolResult {
+	if requested == nil {
+		return nil
+	}
+	if *requested < 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "maxDepth must not be negative")
+	}
+	maxDepth := h.maxFilesystemRecursiveDepth()
+	if *requested > maxDepth {
+		return workspaceNarrowingLimitResult("maxDepth", int64(*requested), int64(maxDepth))
+	}
+	return nil
+}
+
+func validateMarkdownWorkspaceAction(input MarkdownWorkspaceInput) *mcp.CallToolResult {
 	switch input.Action {
 	case "inspect":
-		if input.Query != "" || input.Document != "" || len(input.Roots) != 0 || len(input.ManagedTOCs) != 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "inspect does not accept query, document, roots, or managedTocs")
-		}
+		return validateMarkdownWorkspaceInspectInput(input)
 	case "query":
-		switch input.Query {
-		case "edges":
-			if input.Document != "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "edges query does not accept document")
-			}
-		case "outgoing", "backlinks", "reachable", "related":
-			if strings.TrimSpace(input.Document) == "" {
-				return errorResultWithCode(ErrCodeInvalidInput, "document is required for the selected graph query")
-			}
-		default:
-			return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown workspace query")
-		}
-		if len(input.Roots) != 0 || len(input.ManagedTOCs) != 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "query does not accept validation roots or managedTocs")
-		}
+		return validateMarkdownWorkspaceQueryInput(input)
 	case "validate":
-		if input.Query != "" || input.Document != "" {
-			return errorResultWithCode(ErrCodeInvalidInput, "validate does not accept query or document")
+		return validateMarkdownWorkspaceValidateInput(input)
+	case "repairPreview":
+		return validateMarkdownWorkspaceRepairPreviewInput(input)
+	default:
+		return errorResultWithCode(ErrCodeInvalidInput, "action must be inspect, query, validate, or repairPreview")
+	}
+}
+
+func validateMarkdownWorkspaceInspectInput(input MarkdownWorkspaceInput) *mcp.CallToolResult {
+	if input.Query != "" || input.Document != "" || len(input.Roots) != 0 || len(input.ManagedTOCs) != 0 || input.BackupPolicy != "" {
+		return errorResultWithCode(ErrCodeInvalidInput, "inspect does not accept query, document, roots, managedTocs, or backupPolicy")
+	}
+	return nil
+}
+
+func validateMarkdownWorkspaceValidateInput(input MarkdownWorkspaceInput) *mcp.CallToolResult {
+	if input.Query != "" || input.Document != "" || input.BackupPolicy != "" {
+		return errorResultWithCode(ErrCodeInvalidInput, "validate does not accept query, document, or backupPolicy")
+	}
+	return nil
+}
+
+func validateMarkdownWorkspaceRepairPreviewInput(input MarkdownWorkspaceInput) *mcp.CallToolResult {
+	if input.Query != "" || input.Document != "" || len(input.Roots) != 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "repairPreview does not accept query, document, or roots")
+	}
+	if len(input.ManagedTOCs) == 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "repairPreview requires at least one managedTocs entry")
+	}
+	return nil
+}
+
+func validateMarkdownWorkspaceQueryInput(input MarkdownWorkspaceInput) *mcp.CallToolResult {
+	if len(input.Roots) != 0 || len(input.ManagedTOCs) != 0 || input.BackupPolicy != "" {
+		return errorResultWithCode(ErrCodeInvalidInput, "query does not accept validation roots, managedTocs, or backupPolicy")
+	}
+	switch input.Query {
+	case "edges":
+		if input.Document != "" {
+			return errorResultWithCode(ErrCodeInvalidInput, "edges query does not accept document")
+		}
+	case "outgoing", "backlinks", "reachable", "related":
+		if strings.TrimSpace(input.Document) == "" {
+			return errorResultWithCode(ErrCodeInvalidInput, "document is required for the selected graph query")
 		}
 	default:
-		return errorResultWithCode(ErrCodeInvalidInput, "action must be inspect, query, or validate")
+		return errorResultWithCode(ErrCodeInvalidInput, "unsupported Markdown workspace query")
 	}
 	return nil
 }

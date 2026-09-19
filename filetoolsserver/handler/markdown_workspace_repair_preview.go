@@ -307,6 +307,27 @@ func (h *Handler) preflightMarkdownWorkspaceRepairBackups(ctx context.Context, p
 	return nil
 }
 
+func markdownWorkspaceRepairPreviewOutput(preview *markdownPreview, prepared preparedMarkdownWorkspaceRepair) *MarkdownWorkspaceRepairPreviewOutput {
+	if preview == nil {
+		return nil
+	}
+	output := &MarkdownWorkspaceRepairPreviewOutput{
+		PreviewID: preview.id, CreatedAt: preview.createdAt.Format(timeRFC3339Nano),
+		ExpiresAt: preview.expiresAt.Format(timeRFC3339Nano), BackupPolicy: prepared.backupPolicy,
+		Targets: make([]MarkdownWorkspaceRepairPreviewTarget, len(prepared.targets)),
+	}
+	for index := range prepared.targets {
+		target := &prepared.targets[index]
+		output.Targets[index] = MarkdownWorkspaceRepairPreviewTarget{
+			Document: string(target.documentKey), Path: target.requestedPath,
+			TargetFingerprint: target.targetFingerprint, ResultFingerprint: target.resultFingerprint,
+			Encoding: target.encoding, HasBOM: target.hasBOM, BOMType: target.bomType,
+			LineEndingStyle: target.lineEndingStyle, Diff: target.diff, Changed: target.changed,
+		}
+	}
+	return output
+}
+
 func (prepared preparedMarkdownWorkspaceRepair) retainedBytes() (int64, error) {
 	parts := []int{len(prepared.root), len(prepared.backupPolicy)}
 	for index := range prepared.targets {

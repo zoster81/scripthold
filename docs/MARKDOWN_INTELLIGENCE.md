@@ -115,7 +115,7 @@ Typed construction is the default. An advanced `rawMarkdown` construction fragme
 
 ### `markdown_workspace`
 
-`markdown_workspace` is registered as a read-only multi-document surface with `inspect`, `query`, and `validate`. Discovery is explicit through Marksplice `workspacefs.Scan` or `workspacefs.Follow`, and every returned collection is caller-bounded. `validate` may designate managed TOCs by workspace document key plus uniquely resolved heading fragment and project Marksplice's conservative repair plan. Repair application remains separate until its bounded multi-file preview/apply lifecycle, source binding, conflict revalidation, backup semantics, and truthful partial-state reporting are designed and verified.
+`markdown_workspace` is registered as a read-only multi-document surface with `inspect`, `query`, `validate`, and `repairPreview`. Discovery is explicit through Marksplice `workspacefs.Scan` or `workspacefs.Follow`, and every returned collection is caller-bounded. `validate` may designate managed TOCs by workspace document key plus uniquely resolved heading fragment and project Marksplice's conservative repair plan. `repairPreview` binds that same plan to complete per-target physical evidence and an expiring one-shot capability; it still performs no persistent mutation. Only `markdown_apply` may consume the capability and write the prepared multi-file result.
 
 Workspace cardinality has dedicated Scripthold policy rather than borrowing batch, match, or Source Intelligence limits. The server defaults are 1,000 documents and 25,000 relationships; operators may raise them only up to hard ceilings of 10,000 documents and 250,000 relationships through `MCP_MARKDOWN_WORKSPACE_MAX_DOCUMENTS` and `MCP_MARKDOWN_WORKSPACE_MAX_RELATIONSHIPS`. Request-level `maxDocuments` and `maxRelationships` may only narrow the configured ceilings. Per-document bytes remain bounded by `MCP_MAX_FILE_BYTES`, aggregate decoded workspace bytes by `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, traversal depth by `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, and serialized output by `MCP_MAX_OUTPUT_BYTES`.
 
@@ -129,11 +129,11 @@ Workspace cardinality has dedicated Scripthold policy rather than borrowing batc
 | `DocumentGraph` keys/edges/outgoing/backlinks/reachable/related | `query` graph operations |
 | `Workspace.Validate` / `ValidateWorkspace` | `validate` |
 | Workspace diagnostics | `validate` structured diagnostics: missing/ambiguous/invalid fragment, missing document, unresolved reference, orphan document, plus stale/unrecognized generated indexes for explicitly managed TOCs |
-| `WorkspaceRepairPlan` / `WorkspaceRepair.Change` | Read-only repair count/document projection from `validate`; `ChangeSet` values remain internal and no apply preview is created |
+| `WorkspaceRepairPlan` / `WorkspaceRepair.Change` | Repair count/document projection from `validate`; bounded source-bound `repairPreview` capabilities whose internal `ChangeSet` values are never exposed |
 | `BuildKnowledgeIndex` | Deferred; not exposed by the initial read-only workspace registration |
 | Knowledge aliases/tags/references/related/reachable queries | Deferred; not exposed by the initial read-only workspace registration |
 
-R30 does not invent repair heuristics. Read-only workspace repair planning is limited to repairs produced by Marksplice's conservative repair plan, currently explicitly managed TOC synchronization. The caller names each managed TOC by document key and fragment; Scripthold accepts it only when Marksplice resolves that fragment uniquely to a heading. Applying such a plan still requires a future approval-bound multi-file preview/apply path and will never write directly from `markdown_workspace`.
+R30 does not invent repair heuristics. Workspace repair planning is limited to repairs produced by Marksplice's conservative repair plan, currently explicitly managed TOC synchronization. The caller names each managed TOC by document key and fragment; Scripthold accepts it only when Marksplice resolves that fragment uniquely to a heading. `repairPreview` must expose every affected target and rejects rather than truncates an approvable plan; zero repairs return no token. `markdown_workspace` never writes files directly: the returned capability is consumed only by `markdown_apply`, which revalidates all targets and reports committed/unchanged/unknown state without automatic rollback.
 
 ### `markdown_apply`
 

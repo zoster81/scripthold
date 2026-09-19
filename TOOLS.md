@@ -434,24 +434,25 @@ Every successful response includes the source fingerprint and Scripthold physica
 
 Use `markdown_workspace` for read-only questions that span multiple Markdown documents inside one authorized root. Discovery is explicit: `scan` walks `.md`/`.markdown` files under the selected root, while `follow` starts from explicit relative Markdown entry files and follows only the local relationships recognized by Marksplice. Scripthold keeps filesystem authorization and per-file deterministic decoding; Marksplice v1.1.1 owns discovery, relationship resolution, graph construction, and workspace validation.
 
-`action` is `inspect`, `query`, or `validate`. Every request requires absolute `root`, a `discovery` object, and positive `limit`. `discovery.mode: "follow"` also requires non-empty relative `entries`; `scan` accepts no entries. There is intentionally no workspace-wide `encoding` override, so mixed-encoding documentation trees continue through per-file content/BOM detection.
+`action` is `inspect`, `query`, `validate`, or `repairPreview`. Every request requires absolute `root`, a `discovery` object, and positive `limit`. `discovery.mode: "follow"` also requires non-empty relative `entries`; `scan` accepts no entries. There is intentionally no workspace-wide `encoding` override, so mixed-encoding documentation trees continue through per-file content/BOM detection.
 
 Optional `maxDocuments`, `maxRelationships`, `maxBytes`, and `maxDepth` can only narrow operator ceilings. Server defaults are 1,000 documents and 25,000 relationships; hard ceilings are 10,000 and 250,000. Aggregate decoded bytes remain bounded by `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, traversal depth by `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, each decoded file by the normal file/decoded-text limits, and the final response by `MCP_MAX_OUTPUT_BYTES`.
 
 - `inspect` returns the deterministic document inventory and total document count.
 - `query` accepts `edges`, `outgoing`, `backlinks`, `reachable`, or `related`. All except `edges` require a caller-visible workspace document key. Results expose document keys and Marksplice relationship facts; Marksplice `NodeID` values are never public workspace identities.
 - `validate` accepts optional `roots` for orphan analysis and optional `managedTocs` entries of `{document, fragment}`. Each managed fragment must resolve uniquely to a heading through Marksplice. Validation returns ordinary workspace diagnostics plus stale/unrecognized generated-index diagnostics; when Marksplice proves one or more managed TOCs stale, `totalRepairs` and bounded `repairDocuments` project its conservative repair plan without exposing `ChangeSet` internals.
+- `repairPreview` requires non-empty `managedTocs`, uses the same Marksplice validation authority, and may accept `backupPolicy: "required" | "pinned"`. If there are no repairs it returns no token. If the complete repair plan exceeds `limit` or the full review response exceeds the output budget, it fails without leaving a preview. A successful `repairPreview` returns one expiring `previewId` plus every target's document/path, source/result fingerprints, encoding/BOM/EOL facts, diff, and changed state; it never writes a file. Pass only that `previewId` to `markdown_apply`, whose `workspace` result reports per-document committed/unchanged/unknown state, backup IDs, counts, and any partial commit without automatic rollback.
 
-Returned lists are deterministically cut at `limit` and set `truncated` when more results exist. `workspace_budget_exceeded` reports Marksplice workspace budget exhaustion; invalid graph/workspace input fails closed with `invalid_workspace`. `markdown_workspace` never writes or prepares apply state: managed-TOC repair planning is read-only and must not be confused with a `markdown_apply` preview.
+Ordinary returned lists are deterministically cut at `limit` and set `truncated` when more results exist; an approvable `repairPreview` is never truncated. `workspace_budget_exceeded` reports Marksplice workspace budget exhaustion; invalid graph/workspace input fails closed with `invalid_workspace`. `markdown_workspace` never writes files directly: only `repairPreview` creates bounded process-local apply state, while `inspect`, `query`, and `validate` remain pure read-only observations.
 
 ```json
 {
-  "action": "query",
+  "action": "repairPreview",
   "root": "/project/docs",
-  "discovery": {"mode": "follow", "entries": ["README.md"]},
-  "query": "reachable",
-  "document": "README.md",
-  "limit": 100
+  "discovery": {"mode": "scan"},
+  "managedTocs": [{"document": "README.md", "fragment": "#contents"}],
+  "limit": 100,
+  "backupPolicy": "required"
 }
 ```
 

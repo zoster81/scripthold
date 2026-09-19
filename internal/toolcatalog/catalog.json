@@ -124,7 +124,7 @@
     {
       "name": "markdown_workspace",
       "title": "Inspect Markdown Workspace",
-      "description": "Inspect, query, validate, and plan managed-TOC repairs in bounded authorized Markdown workspaces using Marksplice semantics.",
+      "description": "Inspect, query, validate, and preview managed-TOC repairs in bounded authorized Markdown workspaces using Marksplice semantics.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -154,8 +154,8 @@
     },
     {
       "name": "markdown_apply",
-      "title": "Apply Markdown Edit",
-      "description": "Apply one prepared Markdown edit capability by preview ID.",
+      "title": "Apply Markdown Change",
+      "description": "Apply one prepared Markdown change capability by preview ID.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
