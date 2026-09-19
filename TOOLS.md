@@ -430,6 +430,31 @@ Marksplice `v1.1.1` is the sole authority for Markdown structure, relationships,
 
 Every successful response includes the source fingerprint and Scripthold physical metadata. `targetId` is opaque and valid only for the exact source snapshot; stale or unknown targets are rejected rather than rebound heuristically. Result-producing collections and encoded responses are bounded by the request/configured limits.
 
+### markdown_workspace
+
+Use `markdown_workspace` for read-only questions that span multiple Markdown documents inside one authorized root. Discovery is explicit: `scan` walks `.md`/`.markdown` files under the selected root, while `follow` starts from explicit relative Markdown entry files and follows only the local relationships recognized by Marksplice. Scripthold keeps filesystem authorization and per-file deterministic decoding; Marksplice v1.1.1 owns discovery, relationship resolution, graph construction, and workspace validation.
+
+`action` is `inspect`, `query`, or `validate`. Every request requires absolute `root`, a `discovery` object, and positive `limit`. `discovery.mode: "follow"` also requires non-empty relative `entries`; `scan` accepts no entries. There is intentionally no workspace-wide `encoding` override, so mixed-encoding documentation trees continue through per-file content/BOM detection.
+
+Optional `maxDocuments`, `maxRelationships`, `maxBytes`, and `maxDepth` can only narrow operator ceilings. Server defaults are 1,000 documents and 25,000 relationships; hard ceilings are 10,000 and 250,000. Aggregate decoded bytes remain bounded by `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, traversal depth by `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, each decoded file by the normal file/decoded-text limits, and the final response by `MCP_MAX_OUTPUT_BYTES`.
+
+- `inspect` returns the deterministic document inventory and total document count.
+- `query` accepts `edges`, `outgoing`, `backlinks`, `reachable`, or `related`. All except `edges` require a caller-visible workspace document key. Results expose document keys and Marksplice relationship facts; Marksplice `NodeID` values are never public workspace identities.
+- `validate` accepts optional `roots` for orphan analysis and returns Marksplice diagnostics such as missing/ambiguous/invalid fragments, missing documents, unresolved references, and orphan documents. Managed-TOC targeting and repair plans are intentionally not exposed by this initial read-only surface.
+
+Returned lists are deterministically cut at `limit` and set `truncated` when more results exist. `workspace_budget_exceeded` reports Marksplice workspace budget exhaustion; invalid graph/workspace input fails closed with `invalid_workspace`. `markdown_workspace` never writes or prepares repair state.
+
+```json
+{
+  "action": "query",
+  "root": "/project/docs",
+  "discovery": {"mode": "follow", "entries": ["README.md"]},
+  "query": "reachable",
+  "document": "README.md",
+  "limit": 100
+}
+```
+
 ### markdown_edit
 
 Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, set task checkboxes checked or unchecked, set one GFM table column alignment or atomically replace a table's complete alignment vector, replace simple inline content such as code spans, emphasis, strong emphasis, and strikethrough, replace direct inline-link destinations, labels, or existing titles, add or remove inline-link titles, replace inline-image destinations, alt text, or existing titles, add or remove inline-image titles, replace autolink values, replace YAML/TOML front-matter field values, rename or remove YAML/TOML front-matter fields, replace source-proven raw-HTML comment payloads and anchor id/name values, replace reviewed math-expression payloads while preserving their authored form, replace source-proven non-alert top-level blockquote content while preserving its authored container shape, set recognized GitHub alert kinds and replace alert bodies while preserving source-proven container shape, synchronize one explicitly managed TOC, remove source-proven top-level thematic breaks, remove complete source-proven top-level blockquotes including GitHub alerts, replace fenced-code bodies, set or clear fenced-block info strings, rename reference definitions and their bound occurrences, retarget one parser-proven reference occurrence, remove unused reference definitions, rename footnote definitions together with parser-bound references, replace footnote-definition bodies while preserving source-proven layout, remove footnote definitions while preserving external occurrence bytes, replace reference-definition destinations or existing titles, add or remove reference-definition titles, and insert a paragraph before or after an existing paragraph, replace or remove one paragraph, replace either the direct content or a complete subtree of a list item, remove a complete list-item subtree, insert a list-item sibling before or after an existing item or append a validated child subtree, move a complete list-item subtree before or after another compatible item, insert a sibling section before or after an existing section or append a direct child section, move a complete section subtree before or after another same-level section, replace either a section's direct body or its complete subtree, or remove an entire section subtree. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, adding guidance next to existing prose, adding a peer topic or a nested subsection, rewriting text while keeping links/emphasis/code markup, deleting an obsolete section together with its nested subsections, or reviewing several related documentation changes together.

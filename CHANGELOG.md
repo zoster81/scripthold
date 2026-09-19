@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
+- Added read-only `markdown_workspace` for bounded authorized multi-document discovery, graph queries, and workspace validation through Marksplice `workspacefs`, with explicit `scan`/`follow` discovery and dedicated document/relationship ceilings.
 - Added targetless Marksplice-backed removal of a complete recognized leading front-matter envelope.
 - Added Marksplice-backed GFM table alignment editing for one column or an atomic full-column vector, plus current alignment metadata on table read targets.
 - Added four closed Marksplice-backed existing-document constructors for front-matter envelopes/fields, reference definitions, and footnote definitions without exposing raw insertion offsets.

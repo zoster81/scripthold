@@ -2,13 +2,14 @@
 
 ## Status and authority
 
-R30's target Markdown/document-intelligence surface contains four MCP tools. The current implementation exposes three of them:
+R30's Markdown/document-intelligence surface now exposes four MCP tools:
 
 - `markdown_read`
+- `markdown_workspace`
 - `markdown_edit`
 - `markdown_apply`
 
-`markdown_workspace` remains the planned multi-document surface and is not registered in the current runtime yet.
+`markdown_workspace` is the current read-only multi-document surface for bounded workspace inspection, graph queries, and validation.
 
 The semantic authority is `github.com/zoster81/marksplice v1.1.1`. Scripthold does not implement a competing Markdown parser, Markdown regular-expression fallback, or Markdown string-replacement engine.
 
@@ -107,9 +108,9 @@ Planned new-document construction will map the reviewed `DocumentBuilder` API in
 
 Typed construction is the default. An advanced `rawMarkdown` construction/edit fragment is accepted only where the corresponding Marksplice API already accepts raw GFM and reparses/proves the requested structure. R30 never performs its own Markdown escaping or validation as a fallback.
 
-### Planned `markdown_workspace`
+### `markdown_workspace`
 
-`markdown_workspace` is the planned multi-document surface. It is not registered in the current runtime yet. The first public increment is intentionally read-only and uses `inspect`, `query`, and `validate`. `repair` remains planned separately until its own bounded preview/apply lifecycle, source binding, conflict revalidation, and backup semantics are designed and verified.
+`markdown_workspace` is registered as a read-only multi-document surface with `inspect`, `query`, and `validate`. Discovery is explicit through Marksplice `workspacefs.Scan` or `workspacefs.Follow`, and every returned collection is caller-bounded. `repair` remains planned separately until its own bounded preview/apply lifecycle, source binding, conflict revalidation, and backup semantics are designed and verified.
 
 Workspace cardinality has dedicated Scripthold policy rather than borrowing batch, match, or Source Intelligence limits. The server defaults are 1,000 documents and 25,000 relationships; operators may raise them only up to hard ceilings of 10,000 documents and 250,000 relationships through `MCP_MARKDOWN_WORKSPACE_MAX_DOCUMENTS` and `MCP_MARKDOWN_WORKSPACE_MAX_RELATIONSHIPS`. Request-level `maxDocuments` and `maxRelationships` may only narrow the configured ceilings. Per-document bytes remain bounded by `MCP_MAX_FILE_BYTES`, aggregate decoded workspace bytes by `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, traversal depth by `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, and serialized output by `MCP_MAX_OUTPUT_BYTES`.
 
@@ -119,13 +120,13 @@ Workspace cardinality has dedicated Scripthold policy rather than borrowing batc
 | `workspacefs.Follow` | Authorized entry-based relationship-following workspace load |
 | `workspacefs.Options` / `Limits` | Explicit bounded `maxDocuments`, `maxBytes`, `maxDepth`, `maxRelationships` constrained by Scripthold limits |
 | `Workspace.Documents` | Internal graph input; compact document inventory in `inspect` |
-| `Workspace.BuildGraph` / `BuildDocumentGraph` | `inspect`, `query` relationship graph |
+| `Workspace.BuildGraph` / `BuildDocumentGraph` | `query` relationship graph |
 | `DocumentGraph` keys/edges/outgoing/backlinks/reachable/related | `query` graph operations |
 | `Workspace.Validate` / `ValidateWorkspace` | `validate` |
-| Workspace diagnostics | `validate` structured diagnostics: missing/ambiguous/invalid fragment, missing document, unresolved reference, orphan document, stale/unrecognized generated index |
+| Workspace diagnostics | `validate` structured diagnostics: missing/ambiguous/invalid fragment, missing document, unresolved reference, orphan document; generated-index diagnostics remain deferred with managed-TOC targeting |
 | `WorkspaceRepairPlan` / `WorkspaceRepair.Change` | Planned later `repair` preview; excluded from the initial read-only registration |
-| `BuildKnowledgeIndex` | Optional caller-provided syntax-independent aliases/tags/logical references over the already-authorized graph |
-| Knowledge aliases/tags/references/related/reachable queries | `query` knowledge operations |
+| `BuildKnowledgeIndex` | Deferred; not exposed by the initial read-only workspace registration |
+| Knowledge aliases/tags/references/related/reachable queries | Deferred; not exposed by the initial read-only workspace registration |
 
 R30 does not invent repair heuristics. When workspace repair is added later, authority remains limited to repairs produced by Marksplice's conservative repair plan, currently including explicitly managed TOC synchronization. Repair will require an approval-bound preview/apply path and will never write directly from `markdown_workspace`.
 

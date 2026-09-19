@@ -44,6 +44,34 @@ func (h *Handler) maxOutputBytes() int64 {
 	return config.DefaultMaxOutputBytes
 }
 
+func (h *Handler) maxMarkdownWorkspaceDocuments() int {
+	if h != nil && h.config != nil && h.config.Limits.MaxMarkdownWorkspaceDocuments > 0 {
+		return h.config.Limits.MaxMarkdownWorkspaceDocuments
+	}
+	return config.DefaultMarkdownWorkspaceMaxDocuments
+}
+
+func (h *Handler) maxMarkdownWorkspaceRelationships() int {
+	if h != nil && h.config != nil && h.config.Limits.MaxMarkdownWorkspaceRelationships > 0 {
+		return h.config.Limits.MaxMarkdownWorkspaceRelationships
+	}
+	return config.DefaultMarkdownWorkspaceMaxRelationships
+}
+
+func (h *Handler) maxFilesystemAggregateBytes() int64 {
+	if h != nil && h.config != nil && h.config.Limits.MaxFilesystemAggregateBytes > 0 {
+		return h.config.Limits.MaxFilesystemAggregateBytes
+	}
+	return config.DefaultMaxFilesystemAggregateBytes
+}
+
+func (h *Handler) maxFilesystemRecursiveDepth() int {
+	if h != nil && h.config != nil && h.config.Limits.MaxFilesystemRecursiveDepth > 0 {
+		return h.config.Limits.MaxFilesystemRecursiveDepth
+	}
+	return config.DefaultMaxFilesystemRecursiveDepth
+}
+
 func (h *Handler) maxFingerprintEntries() int {
 	if h != nil && h.config != nil && h.config.Limits.MaxFingerprintEntries > 0 {
 		return h.config.Limits.MaxFingerprintEntries

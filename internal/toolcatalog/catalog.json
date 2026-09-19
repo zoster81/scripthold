@@ -122,6 +122,17 @@
       }
     },
     {
+      "name": "markdown_workspace",
+      "title": "Inspect Markdown Workspace",
+      "description": "Inspect, query, and validate bounded authorized Markdown workspaces using Marksplice-backed discovery and graph semantics.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "markdown_edit",
       "title": "Preview Markdown Edit",
       "description": "Prepare reviewable, source-bound Markdown construction, structural, and inline changes without writing the target.",

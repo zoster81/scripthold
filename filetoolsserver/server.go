@@ -225,6 +225,7 @@ func BuildServer(options ServerOptions) *mcp.Server {
 	addTool(server, toolPolicy, sourceQueryCatalogTool(), handler.Wrap(logger, "source_query", h.SourceQuery))
 
 	addTool(server, toolPolicy, markdownReadCatalogTool(), handler.Wrap(logger, "markdown_read", h.HandleMarkdownRead))
+	addTool(server, toolPolicy, markdownWorkspaceCatalogTool(), handler.Wrap(logger, "markdown_workspace", h.HandleMarkdownWorkspace))
 
 	fingerprintDirect := handler.Wrap(logger, "fingerprint_paths", h.HandleFingerprintPaths)
 	addTool(server, toolPolicy, catalogTool("fingerprint_paths"), deferredFingerprintHandler(h, cfg, options.DeferredEngine, fingerprintDirect))
