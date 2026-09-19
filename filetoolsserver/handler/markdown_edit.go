@@ -374,6 +374,9 @@ func (h *Handler) HandleMarkdownApply(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return errorResultFromError(err), MarkdownApplyOutput{}, nil
 	}
+	if preview.kind == markdownPreviewCreate {
+		return h.handleMarkdownCreateApply(ctx, preview)
+	}
 	if preview.kind != markdownPreviewEdit || preview.edit == nil {
 		return errorResultWithCode(ErrCodeConflict, "Markdown preview is not an edit preview"), MarkdownApplyOutput{}, nil
 	}
@@ -830,7 +833,7 @@ func markdownEditErrorResult(err error) *mcp.CallToolResult {
 		return markdownSemanticErrorResult(ErrCodeNotFound, MarkdownErrTargetNotFound, "Markdown target was not found")
 	case errors.Is(err, marksplice.ErrInvalidTargetKind):
 		return markdownSemanticErrorResult(ErrCodeUnsupported, MarkdownErrUnsupportedTargetKind, "Markdown target kind does not support the requested operation")
-	case errors.Is(err, marksplice.ErrInvalidReplacement):
+	case errors.Is(err, marksplice.ErrInvalidReplacement), errors.Is(err, marksplice.ErrInvalidConstruction):
 		return markdownSemanticErrorResult(ErrCodeInvalidInput, MarkdownErrInvalidStructure, "Marksplice rejected the requested Markdown structure")
 	case errors.Is(err, marksplice.ErrSourceConflict):
 		return markdownSemanticErrorResult(ErrCodeConflict, MarkdownErrSourceConflict, "Markdown source changed after preparation")

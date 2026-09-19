@@ -10,6 +10,20 @@ type MarkdownCreateInput struct {
 	Blocks      []MarkdownCreateBlock      `json:"blocks,omitempty"`
 }
 
+type MarkdownCreateOutput struct {
+	PreviewID         string `json:"previewId"`
+	CreatedAt         string `json:"createdAt"`
+	ExpiresAt         string `json:"expiresAt"`
+	Path              string `json:"path"`
+	ResultFingerprint string `json:"resultFingerprint"`
+	Encoding          string `json:"encoding"`
+	HasBOM            bool   `json:"hasBOM"`
+	BOMType           string `json:"bomType,omitempty"`
+	LineEndingStyle   string `json:"lineEndingStyle"`
+	SizeBytes         int64  `json:"sizeBytes"`
+	Markdown          string `json:"markdown"`
+}
+
 type MarkdownCreateFrontMatter struct {
 	Format string                           `json:"format"`
 	Fields []MarkdownCreateFrontMatterField `json:"fields"`
