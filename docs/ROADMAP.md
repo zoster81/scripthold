@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 3.2.1**.
 - Public 3.2.1 surface: **38 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- Three 3.x capability areas remain tracked. The next capability milestone is unified single/multi-file editing; no release-scoped publication milestone is currently assigned.
+- Two 3.x capability areas remain tracked. The next capability milestone is verified self-update; no release-scoped publication milestone is currently assigned.
 - Publication, installation, and private deployment are separate actions.
 
 ## Planning rules
@@ -20,12 +20,6 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Do not accumulate implementation diaries or per-phase evidence in this file.
 
 ## 3.x milestones
-
-### Unified single/multi-file editing
-
-Unify existing-file editing around one coherent planner/capability model for one or many files while preserving exact preconditions, prepared result bytes, backup preflight, deterministic apply, conflict detection, and truthful partial-state evidence.
-
-This milestone does not authorize automatic semantic refactoring.
 
 ### Verified self-update
 

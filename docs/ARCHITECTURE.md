@@ -47,6 +47,7 @@ Potentially destructive workflows separate **preparation** from **application**.
 - Apply tools accept only the prepared capability identifier; mutation parameters cannot be changed at apply time.
 - Capabilities are bounded, process-local, one-shot, and consumed before final revalidation.
 - Target authorization, identity, fingerprints, retained result bytes, backup requirements, and operation-specific preconditions are revalidated before mutation.
+- Single-file edit previews and patch packages share the same ordered prepared-target model and core safety checks; multi-file apply remains deterministic and reports partial state rather than claiming cross-file atomicity.
 - Post-commit failures are classified from bounded observed state. Scripthold does not report a predicted preview state as fact after an uncertain commit boundary.
 
 `edit_file`/`edit_file_apply`, patch packages, encoding/BOM previews, restore/GC previews, and filesystem packages follow this model where applicable.

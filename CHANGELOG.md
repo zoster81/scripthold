@@ -17,6 +17,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 - Extended R30 Markdown mutation compatibility to UTF-16 LE/BE and UTF-32 LE/BE while preserving BOM state and source line endings; unproven legacy codecs remain fail-closed.
 
+### Changed
+
+- Unified single-file edit previews and patch packages around one ordered internal prepared-target model, aligning exact result-byte retention, path/identity/fingerprint checks, backup planning, writable approval, deterministic apply, and truthful failure-state classification without changing their public schemas.
+
 ### Fixed
 
 - Made fragment-target-affecting Markdown edits fail closed when the source already contains resolved local-fragment relationships and Marksplice cannot prove cross-snapshot target continuity; source-bound no-ops and target-topology-independent mutations remain available without adding local Markdown identity heuristics.
