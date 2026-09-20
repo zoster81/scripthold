@@ -191,34 +191,11 @@ func (store *DiagnosticStore) copyRecoveryObject(
 		return false, err
 	}
 
-	sourcePath := objectPath(store.root, item.digest)
-	sourceInfo, statErr := os.Lstat(sourcePath)
-	if statErr != nil {
-		if os.IsNotExist(statErr) {
-			return false, operation.New(operation.KindConflict, "recovery source object is missing")
-		}
-		return false, sanitizedFilesystemError("recovery source object cannot be inspected", statErr)
+	source, err := store.openRecoveryObjectSource(item)
+	if err != nil {
+		return false, err
 	}
-	if sourceInfo == nil || isLinkOrReparse(sourceInfo) || !sourceInfo.Mode().IsRegular() || sourceInfo.Size() != item.bytes {
-		return false, operation.New(operation.KindConflict, "recovery source object metadata changed")
-	}
-	if err := validateSingleLink(sourcePath, sourceInfo); err != nil {
-		return false, operation.New(operation.KindConflict, "recovery source object hard-link state changed")
-	}
-	if err := validatePathPermissions(sourcePath, false); err != nil {
-		return false, operation.New(operation.KindConflict, "recovery source object permissions changed")
-	}
-
-	source, openErr := os.Open(sourcePath)
-	if openErr != nil {
-		return false, sanitizedFilesystemError("recovery source object cannot be opened", openErr)
-	}
-	defer source.Close()
-	openedInfo, statErr := source.Stat()
-	if statErr != nil || openedInfo == nil || !openedInfo.Mode().IsRegular() || openedInfo.Size() != item.bytes ||
-		!os.SameFile(sourceInfo, openedInfo) || !recoveryFileIdentityStable(sourcePath, sourceInfo) {
-		return false, operation.New(operation.KindConflict, "recovery source object identity changed before copy")
-	}
+	defer source.file.Close()
 
 	stagingRoot := filepath.Join(destination.root, "staging")
 	staged, createErr := os.CreateTemp(stagingRoot, ".recover-object-*.tmp")
@@ -247,49 +224,8 @@ func (store *DiagnosticStore) copyRecoveryObject(
 		return false, operation.New(operation.KindFilesystem, "recovery object staging hard-link state is invalid")
 	}
 
-	hasher := sha256.New()
-	buffer := make([]byte, 128*1024)
-	remaining := item.bytes
-	var copied int64
-	for remaining > 0 {
-		if err := recoveryContextError(ctx, "copy_backup_recovery_object"); err != nil {
-			return false, err
-		}
-		readSize := int64(len(buffer))
-		if remaining < readSize {
-			readSize = remaining
-		}
-		read, readErr := io.ReadFull(source, buffer[:readSize])
-		if read > 0 {
-			written, writeErr := ops.write(staged, buffer[:read])
-			if writeErr != nil {
-				return false, sanitizedFilesystemError("recovery object staging file could not be written", writeErr)
-			}
-			if written != read {
-				return false, sanitizedFilesystemError("recovery object staging file write was incomplete", io.ErrShortWrite)
-			}
-			_, _ = hasher.Write(buffer[:read])
-			copied += int64(read)
-			remaining -= int64(read)
-		}
-		if readErr != nil {
-			return false, operation.New(operation.KindConflict, "recovery source object was truncated during copy")
-		}
-	}
-	var extra [1]byte
-	if read, readErr := source.Read(extra[:]); read != 0 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
-		return false, operation.New(operation.KindConflict, "recovery source object size changed during copy")
-	}
-	if copied != item.bytes {
-		return false, operation.New(operation.KindConflict, "recovery source object copy size is inconsistent")
-	}
-	actualDigest := hex.EncodeToString(hasher.Sum(nil))
-	if actualDigest != item.digest {
-		return false, operation.New(operation.KindConflict, "recovery source object digest changed during copy")
-	}
-	if !recoveryFileIdentityStable(sourcePath, sourceInfo) || validateSingleLink(sourcePath, sourceInfo) != nil ||
-		validatePathPermissions(sourcePath, false) != nil {
-		return false, operation.New(operation.KindConflict, "recovery source object identity changed during copy")
+	if err := copyRecoveryObjectData(ctx, source, staged, item, ops); err != nil {
+		return false, err
 	}
 	if err := ops.sync(staged); err != nil {
 		return false, sanitizedFilesystemError("recovery object staging file could not be synchronized", err)
@@ -299,18 +235,8 @@ func (store *DiagnosticStore) copyRecoveryObject(
 		return false, sanitizedFilesystemError("recovery object staging file could not be closed", err)
 	}
 	staged = nil
-
-	postWriteInfo, statErr := os.Lstat(stagedPath)
-	if statErr != nil || postWriteInfo == nil || isLinkOrReparse(postWriteInfo) || !postWriteInfo.Mode().IsRegular() ||
-		!recoveryOwnedRegularFileStable(stagedPath, stagedIdentity) || postWriteInfo.Size() != item.bytes {
-		return false, operation.New(operation.KindConflict, "recovery object staging identity changed during copy")
-	}
-	stagedIdentity.info = postWriteInfo
-	if err := validateSingleLink(stagedPath, stagedIdentity.info); err != nil {
-		return false, operation.New(operation.KindFilesystem, "recovery object staging hard-link state changed")
-	}
-	if err := validatePathPermissions(stagedPath, false); err != nil {
-		return false, sanitizedFilesystemError("recovery object staging permissions are not owner-only", err)
+	if err := validateRecoveryObjectStage(stagedPath, &stagedIdentity, item.bytes); err != nil {
+		return false, err
 	}
 	if err := store.validateIdentity(); err != nil {
 		return false, err
@@ -329,9 +255,8 @@ func (store *DiagnosticStore) copyRecoveryObject(
 		return created, installErr
 	}
 	stagedPath = ""
-	if !recoveryFileIdentityStable(sourcePath, sourceInfo) || validateSingleLink(sourcePath, sourceInfo) != nil ||
-		validatePathPermissions(sourcePath, false) != nil {
-		return created, operation.New(operation.KindConflict, "recovery source object identity changed before object reconstruction completed")
+	if err := validateRecoveryObjectSourceStable(source, "recovery source object identity changed before object reconstruction completed"); err != nil {
+		return created, err
 	}
 	if err := store.validateIdentity(); err != nil {
 		return created, err
@@ -340,6 +265,118 @@ func (store *DiagnosticStore) copyRecoveryObject(
 		return created, err
 	}
 	return created, nil
+}
+
+type recoveryObjectSource struct {
+	path string
+	info os.FileInfo
+	file *os.File
+}
+
+func (store *DiagnosticStore) openRecoveryObjectSource(item recoveryObjectCopyItem) (recoveryObjectSource, error) {
+	sourcePath := objectPath(store.root, item.digest)
+	sourceInfo, statErr := os.Lstat(sourcePath)
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			return recoveryObjectSource{}, operation.New(operation.KindConflict, "recovery source object is missing")
+		}
+		return recoveryObjectSource{}, sanitizedFilesystemError("recovery source object cannot be inspected", statErr)
+	}
+	if sourceInfo == nil || isLinkOrReparse(sourceInfo) || !sourceInfo.Mode().IsRegular() || sourceInfo.Size() != item.bytes {
+		return recoveryObjectSource{}, operation.New(operation.KindConflict, "recovery source object metadata changed")
+	}
+	if err := validateSingleLink(sourcePath, sourceInfo); err != nil {
+		return recoveryObjectSource{}, operation.New(operation.KindConflict, "recovery source object hard-link state changed")
+	}
+	if err := validatePathPermissions(sourcePath, false); err != nil {
+		return recoveryObjectSource{}, operation.New(operation.KindConflict, "recovery source object permissions changed")
+	}
+
+	source, openErr := os.Open(sourcePath)
+	if openErr != nil {
+		return recoveryObjectSource{}, sanitizedFilesystemError("recovery source object cannot be opened", openErr)
+	}
+	openedInfo, statErr := source.Stat()
+	if statErr != nil || openedInfo == nil || !openedInfo.Mode().IsRegular() || openedInfo.Size() != item.bytes ||
+		!os.SameFile(sourceInfo, openedInfo) || !recoveryFileIdentityStable(sourcePath, sourceInfo) {
+		_ = source.Close()
+		return recoveryObjectSource{}, operation.New(operation.KindConflict, "recovery source object identity changed before copy")
+	}
+	return recoveryObjectSource{path: sourcePath, info: sourceInfo, file: source}, nil
+}
+
+func copyRecoveryObjectData(
+	ctx context.Context,
+	source recoveryObjectSource,
+	staged *os.File,
+	item recoveryObjectCopyItem,
+	ops recoveryObjectCopyOps,
+) error {
+	hasher := sha256.New()
+	buffer := make([]byte, 128*1024)
+	remaining := item.bytes
+	var copied int64
+	for remaining > 0 {
+		if err := recoveryContextError(ctx, "copy_backup_recovery_object"); err != nil {
+			return err
+		}
+		readSize := int64(len(buffer))
+		if remaining < readSize {
+			readSize = remaining
+		}
+		read, readErr := io.ReadFull(source.file, buffer[:readSize])
+		if read > 0 {
+			written, writeErr := ops.write(staged, buffer[:read])
+			if writeErr != nil {
+				return sanitizedFilesystemError("recovery object staging file could not be written", writeErr)
+			}
+			if written != read {
+				return sanitizedFilesystemError("recovery object staging file write was incomplete", io.ErrShortWrite)
+			}
+			_, _ = hasher.Write(buffer[:read])
+			copied += int64(read)
+			remaining -= int64(read)
+		}
+		if readErr != nil {
+			return operation.New(operation.KindConflict, "recovery source object was truncated during copy")
+		}
+	}
+	var extra [1]byte
+	if read, readErr := source.file.Read(extra[:]); read != 0 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
+		return operation.New(operation.KindConflict, "recovery source object size changed during copy")
+	}
+	if copied != item.bytes {
+		return operation.New(operation.KindConflict, "recovery source object copy size is inconsistent")
+	}
+	actualDigest := hex.EncodeToString(hasher.Sum(nil))
+	if actualDigest != item.digest {
+		return operation.New(operation.KindConflict, "recovery source object digest changed during copy")
+	}
+	return validateRecoveryObjectSourceStable(source, "recovery source object identity changed during copy")
+}
+
+func validateRecoveryObjectSourceStable(source recoveryObjectSource, message string) error {
+	if !recoveryFileIdentityStable(source.path, source.info) || validateSingleLink(source.path, source.info) != nil ||
+		validatePathPermissions(source.path, false) != nil {
+		return operation.New(operation.KindConflict, message)
+	}
+	return nil
+}
+
+func validateRecoveryObjectStage(path string, identity *recoveryOwnedRegularFile, expectedBytes int64) error {
+	postWriteInfo, statErr := os.Lstat(path)
+	if statErr != nil || postWriteInfo == nil || isLinkOrReparse(postWriteInfo) || !postWriteInfo.Mode().IsRegular() ||
+		!recoveryOwnedRegularFileStable(path, *identity) || postWriteInfo.Size() != expectedBytes {
+		return operation.New(operation.KindConflict, "recovery object staging identity changed during copy")
+	}
+	identity.info = postWriteInfo
+	if err := validateSingleLink(path, identity.info); err != nil {
+		return operation.New(operation.KindFilesystem, "recovery object staging hard-link state changed")
+	}
+	if err := validatePathPermissions(path, false); err != nil {
+		return sanitizedFilesystemError("recovery object staging permissions are not owner-only", err)
+	}
+	return nil
 }
 
 func removeRecoveryObjectStageIfOwned(path string, expected recoveryOwnedRegularFile) {
