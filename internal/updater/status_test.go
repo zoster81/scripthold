@@ -46,8 +46,8 @@ func TestInstallationStatusPreparedIsReadOnlyAndReportsVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !status.Adopted || status.State != ReconciliationPrepared ||
-		status.CurrentVersion != "3.2.1" || status.CandidateVersion != "3.3.0" ||
-		!status.RecoveryAvailable || status.Problem != "" {
+		status.CurrentVersion != "3.2.1" || status.InstalledVersion != "3.2.1" ||
+		status.CandidateVersion != "3.3.0" || !status.RecoveryAvailable || status.Problem != "" {
 		t.Fatalf("unexpected prepared status: %#v", status)
 	}
 	after := snapshotReconciliationFilesForTest(t, boundary, inspection.ExecutablePath)
@@ -73,7 +73,8 @@ func TestInstallationStatusCommittedAndRolledBackRecoveryAvailability(t *testing
 			t.Fatal(err)
 		}
 		if status.State != ReconciliationCommitted || !status.RecoveryAvailable ||
-			status.CurrentVersion != "3.2.1" || status.CandidateVersion != "3.3.0" {
+			status.CurrentVersion != "3.2.1" || status.InstalledVersion != "3.3.0" ||
+			status.CandidateVersion != "3.3.0" {
 			t.Fatalf("unexpected committed status: %#v", status)
 		}
 	})
@@ -97,7 +98,8 @@ func TestInstallationStatusCommittedAndRolledBackRecoveryAvailability(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		if status.State != ReconciliationRolledBack || !status.RecoveryAvailable {
+		if status.State != ReconciliationRolledBack || status.InstalledVersion != "3.2.1" ||
+			!status.RecoveryAvailable {
 			t.Fatalf("unexpected rolled-back status: %#v", status)
 		}
 	})
@@ -126,8 +128,8 @@ func TestInstallationStatusRecoveryRequiredOnlyOffersSafeRecovery(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if status.State != ReconciliationRecoveryRequired || !status.RecoveryAvailable ||
-			status.CandidateVersion != "3.3.0" {
+		if status.State != ReconciliationRecoveryRequired || status.InstalledVersion != "" ||
+			!status.RecoveryAvailable || status.CandidateVersion != "3.3.0" {
 			t.Fatalf("unexpected candidate recovery status: %#v", status)
 		}
 		if got, err := os.ReadFile(currentInspection.ExecutablePath); err != nil || string(got) != string(candidateBytes) {
@@ -176,8 +178,8 @@ func TestInstallationStatusStableReportsCurrentWithoutRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !status.Adopted || status.State != ReconciliationStable ||
-		status.CurrentVersion != "3.2.1" || status.CandidateVersion != "" ||
-		status.RecoveryAvailable || status.Problem != "" {
+		status.CurrentVersion != "3.2.1" || status.InstalledVersion != "3.2.1" ||
+		status.CandidateVersion != "" || status.RecoveryAvailable || status.Problem != "" {
 		t.Fatalf("unexpected stable status: %#v", status)
 	}
 	if _, err := os.Stat(filepath.Join(boundary.Directory, installationStateFileName)); err != nil {

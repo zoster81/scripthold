@@ -17,6 +17,7 @@ type InstallationStatus struct {
 	Adopted           bool
 	State             ReconciliationStatus
 	CurrentVersion    string
+	InstalledVersion  string
 	CandidateVersion  string
 	RecoveryAvailable bool
 	Problem           string
@@ -124,6 +125,7 @@ func observeInstallationStatusWith(
 		Adopted:           true,
 		State:             result.Status,
 		CurrentVersion:    state.Current.Version,
+		InstalledVersion:  verifiedInstalledVersion(state, result),
 		RecoveryAvailable: reconciliationRecoveryAvailable(result),
 		Problem:           result.Problem,
 	}
@@ -131,6 +133,18 @@ func observeInstallationStatusWith(
 		status.CandidateVersion = state.Pending.CandidateVersion
 	}
 	return status, nil
+}
+
+func verifiedInstalledVersion(state installationState, result ReconciliationResult) string {
+	switch result.Status {
+	case ReconciliationStable, ReconciliationPrepared, ReconciliationRolledBack:
+		return state.Current.Version
+	case ReconciliationCommitted:
+		if state.Pending != nil {
+			return state.Pending.CandidateVersion
+		}
+	}
+	return ""
 }
 
 func reconciliationRecoveryAvailable(result ReconciliationResult) bool {
