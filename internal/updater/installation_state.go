@@ -205,6 +205,10 @@ func installationStatesEqual(left, right installationState) bool {
 }
 
 func validateInstallationState(state installationState, inspection *StandaloneInspection) error {
+	return validateInstallationStateBinding(state, inspection, true)
+}
+
+func validateInstallationStateBinding(state installationState, inspection *StandaloneInspection, requireTargetIdentity bool) error {
 	if err := validateInstallationStateSyntax(state); err != nil {
 		return err
 	}
@@ -214,11 +218,13 @@ func validateInstallationState(state installationState, inspection *StandaloneIn
 	if !security.PathsEqual(state.Target.Path, inspection.ExecutablePath) {
 		return errors.New("installation target path does not match inspected executable")
 	}
-	if state.Target.Identity != inspection.ExecutableIdentity.StableKey() ||
-		state.Target.Volume != inspection.ExecutableIdentity.VolumeKey() ||
+	if state.Target.Volume != inspection.ExecutableIdentity.VolumeKey() ||
 		state.Target.ParentIdentity != inspection.ParentIdentity.StableKey() ||
 		state.Target.ParentVolume != inspection.ParentIdentity.VolumeKey() {
-		return errors.New("installation target identity evidence does not match inspected executable")
+		return errors.New("installation target binding evidence does not match inspected executable")
+	}
+	if requireTargetIdentity && state.Target.Identity != inspection.ExecutableIdentity.StableKey() {
+		return errors.New("installation target identity does not match inspected executable")
 	}
 	if state.Current.Build.GOOS != runtime.GOOS || state.Current.Build.GOARCH != runtime.GOARCH {
 		return errors.New("installation build platform does not match the running platform")
@@ -354,6 +360,20 @@ func readInstallationStateLocked(boundary *InstallationBoundary, inspection *Sta
 }
 
 func validateInstallationBoundary(boundary *InstallationBoundary, inspection *StandaloneInspection) error {
+	if err := validateInstallationBoundaryBinding(boundary, inspection); err != nil {
+		return err
+	}
+	targetMatches, err := inspection.ExecutableIdentity.Matches(inspection.ExecutablePath)
+	if err != nil {
+		return err
+	}
+	if !targetMatches {
+		return errors.New("executable identity changed")
+	}
+	return nil
+}
+
+func validateInstallationBoundaryBinding(boundary *InstallationBoundary, inspection *StandaloneInspection) error {
 	if boundary == nil || boundary.Directory == "" || boundary.ControlLockPath == "" || boundary.UseLockPath == "" {
 		return errors.New("installation boundary is unavailable")
 	}
@@ -379,18 +399,18 @@ func validateInstallationBoundary(boundary *InstallationBoundary, inspection *St
 		return errors.New("installation state directory identity changed")
 	}
 	parentMatches, err := inspection.ParentIdentity.Matches(inspection.ParentPath)
-	if err != nil || !parentMatches {
-		if err != nil {
-			return err
-		}
+	if err != nil {
+		return err
+	}
+	if !parentMatches {
 		return errors.New("executable parent identity changed")
 	}
-	targetMatches, err := inspection.ExecutableIdentity.Matches(inspection.ExecutablePath)
-	if err != nil || !targetMatches {
-		if err != nil {
-			return err
-		}
-		return errors.New("executable identity changed")
+	sameVolume, err := inspection.ExecutableIdentity.SameVolume(inspection.ParentIdentity)
+	if err != nil {
+		return err
+	}
+	if !sameVolume {
+		return errors.New("executable and parent no longer share the same filesystem volume")
 	}
 	if err := filesystem.ValidateOwnerOnlyPath(boundary.Directory, true); err != nil {
 		return err
