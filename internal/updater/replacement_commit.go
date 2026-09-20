@@ -55,7 +55,8 @@ func (ownership *DetachedHelperOwnership) commitExecutableReplacementWith(
 		candidateIdentity,
 	)
 	if err != nil {
-		return err
+		refreshErr := ownership.refreshTargetInspection(goos)
+		return errors.Join(err, refreshErr)
 	}
 
 	installedInspection, err := inspectStandaloneExecutable(ownership.inspection.ExecutablePath, goos)

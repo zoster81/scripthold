@@ -161,6 +161,9 @@ func validatePendingState(pending installationPendingState, current installation
 	if pending.SourceVersion != current.Version || pending.SourceSHA256 != current.SHA256 {
 		return errors.New("pending source evidence does not match current state")
 	}
+	if pending.CandidateSHA256 == pending.SourceSHA256 {
+		return errors.New("pending candidate digest must differ from source digest")
+	}
 	if strings.HasPrefix(pending.CandidateVersion, "v") {
 		return errors.New("pending candidate version must omit a v prefix")
 	}

@@ -24,6 +24,8 @@ const (
 type ReconciliationResult struct {
 	Status  ReconciliationStatus
 	Problem string
+
+	rollbackPrepared bool
 }
 
 type reconciliationDeps struct {
@@ -36,6 +38,15 @@ const (
 	artifactMissing artifactObservation = iota
 	artifactValid
 	artifactInvalid
+)
+
+type candidateArtifactObservation int
+
+const (
+	candidateArtifactMissing candidateArtifactObservation = iota
+	candidateArtifactUpdate
+	candidateArtifactRollbackSource
+	candidateArtifactInvalid
 )
 
 func ReconcileInstallation(
@@ -123,14 +134,19 @@ func reconcileInstallationLocked(
 
 	knownGood := observeFixedArtifact(boundary, knownGoodArtifactName, state.Pending.SourceSHA256)
 	helper := observeFixedArtifact(boundary, helperArtifactName, state.Pending.SourceSHA256)
-	candidate := observeCandidateArtifact(boundary, candidateArtifactName, state.Pending.CandidateSHA256)
+	candidate := observeCandidateSlot(
+		boundary,
+		candidateArtifactName,
+		state.Pending.CandidateSHA256,
+		state.Pending.SourceSHA256,
+	)
 	if knownGood != artifactValid {
 		return recoveryRequired("known-good artifact is missing or invalid"), nil
 	}
 	if helper != artifactValid {
 		return recoveryRequired("helper artifact is missing or invalid"), nil
 	}
-	if candidate == artifactInvalid {
+	if candidate == candidateArtifactInvalid {
 		return recoveryRequired("candidate artifact is invalid"), nil
 	}
 
@@ -149,11 +165,13 @@ func reconcileInstallationLocked(
 
 	var result ReconciliationResult
 	switch {
-	case observed == state.Current && candidate == artifactValid:
+	case observed == state.Current && candidate == candidateArtifactUpdate:
 		result = ReconciliationResult{Status: ReconciliationPrepared}
-	case observed == candidateState && candidate == artifactMissing:
+	case observed == candidateState && candidate == candidateArtifactMissing:
 		result = ReconciliationResult{Status: ReconciliationCommitted}
-	case observed == state.Current && candidate == artifactMissing:
+	case observed == candidateState && candidate == candidateArtifactRollbackSource:
+		result = ReconciliationResult{Status: ReconciliationCommitted, rollbackPrepared: true}
+	case observed == state.Current && candidate == candidateArtifactMissing:
 		result = ReconciliationResult{Status: ReconciliationRolledBack}
 	default:
 		return recoveryRequired("target and candidate artifact combination is ambiguous or unsupported"), nil
@@ -187,47 +205,83 @@ func observeCandidateArtifact(boundary *InstallationBoundary, name, expectedSHA2
 	return observeArtifact(boundary, name, expectedSHA256, false)
 }
 
+func observeCandidateSlot(
+	boundary *InstallationBoundary,
+	name, updateSHA256, sourceSHA256 string,
+) candidateArtifactObservation {
+	status, digest := observeArtifactDigest(boundary, name, false)
+	switch status {
+	case artifactMissing:
+		return candidateArtifactMissing
+	case artifactInvalid:
+		return candidateArtifactInvalid
+	}
+	switch digest {
+	case updateSHA256:
+		return candidateArtifactUpdate
+	case sourceSHA256:
+		return candidateArtifactRollbackSource
+	default:
+		return candidateArtifactInvalid
+	}
+}
+
 func observeFixedArtifact(boundary *InstallationBoundary, name, expectedSHA256 string) artifactObservation {
 	return observeArtifact(boundary, name, expectedSHA256, true)
 }
 
 func observeArtifact(boundary *InstallationBoundary, name, expectedSHA256 string, requireOwnerOnly bool) artifactObservation {
-	path := filepath.Join(boundary.Directory, name)
-	if _, err := os.Lstat(path); err != nil {
-		if os.IsNotExist(err) {
+	status, digest := observeArtifactDigest(boundary, name, requireOwnerOnly)
+	if status != artifactValid || digest != expectedSHA256 {
+		if status == artifactMissing {
 			return artifactMissing
 		}
 		return artifactInvalid
 	}
+	return artifactValid
+}
+
+func observeArtifactDigest(
+	boundary *InstallationBoundary,
+	name string,
+	requireOwnerOnly bool,
+) (artifactObservation, string) {
+	path := filepath.Join(boundary.Directory, name)
+	if _, err := os.Lstat(path); err != nil {
+		if os.IsNotExist(err) {
+			return artifactMissing, ""
+		}
+		return artifactInvalid, ""
+	}
 	if requireOwnerOnly {
 		if err := filesystem.ValidateOwnerOnlyExecutable(path); err != nil {
-			return artifactInvalid
+			return artifactInvalid, ""
 		}
 	}
 	identity, err := filesystem.CaptureSingleLinkFileIdentity(path)
 	if err != nil {
-		return artifactInvalid
+		return artifactInvalid, ""
 	}
 	file, err := filesystem.OpenVerifiedSingleLinkFile(path, identity)
 	if err != nil {
-		return artifactInvalid
+		return artifactInvalid, ""
 	}
 	firstSize, firstDigest, firstErr := hashInstalledFile(file)
 	secondSize, secondDigest, secondErr := hashInstalledFile(file)
 	closeErr := file.Close()
 	if firstErr != nil || secondErr != nil || closeErr != nil ||
-		firstSize != secondSize || firstDigest != secondDigest || firstDigest != expectedSHA256 {
-		return artifactInvalid
+		firstSize != secondSize || firstDigest != secondDigest {
+		return artifactInvalid, ""
 	}
 	matches, err := identity.Matches(path)
 	if err != nil || !matches {
-		return artifactInvalid
+		return artifactInvalid, ""
 	}
 	directoryMatches, err := boundary.directoryIdentity.Matches(boundary.Directory)
 	if err != nil || !directoryMatches {
-		return artifactInvalid
+		return artifactInvalid, ""
 	}
-	return artifactValid
+	return artifactValid, firstDigest
 }
 
 func finishReconciliation(
