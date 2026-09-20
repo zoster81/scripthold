@@ -13,14 +13,16 @@ import (
 
 // LaunchCurrentRecoveryHelper dispatches explicit recovery through the fixed
 // helper copy. It performs no recovery mutation in the caller process.
-func LaunchCurrentRecoveryHelper(ctx context.Context) error {
+// A true result means the detached helper process was started, even if
+// launcher cleanup subsequently reports an error.
+func LaunchCurrentRecoveryHelper(ctx context.Context) (bool, error) {
 	inspection, err := InspectCurrentStandaloneExecutable()
 	if err != nil {
-		return err
+		return false, err
 	}
 	boundary, err := openInstallationBoundary(inspection, false)
 	if err != nil {
-		return err
+		return false, err
 	}
 	return launchRecoveryHelperWith(
 		ctx,
@@ -38,15 +40,15 @@ func launchRecoveryHelperWith(
 	inspection *StandaloneInspection,
 	goos, goarch string,
 	deps helperLaunchDeps,
-) (err error) {
+) (started bool, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	if err := validateInstallationBoundaryBinding(boundary, inspection); err != nil {
-		return err
+		return false, err
 	}
 	if deps.start == nil {
 		deps.start = startDetachedSelfUpdateHelper
@@ -58,7 +60,7 @@ func launchRecoveryHelperWith(
 		false,
 	)
 	if err != nil {
-		return fmt.Errorf("acquire recovery launch control lock: %w", err)
+		return false, fmt.Errorf("acquire recovery launch control lock: %w", err)
 	}
 	releaseControl := true
 	defer func() {
@@ -67,15 +69,15 @@ func launchRecoveryHelperWith(
 		}
 	}()
 	if err := control.Validate(boundary.ControlLockPath); err != nil {
-		return fmt.Errorf("validate recovery launch control lock: %w", err)
+		return false, fmt.Errorf("validate recovery launch control lock: %w", err)
 	}
 
 	state, err := readInstallationStateForReconciliationLocked(boundary, inspection)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if state.Pending == nil {
-		return errors.New("explicit recovery requires a pending self-update transaction")
+		return false, errors.New("explicit recovery requires a pending self-update transaction")
 	}
 	transactionID := state.Pending.TransactionID
 
@@ -89,13 +91,13 @@ func launchRecoveryHelperWith(
 		control,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := validateHelperOwnershipState(helperOwnershipRecovery, result); err != nil {
-		return err
+		return false, err
 	}
 	if observeFixedArtifact(boundary, helperArtifactName, state.Pending.SourceSHA256) != artifactValid {
-		return errors.New("recovery helper artifact no longer matches source evidence")
+		return false, errors.New("recovery helper artifact no longer matches source evidence")
 	}
 
 	useLock, err := filesystem.TryAcquireOwnerOnlyFileLock(
@@ -104,7 +106,7 @@ func launchRecoveryHelperWith(
 		false,
 	)
 	if err != nil {
-		return fmt.Errorf("acquire recovery launcher use lock: %w", err)
+		return false, fmt.Errorf("acquire recovery launcher use lock: %w", err)
 	}
 	releaseUse := true
 	defer func() {
@@ -114,13 +116,13 @@ func launchRecoveryHelperWith(
 	}()
 
 	if err := useLock.Validate(boundary.UseLockPath); err != nil {
-		return fmt.Errorf("validate recovery launcher use lock: %w", err)
+		return false, fmt.Errorf("validate recovery launcher use lock: %w", err)
 	}
 	if err := control.Validate(boundary.ControlLockPath); err != nil {
-		return fmt.Errorf("revalidate recovery launch control lock: %w", err)
+		return false, fmt.Errorf("revalidate recovery launch control lock: %w", err)
 	}
 	if err := validateHelperTransactionLocked(boundary, inspection, transactionID); err != nil {
-		return err
+		return false, err
 	}
 	result, err = reconcileInstallationLocked(
 		ctx,
@@ -132,19 +134,19 @@ func launchRecoveryHelperWith(
 		control,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := validateHelperOwnershipState(helperOwnershipRecovery, result); err != nil {
-		return fmt.Errorf("recovery state changed before helper dispatch: %w", err)
+		return false, fmt.Errorf("recovery state changed before helper dispatch: %w", err)
 	}
 
 	args, err := RecoveryHelperArguments(transactionID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	helperPath := filepath.Join(boundary.Directory, helperArtifactName)
 	if err := filesystem.ValidateOwnerOnlyExecutable(helperPath); err != nil {
-		return fmt.Errorf("validate recovery helper executable: %w", err)
+		return false, fmt.Errorf("validate recovery helper executable: %w", err)
 	}
 	releaseProcess, err := deps.start(
 		helperPath,
@@ -152,16 +154,17 @@ func launchRecoveryHelperWith(
 		minimalSelfUpdateHelperEnvironment(os.Environ()),
 	)
 	if err != nil {
-		return fmt.Errorf("start detached self-update recovery helper: %w", err)
+		return false, fmt.Errorf("start detached self-update recovery helper: %w", err)
 	}
 	if releaseProcess == nil {
-		return errors.New("detached recovery helper started without a releasable process handle")
+		return true, errors.New("detached recovery helper started without a releasable process handle")
 	}
 
+	started = true
 	releaseControl = false
 	controlErr := control.Close()
 	releaseUse = false
 	useErr := useLock.Close()
 	processErr := releaseProcess()
-	return errors.Join(controlErr, useErr, processErr)
+	return true, errors.Join(controlErr, useErr, processErr)
 }

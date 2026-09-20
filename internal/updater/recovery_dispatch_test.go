@@ -107,7 +107,7 @@ func TestLaunchRecoveryHelperStartsWithSharedUseHandoff(t *testing.T) {
 
 	started := false
 	released := false
-	err = launchRecoveryHelperWith(
+	startedResult, err := launchRecoveryHelperWith(
 		context.Background(),
 		boundary,
 		inspection,
@@ -139,6 +139,9 @@ func TestLaunchRecoveryHelperStartsWithSharedUseHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !startedResult {
+		t.Fatal("successful recovery helper launch was not reported as started")
+	}
 	if !started || !released {
 		t.Fatalf("started=%v released=%v", started, released)
 	}
@@ -154,6 +157,31 @@ func TestLaunchRecoveryHelperStartsWithSharedUseHandoff(t *testing.T) {
 	_ = use.Close()
 }
 
+func TestLaunchRecoveryHelperReportsStartedWhenProcessReleaseFails(t *testing.T) {
+	ownership, boundary, _, _, deps := preparedHelperOwnershipForLifecycle(t)
+	inspection := ownership.inspection
+	if err := ownership.Close(); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("release failed")
+	startedResult, err := launchRecoveryHelperWith(
+		context.Background(),
+		boundary,
+		inspection,
+		runtime.GOOS,
+		runtime.GOARCH,
+		helperLaunchDeps{
+			reconciliation: deps,
+			start: func(string, []string, []string) (func() error, error) {
+				return func() error { return injected }, nil
+			},
+		},
+	)
+	if !startedResult || !errors.Is(err, injected) {
+		t.Fatalf("started=%v err=%v", startedResult, err)
+	}
+}
+
 func TestLaunchRecoveryHelperStartFailureLeavesTransactionUntouched(t *testing.T) {
 	ownership, boundary, _, candidateBytes, deps := preparedHelperOwnershipForLifecycle(t)
 	inspection := ownership.inspection
@@ -165,7 +193,7 @@ func TestLaunchRecoveryHelperStartFailureLeavesTransactionUntouched(t *testing.T
 		t.Fatal(err)
 	}
 	injected := errors.New("recovery start failed")
-	err = launchRecoveryHelperWith(
+	startedResult, err := launchRecoveryHelperWith(
 		context.Background(),
 		boundary,
 		inspection,
@@ -178,6 +206,9 @@ func TestLaunchRecoveryHelperStartFailureLeavesTransactionUntouched(t *testing.T
 			},
 		},
 	)
+	if startedResult {
+		t.Fatal("failed recovery helper start was reported as started")
+	}
 	if !errors.Is(err, injected) {
 		t.Fatalf("launch error=%v, want injected failure", err)
 	}
