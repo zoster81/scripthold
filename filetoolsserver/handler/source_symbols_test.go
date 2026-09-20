@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/config"
 )
 
@@ -208,6 +209,84 @@ func TestSourceSymbolsFindQueryLimitCountsUnicodeScalars(t *testing.T) {
 	}
 	if rejected == nil || !rejected.IsError || rejected.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
 		t.Fatalf("513-scalar query result = %+v, want INVALID_INPUT", rejected)
+	}
+}
+
+func TestSourceSymbolsValidationOrderAndMessages(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	tooManyKinds := make([]string, 33)
+	tests := []struct {
+		name    string
+		input   SourceSymbolsInput
+		code    string
+		message string
+	}{
+		{
+			name:    "show dispatch precedes batch validation",
+			input:   SourceSymbolsInput{Operation: " SHOW "},
+			code:    ErrCodeInvalidInput,
+			message: "show requires path, symbolId, sourceFingerprint, language, and encoding",
+		},
+		{
+			name:    "operation precedes paths",
+			input:   SourceSymbolsInput{Operation: "unknown"},
+			code:    ErrCodeInvalidInput,
+			message: "operation must be outline, digest, find, or show",
+		},
+		{
+			name:    "paths required",
+			input:   SourceSymbolsInput{Operation: "outline"},
+			code:    ErrCodeInvalidInput,
+			message: "paths must contain at least one path",
+		},
+		{
+			name:    "max files precedes max symbols",
+			input:   SourceSymbolsInput{Operation: "outline", Paths: []string{"unused"}, MaxFiles: -1, MaxSymbols: -1},
+			code:    ErrCodeInvalidInput,
+			message: "maxFiles must be positive",
+		},
+		{
+			name:    "max symbols precedes find query",
+			input:   SourceSymbolsInput{Operation: "find", Paths: []string{"unused"}, MaxSymbols: -1},
+			code:    ErrCodeInvalidInput,
+			message: "maxSymbols must be positive",
+		},
+		{
+			name:    "find query validation",
+			input:   SourceSymbolsInput{Operation: "find", Paths: []string{"unused"}},
+			code:    ErrCodeInvalidInput,
+			message: "query must be a non-empty string up to 512 Unicode scalar values",
+		},
+		{
+			name:    "find match validation",
+			input:   SourceSymbolsInput{Operation: "find", Paths: []string{"unused"}, Query: "name", Match: "suffix"},
+			code:    ErrCodeInvalidInput,
+			message: "match must be exact, prefix, or qualified",
+		},
+		{
+			name:    "kinds limit",
+			input:   SourceSymbolsInput{Operation: "outline", Paths: []string{"unused"}, Kinds: tooManyKinds},
+			code:    ErrCodeLimit,
+			message: "kinds exceeds the 32-item limit",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, _, err := h.SourceSymbols(context.Background(), nil, test.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != test.code {
+				t.Fatalf("result = %+v, want code %s", result, test.code)
+			}
+			if len(result.Content) != 1 {
+				t.Fatalf("content = %+v, want one text item", result.Content)
+			}
+			content, ok := result.Content[0].(*mcp.TextContent)
+			if !ok || content.Text != test.message {
+				t.Fatalf("message = %#v, want %q", content, test.message)
+			}
+		})
 	}
 }
 
