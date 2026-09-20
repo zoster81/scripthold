@@ -577,34 +577,19 @@ func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnos
 				return "", nil, err
 			}
 		}
-		if strings.HasPrefix(text[at:], "//") || text[at] == '#' && !strings.HasPrefix(text[at:], "#[") {
-			for at < len(text) && text[at] != '\r' && text[at] != '\n' {
-				at++
-			}
+		if next, ok := phpLineCommentEnd(text, at); ok {
+			at = next
 			continue
 		}
-		if strings.HasPrefix(text[at:], "/*") {
-			end := strings.Index(text[at+2:], "*/")
-			if end < 0 {
+		if next, ok, terminated := phpBlockCommentEnd(text, at); ok {
+			if !terminated {
 				break
 			}
-			at += end + 4
+			at = next
 			continue
 		}
-		if text[at] == '\'' || text[at] == '"' {
-			quote := text[at]
-			at++
-			for at < len(text) {
-				if text[at] == '\\' {
-					at += min(2, len(text)-at)
-					continue
-				}
-				if text[at] == quote {
-					at++
-					break
-				}
-				at++
-			}
+		if next, ok := phpQuotedStringEnd(text, at); ok {
+			at = next
 			continue
 		}
 		if !strings.HasPrefix(text[at:], "<<<") {
@@ -612,84 +597,135 @@ func maskPHPHeredocs(ctx context.Context, text string) (string, []ScannerDiagnos
 			continue
 		}
 		open := at
-		cursor := at + 3
-		for cursor < len(text) && (text[cursor] == ' ' || text[cursor] == '\t') {
-			cursor++
-		}
-		quote := byte(0)
-		if cursor < len(text) && (text[cursor] == '\'' || text[cursor] == '"') {
-			quote = text[cursor]
-			cursor++
-		}
-		nameStart := cursor
-		for cursor < len(text) && (text[cursor] == '_' || text[cursor] >= 'A' && text[cursor] <= 'Z' || text[cursor] >= 'a' && text[cursor] <= 'z' || cursor > nameStart && text[cursor] >= '0' && text[cursor] <= '9') {
-			cursor++
-		}
-		if cursor == nameStart {
+		name, cursor, ok := parsePHPHeredocOpening(text, at)
+		if !ok {
 			at += 3
 			continue
 		}
-		name := text[nameStart:cursor]
-		if quote != 0 {
-			if cursor >= len(text) || text[cursor] != quote {
-				at += 3
-				continue
-			}
-			cursor++
+		end, markerStart, found, valid := findPHPHeredocEnd(text, cursor, name)
+		if found && !valid {
+			diagnostics = append(diagnostics, ScannerDiagnostic{
+				Code: "invalid-heredoc-closing-marker", Message: "PHP heredoc/nowdoc closing identifier is followed by an identifier character",
+				StartOffset: markerStart, EndOffset: end,
+			})
 		}
-		openingValid := true
-		for cursor < len(text) && text[cursor] != '\r' && text[cursor] != '\n' {
-			if text[cursor] != ' ' && text[cursor] != '\t' {
-				openingValid = false
-				break
-			}
-			cursor++
-		}
-		if !openingValid {
-			at += 3
-			continue
-		}
-		if cursor < len(text) && text[cursor] == '\r' && cursor+1 < len(text) && text[cursor+1] == '\n' {
-			cursor += 2
-		} else if cursor < len(text) {
-			cursor++
-		}
-		end := -1
-		for lineStart := cursor; lineStart <= len(text); {
-			lineEnd := lineStart
-			for lineEnd < len(text) && text[lineEnd] != '\r' && text[lineEnd] != '\n' {
-				lineEnd++
-			}
-			markerEnd, found, valid := phpHeredocClosingMarker(text, lineStart, lineEnd, name)
-			if found {
-				end = markerEnd
-				if !valid {
-					diagnostics = append(diagnostics, ScannerDiagnostic{Code: "invalid-heredoc-closing-marker", Message: "PHP heredoc/nowdoc closing identifier is followed by an identifier character", StartOffset: markerEnd - len(name), EndOffset: markerEnd})
-				}
-				break
-			}
-			if lineEnd >= len(text) {
-				break
-			}
-			if text[lineEnd] == '\r' && lineEnd+1 < len(text) && text[lineEnd+1] == '\n' {
-				lineStart = lineEnd + 2
-			} else {
-				lineStart = lineEnd + 1
-			}
-		}
-		if end < 0 {
-			diagnostics = append(diagnostics, ScannerDiagnostic{Code: "unterminated-heredoc", Message: "PHP heredoc/nowdoc literal is not terminated", StartOffset: open, EndOffset: len(text)})
+		if !found {
+			diagnostics = append(diagnostics, ScannerDiagnostic{
+				Code: "unterminated-heredoc", Message: "PHP heredoc/nowdoc literal is not terminated",
+				StartOffset: open, EndOffset: len(text),
+			})
 			end = len(text)
 		}
 		masked = maskPHPHeredocRange(text, masked, open, end)
 		changed = true
 		at = end
-		continue
 	}
 	if !changed {
 		return text, diagnostics, nil
 	}
 	return string(masked), diagnostics, nil
+}
+
+func phpLineCommentEnd(text string, at int) (int, bool) {
+	if !strings.HasPrefix(text[at:], "//") && (text[at] != '#' || strings.HasPrefix(text[at:], "#[")) {
+		return at, false
+	}
+	for at < len(text) && text[at] != '\r' && text[at] != '\n' {
+		at++
+	}
+	return at, true
+}
+
+func phpBlockCommentEnd(text string, at int) (next int, matched bool, terminated bool) {
+	if !strings.HasPrefix(text[at:], "/*") {
+		return at, false, false
+	}
+	end := strings.Index(text[at+2:], "*/")
+	if end < 0 {
+		return at, true, false
+	}
+	return at + end + 4, true, true
+}
+
+func phpQuotedStringEnd(text string, at int) (int, bool) {
+	if text[at] != '\'' && text[at] != '"' {
+		return at, false
+	}
+	quote := text[at]
+	at++
+	for at < len(text) {
+		if text[at] == '\\' {
+			at += min(2, len(text)-at)
+			continue
+		}
+		if text[at] == quote {
+			at++
+			break
+		}
+		at++
+	}
+	return at, true
+}
+
+func parsePHPHeredocOpening(text string, at int) (name string, bodyStart int, ok bool) {
+	cursor := at + 3
+	for cursor < len(text) && (text[cursor] == ' ' || text[cursor] == '\t') {
+		cursor++
+	}
+	quote := byte(0)
+	if cursor < len(text) && (text[cursor] == '\'' || text[cursor] == '"') {
+		quote = text[cursor]
+		cursor++
+	}
+	nameStart := cursor
+	for cursor < len(text) && (text[cursor] == '_' || text[cursor] >= 'A' && text[cursor] <= 'Z' ||
+		text[cursor] >= 'a' && text[cursor] <= 'z' || cursor > nameStart && text[cursor] >= '0' && text[cursor] <= '9') {
+		cursor++
+	}
+	if cursor == nameStart {
+		return "", 0, false
+	}
+	name = text[nameStart:cursor]
+	if quote != 0 {
+		if cursor >= len(text) || text[cursor] != quote {
+			return "", 0, false
+		}
+		cursor++
+	}
+	for cursor < len(text) && text[cursor] != '\r' && text[cursor] != '\n' {
+		if text[cursor] != ' ' && text[cursor] != '\t' {
+			return "", 0, false
+		}
+		cursor++
+	}
+	if cursor < len(text) && text[cursor] == '\r' && cursor+1 < len(text) && text[cursor+1] == '\n' {
+		cursor += 2
+	} else if cursor < len(text) {
+		cursor++
+	}
+	return name, cursor, true
+}
+
+func findPHPHeredocEnd(text string, lineStart int, name string) (end, markerStart int, found, valid bool) {
+	for lineStart <= len(text) {
+		lineEnd := lineStart
+		for lineEnd < len(text) && text[lineEnd] != '\r' && text[lineEnd] != '\n' {
+			lineEnd++
+		}
+		markerEnd, markerFound, markerValid := phpHeredocClosingMarker(text, lineStart, lineEnd, name)
+		if markerFound {
+			return markerEnd, markerEnd - len(name), true, markerValid
+		}
+		if lineEnd >= len(text) {
+			break
+		}
+		if text[lineEnd] == '\r' && lineEnd+1 < len(text) && text[lineEnd+1] == '\n' {
+			lineStart = lineEnd + 2
+		} else {
+			lineStart = lineEnd + 1
+		}
+	}
+	return -1, 0, false, false
 }
 
 func maskPHPHeredocRange(text string, masked []byte, start, end int) []byte {

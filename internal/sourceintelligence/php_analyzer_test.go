@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -113,6 +114,51 @@ class Real { public function run(): void {} }
 			t.Fatalf("multiline PHP string leaked declaration %q: %v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 		}
 	}
+}
+
+func TestMaskPHPHeredocsPreservesDiagnosticOffsets(t *testing.T) {
+	t.Run("invalid closing marker", func(t *testing.T) {
+		text := "<?php\n$value = <<<TXT\nclass Hidden {}\nTXTtail;\nfunction after() {}\n"
+		masked, diagnostics, err := maskPHPHeredocs(context.Background(), text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diagnostics) != 1 {
+			t.Fatalf("diagnostics = %+v, want one invalid-closing diagnostic", diagnostics)
+		}
+		diagnostic := diagnostics[0]
+		start := strings.Index(text, "TXTtail")
+		if diagnostic.Code != "invalid-heredoc-closing-marker" || diagnostic.StartOffset != start || diagnostic.EndOffset != start+len("TXT") {
+			t.Fatalf("diagnostic = %+v, want invalid closing marker at [%d,%d)", diagnostic, start, start+len("TXT"))
+		}
+		if len(masked) != len(text) {
+			t.Fatalf("masked length = %d, want %d", len(masked), len(text))
+		}
+		for index := range text {
+			if (text[index] == '\r' || text[index] == '\n') && masked[index] != text[index] {
+				t.Fatalf("newline changed at offset %d", index)
+			}
+		}
+	})
+
+	t.Run("unterminated", func(t *testing.T) {
+		text := "<?php\n$value = <<<TXT\nclass Hidden {}\n"
+		masked, diagnostics, err := maskPHPHeredocs(context.Background(), text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diagnostics) != 1 {
+			t.Fatalf("diagnostics = %+v, want one unterminated diagnostic", diagnostics)
+		}
+		diagnostic := diagnostics[0]
+		start := strings.Index(text, "<<<TXT")
+		if diagnostic.Code != "unterminated-heredoc" || diagnostic.StartOffset != start || diagnostic.EndOffset != len(text) {
+			t.Fatalf("diagnostic = %+v, want unterminated heredoc at [%d,%d)", diagnostic, start, len(text))
+		}
+		if len(masked) != len(text) {
+			t.Fatalf("masked length = %d, want %d", len(masked), len(text))
+		}
+	})
 }
 
 func TestPHPAnalyzerFlexibleHeredocClosingMarkerPreservesTrailingExpression(t *testing.T) {
