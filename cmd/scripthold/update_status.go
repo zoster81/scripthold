@@ -8,7 +8,12 @@ import (
 	"github.com/zoster81/scripthold/internal/updater"
 )
 
-const selfUpdateStatusUsage = "Usage: scripthold update status"
+const selfUpdateStatusUsage = "Usage:\n  scripthold update status\n  scripthold update --adopt\n\nBefore adoption, stop every other Scripthold process using this binary and keep them stopped until the adoption command exits."
+
+type selfUpdateCommandDeps struct {
+	observe func(context.Context, string, bool) (updater.SelfUpdateView, error)
+	adopt   func(context.Context) error
+}
 
 func tryRunSelfUpdateCommand(
 	ctx context.Context,
@@ -16,13 +21,16 @@ func tryRunSelfUpdateCommand(
 	stdout, stderr io.Writer,
 	processVersion string,
 ) (int, bool) {
-	return tryRunSelfUpdateCommandWith(
+	return tryRunSelfUpdateCommandWithDeps(
 		ctx,
 		args,
 		stdout,
 		stderr,
 		processVersion,
-		updater.ObserveSelfUpdateView,
+		selfUpdateCommandDeps{
+			observe: updater.ObserveSelfUpdateView,
+			adopt:   updater.InitializeStableAdoption,
+		},
 	)
 }
 
@@ -33,6 +41,16 @@ func tryRunSelfUpdateCommandWith(
 	processVersion string,
 	observe func(context.Context, string, bool) (updater.SelfUpdateView, error),
 ) (int, bool) {
+	return tryRunSelfUpdateCommandWithDeps(ctx, args, stdout, stderr, processVersion, selfUpdateCommandDeps{observe: observe})
+}
+
+func tryRunSelfUpdateCommandWithDeps(
+	ctx context.Context,
+	args []string,
+	stdout, stderr io.Writer,
+	processVersion string,
+	deps selfUpdateCommandDeps,
+) (int, bool) {
 	if len(args) == 0 || args[0] != "update" {
 		return 0, false
 	}
@@ -40,23 +58,42 @@ func tryRunSelfUpdateCommandWith(
 		fmt.Fprintln(stdout, selfUpdateStatusUsage)
 		return 0, true
 	}
-	if len(args) != 2 || args[1] != "status" {
+	if len(args) != 2 {
 		fmt.Fprintln(stderr, "Error: unsupported update command")
 		fmt.Fprintln(stderr, selfUpdateStatusUsage)
 		return 1, true
 	}
-	if observe == nil {
-		fmt.Fprintln(stderr, "Error: self-update status is unavailable")
+	switch args[1] {
+	case "status":
+		if deps.observe == nil {
+			fmt.Fprintln(stderr, "Error: self-update status is unavailable")
+			return 1, true
+		}
+		view, err := deps.observe(ctx, processVersion, false)
+		if err != nil {
+			fmt.Fprintln(stderr, "Error: self-update status could not be observed safely")
+			return 1, true
+		}
+		writeSelfUpdateStatus(stdout, processVersion, view)
+		return 0, true
+	case "--adopt":
+		if deps.adopt == nil {
+			fmt.Fprintln(stderr, "Error: self-update adoption is unavailable")
+			return 1, true
+		}
+		if err := deps.adopt(ctx); err != nil {
+			fmt.Fprintln(stderr, "Error: self-update adoption failed safely")
+			return 1, true
+		}
+		fmt.Fprintln(stdout, "Adoption complete. The installed standalone binary was verified and adopted for self-update.")
+		fmt.Fprintln(stdout, "No update was downloaded or installed.")
+		fmt.Fprintln(stdout, "Every other Scripthold process using this binary must have been stopped before adoption began and must remain stopped until this command exits.")
+		return 0, true
+	default:
+		fmt.Fprintln(stderr, "Error: unsupported update command")
+		fmt.Fprintln(stderr, selfUpdateStatusUsage)
 		return 1, true
 	}
-
-	view, err := observe(ctx, processVersion, false)
-	if err != nil {
-		fmt.Fprintln(stderr, "Error: self-update status could not be observed safely")
-		return 1, true
-	}
-	writeSelfUpdateStatus(stdout, processVersion, view)
-	return 0, true
 }
 
 func writeSelfUpdateStatus(writer io.Writer, processVersion string, view updater.SelfUpdateView) {

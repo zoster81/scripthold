@@ -115,6 +115,44 @@ func TestTryRunSelfUpdateCommandObservedStateAlwaysExitsZero(t *testing.T) {
 	}
 }
 
+func TestTryRunSelfUpdateCommandAdopt(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	adoptCalls := 0
+	code, matched := tryRunSelfUpdateCommandWithDeps(
+		context.Background(), []string{"update", "--adopt"}, &stdout, &stderr, "3.2.1",
+		selfUpdateCommandDeps{
+			adopt: func(context.Context) error {
+				adoptCalls++
+				return nil
+			},
+		},
+	)
+	if !matched || code != 0 || adoptCalls != 1 || stderr.Len() != 0 {
+		t.Fatalf("matched=%v code=%d adoptCalls=%d stdout=%q stderr=%q", matched, code, adoptCalls, stdout.String(), stderr.String())
+	}
+	for _, expected := range []string{
+		"Adoption complete.",
+		"No update was downloaded or installed.",
+		"must have been stopped before adoption began",
+		"must remain stopped until this command exits",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("adoption output %q missing %q", stdout.String(), expected)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code, matched = tryRunSelfUpdateCommandWithDeps(
+		context.Background(), []string{"update", "--adopt"}, &stdout, &stderr, "3.2.1",
+		selfUpdateCommandDeps{adopt: func(context.Context) error { return errors.New("private path detail") }},
+	)
+	if !matched || code != 1 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "adoption failed safely") || strings.Contains(stderr.String(), "private path detail") {
+		t.Fatalf("failure matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())
+	}
+}
+
 func TestTryRunSelfUpdateCommandFailureAndUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code, matched := tryRunSelfUpdateCommandWith(
@@ -143,7 +181,9 @@ func TestTryRunSelfUpdateCommandFailureAndUsage(t *testing.T) {
 	code, matched = tryRunSelfUpdateCommandWith(
 		context.Background(), []string{"update", "--help"}, &stdout, &stderr, "3.2.1", nil,
 	)
-	if !matched || code != 0 || stdout.String() != selfUpdateStatusUsage+"\n" || stderr.Len() != 0 {
+	if !matched || code != 0 || stdout.String() != selfUpdateStatusUsage+"\n" || stderr.Len() != 0 ||
+		!strings.Contains(stdout.String(), "scripthold update --adopt") ||
+		!strings.Contains(stdout.String(), "stop every other Scripthold process") {
 		t.Fatalf("help matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())
 	}
 }

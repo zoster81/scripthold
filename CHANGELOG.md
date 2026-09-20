@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
+- Added explicit `scripthold update --adopt` for supported standalone binaries, with local-only stable-state initialization, fail-closed installation checks, and an explicit pre-adoption process-quiescence requirement; adoption does not download or switch releases.
 - Added read-only `scripthold update status` for standalone self-update state, verified installed/current/candidate version evidence, cached release availability, and safe recovery availability without mutating the installation.
 - Added `markdown_create`, a Marksplice-backed preview for complete new Markdown documents with typed recursive construction, explicit new-file encoding/BOM policy, parent-identity binding, one-shot `markdown_apply`, and race-safe no-replace creation.
 - Added read-only `markdown_workspace` for bounded authorized multi-document discovery, graph queries, and workspace validation through Marksplice `workspacefs`, with explicit `scan`/`follow` discovery and dedicated document/relationship ceilings.

@@ -27,7 +27,7 @@ Add a failure-safe update lifecycle: discover a release, select the correct plat
 
 Installation state remains separate from the persistent user-file backup store. Interrupted or invalid updates must leave a usable installation or an explicit recoverable state.
 
-The read-only `scripthold update status` command is available on the development branch. Public adoption, update, and recovery mutations remain part of this milestone and are not yet exposed.
+The read-only `scripthold update status` command and explicit standalone adoption through `scripthold update --adopt` are available on the development branch. Adoption is local-only and requires all other processes using that binary to be stopped for the duration of the adoption invocation. Public update switching and recovery mutations remain part of this milestone and are not yet exposed.
 
 ### Source-intelligence completion
 
