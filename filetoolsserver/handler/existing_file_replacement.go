@@ -126,6 +126,17 @@ func (replacement preparedExistingFileReplacement) resultMatchesFingerprint() bo
 	return filesystem.FingerprintRegularFileData(replacement.resultData) == replacement.resultFingerprint
 }
 
+func (replacement preparedExistingFileReplacement) readOnlyRequiresApproval(mode os.FileMode) bool {
+	return isReadOnly(mode) && !replacement.forceWritable
+}
+
+func existingFileReplacementWriteMode(mode os.FileMode) os.FileMode {
+	if isReadOnly(mode) {
+		return mode | 0o200
+	}
+	return mode
+}
+
 func (replacement preparedExistingFileReplacement) snapshotMatchesTargetFingerprint(snapshot filesystem.FileSnapshot) (string, bool, error) {
 	actual, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
 	if err != nil {
@@ -203,10 +214,7 @@ func (h *Handler) stageExistingFileReplacementBatch(
 		if !replacement.changed {
 			continue
 		}
-		mode := modes[index]
-		if isReadOnly(mode) {
-			mode |= 0o200
-		}
+		mode := existingFileReplacementWriteMode(modes[index])
 		staged, err := ops.stage(ctx, replacement.resolvedPath, replacement.resultData, mode)
 		if err == nil {
 			batch.staged[index] = staged

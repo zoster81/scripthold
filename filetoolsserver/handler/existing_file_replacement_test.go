@@ -30,6 +30,28 @@ func TestPreparedEditPlanRequiresOrderedTargets(t *testing.T) {
 	}
 }
 
+func TestPreparedExistingFileReplacementWritablePolicy(t *testing.T) {
+	readOnly := os.FileMode(0o444)
+	writable := os.FileMode(0o644)
+	replacement := preparedExistingFileReplacement{}
+	if !replacement.readOnlyRequiresApproval(readOnly) {
+		t.Fatal("read-only replacement without approval was accepted")
+	}
+	if replacement.readOnlyRequiresApproval(writable) {
+		t.Fatal("writable replacement unexpectedly requires approval")
+	}
+	replacement.forceWritable = true
+	if replacement.readOnlyRequiresApproval(readOnly) {
+		t.Fatal("forceWritable approval was ignored")
+	}
+	if got := existingFileReplacementWriteMode(readOnly); got != writable {
+		t.Fatalf("writable mode=%#o, want %#o", got, writable)
+	}
+	if got := existingFileReplacementWriteMode(writable); got != writable {
+		t.Fatalf("existing writable mode=%#o, want %#o", got, writable)
+	}
+}
+
 func TestPreparedExistingFileReplacementMatchesTargetSnapshotFingerprint(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "target.txt")

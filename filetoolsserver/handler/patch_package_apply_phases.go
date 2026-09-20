@@ -228,7 +228,7 @@ func (h *Handler) prepareExistingFileReplacementWritable(replacement preparedExi
 	if !isReadOnly(currentMode) {
 		return current, currentMode, false, nil
 	}
-	if !replacement.forceWritable {
+	if replacement.readOnlyRequiresApproval(currentMode) {
 		return filesystem.FileSnapshot{}, currentMode, false, operation.New(operation.KindPermission, readOnlyMessage)
 	}
 	if err := clearReadOnly(replacement.resolvedPath, currentMode); err != nil {

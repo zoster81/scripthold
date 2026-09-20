@@ -157,7 +157,7 @@ func (h *Handler) revalidatePreparedPatchPackageTarget(ctx context.Context, targ
 	if !currentMatches {
 		return filesystem.FileSnapshot{}, errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target fingerprint changed %s", phase))
 	}
-	if isReadOnly(current.Mode.Perm()) && !target.prepared.forceWritable {
+	if replacement.readOnlyRequiresApproval(current.Mode.Perm()) {
 		return filesystem.FileSnapshot{}, errorResultWithCode(ErrCodePermission, "file is read-only and forceWritable was not approved")
 	}
 	return current, nil

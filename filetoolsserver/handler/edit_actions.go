@@ -459,17 +459,16 @@ func (h *Handler) commitPreparedEdit(ctx context.Context, replacement preparedEx
 	}
 
 	readOnly := isReadOnly(currentMode)
-	if readOnly && !replacement.forceWritable {
+	if replacement.readOnlyRequiresApproval(currentMode) {
 		return false, errorResultWithCode(ErrCodePermission, "file is read-only — STOP, do NOT retry and do NOT attempt to change file attributes. Ask the user whether to proceed with forceWritable: true, or skip this file")
 	}
-	writeMode := currentMode
+	writeMode := existingFileReplacementWriteMode(currentMode)
 	readOnlyCleared := false
 	if readOnly {
 		if err := clearReadOnly(validation.Path, currentMode); err != nil {
 			return false, errorResultFromError(fmt.Errorf("failed to clear read-only flag: %w", err))
 		}
 		readOnlyCleared = true
-		writeMode = currentMode | 0200
 		slog.Info("cleared read-only flag", "path", replacement.requestedPath)
 		refreshed, err := expected.RefreshMetadata(validation.Path)
 		if err != nil {
