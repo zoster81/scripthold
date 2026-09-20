@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -230,4 +231,51 @@ func executableMetadataEqual(left, right executableMetadata) bool {
 		}
 	}
 	return true
+}
+
+func commitExecutableReplacementCandidate(
+	targetPath string,
+	targetIdentity ObjectIdentity,
+	candidatePath string,
+	candidateIdentity ObjectIdentity,
+) error {
+	targetMatches, err := targetIdentity.Matches(targetPath)
+	if err != nil {
+		return err
+	}
+	if !targetMatches {
+		return errors.New("target executable identity changed before commit")
+	}
+	candidateMatches, err := candidateIdentity.Matches(candidatePath)
+	if err != nil {
+		return err
+	}
+	if !candidateMatches {
+		return errors.New("candidate executable identity changed before commit")
+	}
+	targetMetadata, err := captureExecutableMetadata(targetPath, targetIdentity)
+	if err != nil {
+		return err
+	}
+	candidateMetadata, err := captureExecutableMetadata(candidatePath, candidateIdentity)
+	if err != nil {
+		return err
+	}
+	if !executableMetadataEqual(targetMetadata, candidateMetadata) {
+		return errors.New("candidate executable metadata drifted before commit")
+	}
+	if err := os.Rename(candidatePath, targetPath); err != nil {
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(targetPath)); err != nil {
+		return fmt.Errorf("sync executable parent directory: %w", err)
+	}
+	matchesInstalled, err := candidateIdentity.Matches(targetPath)
+	if err != nil {
+		return err
+	}
+	if !matchesInstalled {
+		return errors.New("installed executable identity does not match consumed candidate")
+	}
+	return nil
 }
