@@ -82,10 +82,17 @@ type existingFileReplacementBatch struct {
 
 type existingFileReplacementState string
 
+type existingFileReplacementBindingIssue uint8
+
 const (
 	existingFileReplacementStateCommitted existingFileReplacementState = "committed"
 	existingFileReplacementStateUnchanged existingFileReplacementState = "unchanged"
 	existingFileReplacementStateUnknown   existingFileReplacementState = "unknown"
+
+	existingFileReplacementBindingOK existingFileReplacementBindingIssue = iota
+	existingFileReplacementBindingPathChanged
+	existingFileReplacementBindingIdentityUnavailable
+	existingFileReplacementBindingIdentityChanged
 )
 
 func preparedEditReplacement(prepared *preparedEdit) preparedExistingFileReplacement {
@@ -124,6 +131,25 @@ func (replacement preparedExistingFileReplacement) identity() *filesystem.FileId
 		return nil
 	}
 	return *replacement.identitySlot
+}
+
+func (h *Handler) inspectExistingFileReplacementBinding(replacement preparedExistingFileReplacement) (PathValidationResult, existingFileReplacementBindingIssue) {
+	validation := h.ValidatePath(replacement.requestedPath)
+	if !validation.Ok() {
+		return validation, existingFileReplacementBindingOK
+	}
+	if validation.Path != replacement.resolvedPath {
+		return validation, existingFileReplacementBindingPathChanged
+	}
+	identity := replacement.identity()
+	if identity == nil {
+		return validation, existingFileReplacementBindingIdentityUnavailable
+	}
+	matches, err := identity.Matches(validation.Path)
+	if err != nil || !matches {
+		return validation, existingFileReplacementBindingIdentityChanged
+	}
+	return validation, existingFileReplacementBindingOK
 }
 
 func (replacement preparedExistingFileReplacement) closeIdentity() error {

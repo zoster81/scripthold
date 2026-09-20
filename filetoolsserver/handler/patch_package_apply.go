@@ -130,18 +130,17 @@ func (h *Handler) restorePatchPackageReadOnlyIfUnchanged(target *preparedEditPla
 }
 
 func (h *Handler) revalidatePreparedPatchPackageTarget(ctx context.Context, target *preparedEditPlanTarget, phase string) (filesystem.FileSnapshot, *mcp.CallToolResult) {
-	validation := h.ValidatePath(target.requestedPath)
+	replacement := preparedEditPlanReplacement(target)
+	validation, bindingIssue := h.inspectExistingFileReplacementBinding(replacement)
 	if !validation.Ok() {
 		return filesystem.FileSnapshot{}, validation.Result
 	}
-	if validation.Path != target.resolvedPath {
+	switch bindingIssue {
+	case existingFileReplacementBindingPathChanged:
 		return filesystem.FileSnapshot{}, errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target path changed %s", phase))
-	}
-	if target.prepared.identityFile == nil {
+	case existingFileReplacementBindingIdentityUnavailable:
 		return filesystem.FileSnapshot{}, errorResultWithCode(ErrCodeConflict, "patch package target identity is unavailable")
-	}
-	matches, err := target.prepared.identityFile.Matches(validation.Path)
-	if err != nil || !matches {
+	case existingFileReplacementBindingIdentityChanged:
 		return filesystem.FileSnapshot{}, errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target identity changed %s", phase))
 	}
 	current, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, validation.Path, h.maxFileBytes())

@@ -295,18 +295,16 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 		return errorResultWithCode(ErrCodeConflict, "prepared edit result no longer matches its fingerprint"), EditFileOutput{}, nil
 	}
 
-	validation := h.ValidatePath(prepared.requestedPath)
+	validation, bindingIssue := h.inspectExistingFileReplacementBinding(replacement)
 	if !validation.Ok() {
 		return validation.Result, EditFileOutput{}, nil
 	}
-	if validation.Path != replacement.resolvedPath {
+	switch bindingIssue {
+	case existingFileReplacementBindingPathChanged:
 		return errorResultWithCode(ErrCodeConflict, "path changed after edit preview"), EditFileOutput{}, nil
-	}
-	if prepared.identityFile == nil {
+	case existingFileReplacementBindingIdentityUnavailable:
 		return errorResultWithCode(ErrCodeConflict, "edit preview identity is unavailable"), EditFileOutput{}, nil
-	}
-	matches, err := prepared.identityFile.Matches(validation.Path)
-	if err != nil || !matches {
+	case existingFileReplacementBindingIdentityChanged:
 		return errorResultWithCode(ErrCodeConflict, "target file identity changed after edit preview"), EditFileOutput{}, nil
 	}
 	current, err := filesystem.CaptureSnapshotWithDigest(validation.Path)
@@ -337,7 +335,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	if err := h.checkEditResponseLimit(worstCase, editApplyText(worstCase)+"\nRead-only flag was cleared."); err != nil {
 		return errorResultFromError(err), EditFileOutput{}, nil
 	}
-	matches, err = prepared.identityFile.Matches(validation.Path)
+	matches, err := prepared.identityFile.Matches(validation.Path)
 	if err != nil || !matches {
 		return errorResultWithCode(ErrCodeConflict, "target file identity changed before edit commit"), EditFileOutput{}, nil
 	}

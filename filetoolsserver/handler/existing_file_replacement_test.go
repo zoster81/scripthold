@@ -30,6 +30,48 @@ func TestPreparedEditPlanRequiresOrderedTargets(t *testing.T) {
 	}
 }
 
+func TestInspectExistingFileReplacementBinding(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first.txt")
+	second := filepath.Join(root, "second.txt")
+	if err := os.WriteFile(first, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := filesystem.OpenFileIdentity(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = identity.Close() })
+	replacement := preparedExistingFileReplacement{requestedPath: first, resolvedPath: first, identitySlot: &identity}
+	h := NewHandler([]string{root})
+	validation, issue := h.inspectExistingFileReplacementBinding(replacement)
+	if !validation.Ok() || issue != existingFileReplacementBindingOK {
+		t.Fatalf("valid binding validation=%+v issue=%v", validation, issue)
+	}
+
+	replacement.resolvedPath = second
+	_, issue = h.inspectExistingFileReplacementBinding(replacement)
+	if issue != existingFileReplacementBindingPathChanged {
+		t.Fatalf("path issue=%v, want path changed", issue)
+	}
+
+	replacement.requestedPath = second
+	replacement.resolvedPath = second
+	_, issue = h.inspectExistingFileReplacementBinding(replacement)
+	if issue != existingFileReplacementBindingIdentityChanged {
+		t.Fatalf("identity issue=%v, want identity changed", issue)
+	}
+
+	replacement.identitySlot = nil
+	_, issue = h.inspectExistingFileReplacementBinding(replacement)
+	if issue != existingFileReplacementBindingIdentityUnavailable {
+		t.Fatalf("missing identity issue=%v, want identity unavailable", issue)
+	}
+}
+
 func TestPreparedExistingFileReplacementChecksRetainedResultFingerprint(t *testing.T) {
 	result := []byte("result")
 	replacement := preparedExistingFileReplacement{
