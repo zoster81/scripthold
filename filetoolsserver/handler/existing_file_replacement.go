@@ -126,6 +126,14 @@ func (replacement preparedExistingFileReplacement) resultMatchesFingerprint() bo
 	return filesystem.FingerprintRegularFileData(replacement.resultData) == replacement.resultFingerprint
 }
 
+func (replacement preparedExistingFileReplacement) snapshotMatchesTargetFingerprint(snapshot filesystem.FileSnapshot) (string, bool, error) {
+	actual, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
+	if err != nil {
+		return "", false, err
+	}
+	return actual, actual == replacement.targetFingerprint, nil
+}
+
 func (replacement preparedExistingFileReplacement) identity() *filesystem.FileIdentity {
 	if replacement.identitySlot == nil {
 		return nil

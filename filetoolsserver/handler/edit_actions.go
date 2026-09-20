@@ -311,11 +311,11 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	if err != nil {
 		return errorResultWithCode(ErrCodeConflict, "target is unavailable or changed after edit preview"), EditFileOutput{}, nil
 	}
-	currentFingerprint, err := filesystem.FingerprintRegularFileSnapshot(current)
+	currentFingerprint, currentMatches, err := replacement.snapshotMatchesTargetFingerprint(current)
 	if err != nil {
 		return errorResultFromError(err), EditFileOutput{}, nil
 	}
-	if currentFingerprint != prepared.targetFingerprint {
+	if !currentMatches {
 		return errorResultWithCode(ErrCodeConflict, "target fingerprint changed after edit preview"), EditFileOutput{}, nil
 	}
 

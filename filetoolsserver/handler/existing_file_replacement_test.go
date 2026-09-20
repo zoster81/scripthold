@@ -30,6 +30,32 @@ func TestPreparedEditPlanRequiresOrderedTargets(t *testing.T) {
 	}
 }
 
+func TestPreparedExistingFileReplacementMatchesTargetSnapshotFingerprint(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(path, []byte("alpha"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := filesystem.CaptureRegularFileSnapshotBounded(context.Background(), path, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetFingerprint, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := preparedExistingFileReplacement{targetFingerprint: targetFingerprint}
+	actual, matches, err := replacement.snapshotMatchesTargetFingerprint(snapshot)
+	if err != nil || !matches || actual != targetFingerprint {
+		t.Fatalf("actual=%q matches=%v err=%v", actual, matches, err)
+	}
+	replacement.targetFingerprint = filesystem.FingerprintRegularFileData([]byte("other"))
+	actual, matches, err = replacement.snapshotMatchesTargetFingerprint(snapshot)
+	if err != nil || matches || actual != targetFingerprint {
+		t.Fatalf("mismatch actual=%q matches=%v err=%v", actual, matches, err)
+	}
+}
+
 func TestInspectExistingFileReplacementBinding(t *testing.T) {
 	root := t.TempDir()
 	first := filepath.Join(root, "first.txt")

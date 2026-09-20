@@ -150,11 +150,11 @@ func (h *Handler) revalidatePreparedPatchPackageTarget(ctx context.Context, targ
 		}
 		return filesystem.FileSnapshot{}, errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target is unavailable or changed %s", phase))
 	}
-	fingerprint, err := filesystem.FingerprintRegularFileSnapshot(current)
+	_, currentMatches, err := replacement.snapshotMatchesTargetFingerprint(current)
 	if err != nil {
 		return filesystem.FileSnapshot{}, errorResultFromError(err)
 	}
-	if fingerprint != target.prepared.targetFingerprint {
+	if !currentMatches {
 		return filesystem.FileSnapshot{}, errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target fingerprint changed %s", phase))
 	}
 	if isReadOnly(current.Mode.Perm()) && !target.prepared.forceWritable {
