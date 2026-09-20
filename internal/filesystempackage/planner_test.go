@@ -2,6 +2,7 @@ package filesystempackage
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -150,6 +151,67 @@ func TestPlannerBuildsExactBackupRequirementsAndDeterministicSummary(t *testing.
 	}
 	if !reflect.DeepEqual(first.Summary(), second.Summary()) {
 		t.Fatalf("unchanged planning is nondeterministic:\nfirst=%#v\nsecond=%#v", first.Summary(), second.Summary())
+	}
+}
+
+func TestPlannerAnnotatesFailingOperationIndex(t *testing.T) {
+	root := t.TempDir()
+	planner := newTestPlanner(t, root)
+	first := filepath.Join(root, "first")
+	_, err := planner.Plan(context.Background(), Manifest{FormatVersion: FormatV1, Operations: []Operation{
+		{Type: OperationMkdir, Path: first},
+		{Type: OperationCreateFile, Path: filepath.Join(root, "missing", "file.bin"), Content: []byte("x")},
+	}})
+	if operation.KindOf(err) != operation.KindInvalidInput {
+		t.Fatalf("plan error = %v, want INVALID_INPUT", err)
+	}
+	var typed *operation.Error
+	if !errors.As(err, &typed) || typed.Operation != "plan_operation_1" {
+		t.Fatalf("plan error metadata = %#v, want operation plan_operation_1", typed)
+	}
+	if _, statErr := os.Stat(first); !os.IsNotExist(statErr) {
+		t.Fatalf("planning mutated successful earlier operation target: %v", statErr)
+	}
+}
+
+func TestPlannerChecksCancellationBetweenOperations(t *testing.T) {
+	root := t.TempDir()
+	set, err := security.NormalizeAllowedDirectorySet([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	planner, err := NewPlanner(testManifestLimits(), func(path string) (security.PathEvidence, error) {
+		evidence, validateErr := security.ValidatePathEvidenceWithAllowedDirectories(path, set.Requested, set.Resolved)
+		if validateErr == nil && security.PathsEqual(evidence.ResolvedPath, set.Resolved[0]) {
+			cancel()
+		}
+		return evidence, validateErr
+	}, func() []string {
+		return append([]string(nil), set.Resolved...)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	_, err = planner.Plan(ctx, Manifest{FormatVersion: FormatV1, Operations: []Operation{
+		{Type: OperationMkdir, Path: first},
+		{Type: OperationMkdir, Path: second},
+	}})
+	if operation.KindOf(err) != operation.KindCancelled {
+		t.Fatalf("plan error = %v, want CANCELLED", err)
+	}
+	var typed *operation.Error
+	if !errors.As(err, &typed) || typed.Operation != "plan_filesystem_package" {
+		t.Fatalf("cancellation metadata = %#v, want operation plan_filesystem_package", typed)
+	}
+	for _, path := range []string{first, second} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("planning mutated %q: %v", path, statErr)
+		}
 	}
 }
 
