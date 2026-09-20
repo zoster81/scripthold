@@ -241,6 +241,20 @@ func readInstallationState(boundary *InstallationBoundary, inspection *Standalon
 	if err := lock.Validate(boundary.ControlLockPath); err != nil {
 		return installationState{}, err
 	}
+	state, err := readInstallationStateLocked(boundary, inspection)
+	if err != nil {
+		return installationState{}, err
+	}
+	if err := lock.Validate(boundary.ControlLockPath); err != nil {
+		return installationState{}, err
+	}
+	return state, nil
+}
+
+func readInstallationStateLocked(boundary *InstallationBoundary, inspection *StandaloneInspection) (installationState, error) {
+	if err := validateInstallationBoundary(boundary, inspection); err != nil {
+		return installationState{}, err
+	}
 	statePath := filepath.Join(boundary.Directory, installationStateFileName)
 	payload, err := filesystem.ReadOwnerOnlyFileBounded(statePath, maxInstallationStateBytes)
 	if err != nil {
@@ -251,12 +265,6 @@ func readInstallationState(boundary *InstallationBoundary, inspection *Standalon
 		return installationState{}, err
 	}
 	if err := validateInstallationState(state, inspection); err != nil {
-		return installationState{}, err
-	}
-	if err := lock.Validate(boundary.ControlLockPath); err != nil {
-		return installationState{}, err
-	}
-	if err := validateInstallationBoundary(boundary, inspection); err != nil {
 		return installationState{}, err
 	}
 	return state, nil
