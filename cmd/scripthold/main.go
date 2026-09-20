@@ -125,6 +125,16 @@ func runCommandWithAdmission(
 		return runBackupRecoveryCommand(ctx, recoveryOptions, stdout, stderr)
 	}
 
+	return runNormalServerCommand(ctx, args, stderr, getenv, diagnosticManager)
+}
+
+func runNormalServerCommand(
+	ctx context.Context,
+	args []string,
+	stderr io.Writer,
+	getenv func(string) string,
+	diagnosticManager *diagnostics.Manager,
+) int {
 	options, err := parseCommandOptions(args, loadCommandDefaults(getenv))
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
