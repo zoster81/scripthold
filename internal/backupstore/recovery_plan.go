@@ -118,10 +118,8 @@ func (store *DiagnosticStore) WriteRecoveryPlan(ctx context.Context, output stri
 	if err := ctx.Err(); err != nil {
 		return operation.Wrap(operation.KindCancelled, "write_backup_recovery_plan", "", err)
 	}
-	if _, statErr := os.Lstat(output); statErr == nil {
-		return operation.New(operation.KindConflict, "recovery plan output already exists")
-	} else if !os.IsNotExist(statErr) {
-		return sanitizedFilesystemError("recovery plan output cannot be inspected", statErr)
+	if err := ensureRecoveryPlanOutputAbsent(output); err != nil {
+		return err
 	}
 
 	staged, createErr := os.CreateTemp(parent, ".scripthold-recovery-plan-*.tmp")
@@ -162,6 +160,35 @@ func (store *DiagnosticStore) WriteRecoveryPlan(ctx context.Context, output stri
 	}
 	stagedIdentity.info = postWriteInfo
 
+	if err := validateRecoveryPlanInstallReadiness(ctx, output, parent, parentInfo, stagedPath, stagedIdentity); err != nil {
+		return err
+	}
+
+	if moveErr := filesystem.MoveNoReplace(stagedPath, output); moveErr != nil {
+		return sanitizedFilesystemError("recovery plan output could not be installed", moveErr)
+	}
+	stagedPath = ""
+
+	return store.validateInstalledRecoveryPlan(output, parent, parentInfo, stagedIdentity, int64(len(data)), plan.PlanID)
+}
+
+func ensureRecoveryPlanOutputAbsent(output string) error {
+	if _, statErr := os.Lstat(output); statErr == nil {
+		return operation.New(operation.KindConflict, "recovery plan output already exists")
+	} else if !os.IsNotExist(statErr) {
+		return sanitizedFilesystemError("recovery plan output cannot be inspected", statErr)
+	}
+	return nil
+}
+
+func validateRecoveryPlanInstallReadiness(
+	ctx context.Context,
+	output string,
+	parent string,
+	parentInfo os.FileInfo,
+	stagedPath string,
+	stagedIdentity recoveryOwnedRegularFile,
+) error {
 	if err := ctx.Err(); err != nil {
 		return operation.Wrap(operation.KindCancelled, "write_backup_recovery_plan", "", err)
 	}
@@ -177,20 +204,20 @@ func (store *DiagnosticStore) WriteRecoveryPlan(ctx context.Context, output stri
 	if err := validatePathPermissions(stagedPath, false); err != nil {
 		return sanitizedFilesystemError("recovery plan staging permissions are not owner-only", err)
 	}
-	if _, statErr := os.Lstat(output); statErr == nil {
-		return operation.New(operation.KindConflict, "recovery plan output already exists")
-	} else if !os.IsNotExist(statErr) {
-		return sanitizedFilesystemError("recovery plan output cannot be inspected", statErr)
-	}
+	return ensureRecoveryPlanOutputAbsent(output)
+}
 
-	if moveErr := filesystem.MoveNoReplace(stagedPath, output); moveErr != nil {
-		return sanitizedFilesystemError("recovery plan output could not be installed", moveErr)
-	}
-	stagedPath = ""
-
+func (store *DiagnosticStore) validateInstalledRecoveryPlan(
+	output string,
+	parent string,
+	parentInfo os.FileInfo,
+	stagedIdentity recoveryOwnedRegularFile,
+	expectedBytes int64,
+	planID string,
+) error {
 	finalInfo, statErr := os.Lstat(output)
 	if statErr != nil || finalInfo == nil || isLinkOrReparse(finalInfo) || !finalInfo.Mode().IsRegular() ||
-		!recoveryOwnedRegularFileStable(output, stagedIdentity) || finalInfo.Size() != int64(len(data)) {
+		!recoveryOwnedRegularFileStable(output, stagedIdentity) || finalInfo.Size() != expectedBytes {
 		return operation.New(operation.KindFilesystem, "recovery plan output identity is invalid")
 	}
 	if err := validateSingleLink(output, finalInfo); err != nil {
@@ -204,16 +231,13 @@ func (store *DiagnosticStore) WriteRecoveryPlan(ctx context.Context, output stri
 		return operation.New(operation.KindFilesystem, "recovery plan output could not be revalidated")
 	}
 	decoded, decodeErr := DecodeRecoveryPlan(readBack)
-	if decodeErr != nil || decoded.PlanID != plan.PlanID {
+	if decodeErr != nil || decoded.PlanID != planID {
 		return operation.New(operation.KindFilesystem, "recovery plan output identity does not match the planned evidence")
 	}
 	if !recoveryDirectoryIdentityStable(parent, parentInfo) {
 		return operation.New(operation.KindConflict, "recovery plan parent identity changed")
 	}
-	if err := store.validateIdentity(); err != nil {
-		return err
-	}
-	return nil
+	return store.validateIdentity()
 }
 
 func (store *DiagnosticStore) validateRecoveryPlanOutput(output string) (string, string, os.FileInfo, error) {
