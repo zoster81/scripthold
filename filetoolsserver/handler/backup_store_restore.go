@@ -159,17 +159,17 @@ func (h *Handler) handleBackupStoreRestoreApply(ctx context.Context, previewID s
 	}
 	if err := ctx.Err(); err != nil {
 		cancelled := operation.Wrap(operation.KindCancelled, "apply_restore_preview", prepared.resolvedPath, err)
-		return h.restoreApplyFailure(ctx, prepared, output, cancelled, nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, cancelled, nil, false, 0)
 	}
 	if err := h.revalidateRestoreAuthorization(prepared); err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, nil, false, 0)
 	}
 	if err := prepared.source.Verify(ctx); err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, nil, false, 0)
 	}
 	current, err := h.revalidatePreparedRestoreTarget(ctx, prepared)
 	if err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, nil, false, 0)
 	}
 
 	mode := os.FileMode(prepared.restoreMode).Perm()
@@ -187,72 +187,72 @@ func (h *Handler) handleBackupStoreRestoreApply(ctx context.Context, previewID s
 			if captureErr == nil {
 				captureErr = operation.New(operation.KindFilesystem, "restore safety backup did not commit a manifest")
 			}
-			return h.restoreApplyFailure(ctx, prepared, output, captureErr, staged, false, 0)
+			return h.restoreApplyFailure(prepared, output, captureErr, staged, false, 0)
 		}
 		if !validRestorePreviewID(captured.Manifest.BackupID) || captured.Manifest.TargetPath != prepared.resolvedPath ||
 			captured.Manifest.SourceOperation != backupstore.SourceOperationRestore ||
 			captured.Manifest.ContentFingerprint != prepared.targetFingerprint {
-			return h.restoreApplyFailure(ctx, prepared, output, operation.New(operation.KindConflict, "restore safety backup does not match the approved current state"), staged, false, 0)
+			return h.restoreApplyFailure(prepared, output, operation.New(operation.KindConflict, "restore safety backup does not match the approved current state"), staged, false, 0)
 		}
 		if captureErr != nil {
 			slog.Warn("restore safety manifest committed; continuing after a post-manifest store error")
 		}
 		if err := prepared.source.Verify(ctx); err != nil {
-			return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
+			return h.restoreApplyFailure(prepared, output, err, staged, false, 0)
 		}
 		current, err = h.revalidatePreparedRestoreTarget(ctx, prepared)
 		if err != nil {
-			return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
+			return h.restoreApplyFailure(prepared, output, err, staged, false, 0)
 		}
 	}
 
 	staged, err = h.restoreStageReplacement(ctx, prepared.source, prepared.resolvedPath, mode, &modTime)
 	if err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, nil, false, 0)
 	}
 	if err := prepared.source.Verify(ctx); err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, staged, false, 0)
 	}
 	current, err = h.revalidatePreparedRestoreTarget(ctx, prepared)
 	if err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, staged, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, staged, false, 0)
 	}
 
 	originalMode := current.Mode.Perm()
 	readOnlyCleared := false
 	if prepared.targetExisted && isReadOnly(originalMode) {
 		if err := clearReadOnly(prepared.resolvedPath, originalMode); err != nil {
-			return h.restoreApplyFailure(ctx, prepared, output, operation.WrapFilesystem("clear_restore_read_only", prepared.resolvedPath, err), staged, false, originalMode)
+			return h.restoreApplyFailure(prepared, output, operation.WrapFilesystem("clear_restore_read_only", prepared.resolvedPath, err), staged, false, originalMode)
 		}
 		readOnlyCleared = true
 		refreshed, refreshErr := current.RefreshMetadata(prepared.resolvedPath)
 		if refreshErr != nil {
 			_ = os.Chmod(prepared.resolvedPath, originalMode)
-			return h.restoreApplyFailure(ctx, prepared, output, refreshErr, staged, false, originalMode)
+			return h.restoreApplyFailure(prepared, output, refreshErr, staged, false, originalMode)
 		}
 		current = refreshed
 	}
 	if prepared.targetIdentity != nil {
 		if err := prepared.targetIdentity.Close(); err != nil {
-			return h.restoreApplyFailure(ctx, prepared, output, operation.WrapFilesystem("close_restore_target_identity", prepared.resolvedPath, err), staged, readOnlyCleared, originalMode)
+			return h.restoreApplyFailure(prepared, output, operation.WrapFilesystem("close_restore_target_identity", prepared.resolvedPath, err), staged, readOnlyCleared, originalMode)
 		}
 		prepared.targetIdentity = nil
 	}
 
 	_, commitErr := h.restoreCommitReplacement(staged, filesystem.ReplaceOptions{Expected: &current})
 	if commitErr != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, commitErr, nil, readOnlyCleared, originalMode)
+		return h.restoreApplyFailure(prepared, output, commitErr, nil, readOnlyCleared, originalMode)
 	}
 	post, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, prepared.resolvedPath, h.backupRestoreReader.RestoreObjectLimit())
 	if err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, nil, false, 0)
 	}
 	actual, err := filesystem.FingerprintRegularFileSnapshot(post)
 	if err != nil {
-		return h.restoreApplyFailure(ctx, prepared, output, err, nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, err, nil, false, 0)
 	}
 	if actual != prepared.resultFingerprint {
-		return h.restoreApplyFailure(ctx, prepared, output, operation.New(operation.KindConflict, "restored target does not match the backup fingerprint"), nil, false, 0)
+		return h.restoreApplyFailure(prepared, output, operation.New(operation.KindConflict, "restored target does not match the backup fingerprint"), nil, false, 0)
 	}
 	output.Restore.ActualFingerprint = actual
 	output.Restore.State = BackupStoreRestoreStateRestored
@@ -322,7 +322,7 @@ func (h *Handler) revalidatePreparedRestoreTarget(ctx context.Context, prepared 
 	return current, nil
 }
 
-func (h *Handler) restoreApplyFailure(ctx context.Context, prepared *preparedRestore, output BackupStoreOutput, cause error, staged *filesystem.StagedReplacement, readOnlyCleared bool, originalMode os.FileMode) (*mcp.CallToolResult, BackupStoreOutput, error) {
+func (h *Handler) restoreApplyFailure(prepared *preparedRestore, output BackupStoreOutput, cause error, staged *filesystem.StagedReplacement, readOnlyCleared bool, originalMode os.FileMode) (*mcp.CallToolResult, BackupStoreOutput, error) {
 	if staged != nil {
 		cause = errors.Join(cause, h.restoreCleanupReplacement(staged))
 	}

@@ -205,7 +205,7 @@ func acquireWriterSlot(directory string, count int) (int, *fileLock, error) {
 }
 
 func (writer *rotatingWriter) prepareOwnedSlot() error {
-	return withMaintenanceLock(writer.cfg.Directory, maintenanceLockWait, func() error {
+	return withMaintenanceLock(writer.cfg.Directory, func() error {
 		if err := finalizeStaleActive(writer.active, writer.slot, writer.cfg, writer.stderr, writer.ops); err != nil {
 			return err
 		}
@@ -301,7 +301,7 @@ func (writer *rotatingWriter) rotateLocked(reopen bool) error {
 	}
 	writer.file = nil
 
-	err := withMaintenanceLock(writer.cfg.Directory, maintenanceLockWait, func() error {
+	err := withMaintenanceLock(writer.cfg.Directory, func() error {
 		archive, err := moveActiveToArchive(writer.active, writer.slot, &writer.sequence, writer.ops)
 		if err != nil {
 			return err
@@ -335,7 +335,7 @@ func (writer *rotatingWriter) disableLocked() {
 }
 
 func (writer *rotatingWriter) finalizeDisabledLocked() error {
-	return withMaintenanceLock(writer.cfg.Directory, maintenanceLockWait, func() error {
+	return withMaintenanceLock(writer.cfg.Directory, func() error {
 		if err := finalizeStaleActive(writer.active, writer.slot, writer.cfg, writer.stderr, writer.ops); err != nil {
 			return err
 		}
@@ -351,7 +351,7 @@ func (writer *rotatingWriter) releaseSlotLocked() {
 }
 
 func runMaintenance(cfg config, stderr io.Writer, ops sinkOps) error {
-	return withMaintenanceLock(cfg.Directory, maintenanceLockWait, func() error {
+	return withMaintenanceLock(cfg.Directory, func() error {
 		for slot := 0; slot < writerSlotCount(cfg); slot++ {
 			lock, acquired, err := tryAcquireFileLock(slotLockPath(cfg.Directory, slot))
 			if err != nil {
@@ -487,8 +487,8 @@ func listArchives(directory string) ([]archiveInfo, error) {
 	return archives, nil
 }
 
-func withMaintenanceLock(directory string, wait time.Duration, action func() error) error {
-	lock, acquired, err := acquireFileLockWithin(maintenanceLockPath(directory), wait)
+func withMaintenanceLock(directory string, action func() error) error {
+	lock, acquired, err := acquireFileLockWithin(maintenanceLockPath(directory), maintenanceLockWait)
 	if err != nil {
 		return err
 	}

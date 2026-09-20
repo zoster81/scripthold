@@ -45,7 +45,7 @@ func withSafeToolResponse[In any](maxInlineBytes int64, store *responsecontinuat
 		}
 		structured, marshalErr := json.Marshal(output)
 		if marshalErr != nil {
-			return compactResponseFailure(result, false, "tool result could not be encoded safely"), responseContinuationOutput{
+			return compactResponseFailure("tool result could not be encoded safely"), responseContinuationOutput{
 				OperationCompleted: true,
 				ResultRetained:     false,
 				OriginalIsError:    result.IsError,
@@ -59,7 +59,7 @@ func withSafeToolResponse[In any](maxInlineBytes int64, store *responsecontinuat
 
 		content, marshalErr := json.Marshal(result.Content)
 		if marshalErr != nil {
-			return compactResponseFailure(result, false, "tool result content could not be retained safely"), responseContinuationOutput{
+			return compactResponseFailure("tool result content could not be retained safely"), responseContinuationOutput{
 				OperationCompleted: true,
 				ResultRetained:     false,
 				OriginalIsError:    result.IsError,
@@ -74,7 +74,7 @@ func withSafeToolResponse[In any](maxInlineBytes int64, store *responsecontinuat
 			IsError:           result.IsError,
 		})
 		if marshalErr != nil {
-			return compactResponseFailure(result, false, "tool result could not be retained safely"), responseContinuationOutput{
+			return compactResponseFailure("tool result could not be retained safely"), responseContinuationOutput{
 				OperationCompleted: true,
 				ResultRetained:     false,
 				OriginalIsError:    result.IsError,
@@ -85,7 +85,7 @@ func withSafeToolResponse[In any](maxInlineBytes int64, store *responsecontinuat
 
 		handle, retainErr := store.Retain(retained, responsecontinuation.Metadata{OriginalIsError: result.IsError, ErrorCode: resultErrorCode(result)})
 		if retainErr != nil {
-			return compactResponseFailure(result, false, "tool result exceeded safe response retention capacity"), responseContinuationOutput{
+			return compactResponseFailure("tool result exceeded safe response retention capacity"), responseContinuationOutput{
 				OperationCompleted: true,
 				ResultRetained:     false,
 				OriginalIsError:    result.IsError,
@@ -143,14 +143,8 @@ func estimatedToolResponseBytes(result *mcp.CallToolResult, structured []byte) i
 	return int64(len(structured) + contentBytes + metaBytes + responseEstimateOverheadBytes)
 }
 
-func compactResponseFailure(original *mcp.CallToolResult, preserveOriginalError bool, message string) *mcp.CallToolResult {
-	meta := cloneMeta(nil)
-	if preserveOriginalError && original != nil {
-		meta = cloneMeta(original.Meta)
-	}
-	if meta == nil {
-		meta = mcp.Meta{}
-	}
+func compactResponseFailure(message string) *mcp.CallToolResult {
+	meta := mcp.Meta{}
 	meta[handler.ErrorCodeMetaKey] = handler.ErrCodeLimit
 	meta["operationCompleted"] = true
 	meta["resultRetained"] = false

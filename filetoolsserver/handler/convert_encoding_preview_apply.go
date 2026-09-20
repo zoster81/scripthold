@@ -121,7 +121,7 @@ func (h *Handler) conversionPreviewPaths(input ConvertEncodingPreviewInput) ([]s
 }
 
 func (h *Handler) prepareEncodingTarget(ctx context.Context, requestedPath string, input ConvertEncodingPreviewInput, targetEncoding string, policy bomPolicy) (preparedByteMutationTarget, ConvertFileResult, error) {
-	target, err := h.readExactMutationTarget(ctx, requestedPath)
+	target, err := h.readExactMutationTarget(requestedPath)
 	if err != nil {
 		return preparedByteMutationTarget{}, ConvertFileResult{}, err
 	}

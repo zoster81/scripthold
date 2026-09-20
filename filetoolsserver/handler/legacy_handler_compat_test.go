@@ -379,7 +379,8 @@ func (h *Handler) HandleEditFile(ctx context.Context, _ *mcp.CallToolRequest, in
 	case editActionApply:
 		return h.handleEditApply(ctx, input.PreviewID)
 	default:
-		return h.handleDirectEdit(ctx, input)
+		result, output := h.handleDirectEdit(ctx, input)
+		return result, output, nil
 	}
 }
 

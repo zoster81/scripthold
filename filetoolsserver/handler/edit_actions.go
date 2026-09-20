@@ -204,16 +204,16 @@ func (h *Handler) prepareEdit(ctx context.Context, input EditFileInput) (prepare
 	return prepared, nil
 }
 
-func (h *Handler) handleDirectEdit(ctx context.Context, input EditFileInput) (*mcp.CallToolResult, EditFileOutput, error) {
+func (h *Handler) handleDirectEdit(ctx context.Context, input EditFileInput) (*mcp.CallToolResult, EditFileOutput) {
 	prepared, failure := h.prepareEdit(ctx, input)
 	if failure != nil {
-		return failure, EditFileOutput{}, nil
+		return failure, EditFileOutput{}
 	}
 	output := editOutputFromPrepared(editActionDirect, prepared)
 	worstCase := output
 	worstCase.ReadOnlyCleared = true
 	if err := h.checkEditResponseLimit(worstCase, prepared.diff+"\nRead-only flag was cleared."); err != nil {
-		return errorResultFromError(err), EditFileOutput{}, nil
+		return errorResultFromError(err), EditFileOutput{}
 	}
 
 	readOnlyCleared := false
@@ -221,7 +221,7 @@ func (h *Handler) handleDirectEdit(ctx context.Context, input EditFileInput) (*m
 		var commitFailure *mcp.CallToolResult
 		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, preparedEditReplacement(&prepared), prepared.sourceSnapshot, prepared.sourceMode)
 		if commitFailure != nil {
-			return commitFailure, EditFileOutput{}, nil
+			return commitFailure, EditFileOutput{}
 		}
 	}
 	output.ReadOnlyCleared = readOnlyCleared
@@ -230,7 +230,7 @@ func (h *Handler) handleDirectEdit(ctx context.Context, input EditFileInput) (*m
 	if readOnlyCleared {
 		text += "\nRead-only flag was cleared."
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output, nil
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output
 }
 
 func (h *Handler) handleEditPreview(ctx context.Context, input EditFileInput) (*mcp.CallToolResult, EditFileOutput, error) {

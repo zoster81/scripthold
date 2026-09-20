@@ -13,7 +13,7 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-func (h *Handler) readExactMutationTarget(ctx context.Context, requestedPath string) (preparedByteMutationTarget, error) {
+func (h *Handler) readExactMutationTarget(requestedPath string) (preparedByteMutationTarget, error) {
 	validation := h.ValidatePath(requestedPath)
 	if !validation.Ok() {
 		return preparedByteMutationTarget{}, validation.Err

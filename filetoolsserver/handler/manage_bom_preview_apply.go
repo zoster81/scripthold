@@ -86,7 +86,7 @@ func (h *Handler) handleManageBOMPreview(ctx context.Context, input ManageBOMRea
 	if err != nil {
 		return errorResultFromError(err), ManageBomOutput{}, nil
 	}
-	target, err := h.readExactMutationTarget(ctx, input.Path)
+	target, err := h.readExactMutationTarget(input.Path)
 	if err != nil {
 		return errorResultFromError(err), ManageBomOutput{}, nil
 	}

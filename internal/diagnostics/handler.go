@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	maxEventMessageBytes = 256
-	maxSafeStringBytes   = 256
+	maxDiagnosticStringBytes = 256
+	maxSafeStringBytes       = maxDiagnosticStringBytes
 )
 
 type redactingHandler struct {
@@ -27,7 +27,7 @@ func (handler *redactingHandler) Enabled(ctx context.Context, level slog.Level) 
 }
 
 func (handler *redactingHandler) Handle(ctx context.Context, record slog.Record) error {
-	clean := slog.NewRecord(record.Time, record.Level, boundedString(record.Message, maxEventMessageBytes), record.PC)
+	clean := slog.NewRecord(record.Time, record.Level, boundedString(record.Message), record.PC)
 	record.Attrs(func(attr slog.Attr) bool {
 		clean.AddAttrs(sanitizeAttr(attr))
 		return true
@@ -44,7 +44,7 @@ func (handler *redactingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 }
 
 func (handler *redactingHandler) WithGroup(name string) slog.Handler {
-	return &redactingHandler{next: handler.next.WithGroup(boundedString(name, maxSafeStringBytes))}
+	return &redactingHandler{next: handler.next.WithGroup(boundedString(name))}
 }
 
 func channelLogger(base *slog.Logger, channel, role string) *slog.Logger {
@@ -52,8 +52,8 @@ func channelLogger(base *slog.Logger, channel, role string) *slog.Logger {
 		return nil
 	}
 	return base.With(
-		"channel", boundedString(channel, maxSafeStringBytes),
-		"role", boundedString(role, maxSafeStringBytes),
+		"channel", boundedString(channel),
+		"role", boundedString(role),
 	)
 }
 
@@ -68,7 +68,7 @@ func sanitizeAttr(attr slog.Attr) slog.Attr {
 	}
 	if isStableErrorCodeKey(key) {
 		if attr.Value.Kind() == slog.KindString {
-			return slog.String(attr.Key, boundedString(attr.Value.String(), maxSafeStringBytes))
+			return slog.String(attr.Key, boundedString(attr.Value.String()))
 		}
 		return slog.String(attr.Key, "[redacted]")
 	}
@@ -88,7 +88,7 @@ func sanitizeAttr(attr slog.Attr) slog.Attr {
 		if !isSafeStringKey(key) {
 			return slog.String(attr.Key, "[redacted]")
 		}
-		return slog.String(attr.Key, boundedString(attr.Value.String(), maxSafeStringBytes))
+		return slog.String(attr.Key, boundedString(attr.Value.String()))
 	case slog.KindBool, slog.KindDuration, slog.KindFloat64, slog.KindInt64, slog.KindTime, slog.KindUint64:
 		return attr
 	default:
@@ -145,7 +145,8 @@ func pathFingerprint(value string) string {
 	return fmt.Sprintf("sha256:%x", digest[:8])
 }
 
-func boundedString(value string, maximum int) string {
+func boundedString(value string) string {
+	maximum := maxDiagnosticStringBytes
 	if maximum <= 0 {
 		return ""
 	}

@@ -74,7 +74,7 @@ func (h *Handler) prepareMarkdownEditApply(ctx context.Context, prepared prepare
 	if failure != nil {
 		return markdownEditApplyPlan{}, failure
 	}
-	resultData, failure := materializeMarkdownEditApplyResult(prepared, document, sourceData, path)
+	resultData, failure := materializeMarkdownEditApplyResult(prepared, document, sourceData)
 	if failure != nil {
 		return markdownEditApplyPlan{}, failure
 	}
@@ -128,7 +128,7 @@ func (h *Handler) readMarkdownEditApplySource(ctx context.Context, prepared prep
 	return document, sourceData, currentFingerprint, nil
 }
 
-func materializeMarkdownEditApplyResult(prepared preparedMarkdownEdit, document textDocument, sourceData []byte, path string) ([]byte, *mcp.CallToolResult) {
+func materializeMarkdownEditApplyResult(prepared preparedMarkdownEdit, document textDocument, sourceData []byte) ([]byte, *mcp.CallToolResult) {
 	currentUTF8 := []byte(document.Text)
 	resultUTF8, err := prepared.semantic.Apply(currentUTF8)
 	if err != nil {
