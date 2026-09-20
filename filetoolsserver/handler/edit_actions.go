@@ -283,10 +283,10 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	if err != nil {
 		return errorResultFromError(err), EditFileOutput{}, nil
 	}
-	prepared := preview.plan.targets[0].prepared
-	if prepared.identityFile != nil {
-		defer prepared.identityFile.Close()
-	}
+	target := &preview.plan.targets[0]
+	prepared := &target.prepared
+	replacement := preparedEditPlanReplacement(target)
+	defer preview.plan.close()
 	if err := ctx.Err(); err != nil {
 		cancelled := operation.Wrap(operation.KindCancelled, "apply_edit_preview", prepared.resolvedPath, err)
 		return errorResultFromError(cancelled), EditFileOutput{}, nil
@@ -383,22 +383,21 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	readOnlyCleared := false
 	if prepared.changed {
 		var commitFailure *mcp.CallToolResult
-		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, prepared, current, current.Mode.Perm())
+		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, *prepared, current, current.Mode.Perm())
 		if commitFailure != nil {
-			return h.classifyEditApplyFailure(prepared, output, commitFailure)
+			return h.classifyEditApplyFailure(replacement, output, commitFailure)
 		}
 		output.ReadOnlyCleared = readOnlyCleared
 	}
-	post, err := filesystem.CaptureSnapshotWithDigest(validation.Path)
+	// A successful commit still needs observed-state verification even if the request
+	// was cancelled while the filesystem commit was completing.
+	actualFingerprint, err := h.verifyExistingFileReplacementCommitted(
+		context.Background(),
+		replacement,
+		"applied file does not match the prepared result fingerprint",
+	)
 	if err != nil {
-		return h.classifyEditApplyFailure(prepared, output, errorResultFromError(err))
-	}
-	actualFingerprint, err := filesystem.FingerprintRegularFileSnapshot(post)
-	if err != nil {
-		return h.classifyEditApplyFailure(prepared, output, errorResultFromError(err))
-	}
-	if actualFingerprint != prepared.resultFingerprint {
-		return h.classifyEditApplyFailure(prepared, output, errorResultWithCode(ErrCodeConflict, "applied file does not match the prepared result fingerprint"))
+		return h.classifyEditApplyFailure(replacement, output, errorResultFromError(err))
 	}
 	output.ReadOnlyCleared = readOnlyCleared
 	output.ActualFingerprint = actualFingerprint
@@ -416,7 +415,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, output, nil
 }
 
-func (h *Handler) classifyEditApplyFailure(prepared preparedEdit, output EditFileOutput, failure *mcp.CallToolResult) (*mcp.CallToolResult, EditFileOutput, error) {
+func (h *Handler) classifyEditApplyFailure(replacement preparedExistingFileReplacement, output EditFileOutput, failure *mcp.CallToolResult) (*mcp.CallToolResult, EditFileOutput, error) {
 	output.Applied = false
 	output.State = editApplyStateUnknown
 	output.ActualFingerprint = ""
@@ -424,13 +423,7 @@ func (h *Handler) classifyEditApplyFailure(prepared preparedEdit, output EditFil
 
 	classificationCtx, cancel := context.WithTimeout(context.Background(), editApplyClassificationTimeout)
 	defer cancel()
-	state, actual, _ := h.classifyExistingFileReplacement(classificationCtx, preparedExistingFileReplacement{
-		requestedPath:     prepared.requestedPath,
-		resolvedPath:      prepared.resolvedPath,
-		targetFingerprint: prepared.targetFingerprint,
-		resultFingerprint: prepared.resultFingerprint,
-		changed:           prepared.changed,
-	})
+	state, actual, _ := h.classifyExistingFileReplacement(classificationCtx, replacement)
 	output.ActualFingerprint = actual
 	switch state {
 	case existingFileReplacementStateUnchanged:
@@ -438,10 +431,10 @@ func (h *Handler) classifyEditApplyFailure(prepared preparedEdit, output EditFil
 		output.Changed = false
 	case existingFileReplacementStateCommitted:
 		output.State = editApplyStateCommitted
-		output.Changed = prepared.changed
+		output.Changed = replacement.changed
 	default:
 		output.State = editApplyStateUnknown
-		output.Changed = actual != "" && actual != prepared.targetFingerprint
+		output.Changed = actual != "" && actual != replacement.targetFingerprint
 	}
 
 	if output.State == editApplyStateUnchanged {

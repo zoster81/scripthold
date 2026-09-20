@@ -62,6 +62,41 @@ func TestEditApplyClassifiesPostCommitFailureFromActualDiskState(t *testing.T) {
 	}
 }
 
+func TestEditApplyPreservesPostCommitVerificationAfterRequestCancellation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(path, []byte("alpha"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	_, preview, err := h.HandleEditFile(context.Background(), nil, EditFileInput{
+		Action: editActionPreview,
+		Path:   path,
+		Edits:  []EditOperation{{OldText: "alpha", NewText: "omega"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	originalReplace := h.replaceFile
+	h.replaceFile = func(path string, data []byte, options filesystem.ReplaceOptions) error {
+		err := originalReplace(path, data, options)
+		cancel()
+		return err
+	}
+
+	result, output, err := h.HandleEditFile(ctx, nil, EditFileInput{
+		Action:    editActionApply,
+		PreviewID: preview.PreviewID,
+	})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("apply result=%+v output=%+v err=%v", result, output, err)
+	}
+	if output.State != editApplyStateCommitted || !output.Changed || !output.Applied || output.ActualFingerprint != preview.ResultFingerprint {
+		t.Fatalf("output=%+v, want committed successful result", output)
+	}
+}
+
 func TestEditApplyClassifiesPreCommitWriteFailureAsUnchanged(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "target.txt")
