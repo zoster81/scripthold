@@ -109,6 +109,12 @@ Diagnostics are intentionally separated by responsibility.
 
 Logging must degrade safely when an optional file sink fails; it must not change the result of the underlying MCP operation.
 
+## Verified self-update status
+
+The public self-update surface currently exposes only the read-only `scripthold update status` command. It runs before normal MCP server configuration and composes two independent observations: local standalone-installation evidence and the existing cached GitHub release check. Local state remains authoritative for adoption, installed-byte verification, pending/recovery state, and recovery availability; a remote release response never changes those conclusions.
+
+For adopted installations, release comparison uses only the semantic version proven for the currently installed bytes. A fully verified committed candidate is therefore compared as the candidate version even before finalization updates durable `current` state. If installed bytes cannot be assigned a verified semantic version, the remote check is suppressed. The status command performs no adoption, executable replacement, rollback, recovery, state cleanup, or other installation mutation; mutating self-update commands are not yet public.
+
 ## Configuration and limits
 
 Configuration is startup authority. Invalid values fail closed or fall back only where the specific configuration contract defines a safe default. Client-provided bounds may narrow server ceilings but must not enlarge them.

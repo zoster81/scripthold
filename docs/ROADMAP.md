@@ -27,6 +27,8 @@ Add a failure-safe update lifecycle: discover a release, select the correct plat
 
 Installation state remains separate from the persistent user-file backup store. Interrupted or invalid updates must leave a usable installation or an explicit recoverable state.
 
+The read-only `scripthold update status` command is available on the development branch. Public adoption, update, and recovery mutations remain part of this milestone and are not yet exposed.
+
 ### Source-intelligence completion
 
 Improve analyzer accuracy, trustworthy missing relationships, detection/provider quality, scale, index/query usefulness, and regression corpora without adding mutation authority to Source Intelligence.
