@@ -75,6 +75,9 @@ func admitStableProcessWith(
 	if observed != state.Current {
 		return nil, errors.New("installed executable does not match verified current state")
 	}
+	if err := cleanupFinalizedTransactionLocked(boundary, inspection, state, control); err != nil {
+		return nil, fmt.Errorf("cleanup finalized update transaction: %w", err)
+	}
 	if err := control.Validate(boundary.ControlLockPath); err != nil {
 		return nil, fmt.Errorf("revalidate installation control lock: %w", err)
 	}

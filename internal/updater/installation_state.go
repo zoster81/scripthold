@@ -23,10 +23,11 @@ const (
 )
 
 type installationState struct {
-	FormatVersion int                       `json:"formatVersion"`
-	Target        installationTargetState   `json:"target"`
-	Current       installationCurrentState  `json:"current"`
-	Pending       *installationPendingState `json:"pending,omitempty"`
+	FormatVersion int                        `json:"formatVersion"`
+	Target        installationTargetState    `json:"target"`
+	Current       installationCurrentState   `json:"current"`
+	Pending       *installationPendingState  `json:"pending,omitempty"`
+	Terminal      *installationTerminalState `json:"terminal,omitempty"`
 }
 
 type installationTargetState struct {
@@ -64,6 +65,18 @@ type installationPendingState struct {
 	Tag              string                    `json:"tag"`
 	Commit           string                    `json:"commit"`
 }
+
+type installationTerminalState struct {
+	TransactionID  string `json:"transactionId"`
+	Outcome        string `json:"outcome"`
+	SourceSHA256   string `json:"sourceSha256"`
+	CleanupPending bool   `json:"cleanupPending"`
+}
+
+const (
+	terminalOutcomeCommitted  = "committed"
+	terminalOutcomeRolledBack = "rolled_back"
+)
 
 func encodeInstallationState(state installationState) ([]byte, error) {
 	if err := validateInstallationStateSyntax(state); err != nil {
@@ -151,6 +164,11 @@ func validateInstallationStateSyntax(state installationState) error {
 			return err
 		}
 	}
+	if state.Terminal != nil {
+		if err := validateTerminalState(*state.Terminal, state.Current, state.Pending != nil); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -194,6 +212,31 @@ func validatePendingState(pending installationPendingState, current installation
 	return nil
 }
 
+func validateTerminalState(terminal installationTerminalState, current installationCurrentState, pending bool) error {
+	if err := validateTransactionID(terminal.TransactionID); err != nil {
+		return fmt.Errorf("terminal transaction ID is invalid: %w", err)
+	}
+	if _, err := parseGitHubSHA256("sha256:" + terminal.SourceSHA256); err != nil {
+		return fmt.Errorf("terminal source SHA-256 is invalid: %w", err)
+	}
+	if terminal.CleanupPending && pending {
+		return errors.New("terminal cleanup cannot remain pending while an update transaction is active")
+	}
+	switch terminal.Outcome {
+	case terminalOutcomeCommitted:
+		if terminal.SourceSHA256 == current.SHA256 {
+			return errors.New("committed terminal source digest must differ from current digest")
+		}
+	case terminalOutcomeRolledBack:
+		if terminal.SourceSHA256 != current.SHA256 {
+			return errors.New("rolled-back terminal source digest must match current digest")
+		}
+	default:
+		return fmt.Errorf("unsupported terminal outcome %q", terminal.Outcome)
+	}
+	return nil
+}
+
 func validateTransactionID(transactionID string) error {
 	if len(transactionID) != 64 || transactionID != strings.ToLower(transactionID) {
 		return errors.New("pending transaction ID must be 64 lowercase hexadecimal characters")
@@ -209,9 +252,16 @@ func installationStatesEqual(left, right installationState) bool {
 		return false
 	}
 	if left.Pending == nil || right.Pending == nil {
-		return left.Pending == nil && right.Pending == nil
+		if left.Pending != nil || right.Pending != nil {
+			return false
+		}
+	} else if *left.Pending != *right.Pending {
+		return false
 	}
-	return *left.Pending == *right.Pending
+	if left.Terminal == nil || right.Terminal == nil {
+		return left.Terminal == nil && right.Terminal == nil
+	}
+	return *left.Terminal == *right.Terminal
 }
 
 func validateInstallationState(state installationState, inspection *StandaloneInspection) error {
@@ -272,6 +322,14 @@ func persistInstallationState(boundary *InstallationBoundary, inspection *Standa
 }
 
 func persistInstallationStateLocked(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState, requireMissing bool, expectedExisting *installationState) error {
+	return persistInstallationStateLockedWithExistingValidation(boundary, inspection, state, requireMissing, expectedExisting, true)
+}
+
+func persistReconciledStableStateLocked(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState, expectedExisting installationState) error {
+	return persistInstallationStateLockedWithExistingValidation(boundary, inspection, state, false, &expectedExisting, false)
+}
+
+func persistInstallationStateLockedWithExistingValidation(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState, requireMissing bool, expectedExisting *installationState, requireExistingTargetIdentity bool) error {
 	if err := validateInstallationBoundary(boundary, inspection); err != nil {
 		return err
 	}
@@ -300,7 +358,7 @@ func persistInstallationStateLocked(boundary *InstallationBoundary, inspection *
 		if decodeErr != nil {
 			return fmt.Errorf("decode existing installation state: %w", decodeErr)
 		}
-		if validateErr := validateInstallationState(existingState, inspection); validateErr != nil {
+		if validateErr := validateInstallationStateBinding(existingState, inspection, requireExistingTargetIdentity); validateErr != nil {
 			return fmt.Errorf("validate existing installation state: %w", validateErr)
 		}
 		if expectedExisting != nil && !installationStatesEqual(existingState, *expectedExisting) {
