@@ -317,6 +317,14 @@ func stageReplacement(target string, source io.Reader, mode fs.FileMode, modTime
 	}, nil
 }
 
+// RestrictOwnerOnly makes the staged file owner-only before namespace publication.
+func (staged *StagedReplacement) RestrictOwnerOnly() error {
+	if staged == nil || staged.tempPath == "" {
+		return errors.New("staged replacement is not available")
+	}
+	return RestrictOwnerOnlyPath(staged.tempPath, false)
+}
+
 // Commit verifies expected state, optionally suppresses a byte-identical
 // replacement, and installs the staged file through the durable mutation path.
 // A staged replacement is single-use.

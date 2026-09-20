@@ -22,3 +22,12 @@ func RestrictOwnerOnlyPath(path string, directory bool) error {
 func ValidateOwnerOnlyPath(path string, directory bool) error {
 	return validateOwnerOnlyPath(path, directory)
 }
+
+// ReadOwnerOnlyFileBounded reads one existing owner-only regular single-link file
+// without following links and rejects data above maxBytes.
+func ReadOwnerOnlyFileBounded(path string, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return nil, errors.New("owner-only read limit must be positive")
+	}
+	return readOwnerOnlyFileBounded(path, maxBytes)
+}

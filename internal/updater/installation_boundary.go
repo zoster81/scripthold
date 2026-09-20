@@ -18,9 +18,10 @@ const (
 // InstallationBoundary identifies the owner-only sibling state root for one
 // inspected standalone executable. It contains no update transaction state.
 type InstallationBoundary struct {
-	Directory       string
-	ControlLockPath string
-	UseLockPath     string
+	Directory         string
+	ControlLockPath   string
+	UseLockPath       string
+	directoryIdentity filesystem.ObjectIdentity
 }
 
 func openInstallationBoundary(inspection *StandaloneInspection, create bool) (*InstallationBoundary, error) {
@@ -76,9 +77,10 @@ func openInstallationBoundary(inspection *StandaloneInspection, create bool) (*I
 	}
 
 	boundary := &InstallationBoundary{
-		Directory:       directory,
-		ControlLockPath: filepath.Join(directory, controlLockName),
-		UseLockPath:     filepath.Join(directory, useLockName),
+		Directory:         directory,
+		ControlLockPath:   filepath.Join(directory, controlLockName),
+		UseLockPath:       filepath.Join(directory, useLockName),
+		directoryIdentity: directoryIdentity,
 	}
 	for _, lockPath := range []string{boundary.ControlLockPath, boundary.UseLockPath} {
 		if create {

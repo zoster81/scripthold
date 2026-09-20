@@ -5,6 +5,8 @@ package filesystem
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"runtime"
 	"unsafe"
 
@@ -328,4 +330,63 @@ func (lock *OwnerOnlyFileLock) Close() error {
 	lock.handle = 0
 	lock.identity = windows.ByHandleFileInformation{}
 	return errors.Join(unlockErr, closeErr)
+}
+
+func readOwnerOnlyFileBounded(path string, maxBytes int64) ([]byte, error) {
+	pathPtr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := windows.CreateFile(
+		pathPtr,
+		windows.GENERIC_READ|windows.READ_CONTROL,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(handle), path)
+	if file == nil {
+		_ = windows.CloseHandle(handle)
+		return nil, os.ErrInvalid
+	}
+	defer file.Close()
+	var identity windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &identity); err != nil {
+		return nil, err
+	}
+	if identity.FileAttributes&(windows.FILE_ATTRIBUTE_REPARSE_POINT|windows.FILE_ATTRIBUTE_DIRECTORY) != 0 || identity.NumberOfLinks != 1 {
+		return nil, errors.New("owner-only file is not a single-link regular file")
+	}
+	if err := validateOwnerOnlyHandle(handle); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, errors.New("owner-only file exceeds its size limit")
+	}
+	pathHandle, err := openOwnerOnlyMetadataHandle(path, false, false)
+	if err != nil {
+		return nil, err
+	}
+	defer windows.CloseHandle(pathHandle)
+	var current windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(pathHandle, &current); err != nil {
+		return nil, err
+	}
+	if !sameWindowsFileIdentity(identity, current) || current.NumberOfLinks != 1 ||
+		current.FileAttributes&(windows.FILE_ATTRIBUTE_REPARSE_POINT|windows.FILE_ATTRIBUTE_DIRECTORY) != 0 {
+		return nil, errors.New("owner-only file identity changed during read")
+	}
+	if err := validateOwnerOnlyHandle(pathHandle); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
