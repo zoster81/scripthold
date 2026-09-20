@@ -493,29 +493,89 @@ func cFamilyStructuralMacroParameters(value string) bool {
 	return true
 }
 
-func cFamilyReduceMacroDelimiterEffect(body string, effects map[string]cFamilyMacroStructuralEffect) ([]string, []string, bool) {
-	prefix := make([]string, 0, 4)
-	stack := make([]string, 0, 8)
-	apply := func(effect cFamilyMacroStructuralEffect) bool {
-		for _, close := range effect.prefixClosers {
-			if len(stack) == 0 {
-				prefix = append(prefix, close)
-				continue
-			}
-			if !cFamilyDelimiterMatches(stack[len(stack)-1], close) {
-				return false
-			}
-			stack = stack[:len(stack)-1]
-		}
-		for _, open := range effect.suffixOpeners {
-			if len(stack) >= 64 {
-				return false
-			}
-			stack = append(stack, open)
-		}
-		return true
-	}
+type cFamilyMacroDelimiterReducer struct {
+	prefix  []string
+	stack   []string
+	effects map[string]cFamilyMacroStructuralEffect
+}
 
+func newCFamilyMacroDelimiterReducer(effects map[string]cFamilyMacroStructuralEffect) cFamilyMacroDelimiterReducer {
+	return cFamilyMacroDelimiterReducer{
+		prefix:  make([]string, 0, 4),
+		stack:   make([]string, 0, 8),
+		effects: effects,
+	}
+}
+
+func (reducer *cFamilyMacroDelimiterReducer) applyEffect(effect cFamilyMacroStructuralEffect) bool {
+	for _, close := range effect.prefixClosers {
+		if len(reducer.stack) == 0 {
+			reducer.prefix = append(reducer.prefix, close)
+			continue
+		}
+		if !cFamilyDelimiterMatches(reducer.stack[len(reducer.stack)-1], close) {
+			return false
+		}
+		reducer.stack = reducer.stack[:len(reducer.stack)-1]
+	}
+	for _, open := range effect.suffixOpeners {
+		if len(reducer.stack) >= 64 {
+			return false
+		}
+		reducer.stack = append(reducer.stack, open)
+	}
+	return true
+}
+
+func (reducer *cFamilyMacroDelimiterReducer) consumeIdentifier(body string, index int) (int, bool) {
+	end := index + 1
+	for end < len(body) && cFamilyMacroIdentifierContinue(body[end]) {
+		end++
+	}
+	effect, ok := reducer.effects[body[index:end]]
+	if !ok {
+		return end - 1, true
+	}
+	if effect.functionLike {
+		cursor := end
+		for cursor < len(body) && (body[cursor] == ' ' || body[cursor] == '\t') {
+			cursor++
+		}
+		return end - 1, cursor >= len(body) || body[cursor] != '('
+	}
+	return end - 1, reducer.applyEffect(effect)
+}
+
+func (reducer *cFamilyMacroDelimiterReducer) consumeDelimiter(current byte) bool {
+	switch current {
+	case '(', '[', '{':
+		if len(reducer.stack) >= 64 {
+			return false
+		}
+		reducer.stack = append(reducer.stack, string(current))
+	case ')', ']', '}':
+		close := string(current)
+		if len(reducer.stack) == 0 {
+			reducer.prefix = append(reducer.prefix, close)
+			return true
+		}
+		if !cFamilyDelimiterMatches(reducer.stack[len(reducer.stack)-1], close) {
+			return false
+		}
+		reducer.stack = reducer.stack[:len(reducer.stack)-1]
+	}
+	return true
+}
+
+func (reducer *cFamilyMacroDelimiterReducer) result() ([]string, []string, bool) {
+	if len(reducer.prefix)+len(reducer.stack) > 64 {
+		return nil, nil, false
+	}
+	return reducer.prefix, append([]string(nil), reducer.stack...), true
+}
+
+func cFamilyReduceMacroDelimiterEffect(body string, effects map[string]cFamilyMacroStructuralEffect) ([]string, []string, bool) {
+	reducer := newCFamilyMacroDelimiterReducer(effects)
 	var quote byte
 	lineComment, blockComment := false, false
 	for index := 0; index < len(body); index++ {
@@ -573,49 +633,21 @@ func cFamilyReduceMacroDelimiterEffect(body string, effects map[string]cFamilyMa
 			return nil, nil, false
 		}
 		if cFamilyMacroIdentifierStart(current) {
-			end := index + 1
-			for end < len(body) && cFamilyMacroIdentifierContinue(body[end]) {
-				end++
+			var ok bool
+			index, ok = reducer.consumeIdentifier(body, index)
+			if !ok {
+				return nil, nil, false
 			}
-			name := body[index:end]
-			if effect, ok := effects[name]; ok {
-				if effect.functionLike {
-					cursor := end
-					for cursor < len(body) && (body[cursor] == ' ' || body[cursor] == '\t') {
-						cursor++
-					}
-					if cursor < len(body) && body[cursor] == '(' {
-						return nil, nil, false
-					}
-				} else if !apply(effect) {
-					return nil, nil, false
-				}
-			}
-			index = end - 1
 			continue
 		}
-		switch current {
-		case '(', '[', '{':
-			if len(stack) >= 64 {
-				return nil, nil, false
-			}
-			stack = append(stack, string(current))
-		case ')', ']', '}':
-			close := string(current)
-			if len(stack) == 0 {
-				prefix = append(prefix, close)
-				continue
-			}
-			if !cFamilyDelimiterMatches(stack[len(stack)-1], close) {
-				return nil, nil, false
-			}
-			stack = stack[:len(stack)-1]
+		if !reducer.consumeDelimiter(current) {
+			return nil, nil, false
 		}
 	}
-	if quote != 0 || blockComment || len(prefix)+len(stack) > 64 {
+	if quote != 0 || blockComment {
 		return nil, nil, false
 	}
-	return prefix, append([]string(nil), stack...), true
+	return reducer.result()
 }
 
 func cFamilyStructuralMacroInvocationEnd(tokens []Token, start int) (int, bool) {
