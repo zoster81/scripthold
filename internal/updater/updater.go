@@ -40,39 +40,87 @@ type cache struct {
 	LatestVersion string    `json:"latestVersion"`
 }
 
-// Check checks for updates and returns a notification message if available.
-// Returns empty string if: no update, disabled via MCP_NO_UPDATE_CHECK=1, dev version, or error.
-// If force is true, the cache is bypassed and a fresh check is performed.
-func Check(ctx context.Context, currentVersion string, force bool) string {
+// ReleaseCheckResult is the structured result of the legacy remote release
+// check. It does not change the existing cache, network, or notification policy.
+type ReleaseCheckResult struct {
+	CurrentVersion  string
+	LatestVersion   string
+	UpdateAvailable bool
+	UpdateMessage   string
+}
+
+type releaseCheckDeps struct {
+	cacheFile   string
+	now         func() time.Time
+	readCache   func(string) *cache
+	writeCache  func(string, string) error
+	fetchLatest func(context.Context) (string, error)
+}
+
+// CheckRelease performs the existing cached remote release check and returns
+// structured metadata for internal composition. Legacy failures remain silent.
+func CheckRelease(ctx context.Context, currentVersion string, force bool) ReleaseCheckResult {
+	result := ReleaseCheckResult{CurrentVersion: currentVersion}
 	if os.Getenv("MCP_NO_UPDATE_CHECK") == "1" || currentVersion == "dev" || currentVersion == "" {
-		return ""
+		return result
+	}
+	return checkReleaseWith(ctx, currentVersion, force, releaseCheckDeps{
+		cacheFile:   getCacheFile(),
+		now:         time.Now,
+		readCache:   readCache,
+		writeCache:  writeCache,
+		fetchLatest: fetchLatestVersion,
+	})
+}
+
+func checkReleaseWith(ctx context.Context, currentVersion string, force bool, deps releaseCheckDeps) ReleaseCheckResult {
+	result := ReleaseCheckResult{CurrentVersion: currentVersion}
+	if deps.now == nil {
+		deps.now = time.Now
+	}
+	if deps.readCache == nil {
+		deps.readCache = readCache
+	}
+	if deps.writeCache == nil {
+		deps.writeCache = writeCache
+	}
+	if deps.fetchLatest == nil {
+		deps.fetchLatest = fetchLatestVersion
 	}
 
-	cacheFile := getCacheFile()
 	latestVersion := ""
 	cacheHit := false
 	if !force {
-		if cached := readCache(cacheFile); cacheIsFresh(cached, time.Now()) {
+		if cached := deps.readCache(deps.cacheFile); cacheIsFresh(cached, deps.now()) {
 			latestVersion = cached.LatestVersion
 			cacheHit = true
 		}
 	}
-
 	if !cacheHit {
 		var err error
-		latestVersion, err = fetchLatestVersion(ctx)
+		latestVersion, err = deps.fetchLatest(ctx)
 		if err != nil {
-			// An empty fresh entry suppresses repeated offline requests until the interval elapses.
-			_ = writeCache(cacheFile, "")
-			return ""
+			// Preserve the legacy behavior: cache an empty fresh entry so repeated
+			// offline requests are suppressed until the interval elapses.
+			_ = deps.writeCache(deps.cacheFile, "")
+			return result
 		}
-		_ = writeCache(cacheFile, latestVersion)
+		_ = deps.writeCache(deps.cacheFile, latestVersion)
 	}
 
-	if isNewerVersion(latestVersion, currentVersion) {
-		return updateMessage(currentVersion, latestVersion)
+	result.LatestVersion = latestVersion
+	result.UpdateAvailable = isNewerVersion(latestVersion, currentVersion)
+	if result.UpdateAvailable {
+		result.UpdateMessage = updateMessage(currentVersion, latestVersion)
 	}
-	return ""
+	return result
+}
+
+// Check checks for updates and returns a notification message if available.
+// Returns empty string if: no update, disabled via MCP_NO_UPDATE_CHECK=1, dev version, or error.
+// If force is true, the cache is bypassed and a fresh check is performed.
+func Check(ctx context.Context, currentVersion string, force bool) string {
+	return CheckRelease(ctx, currentVersion, force).UpdateMessage
 }
 
 func fetchLatestVersion(ctx context.Context) (string, error) {

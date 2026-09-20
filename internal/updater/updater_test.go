@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -189,5 +190,108 @@ func TestUpdateMessageFormat(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(msg), "claude") {
 		t.Errorf("message must be client-neutral: %q", msg)
+	}
+}
+
+func TestCheckReleaseStructuredResultUsesFreshCache(t *testing.T) {
+	now := time.Now().UTC()
+	fetchCalled := false
+	writeCalled := false
+	result := checkReleaseWith(context.Background(), "2.0.0", false, releaseCheckDeps{
+		cacheFile: "ignored",
+		now:       func() time.Time { return now },
+		readCache: func(string) *cache {
+			return &cache{
+				Source:        UpdateCheckURL,
+				LastCheck:     now.Add(-time.Minute),
+				LatestVersion: "2.1.0",
+			}
+		},
+		writeCache: func(string, string) error {
+			writeCalled = true
+			return nil
+		},
+		fetchLatest: func(context.Context) (string, error) {
+			fetchCalled = true
+			return "9.9.9", nil
+		},
+	})
+	if fetchCalled || writeCalled {
+		t.Fatalf("fresh cache performed remote/write work: fetch=%v write=%v", fetchCalled, writeCalled)
+	}
+	if result.CurrentVersion != "2.0.0" || result.LatestVersion != "2.1.0" ||
+		!result.UpdateAvailable || result.UpdateMessage != updateMessage("2.0.0", "2.1.0") {
+		t.Fatalf("unexpected structured result: %#v", result)
+	}
+}
+
+func TestCheckReleaseStructuredResultPreservesFetchAndCachePolicy(t *testing.T) {
+	t.Run("forced success", func(t *testing.T) {
+		readCalled := false
+		var written string
+		result := checkReleaseWith(context.Background(), "2.0.0", true, releaseCheckDeps{
+			cacheFile: "cache",
+			now:       time.Now,
+			readCache: func(string) *cache {
+				readCalled = true
+				return nil
+			},
+			writeCache: func(_ string, version string) error {
+				written = version
+				return errors.New("ignored cache write failure")
+			},
+			fetchLatest: func(context.Context) (string, error) {
+				return "2.0.0", nil
+			},
+		})
+		if readCalled {
+			t.Fatal("forced check unexpectedly read cache")
+		}
+		if written != "2.0.0" {
+			t.Fatalf("cached version = %q, want fetched version", written)
+		}
+		if result.CurrentVersion != "2.0.0" || result.LatestVersion != "2.0.0" ||
+			result.UpdateAvailable || result.UpdateMessage != "" {
+			t.Fatalf("unexpected no-update result: %#v", result)
+		}
+	})
+
+	t.Run("fetch failure", func(t *testing.T) {
+		var written string
+		result := checkReleaseWith(context.Background(), "2.0.0", true, releaseCheckDeps{
+			cacheFile: "cache",
+			writeCache: func(_ string, version string) error {
+				written = version
+				return nil
+			},
+			fetchLatest: func(context.Context) (string, error) {
+				return "", errors.New("offline")
+			},
+		})
+		if written != "" {
+			t.Fatalf("failed fetch cached %q, want empty failure sentinel", written)
+		}
+		if result.CurrentVersion != "2.0.0" || result.LatestVersion != "" ||
+			result.UpdateAvailable || result.UpdateMessage != "" {
+			t.Fatalf("legacy failure was not silent: %#v", result)
+		}
+	})
+}
+
+func TestCheckReleaseDisabledAndDevelopmentVersionsRemainSilent(t *testing.T) {
+	t.Setenv("MCP_NO_UPDATE_CHECK", "1")
+	result := CheckRelease(context.Background(), "2.0.0", true)
+	if result.CurrentVersion != "2.0.0" || result.LatestVersion != "" ||
+		result.UpdateAvailable || result.UpdateMessage != "" {
+		t.Fatalf("disabled result = %#v", result)
+	}
+
+	t.Setenv("MCP_NO_UPDATE_CHECK", "")
+	for _, version := range []string{"dev", ""} {
+		result = CheckRelease(context.Background(), version, true)
+		if result.CurrentVersion != version || result.LatestVersion != "" ||
+			result.UpdateAvailable || result.UpdateMessage != "" {
+			t.Fatalf("development result for %q = %#v", version, result)
+		}
 	}
 }
