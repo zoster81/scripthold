@@ -114,6 +114,109 @@ func (h *Handler) sourceLimits() config.SourceConfig {
 	return limits
 }
 
+func (h *Handler) collectSourceSymbolFiles(
+	ctx context.Context,
+	input SourceSymbolsInput,
+	maxFiles int,
+	limits config.SourceConfig,
+) ([]string, bool, *mcp.CallToolResult) {
+	validatedRoots := make([]string, 0, len(input.Paths))
+	for _, path := range input.Paths {
+		validated := h.ValidatePath(path)
+		if !validated.Ok() {
+			return nil, false, validated.Result
+		}
+		if _, err := os.Stat(validated.Path); err != nil {
+			return nil, false, errorResultFromError(operation.Wrap(operation.KindNotFound, "source_symbols", validated.Path, err))
+		}
+		validatedRoots = append(validatedRoots, validated.Path)
+	}
+	files, collectErr := h.collectFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore))
+	if collectErr != nil {
+		return nil, false, errorResultFromError(collectErr)
+	}
+	sort.Strings(files)
+	files = deduplicateSortedPaths(files)
+	selectionTruncated := false
+	if len(files) > maxFiles {
+		files = files[:maxFiles]
+		selectionTruncated = true
+	}
+	var aggregateBytes int64
+	for _, path := range files {
+		info, err := os.Stat(path)
+		if err != nil || info.Size() > limits.MaxFileBytes {
+			continue
+		}
+		if info.Size() > limits.MaxAggregateBytes-aggregateBytes {
+			return nil, false, errorResultWithCode(ErrCodeLimit, fmt.Sprintf("selected source bytes exceed aggregate limit %d", limits.MaxAggregateBytes))
+		}
+		aggregateBytes += info.Size()
+	}
+	return files, selectionTruncated, nil
+}
+
+func buildSourceSymbolsOutput(
+	operationName string,
+	input SourceSymbolsInput,
+	filesConsidered int,
+	selectionTruncated bool,
+	analyses []sourceFileAnalysis,
+	maxSymbols int,
+) SourceSymbolsOutput {
+	output := SourceSymbolsOutput{
+		Operation: operationName, CoordinateSystem: sourceCoordinateSystem,
+		FilesConsidered: filesConsidered, CoverageComplete: !selectionTruncated, Truncated: selectionTruncated,
+	}
+	kindFilter := make(map[string]struct{}, len(input.Kinds))
+	for _, kind := range input.Kinds {
+		kindFilter[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
+	}
+	for _, current := range analyses {
+		output.Files = append(output.Files, current.file)
+		if current.file.Status != "parsed" {
+			output.FilesSkipped++
+			output.CoverageComplete = false
+			continue
+		}
+		output.FilesParsed++
+		if !current.file.CoverageComplete {
+			output.CoverageComplete = false
+		}
+		switch operationName {
+		case "digest":
+			output.Digests = append(output.Digests, buildSourceDigest(current))
+		case "outline", "find":
+			for _, symbol := range current.analysis.Analysis.Symbols {
+				if len(kindFilter) > 0 {
+					if _, ok := kindFilter[strings.ToLower(string(symbol.Kind))]; !ok {
+						continue
+					}
+				}
+				if operationName == "find" && !sourceSymbolMatches(symbol, input.Query, input.Match) {
+					continue
+				}
+				if len(output.Symbols) >= maxSymbols {
+					output.Truncated = true
+					output.CoverageComplete = false
+					break
+				}
+				output.Symbols = append(output.Symbols, symbol)
+			}
+		}
+	}
+	output.SymbolCount = len(output.Symbols)
+	if operationName == "find" && len(output.Symbols) > 1 {
+		output.Ambiguous = true
+	}
+	if operationName == "digest" {
+		for _, current := range analyses {
+			output.SymbolCount += len(current.analysis.Analysis.Symbols)
+		}
+	}
+	return output
+}
+
 func resolvePositiveLimit(requested, maximum int, name string) (int, *mcp.CallToolResult) {
 	if maximum <= 0 {
 		return 0, errorResultWithCode(ErrCodeInternal, name+" server limit is invalid")

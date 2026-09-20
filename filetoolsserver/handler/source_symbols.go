@@ -3,15 +3,12 @@ package handler
 import (
 	"context"
 	"fmt"
-	"os"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/concurrency"
-	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
@@ -63,38 +60,9 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 	defer cancel()
 
-	validatedRoots := make([]string, 0, len(input.Paths))
-	for _, path := range input.Paths {
-		validated := h.ValidatePath(path)
-		if !validated.Ok() {
-			return validated.Result, SourceSymbolsOutput{}, nil
-		}
-		if _, err := os.Stat(validated.Path); err != nil {
-			return errorResultFromError(operation.Wrap(operation.KindNotFound, "source_symbols", validated.Path, err)), SourceSymbolsOutput{}, nil
-		}
-		validatedRoots = append(validatedRoots, validated.Path)
-	}
-	files, collectErr := h.collectFiles(requestCtx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore))
-	if collectErr != nil {
-		return errorResultFromError(collectErr), SourceSymbolsOutput{}, nil
-	}
-	sort.Strings(files)
-	files = deduplicateSortedPaths(files)
-	selectionTruncated := false
-	if len(files) > maxFiles {
-		files = files[:maxFiles]
-		selectionTruncated = true
-	}
-	var aggregateBytes int64
-	for _, path := range files {
-		info, err := os.Stat(path)
-		if err != nil || info.Size() > limits.MaxFileBytes {
-			continue
-		}
-		if info.Size() > limits.MaxAggregateBytes-aggregateBytes {
-			return errorResultWithCode(ErrCodeLimit, fmt.Sprintf("selected source bytes exceed aggregate limit %d", limits.MaxAggregateBytes)), SourceSymbolsOutput{}, nil
-		}
-		aggregateBytes += info.Size()
+	files, selectionTruncated, selectionErr := h.collectSourceSymbolFiles(requestCtx, input, maxFiles, limits)
+	if selectionErr != nil {
+		return selectionErr, SourceSymbolsOutput{}, nil
 	}
 
 	registry, registryErr := sourceintelligence.DefaultLanguageRegistry()
@@ -120,56 +88,7 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		return errorResultWithCode(ErrCodeCancelled, "source analysis cancelled"), SourceSymbolsOutput{}, nil
 	}
 
-	output := SourceSymbolsOutput{
-		Operation: operationName, CoordinateSystem: sourceCoordinateSystem,
-		FilesConsidered: len(files), CoverageComplete: !selectionTruncated, Truncated: selectionTruncated,
-	}
-	kindFilter := make(map[string]struct{}, len(input.Kinds))
-	for _, kind := range input.Kinds {
-		kindFilter[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
-	}
-	for _, current := range analyses {
-		output.Files = append(output.Files, current.file)
-		if current.file.Status != "parsed" {
-			output.FilesSkipped++
-			output.CoverageComplete = false
-			continue
-		}
-		output.FilesParsed++
-		if !current.file.CoverageComplete {
-			output.CoverageComplete = false
-		}
-		switch operationName {
-		case "digest":
-			output.Digests = append(output.Digests, buildSourceDigest(current))
-		case "outline", "find":
-			for _, symbol := range current.analysis.Analysis.Symbols {
-				if len(kindFilter) > 0 {
-					if _, ok := kindFilter[strings.ToLower(string(symbol.Kind))]; !ok {
-						continue
-					}
-				}
-				if operationName == "find" && !sourceSymbolMatches(symbol, input.Query, input.Match) {
-					continue
-				}
-				if len(output.Symbols) >= maxSymbols {
-					output.Truncated = true
-					output.CoverageComplete = false
-					break
-				}
-				output.Symbols = append(output.Symbols, symbol)
-			}
-		}
-	}
-	output.SymbolCount = len(output.Symbols)
-	if operationName == "find" && len(output.Symbols) > 1 {
-		output.Ambiguous = true
-	}
-	if operationName == "digest" {
-		for _, current := range analyses {
-			output.SymbolCount += len(current.analysis.Analysis.Symbols)
-		}
-	}
+	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
 	if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
 		return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
 	}
