@@ -96,54 +96,12 @@ func (store *DiagnosticStore) ReconstructRecoveryManifests(
 		if err := recoveryContextError(ctx, "reconstruct_backup_recovery_manifests"); err != nil {
 			return result, err
 		}
-		objectIdentity, ok := verifiedObjects[action.ObjectDigest]
-		if !ok {
-			objectPathValue := objectPath(destination.store.root, action.ObjectDigest)
-			objectInfo, statErr := os.Lstat(objectPathValue)
-			if statErr != nil {
-				return result, operation.New(operation.KindConflict, "recovery destination object required by a manifest is missing")
-			}
-			if verifyErr := verifyExistingObject(ctx, objectPathValue, objectInfo, action.ObjectDigest, action.ObjectBytes); verifyErr != nil {
-				return result, operation.Wrap(operation.KindConflict, "reconstruct_backup_recovery_manifests", "", errors.New("recovery destination object is not trustworthy"))
-			}
-			verifiedObjects[action.ObjectDigest] = recoveryVerifiedObjectIdentity{path: objectPathValue, info: objectInfo}
-		} else if !recoveryFileIdentityStable(objectIdentity.path, objectIdentity.info) ||
-			validateSingleLink(objectIdentity.path, objectIdentity.info) != nil || validatePathPermissions(objectIdentity.path, false) != nil {
-			return result, operation.New(operation.KindConflict, "recovery destination object identity changed during manifest reconstruction")
-		}
-
-		sourcePath := manifestPath(store.root, action.BackupID)
-		sourceInfo, statErr := os.Lstat(sourcePath)
-		if statErr != nil {
-			return result, operation.New(operation.KindConflict, "recovery source manifest is missing")
-		}
-		sourceManifest, readErr := readRecoveryManifestStrict(sourcePath, sourceInfo, descriptor.descriptor)
-		if readErr != nil {
-			return result, operation.New(operation.KindConflict, "recovery source manifest is no longer trustworthy")
-		}
-		if sourceManifest.BackupID != action.BackupID || sourceManifest.ManifestChecksum != action.ManifestChecksum ||
-			sourceManifest.ObjectDigest != action.ObjectDigest || sourceManifest.ObjectBytes != action.ObjectBytes {
-			return result, operation.New(operation.KindConflict, "recovery source manifest no longer matches the reviewed plan")
-		}
-
-		recovered := sourceManifest
-		recovered.StoreID = destination.store.descriptor.StoreID
-		recovered.ManifestChecksum = ""
-		recovered, err = finalizeManifestChecksum(recovered)
-		if err != nil {
+		if err := verifyRecoveryManifestObject(ctx, destination.store, action, verifiedObjects); err != nil {
 			return result, err
 		}
-		if err := validateManifest(recovered, destination.store.descriptor); err != nil {
-			return result, operation.Wrap(operation.KindConflict, "reconstruct_backup_recovery_manifests", "", errors.New("recovery manifest cannot be represented exactly in the destination store"))
-		}
-
-		created, installErr := installOrVerifyRecoveryManifest(ctx, destination.store, recovered)
-		if installErr != nil {
-			return result, installErr
-		}
-		if !recoveryFileIdentityStable(sourcePath, sourceInfo) || validateSingleLink(sourcePath, sourceInfo) != nil ||
-			validatePathPermissions(sourcePath, false) != nil {
-			return result, operation.New(operation.KindConflict, "recovery source manifest identity changed before reconstruction completed")
+		created, err := store.reconstructRecoveryManifestAction(ctx, destination.store, descriptor.descriptor, action)
+		if err != nil {
+			return result, err
 		}
 		result.VerifiedManifestCount++
 		if created {
@@ -170,6 +128,75 @@ func (store *DiagnosticStore) ReconstructRecoveryManifests(
 		return result, err
 	}
 	return result, nil
+}
+
+func verifyRecoveryManifestObject(
+	ctx context.Context,
+	destination *Store,
+	action RecoveryAction,
+	verified map[string]recoveryVerifiedObjectIdentity,
+) error {
+	if objectIdentity, ok := verified[action.ObjectDigest]; ok {
+		if !recoveryFileIdentityStable(objectIdentity.path, objectIdentity.info) ||
+			validateSingleLink(objectIdentity.path, objectIdentity.info) != nil ||
+			validatePathPermissions(objectIdentity.path, false) != nil {
+			return operation.New(operation.KindConflict, "recovery destination object identity changed during manifest reconstruction")
+		}
+		return nil
+	}
+
+	path := objectPath(destination.root, action.ObjectDigest)
+	info, statErr := os.Lstat(path)
+	if statErr != nil {
+		return operation.New(operation.KindConflict, "recovery destination object required by a manifest is missing")
+	}
+	if verifyErr := verifyExistingObject(ctx, path, info, action.ObjectDigest, action.ObjectBytes); verifyErr != nil {
+		return operation.Wrap(operation.KindConflict, "reconstruct_backup_recovery_manifests", "", errors.New("recovery destination object is not trustworthy"))
+	}
+	verified[action.ObjectDigest] = recoveryVerifiedObjectIdentity{path: path, info: info}
+	return nil
+}
+
+func (store *DiagnosticStore) reconstructRecoveryManifestAction(
+	ctx context.Context,
+	destination *Store,
+	sourceDescriptor Descriptor,
+	action RecoveryAction,
+) (bool, error) {
+	sourcePath := manifestPath(store.root, action.BackupID)
+	sourceInfo, statErr := os.Lstat(sourcePath)
+	if statErr != nil {
+		return false, operation.New(operation.KindConflict, "recovery source manifest is missing")
+	}
+	sourceManifest, readErr := readRecoveryManifestStrict(sourcePath, sourceInfo, sourceDescriptor)
+	if readErr != nil {
+		return false, operation.New(operation.KindConflict, "recovery source manifest is no longer trustworthy")
+	}
+	if sourceManifest.BackupID != action.BackupID || sourceManifest.ManifestChecksum != action.ManifestChecksum ||
+		sourceManifest.ObjectDigest != action.ObjectDigest || sourceManifest.ObjectBytes != action.ObjectBytes {
+		return false, operation.New(operation.KindConflict, "recovery source manifest no longer matches the reviewed plan")
+	}
+
+	recovered := sourceManifest
+	recovered.StoreID = destination.descriptor.StoreID
+	recovered.ManifestChecksum = ""
+	recovered, err := finalizeManifestChecksum(recovered)
+	if err != nil {
+		return false, err
+	}
+	if err := validateManifest(recovered, destination.descriptor); err != nil {
+		return false, operation.Wrap(operation.KindConflict, "reconstruct_backup_recovery_manifests", "", errors.New("recovery manifest cannot be represented exactly in the destination store"))
+	}
+
+	created, installErr := installOrVerifyRecoveryManifest(ctx, destination, recovered)
+	if installErr != nil {
+		return created, installErr
+	}
+	if !recoveryFileIdentityStable(sourcePath, sourceInfo) || validateSingleLink(sourcePath, sourceInfo) != nil ||
+		validatePathPermissions(sourcePath, false) != nil {
+		return created, operation.New(operation.KindConflict, "recovery source manifest identity changed before reconstruction completed")
+	}
+	return created, nil
 }
 
 func readRecoveryManifestStrict(path string, expected fs.FileInfo, descriptor Descriptor) (Manifest, error) {
