@@ -216,6 +216,71 @@ func recoveryObjectFixture(t *testing.T, contents ...[]byte) (*DiagnosticStore, 
 	return diagnostic, evidence, plan, planPath, filepath.Join(parent, "recovery-object-destination"), filepath.Join(parent, "recovery-object-report.json")
 }
 
+func TestReconstructRecoveryObjectsBeforeInstallFailureCleansVerifiedStage(t *testing.T) {
+	content := []byte("before install boundary")
+	diagnostic, evidence, plan, planPath, destination, report := recoveryObjectFixture(t, content)
+	session, err := diagnostic.PrepareRecoveryDestination(context.Background(), planPath, destination, report, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	defer diagnostic.Close()
+
+	digest := evidence.TrustedRecords[0].Manifest.ObjectDigest
+	sourcePath := evidence.TrustedRecords[0].objectPath
+	beforeSource, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hookCalled := false
+	ops := recoveryObjectCopyOps{beforeInstall: func(gotDigest string) error {
+		hookCalled = true
+		if gotDigest != digest {
+			t.Fatalf("beforeInstall digest = %q, want %q", gotDigest, digest)
+		}
+		if _, statErr := os.Lstat(objectPath(session.store.root, digest)); !os.IsNotExist(statErr) {
+			t.Fatalf("canonical object published before install hook: %v", statErr)
+		}
+		entries, readErr := os.ReadDir(filepath.Join(session.store.root, "staging"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("staging entries at install boundary = %d, want 1", len(entries))
+		}
+		info, statErr := entries[0].Info()
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if !info.Mode().IsRegular() || info.Size() != int64(len(content)) {
+			t.Fatalf("verified stage metadata = mode %v size %d", info.Mode(), info.Size())
+		}
+		return errors.New("injected before-install failure")
+	}}
+
+	result, err := diagnostic.reconstructRecoveryObjectsWithOps(context.Background(), session, plan, evidence, ops)
+	if err == nil || err.Error() != "injected before-install failure" {
+		t.Fatalf("before-install failure error = %v", err)
+	}
+	if !hookCalled {
+		t.Fatal("beforeInstall hook was not called")
+	}
+	if result.VerifiedObjectCount != 0 || result.CreatedObjectCount != 0 || result.ReusedObjectCount != 0 || result.VerifiedBytes != 0 {
+		t.Fatalf("before-install failure reported progress: %#v", result)
+	}
+	if _, statErr := os.Lstat(objectPath(session.store.root, digest)); !os.IsNotExist(statErr) {
+		t.Fatalf("before-install failure exposed canonical object: %v", statErr)
+	}
+	assertRecoveryObjectStagingEmpty(t, session)
+	afterSource, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(beforeSource, afterSource) {
+		t.Fatal("before-install failure mutated source object")
+	}
+}
+
 func TestReconstructRecoveryObjectsCleansOwnedStagingOnWriteAndSyncFailures(t *testing.T) {
 	cases := []struct {
 		name string
