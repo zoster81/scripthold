@@ -197,6 +197,7 @@ func TestSelfUpdateViewLocalObservationFailureDoesNotCallRemote(t *testing.T) {
 func TestSelfUpdateViewNormalizesNilContext(t *testing.T) {
 	var sawNonNil bool
 	view, err := observeSelfUpdateViewWith(
+		//lint:ignore SA1012 This test intentionally verifies nil-context normalization.
 		nil,
 		"3.2.1",
 		false,

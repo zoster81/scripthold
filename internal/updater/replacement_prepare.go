@@ -68,7 +68,7 @@ func (ownership *DetachedHelperOwnership) prepareExecutableReplacementWith(
 	); err != nil {
 		return err
 	}
-	if observeCandidateArtifact(ownership.boundary, candidateArtifactName, state.Pending.CandidateSHA256) != artifactValid {
+	if observeCandidateArtifact(ownership.boundary, state.Pending.CandidateSHA256) != artifactValid {
 		return errors.New("prepared executable replacement candidate no longer matches pending bytes")
 	}
 

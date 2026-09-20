@@ -249,8 +249,8 @@ func observeTargetDigest(inspection *StandaloneInspection) (string, error) {
 	return firstDigest, nil
 }
 
-func observeCandidateArtifact(boundary *InstallationBoundary, name, expectedSHA256 string) artifactObservation {
-	return observeArtifact(boundary, name, expectedSHA256, false)
+func observeCandidateArtifact(boundary *InstallationBoundary, expectedSHA256 string) artifactObservation {
+	return observeArtifact(boundary, candidateArtifactName, expectedSHA256, false)
 }
 
 func observeCandidateSlot(

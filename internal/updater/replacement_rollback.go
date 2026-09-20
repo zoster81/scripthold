@@ -94,7 +94,7 @@ func (ownership *DetachedHelperOwnership) rollbackCommittedReplacementWith(
 			return err
 		}
 	}
-	if observeCandidateArtifact(ownership.boundary, candidateArtifactName, state.Pending.SourceSHA256) != artifactValid {
+	if observeCandidateArtifact(ownership.boundary, state.Pending.SourceSHA256) != artifactValid {
 		return errors.New("rollback source candidate is missing or invalid")
 	}
 
@@ -110,7 +110,7 @@ func (ownership *DetachedHelperOwnership) rollbackCommittedReplacementWith(
 	); err != nil {
 		return fmt.Errorf("prepare rollback executable replacement: %w", err)
 	}
-	if observeCandidateArtifact(ownership.boundary, candidateArtifactName, state.Pending.SourceSHA256) != artifactValid {
+	if observeCandidateArtifact(ownership.boundary, state.Pending.SourceSHA256) != artifactValid {
 		return errors.New("prepared rollback candidate no longer matches source bytes")
 	}
 
@@ -244,7 +244,7 @@ func stageRollbackSourceCandidate(
 	if !matches {
 		return errors.New("known-good rollback source identity changed during staging")
 	}
-	if observeCandidateArtifact(boundary, candidateArtifactName, expectedSHA256) != artifactValid {
+	if observeCandidateArtifact(boundary, expectedSHA256) != artifactValid {
 		return errors.New("durable rollback source candidate failed verification")
 	}
 	return nil

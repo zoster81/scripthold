@@ -36,10 +36,6 @@ type gitTagMetadata struct {
 	Object gitObjectReference `json:"object"`
 }
 
-func resolveOfficialTagCommit(ctx context.Context, client *http.Client, tag string) (string, error) {
-	return resolveTagCommitFromBase(ctx, client, officialGitHubRepoAPI, tag)
-}
-
 func resolveTagCommitFromBase(ctx context.Context, baseClient *http.Client, baseURL, tag string) (string, error) {
 	parsed, ok := parseSemanticVersion(tag)
 	if !ok || len(parsed.prerelease) != 0 {
@@ -136,11 +132,11 @@ func fetchBoundedGitHubJSON(ctx context.Context, baseClient *http.Client, endpoi
 
 func validateGitObjectSHA(value string) error {
 	if (len(value) != 40 && len(value) != 64) || value != strings.ToLower(value) {
-		return errors.New("Git object SHA must be 40 or 64 lowercase hexadecimal characters")
+		return errors.New("git object SHA must be 40 or 64 lowercase hexadecimal characters")
 	}
 	decoded, err := hex.DecodeString(value)
 	if err != nil || (len(decoded) != 20 && len(decoded) != 32) {
-		return errors.New("Git object SHA contains invalid hexadecimal")
+		return errors.New("git object SHA contains invalid hexadecimal")
 	}
 	return nil
 }

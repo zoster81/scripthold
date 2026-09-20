@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 
 	"github.com/zoster81/scripthold/internal/filesystem"
 )
@@ -32,10 +31,6 @@ func (admission *ProcessAdmission) validateFor(boundary *InstallationBoundary) e
 		return errors.New("valid process admission is required")
 	}
 	return admission.useLock.Validate(boundary.UseLockPath)
-}
-
-func admitCurrentProcess(ctx context.Context, boundary *InstallationBoundary, inspection *StandaloneInspection) (*ProcessAdmission, error) {
-	return admitStableProcessWith(ctx, boundary, inspection, runtime.GOOS, runtime.GOARCH, installedEvidenceDeps{})
 }
 
 func admitStableProcessWith(
