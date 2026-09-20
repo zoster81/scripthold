@@ -620,7 +620,7 @@ func enforceMarkdownWorkspaceOutputBudget(output MarkdownWorkspaceOutput, maximu
 		return operation.Wrap(operation.KindUnknown, "markdown_workspace", "", err)
 	}
 	if int64(len(encoded)) > maximum {
-		return operation.Wrap(operation.KindLimit, "markdown_workspace", "", fmt.Errorf("Markdown workspace output size %d exceeds limit %d", len(encoded), maximum))
+		return operation.Wrap(operation.KindLimit, "markdown_workspace", "", fmt.Errorf("markdown workspace output size %d exceeds limit %d", len(encoded), maximum))
 	}
 	return nil
 }

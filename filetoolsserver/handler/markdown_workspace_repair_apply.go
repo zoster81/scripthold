@@ -222,15 +222,7 @@ func markdownWorkspaceApplyOutput(internal markdownWorkspaceRepairApplyResult) M
 		Results:        make([]MarkdownWorkspaceApplyDocumentOutput, len(internal.Results)),
 	}
 	for index := range internal.Results {
-		result := internal.Results[index]
-		workspace.Results[index] = MarkdownWorkspaceApplyDocumentOutput{
-			Document: result.Document, Path: result.Path,
-			TargetFingerprint: result.TargetFingerprint, ResultFingerprint: result.ResultFingerprint,
-			ActualFingerprint: result.ActualFingerprint, Encoding: result.Encoding,
-			HasBOM: result.HasBOM, BOMType: result.BOMType, LineEndingStyle: result.LineEndingStyle,
-			BackupID: result.BackupID, State: result.State, Changed: result.Changed,
-			Applied: result.Applied, ErrorCode: result.ErrorCode, Error: result.Error,
-		}
+		workspace.Results[index] = MarkdownWorkspaceApplyDocumentOutput(internal.Results[index])
 	}
 	return MarkdownApplyOutput{Workspace: workspace}
 }
@@ -240,7 +232,7 @@ func (h *Handler) applyPreparedMarkdownWorkspaceRepair(ctx context.Context, prep
 	if err := ctx.Err(); err != nil {
 		return output, errorResultFromError(operation.Wrap(operation.KindCancelled, "markdown_apply", "", err))
 	}
-	plans, failedIndex, failure := h.prepareMarkdownWorkspaceRepairApplyTargetsIndexed(ctx, prepared)
+	plans, _, failure := h.prepareMarkdownWorkspaceRepairApplyTargetsIndexed(ctx, prepared)
 	if failure != nil {
 		return output, failure
 	}
@@ -251,10 +243,11 @@ func (h *Handler) applyPreparedMarkdownWorkspaceRepair(ctx context.Context, prep
 		return h.classifyMarkdownWorkspaceRepairApplyFailure(prepared, output, -1, errorResultFromError(err), nil)
 	}
 	if persistentBackupRequired(prepared.backupPolicy) {
-		plans, failedIndex, failure = h.prepareMarkdownWorkspaceRepairApplyTargetsIndexed(ctx, prepared)
+		refreshedPlans, failedIndex, failure := h.prepareMarkdownWorkspaceRepairApplyTargetsIndexed(ctx, prepared)
 		if failure != nil {
 			return h.classifyMarkdownWorkspaceRepairApplyFailure(prepared, output, failedIndex, failure, nil)
 		}
+		plans = refreshedPlans
 	}
 	batch, err := h.stageMarkdownWorkspaceRepairApply(ctx, prepared, plans)
 	if err != nil {
