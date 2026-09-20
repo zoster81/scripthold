@@ -22,7 +22,7 @@ func (h *Handler) preflightPatchPackageApply(ctx context.Context, prepared *prep
 	preflight := make([]patchPackageApplyPreflight, len(prepared.plan.targets))
 	for index := range prepared.plan.targets {
 		target := &prepared.plan.targets[index]
-		if filesystem.FingerprintRegularFileData(target.prepared.data) != target.prepared.resultFingerprint {
+		if !preparedEditPlanReplacement(target).resultMatchesFingerprint() {
 			return nil, errorResultWithCode(ErrCodeConflict, fmt.Sprintf("patch package target %d prepared result no longer matches its fingerprint", index))
 		}
 		current, failure := h.revalidatePreparedPatchPackageTarget(ctx, target, "before staging")

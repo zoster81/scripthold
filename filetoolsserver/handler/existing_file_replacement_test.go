@@ -30,6 +30,21 @@ func TestPreparedEditPlanRequiresOrderedTargets(t *testing.T) {
 	}
 }
 
+func TestPreparedExistingFileReplacementChecksRetainedResultFingerprint(t *testing.T) {
+	result := []byte("result")
+	replacement := preparedExistingFileReplacement{
+		resultData:        result,
+		resultFingerprint: filesystem.FingerprintRegularFileData(result),
+	}
+	if !replacement.resultMatchesFingerprint() {
+		t.Fatal("matching retained result fingerprint was rejected")
+	}
+	replacement.resultData = []byte("tampered")
+	if replacement.resultMatchesFingerprint() {
+		t.Fatal("tampered retained result fingerprint was accepted")
+	}
+}
+
 func TestPreparedEditPlanReplacementPreservesPlanPathBinding(t *testing.T) {
 	target := preparedEditPlanTarget{
 		requestedPath: "planned-requested",

@@ -291,7 +291,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 		cancelled := operation.Wrap(operation.KindCancelled, "apply_edit_preview", prepared.resolvedPath, err)
 		return errorResultFromError(cancelled), EditFileOutput{}, nil
 	}
-	if filesystem.FingerprintRegularFileData(prepared.data) != prepared.resultFingerprint {
+	if !replacement.resultMatchesFingerprint() {
 		return errorResultWithCode(ErrCodeConflict, "prepared edit result no longer matches its fingerprint"), EditFileOutput{}, nil
 	}
 

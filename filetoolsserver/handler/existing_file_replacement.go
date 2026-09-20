@@ -115,6 +115,10 @@ func preparedEditPlanReplacement(target *preparedEditPlanTarget) preparedExistin
 	return replacement
 }
 
+func (replacement preparedExistingFileReplacement) resultMatchesFingerprint() bool {
+	return filesystem.FingerprintRegularFileData(replacement.resultData) == replacement.resultFingerprint
+}
+
 func (replacement preparedExistingFileReplacement) identity() *filesystem.FileIdentity {
 	if replacement.identitySlot == nil {
 		return nil
