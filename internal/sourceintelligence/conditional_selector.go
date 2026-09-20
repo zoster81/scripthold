@@ -70,17 +70,10 @@ func conditionalSelections(groups []conditionalGroup) ([][]int, bool) {
 
 	for groupID, group := range groups {
 		for branchID := range group.branches {
-			choices = choices[:0]
-			choices = append(choices, conditionalChoice{group: groupID, branch: branchID})
-			parentGroup := group.parentGroup
-			parentBranch := group.parentBranch
-			for depth := 0; parentGroup >= 0; depth++ {
-				if depth >= len(groups) || parentGroup >= len(groups) || parentBranch < 0 || parentBranch >= len(groups[parentGroup].branches) {
-					return nil, false
-				}
-				choices = append(choices, conditionalChoice{group: parentGroup, branch: parentBranch})
-				parent := groups[parentGroup]
-				parentGroup, parentBranch = parent.parentGroup, parent.parentBranch
+			var ok bool
+			choices, ok = collectConditionalChoices(groups, groupID, branchID, choices[:0])
+			if !ok {
+				return nil, false
 			}
 
 			generation++
@@ -88,68 +81,30 @@ func conditionalSelections(groups []conditionalGroup) ([][]int, bool) {
 				clear(requirementMarks)
 				generation = 1
 			}
-			touchedStates = touchedStates[:0]
-			requirementStateValid := true
-			for _, choice := range choices {
-				stateID := groupStateIDs[choice.group]
-				if stateID < 0 {
-					continue
-				}
-				stateGroup := groups[choice.group]
-				if choice.branch >= len(stateGroup.conditionState) {
-					continue
-				}
-				state := stateGroup.conditionState[choice.branch]
-				if state == 0 {
-					continue
-				}
-				if requirementMarks[stateID] == generation {
-					if requirementStates[stateID] != state {
-						requirementStateValid = false
-					}
-					continue
-				}
-				requirementMarks[stateID] = generation
-				requirementStates[stateID] = state
-				touchedStates = append(touchedStates, stateID)
-			}
+			var requirementStateValid bool
+			touchedStates, requirementStateValid = collectConditionalRequirementStates(
+				groups,
+				groupStateIDs,
+				choices,
+				requirementStates,
+				requirementMarks,
+				generation,
+				touchedStates[:0],
+			)
 
 			placed := false
 			for variantID := range variants {
-				variant := &variants[variantID]
-				compatible := true
-				for _, choice := range choices {
-					selected := variant.selection[choice.group]
-					if selected >= 0 && selected != choice.branch {
-						compatible = false
-						break
-					}
+				if mergeConditionalVariant(
+					&variants[variantID],
+					choices,
+					touchedStates,
+					requirementStates,
+					requirementStateValid,
+					len(conditionIDs) > 0,
+				) {
+					placed = true
+					break
 				}
-				if compatible && len(conditionIDs) > 0 {
-					if !variant.stateValid || !requirementStateValid {
-						compatible = false
-					} else {
-						for _, stateID := range touchedStates {
-							if current := variant.states[stateID]; current != 0 && current != requirementStates[stateID] {
-								compatible = false
-								break
-							}
-						}
-					}
-				}
-				if !compatible {
-					continue
-				}
-				for _, choice := range choices {
-					variant.selection[choice.group] = choice.branch
-				}
-				for _, stateID := range touchedStates {
-					if variant.states[stateID] == 0 {
-						variant.states[stateID] = requirementStates[stateID]
-					}
-				}
-				placed = true
-				break
 			}
 			if placed {
 				continue
@@ -184,6 +139,97 @@ func conditionalSelections(groups []conditionalGroup) ([][]int, bool) {
 		selections[variantID] = selection
 	}
 	return selections, true
+}
+
+func collectConditionalChoices(
+	groups []conditionalGroup,
+	groupID int,
+	branchID int,
+	choices []conditionalChoice,
+) ([]conditionalChoice, bool) {
+	choices = append(choices, conditionalChoice{group: groupID, branch: branchID})
+	parentGroup := groups[groupID].parentGroup
+	parentBranch := groups[groupID].parentBranch
+	for depth := 0; parentGroup >= 0; depth++ {
+		if depth >= len(groups) || parentGroup >= len(groups) || parentBranch < 0 || parentBranch >= len(groups[parentGroup].branches) {
+			return nil, false
+		}
+		choices = append(choices, conditionalChoice{group: parentGroup, branch: parentBranch})
+		parent := groups[parentGroup]
+		parentGroup, parentBranch = parent.parentGroup, parent.parentBranch
+	}
+	return choices, true
+}
+
+func collectConditionalRequirementStates(
+	groups []conditionalGroup,
+	groupStateIDs []int,
+	choices []conditionalChoice,
+	requirementStates []int8,
+	requirementMarks []uint32,
+	generation uint32,
+	touchedStates []int,
+) ([]int, bool) {
+	valid := true
+	for _, choice := range choices {
+		stateID := groupStateIDs[choice.group]
+		if stateID < 0 {
+			continue
+		}
+		stateGroup := groups[choice.group]
+		if choice.branch >= len(stateGroup.conditionState) {
+			continue
+		}
+		state := stateGroup.conditionState[choice.branch]
+		if state == 0 {
+			continue
+		}
+		if requirementMarks[stateID] == generation {
+			if requirementStates[stateID] != state {
+				valid = false
+			}
+			continue
+		}
+		requirementMarks[stateID] = generation
+		requirementStates[stateID] = state
+		touchedStates = append(touchedStates, stateID)
+	}
+	return touchedStates, valid
+}
+
+func mergeConditionalVariant(
+	variant *conditionalVariant,
+	choices []conditionalChoice,
+	touchedStates []int,
+	requirementStates []int8,
+	requirementStateValid bool,
+	hasConditionState bool,
+) bool {
+	for _, choice := range choices {
+		selected := variant.selection[choice.group]
+		if selected >= 0 && selected != choice.branch {
+			return false
+		}
+	}
+	if hasConditionState {
+		if !variant.stateValid || !requirementStateValid {
+			return false
+		}
+		for _, stateID := range touchedStates {
+			if current := variant.states[stateID]; current != 0 && current != requirementStates[stateID] {
+				return false
+			}
+		}
+	}
+	for _, choice := range choices {
+		variant.selection[choice.group] = choice.branch
+	}
+	for _, stateID := range touchedStates {
+		if variant.states[stateID] == 0 {
+			variant.states[stateID] = requirementStates[stateID]
+		}
+	}
+	return true
 }
 
 func maskConditionalVariant(text string, plan conditionalPlan, selection []int) string {
