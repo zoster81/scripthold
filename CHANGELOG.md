@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
+- Added explicit `scripthold update recover` for recoverable pending standalone transactions, with network-free fixed-helper dispatch, no caller-supplied transaction authority, and truthful distinction between pre-start failure and post-start launcher cleanup failure.
 - Added verified `scripthold update` dispatch for adopted standalone installations: it verifies the latest immutable official release and candidate, stages the update under updater-owned local authority, starts the detached helper, treats an already-current installation as a successful no-op, and preserves truthful helper-started evidence if launcher cleanup later fails.
 - Added explicit `scripthold update --adopt` for supported standalone binaries, with local-only stable-state initialization, fail-closed installation checks, and an explicit pre-adoption process-quiescence requirement; adoption does not download or switch releases.
 - Added read-only `scripthold update status` for standalone self-update state, verified installed/current/candidate version evidence, cached release availability, and safe recovery availability without mutating the installation.

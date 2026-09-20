@@ -8,12 +8,13 @@ import (
 	"github.com/zoster81/scripthold/internal/updater"
 )
 
-const selfUpdateUsage = "Usage:\n  scripthold update\n  scripthold update status\n  scripthold update --adopt\n\nBefore adoption, stop every other Scripthold process using this binary and keep them stopped until the adoption command exits."
+const selfUpdateUsage = "Usage:\n  scripthold update\n  scripthold update status\n  scripthold update --adopt\n  scripthold update recover\n\nBefore adoption, stop every other Scripthold process using this binary and keep them stopped until the adoption command exits."
 
 type selfUpdateCommandDeps struct {
 	observe func(context.Context, string, bool) (updater.SelfUpdateView, error)
 	adopt   func(context.Context) error
 	update  func(context.Context) (updater.UpdateLaunchResult, error)
+	recover func(context.Context) (bool, error)
 }
 
 func tryRunSelfUpdateCommand(
@@ -32,6 +33,7 @@ func tryRunSelfUpdateCommand(
 			observe: updater.ObserveSelfUpdateView,
 			adopt:   updater.InitializeStableAdoption,
 			update:  updater.LaunchCurrentUpdate,
+			recover: updater.LaunchCurrentRecoveryHelper,
 		},
 	)
 }
@@ -94,6 +96,8 @@ func tryRunSelfUpdateCommandWithDeps(
 		fmt.Fprintln(stdout, "No update was downloaded or installed.")
 		fmt.Fprintln(stdout, "Every other Scripthold process using this binary must have been stopped before adoption began and must remain stopped until this command exits.")
 		return 0, true
+	case "recover":
+		return runSelfUpdateRecovery(ctx, stdout, stderr, deps.recover), true
 	default:
 		fmt.Fprintln(stderr, "Error: unsupported update command")
 		fmt.Fprintln(stderr, selfUpdateUsage)
@@ -142,6 +146,35 @@ func runSelfUpdate(
 		fmt.Fprintln(stderr, "Error: self-update failed safely with an invalid internal result; run 'scripthold update status' before retrying.")
 		return 1
 	}
+}
+
+func runSelfUpdateRecovery(
+	ctx context.Context,
+	stdout, stderr io.Writer,
+	launch func(context.Context) (bool, error),
+) int {
+	if launch == nil {
+		fmt.Fprintln(stderr, "Error: self-update recovery is unavailable")
+		return 1
+	}
+	started, err := launch(ctx)
+	if err != nil {
+		if started {
+			fmt.Fprintln(stderr, "Error: self-update recovery helper has started, but launcher cleanup or release failed.")
+			fmt.Fprintln(stderr, "Run 'scripthold update status' before retrying; do not start another recovery until installation state is known.")
+			return 1
+		}
+		fmt.Fprintln(stderr, "Error: self-update recovery failed safely; no recovery helper was started.")
+		fmt.Fprintln(stderr, "Run 'scripthold update status' for the current recovery state.")
+		return 1
+	}
+	if !started {
+		fmt.Fprintln(stderr, "Error: self-update recovery failed safely with an invalid internal result; run 'scripthold update status' before retrying.")
+		return 1
+	}
+	fmt.Fprintln(stdout, "Self-update recovery helper has started.")
+	fmt.Fprintln(stdout, "Run 'scripthold update status' to observe completion before starting another update or recovery.")
+	return 0
 }
 
 func writeSelfUpdateStatus(writer io.Writer, processVersion string, view updater.SelfUpdateView) {

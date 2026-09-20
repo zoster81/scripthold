@@ -76,7 +76,9 @@ After adoption, run `scripthold update` to check the latest immutable release, v
 
 `scripthold update status` is read-only and does not start the MCP server. It reports adoption, observed update state, durable/current/candidate version evidence, release availability, and whether explicit recovery is available. If the installed binary cannot be assigned a verified semantic version, the remote comparison is suppressed rather than using stale evidence. `MCP_NO_UPDATE_CHECK=1` disables this status-time remote check, in which case the latest version is reported as unknown.
 
-Explicit recovery is not a public command yet. The `update` word is reserved as a command namespace; use `-- update` if a literal authorized directory is named `update`.
+When status reports that recovery is available, run `scripthold update recover` to dispatch the fixed verified recovery helper. Recovery performs no network work and derives authority from the durable transaction plus observed installation bytes. A successful dispatch means the recovery helper has started; use status to observe completion, and if launcher cleanup fails after dispatch, inspect status before retrying.
+
+The `update` word is reserved as a command namespace; use `-- update` if a literal authorized directory is named `update`.
 
 ### Streamable HTTP
 

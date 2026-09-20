@@ -27,7 +27,7 @@ Add a failure-safe update lifecycle: discover a release, select the correct plat
 
 Installation state remains separate from the persistent user-file backup store. Interrupted or invalid updates must leave a usable installation or an explicit recoverable state.
 
-The development branch exposes read-only `scripthold update status`, explicit standalone adoption through `scripthold update --adopt`, and verified update dispatch through bare `scripthold update`. Adoption is local-only and requires all other processes using that binary to be stopped for the duration of the adoption invocation. Update dispatch verifies and stages the official candidate before a detached helper performs the switch. Explicit recovery remains part of this milestone and is not yet exposed.
+The development branch exposes read-only `scripthold update status`, explicit standalone adoption through `scripthold update --adopt`, verified update dispatch through bare `scripthold update`, and explicit observation-driven recovery through `scripthold update recover`. Adoption is local-only and requires all other processes using that binary to be stopped for the duration of the adoption invocation. Update dispatch verifies and stages the official candidate before a detached helper performs the switch; recovery is network-free and dispatches only from durable recoverable transaction evidence. Release/promotion qualification remains separate from development-branch implementation.
 
 ### Source-intelligence completion
 

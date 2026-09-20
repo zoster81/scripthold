@@ -245,6 +245,76 @@ func TestTryRunSelfUpdateCommandAdopt(t *testing.T) {
 	}
 }
 
+func TestTryRunSelfUpdateCommandRecover(t *testing.T) {
+	tests := []struct {
+		name       string
+		started    bool
+		err        error
+		wantCode   int
+		wantStdout []string
+		wantStderr []string
+	}{
+		{
+			name:       "dispatched",
+			started:    true,
+			wantStdout: []string{"recovery helper has started", "update status"},
+		},
+		{
+			name:       "pre-dispatch failure",
+			err:        errors.New("private path detail"),
+			wantCode:   1,
+			wantStderr: []string{"recovery failed safely", "no recovery helper was started", "update status"},
+		},
+		{
+			name:       "post-dispatch failure",
+			started:    true,
+			err:        errors.New("private path detail"),
+			wantCode:   1,
+			wantStderr: []string{"recovery helper has started", "launcher cleanup", "update status"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			recoverCalls := 0
+			code, matched := tryRunSelfUpdateCommandWithDeps(
+				context.Background(), []string{"update", "recover"}, &stdout, &stderr, "3.2.1",
+				selfUpdateCommandDeps{
+					recover: func(context.Context) (bool, error) {
+						recoverCalls++
+						return test.started, test.err
+					},
+				},
+			)
+			if !matched || code != test.wantCode || recoverCalls != 1 {
+				t.Fatalf("matched=%v code=%d recoverCalls=%d stdout=%q stderr=%q", matched, code, recoverCalls, stdout.String(), stderr.String())
+			}
+			for _, expected := range test.wantStdout {
+				if !strings.Contains(stdout.String(), expected) {
+					t.Fatalf("stdout %q missing %q", stdout.String(), expected)
+				}
+			}
+			for _, expected := range test.wantStderr {
+				if !strings.Contains(stderr.String(), expected) {
+					t.Fatalf("stderr %q missing %q", stderr.String(), expected)
+				}
+			}
+			if strings.Contains(stdout.String(), "private path detail") || strings.Contains(stderr.String(), "private path detail") {
+				t.Fatalf("private error detail leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, matched := tryRunSelfUpdateCommandWithDeps(
+		context.Background(), []string{"update", "recover"}, &stdout, &stderr, "3.2.1",
+		selfUpdateCommandDeps{recover: func(context.Context) (bool, error) { return false, nil }},
+	)
+	if !matched || code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "invalid internal result") {
+		t.Fatalf("invalid result matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())
+	}
+}
+
 func TestTryRunSelfUpdateCommandFailureAndUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code, matched := tryRunSelfUpdateCommandWith(
@@ -262,7 +332,7 @@ func TestTryRunSelfUpdateCommandFailureAndUsage(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code, matched = tryRunSelfUpdateCommandWith(
-		context.Background(), []string{"update", "recover"}, &stdout, &stderr, "3.2.1", nil,
+		context.Background(), []string{"update", "unsupported"}, &stdout, &stderr, "3.2.1", nil,
 	)
 	if !matched || code != 1 || !strings.Contains(stderr.String(), selfUpdateUsage) {
 		t.Fatalf("unsupported matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())
@@ -276,6 +346,7 @@ func TestTryRunSelfUpdateCommandFailureAndUsage(t *testing.T) {
 	if !matched || code != 0 || stdout.String() != selfUpdateUsage+"\n" || stderr.Len() != 0 ||
 		!strings.Contains(stdout.String(), "scripthold update\n") ||
 		!strings.Contains(stdout.String(), "scripthold update --adopt") ||
+		!strings.Contains(stdout.String(), "scripthold update recover") ||
 		!strings.Contains(stdout.String(), "stop every other Scripthold process") {
 		t.Fatalf("help matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())
 	}
