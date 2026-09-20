@@ -88,17 +88,31 @@ const (
 	existingFileReplacementStateUnknown   existingFileReplacementState = "unknown"
 )
 
-func preparedEditPlanReplacement(target *preparedEditPlanTarget) preparedExistingFileReplacement {
-	return preparedExistingFileReplacement{
-		requestedPath:     target.requestedPath,
-		resolvedPath:      target.resolvedPath,
-		resultData:        target.prepared.data,
-		targetFingerprint: target.prepared.targetFingerprint,
-		resultFingerprint: target.prepared.resultFingerprint,
-		identitySlot:      &target.prepared.identityFile,
-		changed:           target.prepared.changed,
-		forceWritable:     target.prepared.forceWritable,
+func preparedEditReplacement(prepared *preparedEdit) preparedExistingFileReplacement {
+	if prepared == nil {
+		return preparedExistingFileReplacement{}
 	}
+	return preparedExistingFileReplacement{
+		requestedPath:     prepared.requestedPath,
+		resolvedPath:      prepared.resolvedPath,
+		resultData:        prepared.data,
+		targetFingerprint: prepared.targetFingerprint,
+		resultFingerprint: prepared.resultFingerprint,
+		identitySlot:      &prepared.identityFile,
+		changed:           prepared.changed,
+		forceWritable:     prepared.forceWritable,
+	}
+}
+
+func preparedEditPlanReplacement(target *preparedEditPlanTarget) preparedExistingFileReplacement {
+	if target == nil {
+		return preparedExistingFileReplacement{}
+	}
+	replacement := preparedEditReplacement(&target.prepared)
+	// The plan's validated path binding remains authoritative for multi-file apply.
+	replacement.requestedPath = target.requestedPath
+	replacement.resolvedPath = target.resolvedPath
+	return replacement
 }
 
 func (replacement preparedExistingFileReplacement) identity() *filesystem.FileIdentity {

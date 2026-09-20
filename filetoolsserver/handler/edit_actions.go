@@ -219,7 +219,7 @@ func (h *Handler) handleDirectEdit(ctx context.Context, input EditFileInput) (*m
 	readOnlyCleared := false
 	if !input.DryRun && prepared.changed {
 		var commitFailure *mcp.CallToolResult
-		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, prepared, prepared.sourceSnapshot, prepared.sourceMode)
+		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, preparedEditReplacement(&prepared), prepared.sourceSnapshot, prepared.sourceMode)
 		if commitFailure != nil {
 			return commitFailure, EditFileOutput{}, nil
 		}
@@ -299,7 +299,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	if !validation.Ok() {
 		return validation.Result, EditFileOutput{}, nil
 	}
-	if validation.Path != prepared.resolvedPath {
+	if validation.Path != replacement.resolvedPath {
 		return errorResultWithCode(ErrCodeConflict, "path changed after edit preview"), EditFileOutput{}, nil
 	}
 	if prepared.identityFile == nil {
@@ -383,7 +383,7 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 	readOnlyCleared := false
 	if prepared.changed {
 		var commitFailure *mcp.CallToolResult
-		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, *prepared, current, current.Mode.Perm())
+		readOnlyCleared, commitFailure = h.commitPreparedEdit(ctx, replacement, current, current.Mode.Perm())
 		if commitFailure != nil {
 			return h.classifyEditApplyFailure(replacement, output, commitFailure)
 		}
@@ -449,20 +449,20 @@ func (h *Handler) classifyEditApplyFailure(replacement preparedExistingFileRepla
 	return errorResultWithCode(ErrCodePartialCommit, message), output, nil
 }
 
-func (h *Handler) commitPreparedEdit(ctx context.Context, prepared preparedEdit, expected filesystem.FileSnapshot, currentMode os.FileMode) (bool, *mcp.CallToolResult) {
+func (h *Handler) commitPreparedEdit(ctx context.Context, replacement preparedExistingFileReplacement, expected filesystem.FileSnapshot, currentMode os.FileMode) (bool, *mcp.CallToolResult) {
 	if err := ctx.Err(); err != nil {
-		return false, errorResultFromError(operation.Wrap(operation.KindCancelled, "commit_prepared_edit", prepared.resolvedPath, err))
+		return false, errorResultFromError(operation.Wrap(operation.KindCancelled, "commit_prepared_edit", replacement.resolvedPath, err))
 	}
-	validation := h.ValidatePath(prepared.requestedPath)
+	validation := h.ValidatePath(replacement.requestedPath)
 	if !validation.Ok() {
 		return false, validation.Result
 	}
-	if validation.Path != prepared.resolvedPath {
+	if validation.Path != replacement.resolvedPath {
 		return false, errorResultWithCode(ErrCodeConflict, "path changed while preparing edit")
 	}
 
 	readOnly := isReadOnly(currentMode)
-	if readOnly && !prepared.forceWritable {
+	if readOnly && !replacement.forceWritable {
 		return false, errorResultWithCode(ErrCodePermission, "file is read-only — STOP, do NOT retry and do NOT attempt to change file attributes. Ask the user whether to proceed with forceWritable: true, or skip this file")
 	}
 	writeMode := currentMode
@@ -473,21 +473,21 @@ func (h *Handler) commitPreparedEdit(ctx context.Context, prepared preparedEdit,
 		}
 		readOnlyCleared = true
 		writeMode = currentMode | 0200
-		slog.Info("cleared read-only flag", "path", prepared.requestedPath)
+		slog.Info("cleared read-only flag", "path", replacement.requestedPath)
 		refreshed, err := expected.RefreshMetadata(validation.Path)
 		if err != nil {
 			if restoreErr := os.Chmod(validation.Path, currentMode); restoreErr != nil {
-				slog.Error("failed to restore read-only mode after snapshot failure", "path", prepared.requestedPath, "error", restoreErr)
+				slog.Error("failed to restore read-only mode after snapshot failure", "path", replacement.requestedPath, "error", restoreErr)
 			}
 			return false, errorResultFromError(fmt.Errorf("failed to refresh file snapshot: %w", err))
 		}
 		expected = refreshed
 	}
 
-	if err := h.replaceFile(validation.Path, prepared.data, filesystem.ReplaceOptions{Mode: writeMode, Expected: &expected}); err != nil {
+	if err := h.replaceFile(validation.Path, replacement.resultData, filesystem.ReplaceOptions{Mode: writeMode, Expected: &expected}); err != nil {
 		if readOnlyCleared {
 			if restoreErr := os.Chmod(validation.Path, currentMode); restoreErr != nil {
-				slog.Error("failed to restore read-only mode after edit failure", "path", prepared.requestedPath, "error", restoreErr)
+				slog.Error("failed to restore read-only mode after edit failure", "path", replacement.requestedPath, "error", restoreErr)
 			}
 		}
 		return false, errorResultFromError(fmt.Errorf("failed to write file: %w", err))

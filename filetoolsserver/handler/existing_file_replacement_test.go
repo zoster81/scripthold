@@ -30,6 +30,28 @@ func TestPreparedEditPlanRequiresOrderedTargets(t *testing.T) {
 	}
 }
 
+func TestPreparedEditPlanReplacementPreservesPlanPathBinding(t *testing.T) {
+	target := preparedEditPlanTarget{
+		requestedPath: "planned-requested",
+		resolvedPath:  "planned-resolved",
+		prepared: preparedEdit{
+			requestedPath:     "prepared-requested",
+			resolvedPath:      "prepared-resolved",
+			data:              []byte("result"),
+			targetFingerprint: "before",
+			resultFingerprint: "after",
+			changed:           true,
+		},
+	}
+	replacement := preparedEditPlanReplacement(&target)
+	if replacement.requestedPath != target.requestedPath || replacement.resolvedPath != target.resolvedPath {
+		t.Fatalf("replacement paths=%q %q, want plan paths=%q %q", replacement.requestedPath, replacement.resolvedPath, target.requestedPath, target.resolvedPath)
+	}
+	if string(replacement.resultData) != "result" || replacement.targetFingerprint != "before" || replacement.resultFingerprint != "after" || !replacement.changed {
+		t.Fatalf("replacement lost prepared edit state: %+v", replacement)
+	}
+}
+
 func TestExistingFileReplacementBatchStagesAndCommitsPreparedReplacement(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "target.txt")
