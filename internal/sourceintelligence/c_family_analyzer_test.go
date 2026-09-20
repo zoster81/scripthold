@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -411,6 +412,128 @@ func TestCAnalyzerDirectiveBlockCommentPreservesLineSplice(t *testing.T) {
 	}
 	if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)["after"]; !ok {
 		t.Fatalf("declaration after directive block comment missing: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestCFamilyReduceMacroDelimiterEffectContracts(t *testing.T) {
+	effects := map[string]cFamilyMacroStructuralEffect{
+		"OPEN": {
+			suffixOpeners: []string{"{", "("},
+		},
+		"CLOSE": {
+			prefixClosers: []string{")", "}"},
+		},
+		"MIXED": {
+			prefixClosers: []string{")"},
+			suffixOpeners: []string{"["},
+		},
+		"CALL": {
+			functionLike:  true,
+			suffixOpeners: []string{"{"},
+		},
+	}
+	tests := []struct {
+		name       string
+		body       string
+		wantPrefix []string
+		wantSuffix []string
+		wantOK     bool
+	}{
+		{
+			name:   "balanced delimiters",
+			body:   "({[]})",
+			wantOK: true,
+		},
+		{
+			name:       "unmatched closers and openers are preserved",
+			body:       ")} text {[",
+			wantPrefix: []string{")", "}"},
+			wantSuffix: []string{"{", "["},
+			wantOK:     true,
+		},
+		{
+			name:   "quotes and comments are opaque",
+			body:   "\"({\" '])' /* {[( */ // )]}\n({})",
+			wantOK: true,
+		},
+		{
+			name:       "line continuation LF is ignored",
+			body:       ")\\\n{",
+			wantPrefix: []string{")"},
+			wantSuffix: []string{"{"},
+			wantOK:     true,
+		},
+		{
+			name:       "line continuation CRLF is ignored",
+			body:       "}\\\r\n(",
+			wantPrefix: []string{"}"},
+			wantSuffix: []string{"("},
+			wantOK:     true,
+		},
+		{
+			name:   "object macro effects compose",
+			body:   "OPEN CLOSE",
+			wantOK: true,
+		},
+		{
+			name:       "object macro prefix and suffix are preserved",
+			body:       "MIXED",
+			wantPrefix: []string{")"},
+			wantSuffix: []string{"["},
+			wantOK:     true,
+		},
+		{
+			name:   "bare function-like macro is structurally inert",
+			body:   "CALL",
+			wantOK: true,
+		},
+		{
+			name:   "function-like macro invocation fails closed",
+			body:   "CALL (value)",
+			wantOK: false,
+		},
+		{
+			name:   "mismatched delimiter fails closed",
+			body:   "(]",
+			wantOK: false,
+		},
+		{
+			name:   "token pasting fails closed",
+			body:   "value ## other",
+			wantOK: false,
+		},
+		{
+			name:   "unterminated quote fails closed",
+			body:   "\"(",
+			wantOK: false,
+		},
+		{
+			name:   "unterminated block comment fails closed",
+			body:   "/* (",
+			wantOK: false,
+		},
+		{
+			name:       "exact nesting cap is accepted",
+			body:       strings.Repeat("(", 64),
+			wantSuffix: strings.Split(strings.Repeat("( ", 64), " "),
+			wantOK:     true,
+		},
+		{
+			name:   "nesting above cap fails closed",
+			body:   strings.Repeat("(", 65),
+			wantOK: false,
+		},
+	}
+	tests[len(tests)-2].wantSuffix = tests[len(tests)-2].wantSuffix[:64]
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			prefix, suffix, ok := cFamilyReduceMacroDelimiterEffect(test.body, effects)
+			if ok != test.wantOK || !slices.Equal(prefix, test.wantPrefix) || !slices.Equal(suffix, test.wantSuffix) {
+				t.Fatalf("reduce(%q) = prefix=%v suffix=%v ok=%t, want prefix=%v suffix=%v ok=%t",
+					test.body, prefix, suffix, ok, test.wantPrefix, test.wantSuffix, test.wantOK)
+			}
+		})
 	}
 }
 
