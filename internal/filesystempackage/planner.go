@@ -160,281 +160,46 @@ func (planner *Planner) Plan(ctx context.Context, manifest Manifest) (PreparedPa
 	if len(allowed) == 0 {
 		return PreparedPackage{}, operation.New(operation.KindAccessDenied, "no resolved allowed directories are available")
 	}
-	treeOptions := filesystem.ExactTreeOptions{
-		ResolvedAllowedDirs: allowed,
-		MaxEntries:          planner.limits.MaxRecursiveEntries,
-		MaxDepth:            planner.limits.MaxRecursiveDepth,
-		MaxFileBytes:        planner.limits.MaxFileBytes,
-		MaxAggregateBytes:   planner.limits.MaxAggregateBytes,
-	}
 
-	prepared := PreparedPackage{FormatVersion: FormatV1, Operations: make([]PreparedOperation, 0, len(manifest.Operations))}
-	operands := make([]plannerOperand, 0, len(manifest.Operations)*2)
-	identityOwners := make(map[string]int)
-	mkdirByPath := make(map[string]int)
-
-	registerIdentity := func(identity filesystem.ObjectIdentity, operationIndex int) error {
-		key := identity.StableKey()
-		if key == "" {
-			return operation.New(operation.KindUnsupported, "stable object identity is required for filesystem package planning")
-		}
-		if owner, ok := identityOwners[key]; ok && owner != operationIndex {
-			return operation.New(operation.KindInvalidInput, fmt.Sprintf("operations %d and %d alias the same filesystem object", owner, operationIndex))
-		}
-		identityOwners[key] = operationIndex
-		return nil
-	}
-	registerTreeIdentities := func(tree filesystem.ExactTree, operationIndex int) error {
-		for _, entry := range tree.Entries {
-			if err := registerIdentity(entry.Identity, operationIndex); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	addSourceBytes := func(value int64) error {
-		if value < 0 || value > math.MaxInt64-prepared.TotalSourceBytes || prepared.TotalSourceBytes+value > planner.limits.MaxAggregateBytes {
-			return operation.New(operation.KindLimit, fmt.Sprintf("filesystem package aggregate source bytes exceed limit %d", planner.limits.MaxAggregateBytes))
-		}
-		prepared.TotalSourceBytes += value
-		return nil
-	}
-	addStagingBytes := func(value int64) error {
-		if value < 0 || value > math.MaxInt64-prepared.TotalStagingBytes || prepared.TotalStagingBytes+value > planner.limits.MaxStagingBytes {
-			return operation.New(operation.KindLimit, fmt.Sprintf("filesystem package staging bytes exceed limit %d", planner.limits.MaxStagingBytes))
-		}
-		prepared.TotalStagingBytes += value
-		return nil
-	}
-	registerOperand := func(index int, role, path, typeName string) {
-		operands = append(operands, plannerOperand{index: index, role: role, path: path, key: plannerPathKey(path), typeName: typeName})
+	state := planningState{
+		planner: planner,
+		ctx:     ctx,
+		treeOptions: filesystem.ExactTreeOptions{
+			ResolvedAllowedDirs: allowed,
+			MaxEntries:          planner.limits.MaxRecursiveEntries,
+			MaxDepth:            planner.limits.MaxRecursiveDepth,
+			MaxFileBytes:        planner.limits.MaxFileBytes,
+			MaxAggregateBytes:   planner.limits.MaxAggregateBytes,
+		},
+		prepared: PreparedPackage{
+			FormatVersion: FormatV1,
+			Operations:    make([]PreparedOperation, 0, len(manifest.Operations)),
+		},
+		operands:       make([]plannerOperand, 0, len(manifest.Operations)*2),
+		identityOwners: make(map[string]int),
+		mkdirByPath:    make(map[string]int),
 	}
 
 	for index, declared := range manifest.Operations {
 		if err := ctx.Err(); err != nil {
 			return PreparedPackage{}, operation.Wrap(operation.KindCancelled, "plan_filesystem_package", "", err)
 		}
-		item := PreparedOperation{Index: index, Operation: declared, ParentProviderIndex: -1}
-		switch declared.Type {
-		case OperationMkdir:
-			target, parentPath, provider, nearestIdentity, err := planner.prepareMissingTarget(declared.Path, mkdirByPath)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			item.Path, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
-			registerOperand(index, "target", target.ResolvedPath, declared.Type)
-			mkdirByPath[plannerPathKey(target.ResolvedPath)] = index
-			item.DirectoryCount = 1
-
-		case OperationCreateFile:
-			target, parentPath, provider, nearestIdentity, err := planner.prepareMissingTarget(declared.Path, mkdirByPath)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			item.Path, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
-			item.Bytes, item.FileCount = int64(len(declared.Content)), 1
-			item.ExpectedResultFingerprint = filesystem.FingerprintRegularFileData(declared.Content)
-			if err := addStagingBytes(item.Bytes); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			registerOperand(index, "target", target.ResolvedPath, declared.Type)
-
-		case OperationCopyFile:
-			source, sourceIdentity, sourceSnapshot, sourceParent, err := planner.prepareRegularSource(ctx, declared.Source)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			target, parentPath, provider, nearestIdentity, err := planner.prepareMissingTarget(declared.Destination, mkdirByPath)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if err := registerIdentity(sourceIdentity, index); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			fingerprint, err := filesystem.FingerprintRegularFileSnapshot(sourceSnapshot)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			item.Source, item.SourceIdentity, item.SourceSnapshot, item.SourceParentIdentity = source, sourceIdentity, sourceSnapshot, sourceParent
-			item.Destination, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
-			item.Bytes, item.FileCount, item.ExpectedResultFingerprint = sourceSnapshot.Size, 1, fingerprint
-			if err := addSourceBytes(item.Bytes); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if err := addStagingBytes(item.Bytes); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			registerOperand(index, "source", source.ResolvedPath, declared.Type)
-			registerOperand(index, "target", target.ResolvedPath, declared.Type)
-
-		case OperationCopyDirectory:
-			source, err := planner.authorizeExisting(declared.Source)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			sourceIdentity, err := filesystem.CaptureObjectIdentity(source.ResolvedPath)
-			if err != nil || !sourceIdentity.IsDirectory() {
-				if err == nil {
-					err = operation.New(operation.KindInvalidInput, "copyDirectory source must be a real directory")
-				}
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			tree, err := filesystem.EnumerateExactTree(ctx, source.ResolvedPath, treeOptions)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			target, parentPath, provider, nearestIdentity, err := planner.prepareMissingTarget(declared.Destination, mkdirByPath)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if security.PathsOverlap(source.ResolvedPath, target.ResolvedPath) {
-				return PreparedPackage{}, annotatePlanError(index, operation.New(operation.KindInvalidInput, "copyDirectory source and destination must not overlap"))
-			}
-			if err := registerTreeIdentities(tree, index); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			sourceParent, err := planner.captureExistingDirectoryIdentity(filepath.Dir(source.RequestedPath))
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			item.Source, item.SourceIdentity, item.SourceParentIdentity = source, sourceIdentity, sourceParent
-			item.Destination, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
-			item.Tree = &tree
-			item.Bytes, item.FileCount, item.DirectoryCount, item.ExpectedResultFingerprint = tree.TotalBytes, tree.FileCount, tree.DirectoryCount, tree.ContentFingerprint
-			if err := addSourceBytes(item.Bytes); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if err := addStagingBytes(item.Bytes); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			registerOperand(index, "source", source.ResolvedPath, declared.Type)
-			registerOperand(index, "target", target.ResolvedPath, declared.Type)
-
-		case OperationMove:
-			source, err := planner.authorizeExisting(declared.Source)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			sourceIdentity, err := filesystem.CaptureObjectIdentity(source.ResolvedPath)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			target, parentPath, provider, nearestIdentity, err := planner.prepareMissingTarget(declared.Destination, mkdirByPath)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if sourceIdentity.IsDirectory() && security.PathsOverlap(source.ResolvedPath, target.ResolvedPath) {
-				return PreparedPackage{}, annotatePlanError(index, operation.New(operation.KindInvalidInput, "directory move source and destination must not overlap"))
-			}
-			if err := registerIdentity(sourceIdentity, index); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			sourceParent, err := planner.captureExistingDirectoryIdentity(filepath.Dir(source.RequestedPath))
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			sameVolume, err := sourceIdentity.SameVolume(nearestIdentity)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if !sameVolume {
-				return PreparedPackage{}, annotatePlanError(index, operation.New(operation.KindUnsupported, "move source and destination are on different filesystem volumes"))
-			}
-			item.Source, item.SourceIdentity, item.SourceParentIdentity = source, sourceIdentity, sourceParent
-			item.Destination, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
-			if !sourceIdentity.IsDirectory() {
-				snapshot, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, source.ResolvedPath, planner.limits.MaxFileBytes)
-				if err != nil {
-					return PreparedPackage{}, annotatePlanError(index, err)
-				}
-				fingerprint, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
-				if err != nil {
-					return PreparedPackage{}, annotatePlanError(index, err)
-				}
-				item.SourceSnapshot, item.Bytes, item.FileCount, item.ExpectedResultFingerprint = snapshot, snapshot.Size, 1, fingerprint
-				if err := addSourceBytes(item.Bytes); err != nil {
-					return PreparedPackage{}, annotatePlanError(index, err)
-				}
-			} else {
-				item.DirectoryCount = 1
-			}
-			registerOperand(index, "source", source.ResolvedPath, declared.Type)
-			registerOperand(index, "target", target.ResolvedPath, declared.Type)
-
-		case OperationDeleteFile:
-			target, targetIdentity, snapshot, parentIdentity, err := planner.prepareRegularSource(ctx, declared.Path)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if err := registerIdentity(targetIdentity, index); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			fingerprint, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			item.Path, item.TargetIdentity, item.SourceSnapshot, item.SourceParentIdentity = target, targetIdentity, snapshot, parentIdentity
-			item.Bytes, item.FileCount, item.BackupCount = snapshot.Size, 1, 1
-			item.ExpectedResultFingerprint = fingerprint
-			prepared.BackupRequirements = append(prepared.BackupRequirements, BackupRequirement{Path: target.ResolvedPath, ExpectedFingerprint: fingerprint, Bytes: snapshot.Size, OperationIndex: index})
-			if err := addSourceBytes(item.Bytes); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			registerOperand(index, "target", target.ResolvedPath, declared.Type)
-
-		case OperationDeleteDirectory:
-			target, err := planner.authorizeExisting(declared.Path)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			targetIdentity, err := filesystem.CaptureObjectIdentity(target.ResolvedPath)
-			if err != nil || !targetIdentity.IsDirectory() {
-				if err == nil {
-					err = operation.New(operation.KindInvalidInput, "deleteDirectory target must be a real directory")
-				}
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			tree, err := filesystem.EnumerateExactTree(ctx, target.ResolvedPath, treeOptions)
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			if err := registerTreeIdentities(tree, index); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			parentIdentity, err := planner.captureExistingDirectoryIdentity(filepath.Dir(target.RequestedPath))
-			if err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			item.Path, item.TargetIdentity, item.SourceParentIdentity, item.Tree = target, targetIdentity, parentIdentity, &tree
-			item.Bytes, item.FileCount, item.DirectoryCount, item.BackupCount = tree.TotalBytes, tree.FileCount, tree.DirectoryCount, tree.FileCount
-			item.ExpectedResultFingerprint = tree.ContentFingerprint
-			for _, entry := range tree.Entries {
-				if entry.IsDirectory {
-					continue
-				}
-				fingerprint, err := filesystem.FingerprintRegularFileSnapshot(entry.Snapshot)
-				if err != nil {
-					return PreparedPackage{}, annotatePlanError(index, err)
-				}
-				prepared.BackupRequirements = append(prepared.BackupRequirements, BackupRequirement{Path: entry.Path, ExpectedFingerprint: fingerprint, Bytes: entry.Size, OperationIndex: index})
-			}
-			if err := addSourceBytes(item.Bytes); err != nil {
-				return PreparedPackage{}, annotatePlanError(index, err)
-			}
-			registerOperand(index, "target", target.ResolvedPath, declared.Type)
+		item, err := state.prepareOperation(index, declared)
+		if err != nil {
+			return PreparedPackage{}, annotatePlanError(index, err)
 		}
-		prepared.Operations = append(prepared.Operations, item)
+		state.prepared.Operations = append(state.prepared.Operations, item)
 	}
 
-	if err := validateOperandConflicts(operands); err != nil {
+	if err := validateOperandConflicts(state.operands); err != nil {
 		return PreparedPackage{}, err
 	}
-	if len(prepared.BackupRequirements) > 0 {
+	if len(state.prepared.BackupRequirements) > 0 {
 		if planner.backupPreflight == nil {
 			return PreparedPackage{}, operation.New(operation.KindInvalidInput, "persistent backup store is required for destructive filesystem packages")
 		}
-		requests := make([]backupstore.CaptureRequest, 0, len(prepared.BackupRequirements))
-		for _, requirement := range prepared.BackupRequirements {
+		requests := make([]backupstore.CaptureRequest, 0, len(state.prepared.BackupRequirements))
+		for _, requirement := range state.prepared.BackupRequirements {
 			requests = append(requests, backupstore.CaptureRequest{
 				TargetPath: requirement.Path, SourceOperation: backupstore.SourceOperationFilesystemPackage,
 			})
@@ -442,7 +207,7 @@ func (planner *Planner) Plan(ctx context.Context, manifest Manifest) (PreparedPa
 		if err := planner.backupPreflight(ctx, requests); err != nil {
 			return PreparedPackage{}, err
 		}
-		for _, requirement := range prepared.BackupRequirements {
+		for _, requirement := range state.prepared.BackupRequirements {
 			snapshot, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, requirement.Path, planner.limits.MaxFileBytes)
 			if err != nil {
 				return PreparedPackage{}, operation.Wrap(operation.KindConflict, "verify_backup_preflight_source", requirement.Path, err)
@@ -456,7 +221,305 @@ func (planner *Planner) Plan(ctx context.Context, manifest Manifest) (PreparedPa
 			}
 		}
 	}
-	return prepared, nil
+	return state.prepared, nil
+}
+
+type planningState struct {
+	planner        *Planner
+	ctx            context.Context
+	treeOptions    filesystem.ExactTreeOptions
+	prepared       PreparedPackage
+	operands       []plannerOperand
+	identityOwners map[string]int
+	mkdirByPath    map[string]int
+}
+
+func (state *planningState) prepareOperation(index int, declared Operation) (PreparedOperation, error) {
+	item := PreparedOperation{Index: index, Operation: declared, ParentProviderIndex: -1}
+	var err error
+	switch declared.Type {
+	case OperationMkdir:
+		err = state.prepareMkdir(&item)
+	case OperationCreateFile:
+		err = state.prepareCreateFile(&item)
+	case OperationCopyFile:
+		err = state.prepareCopyFile(&item)
+	case OperationCopyDirectory:
+		err = state.prepareCopyDirectory(&item)
+	case OperationMove:
+		err = state.prepareMove(&item)
+	case OperationDeleteFile:
+		err = state.prepareDeleteFile(&item)
+	case OperationDeleteDirectory:
+		err = state.prepareDeleteDirectory(&item)
+	}
+	return item, err
+}
+
+func (state *planningState) prepareMkdir(item *PreparedOperation) error {
+	target, parentPath, provider, nearestIdentity, err := state.planner.prepareMissingTarget(item.Operation.Path, state.mkdirByPath)
+	if err != nil {
+		return err
+	}
+	item.Path, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
+	state.registerOperand(item.Index, "target", target.ResolvedPath, item.Operation.Type)
+	state.mkdirByPath[plannerPathKey(target.ResolvedPath)] = item.Index
+	item.DirectoryCount = 1
+	return nil
+}
+
+func (state *planningState) prepareCreateFile(item *PreparedOperation) error {
+	target, parentPath, provider, nearestIdentity, err := state.planner.prepareMissingTarget(item.Operation.Path, state.mkdirByPath)
+	if err != nil {
+		return err
+	}
+	item.Path, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
+	item.Bytes, item.FileCount = int64(len(item.Operation.Content)), 1
+	item.ExpectedResultFingerprint = filesystem.FingerprintRegularFileData(item.Operation.Content)
+	if err := state.addStagingBytes(item.Bytes); err != nil {
+		return err
+	}
+	state.registerOperand(item.Index, "target", target.ResolvedPath, item.Operation.Type)
+	return nil
+}
+
+func (state *planningState) prepareCopyFile(item *PreparedOperation) error {
+	source, sourceIdentity, sourceSnapshot, sourceParent, err := state.planner.prepareRegularSource(state.ctx, item.Operation.Source)
+	if err != nil {
+		return err
+	}
+	target, parentPath, provider, nearestIdentity, err := state.planner.prepareMissingTarget(item.Operation.Destination, state.mkdirByPath)
+	if err != nil {
+		return err
+	}
+	if err := state.registerIdentity(sourceIdentity, item.Index); err != nil {
+		return err
+	}
+	fingerprint, err := filesystem.FingerprintRegularFileSnapshot(sourceSnapshot)
+	if err != nil {
+		return err
+	}
+	item.Source, item.SourceIdentity, item.SourceSnapshot, item.SourceParentIdentity = source, sourceIdentity, sourceSnapshot, sourceParent
+	item.Destination, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
+	item.Bytes, item.FileCount, item.ExpectedResultFingerprint = sourceSnapshot.Size, 1, fingerprint
+	if err := state.addSourceBytes(item.Bytes); err != nil {
+		return err
+	}
+	if err := state.addStagingBytes(item.Bytes); err != nil {
+		return err
+	}
+	state.registerOperand(item.Index, "source", source.ResolvedPath, item.Operation.Type)
+	state.registerOperand(item.Index, "target", target.ResolvedPath, item.Operation.Type)
+	return nil
+}
+
+func (state *planningState) prepareCopyDirectory(item *PreparedOperation) error {
+	source, err := state.planner.authorizeExisting(item.Operation.Source)
+	if err != nil {
+		return err
+	}
+	sourceIdentity, err := filesystem.CaptureObjectIdentity(source.ResolvedPath)
+	if err != nil || !sourceIdentity.IsDirectory() {
+		if err == nil {
+			err = operation.New(operation.KindInvalidInput, "copyDirectory source must be a real directory")
+		}
+		return err
+	}
+	tree, err := filesystem.EnumerateExactTree(state.ctx, source.ResolvedPath, state.treeOptions)
+	if err != nil {
+		return err
+	}
+	target, parentPath, provider, nearestIdentity, err := state.planner.prepareMissingTarget(item.Operation.Destination, state.mkdirByPath)
+	if err != nil {
+		return err
+	}
+	if security.PathsOverlap(source.ResolvedPath, target.ResolvedPath) {
+		return operation.New(operation.KindInvalidInput, "copyDirectory source and destination must not overlap")
+	}
+	if err := state.registerTreeIdentities(tree, item.Index); err != nil {
+		return err
+	}
+	sourceParent, err := state.planner.captureExistingDirectoryIdentity(filepath.Dir(source.RequestedPath))
+	if err != nil {
+		return err
+	}
+	item.Source, item.SourceIdentity, item.SourceParentIdentity = source, sourceIdentity, sourceParent
+	item.Destination, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
+	item.Tree = &tree
+	item.Bytes, item.FileCount, item.DirectoryCount, item.ExpectedResultFingerprint = tree.TotalBytes, tree.FileCount, tree.DirectoryCount, tree.ContentFingerprint
+	if err := state.addSourceBytes(item.Bytes); err != nil {
+		return err
+	}
+	if err := state.addStagingBytes(item.Bytes); err != nil {
+		return err
+	}
+	state.registerOperand(item.Index, "source", source.ResolvedPath, item.Operation.Type)
+	state.registerOperand(item.Index, "target", target.ResolvedPath, item.Operation.Type)
+	return nil
+}
+
+func (state *planningState) prepareMove(item *PreparedOperation) error {
+	source, err := state.planner.authorizeExisting(item.Operation.Source)
+	if err != nil {
+		return err
+	}
+	sourceIdentity, err := filesystem.CaptureObjectIdentity(source.ResolvedPath)
+	if err != nil {
+		return err
+	}
+	target, parentPath, provider, nearestIdentity, err := state.planner.prepareMissingTarget(item.Operation.Destination, state.mkdirByPath)
+	if err != nil {
+		return err
+	}
+	if sourceIdentity.IsDirectory() && security.PathsOverlap(source.ResolvedPath, target.ResolvedPath) {
+		return operation.New(operation.KindInvalidInput, "directory move source and destination must not overlap")
+	}
+	if err := state.registerIdentity(sourceIdentity, item.Index); err != nil {
+		return err
+	}
+	sourceParent, err := state.planner.captureExistingDirectoryIdentity(filepath.Dir(source.RequestedPath))
+	if err != nil {
+		return err
+	}
+	sameVolume, err := sourceIdentity.SameVolume(nearestIdentity)
+	if err != nil {
+		return err
+	}
+	if !sameVolume {
+		return operation.New(operation.KindUnsupported, "move source and destination are on different filesystem volumes")
+	}
+	item.Source, item.SourceIdentity, item.SourceParentIdentity = source, sourceIdentity, sourceParent
+	item.Destination, item.ImmediateParentPath, item.ParentProviderIndex, item.NearestAncestorIdentity = target, parentPath, provider, nearestIdentity
+	if !sourceIdentity.IsDirectory() {
+		snapshot, err := filesystem.CaptureRegularFileSnapshotBounded(state.ctx, source.ResolvedPath, state.planner.limits.MaxFileBytes)
+		if err != nil {
+			return err
+		}
+		fingerprint, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
+		if err != nil {
+			return err
+		}
+		item.SourceSnapshot, item.Bytes, item.FileCount, item.ExpectedResultFingerprint = snapshot, snapshot.Size, 1, fingerprint
+		if err := state.addSourceBytes(item.Bytes); err != nil {
+			return err
+		}
+	} else {
+		item.DirectoryCount = 1
+	}
+	state.registerOperand(item.Index, "source", source.ResolvedPath, item.Operation.Type)
+	state.registerOperand(item.Index, "target", target.ResolvedPath, item.Operation.Type)
+	return nil
+}
+
+func (state *planningState) prepareDeleteFile(item *PreparedOperation) error {
+	target, targetIdentity, snapshot, parentIdentity, err := state.planner.prepareRegularSource(state.ctx, item.Operation.Path)
+	if err != nil {
+		return err
+	}
+	if err := state.registerIdentity(targetIdentity, item.Index); err != nil {
+		return err
+	}
+	fingerprint, err := filesystem.FingerprintRegularFileSnapshot(snapshot)
+	if err != nil {
+		return err
+	}
+	item.Path, item.TargetIdentity, item.SourceSnapshot, item.SourceParentIdentity = target, targetIdentity, snapshot, parentIdentity
+	item.Bytes, item.FileCount, item.BackupCount = snapshot.Size, 1, 1
+	item.ExpectedResultFingerprint = fingerprint
+	state.prepared.BackupRequirements = append(state.prepared.BackupRequirements, BackupRequirement{
+		Path: target.ResolvedPath, ExpectedFingerprint: fingerprint, Bytes: snapshot.Size, OperationIndex: item.Index,
+	})
+	if err := state.addSourceBytes(item.Bytes); err != nil {
+		return err
+	}
+	state.registerOperand(item.Index, "target", target.ResolvedPath, item.Operation.Type)
+	return nil
+}
+
+func (state *planningState) prepareDeleteDirectory(item *PreparedOperation) error {
+	target, err := state.planner.authorizeExisting(item.Operation.Path)
+	if err != nil {
+		return err
+	}
+	targetIdentity, err := filesystem.CaptureObjectIdentity(target.ResolvedPath)
+	if err != nil || !targetIdentity.IsDirectory() {
+		if err == nil {
+			err = operation.New(operation.KindInvalidInput, "deleteDirectory target must be a real directory")
+		}
+		return err
+	}
+	tree, err := filesystem.EnumerateExactTree(state.ctx, target.ResolvedPath, state.treeOptions)
+	if err != nil {
+		return err
+	}
+	if err := state.registerTreeIdentities(tree, item.Index); err != nil {
+		return err
+	}
+	parentIdentity, err := state.planner.captureExistingDirectoryIdentity(filepath.Dir(target.RequestedPath))
+	if err != nil {
+		return err
+	}
+	item.Path, item.TargetIdentity, item.SourceParentIdentity, item.Tree = target, targetIdentity, parentIdentity, &tree
+	item.Bytes, item.FileCount, item.DirectoryCount, item.BackupCount = tree.TotalBytes, tree.FileCount, tree.DirectoryCount, tree.FileCount
+	item.ExpectedResultFingerprint = tree.ContentFingerprint
+	for _, entry := range tree.Entries {
+		if entry.IsDirectory {
+			continue
+		}
+		fingerprint, err := filesystem.FingerprintRegularFileSnapshot(entry.Snapshot)
+		if err != nil {
+			return err
+		}
+		state.prepared.BackupRequirements = append(state.prepared.BackupRequirements, BackupRequirement{
+			Path: entry.Path, ExpectedFingerprint: fingerprint, Bytes: entry.Size, OperationIndex: item.Index,
+		})
+	}
+	if err := state.addSourceBytes(item.Bytes); err != nil {
+		return err
+	}
+	state.registerOperand(item.Index, "target", target.ResolvedPath, item.Operation.Type)
+	return nil
+}
+
+func (state *planningState) registerIdentity(identity filesystem.ObjectIdentity, operationIndex int) error {
+	key := identity.StableKey()
+	if key == "" {
+		return operation.New(operation.KindUnsupported, "stable object identity is required for filesystem package planning")
+	}
+	if owner, ok := state.identityOwners[key]; ok && owner != operationIndex {
+		return operation.New(operation.KindInvalidInput, fmt.Sprintf("operations %d and %d alias the same filesystem object", owner, operationIndex))
+	}
+	state.identityOwners[key] = operationIndex
+	return nil
+}
+
+func (state *planningState) registerTreeIdentities(tree filesystem.ExactTree, operationIndex int) error {
+	for _, entry := range tree.Entries {
+		if err := state.registerIdentity(entry.Identity, operationIndex); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (state *planningState) addSourceBytes(value int64) error {
+	if value < 0 || value > math.MaxInt64-state.prepared.TotalSourceBytes || state.prepared.TotalSourceBytes+value > state.planner.limits.MaxAggregateBytes {
+		return operation.New(operation.KindLimit, fmt.Sprintf("filesystem package aggregate source bytes exceed limit %d", state.planner.limits.MaxAggregateBytes))
+	}
+	state.prepared.TotalSourceBytes += value
+	return nil
+}
+
+func (state *planningState) addStagingBytes(value int64) error {
+	if value < 0 || value > math.MaxInt64-state.prepared.TotalStagingBytes || state.prepared.TotalStagingBytes+value > state.planner.limits.MaxStagingBytes {
+		return operation.New(operation.KindLimit, fmt.Sprintf("filesystem package staging bytes exceed limit %d", state.planner.limits.MaxStagingBytes))
+	}
+	state.prepared.TotalStagingBytes += value
+	return nil
+}
+
+func (state *planningState) registerOperand(index int, role, path, typeName string) {
+	state.operands = append(state.operands, plannerOperand{index: index, role: role, path: path, key: plannerPathKey(path), typeName: typeName})
 }
 
 func (planner *Planner) prepareMissingTarget(path string, mkdirByPath map[string]int) (security.PathEvidence, string, int, filesystem.ObjectIdentity, error) {
