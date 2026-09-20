@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +40,14 @@ func TestSelectReleaseAuthority(t *testing.T) {
 	}
 	if selected.Checksums.ID != 102 || selected.Checksums.Name != "checksums.txt" {
 		t.Fatalf("unexpected checksums asset: %#v", selected.Checksums)
+	}
+}
+
+func TestSelectReleaseAuthorityReportsNoNewerRelease(t *testing.T) {
+	payload := []byte(`{"id":42,"tag_name":"v3.3.0","draft":false,"prerelease":false,"immutable":true,"assets":[]}`)
+	_, err := selectReleaseAuthority(payload, "3.3.0", "linux", "amd64")
+	if !errors.Is(err, errNoUpdateAvailable) {
+		t.Fatalf("error = %v, want no-update sentinel", err)
 	}
 }
 

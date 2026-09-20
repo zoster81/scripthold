@@ -14,6 +14,8 @@ import (
 	"strings"
 )
 
+var errNoUpdateAvailable = errors.New("no newer self-update release is available")
+
 const (
 	githubReleaseAssetHost  = "release-assets.githubusercontent.com"
 	checksumsAssetName      = "checksums.txt"
@@ -80,7 +82,7 @@ func selectReleaseAuthority(payload []byte, currentVersion, goos, goarch string)
 		return selectedRelease{}, fmt.Errorf("current version %q is not semantic", currentVersion)
 	}
 	if !isNewerVersion(version, currentVersion) {
-		return selectedRelease{}, fmt.Errorf("release %q is not newer than %q", version, currentVersion)
+		return selectedRelease{}, fmt.Errorf("%w: release %q is not newer than %q", errNoUpdateAvailable, version, currentVersion)
 	}
 
 	binaryName, err := expectedBinaryAssetName(goos, goarch)

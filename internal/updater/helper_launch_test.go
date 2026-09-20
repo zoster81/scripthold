@@ -43,7 +43,7 @@ func TestLaunchDetachedHelperStartsBeforeReleasingLauncherLocks(t *testing.T) {
 		}, nil
 	}
 
-	if err := launchDetachedHelperWith(
+	startedResult, err := launchDetachedHelperWith(
 		context.Background(),
 		boundary,
 		inspection,
@@ -52,8 +52,12 @@ func TestLaunchDetachedHelperStartsBeforeReleasingLauncherLocks(t *testing.T) {
 		runtime.GOOS,
 		runtime.GOARCH,
 		helperLaunchDeps{reconciliation: reconcileDeps, start: start},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !startedResult {
+		t.Fatal("successful helper launch was not reported as started")
 	}
 	if !started || !released {
 		t.Fatalf("started=%v released=%v", started, released)
@@ -73,10 +77,33 @@ func TestLaunchDetachedHelperStartsBeforeReleasingLauncherLocks(t *testing.T) {
 	_ = use.Close()
 }
 
+func TestLaunchDetachedHelperReportsStartedWhenProcessReleaseFails(t *testing.T) {
+	boundary, inspection, admission, transactionID, _, reconcileDeps := helperOwnershipFixture(t)
+	injected := errors.New("release failed")
+	startedResult, err := launchDetachedHelperWith(
+		context.Background(),
+		boundary,
+		inspection,
+		admission,
+		transactionID,
+		runtime.GOOS,
+		runtime.GOARCH,
+		helperLaunchDeps{
+			reconciliation: reconcileDeps,
+			start: func(string, []string, []string) (func() error, error) {
+				return func() error { return injected }, nil
+			},
+		},
+	)
+	if !startedResult || !errors.Is(err, injected) {
+		t.Fatalf("started=%v err=%v", startedResult, err)
+	}
+}
+
 func TestLaunchDetachedHelperStartFailureKeepsAdmission(t *testing.T) {
 	boundary, inspection, admission, transactionID, _, reconcileDeps := helperOwnershipFixture(t)
 	injected := errors.New("start failed")
-	err := launchDetachedHelperWith(
+	startedResult, err := launchDetachedHelperWith(
 		context.Background(),
 		boundary,
 		inspection,
@@ -91,6 +118,9 @@ func TestLaunchDetachedHelperStartFailureKeepsAdmission(t *testing.T) {
 			},
 		},
 	)
+	if startedResult {
+		t.Fatal("failed helper start was reported as started")
+	}
 	if !errors.Is(err, injected) {
 		t.Fatalf("launch error = %v, want injected start failure", err)
 	}

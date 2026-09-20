@@ -151,6 +151,38 @@ func TestPreparePendingTransactionRollsBackArtifactsBeforeStatePublication(t *te
 	}
 }
 
+func TestPreparePendingTransactionCancellationBeforePendingPublicationRollsBackArtifacts(t *testing.T) {
+	boundary, inspection, admission, candidate, installedDeps, _, _ := pendingPreparationFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := preparePendingTransactionWith(
+		ctx, boundary, inspection, admission, candidate, runtime.GOOS, runtime.GOARCH,
+		pendingPreparationDeps{
+			installedEvidence: installedDeps,
+			validateCandidate: func(context.Context, *PreparedCandidate, string, string) error { return nil },
+			newTransactionID:  func() (string, error) { return strings.Repeat("5", 64), nil },
+			beforePendingWrite: func() error {
+				cancel()
+				return nil
+			},
+		},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", err)
+	}
+	for _, name := range []string{knownGoodArtifactName, candidateArtifactName, helperArtifactName} {
+		if _, statErr := os.Stat(filepath.Join(boundary.Directory, name)); !os.IsNotExist(statErr) {
+			t.Fatalf("%s remains after cancelled publication: %v", name, statErr)
+		}
+	}
+	state, stateErr := readInstallationState(boundary, inspection)
+	if stateErr != nil {
+		t.Fatal(stateErr)
+	}
+	if state.Pending != nil {
+		t.Fatalf("cancelled transaction became durable: %#v", state.Pending)
+	}
+}
+
 func TestPreparePendingTransactionRejectsExistingArtifact(t *testing.T) {
 	boundary, inspection, admission, candidate, installedDeps, _, _ := pendingPreparationFixture(t)
 	path := filepath.Join(boundary.Directory, knownGoodArtifactName)

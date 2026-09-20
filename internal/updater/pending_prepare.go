@@ -53,6 +53,12 @@ func preparePendingTransactionWith(
 	goos, goarch string,
 	deps pendingPreparationDeps,
 ) (_ installationState, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return installationState{}, err
+	}
 	if err := validateInstallationBoundary(boundary, inspection); err != nil {
 		return installationState{}, err
 	}
@@ -230,6 +236,9 @@ func preparePendingTransactionWith(
 		return installationState{}, err
 	}
 	if err := validateInstallationBoundary(boundary, inspection); err != nil {
+		return installationState{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return installationState{}, err
 	}
 
