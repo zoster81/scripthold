@@ -98,222 +98,281 @@ func scanStore(ctx context.Context, root string, descriptor Descriptor, options 
 		return scanResult{}, operation.New(operation.KindInvalidInput, "backup scan limits must be positive")
 	}
 
-	result := scanResult{
-		objects: make(map[string]scannedObject),
-		report: AuditReport{
-			Mode: options.mode,
-		},
-	}
-	addIssue := func(code, message string) {
-		if len(result.report.Issues) >= maxAuditIssues {
-			if len(result.report.Issues) == maxAuditIssues {
-				result.report.Issues = append(result.report.Issues, AuditIssue{Code: AuditIssueLimit, Message: "additional audit issues were truncated"})
-			}
-			return
-		}
-		result.report.Issues = append(result.report.Issues, AuditIssue{Code: code, Message: message})
-	}
+	state := newAuditScanState(ctx, root, descriptor, options)
 	if rootErr := validateRootEntries(root); rootErr != nil {
-		addIssue(AuditIssueStoreEntry, "backup store root layout is invalid")
+		state.addIssue(AuditIssueStoreEntry, "backup store root layout is invalid")
 	}
+	if err := state.scanManifests(); err != nil {
+		return scanResult{}, err
+	}
+	if err := state.scanObjects(); err != nil {
+		return scanResult{}, err
+	}
+	if err := state.scanResiduals(); err != nil {
+		return scanResult{}, err
+	}
+	state.scanIndex()
+	state.finalize()
+	return state.result, nil
+}
 
-	manifestEntries, manifestOverflow, err := readDirectoryBounded(filepath.Join(root, "manifests"), options.maxObjects)
+type auditScanState struct {
+	ctx                 context.Context
+	root                string
+	descriptor          Descriptor
+	options             scanOptions
+	result              scanResult
+	references          map[string]int
+	expectedObjectBytes map[string]int64
+}
+
+func newAuditScanState(ctx context.Context, root string, descriptor Descriptor, options scanOptions) *auditScanState {
+	return &auditScanState{
+		ctx:        ctx,
+		root:       root,
+		descriptor: descriptor,
+		options:    options,
+		result: scanResult{
+			objects: make(map[string]scannedObject),
+			report: AuditReport{
+				Mode: options.mode,
+			},
+		},
+		references:          make(map[string]int),
+		expectedObjectBytes: make(map[string]int64),
+	}
+}
+
+func (state *auditScanState) addIssue(code, message string) {
+	if len(state.result.report.Issues) >= maxAuditIssues {
+		if len(state.result.report.Issues) == maxAuditIssues {
+			state.result.report.Issues = append(state.result.report.Issues, AuditIssue{Code: AuditIssueLimit, Message: "additional audit issues were truncated"})
+		}
+		return
+	}
+	state.result.report.Issues = append(state.result.report.Issues, AuditIssue{Code: code, Message: message})
+}
+
+func (state *auditScanState) scanManifests() error {
+	manifestEntries, manifestOverflow, err := readDirectoryBounded(filepath.Join(state.root, "manifests"), state.options.maxObjects)
 	if err != nil {
-		return scanResult{}, sanitizedFilesystemError("backup manifests cannot be inspected", err)
+		return sanitizedFilesystemError("backup manifests cannot be inspected", err)
 	}
 	if manifestOverflow {
-		addIssue(AuditIssueLimit, "manifest count exceeds the audit object limit")
+		state.addIssue(AuditIssueLimit, "manifest count exceeds the audit object limit")
 	}
 	manifestIDs := make(map[string]struct{}, len(manifestEntries))
-	references := make(map[string]int)
-	expectedObjectBytes := make(map[string]int64)
 	for _, entry := range manifestEntries {
-		if err := ctx.Err(); err != nil {
-			return scanResult{}, operation.Wrap(operation.KindCancelled, "scan_backup_manifests", "", err)
+		if err := state.ctx.Err(); err != nil {
+			return operation.Wrap(operation.KindCancelled, "scan_backup_manifests", "", err)
 		}
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".json") || !validHexIdentifier(strings.TrimSuffix(name, ".json")) {
-			addIssue(AuditIssueManifest, "manifest filename is invalid")
+			state.addIssue(AuditIssueManifest, "manifest filename is invalid")
 			continue
 		}
-		path := filepath.Join(root, "manifests", name)
+		path := filepath.Join(state.root, "manifests", name)
 		info, statErr := os.Lstat(path)
 		if statErr != nil {
-			addIssue(AuditIssueManifest, "manifest metadata cannot be inspected")
+			state.addIssue(AuditIssueManifest, "manifest metadata cannot be inspected")
 			continue
 		}
-		manifest, readErr := readManifest(path, info, descriptor)
+		manifest, readErr := readManifest(path, info, state.descriptor)
 		if readErr != nil {
 			message := "manifest is invalid"
 			if strings.Contains(readErr.Error(), "checksum") {
 				message = "manifest checksum is invalid"
 			}
-			addIssue(AuditIssueManifest, message)
+			state.addIssue(AuditIssueManifest, message)
 			continue
 		}
 		fileID := strings.TrimSuffix(name, ".json")
 		if manifest.BackupID != fileID {
-			addIssue(AuditIssueManifest, "manifest filename does not match its backup identifier")
+			state.addIssue(AuditIssueManifest, "manifest filename does not match its backup identifier")
 			continue
 		}
 		if _, duplicate := manifestIDs[manifest.BackupID]; duplicate {
-			addIssue(AuditIssueManifest, "duplicate backup identifier")
+			state.addIssue(AuditIssueManifest, "duplicate backup identifier")
 			continue
 		}
 		manifestIDs[manifest.BackupID] = struct{}{}
-		if expectedBytes, exists := expectedObjectBytes[manifest.ObjectDigest]; exists && expectedBytes != manifest.ObjectBytes {
-			addIssue(AuditIssueManifest, "manifests disagree about object size")
+		if expectedBytes, exists := state.expectedObjectBytes[manifest.ObjectDigest]; exists && expectedBytes != manifest.ObjectBytes {
+			state.addIssue(AuditIssueManifest, "manifests disagree about object size")
 			continue
 		}
-		expectedObjectBytes[manifest.ObjectDigest] = manifest.ObjectBytes
-		result.manifests = append(result.manifests, manifest)
-		references[manifest.ObjectDigest]++
+		state.expectedObjectBytes[manifest.ObjectDigest] = manifest.ObjectBytes
+		state.result.manifests = append(state.result.manifests, manifest)
+		state.references[manifest.ObjectDigest]++
 	}
-	result.report.ManifestCount = len(result.manifests)
+	state.result.report.ManifestCount = len(state.result.manifests)
+	return nil
+}
 
-	objectRoot := filepath.Join(root, "objects", "sha256")
+func (state *auditScanState) scanObjects() error {
+	objectRoot := filepath.Join(state.root, "objects", "sha256")
 	objectRootInfo, err := os.Lstat(objectRoot)
 	if err != nil || isLinkOrReparse(objectRootInfo) || !objectRootInfo.IsDir() || validatePathPermissions(objectRoot, true) != nil {
-		addIssue(AuditIssueStoreEntry, "object algorithm directory is invalid")
+		state.addIssue(AuditIssueStoreEntry, "object algorithm directory is invalid")
 	}
 	shards, shardOverflow, err := readDirectoryBounded(objectRoot, 256)
 	if err != nil {
-		return scanResult{}, sanitizedFilesystemError("backup objects cannot be inspected", err)
+		return sanitizedFilesystemError("backup objects cannot be inspected", err)
 	}
 	if shardOverflow {
-		addIssue(AuditIssueStoreEntry, "object algorithm directory contains too many shards")
+		state.addIssue(AuditIssueStoreEntry, "object algorithm directory contains too many shards")
 	}
+
 	objectCount := 0
 	var fullAuditBytes int64
 	for _, shard := range shards {
-		if err := ctx.Err(); err != nil {
-			return scanResult{}, operation.Wrap(operation.KindCancelled, "scan_backup_objects", "", err)
+		if err := state.ctx.Err(); err != nil {
+			return operation.Wrap(operation.KindCancelled, "scan_backup_objects", "", err)
 		}
 		shardName := shard.Name()
 		shardPath := filepath.Join(objectRoot, shardName)
 		info, statErr := os.Lstat(shardPath)
 		if statErr != nil || len(shardName) != 2 || !isLowerHex(shardName) || isLinkOrReparse(info) || !info.IsDir() {
-			addIssue(AuditIssueStoreEntry, "object shard is invalid")
+			state.addIssue(AuditIssueStoreEntry, "object shard is invalid")
 			continue
 		}
 		if permissionErr := validatePathPermissions(shardPath, true); permissionErr != nil {
-			addIssue(AuditIssueStoreEntry, "object shard permissions are invalid")
+			state.addIssue(AuditIssueStoreEntry, "object shard permissions are invalid")
 			continue
 		}
-		remainingObjects := options.maxObjects - objectCount
+		remainingObjects := state.options.maxObjects - objectCount
 		if remainingObjects < 0 {
 			remainingObjects = 0
 		}
 		entries, entryOverflow, readErr := readDirectoryBounded(shardPath, remainingObjects)
 		if readErr != nil {
-			addIssue(AuditIssueStoreEntry, "object shard cannot be inspected")
+			state.addIssue(AuditIssueStoreEntry, "object shard cannot be inspected")
 			continue
 		}
 		if entryOverflow {
-			addIssue(AuditIssueLimit, "object count exceeds the audit limit")
+			state.addIssue(AuditIssueLimit, "object count exceeds the audit limit")
 		}
 		for _, entry := range entries {
-			if err := ctx.Err(); err != nil {
-				return scanResult{}, operation.Wrap(operation.KindCancelled, "scan_backup_objects", "", err)
+			if err := state.ctx.Err(); err != nil {
+				return operation.Wrap(operation.KindCancelled, "scan_backup_objects", "", err)
 			}
 			objectCount++
-			digest := entry.Name()
-			path := filepath.Join(shardPath, digest)
-			objectInfo, statErr := os.Lstat(path)
-			if statErr != nil || !validHexIdentifier(digest) || digest[:2] != shardName ||
-				isLinkOrReparse(objectInfo) || !objectInfo.Mode().IsRegular() {
-				addIssue(AuditIssueObjectMetadata, "object metadata is invalid")
-				continue
-			}
-			if linkErr := validateSingleLink(path, objectInfo); linkErr != nil {
-				addIssue(AuditIssueObjectMetadata, "object hard-link state is invalid")
-				continue
-			}
-			if permissionErr := validatePathPermissions(path, false); permissionErr != nil {
-				addIssue(AuditIssueObjectMetadata, "object permissions are invalid")
-				continue
-			}
-			object := scannedObject{Digest: digest, Bytes: objectInfo.Size(), References: references[digest]}
-			result.objects[digest] = object
-			if object.References == 0 {
-				result.report.OrphanObjectCount++
-				if !addNonNegativeInt64(&result.report.OrphanObjectBytes, object.Bytes) {
-					addIssue(AuditIssueLimit, "orphan object bytes exceed the supported range")
-				}
-			} else if !addNonNegativeInt64(&result.report.ReferencedBytes, object.Bytes) {
-				addIssue(AuditIssueLimit, "referenced object bytes exceed the supported range")
-			}
-			if options.mode == AuditFull && object.References > 0 {
-				if object.Bytes < 0 || object.Bytes > options.maxBytes-fullAuditBytes {
-					addIssue(AuditIssueLimit, "referenced object bytes exceed the full-audit limit")
-					continue
-				}
-				fullAuditBytes += object.Bytes
-				actual, hashErr := hashRegularFile(ctx, path, object.Bytes)
-				if hashErr != nil {
-					if operation.KindOf(hashErr) == operation.KindCancelled {
-						return scanResult{}, hashErr
-					}
-					addIssue(AuditIssueObjectMetadata, "object could not be hashed")
-					continue
-				}
-				if actual != digest {
-					addIssue(AuditIssueObjectDigest, "object digest does not match its identifier")
-				}
+			if err := state.scanObjectEntry(shardName, shardPath, entry.Name(), &fullAuditBytes); err != nil {
+				return err
 			}
 		}
 	}
-	result.report.ObjectCount = len(result.objects)
-	for digest := range references {
-		object, exists := result.objects[digest]
+	state.result.report.ObjectCount = len(state.result.objects)
+	state.validateObjectReferences()
+	return nil
+}
+
+func (state *auditScanState) scanObjectEntry(shardName, shardPath, digest string, fullAuditBytes *int64) error {
+	path := filepath.Join(shardPath, digest)
+	objectInfo, statErr := os.Lstat(path)
+	if statErr != nil || !validHexIdentifier(digest) || digest[:2] != shardName ||
+		isLinkOrReparse(objectInfo) || !objectInfo.Mode().IsRegular() {
+		state.addIssue(AuditIssueObjectMetadata, "object metadata is invalid")
+		return nil
+	}
+	if linkErr := validateSingleLink(path, objectInfo); linkErr != nil {
+		state.addIssue(AuditIssueObjectMetadata, "object hard-link state is invalid")
+		return nil
+	}
+	if permissionErr := validatePathPermissions(path, false); permissionErr != nil {
+		state.addIssue(AuditIssueObjectMetadata, "object permissions are invalid")
+		return nil
+	}
+
+	object := scannedObject{Digest: digest, Bytes: objectInfo.Size(), References: state.references[digest]}
+	state.result.objects[digest] = object
+	if object.References == 0 {
+		state.result.report.OrphanObjectCount++
+		if !addNonNegativeInt64(&state.result.report.OrphanObjectBytes, object.Bytes) {
+			state.addIssue(AuditIssueLimit, "orphan object bytes exceed the supported range")
+		}
+	} else if !addNonNegativeInt64(&state.result.report.ReferencedBytes, object.Bytes) {
+		state.addIssue(AuditIssueLimit, "referenced object bytes exceed the supported range")
+	}
+	if state.options.mode != AuditFull || object.References == 0 {
+		return nil
+	}
+	if object.Bytes < 0 || object.Bytes > state.options.maxBytes-*fullAuditBytes {
+		state.addIssue(AuditIssueLimit, "referenced object bytes exceed the full-audit limit")
+		return nil
+	}
+	*fullAuditBytes += object.Bytes
+	actual, hashErr := hashRegularFile(state.ctx, path, object.Bytes)
+	if hashErr != nil {
+		if operation.KindOf(hashErr) == operation.KindCancelled {
+			return hashErr
+		}
+		state.addIssue(AuditIssueObjectMetadata, "object could not be hashed")
+		return nil
+	}
+	if actual != digest {
+		state.addIssue(AuditIssueObjectDigest, "object digest does not match its identifier")
+	}
+	return nil
+}
+
+func (state *auditScanState) validateObjectReferences() {
+	for digest := range state.references {
+		object, exists := state.result.objects[digest]
 		if !exists {
-			addIssue(AuditIssueObjectMissing, "referenced object is missing")
+			state.addIssue(AuditIssueObjectMissing, "referenced object is missing")
 			continue
 		}
-		if expectedObjectBytes[digest] != object.Bytes {
-			addIssue(AuditIssueObjectMetadata, "referenced object size does not match its manifest")
+		if state.expectedObjectBytes[digest] != object.Bytes {
+			state.addIssue(AuditIssueObjectMetadata, "referenced object size does not match its manifest")
 		}
 	}
+}
 
-	var residualErr error
-	result.report.StagingEntryCount, result.report.StagingEntryBytes, residualErr = scanResidualDirectory(ctx, filepath.Join(root, "staging"), options.maxObjects, addIssue)
-	if residualErr != nil {
-		return scanResult{}, residualErr
+func (state *auditScanState) scanResiduals() error {
+	var err error
+	state.result.report.StagingEntryCount, state.result.report.StagingEntryBytes, err = scanResidualDirectory(
+		state.ctx, filepath.Join(state.root, "staging"), state.options.maxObjects, state.addIssue,
+	)
+	if err != nil {
+		return err
 	}
-	result.report.TrashEntryCount, result.report.TrashEntryBytes, residualErr = scanResidualDirectory(ctx, filepath.Join(root, "trash"), options.maxObjects, addIssue)
-	if residualErr != nil {
-		return scanResult{}, residualErr
-	}
+	state.result.report.TrashEntryCount, state.result.report.TrashEntryBytes, err = scanResidualDirectory(
+		state.ctx, filepath.Join(state.root, "trash"), state.options.maxObjects, state.addIssue,
+	)
+	return err
+}
 
-	indexEntries, indexOverflow, indexReadErr := readDirectoryBounded(filepath.Join(root, "index"), 1)
+func (state *auditScanState) scanIndex() {
+	indexEntries, indexOverflow, indexReadErr := readDirectoryBounded(filepath.Join(state.root, "index"), 1)
 	if indexReadErr != nil {
-		addIssue(AuditIssueStoreEntry, "index directory cannot be inspected")
-	} else {
-		if indexOverflow {
-			addIssue(AuditIssueStoreEntry, "index directory contains unexpected entries")
-		}
-		for _, entry := range indexEntries {
-			if entry.Name() != "index-v1.json" {
-				addIssue(AuditIssueStoreEntry, "index directory contains an unexpected entry")
-			}
+		state.addIssue(AuditIssueStoreEntry, "index directory cannot be inspected")
+		return
+	}
+	if indexOverflow {
+		state.addIssue(AuditIssueStoreEntry, "index directory contains unexpected entries")
+	}
+	for _, entry := range indexEntries {
+		if entry.Name() != "index-v1.json" {
+			state.addIssue(AuditIssueStoreEntry, "index directory contains an unexpected entry")
 		}
 	}
+}
 
-	rebuilt := buildIndex(descriptor, result.manifests, result.objects)
-	result.report.Generation = rebuilt.Generation
-	if options.checkIndex {
-		persisted, indexErr := loadIndex(root, descriptor)
+func (state *auditScanState) finalize() {
+	rebuilt := buildIndex(state.descriptor, state.result.manifests, state.result.objects)
+	state.result.report.Generation = rebuilt.Generation
+	if state.options.checkIndex {
+		persisted, indexErr := loadIndex(state.root, state.descriptor)
 		if indexErr != nil || !indexesEquivalent(persisted, rebuilt) {
-			addIssue(AuditIssueIndex, "derived index is missing, corrupt, or stale")
-			result.report.IndexConsistent = false
+			state.addIssue(AuditIssueIndex, "derived index is missing, corrupt, or stale")
+			state.result.report.IndexConsistent = false
 		} else {
-			result.report.IndexConsistent = true
+			state.result.report.IndexConsistent = true
 		}
 	} else {
-		result.report.IndexConsistent = true
+		state.result.report.IndexConsistent = true
 	}
-	result.report.Healthy = len(result.report.Issues) == 0
-	return result, nil
+	state.result.report.Healthy = len(state.result.report.Issues) == 0
 }
 
 func scanResidualDirectory(ctx context.Context, root string, maxEntries int, addIssue func(string, string)) (count int, bytes int64, err error) {
