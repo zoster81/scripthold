@@ -123,7 +123,7 @@ func reconcileInstallationLocked(
 
 	knownGood := observeFixedArtifact(boundary, knownGoodArtifactName, state.Pending.SourceSHA256)
 	helper := observeFixedArtifact(boundary, helperArtifactName, state.Pending.SourceSHA256)
-	candidate := observeFixedArtifact(boundary, candidateArtifactName, state.Pending.CandidateSHA256)
+	candidate := observeCandidateArtifact(boundary, candidateArtifactName, state.Pending.CandidateSHA256)
 	if knownGood != artifactValid {
 		return recoveryRequired("known-good artifact is missing or invalid"), nil
 	}
@@ -183,7 +183,15 @@ func readInstallationStateForReconciliationLocked(
 	return state, nil
 }
 
+func observeCandidateArtifact(boundary *InstallationBoundary, name, expectedSHA256 string) artifactObservation {
+	return observeArtifact(boundary, name, expectedSHA256, false)
+}
+
 func observeFixedArtifact(boundary *InstallationBoundary, name, expectedSHA256 string) artifactObservation {
+	return observeArtifact(boundary, name, expectedSHA256, true)
+}
+
+func observeArtifact(boundary *InstallationBoundary, name, expectedSHA256 string, requireOwnerOnly bool) artifactObservation {
 	path := filepath.Join(boundary.Directory, name)
 	if _, err := os.Lstat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -191,8 +199,10 @@ func observeFixedArtifact(boundary *InstallationBoundary, name, expectedSHA256 s
 		}
 		return artifactInvalid
 	}
-	if err := filesystem.ValidateOwnerOnlyExecutable(path); err != nil {
-		return artifactInvalid
+	if requireOwnerOnly {
+		if err := filesystem.ValidateOwnerOnlyExecutable(path); err != nil {
+			return artifactInvalid
+		}
 	}
 	identity, err := filesystem.CaptureSingleLinkFileIdentity(path)
 	if err != nil {
