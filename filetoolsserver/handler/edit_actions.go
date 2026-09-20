@@ -374,11 +374,10 @@ func (h *Handler) handleEditApply(ctx context.Context, previewID string) (*mcp.C
 		}
 	}
 
-	if err := prepared.identityFile.Close(); err != nil {
+	if err := replacement.closeIdentity(); err != nil {
 		failure := errorResultFromError(operation.WrapFilesystem("close_edit_preview_identity", validation.Path, err))
 		return failure, output, nil
 	}
-	prepared.identityFile = nil
 
 	readOnlyCleared := false
 	if prepared.changed {
