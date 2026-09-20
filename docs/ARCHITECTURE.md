@@ -115,6 +115,8 @@ The public self-update surface currently exposes only the read-only `scripthold 
 
 For adopted installations, release comparison uses only the semantic version proven for the currently installed bytes. A fully verified committed candidate is therefore compared as the candidate version even before finalization updates durable `current` state. If installed bytes cannot be assigned a verified semantic version, the remote check is suppressed. The status command performs no adoption, executable replacement, rollback, recovery, state cleanup, or other installation mutation; mutating self-update commands are not yet public.
 
+Ordinary process startup now participates in an already-adopted installation without changing unadopted behavior. Before diagnostics or MCP startup, Scripthold checks only whether the sibling self-update state root already exists. If it is absent, startup continues without creating or validating self-update state. If it exists, the executable topology and state boundary must validate, there must be no pending transaction, installed bytes/build/version must match durable current state, and startup acquires shared `use.lock` before releasing `control.lock`. That shared lock is held until the process exits, so a detached update/recovery helper cannot replace the executable while a normal adopted process is still running. Existing invalid or non-stable update state fails closed before normal startup.
+
 ## Configuration and limits
 
 Configuration is startup authority. Invalid values fail closed or fall back only where the specific configuration contract defines a safe default. Client-provided bounds may narrow server ceilings but must not enlarge them.

@@ -19,6 +19,7 @@ import (
 	"github.com/zoster81/scripthold/internal/diagnostics"
 	"github.com/zoster81/scripthold/internal/security"
 	"github.com/zoster81/scripthold/internal/taskstore"
+	"github.com/zoster81/scripthold/internal/updater"
 )
 
 // version is set at build time via ldflags.
@@ -30,7 +31,25 @@ func main() {
 	os.Exit(runCommand(ctx, os.Args[1:], os.Stdout, os.Stderr, os.Getenv))
 }
 
+type normalProcessAdmission interface {
+	Close() error
+}
+
+type normalProcessAdmissionOpener func(context.Context) (normalProcessAdmission, error)
+
 func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
+	return runCommandWithAdmission(ctx, args, stdout, stderr, getenv, func(ctx context.Context) (normalProcessAdmission, error) {
+		return updater.AdmitCurrentProcessIfAdopted(ctx)
+	})
+}
+
+func runCommandWithAdmission(
+	ctx context.Context,
+	args []string,
+	stdout, stderr io.Writer,
+	getenv func(string) string,
+	openAdmission normalProcessAdmissionOpener,
+) (exitCode int) {
 	// Keep the legacy exported version synchronized for existing embedders while
 	// the explicit server options remain authoritative for this process.
 	filetoolsserver.Version = version
@@ -44,6 +63,26 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	}
 	if code, matched := tryRunSelfUpdateCommand(ctx, args, stdout, stderr, version); matched {
 		return code
+	}
+
+	if openAdmission == nil {
+		fmt.Fprintln(stderr, "Error: self-update process admission is unavailable")
+		return 1
+	}
+	processAdmission, err := openAdmission(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, "Error: self-update process admission failed; run 'scripthold update status' for details")
+		return 1
+	}
+	if processAdmission != nil {
+		defer func() {
+			if closeErr := processAdmission.Close(); closeErr != nil {
+				fmt.Fprintln(stderr, "Error: self-update process admission could not be released safely")
+				if exitCode == 0 {
+					exitCode = 1
+				}
+			}
+		}()
 	}
 
 	diagnosticManager, err := diagnostics.Open(stderr, getenv, diagnosticRole(args))

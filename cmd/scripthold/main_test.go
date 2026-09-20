@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -138,5 +139,90 @@ func TestRunCommandRejectsOverlappingBackupStoreBeforeStartup(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), storeDir) || strings.Contains(stderr.String(), publicRoot) {
 		t.Fatalf("stderr exposed a configured path: %q", stderr.String())
+	}
+}
+
+type fakeNormalProcessAdmission struct {
+	closed   bool
+	closeErr error
+}
+
+func (admission *fakeNormalProcessAdmission) Close() error {
+	admission.closed = true
+	return admission.closeErr
+}
+
+func TestRunCommandVersionBypassesProcessAdmission(t *testing.T) {
+	originalVersion := version
+	version = "test-version"
+	t.Cleanup(func() { version = originalVersion })
+
+	called := false
+	var stdout, stderr bytes.Buffer
+	code := runCommandWithAdmission(
+		context.Background(),
+		[]string{"--version"},
+		&stdout,
+		&stderr,
+		func(string) string { return "" },
+		func(context.Context) (normalProcessAdmission, error) {
+			called = true
+			return nil, errors.New("must not be called")
+		},
+	)
+	if code != 0 || called || stdout.String() != "test-version\n" || stderr.Len() != 0 {
+		t.Fatalf("code=%d called=%v stdout=%q stderr=%q", code, called, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunCommandNormalPathReleasesProcessAdmission(t *testing.T) {
+	admission := &fakeNormalProcessAdmission{}
+	var stdout, stderr bytes.Buffer
+	code := runCommandWithAdmission(
+		context.Background(),
+		nil,
+		&stdout,
+		&stderr,
+		func(name string) string {
+			if name == envTransport {
+				return "unsupported"
+			}
+			return ""
+		},
+		func(context.Context) (normalProcessAdmission, error) {
+			return admission, nil
+		},
+	)
+	if code != 1 || !admission.closed {
+		t.Fatalf("code=%d closed=%v stdout=%q stderr=%q", code, admission.closed, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "unsupported transport") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestRunCommandAdmissionFailurePrecedesServerStartupAndIsRedacted(t *testing.T) {
+	injected := errors.New("private installation detail")
+	getenvCalled := false
+	var stdout, stderr bytes.Buffer
+	code := runCommandWithAdmission(
+		context.Background(),
+		nil,
+		&stdout,
+		&stderr,
+		func(string) string {
+			getenvCalled = true
+			return ""
+		},
+		func(context.Context) (normalProcessAdmission, error) {
+			return nil, injected
+		},
+	)
+	if code != 1 || getenvCalled || stdout.Len() != 0 {
+		t.Fatalf("code=%d getenvCalled=%v stdout=%q stderr=%q", code, getenvCalled, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "self-update process admission failed") ||
+		strings.Contains(stderr.String(), injected.Error()) {
+		t.Fatalf("admission failure was not safely redacted: %q", stderr.String())
 	}
 }
