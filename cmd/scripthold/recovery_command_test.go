@@ -65,6 +65,66 @@ func TestParseBackupRecoveryCommandsStrictly(t *testing.T) {
 	}
 }
 
+func TestParseBackupRecoveryCommandPreservesErrorOrdering(t *testing.T) {
+	root := canonicalBackupTestTempDir(t)
+	store := filepath.Join(root, "source")
+	output := filepath.Join(root, "plan.json")
+	plan := filepath.Join(root, "reviewed-plan.json")
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "duplicate common option before required plan output",
+			args: []string{"backup-store", "recover-plan", "--store", store, "--store", store},
+			want: "--store may be specified only once",
+		},
+		{
+			name: "wrong plan-only option rejected immediately for apply",
+			args: []string{"backup-store", "recover-apply", "--store", store, "--plan", plan, "--output", output},
+			want: "unsupported backup recovery argument",
+		},
+		{
+			name: "wrong apply-only option rejected immediately for plan",
+			args: []string{"backup-store", "recover-plan", "--store", store, "--plan", plan},
+			want: "unsupported backup recovery argument",
+		},
+		{
+			name: "missing common value before required fields",
+			args: []string{"backup-store", "recover-plan", "--store"},
+			want: "--store requires a value",
+		},
+		{
+			name: "plan required output after argument parsing",
+			args: []string{"backup-store", "recover-plan", "--store", store},
+			want: "--output is required",
+		},
+		{
+			name: "apply required fields after argument parsing",
+			args: []string{"backup-store", "recover-apply", "--store", store, "--plan", plan},
+			want: "--plan, --destination, and --report are required",
+		},
+		{
+			name: "duplicate pretty before required fields",
+			args: []string{"backup-store", "recover-plan", "--pretty", "--pretty"},
+			want: "--pretty may be specified only once",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, matched, err := parseBackupRecoveryCommand(test.args)
+			if !matched || err == nil || err.Error() != test.want {
+				t.Fatalf("matched=%v err=%v, want %q", matched, err, test.want)
+			}
+		})
+	}
+}
+
 func FuzzParseBackupRecoveryCommand(f *testing.F) {
 	for _, seed := range []string{
 		"backup-store\x00recover-plan\x00--store=C:\\source\x00--output=C:\\plan.json",

@@ -42,121 +42,28 @@ func parseBackupRecoveryCommand(args []string) (backupRecoveryCommandOptions, bo
 	options := backupRecoveryCommandOptions{kind: kind}
 	seen := make(map[string]bool)
 	for index := 2; index < len(args); index++ {
-		argument := args[index]
-		switch {
-		case argument == "--pretty":
-			if seen["pretty"] {
-				return backupRecoveryCommandOptions{}, true, errors.New("--pretty may be specified only once")
-			}
-			seen["pretty"] = true
-			options.pretty = true
-		case argument == "--store":
-			value, next, err := diagnosticOptionValue(args, index, "--store")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
+		next, handled, err := parseBackupRecoveryCommonArgument(&options, seen, args, index)
+		if err != nil {
+			return backupRecoveryCommandOptions{}, true, err
+		}
+		if handled {
 			index = next
-			if err := setRecoveryPathOption(&options.store, seen, "store", "--store", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case strings.HasPrefix(argument, "--store="):
-			if err := setRecoveryPathOption(&options.store, seen, "store", "--store", strings.TrimPrefix(argument, "--store=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && argument == "--output":
-			value, next, err := diagnosticOptionValue(args, index, "--output")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-			index = next
-			if err := setRecoveryPathOption(&options.output, seen, "output", "--output", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && strings.HasPrefix(argument, "--output="):
-			if err := setRecoveryPathOption(&options.output, seen, "output", "--output", strings.TrimPrefix(argument, "--output=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && argument == "--max-manifests":
-			value, next, err := diagnosticOptionValue(args, index, "--max-manifests")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-			index = next
-			if err := setRecoveryPositiveIntOption(&options.maxManifests, seen, "max-manifests", "--max-manifests", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && strings.HasPrefix(argument, "--max-manifests="):
-			if err := setRecoveryPositiveIntOption(&options.maxManifests, seen, "max-manifests", "--max-manifests", strings.TrimPrefix(argument, "--max-manifests=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && argument == "--max-objects":
-			value, next, err := diagnosticOptionValue(args, index, "--max-objects")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-			index = next
-			if err := setRecoveryPositiveIntOption(&options.maxObjects, seen, "max-objects", "--max-objects", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && strings.HasPrefix(argument, "--max-objects="):
-			if err := setRecoveryPositiveIntOption(&options.maxObjects, seen, "max-objects", "--max-objects", strings.TrimPrefix(argument, "--max-objects=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && argument == "--max-bytes":
-			value, next, err := diagnosticOptionValue(args, index, "--max-bytes")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-			index = next
-			if err := setRecoveryPositiveInt64Option(&options.maxBytes, seen, "max-bytes", "--max-bytes", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryPlanCommand && strings.HasPrefix(argument, "--max-bytes="):
-			if err := setRecoveryPositiveInt64Option(&options.maxBytes, seen, "max-bytes", "--max-bytes", strings.TrimPrefix(argument, "--max-bytes=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryApplyCommand && argument == "--plan":
-			value, next, err := diagnosticOptionValue(args, index, "--plan")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-			index = next
-			if err := setRecoveryPathOption(&options.plan, seen, "plan", "--plan", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryApplyCommand && strings.HasPrefix(argument, "--plan="):
-			if err := setRecoveryPathOption(&options.plan, seen, "plan", "--plan", strings.TrimPrefix(argument, "--plan=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryApplyCommand && argument == "--destination":
-			value, next, err := diagnosticOptionValue(args, index, "--destination")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-			index = next
-			if err := setRecoveryPathOption(&options.destination, seen, "destination", "--destination", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryApplyCommand && strings.HasPrefix(argument, "--destination="):
-			if err := setRecoveryPathOption(&options.destination, seen, "destination", "--destination", strings.TrimPrefix(argument, "--destination=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryApplyCommand && argument == "--report":
-			value, next, err := diagnosticOptionValue(args, index, "--report")
-			if err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-			index = next
-			if err := setRecoveryPathOption(&options.report, seen, "report", "--report", value); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		case kind == backupRecoveryApplyCommand && strings.HasPrefix(argument, "--report="):
-			if err := setRecoveryPathOption(&options.report, seen, "report", "--report", strings.TrimPrefix(argument, "--report=")); err != nil {
-				return backupRecoveryCommandOptions{}, true, err
-			}
-		default:
+			continue
+		}
+
+		switch kind {
+		case backupRecoveryPlanCommand:
+			next, handled, err = parseBackupRecoveryPlanArgument(&options, seen, args, index)
+		case backupRecoveryApplyCommand:
+			next, handled, err = parseBackupRecoveryApplyArgument(&options, seen, args, index)
+		}
+		if err != nil {
+			return backupRecoveryCommandOptions{}, true, err
+		}
+		if !handled {
 			return backupRecoveryCommandOptions{}, true, errors.New("unsupported backup recovery argument")
 		}
+		index = next
 	}
 
 	if options.store == "" {
@@ -179,6 +86,109 @@ func parseBackupRecoveryCommand(args []string) (backupRecoveryCommandOptions, bo
 		return backupRecoveryCommandOptions{}, true, errors.New("--plan, --destination, and --report are required")
 	}
 	return options, true, nil
+}
+
+func parseBackupRecoveryCommonArgument(options *backupRecoveryCommandOptions, seen map[string]bool, args []string, index int) (int, bool, error) {
+	argument := args[index]
+	switch {
+	case argument == "--pretty":
+		if seen["pretty"] {
+			return index, true, errors.New("--pretty may be specified only once")
+		}
+		seen["pretty"] = true
+		options.pretty = true
+		return index, true, nil
+	case argument == "--store":
+		value, next, err := diagnosticOptionValue(args, index, "--store")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPathOption(&options.store, seen, "store", "--store", value)
+	case strings.HasPrefix(argument, "--store="):
+		err := setRecoveryPathOption(&options.store, seen, "store", "--store", strings.TrimPrefix(argument, "--store="))
+		return index, true, err
+	default:
+		return index, false, nil
+	}
+}
+
+func parseBackupRecoveryPlanArgument(options *backupRecoveryCommandOptions, seen map[string]bool, args []string, index int) (int, bool, error) {
+	argument := args[index]
+	switch {
+	case argument == "--output":
+		value, next, err := diagnosticOptionValue(args, index, "--output")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPathOption(&options.output, seen, "output", "--output", value)
+	case strings.HasPrefix(argument, "--output="):
+		err := setRecoveryPathOption(&options.output, seen, "output", "--output", strings.TrimPrefix(argument, "--output="))
+		return index, true, err
+	case argument == "--max-manifests":
+		value, next, err := diagnosticOptionValue(args, index, "--max-manifests")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPositiveIntOption(&options.maxManifests, seen, "max-manifests", "--max-manifests", value)
+	case strings.HasPrefix(argument, "--max-manifests="):
+		err := setRecoveryPositiveIntOption(&options.maxManifests, seen, "max-manifests", "--max-manifests", strings.TrimPrefix(argument, "--max-manifests="))
+		return index, true, err
+	case argument == "--max-objects":
+		value, next, err := diagnosticOptionValue(args, index, "--max-objects")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPositiveIntOption(&options.maxObjects, seen, "max-objects", "--max-objects", value)
+	case strings.HasPrefix(argument, "--max-objects="):
+		err := setRecoveryPositiveIntOption(&options.maxObjects, seen, "max-objects", "--max-objects", strings.TrimPrefix(argument, "--max-objects="))
+		return index, true, err
+	case argument == "--max-bytes":
+		value, next, err := diagnosticOptionValue(args, index, "--max-bytes")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPositiveInt64Option(&options.maxBytes, seen, "max-bytes", "--max-bytes", value)
+	case strings.HasPrefix(argument, "--max-bytes="):
+		err := setRecoveryPositiveInt64Option(&options.maxBytes, seen, "max-bytes", "--max-bytes", strings.TrimPrefix(argument, "--max-bytes="))
+		return index, true, err
+	default:
+		return index, false, nil
+	}
+}
+
+func parseBackupRecoveryApplyArgument(options *backupRecoveryCommandOptions, seen map[string]bool, args []string, index int) (int, bool, error) {
+	argument := args[index]
+	switch {
+	case argument == "--plan":
+		value, next, err := diagnosticOptionValue(args, index, "--plan")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPathOption(&options.plan, seen, "plan", "--plan", value)
+	case strings.HasPrefix(argument, "--plan="):
+		err := setRecoveryPathOption(&options.plan, seen, "plan", "--plan", strings.TrimPrefix(argument, "--plan="))
+		return index, true, err
+	case argument == "--destination":
+		value, next, err := diagnosticOptionValue(args, index, "--destination")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPathOption(&options.destination, seen, "destination", "--destination", value)
+	case strings.HasPrefix(argument, "--destination="):
+		err := setRecoveryPathOption(&options.destination, seen, "destination", "--destination", strings.TrimPrefix(argument, "--destination="))
+		return index, true, err
+	case argument == "--report":
+		value, next, err := diagnosticOptionValue(args, index, "--report")
+		if err != nil {
+			return next, true, err
+		}
+		return next, true, setRecoveryPathOption(&options.report, seen, "report", "--report", value)
+	case strings.HasPrefix(argument, "--report="):
+		err := setRecoveryPathOption(&options.report, seen, "report", "--report", strings.TrimPrefix(argument, "--report="))
+		return index, true, err
+	default:
+		return index, false, nil
+	}
 }
 
 func setRecoveryPathOption(target *string, seen map[string]bool, key, name, value string) error {
