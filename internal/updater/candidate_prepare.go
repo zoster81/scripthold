@@ -288,6 +288,17 @@ func fetchReleasePayload(ctx context.Context, baseClient *http.Client, endpoint 
 }
 
 func runVersionSmoke(parent context.Context, path, expectedVersion string) error {
+	actual, err := readVersionSmoke(parent, path)
+	if err != nil {
+		return err
+	}
+	if actual != expectedVersion {
+		return fmt.Errorf("version command returned %q, expected %q", actual, expectedVersion)
+	}
+	return nil
+}
+
+func readVersionSmoke(parent context.Context, path string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, candidateVersionSmokeTimeout)
 	defer cancel()
 
@@ -298,16 +309,16 @@ func runVersionSmoke(parent context.Context, path, expectedVersion string) error
 	command.Stderr = stderr
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("version command timed out or was cancelled: %w", ctx.Err())
+			return "", fmt.Errorf("version command timed out or was cancelled: %w", ctx.Err())
 		}
-		return fmt.Errorf("version command failed: %w", err)
+		return "", fmt.Errorf("version command failed: %w", err)
 	}
-	return validateVersionSmokeOutput(stdout.Bytes(), stderr.Bytes(), expectedVersion)
+	return parseVersionSmokeOutput(stdout.Bytes(), stderr.Bytes())
 }
 
-func validateVersionSmokeOutput(stdout, stderr []byte, expectedVersion string) error {
+func parseVersionSmokeOutput(stdout, stderr []byte) (string, error) {
 	if len(stderr) != 0 {
-		return errors.New("version command wrote to stderr")
+		return "", errors.New("version command wrote to stderr")
 	}
 	actual := string(stdout)
 	switch {
@@ -315,6 +326,17 @@ func validateVersionSmokeOutput(stdout, stderr []byte, expectedVersion string) e
 		actual = strings.TrimSuffix(actual, "\r\n")
 	case strings.HasSuffix(actual, "\n"):
 		actual = strings.TrimSuffix(actual, "\n")
+	}
+	if strings.ContainsAny(actual, "\r\n") {
+		return "", errors.New("version command returned multiple lines")
+	}
+	return actual, nil
+}
+
+func validateVersionSmokeOutput(stdout, stderr []byte, expectedVersion string) error {
+	actual, err := parseVersionSmokeOutput(stdout, stderr)
+	if err != nil {
+		return err
 	}
 	if actual != expectedVersion {
 		return fmt.Errorf("version command returned %q, expected %q", actual, expectedVersion)

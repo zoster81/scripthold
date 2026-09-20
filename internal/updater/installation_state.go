@@ -156,7 +156,15 @@ func validateInstallationState(state installationState, inspection *StandaloneIn
 	return nil
 }
 
+func persistInitialInstallationState(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState) error {
+	return persistInstallationState(boundary, inspection, state, true)
+}
+
 func persistStableInstallationState(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState) error {
+	return persistInstallationState(boundary, inspection, state, false)
+}
+
+func persistInstallationState(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState, requireMissing bool) error {
 	if err := validateInstallationBoundary(boundary, inspection); err != nil {
 		return err
 	}
@@ -182,6 +190,9 @@ func persistStableInstallationState(boundary *InstallationBoundary, inspection *
 		return err
 	}
 	if snapshot.Exists {
+		if requireMissing {
+			return errors.New("installation state is already initialized")
+		}
 		existingPayload, readErr := filesystem.ReadOwnerOnlyFileBounded(statePath, maxInstallationStateBytes)
 		if readErr != nil {
 			return fmt.Errorf("read existing installation state: %w", readErr)
