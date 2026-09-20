@@ -65,6 +65,7 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unterminated-character-vector", Message: language + " source contains an unterminated single-quoted character vector", Severity: DiagnosticWarning, Range: unterminatedCharacterVector, AffectsCoverage: true})
 	}
+
 	dependencies := []StructuralDependency{}
 	var scopes []structuralAnalyzerScope
 	functionFile := false
@@ -80,127 +81,210 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 			functionFile = first == "function"
 			firstCodeSeen = true
 		}
-		if first == "import" {
-			for index := 1; index < len(line.Tokens); index++ {
-				if line.Tokens[index].Kind != TokenIdentifier {
-					continue
-				}
-				addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[index].Text, line.Tokens[index].StartOffset, line.Tokens[index].EndOffset)
-			}
+		var handled bool
+		dependencies, handled = collectMATLABLikeDependency(document, dependencies, line, first, octave)
+		if handled {
 			continue
 		}
-		if octave && first == "pkg" && len(line.Tokens) >= 3 && strings.EqualFold(line.Tokens[1].Text, "load") {
-			nameIndex := firstIdentifierToken(line.Tokens, 2)
-			if nameIndex >= 0 {
-				addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
-			}
-			continue
-		}
-		if matlabLikeScopeTerminator(first, octave) {
-			if len(scopes) == 0 {
-				builder.MarkIncomplete()
-				_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unmatched-scope-terminator", Message: language + " source contains an unmatched structural scope terminator", Severity: DiagnosticWarning, AffectsCoverage: true})
-				continue
-			}
-			if scopes[len(scopes)-1].label == "function" {
-				explicitFunctionEndSeen = true
-			}
-			scopes = scopes[:len(scopes)-1]
+		scopes, explicitFunctionEndSeen, handled = consumeMATLABLikeLeadingTerminator(
+			builder, language, scopes, first, octave, explicitFunctionEndSeen,
+		)
+		if handled {
 			continue
 		}
 		scopeOpeningLine := matlabLikeScopeOpeningTokens(line.Tokens, octave)
 		if !scopeOpeningLine {
-			matlabLikeVisitTrailingScopeTransitions(line.Tokens, octave, func(opening bool, label string) bool {
-				if opening {
-					scopes = append(scopes, structuralAnalyzerScope{label: label})
-					return true
-				}
-				if len(scopes) == 0 {
-					builder.MarkIncomplete()
-					_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-unmatched-scope-terminator", Message: language + " source contains an unmatched structural scope terminator", Severity: DiagnosticWarning, AffectsCoverage: true})
-					return false
-				}
-				if scopes[len(scopes)-1].label == "function" {
-					explicitFunctionEndSeen = true
-				}
-				scopes = scopes[:len(scopes)-1]
-				return true
-			})
+			scopes, explicitFunctionEndSeen = applyMATLABLikeTrailingScopeTransitions(
+				builder, language, scopes, line.Tokens, octave, explicitFunctionEndSeen,
+			)
 		}
-		switch first {
-		case "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
-			if (first == "methods" || first == "properties") && !scopeOpeningLine {
-				continue
-			}
-			if !matlabLikeLineClosesOwnScope(line.Tokens, octave) {
-				scopes = append(scopes, structuralAnalyzerScope{label: first})
-				for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, octave) {
-					scopes = append(scopes, structuralAnalyzerScope{label: label})
-				}
-			}
+		scopes, handled = handleMATLABLikeControlScope(line.Tokens, first, scopes, octave, scopeOpeningLine)
+		if handled {
 			continue
-		case "arguments":
-			if !octave && !matlabLikeLineClosesOwnScope(line.Tokens, false) {
-				scopes = append(scopes, structuralAnalyzerScope{label: first})
-				for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, false) {
-					scopes = append(scopes, structuralAnalyzerScope{label: label})
-				}
-			}
-			continue
-		case "unwind_protect":
-			if octave && !matlabLikeLineClosesOwnScope(line.Tokens, true) {
-				scopes = append(scopes, structuralAnalyzerScope{label: first})
-				for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, true) {
-					scopes = append(scopes, structuralAnalyzerScope{label: label})
-				}
-			}
-			continue
-		case "classdef":
-			nameIndex := firstIdentifierToken(line.Tokens, 1)
-			if nameIndex < 0 {
-				continue
-			}
-			parent := parentFromStructuralScopes(scopes)
-			symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindClass, NativeKind: "classdef", Name: line.Tokens[nameIndex].Text, Parent: parent,
-				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if ok {
-				scopes = append(scopes, structuralAnalyzerScope{label: "class", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
-			}
-			continue
-		case "function":
-			if implicitFunctionBoundaries && len(scopes) == 1 && scopes[0].label == "function" {
-				scopes = scopes[:0]
-			}
-			nameIndex := matlabFunctionName(line.Tokens)
-			if nameIndex < 0 {
-				continue
-			}
-			parent := parentFromStructuralScopes(scopes)
-			kind := SymbolKindFunction
-			if parent != nil {
-				kind = SymbolKindMethod
-			}
-			symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "function", Name: line.Tokens[nameIndex].Text, Parent: parent,
-				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-			if matlabLikeLineClosesOwnScope(line.Tokens, octave) {
-				explicitFunctionEndSeen = true
-				continue
-			}
-			functionScope := structuralAnalyzerScope{label: "function"}
-			if ok {
-				functionScope.parent = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-			}
-			scopes = append(scopes, functionScope)
-			for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, octave) {
-				scopes = append(scopes, structuralAnalyzerScope{label: label})
-			}
 		}
+		scopes, explicitFunctionEndSeen = handleMATLABLikeDeclaration(
+			builder, line, first, scopes, octave, implicitFunctionBoundaries, explicitFunctionEndSeen,
+		)
 	}
 	if functionFile && len(scopes) == 1 && scopes[0].label == "function" && (octave || !explicitFunctionEndSeen) {
 		scopes = scopes[:0]
 	}
 	markUnclosedStructuralScopes(builder, language, scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func collectMATLABLikeDependency(
+	document *SourceDocument,
+	dependencies []StructuralDependency,
+	line LogicalLine,
+	first string,
+	octave bool,
+) ([]StructuralDependency, bool) {
+	if first == "import" {
+		for index := 1; index < len(line.Tokens); index++ {
+			if line.Tokens[index].Kind != TokenIdentifier {
+				continue
+			}
+			addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[index].Text, line.Tokens[index].StartOffset, line.Tokens[index].EndOffset)
+		}
+		return dependencies, true
+	}
+	if octave && first == "pkg" && len(line.Tokens) >= 3 && strings.EqualFold(line.Tokens[1].Text, "load") {
+		nameIndex := firstIdentifierToken(line.Tokens, 2)
+		if nameIndex >= 0 {
+			addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
+		}
+		return dependencies, true
+	}
+	return dependencies, false
+}
+
+func consumeMATLABLikeLeadingTerminator(
+	builder *SymbolBuilder,
+	language string,
+	scopes []structuralAnalyzerScope,
+	first string,
+	octave bool,
+	explicitFunctionEndSeen bool,
+) ([]structuralAnalyzerScope, bool, bool) {
+	if !matlabLikeScopeTerminator(first, octave) {
+		return scopes, explicitFunctionEndSeen, false
+	}
+	if len(scopes) == 0 {
+		markMATLABLikeUnmatchedScopeTerminator(builder, language)
+		return scopes, explicitFunctionEndSeen, true
+	}
+	if scopes[len(scopes)-1].label == "function" {
+		explicitFunctionEndSeen = true
+	}
+	return scopes[:len(scopes)-1], explicitFunctionEndSeen, true
+}
+
+func applyMATLABLikeTrailingScopeTransitions(
+	builder *SymbolBuilder,
+	language string,
+	scopes []structuralAnalyzerScope,
+	tokens []Token,
+	octave bool,
+	explicitFunctionEndSeen bool,
+) ([]structuralAnalyzerScope, bool) {
+	matlabLikeVisitTrailingScopeTransitions(tokens, octave, func(opening bool, label string) bool {
+		if opening {
+			scopes = append(scopes, structuralAnalyzerScope{label: label})
+			return true
+		}
+		if len(scopes) == 0 {
+			markMATLABLikeUnmatchedScopeTerminator(builder, language)
+			return false
+		}
+		if scopes[len(scopes)-1].label == "function" {
+			explicitFunctionEndSeen = true
+		}
+		scopes = scopes[:len(scopes)-1]
+		return true
+	})
+	return scopes, explicitFunctionEndSeen
+}
+
+func markMATLABLikeUnmatchedScopeTerminator(builder *SymbolBuilder, language string) {
+	builder.MarkIncomplete()
+	_ = builder.AddDiagnostic(DiagnosticSpec{
+		Code: language + "-unmatched-scope-terminator", Message: language + " source contains an unmatched structural scope terminator",
+		Severity: DiagnosticWarning, AffectsCoverage: true,
+	})
+}
+
+func handleMATLABLikeControlScope(
+	tokens []Token,
+	first string,
+	scopes []structuralAnalyzerScope,
+	octave bool,
+	scopeOpeningLine bool,
+) ([]structuralAnalyzerScope, bool) {
+	switch first {
+	case "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
+		if (first == "methods" || first == "properties") && !scopeOpeningLine {
+			return scopes, true
+		}
+		return appendMATLABLikeOpenScopes(scopes, first, tokens, octave), true
+	case "arguments":
+		if !octave {
+			scopes = appendMATLABLikeOpenScopes(scopes, first, tokens, false)
+		}
+		return scopes, true
+	case "unwind_protect":
+		if octave {
+			scopes = appendMATLABLikeOpenScopes(scopes, first, tokens, true)
+		}
+		return scopes, true
+	default:
+		return scopes, false
+	}
+}
+
+func appendMATLABLikeOpenScopes(scopes []structuralAnalyzerScope, first string, tokens []Token, octave bool) []structuralAnalyzerScope {
+	if matlabLikeLineClosesOwnScope(tokens, octave) {
+		return scopes
+	}
+	scopes = append(scopes, structuralAnalyzerScope{label: first})
+	for _, label := range matlabLikeUnclosedTrailingScopes(tokens, octave) {
+		scopes = append(scopes, structuralAnalyzerScope{label: label})
+	}
+	return scopes
+}
+
+func handleMATLABLikeDeclaration(
+	builder *SymbolBuilder,
+	line LogicalLine,
+	first string,
+	scopes []structuralAnalyzerScope,
+	octave bool,
+	implicitFunctionBoundaries bool,
+	explicitFunctionEndSeen bool,
+) ([]structuralAnalyzerScope, bool) {
+	switch first {
+	case "classdef":
+		nameIndex := firstIdentifierToken(line.Tokens, 1)
+		if nameIndex < 0 {
+			return scopes, explicitFunctionEndSeen
+		}
+		parent := parentFromStructuralScopes(scopes)
+		symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindClass, NativeKind: "classdef", Name: line.Tokens[nameIndex].Text, Parent: parent,
+			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+		if ok {
+			scopes = append(scopes, structuralAnalyzerScope{label: "class", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+		}
+		return scopes, explicitFunctionEndSeen
+	case "function":
+		if implicitFunctionBoundaries && len(scopes) == 1 && scopes[0].label == "function" {
+			scopes = scopes[:0]
+		}
+		nameIndex := matlabFunctionName(line.Tokens)
+		if nameIndex < 0 {
+			return scopes, explicitFunctionEndSeen
+		}
+		parent := parentFromStructuralScopes(scopes)
+		kind := SymbolKindFunction
+		if parent != nil {
+			kind = SymbolKindMethod
+		}
+		symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "function", Name: line.Tokens[nameIndex].Text, Parent: parent,
+			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+		if matlabLikeLineClosesOwnScope(line.Tokens, octave) {
+			return scopes, true
+		}
+		functionScope := structuralAnalyzerScope{label: "function"}
+		if ok {
+			functionScope.parent = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+		}
+		scopes = append(scopes, functionScope)
+		for _, label := range matlabLikeUnclosedTrailingScopes(line.Tokens, octave) {
+			scopes = append(scopes, structuralAnalyzerScope{label: label})
+		}
+		return scopes, explicitFunctionEndSeen
+	default:
+		return scopes, explicitFunctionEndSeen
+	}
 }
 
 func maskMATLABCharacterVectors(ctx context.Context, document *SourceDocument, octave bool) (*SourceDocument, *OffsetRange, error) {
