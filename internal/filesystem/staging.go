@@ -23,6 +23,111 @@ func SyncDirectory(path string) (err error) {
 	return defaultMutationOps.syncDirectory(path)
 }
 
+// WriteOwnerOnlyExecutableNoReplace creates exactly path, restricts it to
+// owner-only executable access before writing content, syncs the file, and
+// syncs the parent namespace. A crash can leave only the fixed destination name.
+func WriteOwnerOnlyExecutableNoReplace(ctx context.Context, path string, source io.Reader, expectedBytes int64) (snapshot FileSnapshot, err error) {
+	defer func() {
+		err = operation.WrapFilesystem("write_owner_only_executable_no_replace", path, err)
+	}()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if expectedBytes <= 0 {
+		return FileSnapshot{}, operation.New(operation.KindInvalidInput, "expected executable byte count must be positive")
+	}
+	if _, err := os.Lstat(path); err == nil {
+		return FileSnapshot{}, ErrDestinationExists
+	} else if !os.IsNotExist(err) {
+		return FileSnapshot{}, err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return FileSnapshot{}, ErrDestinationExists
+		}
+		return FileSnapshot{}, err
+	}
+	createdIdentity, identityErr := CaptureObjectIdentity(path)
+	if identityErr != nil {
+		_ = file.Close()
+		return FileSnapshot{}, identityErr
+	}
+	cleanup := true
+	defer func() {
+		if !cleanup {
+			return
+		}
+		matches, matchErr := createdIdentity.Matches(path)
+		if matchErr != nil {
+			err = errors.Join(err, matchErr)
+			return
+		}
+		if !matches {
+			err = errors.Join(err, operation.New(operation.KindConflict, "created executable identity changed; refusing cleanup"))
+			return
+		}
+		err = errors.Join(err, os.Remove(path))
+		if syncErr := defaultMutationOps.syncDirectory(filepath.Dir(path)); syncErr != nil {
+			err = errors.Join(err, syncErr)
+		}
+	}()
+	if err := RestrictOwnerOnlyExecutable(path); err != nil {
+		_ = file.Close()
+		return FileSnapshot{}, err
+	}
+	handleInfo, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return FileSnapshot{}, err
+	}
+	pathInfo, err := os.Lstat(path)
+	if err != nil {
+		_ = file.Close()
+		return FileSnapshot{}, err
+	}
+	if !os.SameFile(handleInfo, pathInfo) {
+		_ = file.Close()
+		return FileSnapshot{}, operation.New(operation.KindConflict, "created executable path identity changed")
+	}
+	limited := io.LimitReader(&contextReader{ctx: ctx, reader: source}, expectedBytes+1)
+	written, err := io.CopyBuffer(file, limited, make([]byte, 128*1024))
+	if err != nil {
+		_ = file.Close()
+		return FileSnapshot{}, err
+	}
+	if written != expectedBytes {
+		_ = file.Close()
+		return FileSnapshot{}, operation.New(operation.KindConflict, fmt.Sprintf("executable byte count %d does not match expected %d", written, expectedBytes))
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return FileSnapshot{}, err
+	}
+	if err := file.Close(); err != nil {
+		return FileSnapshot{}, err
+	}
+	if err := defaultMutationOps.syncDirectory(filepath.Dir(path)); err != nil {
+		return FileSnapshot{}, err
+	}
+	snapshot, err = CaptureSnapshotWithDigest(path)
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	matches, err := createdIdentity.Matches(path)
+	if err != nil || !matches {
+		if err == nil {
+			err = operation.New(operation.KindConflict, "created executable identity changed after sync")
+		}
+		return FileSnapshot{}, err
+	}
+	if err := ValidateOwnerOnlyExecutable(path); err != nil {
+		return FileSnapshot{}, err
+	}
+	cleanup = false
+	return snapshot, nil
+}
+
 // CreateDirectoryExactNoReplace creates exactly path and never creates parents.
 // The parent namespace is synced before success is reported.
 func CreateDirectoryExactNoReplace(path string, mode fs.FileMode) (err error) {

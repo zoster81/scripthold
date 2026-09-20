@@ -390,3 +390,11 @@ func readOwnerOnlyFileBounded(path string, maxBytes int64) ([]byte, error) {
 	}
 	return data, nil
 }
+
+func restrictOwnerOnlyExecutable(path string) error {
+	return restrictOwnerOnlyPath(path, false)
+}
+
+func validateOwnerOnlyExecutable(path string) error {
+	return validateOwnerOnlyPath(path, false)
+}

@@ -11,7 +11,8 @@ import (
 
 // ProcessAdmission holds shared installation-use authority for one normal process.
 type ProcessAdmission struct {
-	useLock *filesystem.OwnerOnlyFileLock
+	useLock     *filesystem.OwnerOnlyFileLock
+	useLockPath string
 }
 
 // Close releases shared installation-use authority.
@@ -21,7 +22,16 @@ func (admission *ProcessAdmission) Close() error {
 	}
 	err := admission.useLock.Close()
 	admission.useLock = nil
+	admission.useLockPath = ""
 	return err
+}
+
+func (admission *ProcessAdmission) validateFor(boundary *InstallationBoundary) error {
+	if admission == nil || admission.useLock == nil || boundary == nil ||
+		admission.useLockPath != boundary.UseLockPath {
+		return errors.New("valid process admission is required")
+	}
+	return admission.useLock.Validate(boundary.UseLockPath)
 }
 
 func admitCurrentProcess(ctx context.Context, boundary *InstallationBoundary, inspection *StandaloneInspection) (*ProcessAdmission, error) {
@@ -55,6 +65,9 @@ func admitStableProcessWith(
 	if err != nil {
 		return nil, err
 	}
+	if state.Pending != nil {
+		return nil, errors.New("pending update transaction blocks normal process admission")
+	}
 	observed, err := observeInstalledBinary(ctx, inspection, goos, goarch, deps)
 	if err != nil {
 		return nil, err
@@ -81,5 +94,5 @@ func admitStableProcessWith(
 		_ = useLock.Close()
 		return nil, fmt.Errorf("revalidate control lock after use admission: %w", err)
 	}
-	return &ProcessAdmission{useLock: useLock}, nil
+	return &ProcessAdmission{useLock: useLock, useLockPath: boundary.UseLockPath}, nil
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/filesystem"
@@ -86,4 +87,24 @@ func TestAdmitStableProcessRequiresUseLockBeforeControlRelease(t *testing.T) {
 		t.Fatalf("control lock remained held after failed admission: %v", err)
 	}
 	_ = control.Close()
+}
+
+func TestAdmitStableProcessRejectsPendingTransaction(t *testing.T) {
+	boundary, inspection, admission, candidate, installedDeps, _, _ := pendingPreparationFixture(t)
+	if _, err := preparePendingTransactionWith(
+		context.Background(), boundary, inspection, admission, candidate, runtime.GOOS, runtime.GOARCH,
+		pendingPreparationDeps{
+			installedEvidence: installedDeps,
+			validateCandidate: func(context.Context, *PreparedCandidate, string, string) error { return nil },
+			newTransactionID:  func() (string, error) { return strings.Repeat("4", 64), nil },
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := admission.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admitStableProcessWith(context.Background(), boundary, inspection, runtime.GOOS, runtime.GOARCH, installedDeps); err == nil {
+		t.Fatal("pending transaction must block new normal-process admission")
+	}
 }

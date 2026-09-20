@@ -2,6 +2,7 @@ package updater
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,9 +23,10 @@ const (
 )
 
 type installationState struct {
-	FormatVersion int                      `json:"formatVersion"`
-	Target        installationTargetState  `json:"target"`
-	Current       installationCurrentState `json:"current"`
+	FormatVersion int                       `json:"formatVersion"`
+	Target        installationTargetState   `json:"target"`
+	Current       installationCurrentState  `json:"current"`
+	Pending       *installationPendingState `json:"pending,omitempty"`
 }
 
 type installationTargetState struct {
@@ -48,6 +50,19 @@ type installationBuildIdentity struct {
 	VCS      string `json:"vcs"`
 	Revision string `json:"revision"`
 	VCSClean bool   `json:"vcsClean"`
+}
+
+type installationPendingState struct {
+	TransactionID    string                    `json:"transactionId"`
+	SourceVersion    string                    `json:"sourceVersion"`
+	SourceSHA256     string                    `json:"sourceSha256"`
+	CandidateVersion string                    `json:"candidateVersion"`
+	CandidateSHA256  string                    `json:"candidateSha256"`
+	CandidateBuild   installationBuildIdentity `json:"candidateBuild"`
+	ReleaseID        int64                     `json:"releaseId"`
+	AssetID          int64                     `json:"assetId"`
+	Tag              string                    `json:"tag"`
+	Commit           string                    `json:"commit"`
 }
 
 func encodeInstallationState(state installationState) ([]byte, error) {
@@ -131,7 +146,62 @@ func validateInstallationStateSyntax(state installationState) error {
 	if !build.VCSClean {
 		return errors.New("current build does not provide affirmative clean VCS evidence")
 	}
+	if state.Pending != nil {
+		if err := validatePendingState(*state.Pending, state.Current); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validatePendingState(pending installationPendingState, current installationCurrentState) error {
+	if len(pending.TransactionID) != 64 || pending.TransactionID != strings.ToLower(pending.TransactionID) {
+		return errors.New("pending transaction ID must be 64 lowercase hexadecimal characters")
+	}
+	if _, err := hex.DecodeString(pending.TransactionID); err != nil {
+		return errors.New("pending transaction ID is not hexadecimal")
+	}
+	if pending.SourceVersion != current.Version || pending.SourceSHA256 != current.SHA256 {
+		return errors.New("pending source evidence does not match current state")
+	}
+	if strings.HasPrefix(pending.CandidateVersion, "v") {
+		return errors.New("pending candidate version must omit a v prefix")
+	}
+	candidateVersion, ok := parseSemanticVersion(pending.CandidateVersion)
+	if !ok || len(candidateVersion.prerelease) != 0 || !isNewerVersion(pending.CandidateVersion, pending.SourceVersion) {
+		return errors.New("pending candidate version is not a newer stable semantic version")
+	}
+	if _, err := parseGitHubSHA256("sha256:" + pending.CandidateSHA256); err != nil {
+		return fmt.Errorf("pending candidate SHA-256 is invalid: %w", err)
+	}
+	if pending.ReleaseID <= 0 || pending.AssetID <= 0 {
+		return errors.New("pending release and asset IDs must be positive")
+	}
+	if pending.Tag != "v"+pending.CandidateVersion {
+		return errors.New("pending tag does not match candidate version")
+	}
+	if err := validateGitObjectSHA(pending.Commit); err != nil {
+		return fmt.Errorf("pending commit is invalid: %w", err)
+	}
+	if pending.CandidateBuild.Module != officialModulePath ||
+		pending.CandidateBuild.GOOS != current.Build.GOOS ||
+		pending.CandidateBuild.GOARCH != current.Build.GOARCH ||
+		pending.CandidateBuild.VCS != "git" ||
+		pending.CandidateBuild.Revision != pending.Commit ||
+		!pending.CandidateBuild.VCSClean {
+		return errors.New("pending candidate build identity is inconsistent")
+	}
+	return nil
+}
+
+func installationStatesEqual(left, right installationState) bool {
+	if left.FormatVersion != right.FormatVersion || left.Target != right.Target || left.Current != right.Current {
+		return false
+	}
+	if left.Pending == nil || right.Pending == nil {
+		return left.Pending == nil && right.Pending == nil
+	}
+	return *left.Pending == *right.Pending
 }
 
 func validateInstallationState(state installationState, inspection *StandaloneInspection) error {
@@ -157,14 +227,14 @@ func validateInstallationState(state installationState, inspection *StandaloneIn
 }
 
 func persistInitialInstallationState(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState) error {
-	return persistInstallationState(boundary, inspection, state, true)
+	return persistInstallationState(boundary, inspection, state, true, nil)
 }
 
 func persistStableInstallationState(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState) error {
-	return persistInstallationState(boundary, inspection, state, false)
+	return persistInstallationState(boundary, inspection, state, false, nil)
 }
 
-func persistInstallationState(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState, requireMissing bool) error {
+func persistInstallationState(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState, requireMissing bool, expectedExisting *installationState) error {
 	if err := validateInstallationBoundary(boundary, inspection); err != nil {
 		return err
 	}
@@ -175,6 +245,19 @@ func persistInstallationState(boundary *InstallationBoundary, inspection *Standa
 	defer lock.Close()
 	if err := lock.Validate(boundary.ControlLockPath); err != nil {
 		return fmt.Errorf("validate installation control lock: %w", err)
+	}
+	if err := persistInstallationStateLocked(boundary, inspection, state, requireMissing, expectedExisting); err != nil {
+		return err
+	}
+	if err := lock.Validate(boundary.ControlLockPath); err != nil {
+		return fmt.Errorf("revalidate installation control lock: %w", err)
+	}
+	return validateInstallationBoundary(boundary, inspection)
+}
+
+func persistInstallationStateLocked(boundary *InstallationBoundary, inspection *StandaloneInspection, state installationState, requireMissing bool, expectedExisting *installationState) error {
+	if err := validateInstallationBoundary(boundary, inspection); err != nil {
+		return err
 	}
 	if err := validateInstallationState(state, inspection); err != nil {
 		return err
@@ -204,6 +287,9 @@ func persistInstallationState(boundary *InstallationBoundary, inspection *Standa
 		if validateErr := validateInstallationState(existingState, inspection); validateErr != nil {
 			return fmt.Errorf("validate existing installation state: %w", validateErr)
 		}
+		if expectedExisting != nil && !installationStatesEqual(existingState, *expectedExisting) {
+			return errors.New("existing installation state changed before persistence")
+		}
 		snapshot, err = filesystem.CaptureSnapshotWithDigest(statePath)
 		if err != nil {
 			return err
@@ -222,9 +308,6 @@ func persistInstallationState(boundary *InstallationBoundary, inspection *Standa
 	}
 	if err := filesystem.ValidateOwnerOnlyPath(statePath, false); err != nil {
 		return fmt.Errorf("validate committed installation state: %w", err)
-	}
-	if err := lock.Validate(boundary.ControlLockPath); err != nil {
-		return fmt.Errorf("revalidate installation control lock: %w", err)
 	}
 	return validateInstallationBoundary(boundary, inspection)
 }

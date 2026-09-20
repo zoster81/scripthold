@@ -221,3 +221,59 @@ func readOwnerOnlyFileBounded(path string, maxBytes int64) ([]byte, error) {
 	}
 	return data, nil
 }
+
+func restrictOwnerOnlyExecutable(path string) error {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if file == nil {
+		_ = unix.Close(fd)
+		return os.ErrInvalid
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("owner-only executable is not a regular file")
+	}
+	if err := unix.Fchmod(fd, 0o700); err != nil {
+		return err
+	}
+	handleInfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	pathInfo, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(handleInfo, pathInfo) {
+		return errors.New("owner-only executable identity changed during restriction")
+	}
+	return validateOwnerOnlyExecutable(path)
+}
+
+func validateOwnerOnlyExecutable(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("owner-only executable is linked or not a regular file")
+	}
+	if info.Mode().Perm() != 0o700 {
+		return fmt.Errorf("executable permissions are %04o, want 0700", info.Mode().Perm())
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat == nil {
+		return errors.New("filesystem owner metadata is unavailable")
+	}
+	if stat.Uid != uint32(os.Geteuid()) || stat.Nlink != 1 {
+		return errors.New("owner-only executable ownership or link count is invalid")
+	}
+	return nil
+}

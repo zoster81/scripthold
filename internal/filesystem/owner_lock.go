@@ -31,3 +31,13 @@ func ReadOwnerOnlyFileBounded(path string, maxBytes int64) ([]byte, error) {
 	}
 	return readOwnerOnlyFileBounded(path, maxBytes)
 }
+
+// RestrictOwnerOnlyExecutable changes an existing regular file to owner-only executable access.
+func RestrictOwnerOnlyExecutable(path string) error {
+	return restrictOwnerOnlyExecutable(path)
+}
+
+// ValidateOwnerOnlyExecutable verifies owner-only executable access for an existing regular file.
+func ValidateOwnerOnlyExecutable(path string) error {
+	return validateOwnerOnlyExecutable(path)
+}
