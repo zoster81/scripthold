@@ -42,7 +42,7 @@ func (h *Handler) capturePatchPackageApplyBackups(ctx context.Context, prepared 
 		return &patchPackageApplyPhaseFailure{index: -1, err: operation.New(operation.KindConflict, "required package backup authority is unavailable")}
 	}
 
-	requests := patchPackageCaptureRequests(prepared.label, prepared.backupPolicy, prepared.plan.targets)
+	requests := prepared.plan.backupCaptureRequests(backupstore.SourceOperationPatchPackage, prepared.label, prepared.backupPolicy)
 	if len(requests) > 0 {
 		captures, captureErr := h.backupBatchCapture.CaptureBatch(ctx, requests)
 		if failure := validatePatchPackageBackupCaptures(prepared, output, requests, captures, captureErr); failure != nil {

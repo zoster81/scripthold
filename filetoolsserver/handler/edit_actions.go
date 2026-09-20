@@ -242,33 +242,33 @@ func (h *Handler) handleEditPreview(ctx context.Context, input EditFileInput) (*
 	if failure != nil {
 		return failure, EditFileOutput{}, nil
 	}
-	if prepared.changed && persistentBackupRequired(backupPolicy) {
-		if h.backupCapturePreflight == nil {
-			if prepared.identityFile != nil {
-				_ = prepared.identityFile.Close()
-				prepared.identityFile = nil
-			}
-			return errorResultFromError(operation.New(operation.KindInvalidInput, "required backup preflight authority is unavailable")), EditFileOutput{}, nil
-		}
-		if err := h.backupCapturePreflight.PreflightCaptureBatch(ctx, []backupstore.CaptureRequest{{
-			TargetPath:      prepared.resolvedPath,
-			SourceOperation: backupstore.SourceOperationEdit,
-			Pinned:          persistentBackupPinned(backupPolicy),
-		}}); err != nil {
-			if prepared.identityFile != nil {
-				_ = prepared.identityFile.Close()
-				prepared.identityFile = nil
-			}
-			return errorResultFromError(err), EditFileOutput{}, nil
-		}
-	}
-	preview, err := h.editPreviews.put(prepared)
+	plan, err := newSinglePreparedEditPlan(prepared)
 	if err != nil {
-		if prepared.identityFile != nil {
-			_ = prepared.identityFile.Close()
-		}
+		_ = preparedEditReplacement(&prepared).closeIdentity()
 		return errorResultFromError(err), EditFileOutput{}, nil
 	}
+	keepPlan := false
+	defer func() {
+		if !keepPlan {
+			plan.close()
+		}
+	}()
+	if persistentBackupRequired(backupPolicy) {
+		requests := plan.backupCaptureRequests(backupstore.SourceOperationEdit, "", backupPolicy)
+		if len(requests) > 0 {
+			if h.backupCapturePreflight == nil {
+				return errorResultFromError(operation.New(operation.KindInvalidInput, "required backup preflight authority is unavailable")), EditFileOutput{}, nil
+			}
+			if err := h.backupCapturePreflight.PreflightCaptureBatch(ctx, requests); err != nil {
+				return errorResultFromError(err), EditFileOutput{}, nil
+			}
+		}
+	}
+	preview, err := h.editPreviews.put(plan)
+	if err != nil {
+		return errorResultFromError(err), EditFileOutput{}, nil
+	}
+	keepPlan = true
 	output := editOutputFromPreview(preview)
 	text := editPreviewText(output)
 	if err := h.checkEditResponseLimit(output, text); err != nil {

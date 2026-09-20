@@ -69,11 +69,14 @@ func newEditPreviewStore(maxEntries int, maxBytes int64, ttl time.Duration) *edi
 	}
 }
 
-func (store *editPreviewStore) put(prepared preparedEdit) (*editPreview, error) {
+func (store *editPreviewStore) put(plan preparedEditPlan) (*editPreview, error) {
 	if store == nil || store.maxEntries <= 0 || store.maxBytes <= 0 || store.ttl <= 0 {
 		return nil, operation.New(operation.KindInvalidInput, "edit preview cache is not configured")
 	}
-	retainedBytes, err := prepared.retainedBytes()
+	if len(plan.targets) != 1 {
+		return nil, operation.New(operation.KindInvalidInput, "edit preview plan must contain exactly one target")
+	}
+	retainedBytes, err := plan.targets[0].prepared.retainedBytes()
 	if err != nil {
 		return nil, err
 	}
@@ -81,18 +84,8 @@ func (store *editPreviewStore) put(prepared preparedEdit) (*editPreview, error) 
 		return nil, operation.New(operation.KindLimit, fmt.Sprintf("prepared edit retains %d bytes; cache limit is %d", retainedBytes, store.maxBytes))
 	}
 
-	prepared.data = append([]byte(nil), prepared.data...)
-	plan, err := newPreparedEditPlan([]preparedEditPlanTarget{{
-		index:                     0,
-		requestedPath:             prepared.requestedPath,
-		resolvedPath:              prepared.resolvedPath,
-		expectedFingerprint:       prepared.targetFingerprint,
-		expectedResultFingerprint: prepared.resultFingerprint,
-		prepared:                  prepared,
-	}})
-	if err != nil {
-		return nil, err
-	}
+	plan.targets = append([]preparedEditPlanTarget(nil), plan.targets...)
+	plan.targets[0].prepared.data = append([]byte(nil), plan.targets[0].prepared.data...)
 	store.mu.Lock()
 	defer store.mu.Unlock()
 

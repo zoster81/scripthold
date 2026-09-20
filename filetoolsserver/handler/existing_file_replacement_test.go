@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/filesystem"
 )
 
@@ -27,6 +28,33 @@ func TestPreparedEditPlanRequiresOrderedTargets(t *testing.T) {
 	}
 	if _, err := newPreparedEditPlan([]preparedEditPlanTarget{{index: 1}}); err == nil {
 		t.Fatal("out-of-order prepared edit plan target was accepted")
+	}
+}
+
+func TestPreparedEditPlanBuildsBackupRequestsForChangedTargets(t *testing.T) {
+	plan, err := newPreparedEditPlan([]preparedEditPlanTarget{
+		{index: 0, resolvedPath: "first", prepared: preparedEdit{changed: false}},
+		{index: 1, resolvedPath: "second", prepared: preparedEdit{changed: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := plan.backupCaptureRequests(backupstore.SourceOperationPatchPackage, "batch", editBackupPolicyPinned)
+	if len(requests) != 1 {
+		t.Fatalf("requests=%+v, want one changed target", requests)
+	}
+	request := requests[0]
+	if request.TargetPath != "second" || request.SourceOperation != backupstore.SourceOperationPatchPackage || request.Label != "batch" || !request.Pinned {
+		t.Fatalf("request=%+v", request)
+	}
+
+	single, err := newSinglePreparedEditPlan(preparedEdit{resolvedPath: "single", targetFingerprint: "before", resultFingerprint: "after", changed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests = single.backupCaptureRequests(backupstore.SourceOperationEdit, "", editBackupPolicyRequired)
+	if len(requests) != 1 || requests[0].TargetPath != "single" || requests[0].SourceOperation != backupstore.SourceOperationEdit || requests[0].Label != "" || requests[0].Pinned {
+		t.Fatalf("single requests=%+v", requests)
 	}
 }
 

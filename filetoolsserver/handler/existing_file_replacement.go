@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 
+	"github.com/zoster81/scripthold/internal/backupstore"
 	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/textstream"
@@ -27,6 +28,17 @@ type preparedEditPlan struct {
 	targets []preparedEditPlanTarget
 }
 
+func newSinglePreparedEditPlan(prepared preparedEdit) (preparedEditPlan, error) {
+	return newPreparedEditPlan([]preparedEditPlanTarget{{
+		index:                     0,
+		requestedPath:             prepared.requestedPath,
+		resolvedPath:              prepared.resolvedPath,
+		expectedFingerprint:       prepared.targetFingerprint,
+		expectedResultFingerprint: prepared.resultFingerprint,
+		prepared:                  prepared,
+	}})
+}
+
 func newPreparedEditPlan(targets []preparedEditPlanTarget) (preparedEditPlan, error) {
 	if len(targets) == 0 {
 		return preparedEditPlan{}, operation.New(operation.KindInvalidInput, "prepared edit plan must contain at least one target")
@@ -38,6 +50,23 @@ func newPreparedEditPlan(targets []preparedEditPlanTarget) (preparedEditPlan, er
 		}
 	}
 	return plan, nil
+}
+
+func (plan preparedEditPlan) backupCaptureRequests(sourceOperation backupstore.SourceOperation, label, backupPolicy string) []backupstore.CaptureRequest {
+	requests := make([]backupstore.CaptureRequest, 0, len(plan.targets))
+	for index := range plan.targets {
+		target := &plan.targets[index]
+		if !target.prepared.changed {
+			continue
+		}
+		requests = append(requests, backupstore.CaptureRequest{
+			TargetPath:      target.resolvedPath,
+			SourceOperation: sourceOperation,
+			Label:           label,
+			Pinned:          persistentBackupPinned(backupPolicy),
+		})
+	}
+	return requests
 }
 
 func (plan *preparedEditPlan) close() {

@@ -126,8 +126,12 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 	if err := h.verifyPatchPackageDryRunSnapshot(ctx, targets, identities, before); err != nil {
 		return errorResultFromError(err), PatchPackageOutput{}, nil
 	}
+	plan, err := newPreparedEditPlan(preparedTargets)
+	if err != nil {
+		return errorResultFromError(err), PatchPackageOutput{}, nil
+	}
 	if persistentBackupRequired(manifest.BackupPolicy) {
-		requests := patchPackageCaptureRequests(manifest.Label, manifest.BackupPolicy, preparedTargets)
+		requests := plan.backupCaptureRequests(backupstore.SourceOperationPatchPackage, manifest.Label, manifest.BackupPolicy)
 		if len(requests) > 0 {
 			if h.backupCapturePreflight == nil {
 				return errorResultFromError(operation.New(operation.KindInvalidInput, "backup store does not provide package backup preflight authority")), PatchPackageOutput{}, nil
@@ -138,10 +142,6 @@ func (h *Handler) handlePatchPackageDryRun(ctx context.Context, manifest PatchPa
 		}
 	}
 
-	plan, err := newPreparedEditPlan(preparedTargets)
-	if err != nil {
-		return errorResultFromError(err), PatchPackageOutput{}, nil
-	}
 	preparedPackage := preparedPatchPackage{
 		formatVersion:              manifest.FormatVersion,
 		label:                      manifest.Label,
@@ -409,22 +409,6 @@ func (h *Handler) capturePatchPackageFingerprintsOnce(ctx context.Context, targe
 		fingerprints[index] = fingerprint
 	}
 	return fingerprints, nil
-}
-
-func patchPackageCaptureRequests(label, backupPolicy string, targets []preparedEditPlanTarget) []backupstore.CaptureRequest {
-	requests := make([]backupstore.CaptureRequest, 0, len(targets))
-	for index := range targets {
-		if !targets[index].prepared.changed {
-			continue
-		}
-		requests = append(requests, backupstore.CaptureRequest{
-			TargetPath:      targets[index].resolvedPath,
-			SourceOperation: backupstore.SourceOperationPatchPackage,
-			Label:           label,
-			Pinned:          persistentBackupPinned(backupPolicy),
-		})
-	}
-	return requests
 }
 
 func patchPackageBaseOutput(action string, manifest PatchPackageManifest, targets []validatedPatchPackageTarget) PatchPackageOutput {
