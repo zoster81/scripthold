@@ -65,6 +65,10 @@ func (ownership *DetachedHelperOwnership) rollbackCommittedReplacementWith(
 	case ReconciliationRolledBack:
 		return nil
 	case ReconciliationCommitted:
+	case ReconciliationRecoveryRequired:
+		if !result.candidateBytesInstalled {
+			return fmt.Errorf("rollback requires installed candidate bytes, observed %s", result.Status)
+		}
 	default:
 		return fmt.Errorf("rollback requires committed transaction, observed %s", result.Status)
 	}
@@ -122,11 +126,15 @@ func (ownership *DetachedHelperOwnership) rollbackCommittedReplacementWith(
 	if err != nil {
 		return err
 	}
-	if result.Status != ReconciliationCommitted || !result.rollbackPrepared {
+	rollbackReady := result.rollbackPrepared &&
+		(result.Status == ReconciliationCommitted ||
+			(result.Status == ReconciliationRecoveryRequired && result.candidateBytesInstalled))
+	if !rollbackReady {
 		return fmt.Errorf(
-			"rollback staging changed transaction state to %s (rollbackPrepared=%v)",
+			"rollback staging changed transaction state to %s (rollbackPrepared=%v candidateBytesInstalled=%v)",
 			result.Status,
 			result.rollbackPrepared,
+			result.candidateBytesInstalled,
 		)
 	}
 	if deps.beforeCommit != nil {

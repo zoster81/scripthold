@@ -290,3 +290,37 @@ func TestReconcileCorruptStateRequiresRecovery(t *testing.T) {
 		t.Fatalf("status = %q, want %q; problem=%q", result.Status, ReconciliationRecoveryRequired, result.Problem)
 	}
 }
+
+func TestReconcileCandidateBytesVerificationFailureRemainsRollbackEligible(t *testing.T) {
+	boundary, inspection, _, candidateBytes, deps := prepareReconciliationFixture(t)
+	candidatePath := filepath.Join(boundary.Directory, candidateArtifactName)
+	if err := os.Remove(inspection.ExecutablePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(candidatePath, inspection.ExecutablePath); err != nil {
+		t.Fatal(err)
+	}
+	currentInspection, err := inspectStandaloneExecutable(inspection.ExecutablePath, runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps.observeTarget = func(context.Context, *StandaloneInspection, string, string) (installationCurrentState, error) {
+		return installationCurrentState{}, errors.New("candidate smoke failed")
+	}
+	result, err := reconcileInstallationWith(
+		context.Background(), boundary, currentInspection, runtime.GOOS, runtime.GOARCH, deps,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ReconciliationRecoveryRequired || !result.candidateBytesInstalled || result.rollbackPrepared {
+		t.Fatalf("result=%#v, want recovery_required with rollback-eligible candidate bytes", result)
+	}
+	got, err := os.ReadFile(currentInspection.ExecutablePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(candidateBytes) {
+		t.Fatalf("candidate bytes changed during reconciliation: %q", got)
+	}
+}

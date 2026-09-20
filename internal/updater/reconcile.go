@@ -25,7 +25,8 @@ type ReconciliationResult struct {
 	Status  ReconciliationStatus
 	Problem string
 
-	rollbackPrepared bool
+	rollbackPrepared        bool
+	candidateBytesInstalled bool
 }
 
 type reconciliationDeps struct {
@@ -155,8 +156,24 @@ func reconcileInstallationLocked(
 		if ctx.Err() != nil {
 			return ReconciliationResult{}, ctx.Err()
 		}
+		targetDigest, digestErr := observeTargetDigest(inspection)
+		if digestErr != nil {
+			return recoveryRequired("installed target bytes cannot be safely observed"), nil
+		}
+		candidateBytesInstalled := targetDigest == state.Pending.CandidateSHA256 &&
+			(candidate == candidateArtifactMissing || candidate == candidateArtifactRollbackSource)
+		if candidateBytesInstalled {
+			return finishReconciliation(control, boundary, inspection, ReconciliationResult{
+				Status:                  ReconciliationRecoveryRequired,
+				Problem:                 "installed candidate bytes failed full verification",
+				rollbackPrepared:        candidate == candidateArtifactRollbackSource,
+				candidateBytesInstalled: true,
+			})
+		}
 		return recoveryRequired("installed target cannot be fully verified"), nil
 	}
+	candidateBytesInstalled := observed.SHA256 == state.Pending.CandidateSHA256 &&
+		(candidate == candidateArtifactMissing || candidate == candidateArtifactRollbackSource)
 	candidateState := installationCurrentState{
 		Version: state.Pending.CandidateVersion,
 		SHA256:  state.Pending.CandidateSHA256,
@@ -174,6 +191,14 @@ func reconcileInstallationLocked(
 	case observed == state.Current && candidate == candidateArtifactMissing:
 		result = ReconciliationResult{Status: ReconciliationRolledBack}
 	default:
+		if candidateBytesInstalled {
+			return finishReconciliation(control, boundary, inspection, ReconciliationResult{
+				Status:                  ReconciliationRecoveryRequired,
+				Problem:                 "installed candidate bytes do not match candidate verification evidence",
+				rollbackPrepared:        candidate == candidateArtifactRollbackSource,
+				candidateBytesInstalled: true,
+			})
+		}
 		return recoveryRequired("target and candidate artifact combination is ambiguous or unsupported"), nil
 	}
 	return finishReconciliation(control, boundary, inspection, result)
@@ -199,6 +224,29 @@ func readInstallationStateForReconciliationLocked(
 		return installationState{}, err
 	}
 	return state, nil
+}
+
+func observeTargetDigest(inspection *StandaloneInspection) (string, error) {
+	if inspection == nil {
+		return "", errors.New("standalone inspection evidence is required")
+	}
+	file, err := filesystem.OpenVerifiedSingleLinkFile(inspection.ExecutablePath, inspection.ExecutableIdentity)
+	if err != nil {
+		return "", err
+	}
+	firstSize, firstDigest, firstErr := hashInstalledFile(file)
+	secondSize, secondDigest, secondErr := hashInstalledFile(file)
+	closeErr := file.Close()
+	if firstErr != nil || secondErr != nil || closeErr != nil {
+		return "", errors.Join(firstErr, secondErr, closeErr)
+	}
+	if firstSize != secondSize || firstDigest != secondDigest {
+		return "", errors.New("installed target bytes changed while observing digest")
+	}
+	if err := revalidateInspectedExecutable(inspection); err != nil {
+		return "", err
+	}
+	return firstDigest, nil
 }
 
 func observeCandidateArtifact(boundary *InstallationBoundary, name, expectedSHA256 string) artifactObservation {

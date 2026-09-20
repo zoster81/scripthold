@@ -39,6 +39,9 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		fmt.Fprintln(stdout, version)
 		return 0
 	}
+	if code, matched := tryRunSelfUpdateHelper(ctx, args, stderr); matched {
+		return code
+	}
 
 	diagnosticManager, err := diagnostics.Open(stderr, getenv, diagnosticRole(args))
 	if err != nil {
