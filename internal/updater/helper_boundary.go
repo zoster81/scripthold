@@ -15,6 +15,7 @@ import (
 
 const (
 	detachedHelperCommand            = "_self-update-helper"
+	detachedRecoveryHelperCommand    = "_self-update-recovery-helper"
 	detachedHelperControlWaitTimeout = 5 * time.Second
 	detachedHelperUseWaitTimeout     = 30 * time.Second
 	detachedHelperLockRetryDelay     = 25 * time.Millisecond
@@ -31,6 +32,13 @@ type helperOwnershipDeps struct {
 	reconciliation     reconciliationDeps
 	controlWaitTimeout time.Duration
 }
+
+type helperOwnershipMode int
+
+const (
+	helperOwnershipAutomatic helperOwnershipMode = iota
+	helperOwnershipRecovery
+)
 
 // DetachedHelperOwnership holds exclusive local authority for one prepared
 // update transaction. Acquiring it never changes the installed executable.
@@ -71,7 +79,24 @@ func DetachedHelperArguments(transactionID string) ([]string, error) {
 // ParseDetachedHelperInvocation recognizes and strictly validates the private
 // helper invocation contract without accepting paths or other authority inputs.
 func ParseDetachedHelperInvocation(args []string) (transactionID string, matched bool, err error) {
-	if len(args) == 0 || args[0] != detachedHelperCommand {
+	return parseDetachedHelperInvocation(args, detachedHelperCommand)
+}
+
+// RecoveryHelperArguments returns the private explicit-recovery helper contract.
+func RecoveryHelperArguments(transactionID string) ([]string, error) {
+	if err := validateTransactionID(transactionID); err != nil {
+		return nil, err
+	}
+	return []string{detachedRecoveryHelperCommand, transactionID}, nil
+}
+
+// ParseDetachedRecoveryHelperInvocation recognizes the explicit recovery helper intent.
+func ParseDetachedRecoveryHelperInvocation(args []string) (transactionID string, matched bool, err error) {
+	return parseDetachedHelperInvocation(args, detachedRecoveryHelperCommand)
+}
+
+func parseDetachedHelperInvocation(args []string, command string) (transactionID string, matched bool, err error) {
+	if len(args) == 0 || args[0] != command {
 		return "", false, nil
 	}
 	if len(args) != 2 {
@@ -91,7 +116,7 @@ func AcquireCurrentDetachedHelperOwnership(ctx context.Context, transactionID st
 	if err != nil {
 		return nil, fmt.Errorf("resolve helper executable: %w", err)
 	}
-	return acquireDetachedHelperOwnershipWith(
+	return acquireDetachedHelperOwnershipWithMode(
 		ctx,
 		path,
 		transactionID,
@@ -99,6 +124,27 @@ func AcquireCurrentDetachedHelperOwnership(ctx context.Context, transactionID st
 		runtime.GOARCH,
 		detachedHelperUseWaitTimeout,
 		helperOwnershipDeps{},
+		helperOwnershipAutomatic,
+	)
+}
+
+// AcquireCurrentRecoveryHelperOwnership reopens a pending installation from the
+// fixed helper copy and accepts recovery states whose target file identity may
+// legitimately differ from the pre-switch persisted identity.
+func AcquireCurrentRecoveryHelperOwnership(ctx context.Context, transactionID string) (*DetachedHelperOwnership, error) {
+	path, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve recovery helper executable: %w", err)
+	}
+	return acquireDetachedHelperOwnershipWithMode(
+		ctx,
+		path,
+		transactionID,
+		runtime.GOOS,
+		runtime.GOARCH,
+		detachedHelperUseWaitTimeout,
+		helperOwnershipDeps{},
+		helperOwnershipRecovery,
 	)
 }
 
@@ -107,6 +153,18 @@ func acquireDetachedHelperOwnershipWith(
 	helperExecutablePath, transactionID, goos, goarch string,
 	useWaitTimeout time.Duration,
 	deps helperOwnershipDeps,
+) (*DetachedHelperOwnership, error) {
+	return acquireDetachedHelperOwnershipWithMode(
+		ctx, helperExecutablePath, transactionID, goos, goarch, useWaitTimeout, deps, helperOwnershipAutomatic,
+	)
+}
+
+func acquireDetachedHelperOwnershipWithMode(
+	ctx context.Context,
+	helperExecutablePath, transactionID, goos, goarch string,
+	useWaitTimeout time.Duration,
+	deps helperOwnershipDeps,
+	mode helperOwnershipMode,
 ) (_ *DetachedHelperOwnership, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -118,7 +176,12 @@ func acquireDetachedHelperOwnershipWith(
 		return nil, errors.New("detached helper use-lock timeout must be positive")
 	}
 
-	boundary, inspection, err := reopenDetachedHelperInstallation(helperExecutablePath, transactionID, goos)
+	boundary, inspection, err := reopenDetachedHelperInstallation(
+		helperExecutablePath,
+		transactionID,
+		goos,
+		mode == helperOwnershipAutomatic,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +219,8 @@ func acquireDetachedHelperOwnershipWith(
 	if err != nil {
 		return nil, err
 	}
-	if reconciliation.Status != ReconciliationPrepared {
-		return nil, fmt.Errorf("detached helper requires prepared transaction, observed %s", reconciliation.Status)
+	if err := validateHelperOwnershipState(mode, reconciliation); err != nil {
+		return nil, err
 	}
 
 	useLock, err := waitForExclusiveFileLock(
@@ -192,8 +255,8 @@ func acquireDetachedHelperOwnershipWith(
 	if err != nil {
 		return nil, err
 	}
-	if reconciliation.Status != ReconciliationPrepared {
-		return nil, fmt.Errorf("transaction changed while helper waited for use authority: %s", reconciliation.Status)
+	if err := validateHelperOwnershipState(mode, reconciliation); err != nil {
+		return nil, fmt.Errorf("transaction changed while helper waited for use authority: %w", err)
 	}
 	if err := useLock.Validate(boundary.UseLockPath); err != nil {
 		return nil, fmt.Errorf("revalidate exclusive installation use lock: %w", err)
@@ -213,8 +276,28 @@ func acquireDetachedHelperOwnershipWith(
 	}, nil
 }
 
+func validateHelperOwnershipState(mode helperOwnershipMode, reconciliation ReconciliationResult) error {
+	switch mode {
+	case helperOwnershipAutomatic:
+		if reconciliation.Status != ReconciliationPrepared {
+			return fmt.Errorf("automatic detached helper requires prepared transaction, observed %s", reconciliation.Status)
+		}
+	case helperOwnershipRecovery:
+		switch reconciliation.Status {
+		case ReconciliationPrepared, ReconciliationCommitted, ReconciliationRolledBack, ReconciliationRecoveryRequired:
+			return nil
+		default:
+			return fmt.Errorf("recovery helper requires an active recoverable transaction, observed %s", reconciliation.Status)
+		}
+	default:
+		return errors.New("invalid detached helper ownership mode")
+	}
+	return nil
+}
+
 func reopenDetachedHelperInstallation(
 	helperExecutablePath, transactionID, goos string,
+	requireTargetIdentity bool,
 ) (*InstallationBoundary, *StandaloneInspection, error) {
 	if helperExecutablePath == "" {
 		return nil, nil, errors.New("helper executable path is empty")
@@ -278,8 +361,8 @@ func reopenDetachedHelperInstallation(
 	if !security.PathsEqual(boundary.Directory, stateDirectory) {
 		return nil, nil, errors.New("helper state directory does not match installation boundary")
 	}
-	if err := validateInstallationState(state, inspection); err != nil {
-		return nil, nil, fmt.Errorf("validate prepared helper state: %w", err)
+	if err := validateInstallationStateBinding(state, inspection, requireTargetIdentity); err != nil {
+		return nil, nil, fmt.Errorf("validate helper installation state: %w", err)
 	}
 	if observeFixedArtifact(boundary, helperArtifactName, state.Current.SHA256) != artifactValid {
 		return nil, nil, errors.New("helper artifact no longer matches source evidence")
