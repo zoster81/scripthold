@@ -62,85 +62,107 @@ func validateSourceQueryCommon(input SourceQueryInput, limits config.SourceConfi
 }
 
 func validateSourceQueryOperation(operation string, input SourceQueryInput, limits config.SourceConfig) *mcp.CallToolResult {
+	var result *mcp.CallToolResult
 	switch operation {
 	case "search":
-		if strings.TrimSpace(input.Query) == "" || utf8.RuneCountInString(input.Query) > 512 {
-			return errorResultWithCode(ErrCodeInvalidInput, "search query must contain 1 to 512 Unicode scalar values")
-		}
-		if input.Mode != "textual" && input.Mode != "lexical" && input.Mode != "structural" {
-			return errorResultWithCode(ErrCodeInvalidInput, "search mode must be textual, lexical, or structural")
-		}
-		if input.Match != "" && input.Match != "exact" && input.Match != "prefix" && input.Match != "contains" {
-			return errorResultWithCode(ErrCodeInvalidInput, "search match must be exact, prefix, or contains")
-		}
-		if input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxNodes != 0 || input.MaxEdges != 0 || input.MaxDepth != 0 || input.MaxItems != 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "search received fields that are legal only for relations or context")
-		}
-		if _, result := resolvePositiveLimit(input.MaxResults, limits.MaxResults, "maxResults"); result != nil {
-			return result
-		}
+		result = validateSourceSearchQuery(input, limits)
 	case "relations":
-		if !isSourceRelationKind(input.Relation) {
-			return errorResultWithCode(ErrCodeInvalidInput, "relations requires a supported relation kind")
-		}
-		if input.Query != "" || input.Mode != "" || input.Match != "" || len(input.Kinds) > 0 || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxItems != 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "relations received fields that are legal only for search or context")
-		}
-		for _, pair := range []struct {
-			value   int
-			maximum int
-			name    string
-		}{{input.MaxResults, limits.MaxResults, "maxResults"}, {input.MaxNodes, limits.MaxGraphNodes, "maxNodes"}, {input.MaxEdges, limits.MaxGraphEdges, "maxEdges"}} {
-			if _, result := resolvePositiveLimit(pair.value, pair.maximum, pair.name); result != nil {
-				return result
-			}
-		}
-		switch input.Relation {
-		case "cycles":
-			if input.Subject != nil || input.Target != nil || input.MaxDepth != 0 {
-				return errorResultWithCode(ErrCodeInvalidInput, "cycles does not accept subject, target, or maxDepth")
-			}
-		case "trace":
-			if input.Subject == nil || input.Target == nil {
-				return errorResultWithCode(ErrCodeInvalidInput, "trace requires subject and target")
-			}
-			if _, result := resolvePositiveLimit(input.MaxDepth, limits.MaxGraphDepth, "maxDepth"); result != nil {
-				return result
-			}
-		default:
-			if input.Subject == nil || input.Target != nil {
-				return errorResultWithCode(ErrCodeInvalidInput, "this relation requires subject and does not accept target")
-			}
-			if _, result := resolvePositiveLimit(input.MaxDepth, limits.MaxGraphDepth, "maxDepth"); result != nil {
-				return result
-			}
-		}
+		result = validateSourceRelationsQuery(input, limits)
 	case "context":
-		if len(input.Targets) == 0 || input.BudgetBytes <= 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "context requires targets and budgetBytes")
-		}
-		if len(input.Targets) > 32 {
-			return errorResultWithCode(ErrCodeLimit, "context targets exceeds the 32-item limit")
-		}
-		if input.BodyPolicy != "" && input.BodyPolicy != "prefer" && input.BodyPolicy != "signatures-only" {
-			return errorResultWithCode(ErrCodeInvalidInput, "context bodyPolicy must be prefer or signatures-only")
-		}
-		if input.Query != "" || input.Mode != "" || input.Match != "" || input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Kinds) > 0 || len(input.Evidence) > 0 || input.MaxResults != 0 || input.MaxNodes != 0 || input.MaxEdges != 0 {
-			return errorResultWithCode(ErrCodeInvalidInput, "context received fields that are legal only for search or relations")
-		}
-		for _, pair := range []struct {
-			value   int
-			maximum int
-			name    string
-		}{{input.BudgetBytes, limits.MaxContextBytes, "budgetBytes"}, {input.MaxItems, limits.MaxContextItems, "maxItems"}, {input.MaxDepth, limits.MaxGraphDepth, "maxDepth"}} {
-			if _, result := resolvePositiveLimit(pair.value, pair.maximum, pair.name); result != nil {
-				return result
-			}
-		}
+		result = validateSourceContextQuery(input, limits)
 	default:
 		return errorResultWithCode(ErrCodeInvalidInput, "operation must be search, relations, or context")
 	}
+	if result != nil {
+		return result
+	}
+	return validateSourceQuerySelectors(input)
+}
 
+func validateSourceSearchQuery(input SourceQueryInput, limits config.SourceConfig) *mcp.CallToolResult {
+	if strings.TrimSpace(input.Query) == "" || utf8.RuneCountInString(input.Query) > 512 {
+		return errorResultWithCode(ErrCodeInvalidInput, "search query must contain 1 to 512 Unicode scalar values")
+	}
+	if input.Mode != "textual" && input.Mode != "lexical" && input.Mode != "structural" {
+		return errorResultWithCode(ErrCodeInvalidInput, "search mode must be textual, lexical, or structural")
+	}
+	if input.Match != "" && input.Match != "exact" && input.Match != "prefix" && input.Match != "contains" {
+		return errorResultWithCode(ErrCodeInvalidInput, "search match must be exact, prefix, or contains")
+	}
+	if input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxNodes != 0 || input.MaxEdges != 0 || input.MaxDepth != 0 || input.MaxItems != 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "search received fields that are legal only for relations or context")
+	}
+	if _, result := resolvePositiveLimit(input.MaxResults, limits.MaxResults, "maxResults"); result != nil {
+		return result
+	}
+	return nil
+}
+
+func validateSourceRelationsQuery(input SourceQueryInput, limits config.SourceConfig) *mcp.CallToolResult {
+	if !isSourceRelationKind(input.Relation) {
+		return errorResultWithCode(ErrCodeInvalidInput, "relations requires a supported relation kind")
+	}
+	if input.Query != "" || input.Mode != "" || input.Match != "" || len(input.Kinds) > 0 || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxItems != 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "relations received fields that are legal only for search or context")
+	}
+	for _, pair := range []struct {
+		value   int
+		maximum int
+		name    string
+	}{{input.MaxResults, limits.MaxResults, "maxResults"}, {input.MaxNodes, limits.MaxGraphNodes, "maxNodes"}, {input.MaxEdges, limits.MaxGraphEdges, "maxEdges"}} {
+		if _, result := resolvePositiveLimit(pair.value, pair.maximum, pair.name); result != nil {
+			return result
+		}
+	}
+	switch input.Relation {
+	case "cycles":
+		if input.Subject != nil || input.Target != nil || input.MaxDepth != 0 {
+			return errorResultWithCode(ErrCodeInvalidInput, "cycles does not accept subject, target, or maxDepth")
+		}
+	case "trace":
+		if input.Subject == nil || input.Target == nil {
+			return errorResultWithCode(ErrCodeInvalidInput, "trace requires subject and target")
+		}
+		if _, result := resolvePositiveLimit(input.MaxDepth, limits.MaxGraphDepth, "maxDepth"); result != nil {
+			return result
+		}
+	default:
+		if input.Subject == nil || input.Target != nil {
+			return errorResultWithCode(ErrCodeInvalidInput, "this relation requires subject and does not accept target")
+		}
+		if _, result := resolvePositiveLimit(input.MaxDepth, limits.MaxGraphDepth, "maxDepth"); result != nil {
+			return result
+		}
+	}
+	return nil
+}
+
+func validateSourceContextQuery(input SourceQueryInput, limits config.SourceConfig) *mcp.CallToolResult {
+	if len(input.Targets) == 0 || input.BudgetBytes <= 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "context requires targets and budgetBytes")
+	}
+	if len(input.Targets) > 32 {
+		return errorResultWithCode(ErrCodeLimit, "context targets exceeds the 32-item limit")
+	}
+	if input.BodyPolicy != "" && input.BodyPolicy != "prefer" && input.BodyPolicy != "signatures-only" {
+		return errorResultWithCode(ErrCodeInvalidInput, "context bodyPolicy must be prefer or signatures-only")
+	}
+	if input.Query != "" || input.Mode != "" || input.Match != "" || input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Kinds) > 0 || len(input.Evidence) > 0 || input.MaxResults != 0 || input.MaxNodes != 0 || input.MaxEdges != 0 {
+		return errorResultWithCode(ErrCodeInvalidInput, "context received fields that are legal only for search or relations")
+	}
+	for _, pair := range []struct {
+		value   int
+		maximum int
+		name    string
+	}{{input.BudgetBytes, limits.MaxContextBytes, "budgetBytes"}, {input.MaxItems, limits.MaxContextItems, "maxItems"}, {input.MaxDepth, limits.MaxGraphDepth, "maxDepth"}} {
+		if _, result := resolvePositiveLimit(pair.value, pair.maximum, pair.name); result != nil {
+			return result
+		}
+	}
+	return nil
+}
+
+func validateSourceQuerySelectors(input SourceQueryInput) *mcp.CallToolResult {
 	if input.Subject != nil {
 		if result := validateSourceSelector(*input.Subject); result != nil {
 			return result
