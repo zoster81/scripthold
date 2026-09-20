@@ -68,13 +68,15 @@ Pass each authorized directory as a startup argument:
 
 Startup roots are authoritative. A roots-capable stdio client may supply dynamic roots only when the process starts without directory arguments.
 
-### Self-update adoption and status
+### Verified self-update
 
 A supported standalone binary can opt in to the verified self-update lifecycle with `scripthold update --adopt`. Before running it, stop every other Scripthold process using that binary and keep them stopped until the adoption command exits. Adoption verifies the current standalone installation and creates its local stable self-update state; it performs no network work, downloads no release, and does not replace the executable. MCPB-managed, linked/aliased, unsupported, dirty, or already-adopted installations fail closed.
 
-After adoption, `scripthold update status` remains a read-only way to inspect self-update state and the latest release check without starting the MCP server. It reports whether the installation is adopted, the observed update state, durable/current/candidate version evidence, whether a newer release is known, and whether explicit recovery is available. The command does not adopt, update, replace, roll back, or recover the binary.
+After adoption, run `scripthold update` to check the latest immutable release, verify the matching platform binary and release evidence, stage a candidate, and start the detached update helper. If no newer release exists, the command succeeds without changing the installation. A successful dispatch means the helper has started; use `scripthold update status` to observe completion before starting another update. If the command reports that the helper started but launcher cleanup failed, inspect status before retrying.
 
-If the installed binary cannot be assigned a verified semantic version, the remote release comparison is suppressed rather than using stale version evidence. `MCP_NO_UPDATE_CHECK=1` still disables the remote check, in which case the latest version is reported as unknown. Actual update switching and explicit recovery are not public commands yet. The `update` word is reserved as a command namespace; use `-- update` if a literal authorized directory is named `update`.
+`scripthold update status` is read-only and does not start the MCP server. It reports adoption, observed update state, durable/current/candidate version evidence, release availability, and whether explicit recovery is available. If the installed binary cannot be assigned a verified semantic version, the remote comparison is suppressed rather than using stale evidence. `MCP_NO_UPDATE_CHECK=1` disables this status-time remote check, in which case the latest version is reported as unknown.
+
+Explicit recovery is not a public command yet. The `update` word is reserved as a command namespace; use `-- update` if a literal authorized directory is named `update`.
 
 ### Streamable HTTP
 

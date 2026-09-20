@@ -115,6 +115,98 @@ func TestTryRunSelfUpdateCommandObservedStateAlwaysExitsZero(t *testing.T) {
 	}
 }
 
+func TestTryRunSelfUpdateCommandUpdate(t *testing.T) {
+	tests := []struct {
+		name       string
+		result     updater.UpdateLaunchResult
+		err        error
+		wantCode   int
+		wantStdout []string
+		wantStderr []string
+	}{
+		{
+			name: "current",
+			result: updater.UpdateLaunchResult{
+				Status:         updater.UpdateLaunchCurrent,
+				CurrentVersion: "3.2.1",
+			},
+			wantStdout: []string{"already up to date", "3.2.1"},
+		},
+		{
+			name: "dispatched",
+			result: updater.UpdateLaunchResult{
+				Status:           updater.UpdateLaunchDispatched,
+				CurrentVersion:   "3.2.1",
+				CandidateVersion: "3.3.0",
+			},
+			wantStdout: []string{"helper has started", "3.2.1", "3.3.0", "update status"},
+		},
+		{
+			name:       "pre-dispatch failure",
+			err:        errors.New("private path detail"),
+			wantCode:   1,
+			wantStderr: []string{"failed safely", "no update helper was started", "update status"},
+		},
+		{
+			name: "post-dispatch failure",
+			result: updater.UpdateLaunchResult{
+				Status:           updater.UpdateLaunchDispatched,
+				CurrentVersion:   "3.2.1",
+				CandidateVersion: "3.3.0",
+			},
+			err:        errors.New("private path detail"),
+			wantCode:   1,
+			wantStderr: []string{"helper has started", "launcher cleanup", "update status", "3.2.1", "3.3.0"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			updateCalls := 0
+			code, matched := tryRunSelfUpdateCommandWithDeps(
+				context.Background(), []string{"update"}, &stdout, &stderr, "3.2.1",
+				selfUpdateCommandDeps{
+					update: func(context.Context) (updater.UpdateLaunchResult, error) {
+						updateCalls++
+						return test.result, test.err
+					},
+				},
+			)
+			if !matched || code != test.wantCode || updateCalls != 1 {
+				t.Fatalf("matched=%v code=%d updateCalls=%d stdout=%q stderr=%q", matched, code, updateCalls, stdout.String(), stderr.String())
+			}
+			for _, expected := range test.wantStdout {
+				if !strings.Contains(stdout.String(), expected) {
+					t.Fatalf("stdout %q missing %q", stdout.String(), expected)
+				}
+			}
+			for _, expected := range test.wantStderr {
+				if !strings.Contains(stderr.String(), expected) {
+					t.Fatalf("stderr %q missing %q", stderr.String(), expected)
+				}
+			}
+			if strings.Contains(stdout.String(), "private path detail") || strings.Contains(stderr.String(), "private path detail") {
+				t.Fatalf("private error detail leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestTryRunSelfUpdateCommandRejectsInvalidUpdateResult(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code, matched := tryRunSelfUpdateCommandWithDeps(
+		context.Background(), []string{"update"}, &stdout, &stderr, "3.2.1",
+		selfUpdateCommandDeps{
+			update: func(context.Context) (updater.UpdateLaunchResult, error) {
+				return updater.UpdateLaunchResult{Status: updater.UpdateLaunchStatus("unexpected")}, nil
+			},
+		},
+	)
+	if !matched || code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "failed safely") {
+		t.Fatalf("matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())
+	}
+}
+
 func TestTryRunSelfUpdateCommandAdopt(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	adoptCalls := 0
@@ -172,7 +264,7 @@ func TestTryRunSelfUpdateCommandFailureAndUsage(t *testing.T) {
 	code, matched = tryRunSelfUpdateCommandWith(
 		context.Background(), []string{"update", "recover"}, &stdout, &stderr, "3.2.1", nil,
 	)
-	if !matched || code != 1 || !strings.Contains(stderr.String(), selfUpdateStatusUsage) {
+	if !matched || code != 1 || !strings.Contains(stderr.String(), selfUpdateUsage) {
 		t.Fatalf("unsupported matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())
 	}
 
@@ -181,7 +273,8 @@ func TestTryRunSelfUpdateCommandFailureAndUsage(t *testing.T) {
 	code, matched = tryRunSelfUpdateCommandWith(
 		context.Background(), []string{"update", "--help"}, &stdout, &stderr, "3.2.1", nil,
 	)
-	if !matched || code != 0 || stdout.String() != selfUpdateStatusUsage+"\n" || stderr.Len() != 0 ||
+	if !matched || code != 0 || stdout.String() != selfUpdateUsage+"\n" || stderr.Len() != 0 ||
+		!strings.Contains(stdout.String(), "scripthold update\n") ||
 		!strings.Contains(stdout.String(), "scripthold update --adopt") ||
 		!strings.Contains(stdout.String(), "stop every other Scripthold process") {
 		t.Fatalf("help matched=%v code=%d stdout=%q stderr=%q", matched, code, stdout.String(), stderr.String())

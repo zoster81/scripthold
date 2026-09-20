@@ -8,11 +8,12 @@ import (
 	"github.com/zoster81/scripthold/internal/updater"
 )
 
-const selfUpdateStatusUsage = "Usage:\n  scripthold update status\n  scripthold update --adopt\n\nBefore adoption, stop every other Scripthold process using this binary and keep them stopped until the adoption command exits."
+const selfUpdateUsage = "Usage:\n  scripthold update\n  scripthold update status\n  scripthold update --adopt\n\nBefore adoption, stop every other Scripthold process using this binary and keep them stopped until the adoption command exits."
 
 type selfUpdateCommandDeps struct {
 	observe func(context.Context, string, bool) (updater.SelfUpdateView, error)
 	adopt   func(context.Context) error
+	update  func(context.Context) (updater.UpdateLaunchResult, error)
 }
 
 func tryRunSelfUpdateCommand(
@@ -30,6 +31,7 @@ func tryRunSelfUpdateCommand(
 		selfUpdateCommandDeps{
 			observe: updater.ObserveSelfUpdateView,
 			adopt:   updater.InitializeStableAdoption,
+			update:  updater.LaunchCurrentUpdate,
 		},
 	)
 }
@@ -54,13 +56,16 @@ func tryRunSelfUpdateCommandWithDeps(
 	if len(args) == 0 || args[0] != "update" {
 		return 0, false
 	}
-	if len(args) == 1 || (len(args) == 2 && (args[1] == "--help" || args[1] == "-h")) {
-		fmt.Fprintln(stdout, selfUpdateStatusUsage)
+	if len(args) == 1 {
+		return runSelfUpdate(ctx, stdout, stderr, deps.update), true
+	}
+	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+		fmt.Fprintln(stdout, selfUpdateUsage)
 		return 0, true
 	}
 	if len(args) != 2 {
 		fmt.Fprintln(stderr, "Error: unsupported update command")
-		fmt.Fprintln(stderr, selfUpdateStatusUsage)
+		fmt.Fprintln(stderr, selfUpdateUsage)
 		return 1, true
 	}
 	switch args[1] {
@@ -91,8 +96,51 @@ func tryRunSelfUpdateCommandWithDeps(
 		return 0, true
 	default:
 		fmt.Fprintln(stderr, "Error: unsupported update command")
-		fmt.Fprintln(stderr, selfUpdateStatusUsage)
+		fmt.Fprintln(stderr, selfUpdateUsage)
 		return 1, true
+	}
+}
+
+func runSelfUpdate(
+	ctx context.Context,
+	stdout, stderr io.Writer,
+	launch func(context.Context) (updater.UpdateLaunchResult, error),
+) int {
+	if launch == nil {
+		fmt.Fprintln(stderr, "Error: self-update is unavailable")
+		return 1
+	}
+	result, err := launch(ctx)
+	if err != nil {
+		if result.Status == updater.UpdateLaunchDispatched {
+			fmt.Fprintf(stderr, "Error: self-update helper has started for %s -> %s, but launcher cleanup or release failed.\n", result.CurrentVersion, result.CandidateVersion)
+			fmt.Fprintln(stderr, "Run 'scripthold update status' before retrying; do not start another update until installation state is known.")
+			return 1
+		}
+		fmt.Fprintln(stderr, "Error: self-update failed safely; no update helper was started.")
+		fmt.Fprintln(stderr, "Run 'scripthold update status' before retrying.")
+		return 1
+	}
+
+	switch result.Status {
+	case updater.UpdateLaunchCurrent:
+		if result.CurrentVersion == "" || result.CandidateVersion != "" {
+			fmt.Fprintln(stderr, "Error: self-update failed safely with an invalid internal result; run 'scripthold update status' before retrying.")
+			return 1
+		}
+		fmt.Fprintf(stdout, "Scripthold is already up to date at version %s.\n", result.CurrentVersion)
+		return 0
+	case updater.UpdateLaunchDispatched:
+		if result.CurrentVersion == "" || result.CandidateVersion == "" {
+			fmt.Fprintln(stderr, "Error: self-update failed safely with an invalid internal result; run 'scripthold update status' before retrying.")
+			return 1
+		}
+		fmt.Fprintf(stdout, "Self-update helper has started for %s -> %s.\n", result.CurrentVersion, result.CandidateVersion)
+		fmt.Fprintln(stdout, "Run 'scripthold update status' to observe completion before starting another update.")
+		return 0
+	default:
+		fmt.Fprintln(stderr, "Error: self-update failed safely with an invalid internal result; run 'scripthold update status' before retrying.")
+		return 1
 	}
 }
 
