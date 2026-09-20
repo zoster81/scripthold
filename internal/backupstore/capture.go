@@ -95,28 +95,14 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 		return CaptureResult{}, operation.Wrap(operation.KindCancelled, "capture_backup", "", err)
 	}
 
-	verified, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, request.TargetPath, store.limits.MaxObjectBytes)
+	verified, fingerprint, err := store.verifyCaptureTargetAfterStage(
+		ctx, request.TargetPath, lstatInfo, identity, stagedDigest, stagedSize,
+	)
 	if err != nil {
-		if operation.KindOf(err) == operation.KindConflict {
-			return CaptureResult{}, operation.New(operation.KindConflict, "backup target changed during capture")
-		}
 		return CaptureResult{}, err
-	}
-	verifiedDigest, ok := verified.ContentDigest()
-	if !ok || verified.Size != stagedSize || verifiedDigest != stagedDigest ||
-		verified.Mode != lstatInfo.Mode() || !verified.ModTime.Equal(lstatInfo.ModTime()) {
-		return CaptureResult{}, operation.New(operation.KindConflict, "backup target changed during capture")
-	}
-	matches, err = identity.Matches(request.TargetPath)
-	if err != nil || !matches {
-		return CaptureResult{}, operation.New(operation.KindConflict, "backup target identity changed during capture")
 	}
 
 	digestText := hex.EncodeToString(stagedDigest[:])
-	fingerprint, err := filesystem.FingerprintRegularFileContentDigest(stagedSize, digestText)
-	if err != nil {
-		return CaptureResult{}, err
-	}
 
 	store.transactionMu.Lock()
 	defer store.transactionMu.Unlock()
@@ -170,11 +156,63 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 		return CaptureResult{}, manifestErr
 	}
 	result = CaptureResult{Manifest: manifest, ObjectCreated: objectCreated}
+	retentionChanged, retentionErr, refreshErr := store.finalizeCaptureDerivedIndex(
+		ctx, request, baseIndex, manifest, objectCreated, deferIndexPersistence,
+	)
+	if retentionChanged {
+		durableStateChanged = true
+	}
+	if refreshErr != nil {
+		return result, errors.Join(retentionErr, refreshErr)
+	}
+	durableStateChanged = false
+	return result, retentionErr
+}
+
+func (store *Store) verifyCaptureTargetAfterStage(
+	ctx context.Context,
+	target string,
+	initial os.FileInfo,
+	identity *filesystem.FileIdentity,
+	stagedDigest [sha256.Size]byte,
+	stagedSize int64,
+) (filesystem.FileSnapshot, string, error) {
+	verified, err := filesystem.CaptureRegularFileSnapshotBounded(ctx, target, store.limits.MaxObjectBytes)
+	if err != nil {
+		if operation.KindOf(err) == operation.KindConflict {
+			return filesystem.FileSnapshot{}, "", operation.New(operation.KindConflict, "backup target changed during capture")
+		}
+		return filesystem.FileSnapshot{}, "", err
+	}
+	verifiedDigest, ok := verified.ContentDigest()
+	if !ok || verified.Size != stagedSize || verifiedDigest != stagedDigest ||
+		verified.Mode != initial.Mode() || !verified.ModTime.Equal(initial.ModTime()) {
+		return filesystem.FileSnapshot{}, "", operation.New(operation.KindConflict, "backup target changed during capture")
+	}
+	matches, err := identity.Matches(target)
+	if err != nil || !matches {
+		return filesystem.FileSnapshot{}, "", operation.New(operation.KindConflict, "backup target identity changed during capture")
+	}
+
+	digestText := hex.EncodeToString(stagedDigest[:])
+	fingerprint, err := filesystem.FingerprintRegularFileContentDigest(stagedSize, digestText)
+	if err != nil {
+		return filesystem.FileSnapshot{}, "", err
+	}
+	return verified, fingerprint, nil
+}
+
+func (store *Store) finalizeCaptureDerivedIndex(
+	ctx context.Context,
+	request CaptureRequest,
+	baseIndex Index,
+	manifest Manifest,
+	objectCreated bool,
+	deferIndexPersistence bool,
+) (retentionChanged bool, retentionErr, refreshErr error) {
 	var (
-		retentionErr     error
-		retentionChanged bool
-		finalIndex       Index
-		indexReady       bool
+		finalIndex Index
+		indexReady bool
 	)
 	if derivedIndex, derived := deriveIndexAfterCapture(baseIndex, manifest, objectCreated); derived {
 		if request.Pinned {
@@ -188,11 +226,7 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 	}
 	if !request.Pinned && !indexReady {
 		retentionChanged, finalIndex, indexReady, retentionErr = store.enforceTargetVersionRetention(ctx, request.TargetPath, manifest.BackupID)
-		if retentionChanged {
-			durableStateChanged = true
-		}
 	}
-	var refreshErr error
 	if indexReady {
 		if deferIndexPersistence && !retentionChanged {
 			store.setDerivedIndex(finalIndex)
@@ -202,11 +236,7 @@ func (store *Store) capture(ctx context.Context, request CaptureRequest, expecte
 	} else {
 		refreshErr = store.refreshDerivedIndex(ctx)
 	}
-	if refreshErr != nil {
-		return result, errors.Join(retentionErr, refreshErr)
-	}
-	durableStateChanged = false
-	return result, retentionErr
+	return retentionChanged, retentionErr, refreshErr
 }
 
 func (store *Store) stageTarget(ctx context.Context, target string, expectedSize int64) (path string, digest [sha256.Size]byte, size int64, err error) {
