@@ -59,12 +59,6 @@ func reconcileInstallationWith(
 	if err := validateInstallationBoundaryBinding(boundary, inspection); err != nil {
 		return ReconciliationResult{}, err
 	}
-	if deps.observeTarget == nil {
-		deps.observeTarget = func(ctx context.Context, inspection *StandaloneInspection, goos, goarch string) (installationCurrentState, error) {
-			return observeInstalledBinary(ctx, inspection, goos, goarch, installedEvidenceDeps{})
-		}
-	}
-
 	control, err := filesystem.TryAcquireOwnerOnlyFileLock(boundary.ControlLockPath, filesystem.LockExclusive, false)
 	if err != nil {
 		return ReconciliationResult{}, fmt.Errorf("acquire installation control lock: %w", err)
@@ -76,6 +70,34 @@ func reconcileInstallationWith(
 	}()
 	if err := control.Validate(boundary.ControlLockPath); err != nil {
 		return ReconciliationResult{}, fmt.Errorf("validate installation control lock: %w", err)
+	}
+	return reconcileInstallationLocked(ctx, boundary, inspection, goos, goarch, deps, control)
+}
+
+func reconcileInstallationLocked(
+	ctx context.Context,
+	boundary *InstallationBoundary,
+	inspection *StandaloneInspection,
+	goos, goarch string,
+	deps reconciliationDeps,
+	control *filesystem.OwnerOnlyFileLock,
+) (ReconciliationResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if control == nil {
+		return ReconciliationResult{}, errors.New("installation control lock is required")
+	}
+	if err := control.Validate(boundary.ControlLockPath); err != nil {
+		return ReconciliationResult{}, fmt.Errorf("validate installation control lock: %w", err)
+	}
+	if err := validateInstallationBoundaryBinding(boundary, inspection); err != nil {
+		return ReconciliationResult{}, err
+	}
+	if deps.observeTarget == nil {
+		deps.observeTarget = func(ctx context.Context, inspection *StandaloneInspection, goos, goarch string) (installationCurrentState, error) {
+			return observeInstalledBinary(ctx, inspection, goos, goarch, installedEvidenceDeps{})
+		}
 	}
 
 	state, stateErr := readInstallationStateForReconciliationLocked(boundary, inspection)

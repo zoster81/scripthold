@@ -155,11 +155,8 @@ func validateInstallationStateSyntax(state installationState) error {
 }
 
 func validatePendingState(pending installationPendingState, current installationCurrentState) error {
-	if len(pending.TransactionID) != 64 || pending.TransactionID != strings.ToLower(pending.TransactionID) {
-		return errors.New("pending transaction ID must be 64 lowercase hexadecimal characters")
-	}
-	if _, err := hex.DecodeString(pending.TransactionID); err != nil {
-		return errors.New("pending transaction ID is not hexadecimal")
+	if err := validateTransactionID(pending.TransactionID); err != nil {
+		return err
 	}
 	if pending.SourceVersion != current.Version || pending.SourceSHA256 != current.SHA256 {
 		return errors.New("pending source evidence does not match current state")
@@ -190,6 +187,16 @@ func validatePendingState(pending installationPendingState, current installation
 		pending.CandidateBuild.Revision != pending.Commit ||
 		!pending.CandidateBuild.VCSClean {
 		return errors.New("pending candidate build identity is inconsistent")
+	}
+	return nil
+}
+
+func validateTransactionID(transactionID string) error {
+	if len(transactionID) != 64 || transactionID != strings.ToLower(transactionID) {
+		return errors.New("pending transaction ID must be 64 lowercase hexadecimal characters")
+	}
+	if _, err := hex.DecodeString(transactionID); err != nil {
+		return errors.New("pending transaction ID is not hexadecimal")
 	}
 	return nil
 }
