@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 3.2.1**.
 - Public 3.2.1 surface: **38 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- Two 3.x capability areas remain tracked. The next capability milestone is verified self-update; no release-scoped publication milestone is currently assigned.
+- The remaining 3.x capability milestone is verified self-update; no release-scoped publication milestone is currently assigned.
 - Publication, installation, and private deployment are separate actions.
 
 ## Planning rules
@@ -28,12 +28,6 @@ Add a failure-safe update lifecycle: discover a release, select the correct plat
 Installation state remains separate from the persistent user-file backup store. Interrupted or invalid updates must leave a usable installation or an explicit recoverable state.
 
 The development branch exposes read-only `scripthold update status`, explicit standalone adoption through `scripthold update --adopt`, verified update dispatch through bare `scripthold update`, and explicit observation-driven recovery through `scripthold update recover`. Adoption is local-only and requires all other processes using that binary to be stopped for the duration of the adoption invocation. Update dispatch verifies and stages the official candidate before a detached helper performs the switch; recovery is network-free and dispatches only from durable recoverable transaction evidence. Release/promotion qualification remains separate from development-branch implementation.
-
-### Source-intelligence completion
-
-Improve analyzer accuracy, trustworthy missing relationships, detection/provider quality, scale, index/query usefulness, and regression corpora without adding mutation authority to Source Intelligence.
-
-Unsupported relationships remain unsupported until analyzers can prove them. Persistent on-disk source indexing or external parser/compiler/LSP dependencies require separate architectural approval.
 
 ## Reserved 4.0 boundary
 
