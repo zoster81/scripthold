@@ -22,6 +22,32 @@ func TestTokenRepresentationRemainsCompact(t *testing.T) {
 	}
 }
 
+func TestScannerIdentifierFastPathMatchesGenericPolicy(t *testing.T) {
+	policies := []IdentifierPolicy{
+		DefaultIdentifierPolicy(),
+		{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true},
+		{UnicodeLetters: true, UnicodeDigits: true, UnicodeMarks: true, Underscore: true, ExtraStart: "$@", ExtraContinue: "-?!"},
+		{ExtraStart: "$", ExtraContinue: "-"},
+	}
+	values := make([]rune, 0, utf8.RuneSelf+6)
+	for value := rune(0); value < utf8.RuneSelf; value++ {
+		values = append(values, value)
+	}
+	values = append(values, 'é', 'Δ', '变', '́', '‿', '９')
+
+	for _, policy := range policies {
+		scanner := sourceScanner{profile: ScannerProfile{Identifier: policy}}
+		for _, value := range values {
+			if got, want := scanner.identifierStart(value), identifierStart(policy, value); got != want {
+				t.Fatalf("identifierStart(%+v, %U) = %t, want %t", policy, value, got, want)
+			}
+			if got, want := scanner.identifierContinue(value), identifierContinue(policy, value); got != want {
+				t.Fatalf("identifierContinue(%+v, %U) = %t, want %t", policy, value, got, want)
+			}
+		}
+	}
+}
+
 func TestScannerCaseInsensitiveKeywordsPreserveUnicodeLowerSemantics(t *testing.T) {
 	profile := ScannerProfile{
 		Name:            "case-insensitive-keywords",

@@ -94,13 +94,25 @@ func (scanner *sourceScanner) validateScannerProfile() error {
 
 func (scanner *sourceScanner) identifierStart(value rune) bool {
 	policy := scanner.profile.Identifier
-	return policy.Underscore && value == '_' ||
-		policy.UnicodeLetters && unicode.IsLetter(value) ||
+	if value < utf8.RuneSelf {
+		return policy.Underscore && value == '_' ||
+			policy.UnicodeLetters && (value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z') ||
+			strings.IndexByte(policy.ExtraStart, byte(value)) >= 0
+	}
+	return policy.UnicodeLetters && unicode.IsLetter(value) ||
 		strings.ContainsRune(policy.ExtraStart, value)
 }
 
 func (scanner *sourceScanner) identifierContinue(value rune) bool {
 	policy := scanner.profile.Identifier
+	if value < utf8.RuneSelf {
+		return policy.Underscore && value == '_' ||
+			policy.UnicodeLetters && (value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z') ||
+			policy.UnicodeDigits && value >= '0' && value <= '9' ||
+			policy.UnicodeMarks && value == '_' ||
+			strings.IndexByte(policy.ExtraStart, byte(value)) >= 0 ||
+			strings.IndexByte(policy.ExtraContinue, byte(value)) >= 0
+	}
 	if scanner.identifierStart(value) {
 		return true
 	}

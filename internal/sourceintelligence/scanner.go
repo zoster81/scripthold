@@ -324,7 +324,7 @@ func (scanner *sourceScanner) run() error {
 
 		r, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
 		if scanner.identifierStart(r) {
-			if err := scanner.scanIdentifier(); err != nil {
+			if err := scanner.scanIdentifier(size); err != nil {
 				return err
 			}
 			continue
@@ -731,11 +731,18 @@ func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule,
 	return nil
 }
 
-func (scanner *sourceScanner) scanIdentifier() error {
+func (scanner *sourceScanner) scanIdentifier(firstRuneSize int) error {
 	start := scanner.at
-	_, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
-	scanner.at += size
+	scanner.at += firstRuneSize
 	for scanner.at < len(scanner.text) {
+		next := scanner.text[scanner.at]
+		if next < utf8.RuneSelf {
+			if !scanner.identifierContinue(rune(next)) {
+				break
+			}
+			scanner.at++
+			continue
+		}
 		r, runeSize := utf8.DecodeRuneInString(scanner.text[scanner.at:])
 		if !scanner.identifierContinue(r) {
 			break
