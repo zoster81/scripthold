@@ -52,6 +52,52 @@ func BenchmarkSharedScannerScaling(b *testing.B) {
 	}
 }
 
+func BenchmarkScannerTokenCapacityProfiles(b *testing.B) {
+	const typicalLine = "namespace Demo { class Item { string Text = \"value // not comment\"; void Run() { /* comment */ Call(\"x\"); } } }\n"
+	cases := []struct {
+		name string
+		text string
+	}{
+		{name: "typical-small", text: strings.Repeat(typicalLine, 64)},
+		{name: "typical-medium", text: strings.Repeat(typicalLine, 512)},
+		{name: "dense-small", text: strings.Repeat("a+a;", 2048)},
+		{name: "dense-medium", text: strings.Repeat("a+a;", 16_384)},
+		{name: "sparse-medium", text: strings.Repeat("value ", 4096) + "/*" + strings.Repeat("x", 64*1024) + "*/\n"},
+		{name: "sparse-large", text: strings.Repeat("value ", 33_000) + "/*" + strings.Repeat("x", 512*1024) + "*/\n"},
+	}
+	for _, testCase := range cases {
+		b.Run(testCase.name, func(b *testing.B) {
+			document := sourceDocumentForScanner(testCase.text)
+			profile := CSharpScannerProfile()
+			limits := ScannerLimits{MaxTokens: scannerTokenBudget(testCase.text), MaxTokenBytes: 1024 * 1024, MaxNesting: 256}
+			sample, err := ScanSource(context.Background(), document, profile, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if !sample.Complete || len(sample.Tokens) == 0 {
+				b.Fatalf("unexpected scanner capacity sample: complete=%t tokens=%d diagnostics=%+v", sample.Complete, len(sample.Tokens), sample.Diagnostics)
+			}
+			b.ReportAllocs()
+			b.SetBytes(int64(len(testCase.text)))
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := ScanSource(context.Background(), document, profile, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if !result.Complete || len(result.Tokens) != len(sample.Tokens) {
+					b.Fatalf("unexpected scanner capacity result: complete=%t tokens=%d want=%d diagnostics=%+v", result.Complete, len(result.Tokens), len(sample.Tokens), result.Diagnostics)
+				}
+			}
+			b.StopTimer()
+			b.ReportMetric(float64(initialScannerTokenCapacity(len(testCase.text), limits.MaxTokens)), "initial-cap")
+			b.ReportMetric(float64(len(sample.Tokens)), "tokens")
+			b.ReportMetric(float64(cap(sample.Tokens)), "token-cap")
+			b.ReportMetric(float64(cap(sample.Tokens)-len(sample.Tokens)), "spare-tokens")
+		})
+	}
+}
+
 func BenchmarkSharedScannerSparseTail(b *testing.B) {
 	text := strings.Repeat("value ", 33_000) + "/*" + strings.Repeat("x", 512*1024) + "*/\n"
 	document := sourceDocumentForScanner(text)

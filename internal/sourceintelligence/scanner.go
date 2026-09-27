@@ -809,9 +809,12 @@ func (scanner *sourceScanner) appendToken(token Token) error {
 	if len(tokens)+1 > scanner.limits.MaxTokens {
 		return scanner.limitError("token count", len(tokens)+1, scanner.limits.MaxTokens)
 	}
-	if len(tokens) == cap(tokens) && cap(tokens) >= scannerInitialTokenCapacityLimit && cap(tokens) < scanner.limits.MaxTokens {
+	if len(tokens) == cap(tokens) && cap(tokens) < scanner.limits.MaxTokens {
 		remaining := scanner.limits.MaxTokens - cap(tokens)
 		growth := max(cap(tokens)/3, 1)
+		if cap(tokens) < scannerInitialTokenCapacityLimit {
+			growth = min(cap(tokens), scannerInitialTokenCapacityLimit-cap(tokens))
+		}
 		growth = min(growth, remaining)
 		grown := make([]Token, len(tokens), cap(tokens)+growth)
 		copy(grown, tokens)
