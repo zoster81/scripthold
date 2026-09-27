@@ -110,7 +110,7 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 		scopes = scopes[:0]
 	}
 	markUnclosedStructuralScopes(builder, language, scopes)
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.takeResult(), Dependencies: dependencies}, nil
 }
 
 func collectMATLABLikeDependency(
