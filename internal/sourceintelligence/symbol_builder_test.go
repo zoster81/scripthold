@@ -13,6 +13,61 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+func TestSymbolBuilderTakeResultTransfersOwnedStateAndPreservesDefensiveResult(t *testing.T) {
+	document := sourceDocumentForScanner("func Work() {}\n")
+	options := SymbolBuilderOptions{
+		Language: "go", Analyzer: string(AnalyzerGo), MaxEvidence: SymbolEvidenceStructural, IncludeSignatures: true,
+		Limits: SymbolBuilderLimits{MaxSymbols: 8, MaxSignatureBytes: 1024, MaxDiagnostics: 8},
+	}
+	builder := NewSymbolBuilder(document, options)
+	nameStart := strings.Index(document.Text, "Work")
+	signature := OffsetRange{Start: 0, End: len(document.Text) - 1}
+	body := OffsetRange{Start: strings.Index(document.Text, "{"), End: strings.Index(document.Text, "}") + 1}
+	modifiers := []string{"Public"}
+	if _, err := builder.Add(SymbolSpec{
+		Kind: SymbolKindFunction, NativeKind: "function", Name: "Work",
+		Declaration: OffsetRange{Start: 0, End: len(document.Text) - 1},
+		NameRange:   OffsetRange{Start: nameStart, End: nameStart + len("Work")},
+		Signature:   &signature, Body: &body, Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	diagnosticRange := OffsetRange{Start: 0, End: 4}
+	if err := builder.AddDiagnostic(DiagnosticSpec{Code: "notice", Message: "notice", Severity: DiagnosticInfo, Range: &diagnosticRange}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := builder.Result()
+	snapshot.Symbols[0].Modifiers[0] = "mutated"
+	snapshot.Symbols[0].SignatureRange.Start.Line = 99
+	snapshot.Diagnostics[0].Range.Start.Line = 99
+	fresh := builder.Result()
+	if fresh.Symbols[0].Modifiers[0] != "public" || fresh.Symbols[0].SignatureRange.Start.Line == 99 || fresh.Diagnostics[0].Range.Start.Line == 99 {
+		t.Fatalf("Result no longer returns a defensive snapshot: %+v", fresh)
+	}
+
+	owned := builder.takeResult()
+	if len(owned.Symbols) != 1 || len(owned.Diagnostics) != 1 {
+		t.Fatalf("owned result = %+v", owned)
+	}
+	owned.Symbols[0].Modifiers[0] = "owned"
+	owned.Symbols[0].SignatureRange.Start.Line = 77
+	owned.Diagnostics[0].Range.Start.Line = 77
+	if modifiers[0] != "Public" || signature.Start != 0 || diagnosticRange.Start != 0 {
+		t.Fatal("owned result aliases caller-provided mutable inputs")
+	}
+	if _, err := builder.Add(SymbolSpec{
+		Kind: SymbolKindVariable, NativeKind: "variable", Name: "Other",
+		Declaration: OffsetRange{Start: 0, End: 4}, NameRange: OffsetRange{Start: 0, End: 4},
+		Evidence: SymbolEvidenceStructural,
+	}); operation.KindOf(err) != operation.KindInvalidInput {
+		t.Fatalf("reusing finalized builder error=%v kind=%v", err, operation.KindOf(err))
+	}
+	if result := builder.Result(); len(result.Symbols) != 0 || len(result.Diagnostics) != 0 {
+		t.Fatalf("finalized builder retained transferred state: %+v", result)
+	}
+}
+
 func TestSymbolBuilderReserveSymbolsClampsAndPreservesRetainedData(t *testing.T) {
 	document := sourceDocumentForScanner("func Work() {}\n")
 	builder := NewSymbolBuilder(document, SymbolBuilderOptions{

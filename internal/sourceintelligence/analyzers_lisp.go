@@ -83,7 +83,7 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 		}
 		open = close
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.takeResult(), Dependencies: dependencies}, nil
 }
 
 func maskLispReaderCharacters(text, language string) string {

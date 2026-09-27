@@ -251,6 +251,8 @@ type SymbolBuilder struct {
 	seenIDs       map[string]struct{}
 }
 
+var errSymbolBuilderResultTaken = operation.New(operation.KindInvalidInput, "symbol builder result already taken")
+
 // NewSymbolBuilder creates a builder. Invalid options are retained as a stable
 // error returned by mutation methods so analyzers cannot accidentally ignore them.
 func NewSymbolBuilder(document *SourceDocument, options SymbolBuilderOptions) *SymbolBuilder {
@@ -689,17 +691,7 @@ func (builder *SymbolBuilder) Result() AnalysisResult {
 	for index, symbol := range builder.result.Symbols {
 		result.Symbols[index] = cloneNormalizedSymbol(symbol)
 	}
-	sort.Slice(result.Symbols, func(i, j int) bool {
-		left := result.Symbols[i]
-		right := result.Symbols[j]
-		if left.declarationOffsets.Start != right.declarationOffsets.Start {
-			return left.declarationOffsets.Start < right.declarationOffsets.Start
-		}
-		if left.declarationOffsets.End != right.declarationOffsets.End {
-			return left.declarationOffsets.End < right.declarationOffsets.End
-		}
-		return left.ID < right.ID
-	})
+	sortNormalizedSymbols(result.Symbols)
 	result.Diagnostics = append([]AnalysisDiagnostic(nil), builder.result.Diagnostics...)
 	for index := range result.Diagnostics {
 		if result.Diagnostics[index].Range != nil {
@@ -708,6 +700,37 @@ func (builder *SymbolBuilder) Result() AnalysisResult {
 		}
 	}
 	return result
+}
+
+// takeResult transfers the builder-owned result to package-internal one-shot
+// analyzers. The builder must not be reused after this call.
+func (builder *SymbolBuilder) takeResult() AnalysisResult {
+	if builder == nil {
+		return AnalysisResult{}
+	}
+	result := builder.result
+	sortNormalizedSymbols(result.Symbols)
+	builder.result = AnalysisResult{}
+	builder.document = nil
+	builder.options = SymbolBuilderOptions{}
+	builder.scopes = nil
+	builder.seenIDs = nil
+	builder.validationErr = errSymbolBuilderResultTaken
+	return result
+}
+
+func sortNormalizedSymbols(symbols []NormalizedSymbol) {
+	sort.Slice(symbols, func(i, j int) bool {
+		left := symbols[i]
+		right := symbols[j]
+		if left.declarationOffsets.Start != right.declarationOffsets.Start {
+			return left.declarationOffsets.Start < right.declarationOffsets.Start
+		}
+		if left.declarationOffsets.End != right.declarationOffsets.End {
+			return left.declarationOffsets.End < right.declarationOffsets.End
+		}
+		return left.ID < right.ID
+	})
 }
 
 func (builder *SymbolBuilder) checkReady() error {
