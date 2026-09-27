@@ -203,6 +203,20 @@ func (document *SourceDocument) RangeFromUTF8Offsets(start, end int) (Range, err
 	if err != nil {
 		return Range{}, err
 	}
+	lineIndex := startPosition.Line - 1
+	if end <= len(document.Text) && (lineIndex+1 >= len(document.lineStarts) || end < document.lineStarts[lineIndex+1]) {
+		if end < len(document.Text) && !utf8.RuneStart(document.Text[end]) {
+			return Range{}, operation.New(operation.KindInvalidInput, "UTF-8 offset is not on a Unicode scalar boundary")
+		}
+		lineStart := document.lineStarts[lineIndex]
+		return Range{
+			Start: startPosition,
+			End: Position{
+				Line:   startPosition.Line,
+				Column: utf8.RuneCountInString(document.Text[lineStart:end]) + 1,
+			},
+		}, nil
+	}
 	endPosition, err := document.PositionAtUTF8Offset(end)
 	if err != nil {
 		return Range{}, err
