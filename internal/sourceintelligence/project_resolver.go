@@ -727,9 +727,14 @@ func symbolEntitiesFromPointers(records []*projectSymbolRecord) []RelationEntity
 }
 
 func boundedUniqueEntities(values []RelationEntity, maximum int, label, sourcePath string) ([]RelationEntity, error) {
-	seen := make(map[string]RelationEntity, len(values))
+	type entityKey struct {
+		path          string
+		symbolID      string
+		qualifiedName string
+	}
+	seen := make(map[entityKey]RelationEntity, len(values))
 	for _, value := range values {
-		key := value.Path + "\x00" + value.SymbolID + "\x00" + value.QualifiedName
+		key := entityKey{path: value.Path, symbolID: value.SymbolID, qualifiedName: value.QualifiedName}
 		seen[key] = value
 	}
 	if len(seen) > maximum {
