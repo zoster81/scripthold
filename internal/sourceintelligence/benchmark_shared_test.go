@@ -229,6 +229,51 @@ func BenchmarkSharedSymbolBuilder(b *testing.B) {
 	}
 }
 
+func BenchmarkSharedSymbolBuilderOptionalOffsets(b *testing.B) {
+	for _, symbolCount := range []int{1, 16, 2_000} {
+		var source strings.Builder
+		specs := make([]SymbolSpec, 0, symbolCount)
+		for index := 0; index < symbolCount; index++ {
+			name := fmt.Sprintf("item%04d", index)
+			start := source.Len()
+			source.WriteString(name)
+			source.WriteString(" value\n")
+			nameEnd := start + len(name)
+			end := source.Len() - 1
+			signature := OffsetRange{Start: start, End: nameEnd}
+			body := OffsetRange{Start: nameEnd + 1, End: end}
+			specs = append(specs, SymbolSpec{
+				Kind: SymbolKindFunction, NativeKind: "function", Name: name,
+				Declaration: OffsetRange{Start: start, End: end},
+				NameRange:   OffsetRange{Start: start, End: nameEnd},
+				Signature:   &signature, Body: &body,
+			})
+		}
+		document := sourceDocumentForScanner(source.String())
+		options := SymbolBuilderOptions{
+			Language: "go", Analyzer: string(AnalyzerGo), MaxEvidence: SymbolEvidenceStructural,
+			Limits: SymbolBuilderLimits{MaxSymbols: symbolCount, MaxSignatureBytes: 8192, MaxDiagnostics: 64},
+		}
+		b.Run(fmt.Sprintf("symbols-%d", symbolCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				builder := NewSymbolBuilder(document, options)
+				builder.reserveSymbols(symbolCount)
+				for _, spec := range specs {
+					if err := builder.addDiscard(spec); err != nil {
+						b.Fatal(err)
+					}
+				}
+				result := builder.takeResult()
+				if len(result.Symbols) != symbolCount || !result.CoverageComplete {
+					b.Fatalf("unexpected optional-offset result: symbols=%d complete=%t", len(result.Symbols), result.CoverageComplete)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedSymbolBuilderScaling(b *testing.B) {
 	for _, symbolCount := range []int{250, 2_000, 8_000} {
 		var source strings.Builder

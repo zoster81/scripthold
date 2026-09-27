@@ -240,15 +240,19 @@ type AnalysisResult struct {
 	DiagnosticsTruncated bool                 `json:"diagnosticsTruncated,omitempty"`
 }
 
+const retainedOffsetRangeMaxBlockSize = 16
+
 // SymbolBuilder centralizes ranges, hierarchy, evidence, IDs, limits, diagnostics,
 // ordering, and coverage so language analyzers cannot silently diverge.
 type SymbolBuilder struct {
-	document      *SourceDocument
-	options       SymbolBuilderOptions
-	scopes        *ScopeStack
-	result        AnalysisResult
-	validationErr error
-	seenIDs       map[string]struct{}
+	document         *SourceDocument
+	options          SymbolBuilderOptions
+	scopes           *ScopeStack
+	result           AnalysisResult
+	validationErr    error
+	seenIDs          map[string]struct{}
+	offsetRangeBlock []OffsetRange
+	offsetRangeUsed  int
 }
 
 var errSymbolBuilderResultTaken = operation.New(operation.KindInvalidInput, "symbol builder result already taken")
@@ -293,6 +297,23 @@ func (builder *SymbolBuilder) reserveSymbols(capacity int) {
 	}
 	builder.result.Symbols = make([]NormalizedSymbol, 0, capacity)
 	builder.seenIDs = make(map[string]struct{}, capacity)
+}
+
+func (builder *SymbolBuilder) retainOffsetRange(value OffsetRange) *OffsetRange {
+	if builder.offsetRangeUsed == len(builder.offsetRangeBlock) {
+		size := 2
+		if current := len(builder.offsetRangeBlock); current > 0 {
+			size = min(current*2, retainedOffsetRangeMaxBlockSize)
+		}
+		// Full blocks stay reachable through immutable pointers retained by symbols,
+		// so the builder only needs to keep the block currently being filled.
+		builder.offsetRangeBlock = make([]OffsetRange, size)
+		builder.offsetRangeUsed = 0
+	}
+	retained := &builder.offsetRangeBlock[builder.offsetRangeUsed]
+	*retained = value
+	builder.offsetRangeUsed++
+	return retained
 }
 
 func validateSymbolBuilderOptions(document *SourceDocument, options SymbolBuilderOptions) error {
@@ -478,11 +499,11 @@ func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol
 		nameOffsets:         spec.NameRange,
 	}
 	if spec.Signature != nil {
-		normalized.signatureOffsets = cloneOffsetRange(spec.Signature)
 		publicRange, rangeErr := builder.normalizeOptionalRange("signature", *spec.Signature, spec.Declaration)
 		if rangeErr != nil {
 			return NormalizedSymbol{}, rangeErr
 		}
+		normalized.signatureOffsets = builder.retainOffsetRange(*spec.Signature)
 		normalized.SignatureRange = &publicRange
 		if builder.options.IncludeSignatures {
 			if spec.Signature.End-spec.Signature.Start > builder.options.Limits.MaxSignatureBytes {
@@ -497,11 +518,11 @@ func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol
 		}
 	}
 	if spec.Body != nil {
-		normalized.bodyOffsets = cloneOffsetRange(spec.Body)
 		publicRange, rangeErr := builder.normalizeOptionalRange("body", *spec.Body, spec.Declaration)
 		if rangeErr != nil {
 			return NormalizedSymbol{}, rangeErr
 		}
+		normalized.bodyOffsets = builder.retainOffsetRange(*spec.Body)
 		normalized.BodyRange = &publicRange
 	}
 
@@ -717,6 +738,8 @@ func (builder *SymbolBuilder) takeResult() AnalysisResult {
 	builder.options = SymbolBuilderOptions{}
 	builder.scopes = nil
 	builder.seenIDs = nil
+	builder.offsetRangeBlock = nil
+	builder.offsetRangeUsed = 0
 	builder.validationErr = errSymbolBuilderResultTaken
 	return result
 }

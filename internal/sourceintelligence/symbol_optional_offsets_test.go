@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 )
 
@@ -61,6 +62,46 @@ func TestSymbolBuilderSourceOffsetsPreserveOptionalPresenceAndIsolation(t *testi
 		t.Fatalf("snapshot symbols=%d, want 1", len(snapshot.Symbols))
 	}
 	assertOptionalOffsets("Result", snapshot.Symbols[0])
+}
+
+func TestSymbolBuilderOptionalOffsetBlocksSurviveTakeResult(t *testing.T) {
+	const symbolCount = 20
+	var text string
+	specs := make([]SymbolSpec, 0, symbolCount)
+	for index := 0; index < symbolCount; index++ {
+		name := fmt.Sprintf("item%02d", index)
+		start := len(text)
+		text += name + " body\n"
+		nameEnd := start + len(name)
+		signature := OffsetRange{Start: start, End: nameEnd}
+		body := OffsetRange{Start: nameEnd + 1, End: len(text) - 1}
+		specs = append(specs, SymbolSpec{
+			Kind: SymbolKindFunction, NativeKind: "function", Name: name,
+			Declaration: OffsetRange{Start: start, End: len(text) - 1},
+			NameRange:   OffsetRange{Start: start, End: nameEnd},
+			Signature:   &signature, Body: &body, Evidence: SymbolEvidenceStructural,
+		})
+	}
+	builder := NewSymbolBuilder(sourceDocumentForScanner(text), SymbolBuilderOptions{
+		Language: "test", Analyzer: "offset-block-lifetime", MaxEvidence: SymbolEvidenceStructural,
+		Limits: SymbolBuilderLimits{MaxSymbols: symbolCount, MaxSignatureBytes: 1024, MaxDiagnostics: 8},
+	})
+	for _, spec := range specs {
+		if err := builder.addDiscard(spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := builder.takeResult()
+	runtime.GC()
+	if len(result.Symbols) != symbolCount {
+		t.Fatalf("symbols=%d, want %d", len(result.Symbols), symbolCount)
+	}
+	for index, symbol := range result.Symbols {
+		_, _, signature, body := symbol.SourceOffsets()
+		if signature == nil || body == nil || *signature != *specs[index].Signature || *body != *specs[index].Body {
+			t.Fatalf("symbol %d offsets changed after transfer: signature=%+v body=%+v", index, signature, body)
+		}
+	}
 }
 
 func TestSymbolBuilderOptionalOffsetCloneAllocationBudget(t *testing.T) {
