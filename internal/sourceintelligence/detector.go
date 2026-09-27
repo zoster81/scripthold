@@ -651,7 +651,7 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 	terraformProbe := maskSourceHeredocs(maskSourceComments(text, []string{"#", "//"}, "/*", "*/"))
 	vhdlProbe := maskSourceComments(text, []string{"--"}, "", "")
 	plsqlProbe := maskSourceStrings(maskSourceComments(text, []string{"--"}, "/*", "*/"), true, false, false)
-	hdlProbe := maskSourceStrings(maskSourceComments(text, []string{"//"}, "/*", "*/"), false, true, false)
+	hdlProbe := maskSourceStrings(protoProbe, false, true, false)
 
 	distinctive := []struct {
 		language string
