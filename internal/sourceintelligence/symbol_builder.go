@@ -265,7 +265,6 @@ func NewSymbolBuilder(document *SourceDocument, options SymbolBuilderOptions) *S
 	builder := &SymbolBuilder{
 		document: document,
 		options:  options,
-		scopes:   NewScopeStack(),
 		result: AnalysisResult{
 			CoverageComplete: true,
 		},
@@ -316,8 +315,11 @@ func validateSymbolBuilderOptions(document *SourceDocument, options SymbolBuilde
 }
 
 func (builder *SymbolBuilder) Scopes() *ScopeStack {
-	if builder == nil {
+	if builder == nil || builder.validationErr == errSymbolBuilderResultTaken {
 		return nil
+	}
+	if builder.scopes == nil {
+		builder.scopes = NewScopeStack()
 	}
 	return builder.scopes
 }

@@ -20,6 +20,9 @@ func TestSymbolBuilderTakeResultTransfersOwnedStateAndPreservesDefensiveResult(t
 		Limits: SymbolBuilderLimits{MaxSymbols: 8, MaxSignatureBytes: 1024, MaxDiagnostics: 8},
 	}
 	builder := NewSymbolBuilder(document, options)
+	if builder.Scopes() == nil {
+		t.Fatal("new builder returned nil scope stack")
+	}
 	nameStart := strings.Index(document.Text, "Work")
 	signature := OffsetRange{Start: 0, End: len(document.Text) - 1}
 	body := OffsetRange{Start: strings.Index(document.Text, "{"), End: strings.Index(document.Text, "}") + 1}
@@ -65,6 +68,9 @@ func TestSymbolBuilderTakeResultTransfersOwnedStateAndPreservesDefensiveResult(t
 	}
 	if result := builder.Result(); len(result.Symbols) != 0 || len(result.Diagnostics) != 0 {
 		t.Fatalf("finalized builder retained transferred state: %+v", result)
+	}
+	if builder.Scopes() != nil {
+		t.Fatal("finalized builder exposed a reusable scope stack")
 	}
 }
 
