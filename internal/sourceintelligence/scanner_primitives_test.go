@@ -304,6 +304,18 @@ func TestScannerCustomEscapePrefixPreservesQuotedStringBoundaries(t *testing.T) 
 	}
 }
 
+func TestASCIIEqualFoldByteMatchesStringsEqualFold(t *testing.T) {
+	for left := 0; left < utf8.RuneSelf; left++ {
+		for right := 0; right < utf8.RuneSelf; right++ {
+			got := asciiEqualFoldByte(byte(left), byte(right))
+			want := strings.EqualFold(string(rune(left)), string(rune(right)))
+			if got != want {
+				t.Fatalf("asciiEqualFoldByte(%q, %q) = %t, want %t", byte(left), byte(right), got, want)
+			}
+		}
+	}
+}
+
 func TestScannerStringDispatchPreservesCaseInsensitivePrefixes(t *testing.T) {
 	tests := []struct {
 		name   string

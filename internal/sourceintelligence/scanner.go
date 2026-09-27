@@ -960,8 +960,23 @@ func (scanner *sourceScanner) stringRuleAt(offset int) (matchedStringRule, bool)
 	if offset >= len(scanner.text) || !scanner.stringStartUnfiltered && !scanner.stringStartBytes[scanner.text[offset]] {
 		return matchedStringRule{}, false
 	}
+	first := scanner.text[offset]
 	for _, rule := range scanner.profile.Strings {
 		for _, prefix := range rule.Prefixes {
+			switch {
+			case prefix == "":
+				if rule.Delimiter[0] != first {
+					continue
+				}
+			case !rule.CaseInsensitivePrefix:
+				if prefix[0] != first {
+					continue
+				}
+			case prefix[0] < utf8.RuneSelf && first < utf8.RuneSelf:
+				if !asciiEqualFoldByte(prefix[0], first) {
+					continue
+				}
+			}
 			prefixEnd := offset + len(prefix)
 			if prefixEnd > len(scanner.text) || !stringPrefixMatches(scanner.text[offset:prefixEnd], prefix, rule.CaseInsensitivePrefix) {
 				continue
@@ -985,6 +1000,16 @@ func (scanner *sourceScanner) stringRuleAt(offset int) (matchedStringRule, bool)
 		}
 	}
 	return matchedStringRule{}, false
+}
+
+func asciiEqualFoldByte(left, right byte) bool {
+	if left >= 'A' && left <= 'Z' {
+		left += 'a' - 'A'
+	}
+	if right >= 'A' && right <= 'Z' {
+		right += 'a' - 'A'
+	}
+	return left == right
 }
 
 func stringPrefixMatches(actual, expected string, caseInsensitive bool) bool {
