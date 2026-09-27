@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -62,7 +63,26 @@ func TestProviderContractManifestMatchesRegistryAndDocumentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	architecture, err := os.ReadFile(filepath.Join(root, "docs", "ARCHITECTURE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	assertProviderContractRegistryAndDocumentation(t, manifest, registry, string(documentation))
+	assertCurrentProviderCountDocumentation(t, manifest, string(architecture))
+}
+
+func assertCurrentProviderCountDocumentation(t testing.TB, manifest providerContractManifest, architecture string) {
+	t.Helper()
+	activeCount := 0
+	for _, contract := range manifest.Providers {
+		if contract.Status == "active" {
+			activeCount++
+		}
+	}
+	want := fmt.Sprintf("The registry contains %d active approved source-analysis providers", activeCount)
+	if !strings.Contains(architecture, want) {
+		t.Fatalf("architecture provider summary is stale: want %q", want)
+	}
 }
 
 func assertProviderContractRegistryAndDocumentation(t testing.TB, manifest providerContractManifest, registry *LanguageRegistry, documentation string) {

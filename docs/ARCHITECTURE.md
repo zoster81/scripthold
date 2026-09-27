@@ -88,7 +88,7 @@ When a deferred-operation store is configured, eligible expensive read-only call
 
 Source Intelligence is read-only and fail-closed.
 
-- The registry contains 101 active approved source-analysis providers; [`LANGUAGE_CAPABILITIES.md`](LANGUAGE_CAPABILITIES.md) is the generated capability projection.
+- The registry contains 100 active approved source-analysis providers; [`LANGUAGE_CAPABILITIES.md`](LANGUAGE_CAPABILITIES.md) is the generated capability projection.
 - Go uses the standard library AST; other providers use native bounded scanners/recognizers or offset-preserving adapters.
 - Language/dialect routing uses source evidence and reports ambiguity rather than guessing.
 - Public coordinates are based on decoded source, independent of the original byte encoding.
