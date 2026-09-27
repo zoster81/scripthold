@@ -523,6 +523,36 @@ func BenchmarkRepresentativeFamilyAnalyzers(b *testing.B) {
 	}
 }
 
+func BenchmarkBladeDeclarationRetention(b *testing.B) {
+	for _, declarationCount := range []int{1, 2, 4, 8, 16, 32, 64, 128} {
+		b.Run(fmt.Sprintf("declarations-%d", declarationCount), func(b *testing.B) {
+			var source strings.Builder
+			for index := 0; index < declarationCount; index++ {
+				fmt.Fprintf(&source, "@section('section%03d')\n", index)
+			}
+			document := sourceDocumentForScanner(source.String())
+			document.Path = "bench.blade.php"
+			options := SymbolBuilderOptions{
+				Language: "blade", Analyzer: string(AnalyzerBlade), MaxEvidence: SymbolEvidenceStructural,
+				Limits: SymbolBuilderLimits{MaxSymbols: 512, MaxSignatureBytes: 8192, MaxDiagnostics: 64},
+			}
+			b.ReportAllocs()
+			b.SetBytes(int64(len(document.Text)))
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				builder := NewSymbolBuilder(document, options)
+				if _, err := addBladeDeclarations(builder, document, document.Text); err != nil {
+					b.Fatal(err)
+				}
+				result := builder.takeResult()
+				if len(result.Symbols) != declarationCount || !result.CoverageComplete {
+					b.Fatalf("unexpected Blade declaration result: symbols=%d complete=%t", len(result.Symbols), result.CoverageComplete)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedDelimiterPairing(b *testing.B) {
 	text := strings.Repeat("call(alpha[beta{gamma(delta)}], other);\n", 1024)
 	profile := CSharpScannerProfile()

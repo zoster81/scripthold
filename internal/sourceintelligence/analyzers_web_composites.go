@@ -1021,6 +1021,9 @@ func addBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, prob
 		})
 	}
 	sort.SliceStable(declarations, func(i, j int) bool { return declarations[i].declaration.Start < declarations[j].declaration.Start })
+	if len(declarations) > 1 {
+		builder.reserveSymbols(len(declarations))
+	}
 	components := make([]bladeVoltComponent, 0, len(declarations))
 	for _, declaration := range declarations {
 		symbol, err := builder.Add(SymbolSpec{
