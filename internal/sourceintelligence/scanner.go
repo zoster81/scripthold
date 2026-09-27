@@ -1076,6 +1076,10 @@ func (scanner *sourceScanner) isKeyword(value string) bool {
 		_, ok := scanner.keywords[value]
 		return ok
 	}
+	return scanner.isCaseInsensitiveKeyword(value)
+}
+
+func (scanner *sourceScanner) isCaseInsensitiveKeyword(value string) bool {
 	hash := caseInsensitiveKeywordHash(value)
 	keyword, ok := scanner.caseInsensitiveKeywords[hash]
 	if !ok {
