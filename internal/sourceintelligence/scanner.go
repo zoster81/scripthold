@@ -841,19 +841,36 @@ func (scanner *sourceScanner) addDiagnostic(code, message string, start, end int
 }
 
 func (scanner *sourceScanner) lineCommentPrefixAt(offset int) string {
+	prefixes := scanner.profile.LineComments
+	if len(prefixes) == 0 {
+		return ""
+	}
+	suffix := scanner.text[offset:]
+	first := scanner.text[offset]
+	best := ""
+	if len(prefixes) == 1 {
+		prefix := prefixes[0]
+		if prefix[0] != first || !strings.HasPrefix(suffix, prefix) {
+			return ""
+		}
+		best = prefix
+	} else {
+		for _, prefix := range prefixes {
+			if prefix[0] == first && len(prefix) > len(best) && strings.HasPrefix(suffix, prefix) {
+				best = prefix
+			}
+		}
+		if best == "" {
+			return ""
+		}
+	}
 	for _, exception := range scanner.profile.LineCommentExceptions {
-		if strings.HasPrefix(scanner.text[offset:], exception) {
+		if exception[0] == first && strings.HasPrefix(suffix, exception) {
 			return ""
 		}
 	}
 	if scanner.profile.LineCommentRequiresWordStart && !scanner.lineCommentStartsWord(offset) {
 		return ""
-	}
-	best := ""
-	for _, prefix := range scanner.profile.LineComments {
-		if len(prefix) > len(best) && strings.HasPrefix(scanner.text[offset:], prefix) {
-			best = prefix
-		}
 	}
 	return best
 }

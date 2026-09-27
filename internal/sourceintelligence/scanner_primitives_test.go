@@ -424,6 +424,27 @@ func TestScannerSExpressionProfileUsesSharedBalancedForms(t *testing.T) {
 	}
 }
 
+func TestScannerLineCommentFastPathPreservesLongestPrefixAndExceptions(t *testing.T) {
+	scanner := sourceScanner{
+		text: "#[attribute] ## long # short",
+		profile: ScannerProfile{
+			LineComments:          []string{"#", "##"},
+			LineCommentExceptions: []string{"#["},
+		},
+	}
+	if got := scanner.lineCommentPrefixAt(0); got != "" {
+		t.Fatalf("line comment exception matched %q, want empty", got)
+	}
+	longOffset := strings.Index(scanner.text, "##")
+	if got := scanner.lineCommentPrefixAt(longOffset); got != "##" {
+		t.Fatalf("longest line comment prefix = %q, want %q", got, "##")
+	}
+	shortOffset := strings.LastIndex(scanner.text, "#")
+	if got := scanner.lineCommentPrefixAt(shortOffset); got != "#" {
+		t.Fatalf("short line comment prefix = %q, want %q", got, "#")
+	}
+}
+
 func TestShellCommentsRequireWordStart(t *testing.T) {
 	text := "value=$((10#1))\n" +
 		"echo foo#bar function Inline { :; }\n" +
