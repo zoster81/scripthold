@@ -296,11 +296,13 @@ func (scanner *sourceScanner) run() error {
 			scanner.lineStart = false
 			continue
 		}
-		if match, ok := scanner.stringRuleAt(scanner.at); ok {
-			if err := scanner.scanString(match); err != nil {
-				return err
+		if scanner.stringStartUnfiltered || scanner.stringStartBytes[scanner.text[scanner.at]] {
+			if match, ok := scanner.stringRuleAt(scanner.at); ok {
+				if err := scanner.scanString(match); err != nil {
+					return err
+				}
+				continue
 			}
-			continue
 		}
 		if heredoc, operatorBytes, ok := scanner.hereDocOpeningAt(scanner.at); ok {
 			if err := scanner.scanHereDocOpening(heredoc, operatorBytes); err != nil {
