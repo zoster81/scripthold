@@ -173,7 +173,7 @@ type goDocumentAnalysis struct {
 }
 
 func (analysis *goDocumentAnalysis) result() AnalyzerResult {
-	return AnalyzerResult{Analysis: analysis.builder.Result(), Dependencies: append([]StructuralDependency(nil), analysis.dependencies...)}
+	return AnalyzerResult{Analysis: analysis.builder.takeResult(), Dependencies: append([]StructuralDependency(nil), analysis.dependencies...)}
 }
 
 func (analysis *goDocumentAnalysis) checkContext() error {
