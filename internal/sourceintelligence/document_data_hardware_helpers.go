@@ -188,9 +188,12 @@ func maskSourceComments(text string, lineMarkers []string, blockStart, blockEnd 
 }
 
 func maskSourceStrings(text string, single, double, tripleDouble bool) string {
-	masked := []byte(text)
+	var masked []byte
 	for index := 0; index < len(text); {
 		if tripleDouble && strings.HasPrefix(text[index:], "\"\"\"") {
+			if masked == nil {
+				masked = []byte(text)
+			}
 			end := strings.Index(text[index+3:], "\"\"\"")
 			if end < 0 {
 				maskByteRangePreservingLines(masked, index, len(text))
@@ -228,7 +231,13 @@ func maskSourceStrings(text string, single, double, tripleDouble bool) string {
 			}
 			index++
 		}
+		if masked == nil {
+			masked = []byte(text)
+		}
 		maskByteRangePreservingLines(masked, start, index)
+	}
+	if masked == nil {
+		return text
 	}
 	return string(masked)
 }
