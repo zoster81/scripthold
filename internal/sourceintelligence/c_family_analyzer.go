@@ -1717,8 +1717,7 @@ func (parser *cFamilyParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 }
 
 func maskCPPRawStrings(ctx context.Context, text string) (string, []ScannerDiagnostic, error) {
-	masked := []byte(text)
-	changed := false
+	var masked []byte
 	var diagnostics []ScannerDiagnostic
 	for index := 0; index < len(text); {
 		if index&4095 == 0 {
@@ -1762,12 +1761,14 @@ func maskCPPRawStrings(ctx context.Context, text string) (string, []ScannerDiagn
 			} else {
 				diagnostics = append(diagnostics, ScannerDiagnostic{Code: "unterminated-raw-string", Message: "C++ raw string literal is not terminated", StartOffset: index, EndOffset: len(text)})
 			}
+			if masked == nil {
+				masked = []byte(text)
+			}
 			for cursor := index; cursor < end; cursor++ {
 				if masked[cursor] != '\r' && masked[cursor] != '\n' {
 					masked[cursor] = ' '
 				}
 			}
-			changed = true
 			index = end
 			continue
 		}
@@ -1789,7 +1790,7 @@ func maskCPPRawStrings(ctx context.Context, text string) (string, []ScannerDiagn
 		}
 		index++
 	}
-	if !changed {
+	if masked == nil {
 		return text, diagnostics, nil
 	}
 	return string(masked), diagnostics, nil
