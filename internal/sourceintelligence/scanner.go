@@ -554,6 +554,15 @@ func (scanner *sourceScanner) consumeBackslashEscape() {
 }
 
 func (scanner *sourceScanner) consumeOpaqueString(match matchedStringRule, start int) error {
+	fastChars := ""
+	if match.rule.EscapePrefix == "" && match.rule.BackslashEscapes && !match.rule.DoubledDelimiterEscape && !match.rule.Multiline && len(match.closingPattern) == 1 {
+		switch match.closingPattern[0] {
+		case '"':
+			fastChars = "\\\"\r\n"
+		case '\'':
+			fastChars = "\\'\r\n"
+		}
+	}
 	for scanner.at < len(scanner.text) {
 		if scanner.at&4095 == 0 {
 			if err := scanner.checkContext(); err != nil {
@@ -582,6 +591,21 @@ func (scanner *sourceScanner) consumeOpaqueString(match matchedStringRule, start
 			}
 			scanner.addDiagnostic("unterminated-string", "string literal reaches a physical line ending", start, scanner.at)
 			return nil
+		}
+		if fastChars != "" {
+			scanner.at++
+			limit := len(scanner.text)
+			if nextContextCheck := (scanner.at + 4095) &^ 4095; nextContextCheck < limit {
+				limit = nextContextCheck
+			}
+			if scanner.at < limit {
+				if offset := strings.IndexAny(scanner.text[scanner.at:limit], fastChars); offset >= 0 {
+					scanner.at += offset
+				} else {
+					scanner.at = limit
+				}
+			}
+			continue
 		}
 		_, size := utf8.DecodeRuneInString(scanner.text[scanner.at:])
 		scanner.at += size

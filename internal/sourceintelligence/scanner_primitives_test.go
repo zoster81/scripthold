@@ -289,6 +289,29 @@ func TestScannerBackslashEscapedPhysicalNewlinesHandleCRLFAtomically(t *testing.
 	}
 }
 
+func TestScannerOpaqueStringFastPathPreservesUTF8AndEscapesAcrossContextBoundaries(t *testing.T) {
+	profile := ScannerProfile{
+		Name:    "opaque-string-fast-path",
+		Strings: []StringRule{{Prefixes: []string{""}, Delimiter: "\"", BackslashEscapes: true}},
+	}
+	payload := strings.Repeat("é", 2100) + `\"` + strings.Repeat("x", 3000)
+	text := "\"" + payload + "\""
+	result := scanSourceText(t, text, profile, scannerTestLimits)
+	if !result.Complete || len(result.Diagnostics) != 0 {
+		t.Fatalf("opaque fast-path scan reported partial: %+v", result.Diagnostics)
+	}
+	var stringToken *Token
+	for index := range result.Tokens {
+		if result.Tokens[index].Kind == TokenString {
+			stringToken = &result.Tokens[index]
+			break
+		}
+	}
+	if stringToken == nil || stringToken.Text != text || stringToken.StartOffset != 0 || stringToken.EndOffset != len(text) {
+		t.Fatalf("opaque fast-path token = %+v, want exact %d-byte literal", stringToken, len(text))
+	}
+}
+
 func TestScannerCustomEscapePrefixPreservesQuotedStringBoundaries(t *testing.T) {
 	profile := ScannerProfile{
 		Name:    "custom-escape-prefix",
