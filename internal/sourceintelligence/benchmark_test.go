@@ -68,3 +68,39 @@ func BenchmarkLargeGeneratedGo(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkLargeGeneratedGoSignatures(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	descriptor, _ := registry.Resolve("go")
+	analyzer, _ := AnalyzerFor(descriptor)
+	text := generatedGoSource(5_000)
+	document := sourceDocumentForScanner(text)
+	document.Path = "large-signatures.go"
+	options := AnalyzeOptions{
+		IncludeSignatures: true,
+		MaxNesting:        256,
+		Limits: SymbolBuilderLimits{
+			MaxSymbols:        10_000,
+			MaxSignatureBytes: 8192,
+			MaxDiagnostics:    256,
+		},
+	}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(text)))
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		result, err := analyzer.Analyze(context.Background(), document, options)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(result.Analysis.Symbols) != 5_001 {
+			b.Fatalf("unexpected symbol count %d", len(result.Analysis.Symbols))
+		}
+		if result.Analysis.Symbols[len(result.Analysis.Symbols)-1].Signature == "" {
+			b.Fatal("signature retention is disabled")
+		}
+	}
+}

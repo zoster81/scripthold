@@ -509,11 +509,7 @@ func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol
 			if spec.Signature.End-spec.Signature.Start > builder.options.Limits.MaxSignatureBytes {
 				normalized.signatureTruncated = true
 			} else {
-				text, _, sliceErr := builder.document.SliceUTF8Offsets(spec.Signature.Start, spec.Signature.End, builder.options.Limits.MaxSignatureBytes)
-				if sliceErr != nil {
-					return NormalizedSymbol{}, builder.invalidSpec("invalid signature slice: %v", sliceErr)
-				}
-				normalized.Signature = text
+				normalized.Signature = builder.document.Text[spec.Signature.Start:spec.Signature.End]
 			}
 		}
 	}
