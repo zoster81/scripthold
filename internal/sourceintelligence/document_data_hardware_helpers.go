@@ -243,12 +243,15 @@ func maskSourceStrings(text string, single, double, tripleDouble bool) string {
 }
 
 func maskDelimitedSourceRegions(text string, regions [][2]string) string {
-	masked := []byte(text)
+	var masked []byte
 	for index := 0; index < len(text); {
 		matched := false
 		for _, region := range regions {
 			if region[0] == "" || region[1] == "" || !strings.HasPrefix(text[index:], region[0]) {
 				continue
+			}
+			if masked == nil {
+				masked = []byte(text)
 			}
 			end := strings.Index(text[index+len(region[0]):], region[1])
 			if end < 0 {
@@ -264,6 +267,9 @@ func maskDelimitedSourceRegions(text string, regions [][2]string) string {
 		if !matched {
 			index++
 		}
+	}
+	if masked == nil {
+		return text
 	}
 	return string(masked)
 }
