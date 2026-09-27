@@ -81,7 +81,7 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 }
 
 func maskLispReaderCharacters(text, language string) string {
-	masked := []byte(text)
+	var masked []byte
 	inString := false
 	escaped := false
 	for at := 0; at < len(text); {
@@ -129,6 +129,9 @@ func maskLispReaderCharacters(text, language string) string {
 			}
 		}
 		if end > at {
+			if masked == nil {
+				masked = []byte(text)
+			}
 			maskRangePreservingLines(masked, at, end)
 			at = end
 			continue
@@ -138,6 +141,9 @@ func maskLispReaderCharacters(text, language string) string {
 			size = 1
 		}
 		at += size
+	}
+	if masked == nil {
+		return text
 	}
 	return string(masked)
 }
