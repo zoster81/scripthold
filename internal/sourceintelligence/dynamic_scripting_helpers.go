@@ -104,6 +104,13 @@ func (s *structuralAnalyzerState) result() (AnalyzerResult, error) {
 	return AnalyzerResult{Analysis: s.builder.Result(), Dependencies: s.dependencies, Relations: s.relations}, nil
 }
 
+func (s *structuralAnalyzerState) takeResult() (AnalyzerResult, error) {
+	if err := s.ctx.Err(); err != nil {
+		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_structural_source", s.document.Path, err)
+	}
+	return AnalyzerResult{Analysis: s.builder.takeResult(), Dependencies: s.dependencies, Relations: s.relations}, nil
+}
+
 func quotedTokenStringValue(token Token) string {
 	if token.Kind != TokenString || len(token.Text) < 2 {
 		return ""

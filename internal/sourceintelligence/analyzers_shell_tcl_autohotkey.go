@@ -55,7 +55,7 @@ func analyzeShellFamily(ctx context.Context, document *SourceDocument, options A
 	collectShellDependencies(state, document, scan.Tokens, bash)
 	pairs := PairDelimiterTokens(scan.Tokens, shellDelimiterRules(bash))
 	parseShellFunctions(state, scan.Tokens, pairs, bash)
-	return state.result()
+	return state.takeResult()
 }
 
 func shellMaskedSource(ctx context.Context, document *SourceDocument, maxNesting int, bash bool) (string, error) {
