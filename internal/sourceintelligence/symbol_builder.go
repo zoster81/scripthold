@@ -499,7 +499,7 @@ func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol
 		nameOffsets:         spec.NameRange,
 	}
 	if spec.Signature != nil {
-		publicRange, rangeErr := builder.normalizeOptionalRange("signature", *spec.Signature, spec.Declaration)
+		publicRange, rangeErr := builder.normalizeOptionalRange("signature", *spec.Signature, spec.Declaration, declarationRange)
 		if rangeErr != nil {
 			return NormalizedSymbol{}, rangeErr
 		}
@@ -518,7 +518,7 @@ func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol
 		}
 	}
 	if spec.Body != nil {
-		publicRange, rangeErr := builder.normalizeOptionalRange("body", *spec.Body, spec.Declaration)
+		publicRange, rangeErr := builder.normalizeOptionalRange("body", *spec.Body, spec.Declaration, declarationRange)
 		if rangeErr != nil {
 			return NormalizedSymbol{}, rangeErr
 		}
@@ -543,18 +543,33 @@ func (builder *SymbolBuilder) validateRequiredRanges(declaration, name OffsetRan
 	return nil
 }
 
-func (builder *SymbolBuilder) normalizeOptionalRange(label string, value, declaration OffsetRange) (Range, error) {
+func (builder *SymbolBuilder) normalizeOptionalRange(label string, value, declaration OffsetRange, declarationRange Range) (Range, error) {
 	if !validOffsetRange(value, len(builder.document.Text)) {
 		return Range{}, builder.invalidSpec("%s range [%d,%d) is invalid", label, value.Start, value.End)
 	}
 	if value.Start < declaration.Start || value.End > declaration.End {
 		return Range{}, builder.invalidSpec("%s range [%d,%d) is outside declaration range [%d,%d)", label, value.Start, value.End, declaration.Start, declaration.End)
 	}
-	publicRange, err := builder.document.RangeFromUTF8Offsets(value.Start, value.End)
+	start, err := builder.optionalRangePosition(value.Start, declaration, declarationRange)
 	if err != nil {
 		return Range{}, builder.invalidSpec("invalid %s range: %v", label, err)
 	}
-	return publicRange, nil
+	end, err := builder.optionalRangePosition(value.End, declaration, declarationRange)
+	if err != nil {
+		return Range{}, builder.invalidSpec("invalid %s range: %v", label, err)
+	}
+	return Range{Start: start, End: end}, nil
+}
+
+func (builder *SymbolBuilder) optionalRangePosition(offset int, declaration OffsetRange, declarationRange Range) (Position, error) {
+	switch offset {
+	case declaration.Start:
+		return declarationRange.Start, nil
+	case declaration.End:
+		return declarationRange.End, nil
+	default:
+		return builder.document.PositionAtUTF8Offset(offset)
+	}
 }
 
 func validNonEmptyOffsetRange(value OffsetRange, textLength int) bool {
