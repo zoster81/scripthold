@@ -868,9 +868,16 @@ func (scanner *sourceScanner) lineCommentStartsWord(offset int) bool {
 }
 
 func (scanner *sourceScanner) blockCommentRuleAt(offset int) (BlockCommentRule, bool) {
+	if offset < 0 || offset >= len(scanner.text) {
+		return BlockCommentRule{}, false
+	}
+	first := scanner.text[offset]
 	best := BlockCommentRule{}
 	found := false
 	for _, rule := range scanner.profile.BlockComments {
+		if rule.Start[0] != first {
+			continue
+		}
 		if blockCommentDelimiterMatches(scanner.text, offset, rule.Start, rule.DelimiterLineOnly) && (!found || len(rule.Start) > len(best.Start)) {
 			best = rule
 			found = true
