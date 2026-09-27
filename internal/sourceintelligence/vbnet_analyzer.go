@@ -52,7 +52,7 @@ func (VBNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_vbnet_source", document.Path, err)
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
+	return AnalyzerResult{Analysis: builder.takeResult(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
 }
 
 type vbStatement struct {
