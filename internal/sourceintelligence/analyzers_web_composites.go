@@ -567,7 +567,7 @@ func (BladeAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	result.Analysis = mergeCompositeAnalysis(result.Analysis, builder.Result(), options.Limits)
+	result.Analysis = mergeCompositeAnalysis(result.Analysis, builder.takeResult(), options.Limits)
 	remaining := max(0, options.Limits.MaxSymbols-len(result.Analysis.Symbols))
 	if len(voltComponents) > 0 {
 		voltRegions, _ := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
