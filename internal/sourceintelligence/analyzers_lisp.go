@@ -10,6 +10,12 @@ type CommonLispAnalyzer struct{}
 type ClojureAnalyzer struct{}
 type EmacsLispAnalyzer struct{}
 
+var (
+	commonLispAnalyzerScannerProfile = CommonLispScannerProfile()
+	clojureAnalyzerScannerProfile    = ClojureScannerProfile()
+	emacsLispAnalyzerScannerProfile  = EmacsLispScannerProfile()
+)
+
 func (CommonLispAnalyzer) ID() AnalyzerID   { return AnalyzerCommonLisp }
 func (CommonLispAnalyzer) Language() string { return "common-lisp" }
 func (ClojureAnalyzer) ID() AnalyzerID      { return AnalyzerClojure }
@@ -18,15 +24,15 @@ func (EmacsLispAnalyzer) ID() AnalyzerID    { return AnalyzerEmacsLisp }
 func (EmacsLispAnalyzer) Language() string  { return "emacs-lisp" }
 
 func (CommonLispAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzeLispSource(ctx, document, options, "common-lisp", AnalyzerCommonLisp, CommonLispScannerProfile())
+	return analyzeLispSource(ctx, document, options, "common-lisp", AnalyzerCommonLisp, commonLispAnalyzerScannerProfile)
 }
 
 func (ClojureAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzeLispSource(ctx, document, options, "clojure", AnalyzerClojure, ClojureScannerProfile())
+	return analyzeLispSource(ctx, document, options, "clojure", AnalyzerClojure, clojureAnalyzerScannerProfile)
 }
 
 func (EmacsLispAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
-	return analyzeLispSource(ctx, document, options, "emacs-lisp", AnalyzerEmacsLisp, EmacsLispScannerProfile())
+	return analyzeLispSource(ctx, document, options, "emacs-lisp", AnalyzerEmacsLisp, emacsLispAnalyzerScannerProfile)
 }
 
 func analyzeLispSource(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID, profile ScannerProfile) (AnalyzerResult, error) {
