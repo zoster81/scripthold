@@ -634,15 +634,17 @@ func isDirectiveWordByte(value byte) bool {
 }
 
 func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCollector, text string) {
-	phpProbe := maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
-	if phpContentMarker.MatchString(phpProbe) {
-		if languageID, ok := registry.lookupLanguageID("php"); ok {
-			collector.add(languageID, EvidenceContentMarker, "php-open-tag", priorityContent)
+	if strings.Contains(text, "<?") {
+		phpProbe := maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
+		if phpContentMarker.MatchString(phpProbe) {
+			if languageID, ok := registry.lookupLanguageID("php"); ok {
+				collector.add(languageID, EvidenceContentMarker, "php-open-tag", priorityContent)
+			}
 		}
-	}
-	if phpHTMLDistinctiveContent(phpProbe) {
-		if languageID, ok := registry.lookupLanguageID("php-html"); ok {
-			collector.add(languageID, EvidenceContentMarker, "php-html-host-and-code", priorityDistinctiveContent)
+		if phpHTMLDistinctiveContent(phpProbe) {
+			if languageID, ok := registry.lookupLanguageID("php-html"); ok {
+				collector.add(languageID, EvidenceContentMarker, "php-html-host-and-code", priorityDistinctiveContent)
+			}
 		}
 	}
 
