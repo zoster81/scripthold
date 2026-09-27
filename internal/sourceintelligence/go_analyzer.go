@@ -598,14 +598,18 @@ func (analysis *goDocumentAnalysis) offset(position token.Pos) (int, bool) {
 	if !position.IsValid() {
 		return 0, false
 	}
-	resolved := analysis.fileSet.PositionFor(position, false)
-	if resolved.Offset < 0 || resolved.Offset > len(analysis.document.Text) {
+	sourceFile := analysis.fileSet.File(position)
+	if sourceFile == nil {
 		return 0, false
 	}
-	if resolved.Offset < len(analysis.document.Text) && !utf8.RuneStart(analysis.document.Text[resolved.Offset]) {
+	offset := sourceFile.Offset(position)
+	if sourceFile.Pos(offset) != position || offset > len(analysis.document.Text) {
 		return 0, false
 	}
-	return resolved.Offset, true
+	if offset < len(analysis.document.Text) && !utf8.RuneStart(analysis.document.Text[offset]) {
+		return 0, false
+	}
+	return offset, true
 }
 
 func (analysis *goDocumentAnalysis) offsetRange(start, end token.Pos) (OffsetRange, bool) {
