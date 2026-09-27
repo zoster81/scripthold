@@ -67,11 +67,15 @@ func TestProviderContractManifestMatchesRegistryAndDocumentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	toolsDocumentation, err := os.ReadFile(filepath.Join(root, "TOOLS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	assertProviderContractRegistryAndDocumentation(t, manifest, registry, string(documentation))
-	assertCurrentProviderCountDocumentation(t, manifest, string(architecture))
+	assertCurrentProviderCountDocumentation(t, manifest, string(architecture), string(toolsDocumentation))
 }
 
-func assertCurrentProviderCountDocumentation(t testing.TB, manifest providerContractManifest, architecture string) {
+func assertCurrentProviderCountDocumentation(t testing.TB, manifest providerContractManifest, architecture, toolsDocumentation string) {
 	t.Helper()
 	activeCount := 0
 	for _, contract := range manifest.Providers {
@@ -79,9 +83,17 @@ func assertCurrentProviderCountDocumentation(t testing.TB, manifest providerCont
 			activeCount++
 		}
 	}
-	want := fmt.Sprintf("The registry contains %d active approved source-analysis providers", activeCount)
-	if !strings.Contains(architecture, want) {
-		t.Fatalf("architecture provider summary is stale: want %q", want)
+	architectureSummary := fmt.Sprintf("The registry contains %d active approved source-analysis providers", activeCount)
+	if !strings.Contains(architecture, architectureSummary) {
+		t.Fatalf("architecture provider summary is stale: want %q", architectureSummary)
+	}
+	toolsSummary := fmt.Sprintf(
+		"The production surface contains %d active approved target-catalog providers across %d total registry rows",
+		activeCount,
+		len(manifest.Providers),
+	)
+	if !strings.Contains(toolsDocumentation, toolsSummary) {
+		t.Fatalf("TOOLS.md provider summary is stale: want %q", toolsSummary)
 	}
 }
 
