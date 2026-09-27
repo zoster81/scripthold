@@ -206,7 +206,7 @@ func analyzeCFamilySingle(ctx context.Context, document *SourceDocument, options
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_c_family_source", document.Path, err)
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
+	return AnalyzerResult{Analysis: builder.takeResult(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
 }
 
 func maskCFamilyDirectiveBlockComments(text, lexicalText string) string {
