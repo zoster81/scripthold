@@ -74,7 +74,7 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if !ok {
 			continue
 		}
-		archParent := parentFromNormalizedSymbol(symbol)
+		archParent := &symbol
 		bodyEnd := end
 		for _, signal := range vhdlSignal.FindAllStringSubmatchIndex(source[match[1]:bodyEnd], -1) {
 			value := document.Text[match[1]+signal[2] : match[1]+signal[3]]
@@ -133,7 +133,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			}
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
-				parent := parentFromNormalizedSymbol(symbol)
+				parent := &symbol
 				body := source[match[1]:end]
 				for _, typeMatch := range svTypedefStruct.FindAllStringSubmatchIndex(body, -1) {
 					value := document.Text[match[1]+typeMatch[2] : match[1]+typeMatch[3]]
@@ -150,7 +150,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			}
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindInterface, "interface", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
-				hdlSignals(builder, document, source, match[1], end, parentFromNormalizedSymbol(symbol))
+				hdlSignals(builder, document, source, match[1], end, &symbol)
 			}
 		}
 	}
@@ -166,7 +166,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 		}
 		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindModule, "module", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 		if ok {
-			hdlSignals(builder, document, source, match[1], end, parentFromNormalizedSymbol(symbol))
+			hdlSignals(builder, document, source, match[1], end, &symbol)
 		}
 	}
 	return AnalyzerResult{Analysis: builder.takeResult()}, nil

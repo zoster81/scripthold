@@ -39,27 +39,20 @@ func sourceTextLines(text string) []sourceTextLine {
 	return lines
 }
 
-func addDocumentDataHardwareSymbol(builder *SymbolBuilder, kind SymbolKind, native, name string, parent *SymbolParent, declaration, nameRange OffsetRange) (NormalizedSymbol, bool) {
+func addDocumentDataHardwareSymbol(builder *SymbolBuilder, kind SymbolKind, native, name string, parent *SymbolParent, declaration, nameRange OffsetRange) (SymbolParent, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" || declaration.End <= declaration.Start || nameRange.End <= nameRange.Start {
-		return NormalizedSymbol{}, false
+		return SymbolParent{}, false
 	}
 	signature := declaration
-	symbol, err := builder.Add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &signature, Evidence: SymbolEvidenceStructural})
+	symbol, err := builder.addParent(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: declaration, NameRange: nameRange, Signature: &signature, Evidence: SymbolEvidenceStructural})
 	if err == nil {
 		return symbol, true
 	}
 	if operation.KindOf(err) != operation.KindLimit {
 		builder.MarkIncomplete()
 	}
-	return NormalizedSymbol{}, false
-}
-
-func parentFromNormalizedSymbol(symbol NormalizedSymbol) *SymbolParent {
-	if symbol.ID == "" {
-		return nil
-	}
-	return &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+	return SymbolParent{}, false
 }
 
 func addDocumentDataHardwareDiagnostic(builder *SymbolBuilder, code, message string, start, end int) {

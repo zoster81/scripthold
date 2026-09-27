@@ -313,7 +313,7 @@ func (p *jsonStructuralParser) object(index int, parent *SymbolParent) (int, boo
 		symbol, added := addDocumentDataHardwareSymbol(p.builder, SymbolKindKey, "key", key, parent, OffsetRange{Start: keyStart, End: declEnd}, OffsetRange{Start: keyStart + 1, End: keyEnd - 1})
 		var childParent *SymbolParent
 		if added {
-			childParent = parentFromNormalizedSymbol(symbol)
+			childParent = &symbol
 		}
 		if text[index] == '{' {
 			var childOK bool
@@ -657,7 +657,7 @@ func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument
 		if play == nil || tasksIndent < 0 || line.indent <= tasksIndent {
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindSection, "play", name, nil, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
 			if ok {
-				play = parentFromNormalizedSymbol(symbol)
+				play = &symbol
 				tasksIndent = -1
 			}
 			continue

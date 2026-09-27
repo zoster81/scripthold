@@ -234,7 +234,7 @@ func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		declEnd := packageMatch[1]
 		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: packageMatch[0], End: declEnd}, OffsetRange{Start: packageMatch[2], End: packageMatch[3]})
 		if ok {
-			parent = parentFromNormalizedSymbol(symbol)
+			parent = &symbol
 		}
 	}
 	for _, match := range plsqlRoutine.FindAllStringSubmatchIndex(source, -1) {
@@ -291,7 +291,7 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		if !ok || word == "enum" {
 			continue
 		}
-		parent := parentFromNormalizedSymbol(symbol)
+		parent := &symbol
 		bodyStart := open + 1
 		body := source[bodyStart:close]
 		for _, field := range graphqlField.FindAllStringSubmatchIndex(body, -1) {
@@ -434,7 +434,7 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 			}
 		}
 		if added {
-			scopes = append(scopes, hclScope{close: candidate.close, parent: parentFromNormalizedSymbol(symbol)})
+			scopes = append(scopes, hclScope{close: candidate.close, parent: &symbol})
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
@@ -496,7 +496,7 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		name := document.Text[match[2]:match[3]]
 		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
 		if ok {
-			packageParent = parentFromNormalizedSymbol(symbol)
+			packageParent = &symbol
 		}
 	}
 	for _, match := range protoImport.FindAllStringSubmatchIndex(source, -1) {
@@ -525,7 +525,7 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		if !ok {
 			continue
 		}
-		parent := parentFromNormalizedSymbol(symbol)
+		parent := &symbol
 		bodyStart := open + 1
 		body := source[bodyStart:close]
 		if word == "service" {
