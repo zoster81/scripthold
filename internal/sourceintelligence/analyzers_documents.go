@@ -270,7 +270,7 @@ func (JSONAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	if _, ok := parser.object(index, nil); !ok {
 		addDocumentDataHardwareDiagnostic(builder, "json-malformed", "JSON object is malformed or truncated", index, len(document.Text))
 	}
-	return AnalyzerResult{Analysis: builder.Result()}, nil
+	return AnalyzerResult{Analysis: builder.takeResult()}, nil
 }
 
 type jsonStructuralParser struct {
