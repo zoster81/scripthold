@@ -275,6 +275,9 @@ func maskDelimitedSourceRegions(text string, regions [][2]string) string {
 }
 
 func maskSourceHeredocs(text string) string {
+	if !strings.Contains(text, "<<") {
+		return text
+	}
 	masked := []byte(text)
 	lines := sourceTextLines(text)
 	for index := 0; index < len(lines); index++ {
