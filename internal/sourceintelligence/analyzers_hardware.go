@@ -169,7 +169,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			hdlSignals(builder, document, source, match[1], end, parentFromNormalizedSymbol(symbol))
 		}
 	}
-	return AnalyzerResult{Analysis: builder.Result()}, nil
+	return AnalyzerResult{Analysis: builder.takeResult()}, nil
 }
 
 func hdlEnd(text string, start int, terminator string) int {
