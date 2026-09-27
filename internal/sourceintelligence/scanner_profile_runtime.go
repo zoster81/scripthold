@@ -153,19 +153,20 @@ func (scanner *sourceScanner) delimiterAt(offset int) (matchedDelimiter, bool) {
 	if offset >= len(scanner.text) || !scanner.delimiterStartBytes[scanner.text[offset]] {
 		return matchedDelimiter{}, false
 	}
+	suffix := scanner.text[offset:]
 	if len(scanner.delimiters) > 0 {
 		top := scanner.delimiters[len(scanner.delimiters)-1]
-		if strings.HasPrefix(scanner.text[offset:], top.close) {
+		if strings.HasPrefix(suffix, top.close) {
 			return matchedDelimiter{open: false, text: top.close, rule: DelimiterRule{Open: top.open, Close: top.close}}, true
 		}
 	}
 	var best matchedDelimiter
 	for _, rule := range scanner.profile.Delimiters {
-		for _, candidate := range []matchedDelimiter{{open: true, text: rule.Open, rule: rule}, {open: false, text: rule.Close, rule: rule}} {
-			if len(candidate.text) <= len(best.text) || !strings.HasPrefix(scanner.text[offset:], candidate.text) {
-				continue
-			}
-			best = candidate
+		if len(rule.Open) > len(best.text) && strings.HasPrefix(suffix, rule.Open) {
+			best = matchedDelimiter{open: true, text: rule.Open, rule: rule}
+		}
+		if len(rule.Close) > len(best.text) && strings.HasPrefix(suffix, rule.Close) {
+			best = matchedDelimiter{open: false, text: rule.Close, rule: rule}
 		}
 	}
 	return best, best.text != ""
