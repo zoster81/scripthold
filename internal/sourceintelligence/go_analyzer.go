@@ -37,7 +37,7 @@ func (GoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options
 		return AnalyzerResult{}, err
 	}
 	fileSet := token.NewFileSet()
-	file, parseErr := parser.ParseFile(fileSet, document.Path, document.Text, parser.AllErrors|parser.ParseComments|parser.SkipObjectResolution)
+	file, parseErr := parser.ParseFile(fileSet, document.Path, document.Text, parser.AllErrors|parser.SkipObjectResolution)
 	builder.reserveSymbols(goSymbolCapacityHint(file, options.Limits.MaxSymbols))
 	analysis := &goDocumentAnalysis{
 		ctx: ctx, document: document, fileSet: fileSet, file: file, builder: builder,

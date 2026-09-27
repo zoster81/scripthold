@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +55,35 @@ func BenchmarkLargeGeneratedGo(b *testing.B) {
 	text := generatedGoSource(5_000)
 	document := sourceDocumentForScanner(text)
 	document.Path = "large.go"
+	options := AnalyzeOptions{MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: 10_000, MaxSignatureBytes: 8192, MaxDiagnostics: 256}}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(text)))
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		result, err := analyzer.Analyze(context.Background(), document, options)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(result.Analysis.Symbols) != 5_001 {
+			b.Fatalf("unexpected symbol count %d", len(result.Analysis.Symbols))
+		}
+	}
+}
+
+func BenchmarkLargeGeneratedGoComments(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	descriptor, _ := registry.Resolve("go")
+	analyzer, _ := AnalyzerFor(descriptor)
+	text := strings.ReplaceAll(
+		generatedGoSource(5_000),
+		"func ",
+		"// generated declaration documentation with enough text to exercise comment parsing\n// second documentation line\nfunc ",
+	)
+	document := sourceDocumentForScanner(text)
+	document.Path = "large-comments.go"
 	options := AnalyzeOptions{MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: 10_000, MaxSignatureBytes: 8192, MaxDiagnostics: 256}}
 	b.ReportAllocs()
 	b.SetBytes(int64(len(text)))

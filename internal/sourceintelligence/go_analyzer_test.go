@@ -290,6 +290,20 @@ func Broken(
 	}
 }
 
+func TestGoAnalyzerUnterminatedCommentStillReportsParseDiagnostic(t *testing.T) {
+	text := "package broken\nfunc Good() {}\n/* unterminated"
+	result := analyzeGoText(t, text, goAnalyzerTestOptions)
+	if result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "go-parse") {
+		t.Fatalf("unterminated comment diagnostics = %+v", result.Analysis)
+	}
+	byQualified := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"broken", "broken.Good"} {
+		if _, ok := byQualified[name]; !ok {
+			t.Fatalf("unterminated comment recovery lost %s: %v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestGoAnalyzerSymbolAndDependencyLimitsReturnUsefulPartialCoverage(t *testing.T) {
 	var source strings.Builder
 	source.WriteString("package generated\nimport (\n")
