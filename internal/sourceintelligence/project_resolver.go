@@ -509,7 +509,7 @@ func (model *ProjectModel) resolveRelationTargets(file projectFileRecord, descri
 	parent := qualifiedParent(source)
 
 	if candidates := model.sameFileCandidates(file, descriptor, parent, target); len(candidates) > 0 {
-		entities, err := boundedUniqueEntities(symbolEntities(candidates), maxCandidates, "reference", file.facts.Path)
+		entities, err := boundedUniqueEntities(symbolEntitiesFromPointers(candidates), maxCandidates, "reference", file.facts.Path)
 		return entities, ProjectResolutionSameFile, err
 	}
 	if parent != "" {
@@ -544,15 +544,31 @@ func (model *ProjectModel) resolveRelationTargets(file projectFileRecord, descri
 	return entities, ProjectResolutionProject, err
 }
 
-func (model *ProjectModel) sameFileCandidates(file projectFileRecord, descriptor LanguageDescriptor, parent, target string) []projectSymbolRecord {
+func (model *ProjectModel) sameFileCandidates(file projectFileRecord, descriptor LanguageDescriptor, parent, target string) []*projectSymbolRecord {
+	qualified := ""
 	if strings.Contains(target, ".") {
-		return model.targetableRecords(filterRecordsByQualified(model.symbolsByFile[file.pathKey], descriptor.ID, target))
+		qualified = target
+	} else if parent != "" {
+		qualified = parent + "." + target
 	}
-	if parent != "" {
-		qualified := parent + "." + target
-		return model.targetableRecords(filterRecordsByQualified(model.symbolsByFile[file.pathKey], descriptor.ID, qualified))
+
+	records := model.symbolsByFile[file.pathKey]
+	var result []*projectSymbolRecord
+	for index := range records {
+		record := &records[index]
+		if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
+			continue
+		}
+		if qualified != "" {
+			if record.qualifiedKey != qualified {
+				continue
+			}
+		} else if record.nameKey != target {
+			continue
+		}
+		result = append(result, record)
 	}
-	return model.targetableRecords(filterRecordsByName(model.symbolsByFile[file.pathKey], descriptor.ID, target))
+	return result
 }
 
 func (model *ProjectModel) explicitImportCandidates(file projectFileRecord, descriptor LanguageDescriptor, rawTarget string) []*projectSymbolRecord {
@@ -616,16 +632,6 @@ func (model *ProjectModel) dependencyExportCandidates(file projectFileRecord, de
 		result = append(result, record)
 	}
 	sortProjectSymbolRecordPointers(result)
-	return result
-}
-
-func (model *ProjectModel) targetableRecords(records []projectSymbolRecord) []projectSymbolRecord {
-	result := make([]projectSymbolRecord, 0, len(records))
-	for _, record := range records {
-		if isRelationEndpointKind(record.symbol.Kind) {
-			result = append(result, record)
-		}
-	}
 	return result
 }
 
@@ -708,14 +714,6 @@ func fileEntitiesForSymbolPointers(model *ProjectModel, records []*projectSymbol
 		seen[record.pathKey] = model.fileEntity(record.pathKey)
 	}
 	return sortedEntityMap(seen)
-}
-
-func symbolEntities(records []projectSymbolRecord) []RelationEntity {
-	result := make([]RelationEntity, 0, len(records))
-	for _, record := range records {
-		result = append(result, record.entity)
-	}
-	return result
 }
 
 func symbolEntitiesFromPointers(records []*projectSymbolRecord) []RelationEntity {
@@ -845,26 +843,6 @@ func comparePosition(left, right Position) int {
 		return 1
 	}
 	return 0
-}
-
-func filterRecordsByQualified(values []projectSymbolRecord, languageID, qualified string) []projectSymbolRecord {
-	result := make([]projectSymbolRecord, 0, len(values))
-	for _, record := range values {
-		if record.languageID == languageID && record.qualifiedKey == qualified {
-			result = append(result, record)
-		}
-	}
-	return result
-}
-
-func filterRecordsByName(values []projectSymbolRecord, languageID, name string) []projectSymbolRecord {
-	result := make([]projectSymbolRecord, 0, len(values))
-	for _, record := range values {
-		if record.languageID == languageID && record.nameKey == name {
-			result = append(result, record)
-		}
-	}
-	return result
 }
 
 func excludePath(values []projectSymbolRecord, pathKey string) []projectSymbolRecord {
