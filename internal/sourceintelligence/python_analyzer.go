@@ -52,7 +52,7 @@ func (PythonAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_python_source", document.Path, err)
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies}, nil
+	return AnalyzerResult{Analysis: builder.takeResult(), Dependencies: parser.dependencies}, nil
 }
 
 type pythonLogicalLine struct {
