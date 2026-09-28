@@ -24,6 +24,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 ### Changed
 
 - Unified single-file edit previews and patch packages around one ordered internal prepared-target model, aligning exact result-byte retention, path/identity/fingerprint checks, backup planning, writable approval, deterministic apply, and truthful failure-state classification without changing their public schemas.
+- Improved Source Intelligence runtime and allocation efficiency across scanner, builder, composite-template, shell, HDL, and MATLAB/Octave hot paths without changing public schemas or capability claims.
 
 ### Fixed
 
