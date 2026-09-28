@@ -20,10 +20,10 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 ## What Scripthold provides
 
-The current public release is **Scripthold 3.2.1** with 38 tools and 3 guided prompts.
+The current public release is **Scripthold 3.3.0** with 43 tools and 3 guided prompts.
 
 - **168 registered text encodings** with content-based detection, UTF-32 LE/BE support, and conservative ambiguity handling.
-- **101 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
+- **100 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
 - **Secure workspace boundaries** with canonical-root containment, Windows reparse/junction handling, deterministic traversal, and missing-path validation.
 - **Approval-bound mutations** using preview/apply capabilities, exact fingerprints, conflict checks, staged writes, and truthful partial-state reporting.
 - **Optional persistent backups** with history, compare, audit, restore, explicit garbage collection, pinning, and exact-ID deletion.
@@ -129,7 +129,7 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Tool groups
 
-[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below reflects the current development catalog and may include unreleased tools that are not part of the published 3.2.1 surface; the release counts above remain release-specific.
+[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below reflects the Scripthold 3.3.0 public catalog.
 
 | Area | Main tools |
 |---|---|

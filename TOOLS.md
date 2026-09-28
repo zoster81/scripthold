@@ -2,7 +2,7 @@
 
 This reference explains what each Scripthold tool does, when to use it, its main inputs, and the important safety or limit behavior. Start with the short purpose and examples in each section; use the detailed rules when you need exact API behavior or troubleshooting information.
 
-The current public release, Scripthold `3.2.1`, exposes 38 tools and 3 guided prompts. The source tree may document additional unreleased tools below. Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
+The current public release, Scripthold `3.3.0`, exposes 43 tools and 3 guided prompts. The source tree may document additional unreleased tools below. Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
 
 ## Guided Prompts
 

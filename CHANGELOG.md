@@ -2,7 +2,7 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
-## Unreleased
+## 3.3.0 - 2026-09-28
 
 ### Added
 
