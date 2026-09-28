@@ -11,6 +11,8 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+var scannerProfileAllocationSink ScannerProfile
+
 func TestTokenRepresentationRemainsCompact(t *testing.T) {
 	var kind TokenKind
 	if size := unsafe.Sizeof(kind); size != 1 {
@@ -19,6 +21,25 @@ func TestTokenRepresentationRemainsCompact(t *testing.T) {
 	maxTokenSize := uintptr(6) * unsafe.Sizeof(int(0))
 	if size := unsafe.Sizeof(Token{}); size > maxTokenSize {
 		t.Fatalf("Token size = %d bytes, want <= %d", size, maxTokenSize)
+	}
+}
+
+func TestNormalizeScannerProfileReusesReadOnlyDefaultDelimiters(t *testing.T) {
+	allocations := testing.AllocsPerRun(20, func() {
+		scannerProfileAllocationSink = normalizeScannerProfile(ScannerProfile{Name: "default-delimiters"})
+	})
+	if allocations != 0 {
+		t.Fatalf("default delimiter normalization allocations = %.0f, want 0", allocations)
+	}
+	want := []DelimiterRule{{Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}}
+	if !reflect.DeepEqual(scannerProfileAllocationSink.Delimiters, want) {
+		t.Fatalf("default delimiters = %+v, want %+v", scannerProfileAllocationSink.Delimiters, want)
+	}
+	if _, err := ScanSource(context.Background(), sourceDocumentForScanner("call(value)\n"), ScannerProfile{Name: "default-delimiters"}, scannerTestLimits); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(scannerProfileAllocationSink.Delimiters, want) {
+		t.Fatalf("scan mutated shared default delimiters: got %+v want %+v", scannerProfileAllocationSink.Delimiters, want)
 	}
 }
 

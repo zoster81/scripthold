@@ -37,8 +37,10 @@ func normalizeScannerProfile(profile ScannerProfile) ScannerProfile {
 	return profile
 }
 
+var defaultDelimiterRuleSet = [...]DelimiterRule{{Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}}
+
 func defaultDelimiterRules() []DelimiterRule {
-	return []DelimiterRule{{Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}}
+	return defaultDelimiterRuleSet[:]
 }
 
 func (scanner *sourceScanner) validateScannerProfile() error {
