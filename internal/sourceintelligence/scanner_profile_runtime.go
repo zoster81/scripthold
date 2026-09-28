@@ -37,6 +37,8 @@ func normalizeScannerProfile(profile ScannerProfile) ScannerProfile {
 	return profile
 }
 
+const scannerLinearDelimiterValidationLimit = 3
+
 var defaultDelimiterRuleSet = [...]DelimiterRule{{Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}}
 
 func defaultDelimiterRules() []DelimiterRule {
@@ -47,19 +49,36 @@ func (scanner *sourceScanner) validateScannerProfile() error {
 	if len(scanner.profile.Delimiters) > 32 || len(scanner.profile.DirectiveRules) > 32 || len(scanner.profile.HereDocs) > 16 {
 		return operation.New(operation.KindInvalidInput, "scanner profile contains too many lexical rules")
 	}
-	seenDelimiter := make(map[string]struct{}, len(scanner.profile.Delimiters)*2)
-	for _, rule := range scanner.profile.Delimiters {
-		if rule.Open == "" || rule.Close == "" || rule.Open == rule.Close {
-			return operation.New(operation.KindInvalidInput, "delimiter pairs require distinct non-empty open and close values")
-		}
-		if !utf8.ValidString(rule.Open) || !utf8.ValidString(rule.Close) {
-			return operation.New(operation.KindInvalidInput, "delimiter pairs must be valid UTF-8")
-		}
-		for _, value := range []string{rule.Open, rule.Close} {
-			if _, duplicate := seenDelimiter[value]; duplicate {
-				return operation.New(operation.KindInvalidInput, "delimiter spellings must be unique within one scanner profile")
+	if len(scanner.profile.Delimiters) <= scannerLinearDelimiterValidationLimit {
+		for index, rule := range scanner.profile.Delimiters {
+			if rule.Open == "" || rule.Close == "" || rule.Open == rule.Close {
+				return operation.New(operation.KindInvalidInput, "delimiter pairs require distinct non-empty open and close values")
 			}
-			seenDelimiter[value] = struct{}{}
+			if !utf8.ValidString(rule.Open) || !utf8.ValidString(rule.Close) {
+				return operation.New(operation.KindInvalidInput, "delimiter pairs must be valid UTF-8")
+			}
+			for previousIndex := 0; previousIndex < index; previousIndex++ {
+				previous := scanner.profile.Delimiters[previousIndex]
+				if rule.Open == previous.Open || rule.Open == previous.Close || rule.Close == previous.Open || rule.Close == previous.Close {
+					return operation.New(operation.KindInvalidInput, "delimiter spellings must be unique within one scanner profile")
+				}
+			}
+		}
+	} else {
+		seenDelimiter := make(map[string]struct{}, len(scanner.profile.Delimiters)*2)
+		for _, rule := range scanner.profile.Delimiters {
+			if rule.Open == "" || rule.Close == "" || rule.Open == rule.Close {
+				return operation.New(operation.KindInvalidInput, "delimiter pairs require distinct non-empty open and close values")
+			}
+			if !utf8.ValidString(rule.Open) || !utf8.ValidString(rule.Close) {
+				return operation.New(operation.KindInvalidInput, "delimiter pairs must be valid UTF-8")
+			}
+			for _, value := range []string{rule.Open, rule.Close} {
+				if _, duplicate := seenDelimiter[value]; duplicate {
+					return operation.New(operation.KindInvalidInput, "delimiter spellings must be unique within one scanner profile")
+				}
+				seenDelimiter[value] = struct{}{}
+			}
 		}
 	}
 	seenDirective := make(map[string]struct{}, len(scanner.profile.DirectiveRules))

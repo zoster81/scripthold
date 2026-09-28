@@ -11,6 +11,25 @@ import (
 
 var cppRawStringStartBenchmarkSink int
 
+func BenchmarkScannerDelimiterValidation(b *testing.B) {
+	for _, count := range []int{3, 8, 9, 32} {
+		b.Run(fmt.Sprintf("rules-%d", count), func(b *testing.B) {
+			rules := make([]DelimiterRule, count)
+			for index := range rules {
+				rules[index] = DelimiterRule{Open: fmt.Sprintf("<%d", index), Close: fmt.Sprintf("%d>", index)}
+			}
+			scanner := sourceScanner{profile: ScannerProfile{Name: "delimiter-validation", Delimiters: rules}}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				if err := scanner.validateScannerProfile(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedScannerPrimitives(b *testing.B) {
 	text := strings.Repeat("namespace Demo { class Item { string Text = \"value // not comment\"; void Run() { /* comment */ Call(\"x\"); } } }\n", 512)
 	document := sourceDocumentForScanner(text)

@@ -27,6 +27,37 @@ func TestTokenRepresentationRemainsCompact(t *testing.T) {
 	}
 }
 
+func TestScannerDelimiterValidationStrategiesRejectDuplicates(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		rules []DelimiterRule
+	}{
+		{
+			name: "linear",
+			rules: []DelimiterRule{
+				{Open: "(", Close: ")"},
+				{Open: "[", Close: "]"},
+				{Open: "{", Close: ")"},
+			},
+		},
+		{
+			name: "map",
+			rules: []DelimiterRule{
+				{Open: "<0", Close: "0>"}, {Open: "<1", Close: "1>"}, {Open: "<2", Close: "2>"},
+				{Open: "<3", Close: "3>"}, {Open: "<4", Close: "4>"}, {Open: "<5", Close: "5>"},
+				{Open: "<6", Close: "6>"}, {Open: "<7", Close: "7>"}, {Open: "<8", Close: "7>"},
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			scanner := sourceScanner{profile: ScannerProfile{Name: testCase.name, Delimiters: testCase.rules}}
+			if err := scanner.validateScannerProfile(); operation.KindOf(err) != operation.KindInvalidInput {
+				t.Fatalf("duplicate delimiter validation = %v kind=%v", err, operation.KindOf(err))
+			}
+		})
+	}
+}
+
 func TestNormalizeScannerProfileReusesReadOnlyDefaultDelimiters(t *testing.T) {
 	allocations := testing.AllocsPerRun(20, func() {
 		scannerProfileAllocationSink = normalizeScannerProfile(ScannerProfile{Name: "default-delimiters"})
