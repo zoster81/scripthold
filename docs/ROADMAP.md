@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 3.2.1**.
 - Public 3.2.1 surface: **38 tools**, **3 guided prompts**, **168 registered text encodings**, and **101 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- The remaining 3.x capability milestone is verified self-update; no release-scoped publication milestone is currently assigned.
+- No additional 3.x capability milestone is currently active; verified self-update is implemented on the development branch, while release and promotion qualification remain separate.
 - Publication, installation, and private deployment are separate actions.
 
 ## Planning rules
@@ -18,16 +18,6 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Keep public MCP concepts compact and difficult to misuse.
 - Require an exact clean commit and the release procedure in [`PUBLISHING.md`](PUBLISHING.md) for public release authority.
 - Do not accumulate implementation diaries or per-phase evidence in this file.
-
-## 3.x milestones
-
-### Verified self-update
-
-Add a failure-safe update lifecycle: discover a release, select the correct platform asset, verify identity/checksum, stage it, retain a known-good binary, switch, verify, and roll back when required.
-
-Installation state remains separate from the persistent user-file backup store. Interrupted or invalid updates must leave a usable installation or an explicit recoverable state.
-
-The development branch exposes read-only `scripthold update status`, explicit standalone adoption through `scripthold update --adopt`, verified update dispatch through bare `scripthold update`, and explicit observation-driven recovery through `scripthold update recover`. Adoption is local-only and requires all other processes using that binary to be stopped for the duration of the adoption invocation. Update dispatch verifies and stages the official candidate before a detached helper performs the switch; recovery is network-free and dispatches only from durable recoverable transaction evidence. Release/promotion qualification remains separate from development-branch implementation.
 
 ## Reserved 4.0 boundary
 
