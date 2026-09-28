@@ -13,6 +13,26 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+func TestSortNormalizedSymbolsAvoidsReflectiveAllocations(t *testing.T) {
+	symbols := []NormalizedSymbol{
+		{ID: "c", declarationOffsets: OffsetRange{Start: 8, End: 12}},
+		{ID: "b", declarationOffsets: OffsetRange{Start: 2, End: 8}},
+		{ID: "a", declarationOffsets: OffsetRange{Start: 2, End: 8}},
+		{ID: "d", declarationOffsets: OffsetRange{Start: 2, End: 5}},
+	}
+	allocations := testing.AllocsPerRun(20, func() {
+		sortNormalizedSymbols(symbols)
+	})
+	if allocations != 0 {
+		t.Fatalf("sortNormalizedSymbols allocations = %.0f, want 0", allocations)
+	}
+	got := []string{symbols[0].ID, symbols[1].ID, symbols[2].ID, symbols[3].ID}
+	want := []string{"d", "a", "b", "c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sort order = %v, want %v", got, want)
+	}
+}
+
 func TestSymbolBuilderTakeResultTransfersOwnedStateAndPreservesDefensiveResult(t *testing.T) {
 	document := sourceDocumentForScanner("func Work() {}\n")
 	options := SymbolBuilderOptions{

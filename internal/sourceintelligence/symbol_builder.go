@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -781,16 +782,20 @@ func (builder *SymbolBuilder) takeResult() AnalysisResult {
 }
 
 func sortNormalizedSymbols(symbols []NormalizedSymbol) {
-	sort.Slice(symbols, func(i, j int) bool {
-		left := symbols[i]
-		right := symbols[j]
-		if left.declarationOffsets.Start != right.declarationOffsets.Start {
-			return left.declarationOffsets.Start < right.declarationOffsets.Start
+	slices.SortFunc(symbols, func(left, right NormalizedSymbol) int {
+		if left.declarationOffsets.Start < right.declarationOffsets.Start {
+			return -1
 		}
-		if left.declarationOffsets.End != right.declarationOffsets.End {
-			return left.declarationOffsets.End < right.declarationOffsets.End
+		if left.declarationOffsets.Start > right.declarationOffsets.Start {
+			return 1
 		}
-		return left.ID < right.ID
+		if left.declarationOffsets.End < right.declarationOffsets.End {
+			return -1
+		}
+		if left.declarationOffsets.End > right.declarationOffsets.End {
+			return 1
+		}
+		return strings.Compare(left.ID, right.ID)
 	})
 }
 
