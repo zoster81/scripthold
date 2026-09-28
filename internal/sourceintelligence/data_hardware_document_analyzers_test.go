@@ -22,6 +22,24 @@ func TestHDLEndStaticTerminatorsAvoidPerCallRegexpCompilation(t *testing.T) {
 	}
 }
 
+func TestSystemVerilogSingleModuleAllocationBudget(t *testing.T) {
+	document := sourceDocumentForScanner("module demo(input logic clk); always_ff @(posedge clk) begin end endmodule\n")
+	document.Path = "allocation.sv"
+	options := AnalyzeOptions{IncludeSignatures: true, MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: 10_000, MaxSignatureBytes: 8192, MaxDiagnostics: 256}}
+	allocations := testing.AllocsPerRun(20, func() {
+		result, err := (SystemVerilogAnalyzer{}).Analyze(context.Background(), document, options)
+		if err != nil {
+			panic(err)
+		}
+		if len(result.Analysis.Symbols) != 2 || !result.Analysis.CoverageComplete {
+			panic("unexpected SystemVerilog allocation-guard result")
+		}
+	})
+	if allocations > 16 {
+		t.Fatalf("single-module SystemVerilog allocations = %.0f, want <= 16", allocations)
+	}
+}
+
 func TestNormalizedKindsAreAccepted(t *testing.T) {
 	for _, kind := range []SymbolKind{
 		SymbolKindSchema,

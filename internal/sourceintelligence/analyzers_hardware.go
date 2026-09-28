@@ -157,20 +157,30 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			}
 		}
 	}
-	for _, match := range verilogModule.FindAllStringSubmatchIndex(source, -1) {
+	for search := 0; search < len(source); {
+		match := verilogModule.FindStringSubmatchIndex(source[search:])
+		if match == nil {
+			break
+		}
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
-		name := document.Text[match[2]:match[3]]
-		end := hdlEnd(source, match[1], "endmodule")
+		matchStart := search + match[0]
+		matchEnd := search + match[1]
+		nameStart := search + match[2]
+		nameEnd := search + match[3]
+		name := document.Text[nameStart:nameEnd]
+		end := hdlEnd(source, matchEnd, "endmodule")
 		if end < 0 {
-			addDocumentDataHardwareDiagnostic(builder, language+"-unclosed-module", language+" module is not structurally closed", match[0], match[1])
+			addDocumentDataHardwareDiagnostic(builder, language+"-unclosed-module", language+" module is not structurally closed", matchStart, matchEnd)
+			search = matchEnd
 			continue
 		}
-		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindModule, "module", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
+		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindModule, "module", name, nil, OffsetRange{Start: matchStart, End: end}, OffsetRange{Start: nameStart, End: nameEnd})
 		if ok {
-			hdlSignals(builder, document, source, match[1], end, &symbol)
+			hdlSignals(builder, document, source, matchEnd, end, &symbol)
 		}
+		search = matchEnd
 	}
 	return AnalyzerResult{Analysis: builder.takeResult()}, nil
 }
