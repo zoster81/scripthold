@@ -22,6 +22,33 @@ func TestTokenRepresentationRemainsCompact(t *testing.T) {
 	}
 }
 
+func TestScanSourceDoesNotMutateCallerRuleSlices(t *testing.T) {
+	profile := ScannerProfile{
+		Name:           "caller-rule-slices",
+		Directives:     true,
+		Delimiters:     []DelimiterRule{{Open: "(", Close: ")"}},
+		DirectiveRules: []DirectiveRule{{Prefix: "#"}},
+		HereDocs:       []HereDocRule{{Operator: "<<", AllowQuotedDelimiter: true}},
+	}
+	delimiters := append([]DelimiterRule(nil), profile.Delimiters...)
+	directives := append([]DirectiveRule(nil), profile.DirectiveRules...)
+	hereDocs := append([]HereDocRule(nil), profile.HereDocs...)
+
+	document := sourceDocumentForScanner("#pragma\n(value)\ncat <<EOF\nbody\nEOF\n")
+	if _, err := ScanSource(context.Background(), document, profile, scannerTestLimits); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(profile.Delimiters, delimiters) {
+		t.Fatalf("ScanSource mutated caller delimiters: got %+v want %+v", profile.Delimiters, delimiters)
+	}
+	if !reflect.DeepEqual(profile.DirectiveRules, directives) {
+		t.Fatalf("ScanSource mutated caller directives: got %+v want %+v", profile.DirectiveRules, directives)
+	}
+	if !reflect.DeepEqual(profile.HereDocs, hereDocs) {
+		t.Fatalf("ScanSource mutated caller heredocs: got %+v want %+v", profile.HereDocs, hereDocs)
+	}
+}
+
 func TestScannerIdentifierFastPathMatchesGenericPolicy(t *testing.T) {
 	policies := []IdentifierPolicy{
 		DefaultIdentifierPolicy(),

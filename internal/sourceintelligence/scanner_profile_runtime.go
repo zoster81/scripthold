@@ -30,15 +30,10 @@ func normalizeScannerProfile(profile ScannerProfile) ScannerProfile {
 		profile.Delimiters = nil
 	} else if len(profile.Delimiters) == 0 {
 		profile.Delimiters = defaultDelimiterRules()
-	} else {
-		profile.Delimiters = append([]DelimiterRule(nil), profile.Delimiters...)
 	}
 	if profile.Directives && len(profile.DirectiveRules) == 0 {
 		profile.DirectiveRules = []DirectiveRule{{Prefix: "#"}}
-	} else {
-		profile.DirectiveRules = append([]DirectiveRule(nil), profile.DirectiveRules...)
 	}
-	profile.HereDocs = append([]HereDocRule(nil), profile.HereDocs...)
 	return profile
 }
 
