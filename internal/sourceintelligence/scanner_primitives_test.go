@@ -254,6 +254,24 @@ func TestScannerDelimiterDispatchPreservesUTF8Delimiters(t *testing.T) {
 	}
 }
 
+func TestPairOpeningDelimiterTokensKeepsOnlyOpenToCloseEntries(t *testing.T) {
+	profile := ScannerProfile{Name: "opening-pairs", Delimiters: []DelimiterRule{{Open: "«", Close: "»"}, {Open: "(", Close: ")"}}}
+	result := scanSourceText(t, "«call(value)»\n", profile, scannerTestLimits)
+	bidirectional := PairDelimiterTokens(result.Tokens, profile.Delimiters)
+	openingOnly := pairOpeningDelimiterTokens(result.Tokens, profile.Delimiters)
+	if len(openingOnly)*2 != len(bidirectional) {
+		t.Fatalf("opening-only pair entries = %d, bidirectional = %d", len(openingOnly), len(bidirectional))
+	}
+	for open, close := range openingOnly {
+		if close <= open || bidirectional[open] != close {
+			t.Fatalf("opening pair %d -> %d does not match bidirectional map", open, close)
+		}
+		if _, reverse := openingOnly[close]; reverse {
+			t.Fatalf("opening-only pair map retained reverse entry %d -> %d", close, open)
+		}
+	}
+}
+
 func TestPairDelimiterTokensDensePairingAllocationBounded(t *testing.T) {
 	const repeats = 1024
 	text := strings.Repeat("call(alpha[beta{gamma(delta)}], other);\n", repeats)

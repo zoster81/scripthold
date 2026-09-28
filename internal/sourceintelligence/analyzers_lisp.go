@@ -51,7 +51,7 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 		return AnalyzerResult{}, err
 	}
 	applyStructuralScanDiagnostics(builder, scan, language)
-	pairs := PairDelimiterTokens(scan.Tokens, profile.Delimiters)
+	pairs := pairOpeningDelimiterTokens(scan.Tokens, profile.Delimiters)
 	dependencies := []StructuralDependency{}
 	var currentParent *SymbolParent
 	packages := make(map[string]SymbolParent)
@@ -420,7 +420,7 @@ func addLispRequireDependency(document *SourceDocument, tokens []Token, start, e
 }
 
 func addClojureNamespaceDependencies(document *SourceDocument, tokens []Token, start, end int, dependencies *[]StructuralDependency) {
-	pairs := PairDelimiterTokens(tokens, nil)
+	pairs := pairOpeningDelimiterTokens(tokens, nil)
 	for index := start; index < end; index++ {
 		if !strings.EqualFold(tokens[index].Text, ":require") {
 			continue

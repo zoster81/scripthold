@@ -205,6 +205,14 @@ func (scanner *sourceScanner) scanDelimiter(match matchedDelimiter) error {
 }
 
 func PairDelimiterTokens(tokens []Token, rules []DelimiterRule) map[int]int {
+	return pairDelimiterTokens(tokens, rules, true)
+}
+
+func pairOpeningDelimiterTokens(tokens []Token, rules []DelimiterRule) map[int]int {
+	return pairDelimiterTokens(tokens, rules, false)
+}
+
+func pairDelimiterTokens(tokens []Token, rules []DelimiterRule, bidirectional bool) map[int]int {
 	if len(rules) == 0 {
 		rules = defaultDelimiterRules()
 	}
@@ -222,7 +230,11 @@ func PairDelimiterTokens(tokens []Token, rules []DelimiterRule) map[int]int {
 		close string
 	}
 	var stack []entry
-	pairs := make(map[int]int, delimiterPairCapacityHint(tokens, closeSet))
+	capacityHint := delimiterPairCapacityHint(tokens, closeSet)
+	if !bidirectional {
+		capacityHint /= 2
+	}
+	pairs := make(map[int]int, capacityHint)
 	for index, token := range tokens {
 		if close, ok := openToClose[token.Text]; ok {
 			stack = append(stack, entry{index: index, close: close})
@@ -237,7 +249,9 @@ func PairDelimiterTokens(tokens []Token, rules []DelimiterRule) map[int]int {
 		}
 		stack = stack[:len(stack)-1]
 		pairs[top.index] = index
-		pairs[index] = top.index
+		if bidirectional {
+			pairs[index] = top.index
+		}
 	}
 	return pairs
 }
