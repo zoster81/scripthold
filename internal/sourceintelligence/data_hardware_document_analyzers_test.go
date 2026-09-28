@@ -3,8 +3,24 @@ package sourceintelligence
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestHDLEndStaticTerminatorsAvoidPerCallRegexpCompilation(t *testing.T) {
+	text := "notendmodule\nENDMODULE // close\n"
+	want := strings.Index(text, "ENDMODULE") + len("ENDMODULE")
+	var got int
+	allocations := testing.AllocsPerRun(20, func() {
+		got = hdlEnd(text, 0, "endmodule")
+	})
+	if got != want {
+		t.Fatalf("hdlEnd = %d, want %d", got, want)
+	}
+	if allocations > 2 {
+		t.Fatalf("hdlEnd allocations = %.0f, want <= 2 for static terminator", allocations)
+	}
+}
 
 func TestNormalizedKindsAreAccepted(t *testing.T) {
 	for _, kind := range []SymbolKind{

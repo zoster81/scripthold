@@ -95,11 +95,14 @@ func vhdlEnd(text string, start int, kind, name string) int {
 }
 
 var (
-	verilogModule   = regexp.MustCompile(`(?im)^[ \t]*module[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
-	svPackage       = regexp.MustCompile(`(?im)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
-	svInterface     = regexp.MustCompile(`(?im)^[ \t]*interface[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
-	hdlSignal       = regexp.MustCompile(`(?i)\b(?:wire|reg|logic|bit)[ \t]+(?:signed[ \t]+|unsigned[ \t]+)?(?:\[[^\]\r\n]+\][ \t]+)?([A-Za-z_][A-Za-z0-9_$]*)\b`)
-	svTypedefStruct = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	verilogModule          = regexp.MustCompile(`(?im)^[ \t]*module[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
+	svPackage              = regexp.MustCompile(`(?im)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	svInterface            = regexp.MustCompile(`(?im)^[ \t]*interface[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
+	hdlSignal              = regexp.MustCompile(`(?i)\b(?:wire|reg|logic|bit)[ \t]+(?:signed[ \t]+|unsigned[ \t]+)?(?:\[[^\]\r\n]+\][ \t]+)?([A-Za-z_][A-Za-z0-9_$]*)\b`)
+	svTypedefStruct        = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	hdlEndModulePattern    = regexp.MustCompile(`(?i)\bendmodule\b`)
+	hdlEndPackagePattern   = regexp.MustCompile(`(?i)\bendpackage\b`)
+	hdlEndInterfacePattern = regexp.MustCompile(`(?i)\bendinterface\b`)
 )
 
 func (VerilogAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -173,7 +176,17 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 }
 
 func hdlEnd(text string, start int, terminator string) int {
-	pattern := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(terminator) + `\b`)
+	var pattern *regexp.Regexp
+	switch terminator {
+	case "endmodule":
+		pattern = hdlEndModulePattern
+	case "endpackage":
+		pattern = hdlEndPackagePattern
+	case "endinterface":
+		pattern = hdlEndInterfacePattern
+	default:
+		pattern = regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(terminator) + `\b`)
+	}
 	for _, line := range sourceTextLines(text[start:]) {
 		code := stripLineComment(line.text, "//")
 		if match := pattern.FindStringIndex(code); match != nil {
