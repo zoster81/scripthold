@@ -1797,18 +1797,36 @@ func maskCPPRawStrings(ctx context.Context, text string) (string, []ScannerDiagn
 }
 
 func cppRawStringStart(text string, index int) (prefixBytes, delimiterStart int, ok bool) {
-	for _, prefix := range []string{"u8R\"", "uR\"", "UR\"", "LR\"", "R\""} {
-		if strings.HasPrefix(text[index:], prefix) {
-			if index > 0 {
-				previous := text[index-1]
-				if previous == '_' || previous >= '0' && previous <= '9' || previous >= 'A' && previous <= 'Z' || previous >= 'a' && previous <= 'z' {
-					return 0, 0, false
-				}
-			}
-			return len(prefix), index + len(prefix), true
+	if index == len(text) {
+		return 0, 0, false
+	}
+	remaining := len(text) - index
+	switch text[index] {
+	case 'R':
+		if remaining >= 2 && text[index+1] == '"' {
+			prefixBytes = 2
+		}
+	case 'L', 'U':
+		if remaining >= 3 && text[index+1] == 'R' && text[index+2] == '"' {
+			prefixBytes = 3
+		}
+	case 'u':
+		if remaining >= 3 && text[index+1] == 'R' && text[index+2] == '"' {
+			prefixBytes = 3
+		} else if remaining >= 4 && text[index+1] == '8' && text[index+2] == 'R' && text[index+3] == '"' {
+			prefixBytes = 4
 		}
 	}
-	return 0, 0, false
+	if prefixBytes == 0 {
+		return 0, 0, false
+	}
+	if index > 0 {
+		previous := text[index-1]
+		if previous == '_' || previous >= '0' && previous <= '9' || previous >= 'A' && previous <= 'Z' || previous >= 'a' && previous <= 'z' {
+			return 0, 0, false
+		}
+	}
+	return prefixBytes, index + prefixBytes, true
 }
 
 func validCPPRawDelimiter(value string) bool {

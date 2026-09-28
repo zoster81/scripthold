@@ -14,6 +14,57 @@ import (
 var _ SourceAnalyzer = CAnalyzer{}
 var _ SourceAnalyzer = CPPAnalyzer{}
 
+func TestCPPRawStringStartRecognizesPrefixesAndIdentifierBoundaries(t *testing.T) {
+	cases := []struct {
+		name           string
+		text           string
+		index          int
+		wantPrefix     int
+		wantDelimiter  int
+		wantRecognized bool
+	}{
+		{name: "plain", text: `R"tag(`, wantPrefix: 2, wantDelimiter: 2, wantRecognized: true},
+		{name: "wide", text: `LR"tag(`, wantPrefix: 3, wantDelimiter: 3, wantRecognized: true},
+		{name: "utf32", text: `UR"tag(`, wantPrefix: 3, wantDelimiter: 3, wantRecognized: true},
+		{name: "utf16", text: `uR"tag(`, wantPrefix: 3, wantDelimiter: 3, wantRecognized: true},
+		{name: "utf8", text: `u8R"tag(`, wantPrefix: 4, wantDelimiter: 4, wantRecognized: true},
+		{name: "punctuation-boundary", text: `:R"tag(`, index: 1, wantPrefix: 2, wantDelimiter: 3, wantRecognized: true},
+		{name: "unicode-byte-boundary", text: "éR\"tag(", index: len("é"), wantPrefix: 2, wantDelimiter: len("é") + 2, wantRecognized: true},
+		{name: "identifier-letter", text: `xR"tag(`, index: 1},
+		{name: "identifier-digit", text: `0R"tag(`, index: 1},
+		{name: "identifier-underscore", text: `_R"tag(`, index: 1},
+		{name: "truncated", text: `u8R`, index: 0},
+		{name: "near-miss", text: `uXR"tag(`, index: 0},
+		{name: "end", text: `plain`, index: len("plain")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix, delimiter, ok := cppRawStringStart(tc.text, tc.index)
+			if prefix != tc.wantPrefix || delimiter != tc.wantDelimiter || ok != tc.wantRecognized {
+				t.Fatalf("cppRawStringStart(%q, %d) = (%d, %d, %v), want (%d, %d, %v)", tc.text, tc.index, prefix, delimiter, ok, tc.wantPrefix, tc.wantDelimiter, tc.wantRecognized)
+			}
+		})
+	}
+}
+
+func TestMaskCPPRawStringsLeavesNonRawLookalikesUnchanged(t *testing.T) {
+	cases := []string{
+		`// R"tag(class CommentFake {})tag"`,
+		`/* u8R"tag(class BlockCommentFake {})tag" */`,
+		`const char* text = "R\"tag(class QuotedFake {})tag\"";`,
+		`auto invalid = R"bad delim(class InvalidDelimiterFake {})bad delim";`,
+	}
+	for _, text := range cases {
+		masked, diagnostics, err := maskCPPRawStrings(context.Background(), text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if masked != text || len(diagnostics) != 0 {
+			t.Fatalf("non-raw lookalike changed: masked=%q diagnostics=%+v", masked, diagnostics)
+		}
+	}
+}
+
 func TestCAnalyzerDeclarationsDefinitionsIncludesAndFalsePositiveResistance(t *testing.T) {
 	text := `#include <stdio.h>
 #include "local.h"
@@ -85,6 +136,12 @@ using IntBox = Box<int>;
 int work(int value);
 double work(double value);
 const char* raw = R"tag(class RawFake { void Nope(); })tag";
+const wchar_t* wide = LR"tag(class WideRawFake { void NopeWide(); })tag";
+const char32_t* utf32 = UR"tag(class UTF32RawFake { void Nope32(); })tag";
+const char16_t* utf16 = uR"tag(class UTF16RawFake { void Nope16(); })tag";
+const char8_t* utf8 = u8R"tag(class UTF8RawFake { void Nope8(); })tag";
+const char* ordinary = "R\"tag(class QuotedFake {})tag\"";
+// R"tag(class CommentRawFake {})tag"
 }
 `
 	document := sourceDocumentForScanner(text)
@@ -121,7 +178,8 @@ const char* raw = R"tag(class RawFake { void Nope(); })tag";
 		if symbol.QualifiedName == "Demo.work" {
 			overloadIDs = append(overloadIDs, symbol.ID)
 		}
-		if symbol.Name == "MacroFake" || symbol.Name == "RawFake" || symbol.Name == "Nope" {
+		switch symbol.Name {
+		case "MacroFake", "RawFake", "Nope", "WideRawFake", "NopeWide", "UTF32RawFake", "Nope32", "UTF16RawFake", "Nope16", "UTF8RawFake", "Nope8", "QuotedFake", "CommentRawFake":
 			t.Fatalf("C++ false positive: %+v", symbol)
 		}
 	}

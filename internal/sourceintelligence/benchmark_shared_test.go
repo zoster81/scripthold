@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+var cppRawStringStartBenchmarkSink int
+
 func BenchmarkSharedScannerPrimitives(b *testing.B) {
 	text := strings.Repeat("namespace Demo { class Item { string Text = \"value // not comment\"; void Run() { /* comment */ Call(\"x\"); } } }\n", 512)
 	document := sourceDocumentForScanner(text)
@@ -652,6 +654,39 @@ func BenchmarkSharedProjectQueryAndContext(b *testing.B) {
 			if len(plan.Candidates) == 0 {
 				b.Fatal("project context returned no candidates")
 			}
+		}
+	})
+}
+
+func BenchmarkCPPRawStringStart(b *testing.B) {
+	negative := strings.Repeat("ordinary_identifier + value; ", 64)
+	matches := []string{`R"tag(`, `LR"tag(`, `UR"tag(`, `uR"tag(`, `u8R"tag(`}
+	b.Run("negative-heavy", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(negative)))
+		for iteration := 0; iteration < b.N; iteration++ {
+			total := 0
+			for index := 0; index < len(negative); index++ {
+				prefix, delimiter, ok := cppRawStringStart(negative, index)
+				if ok {
+					total += prefix + delimiter
+				}
+			}
+			cppRawStringStartBenchmarkSink = total
+		}
+	})
+	b.Run("all-prefixes", func(b *testing.B) {
+		b.ReportAllocs()
+		for iteration := 0; iteration < b.N; iteration++ {
+			total := 0
+			for _, text := range matches {
+				prefix, delimiter, ok := cppRawStringStart(text, 0)
+				if !ok {
+					b.Fatal("raw string prefix was not recognized")
+				}
+				total += prefix + delimiter
+			}
+			cppRawStringStartBenchmarkSink = total
 		}
 	})
 }
