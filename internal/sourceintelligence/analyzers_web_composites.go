@@ -860,7 +860,7 @@ func analyzeMaskedEmbeddedRegion(ctx context.Context, host *SourceDocument, mask
 	}
 	clone := *host
 	clone.Text = masked
-	clone.lineStarts = buildLineStarts(masked)
+	clone.lineStarts = lineStartsForDerivedText(host, masked)
 	source, err := delegate.Analyze(ctx, &clone, options)
 	if err != nil {
 		return AnalyzerResult{}, err

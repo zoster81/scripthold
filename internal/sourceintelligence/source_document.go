@@ -167,6 +167,40 @@ func buildLineStarts(text string) []int {
 	return starts
 }
 
+func lineStartsForDerivedText(document *SourceDocument, text string) []int {
+	if document != nil {
+		if text == document.Text || lineStartsMatchText(document.lineStarts, text) {
+			return document.lineStarts
+		}
+	}
+	return buildLineStarts(text)
+}
+
+func lineStartsMatchText(starts []int, text string) bool {
+	if len(starts) == 0 || starts[0] != 0 {
+		return false
+	}
+	startIndex := 1
+	for index := 0; index < len(text); index++ {
+		switch text[index] {
+		case '\r':
+			if index+1 < len(text) && text[index+1] == '\n' {
+				index++
+			}
+			if startIndex >= len(starts) || starts[startIndex] != index+1 {
+				return false
+			}
+			startIndex++
+		case '\n':
+			if startIndex >= len(starts) || starts[startIndex] != index+1 {
+				return false
+			}
+			startIndex++
+		}
+	}
+	return startIndex == len(starts)
+}
+
 // PositionAtUTF8Offset translates an internal decoded UTF-8 byte boundary into
 // the frozen public 1-based Unicode-scalar coordinate system.
 func (document *SourceDocument) PositionAtUTF8Offset(offset int) (Position, error) {

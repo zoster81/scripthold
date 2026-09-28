@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -96,6 +97,33 @@ func TestOpenSourceDocumentEncodingAndCoordinates(t *testing.T) {
 				t.Fatal("accepted UTF-8 offset inside a multibyte scalar")
 			}
 		})
+	}
+}
+
+func TestDerivedLineStartsReuseCompatibleLayout(t *testing.T) {
+	baseText := "alpha\r\nbeta\ngamma"
+	document := &SourceDocument{Text: baseText, lineStarts: buildLineStarts(baseText)}
+
+	compatible := "ALPHA\r\nBETA\nGAMMA"
+	var reused []int
+	allocations := testing.AllocsPerRun(20, func() {
+		reused = lineStartsForDerivedText(document, compatible)
+	})
+	if allocations != 0 {
+		t.Fatalf("compatible derived line starts allocations = %.0f, want 0", allocations)
+	}
+	if len(reused) == 0 || &reused[0] != &document.lineStarts[0] {
+		t.Fatal("compatible derived text did not reuse source line starts")
+	}
+
+	changed := "alpha\nbeta\r\ngamma"
+	rebuilt := lineStartsForDerivedText(document, changed)
+	want := buildLineStarts(changed)
+	if !reflect.DeepEqual(rebuilt, want) {
+		t.Fatalf("changed derived line starts = %v, want %v", rebuilt, want)
+	}
+	if len(rebuilt) > 0 && &rebuilt[0] == &document.lineStarts[0] {
+		t.Fatal("changed line layout unexpectedly reused source line starts")
 	}
 }
 

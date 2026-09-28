@@ -42,7 +42,7 @@ func (s *structuralAnalyzerState) scan(options AnalyzeOptions, profile ScannerPr
 	}
 	clone := *s.document
 	clone.Text = masked
-	clone.lineStarts = buildLineStarts(masked)
+	clone.lineStarts = lineStartsForDerivedText(s.document, masked)
 	maxNesting := options.MaxNesting
 	if maxNesting <= 0 {
 		maxNesting = 2048

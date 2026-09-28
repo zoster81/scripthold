@@ -338,7 +338,7 @@ func maskCFamilyStructuralMacroEffects(ctx context.Context, document *SourceDocu
 	}
 	probe := *document
 	probe.Text = text
-	probe.lineStarts = buildLineStarts(text)
+	probe.lineStarts = lineStartsForDerivedText(document, text)
 	probeProfile := profile
 	probeProfile.DisableDelimiterTracking = true
 	scan, err := ScanSource(ctx, &probe, probeProfile, ScannerLimits{MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: max(1, maxNesting)})
