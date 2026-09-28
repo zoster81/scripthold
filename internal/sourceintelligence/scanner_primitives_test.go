@@ -11,7 +11,10 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-var scannerProfileAllocationSink ScannerProfile
+var (
+	scannerProfileAllocationSink ScannerProfile
+	asciiLowerAllocationSink     string
+)
 
 func TestTokenRepresentationRemainsCompact(t *testing.T) {
 	var kind TokenKind
@@ -819,6 +822,40 @@ func TestFixedAndFreeLineModelsPreserveOffsetsContinuationAndLabels(t *testing.T
 	label, ok := RecognizeLineLabel(freeDoc, freeLines[0], LineLabelProfile{Style: LineLabelColon, Identifier: DefaultIdentifierPolicy()})
 	if !ok || label.Name != "start" {
 		t.Fatalf("colon label = %+v, %v", label, ok)
+	}
+}
+
+func TestASCIILowerPreservingBytesAvoidsRedundantCopies(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "empty", text: "", want: ""},
+		{name: "lowercase", text: "already-lower-é", want: "already-lower-é"},
+		{name: "mixed", text: "Blade-É-DIRECTIVE", want: "blade-É-directive"},
+		{name: "invalid-byte", text: string([]byte{'A', 0xff, 'Z'}), want: string([]byte{'a', 0xff, 'z'})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := asciiLowerPreservingBytes(tc.text)
+			if got != tc.want || !reflect.DeepEqual([]byte(got), []byte(tc.want)) {
+				t.Fatalf("asciiLowerPreservingBytes(%q) = %q bytes=%v, want %q bytes=%v", tc.text, got, []byte(got), tc.want, []byte(tc.want))
+			}
+		})
+	}
+
+	lower := strings.Repeat("already-lower-é", 256) + string([]byte{0xff})
+	if allocations := testing.AllocsPerRun(20, func() {
+		asciiLowerAllocationSink = asciiLowerPreservingBytes(lower)
+	}); allocations != 0 {
+		t.Fatalf("lowercase allocations = %.0f, want 0", allocations)
+	}
+	mixed := strings.Repeat("Blade-DIRECTIVE-é", 256) + string([]byte{0xff})
+	if allocations := testing.AllocsPerRun(20, func() {
+		asciiLowerAllocationSink = asciiLowerPreservingBytes(mixed)
+	}); allocations > 1 {
+		t.Fatalf("mixed-case allocations = %.0f, want <= 1", allocations)
 	}
 }
 

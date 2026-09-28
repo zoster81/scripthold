@@ -387,6 +387,25 @@ func BenchmarkSharedSymbolBuilderDuplicateTracking(b *testing.B) {
 	}
 }
 
+func BenchmarkASCIILowerPreservingBytes(b *testing.B) {
+	cases := []struct {
+		name string
+		text string
+	}{
+		{name: "lowercase", text: strings.Repeat("blade-template-é-", 256)},
+		{name: "mixed", text: strings.Repeat("Blade-TEMPLATE-é-", 256)},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tc.text)))
+			for iteration := 0; iteration < b.N; iteration++ {
+				asciiLowerAllocationSink = asciiLowerPreservingBytes(tc.text)
+			}
+		})
+	}
+}
+
 func BenchmarkSharedCompositeSegmentation(b *testing.B) {
 	text := strings.Repeat("<div>host</div><% class Demo { void Run() {} } %>{{ value }}\n", 512)
 	document := sourceDocumentForScanner(text)

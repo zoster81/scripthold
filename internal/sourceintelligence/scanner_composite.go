@@ -203,13 +203,35 @@ func MaskOutsideRanges(text string, keep []OffsetRange) (string, error) {
 }
 
 func asciiLowerPreservingBytes(text string) string {
-	lower := []byte(text)
-	for index, value := range lower {
+	firstUpper := -1
+	for index := 0; index < len(text); index++ {
+		value := text[index]
 		if value >= 'A' && value <= 'Z' {
-			lower[index] = value + ('a' - 'A')
+			firstUpper = index
+			break
 		}
 	}
-	return string(lower)
+	if firstUpper < 0 {
+		return text
+	}
+
+	var lower strings.Builder
+	lower.Grow(len(text))
+	lower.WriteString(text[:firstUpper])
+	var block [1024]byte
+	for start := firstUpper; start < len(text); {
+		end := min(start+len(block), len(text))
+		chunk := block[:end-start]
+		copy(chunk, text[start:end])
+		for index, value := range chunk {
+			if value >= 'A' && value <= 'Z' {
+				chunk[index] = value + ('a' - 'A')
+			}
+		}
+		_, _ = lower.Write(chunk)
+		start = end
+	}
+	return lower.String()
 }
 
 func utf8Boundary(text string, offset int) bool {
