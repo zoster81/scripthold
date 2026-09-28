@@ -1004,27 +1004,31 @@ func selfClosingTagOpening(opening string) bool {
 }
 
 func addBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, probe string) ([]bladeVoltComponent, error) {
-	declarations := make([]bladeDeclaration, 0, 8)
-	for _, match := range bladeSectionPattern.FindAllStringSubmatchIndex(probe, -1) {
+	sectionMatches := bladeSectionPattern.FindAllStringSubmatchIndex(probe, -1)
+	voltMatches := bladeVoltPattern.FindAllStringSubmatchIndex(probe, -1)
+	declarations := make([]bladeDeclaration, 0, len(sectionMatches)+len(voltMatches))
+	for _, match := range sectionMatches {
 		declarations = append(declarations, bladeDeclaration{
 			kind: SymbolKindSection, nativeKind: "section", name: document.Text[match[2]:match[3]],
 			declaration: OffsetRange{Start: match[0], End: match[1]}, nameRange: OffsetRange{Start: match[2], End: match[3]},
 		})
 	}
-	for _, match := range bladeVoltPattern.FindAllStringSubmatchIndex(probe, -1) {
+	validVoltMatches := 0
+	for _, match := range voltMatches {
 		if match[0] > 0 && probe[match[0]-1] == '@' {
 			continue
 		}
+		validVoltMatches++
 		declarations = append(declarations, bladeDeclaration{
 			kind: SymbolKindEntity, nativeKind: "volt-component", name: document.Text[match[2]:match[3]], volt: true,
 			declaration: OffsetRange{Start: match[0], End: match[1]}, nameRange: OffsetRange{Start: match[2], End: match[3]},
 		})
 	}
-	sort.SliceStable(declarations, func(i, j int) bool { return declarations[i].declaration.Start < declarations[j].declaration.Start })
 	if len(declarations) > 1 {
+		sort.SliceStable(declarations, func(i, j int) bool { return declarations[i].declaration.Start < declarations[j].declaration.Start })
 		builder.reserveSymbols(len(declarations))
 	}
-	components := make([]bladeVoltComponent, 0, len(declarations))
+	components := make([]bladeVoltComponent, 0, validVoltMatches)
 	for _, declaration := range declarations {
 		symbol, err := builder.Add(SymbolSpec{
 			Kind: declaration.kind, NativeKind: declaration.nativeKind, Name: declaration.name,
