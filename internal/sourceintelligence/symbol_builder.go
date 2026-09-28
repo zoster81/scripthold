@@ -240,7 +240,10 @@ type AnalysisResult struct {
 	DiagnosticsTruncated bool                 `json:"diagnosticsTruncated,omitempty"`
 }
 
-const retainedOffsetRangeMaxBlockSize = 16
+const (
+	retainedOffsetRangeMaxBlockSize = 16
+	symbolBuilderLinearIDLimit      = 4
+)
 
 // SymbolBuilder centralizes ranges, hierarchy, evidence, IDs, limits, diagnostics,
 // ordering, and coverage so language analyzers cannot silently diverge.
@@ -272,7 +275,6 @@ func NewSymbolBuilder(document *SourceDocument, options SymbolBuilderOptions) *S
 		result: AnalysisResult{
 			CoverageComplete: true,
 		},
-		seenIDs: make(map[string]struct{}),
 	}
 	builder.validationErr = validateSymbolBuilderOptions(document, options)
 	if builder.validationErr != nil {
@@ -398,7 +400,7 @@ func (builder *SymbolBuilder) add(spec SymbolSpec) (NormalizedSymbol, error) {
 	if err != nil {
 		return NormalizedSymbol{}, err
 	}
-	if _, exists := builder.seenIDs[normalized.ID]; exists {
+	if builder.symbolIDSeen(normalized.ID) {
 		return NormalizedSymbol{}, operation.Wrap(
 			operation.KindInvalidInput,
 			"build_source_symbol",
@@ -406,7 +408,6 @@ func (builder *SymbolBuilder) add(spec SymbolSpec) (NormalizedSymbol, error) {
 			fmt.Errorf("duplicate symbol identity %s", normalized.ID),
 		)
 	}
-	builder.seenIDs[normalized.ID] = struct{}{}
 	builder.result.Symbols = append(builder.result.Symbols, normalized)
 	if normalized.signatureTruncated {
 		builder.result.Truncated = true
@@ -416,6 +417,30 @@ func (builder *SymbolBuilder) add(spec SymbolSpec) (NormalizedSymbol, error) {
 		}, true)
 	}
 	return normalized, nil
+}
+
+func (builder *SymbolBuilder) symbolIDSeen(id string) bool {
+	if builder.seenIDs != nil {
+		if _, exists := builder.seenIDs[id]; exists {
+			return true
+		}
+		builder.seenIDs[id] = struct{}{}
+		return false
+	}
+	for index := range builder.result.Symbols {
+		if builder.result.Symbols[index].ID == id {
+			return true
+		}
+	}
+	if len(builder.result.Symbols) >= symbolBuilderLinearIDLimit {
+		capacity := min(builder.options.Limits.MaxSymbols, len(builder.result.Symbols)+1)
+		builder.seenIDs = make(map[string]struct{}, capacity)
+		for index := range builder.result.Symbols {
+			builder.seenIDs[builder.result.Symbols[index].ID] = struct{}{}
+		}
+		builder.seenIDs[id] = struct{}{}
+	}
+	return false
 }
 
 func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol, error) {

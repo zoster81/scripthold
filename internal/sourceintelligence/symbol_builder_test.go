@@ -103,6 +103,53 @@ func TestSymbolBuilderReserveSymbolsClampsAndPreservesRetainedData(t *testing.T)
 	}
 }
 
+func TestSymbolBuilderDuplicateTrackingStaysLinearThenPromotesToMap(t *testing.T) {
+	const symbolCount = symbolBuilderLinearIDLimit + 1
+	var source strings.Builder
+	specs := make([]SymbolSpec, 0, symbolCount)
+	for index := 0; index < symbolCount; index++ {
+		name := fmt.Sprintf("item%02d", index)
+		start := source.Len()
+		source.WriteString(name)
+		source.WriteByte('\n')
+		specs = append(specs, SymbolSpec{
+			Kind: SymbolKindVariable, NativeKind: "variable", Name: name,
+			Declaration: OffsetRange{Start: start, End: start + len(name)},
+			NameRange:   OffsetRange{Start: start, End: start + len(name)},
+		})
+	}
+	builder := NewSymbolBuilder(sourceDocumentForScanner(source.String()), SymbolBuilderOptions{
+		Language: "test", Analyzer: "test", MaxEvidence: SymbolEvidenceStructural,
+		Limits: SymbolBuilderLimits{MaxSymbols: symbolCount + 1, MaxSignatureBytes: 1024, MaxDiagnostics: 8},
+	})
+	for index := 0; index < symbolBuilderLinearIDLimit; index++ {
+		if err := builder.addDiscard(specs[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if builder.seenIDs != nil {
+		t.Fatal("small symbol set unexpectedly allocated duplicate-ID map")
+	}
+	if err := builder.addDiscard(specs[0]); operation.KindOf(err) != operation.KindInvalidInput {
+		t.Fatalf("linear duplicate error kind = %v, want invalid input", operation.KindOf(err))
+	}
+	if builder.seenIDs != nil {
+		t.Fatal("rejected linear duplicate unexpectedly allocated duplicate-ID map")
+	}
+	if err := builder.addDiscard(specs[symbolBuilderLinearIDLimit]); err != nil {
+		t.Fatal(err)
+	}
+	if builder.seenIDs == nil || len(builder.seenIDs) != symbolCount {
+		t.Fatalf("promoted duplicate-ID map size = %d, want %d", len(builder.seenIDs), symbolCount)
+	}
+	if err := builder.addDiscard(specs[symbolBuilderLinearIDLimit]); operation.KindOf(err) != operation.KindInvalidInput {
+		t.Fatalf("mapped duplicate error kind = %v, want invalid input", operation.KindOf(err))
+	}
+	if got := len(builder.result.Symbols); got != symbolCount {
+		t.Fatalf("retained symbols = %d, want %d", got, symbolCount)
+	}
+}
+
 func TestSymbolBuilderAddDiscardMatchesAddResult(t *testing.T) {
 	text := "class Item {\n    void Work() { }\n}\n"
 	document := sourceDocumentForScanner(text)

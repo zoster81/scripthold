@@ -348,6 +348,45 @@ func BenchmarkSharedSymbolBuilderScaling(b *testing.B) {
 	}
 }
 
+func BenchmarkSharedSymbolBuilderDuplicateTracking(b *testing.B) {
+	for _, symbolCount := range []int{1, 4, 8, 9, 64} {
+		var source strings.Builder
+		specs := make([]SymbolSpec, 0, symbolCount)
+		for index := 0; index < symbolCount; index++ {
+			name := fmt.Sprintf("item%04d", index)
+			start := source.Len()
+			source.WriteString(name)
+			source.WriteByte('\n')
+			specs = append(specs, SymbolSpec{
+				Kind: SymbolKindVariable, NativeKind: "variable", Name: name,
+				Declaration: OffsetRange{Start: start, End: start + len(name)},
+				NameRange:   OffsetRange{Start: start, End: start + len(name)},
+			})
+		}
+		document := sourceDocumentForScanner(source.String())
+		options := SymbolBuilderOptions{
+			Language: "go", Analyzer: string(AnalyzerGo), MaxEvidence: SymbolEvidenceStructural,
+			Limits: SymbolBuilderLimits{MaxSymbols: symbolCount, MaxSignatureBytes: 8192, MaxDiagnostics: 64},
+		}
+		b.Run(fmt.Sprintf("symbols-%d", symbolCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				builder := NewSymbolBuilder(document, options)
+				for _, spec := range specs {
+					if err := builder.addDiscard(spec); err != nil {
+						b.Fatal(err)
+					}
+				}
+				result := builder.takeResult()
+				if len(result.Symbols) != symbolCount || !result.CoverageComplete {
+					b.Fatalf("unexpected duplicate-tracking result: symbols=%d complete=%t", len(result.Symbols), result.CoverageComplete)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedCompositeSegmentation(b *testing.B) {
 	text := strings.Repeat("<div>host</div><% class Demo { void Run() {} } %>{{ value }}\n", 512)
 	document := sourceDocumentForScanner(text)
