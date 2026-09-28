@@ -240,7 +240,7 @@ func maskDelimitedSourceRegions(text string, regions [][2]string) string {
 	for index := 0; index < len(text); {
 		matched := false
 		for _, region := range regions {
-			if region[0] == "" || region[1] == "" || !strings.HasPrefix(text[index:], region[0]) {
+			if region[0] == "" || region[1] == "" || region[0][0] != text[index] || !strings.HasPrefix(text[index:], region[0]) {
 				continue
 			}
 			if masked == nil {

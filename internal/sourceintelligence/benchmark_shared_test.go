@@ -30,6 +30,28 @@ func BenchmarkScannerDelimiterValidation(b *testing.B) {
 	}
 }
 
+var maskDelimitedSourceRegionsBenchmarkSink string
+
+func BenchmarkMaskDelimitedSourceRegions(b *testing.B) {
+	regions := [][2]string{{"<!--", "-->"}, {"{#", "#}"}, {"{{", "}}"}}
+	cases := []struct {
+		name string
+		text string
+	}{
+		{name: "negative-heavy", text: strings.Repeat("plain markup text value=42; ", 256)},
+		{name: "mixed", text: strings.Repeat("plain markup text ", 64) + "<!-- hidden -->" + strings.Repeat(" visible ", 32) + "{# secret #}" + strings.Repeat(" tail ", 32) + "{{ expression }}"},
+	}
+	for _, testCase := range cases {
+		b.Run(testCase.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(testCase.text)))
+			for iteration := 0; iteration < b.N; iteration++ {
+				maskDelimitedSourceRegionsBenchmarkSink = maskDelimitedSourceRegions(testCase.text, regions)
+			}
+		})
+	}
+}
+
 func BenchmarkSharedScannerPrimitives(b *testing.B) {
 	text := strings.Repeat("namespace Demo { class Item { string Text = \"value // not comment\"; void Run() { /* comment */ Call(\"x\"); } } }\n", 512)
 	document := sourceDocumentForScanner(text)
