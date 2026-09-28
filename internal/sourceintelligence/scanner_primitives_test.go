@@ -49,6 +49,46 @@ func TestScanSourceDoesNotMutateCallerRuleSlices(t *testing.T) {
 	}
 }
 
+func TestScannerCaseSensitiveKeywordLookupStrategiesPreserveSemantics(t *testing.T) {
+	profile := ScannerProfile{Name: "keyword-strategy", Keywords: []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota"}}
+	cases := []struct {
+		name    string
+		text    string
+		wantMap bool
+	}{
+		{name: "small-source-linear", text: "alpha iota other", wantMap: false},
+		{name: "large-source-map", text: strings.Repeat(" ", scannerLinearKeywordSourceBytesLimit+1) + "alpha iota other", wantMap: true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := shouldBuildCaseSensitiveKeywordMap(len(testCase.text), len(profile.Keywords)); got != testCase.wantMap {
+				t.Fatalf("keyword map strategy = %t, want %t", got, testCase.wantMap)
+			}
+			result := scanSourceText(t, testCase.text, profile, scannerTestLimits)
+			var alpha, iota, other TokenKind
+			for _, token := range result.Tokens {
+				switch token.Text {
+				case "alpha":
+					alpha = token.Kind
+				case "iota":
+					iota = token.Kind
+				case "other":
+					other = token.Kind
+				}
+			}
+			if alpha != TokenKeyword || iota != TokenKeyword || other != TokenIdentifier {
+				t.Fatalf("keyword classification changed: alpha=%v iota=%v other=%v", alpha, iota, other)
+			}
+		})
+	}
+	if shouldBuildCaseSensitiveKeywordMap(1<<20, scannerLinearKeywordCountLimit) {
+		t.Fatal("small keyword sets should stay linear regardless of source size")
+	}
+	if !shouldBuildCaseSensitiveKeywordMap(1, scannerLinearKeywordSmallSourceMaxKeywordCount+1) {
+		t.Fatal("oversized keyword sets should use a map even for small sources")
+	}
+}
+
 func TestScannerIdentifierFastPathMatchesGenericPolicy(t *testing.T) {
 	policies := []IdentifierPolicy{
 		DefaultIdentifierPolicy(),

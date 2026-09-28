@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	ScannerMaxDiagnostics            = 64
-	scannerInitialTokenCapacityLimit = 32 * 1024
+	ScannerMaxDiagnostics                          = 64
+	scannerInitialTokenCapacityLimit               = 32 * 1024
+	scannerLinearKeywordCountLimit                 = 8
+	scannerLinearKeywordSourceBytesLimit           = 256
+	scannerLinearKeywordSmallSourceMaxKeywordCount = 128
 )
 
 // TokenKind is a language-neutral lexical category.
@@ -155,7 +158,7 @@ func ScanSource(ctx context.Context, document *SourceDocument, profile ScannerPr
 			}
 			scanner.caseInsensitiveKeywordCollisions[hash] = append(scanner.caseInsensitiveKeywordCollisions[hash], keyword)
 		}
-	} else {
+	} else if shouldBuildCaseSensitiveKeywordMap(len(document.Text), len(profile.Keywords)) {
 		scanner.keywords = make(map[string]struct{}, len(profile.Keywords))
 		for _, keyword := range profile.Keywords {
 			scanner.keywords[keyword] = struct{}{}
@@ -1105,10 +1108,25 @@ func (scanner *sourceScanner) segmentEndsAtLineStart(start, end int) bool {
 
 func (scanner *sourceScanner) isKeyword(value string) bool {
 	if !scanner.profile.CaseInsensitive {
-		_, ok := scanner.keywords[value]
-		return ok
+		if scanner.keywords != nil {
+			_, ok := scanner.keywords[value]
+			return ok
+		}
+		for _, keyword := range scanner.profile.Keywords {
+			if value == keyword {
+				return true
+			}
+		}
+		return false
 	}
 	return scanner.isCaseInsensitiveKeyword(value)
+}
+
+func shouldBuildCaseSensitiveKeywordMap(sourceBytes, keywordCount int) bool {
+	if keywordCount <= scannerLinearKeywordCountLimit {
+		return false
+	}
+	return sourceBytes > scannerLinearKeywordSourceBytesLimit || keywordCount > scannerLinearKeywordSmallSourceMaxKeywordCount
 }
 
 func (scanner *sourceScanner) isCaseInsensitiveKeyword(value string) bool {

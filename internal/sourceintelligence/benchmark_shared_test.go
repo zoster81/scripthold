@@ -141,6 +141,38 @@ func BenchmarkSharedScannerCaseInsensitiveKeywords(b *testing.B) {
 	}
 }
 
+func BenchmarkSharedScannerCaseSensitiveKeywordStrategies(b *testing.B) {
+	cases := []struct {
+		name    string
+		profile ScannerProfile
+		line    string
+		repeats int
+	}{
+		{name: "small-set-large-source", profile: ScannerProfile{Name: "small-keywords", Keywords: []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"}}, line: "alpha beta gamma value delta epsilon zeta eta theta value\n", repeats: 128},
+		{name: "large-set-small-source", profile: CPPScannerProfile(), line: "namespace demo { class Box { int run(int value) { return value; } } }\n", repeats: 1},
+		{name: "large-set-large-source", profile: CPPScannerProfile(), line: "namespace demo { class Box { int run(int value) { return value; } } }\n", repeats: 128},
+	}
+	for _, testCase := range cases {
+		text := strings.Repeat(testCase.line, testCase.repeats)
+		b.Run(testCase.name, func(b *testing.B) {
+			document := sourceDocumentForScanner(text)
+			limits := ScannerLimits{MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: 256}
+			b.ReportAllocs()
+			b.SetBytes(int64(len(text)))
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := ScanSource(context.Background(), document, testCase.profile, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if !result.Complete || len(result.Tokens) == 0 {
+					b.Fatalf("unexpected keyword-strategy result: complete=%t tokens=%d diagnostics=%+v", result.Complete, len(result.Tokens), result.Diagnostics)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedScannerDeepNesting(b *testing.B) {
 	const depth = 192
 	const groups = 64
