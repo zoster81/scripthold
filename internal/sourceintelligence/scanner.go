@@ -760,10 +760,16 @@ func (scanner *sourceScanner) consumeInterpolatedString(match matchedStringRule,
 func (scanner *sourceScanner) scanIdentifier(firstRuneSize int) error {
 	start := scanner.at
 	scanner.at += firstRuneSize
+	policy := scanner.profile.Identifier
 	for scanner.at < len(scanner.text) {
 		next := scanner.text[scanner.at]
 		if next < utf8.RuneSelf {
-			if !scanner.identifierContinue(rune(next)) {
+			if !(policy.Underscore && next == '_' ||
+				policy.UnicodeLetters && (next >= 'a' && next <= 'z' || next >= 'A' && next <= 'Z') ||
+				policy.UnicodeDigits && next >= '0' && next <= '9' ||
+				policy.UnicodeMarks && next == '_' ||
+				strings.IndexByte(policy.ExtraStart, next) >= 0 ||
+				strings.IndexByte(policy.ExtraContinue, next) >= 0) {
 				break
 			}
 			scanner.at++

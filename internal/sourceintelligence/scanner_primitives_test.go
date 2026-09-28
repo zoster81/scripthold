@@ -48,6 +48,31 @@ func TestScannerIdentifierFastPathMatchesGenericPolicy(t *testing.T) {
 	}
 }
 
+func TestScannerIdentifierScanPreservesASCIIExtrasAndUnicodeFallback(t *testing.T) {
+	profile := ScannerProfile{
+		Name: "identifier-fast-path",
+		Identifier: IdentifierPolicy{
+			UnicodeLetters: true,
+			UnicodeDigits:  true,
+			UnicodeMarks:   true,
+			Underscore:     true,
+			ExtraStart:     "$@",
+			ExtraContinue:  "-?!",
+		},
+	}
+	result := scanSourceText(t, "$foo-bar9 élan9 @β?! á_2", profile, scannerTestLimits)
+	var got []string
+	for _, token := range result.Tokens {
+		if token.Kind == TokenIdentifier {
+			got = append(got, token.Text)
+		}
+	}
+	want := []string{"$foo-bar9", "élan9", "@β?!", "á_2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("identifier tokens = %q, want %q", got, want)
+	}
+}
+
 func TestScannerCaseInsensitiveKeywordsPreserveUnicodeLowerSemantics(t *testing.T) {
 	profile := ScannerProfile{
 		Name:            "case-insensitive-keywords",
