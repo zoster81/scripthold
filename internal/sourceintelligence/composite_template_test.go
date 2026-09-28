@@ -116,6 +116,24 @@ function load() { return 1 }
 	}
 }
 
+func TestMaskCompositeRangesEmptyAvoidsAllocation(t *testing.T) {
+	text := strings.Repeat("<main>host</main>\n", 128)
+	var masked string
+	var err error
+	allocations := testing.AllocsPerRun(20, func() {
+		masked, err = maskCompositeRanges(text, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if masked != text {
+		t.Fatal("empty composite mask changed source text")
+	}
+	if allocations != 0 {
+		t.Fatalf("empty composite mask allocations = %.0f, want 0", allocations)
+	}
+}
+
 func TestPHPHTMLCodeOnlyFileMayEndInsidePHPRegion(t *testing.T) {
 	text := `<?php
 class Demo {

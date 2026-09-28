@@ -1391,6 +1391,9 @@ func embeddedRegionFullRanges(regions []compositeEmbeddedRegion) []OffsetRange {
 }
 
 func maskCompositeRanges(text string, ranges []OffsetRange) (string, error) {
+	if len(ranges) == 0 {
+		return text, nil
+	}
 	masked := []byte(text)
 	for _, value := range ranges {
 		if value.Start < 0 || value.End < value.Start || value.End > len(text) || !utf8Boundary(text, value.Start) || !utf8Boundary(text, value.End) {
