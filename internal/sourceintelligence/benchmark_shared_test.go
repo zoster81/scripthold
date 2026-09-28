@@ -780,6 +780,31 @@ func BenchmarkRepresentativeFamilyAnalyzers(b *testing.B) {
 	}
 }
 
+func BenchmarkHDLSignalExtraction(b *testing.B) {
+	var source strings.Builder
+	source.WriteString("module demo;\n")
+	for index := 0; index < 256; index++ {
+		fmt.Fprintf(&source, "logic signal_%03d;\n", index)
+	}
+	source.WriteString("endmodule\n")
+	document := sourceDocumentForScanner(source.String())
+	document.Path = "bench.sv"
+	analyzer := SystemVerilogAnalyzer{}
+	options := AnalyzeOptions{IncludeSignatures: true, MaxNesting: 256, Limits: SymbolBuilderLimits{MaxSymbols: 10_000, MaxSignatureBytes: 8192, MaxDiagnostics: 256}}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(document.Text)))
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		result, err := analyzer.Analyze(context.Background(), document, options)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(result.Analysis.Symbols) != 257 || !result.Analysis.CoverageComplete {
+			b.Fatalf("unexpected SystemVerilog result: symbols=%d complete=%t", len(result.Analysis.Symbols), result.Analysis.CoverageComplete)
+		}
+	}
+}
+
 func BenchmarkBladeDeclarationRetention(b *testing.B) {
 	for _, declarationCount := range []int{1, 2, 4, 8, 16, 32, 64, 128} {
 		b.Run(fmt.Sprintf("declarations-%d", declarationCount), func(b *testing.B) {

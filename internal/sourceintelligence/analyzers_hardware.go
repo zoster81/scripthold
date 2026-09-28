@@ -201,11 +201,20 @@ func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string,
 		return
 	}
 	body := source[start:end]
-	for _, match := range hdlSignal.FindAllStringSubmatchIndex(body, -1) {
-		name := document.Text[start+match[2] : start+match[3]]
+	for search := 0; search < len(body); {
+		match := hdlSignal.FindStringSubmatchIndex(body[search:])
+		if match == nil {
+			break
+		}
+		matchStart := search + match[0]
+		matchEnd := search + match[1]
+		nameStart := search + match[2]
+		nameEnd := search + match[3]
+		name := document.Text[start+nameStart : start+nameEnd]
 		addDocumentDataHardwareSymbol(builder, SymbolKindSignal, "signal", name, parent,
-			OffsetRange{Start: start + match[0], End: start + match[1]},
-			OffsetRange{Start: start + match[2], End: start + match[3]})
+			OffsetRange{Start: start + matchStart, End: start + matchEnd},
+			OffsetRange{Start: start + nameStart, End: start + nameEnd})
+		search = matchEnd
 	}
 }
 
