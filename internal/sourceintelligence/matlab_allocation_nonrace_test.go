@@ -23,7 +23,7 @@ func TestMATLABAnalyzerCommonPathAllocationBounded(t *testing.T) {
 	if observed == 0 {
 		t.Fatal("MATLAB allocation guard produced no symbols")
 	}
-	if allocations > 28 {
-		t.Fatalf("MATLAB common-path allocations = %.0f, want <= 28", allocations)
+	if allocations > 13 {
+		t.Fatalf("MATLAB common-path allocations = %.0f, want <= 13", allocations)
 	}
 }

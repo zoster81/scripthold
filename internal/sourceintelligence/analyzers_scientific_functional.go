@@ -67,7 +67,8 @@ func analyzeMATLABLike(ctx context.Context, document *SourceDocument, options An
 	}
 
 	dependencies := []StructuralDependency{}
-	var scopes []structuralAnalyzerScope
+	var scopeStorage [1]structuralAnalyzerScope
+	scopes := scopeStorage[:0]
 	functionFile := false
 	firstCodeSeen := false
 	explicitFunctionEndSeen := false
