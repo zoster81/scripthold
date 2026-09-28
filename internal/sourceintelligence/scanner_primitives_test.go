@@ -699,6 +699,31 @@ func TestBuildLogicalLinesUsesBoundedIsolatedStorage(t *testing.T) {
 	if afterEOF != nil {
 		t.Fatalf("tokens after EOF produced logical lines: %+v", afterEOF)
 	}
+
+	var views []LogicalLine
+	viewAllocations := testing.AllocsPerRun(10, func() {
+		views = buildLogicalLineViews(tokens)
+	})
+	if viewAllocations > 1 {
+		t.Fatalf("buildLogicalLineViews allocations = %.0f, want <= 1 for %d lines", viewAllocations, lineCount)
+	}
+	isolated := BuildLogicalLines(tokens, LogicalLineProfile{})
+	if !reflect.DeepEqual(views, isolated) {
+		t.Fatal("borrowed logical-line views differ from isolated logical lines")
+	}
+	if cap(views[0].Tokens) != len(views[0].Tokens) {
+		t.Fatalf("borrowed line token capacity = %d, want %d", cap(views[0].Tokens), len(views[0].Tokens))
+	}
+
+	unexpectedSynthetic := []Token{
+		{Kind: TokenIdentifier, Text: "left", StartOffset: 0, EndOffset: 4},
+		{Kind: TokenIndent, Nesting: 1, StartOffset: 4, EndOffset: 4},
+		{Kind: TokenIdentifier, Text: "right", StartOffset: 4, EndOffset: 9},
+		{Kind: TokenEOF, StartOffset: 9, EndOffset: 9},
+	}
+	if got, want := buildLogicalLineViews(unexpectedSynthetic), BuildLogicalLines(unexpectedSynthetic, LogicalLineProfile{}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected synthetic-token fallback differs\ngot=%+v\nwant=%+v", got, want)
+	}
 }
 
 func TestKeywordScopePairingIsTopOnlyAndDeterministic(t *testing.T) {

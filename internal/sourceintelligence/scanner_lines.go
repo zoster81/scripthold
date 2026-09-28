@@ -117,6 +117,70 @@ prepass:
 	return result
 }
 
+// buildLogicalLineViews is the package-internal read-only counterpart used for
+// scanner-owned tokens. Returned token slices borrow the input storage and cap
+// each line at its length so append cannot overwrite adjacent scanner tokens.
+func buildLogicalLineViews(tokens []Token) []LogicalLine {
+	lineCapacity := 0
+	lineHasTokens := false
+prepass:
+	for _, token := range tokens {
+		switch token.Kind {
+		case TokenIndent, TokenDedent:
+			if lineHasTokens {
+				return BuildLogicalLines(tokens, LogicalLineProfile{})
+			}
+			continue
+		case TokenNewline:
+			if lineHasTokens {
+				lineCapacity++
+				lineHasTokens = false
+			}
+			continue
+		case TokenEOF:
+			break prepass
+		}
+		lineHasTokens = true
+	}
+	if lineHasTokens {
+		lineCapacity++
+	}
+	if lineCapacity == 0 {
+		return nil
+	}
+
+	result := make([]LogicalLine, 0, lineCapacity)
+	lineStart := -1
+	flush := func(end int) {
+		if lineStart < 0 {
+			return
+		}
+		lineTokens := tokens[lineStart:end:end]
+		result = append(result, LogicalLine{
+			Tokens: lineTokens, StartOffset: lineTokens[0].StartOffset,
+			EndOffset: lineTokens[len(lineTokens)-1].EndOffset,
+		})
+		lineStart = -1
+	}
+	for index, token := range tokens {
+		switch token.Kind {
+		case TokenIndent, TokenDedent:
+			continue
+		case TokenNewline:
+			flush(index)
+			continue
+		case TokenEOF:
+			flush(index)
+			return result
+		}
+		if lineStart < 0 {
+			lineStart = index
+		}
+	}
+	flush(len(tokens))
+	return result
+}
+
 // KeywordScopeEvent represents an analyzer-proven keyword scope open/close.
 type KeywordScopeEvent struct {
 	Line  int

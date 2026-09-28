@@ -22,7 +22,7 @@ func scanAnalyzerLogicalLines(ctx context.Context, document *SourceDocument, pro
 	if err != nil {
 		return ScanResult{}, nil, err
 	}
-	return scan, BuildLogicalLines(scan.Tokens, LogicalLineProfile{}), nil
+	return scan, buildLogicalLineViews(scan.Tokens), nil
 }
 
 func applyStructuralScanDiagnostics(builder *SymbolBuilder, scan ScanResult, language string) {
