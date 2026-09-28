@@ -23,7 +23,7 @@ func TestBashAnalyzerCommonPathAllocationBounded(t *testing.T) {
 	if observed == 0 {
 		t.Fatal("Bash allocation guard produced no symbols")
 	}
-	if allocations > 38 {
-		t.Fatalf("Bash common-path allocations = %.0f, want <= 38", allocations)
+	if allocations > 20 {
+		t.Fatalf("Bash common-path allocations = %.0f, want <= 20", allocations)
 	}
 }

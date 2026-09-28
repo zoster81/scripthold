@@ -121,6 +121,10 @@ prepass:
 // scanner-owned tokens. Returned token slices borrow the input storage and cap
 // each line at its length so append cannot overwrite adjacent scanner tokens.
 func buildLogicalLineViews(tokens []Token) []LogicalLine {
+	return buildLogicalLineViewsWithSeparator(tokens, "")
+}
+
+func buildLogicalLineViewsWithSeparator(tokens []Token, separator string) []LogicalLine {
 	lineCapacity := 0
 	lineHasTokens := false
 prepass:
@@ -128,7 +132,11 @@ prepass:
 		switch token.Kind {
 		case TokenIndent, TokenDedent:
 			if lineHasTokens {
-				return BuildLogicalLines(tokens, LogicalLineProfile{})
+				profile := LogicalLineProfile{}
+				if separator != "" {
+					profile.Separators = []string{separator}
+				}
+				return BuildLogicalLines(tokens, profile)
 			}
 			continue
 		case TokenNewline:
@@ -139,6 +147,13 @@ prepass:
 			continue
 		case TokenEOF:
 			break prepass
+		}
+		if separator != "" && token.Text == separator && token.Nesting == 0 {
+			if lineHasTokens {
+				lineCapacity++
+				lineHasTokens = false
+			}
+			continue
 		}
 		lineHasTokens = true
 	}
@@ -172,6 +187,10 @@ prepass:
 		case TokenEOF:
 			flush(index)
 			return result
+		}
+		if separator != "" && token.Text == separator && token.Nesting == 0 {
+			flush(index)
+			continue
 		}
 		if lineStart < 0 {
 			lineStart = index

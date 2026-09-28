@@ -66,7 +66,7 @@ func shellMaskedSource(ctx context.Context, document *SourceDocument, maxNesting
 }
 
 func collectShellDependencies(state *structuralAnalyzerState, document *SourceDocument, tokens []Token, bash bool) {
-	for _, line := range BuildLogicalLines(tokens, LogicalLineProfile{Separators: []string{";"}}) {
+	for _, line := range buildLogicalLineViewsWithSeparator(tokens, ";") {
 		if len(line.Tokens) < 2 {
 			continue
 		}
