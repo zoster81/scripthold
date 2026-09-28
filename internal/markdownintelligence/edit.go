@@ -1,7 +1,6 @@
 package markdownintelligence
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/zoster81/marksplice"
@@ -14,9 +13,8 @@ const MaxEditOperations = 64
 // PreparedChange wraps one Marksplice ChangeSet without exposing Marksplice
 // snapshot-local node identity. It remains bound to the exact parsed source.
 type PreparedChange struct {
-	change                           marksplice.ChangeSet
-	sourceFingerprint                string
-	requiresFragmentTargetContinuity bool
+	change            marksplice.ChangeSet
+	sourceFingerprint string
 }
 
 // SourceFingerprint reports the exact Markdown snapshot for which this change
@@ -25,17 +23,9 @@ func (p PreparedChange) SourceFingerprint() string {
 	return p.sourceFingerprint
 }
 
-// Apply delegates source-conflict enforcement to Marksplice, then applies the
-// conservative host policy for fragment-target continuity gaps.
+// Apply delegates exact source-conflict enforcement and mutation to Marksplice.
 func (p PreparedChange) Apply(source []byte) ([]byte, error) {
-	result, err := p.change.Apply(source)
-	if err != nil {
-		return nil, err
-	}
-	if p.requiresFragmentTargetContinuity && !bytes.Equal(result, source) {
-		return nil, fmt.Errorf("%w: mutation requires fragment-target continuity that Marksplice does not expose", marksplice.ErrInvalidReplacement)
-	}
-	return result, nil
+	return p.change.Apply(source)
 }
 
 // ComposeChanges delegates atomic multi-edit composition to Marksplice. Every
@@ -47,28 +37,79 @@ func (s *Snapshot) ComposeChanges(changes ...PreparedChange) (PreparedChange, er
 	if len(changes) == 0 || len(changes) > MaxEditOperations {
 		return PreparedChange{}, fmt.Errorf("%w: markdown edit requires 1..%d prepared changes", marksplice.ErrInvalidQuery, MaxEditOperations)
 	}
-	markspliceChanges := make([]marksplice.ChangeSet, len(changes))
-	requiresFragmentTargetContinuity := false
-	for index, prepared := range changes {
-		if prepared.sourceFingerprint != s.fingerprint {
-			return PreparedChange{}, fmt.Errorf("%w: prepared change belongs to a different markdown snapshot", marksplice.ErrSourceConflict)
-		}
-		markspliceChanges[index] = prepared.change
-		requiresFragmentTargetContinuity = requiresFragmentTargetContinuity || prepared.requiresFragmentTargetContinuity
+	markspliceChanges, err := s.markspliceChanges(changes)
+	if err != nil {
+		return PreparedChange{}, err
 	}
 	combined, err := s.document.ComposeChanges(markspliceChanges...)
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	return PreparedChange{change: combined, sourceFingerprint: s.fingerprint, requiresFragmentTargetContinuity: requiresFragmentTargetContinuity}, nil
+	if err := s.validateLocalFragmentContinuity(combined); err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: combined, sourceFingerprint: s.fingerprint}, nil
+}
+
+// ComposeChangesAndSyncTOC composes ordinary edits and derives one managed TOC
+// from the final candidate through Marksplice's released semantic authority.
+func (s *Snapshot) ComposeChangesAndSyncTOC(targetID string, changes ...PreparedChange) (PreparedChange, error) {
+	if s == nil || s.document == nil {
+		return PreparedChange{}, fmt.Errorf("%w: markdown snapshot is unavailable", marksplice.ErrInvalidQuery)
+	}
+	if len(changes) >= MaxEditOperations {
+		return PreparedChange{}, fmt.Errorf("%w: markdown edit requires at most %d non-TOC changes", marksplice.ErrInvalidQuery, MaxEditOperations-1)
+	}
+	node, err := s.targetNode(targetID)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	markspliceChanges, err := s.markspliceChanges(changes)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	combined, err := s.document.ComposeChangesAndSyncTOC(node.ID(), markspliceChanges...)
+	if err != nil {
+		return PreparedChange{}, err
+	}
+	if err := s.validateLocalFragmentContinuity(combined); err != nil {
+		return PreparedChange{}, err
+	}
+	return PreparedChange{change: combined, sourceFingerprint: s.fingerprint}, nil
+}
+
+func (s *Snapshot) markspliceChanges(changes []PreparedChange) ([]marksplice.ChangeSet, error) {
+	result := make([]marksplice.ChangeSet, len(changes))
+	for index, prepared := range changes {
+		if prepared.sourceFingerprint != s.fingerprint {
+			return nil, fmt.Errorf("%w: prepared change belongs to a different markdown snapshot", marksplice.ErrSourceConflict)
+		}
+		result[index] = prepared.change
+	}
+	return result, nil
+}
+
+func (s *Snapshot) validateLocalFragmentContinuity(change marksplice.ChangeSet) error {
+	if !s.hasResolvedLocalFragment() {
+		return nil
+	}
+	continuity, err := s.document.LocalFragmentContinuity(change)
+	if err != nil {
+		return err
+	}
+	for _, relationship := range continuity {
+		switch relationship.Status() {
+		case marksplice.FragmentContinuityPreserved, marksplice.FragmentContinuityRetargeted:
+			continue
+		default:
+			return fmt.Errorf("%w: mutation would not preserve local fragment target continuity", marksplice.ErrInvalidReplacement)
+		}
+	}
+	return nil
 }
 
 func (s *Snapshot) fragmentTopologyChange(change marksplice.ChangeSet) PreparedChange {
-	return PreparedChange{
-		change:                           change,
-		sourceFingerprint:                s.fingerprint,
-		requiresFragmentTargetContinuity: s.hasResolvedLocalFragment(),
-	}
+	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}
 }
 
 func (s *Snapshot) hasResolvedLocalFragment() bool {
@@ -82,9 +123,8 @@ func (s *Snapshot) hasResolvedLocalFragment() bool {
 }
 
 // PrepareRenameHeading resolves the opaque Scripthold target against this exact
-// snapshot and delegates the source-preserving mutation to Marksplice. It fails
-// closed when the rename would change an anchor that a resolved local fragment
-// relationship currently targets.
+// snapshot and delegates the source-preserving mutation to Marksplice. Final local
+// fragment continuity is proven after all requested changes are composed.
 func (s *Snapshot) PrepareRenameHeading(targetID string, replacement []byte) (PreparedChange, error) {
 	node, err := s.targetNode(targetID)
 	if err != nil {
@@ -94,91 +134,12 @@ func (s *Snapshot) PrepareRenameHeading(targetID string, replacement []byte) (Pr
 	if err != nil {
 		return PreparedChange{}, err
 	}
-	relationships := s.document.LinkRelationships()
-	if !hasResolvedLocalFragmentRelationship(relationships) {
-		return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
-	}
-	candidate, err := change.Apply(s.source)
-	if err != nil {
-		return PreparedChange{}, err
-	}
-	if bytes.Equal(candidate, s.source) {
-		return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
-	}
-	heading, ok := s.document.Heading(node.ID())
-	if !ok {
-		return PreparedChange{}, marksplice.ErrInvalidTargetKind
-	}
-	candidateDocument, err := marksplice.Parse(candidate)
-	if err != nil {
-		return PreparedChange{}, err
-	}
-	if headingRenameInvalidatesResolvedFragment(s.document, candidateDocument, heading.Range(), relationships) {
-		return PreparedChange{}, fmt.Errorf("%w: heading rename would invalidate a resolved local fragment relationship", marksplice.ErrInvalidReplacement)
-	}
 	return PreparedChange{change: change, sourceFingerprint: s.fingerprint}, nil
 }
 
 func hasResolvedLocalFragmentRelationship(relationships []marksplice.LinkRelationship) bool {
 	for _, relationship := range relationships {
 		if relationship.FragmentStatus() == marksplice.LinkFragmentResolved {
-			return true
-		}
-	}
-	return false
-}
-
-func headingRenameInvalidatesResolvedFragment(before, after *marksplice.Document, renamedRange marksplice.Range, relationships []marksplice.LinkRelationship) bool {
-	for _, relationship := range relationships {
-		if relationship.FragmentStatus() != marksplice.LinkFragmentResolved {
-			continue
-		}
-		originalTarget, ok := relationship.FragmentTarget()
-		if !ok {
-			return true
-		}
-		candidateTarget, ok := after.ResolveFragment(relationship.Destination())
-		if !ok || candidateTarget.Kind() != originalTarget.Kind() || candidateTarget.Value() != originalTarget.Value() {
-			return true
-		}
-		if originalTarget.Kind() == marksplice.FragmentTargetHTMLAnchor {
-			anchor, ok := before.HTMLAnchor(originalTarget.NodeID())
-			if !ok || rangesOverlap(anchor.Range(), renamedRange) {
-				return true
-			}
-		}
-	}
-	return headingRenameChangesReferencedAnchor(before, after, relationships)
-}
-
-func rangesOverlap(left, right marksplice.Range) bool {
-	return left.Start < right.End && right.Start < left.End
-}
-
-func headingRenameChangesReferencedAnchor(before, after *marksplice.Document, relationships []marksplice.LinkRelationship) bool {
-	beforeAnchors := before.HeadingAnchors()
-	afterAnchors := after.HeadingAnchors()
-	if len(beforeAnchors) != len(afterAnchors) {
-		return true
-	}
-	changed := make(map[marksplice.NodeID]struct{})
-	for index, beforeAnchor := range beforeAnchors {
-		if beforeAnchor.Value() != afterAnchors[index].Value() {
-			changed[beforeAnchor.HeadingID()] = struct{}{}
-		}
-	}
-	if len(changed) == 0 {
-		return false
-	}
-	for _, relationship := range relationships {
-		if relationship.FragmentStatus() != marksplice.LinkFragmentResolved {
-			continue
-		}
-		target, ok := relationship.FragmentTarget()
-		if !ok || target.Kind() != marksplice.FragmentTargetHeading {
-			continue
-		}
-		if _, ok := changed[target.NodeID()]; ok {
 			return true
 		}
 	}

@@ -1256,18 +1256,33 @@ func TestMarkdownEditSyncTOC(t *testing.T) {
 	}
 }
 
-func TestMarkdownEditRejectsCombinedTOCSyncBeforeFilesystemWork(t *testing.T) {
-	h := NewHandler([]string{t.TempDir()})
-	targetID := strings.Repeat("a", 64)
-	result, _, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{
-		Path: filepath.Join(t.TempDir(), "missing.md"),
-		Operations: []MarkdownEditOperation{
-			{Action: "sync", Subject: "toc", TargetID: targetID},
-			{Action: "rename", Subject: "heading", TargetID: targetID, Text: "Renamed"},
-		},
-	})
-	if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
-		t.Fatalf("combined sync result=%+v err=%v", result, err)
+func TestMarkdownEditComposesTOCSyncFromFinalState(t *testing.T) {
+	source := "# Root\n\n## Contents\n\n- [Root](#root)\n  - [Contents](#contents)\n  - [Child](#child)\n\n## Child\nbody\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{dir})
+	result, read, err := h.HandleMarkdownRead(context.Background(), nil, MarkdownReadInput{Action: "query", Path: path, Query: "nodes", Kinds: []string{"heading"}, Limit: 8})
+	if err != nil || result.IsError || len(read.Nodes) != 3 {
+		t.Fatalf("read=%+v result=%+v err=%v", read, result, err)
+	}
+	operations := []MarkdownEditOperation{
+		{Action: "sync", Subject: "toc", TargetID: read.Nodes[1].TargetID},
+		{Action: "rename", Subject: "heading", TargetID: read.Nodes[2].TargetID, Text: "Renamed"},
+	}
+	previewResult, preview, err := h.HandleMarkdownEdit(context.Background(), nil, MarkdownEditInput{Path: path, Operations: operations})
+	if err != nil || previewResult.IsError || !preview.Changed {
+		t.Fatalf("preview=%+v result=%+v err=%v", preview, previewResult, err)
+	}
+	applyResult, output, err := h.HandleMarkdownApply(context.Background(), nil, MarkdownApplyInput{PreviewID: preview.PreviewID})
+	if err != nil || applyResult.IsError || !output.Applied {
+		t.Fatalf("apply=%+v result=%+v err=%v", output, applyResult, err)
+	}
+	want := "# Root\n\n## Contents\n\n- [Root](#root)\n  - [Contents](#contents)\n  - [Renamed](#renamed)\n\n## Renamed\nbody\n"
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("target=%q want=%q err=%v", got, want, err)
 	}
 }
 

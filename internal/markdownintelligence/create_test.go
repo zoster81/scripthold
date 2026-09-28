@@ -75,6 +75,23 @@ func TestBuildDocumentSupportsListsTasksCodeMathAndTables(t *testing.T) {
 	}
 }
 
+func TestBuildDocumentSupportsMultilineFootnoteDefinitions(t *testing.T) {
+	result, err := BuildDocument(CreateDocument{Blocks: []CreateBlock{
+		{Type: "footnote_definition", Label: "first", Body: "alpha\n\nbeta"},
+		{Type: "paragraph", Content: []CreateInline{{Type: "footnote_reference", Label: "first"}}},
+		{Type: "footnote_definition", Label: "later", Body: "one\n\ntwo", Deferred: true},
+	}}, CreateLimits{MaxTextBytes: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(result)
+	for _, want := range []string{"[^first]: alpha\n\n    beta\n", "[^first]", "[^later]: one\n\n    two\n"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated Markdown missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestBuildDocumentDelegatesInvalidSyntaxToMarksplice(t *testing.T) {
 	_, err := BuildDocument(CreateDocument{Blocks: []CreateBlock{{
 		Type:        "paragraph",

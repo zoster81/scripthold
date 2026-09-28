@@ -98,12 +98,13 @@ func validateMarkdownEditInput(input MarkdownEditInput) *mcp.CallToolResult {
 }
 
 func validateMarkdownEditComposition(operations []MarkdownEditOperation) *mcp.CallToolResult {
-	if len(operations) == 1 {
-		return nil
-	}
+	syncTOCCount := 0
 	for _, op := range operations {
 		if op.Action == "sync" && op.Subject == "toc" {
-			return errorResultWithCode(ErrCodeInvalidInput, "sync/toc must be the only Markdown edit operation")
+			syncTOCCount++
+			if syncTOCCount > 1 {
+				return errorResultWithCode(ErrCodeInvalidInput, "at most one sync/toc operation is allowed per Markdown edit")
+			}
 		}
 	}
 	return nil

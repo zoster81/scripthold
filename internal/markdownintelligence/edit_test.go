@@ -51,8 +51,47 @@ func TestPrepareRenameHeadingRejectsResolvedLocalFragmentBreakage(t *testing.T) 
 	if err != nil || len(headings) != 1 {
 		t.Fatalf("headings=%+v err=%v", headings, err)
 	}
-	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	prepared, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot.ComposeChanges(prepared); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("compose error=%v, want ErrInvalidReplacement", err)
+	}
+}
+
+func TestComposeChangesAllowsExplicitFragmentRetargetWithHeadingRename(t *testing.T) {
+	source := []byte("[Old](#old)\n\n# Old\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 1 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	links, err := snapshot.QueryNodes([]string{"inline_link"}, 8)
+	if err != nil || len(links) != 1 {
+		t.Fatalf("links=%+v err=%v", links, err)
+	}
+	rename, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	retarget, err := snapshot.PrepareReplaceInlineLinkDestination(links[0].TargetID, []byte("#new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := snapshot.ComposeChanges(rename, retarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := combined.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []byte("[Old](#new)\n\n# New\n"); !bytes.Equal(got, want) {
+		t.Fatalf("result=%q want=%q", got, want)
 	}
 }
 
@@ -66,8 +105,12 @@ func TestPrepareRenameHeadingRejectsCollisionWithReferencedHTMLAnchor(t *testing
 	if err != nil || len(headings) != 1 {
 		t.Fatalf("headings=%+v err=%v", headings, err)
 	}
-	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("Shared")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	prepared, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("Shared"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot.ComposeChanges(prepared); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("compose error=%v, want ErrInvalidReplacement", err)
 	}
 }
 
@@ -81,8 +124,12 @@ func TestPrepareRenameHeadingRejectsReferencedHTMLAnchorInsideRenamedContent(t *
 	if err != nil || len(headings) != 1 {
 		t.Fatalf("headings=%+v err=%v", headings, err)
 	}
-	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New <a id=\"shared\"></a>")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	prepared, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("New <a id=\"shared\"></a>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot.ComposeChanges(prepared); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("compose error=%v, want ErrInvalidReplacement", err)
 	}
 }
 
@@ -142,8 +189,12 @@ func TestPrepareRenameHeadingRejectsDuplicateAnchorCascadeBreakage(t *testing.T)
 	if err != nil || len(headings) != 2 {
 		t.Fatalf("headings=%+v err=%v", headings, err)
 	}
-	if _, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("Other")); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("rename error=%v, want ErrInvalidReplacement", err)
+	prepared, err := snapshot.PrepareRenameHeading(headings[0].TargetID, []byte("Other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot.ComposeChanges(prepared); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("compose error=%v, want ErrInvalidReplacement", err)
 	}
 }
 
@@ -582,7 +633,7 @@ func TestPrepareReplaceParagraphIsSnapshotBoundAndSourcePreserving(t *testing.T)
 	}
 }
 
-func TestPrepareReplaceParagraphFailsClosedWhenResolvedFragmentContinuityIsUnprovable(t *testing.T) {
+func TestPrepareReplaceParagraphPreservesUnrelatedResolvedFragment(t *testing.T) {
 	source := []byte("# Target\n\n[go](#target)\n\nOld paragraph.\n")
 	snapshot, err := Parse(source)
 	if err != nil {
@@ -596,8 +647,16 @@ func TestPrepareReplaceParagraphFailsClosedWhenResolvedFragmentContinuityIsUnpro
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepared.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("apply error=%v, want ErrInvalidReplacement", err)
+	combined, err := snapshot.ComposeChanges(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := combined.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []byte("# Target\n\n[go](#target)\n\nNew paragraph.\n"); !bytes.Equal(got, want) {
+		t.Fatalf("result=%q want=%q", got, want)
 	}
 }
 
@@ -647,7 +706,7 @@ func TestPrepareReplaceCodeSpanRemainsAllowedWithResolvedFragment(t *testing.T) 
 	}
 }
 
-func TestComposeChangesPreservesFragmentContinuityRestriction(t *testing.T) {
+func TestComposeChangesAllowsFinalStateWithPreservedFragmentContinuity(t *testing.T) {
 	source := []byte("# Target\n\n[go](#target) and `old`\n\nOld paragraph.\n")
 	snapshot, err := Parse(source)
 	if err != nil {
@@ -673,8 +732,13 @@ func TestComposeChangesPreservesFragmentContinuityRestriction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := combined.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("apply error=%v, want ErrInvalidReplacement", err)
+	got, err := combined.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("# Target\n\n[go](#target) and `new`\n\nNew paragraph.\n")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("result=%q want=%q", got, want)
 	}
 }
 
@@ -1411,7 +1475,7 @@ func TestPrepareFencedCodeMutationsPreserveMarkspliceRejections(t *testing.T) {
 	}
 }
 
-func TestPrepareAppendFootnoteDefinitionUsesFragmentContinuityPolicy(t *testing.T) {
+func TestPrepareAppendFootnoteDefinitionPreservesResolvedLocalFragment(t *testing.T) {
 	source := []byte("[go](#x)\n\n<a id=\"x\"></a>\n\nSee[^new]\n")
 	snapshot, err := Parse(source)
 	if err != nil {
@@ -1421,8 +1485,12 @@ func TestPrepareAppendFootnoteDefinitionUsesFragmentContinuityPolicy(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepared.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("Apply() error=%v, want ErrInvalidReplacement", err)
+	composed, err := snapshot.ComposeChanges(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := composed.Apply(source); err != nil {
+		t.Fatalf("Apply() error=%v", err)
 	}
 }
 
@@ -2336,6 +2404,34 @@ func TestPrepareRemoveFootnoteDefinitionPreservesExternalOccurrenceBytesAndSourc
 	}
 }
 
+func TestComposeChangesAndSyncTOCUsesFinalState(t *testing.T) {
+	source := []byte("# Root\n\n## Contents\n\n- [Root](#root)\n  - [Contents](#contents)\n  - [Child](#child)\n\n## Child\nbody\n")
+	snapshot, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings, err := snapshot.QueryNodes([]string{"heading"}, 8)
+	if err != nil || len(headings) != 3 {
+		t.Fatalf("headings=%+v err=%v", headings, err)
+	}
+	rename, err := snapshot.PrepareRenameHeading(headings[2].TargetID, []byte("Renamed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := snapshot.ComposeChangesAndSyncTOC(headings[1].TargetID, rename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := combined.Apply(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("# Root\n\n## Contents\n\n- [Root](#root)\n  - [Contents](#contents)\n  - [Renamed](#renamed)\n\n## Renamed\nbody\n")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("result=%q want=%q", got, want)
+	}
+}
+
 func TestPrepareSyncTOCPreservesManagedSectionAndSourceBinding(t *testing.T) {
 	source := []byte("# Root\r\n\r\n## Contents\r\n\r\n- [Root](#old-root)\r\n- [Child](#child)\r\n\r\n## Child\r\nbody\r\n")
 	snapshot, err := Parse(source)
@@ -2971,8 +3067,8 @@ func TestPrepareReplaceHTMLAnchorFailsClosedWhenReferenced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepared.Apply(source); !errors.Is(err, marksplice.ErrInvalidReplacement) {
-		t.Fatalf("apply error=%v, want ErrInvalidReplacement", err)
+	if _, err := snapshot.ComposeChanges(prepared); !errors.Is(err, marksplice.ErrInvalidReplacement) {
+		t.Fatalf("compose error=%v, want ErrInvalidReplacement", err)
 	}
 }
 

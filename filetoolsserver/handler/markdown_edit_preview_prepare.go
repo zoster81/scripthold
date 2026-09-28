@@ -62,14 +62,24 @@ func prepareMarkdownEditSemantic(sourceUTF8 []byte, operations []MarkdownEditOpe
 		return markdownintelligence.PreparedChange{}, nil, markdownEditErrorResult(err)
 	}
 	preparedChanges := make([]markdownintelligence.PreparedChange, 0, len(operations))
+	syncTOCTargetID := ""
 	for _, operationInput := range operations {
+		if operationInput.Action == "sync" && operationInput.Subject == "toc" {
+			syncTOCTargetID = operationInput.TargetID
+			continue
+		}
 		preparedChange, prepareErr := prepareMarkdownEditOperation(snapshot, operationInput)
 		if prepareErr != nil {
 			return markdownintelligence.PreparedChange{}, nil, markdownEditErrorResult(prepareErr)
 		}
 		preparedChanges = append(preparedChanges, preparedChange)
 	}
-	preparedChange, err := snapshot.ComposeChanges(preparedChanges...)
+	var preparedChange markdownintelligence.PreparedChange
+	if syncTOCTargetID != "" {
+		preparedChange, err = snapshot.ComposeChangesAndSyncTOC(syncTOCTargetID, preparedChanges...)
+	} else {
+		preparedChange, err = snapshot.ComposeChanges(preparedChanges...)
+	}
 	if err != nil {
 		return markdownintelligence.PreparedChange{}, nil, markdownEditErrorResult(err)
 	}

@@ -23,13 +23,14 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Upgraded Markdown authority to Marksplice 1.2.0: edit previews now validate local-fragment continuity on the final composed result, allowing preserved or explicit-retarget outcomes while rejecting silent target changes and missing, ambiguous, invalid, or unknown results; managed TOC synchronization can be combined with other edits and is derived from the final candidate.
+- Extended the existing `markdown_create` footnote-definition `body` field to reviewed canonical multiline construction, including deferred definitions, without adding a new public schema form.
 - Unified single-file edit previews and patch packages around one ordered internal prepared-target model, aligning exact result-byte retention, path/identity/fingerprint checks, backup planning, writable approval, deterministic apply, and truthful failure-state classification without changing their public schemas.
 - Improved Source Intelligence runtime and allocation efficiency across scanner, builder, composite-template, shell, HDL, and MATLAB/Octave hot paths without changing public schemas or capability claims.
 
 ### Fixed
 
-- Made fragment-target-affecting Markdown edits fail closed when the source already contains resolved local-fragment relationships and Marksplice cannot prove cross-snapshot target continuity; source-bound no-ops and target-topology-independent mutations remain available without adding local Markdown identity heuristics.
-- Made `rename/heading` fail closed when a currently resolved local fragment would stop resolving to the same Marksplice target kind/value, when a referenced HTML anchor lies inside the replaced heading content, or when duplicate-heading anchor ownership would change, preventing silent broken, ambiguous, or retargeted local links without local Markdown slug/link rules.
+- Inherited Marksplice 1.2.0 canonical-Markdown round-trip/idempotence and raw link-destination conformance fixes used by Markdown read/generation paths.
 - Kept OpenSSF Scorecard on its supported default-branch execution path after upstream rejected release-tag pushes, and made future release verification require successful exact-commit Scorecard evidence from the `main` push.
 
 ## 3.2.1 - 2026-09-16

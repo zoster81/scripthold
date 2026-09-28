@@ -2,6 +2,7 @@ package markdownintelligence
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/zoster81/marksplice"
 	"github.com/zoster81/scripthold/internal/operation"
@@ -284,7 +285,7 @@ func (s *createState) appendBlocks(builder *marksplice.DocumentBuilder, blocks [
 				return err
 			}
 		case "footnote_definition":
-			if err := builder.DeferFootnoteDefinition(block.Label, block.Body); err != nil {
+			if err := appendFootnoteDefinition(builder, block.Label, block.Body, true); err != nil {
 				return err
 			}
 		}
@@ -321,7 +322,7 @@ func (s *createState) appendBlock(builder *marksplice.DocumentBuilder, block Cre
 	case "reference_definition":
 		return appendReferenceDefinition(builder, block)
 	case "footnote_definition":
-		return builder.AppendFootnoteDefinition(block.Label, block.Body)
+		return appendFootnoteDefinition(builder, block.Label, block.Body, false)
 	case "math_block":
 		return builder.AppendMathBlock(block.Payload)
 	case "table":
@@ -329,6 +330,20 @@ func (s *createState) appendBlock(builder *marksplice.DocumentBuilder, block Cre
 	default:
 		return invalidConstruction(fmt.Sprintf("unsupported construction block %q", block.Type))
 	}
+}
+
+func appendFootnoteDefinition(builder *marksplice.DocumentBuilder, label, body string, deferred bool) error {
+	multiline := strings.Contains(body, "\n")
+	if deferred {
+		if multiline {
+			return builder.DeferFootnoteDefinitionMultiline(label, body)
+		}
+		return builder.DeferFootnoteDefinition(label, body)
+	}
+	if multiline {
+		return builder.AppendFootnoteDefinitionMultiline(label, body)
+	}
+	return builder.AppendFootnoteDefinition(label, body)
 }
 
 func (s *createState) appendHeading(builder *marksplice.DocumentBuilder, block CreateBlock) error {
