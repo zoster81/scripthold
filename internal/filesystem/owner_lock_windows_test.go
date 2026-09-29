@@ -11,7 +11,35 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestRestrictOwnerOnlyPathDoesNotRequireWriteOwner(t *testing.T) {
+func TestOwnerNormalizationRequired(t *testing.T) {
+	user, err := windows.StringToSid("S-1-5-18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultOwner, err := windows.StringToSid("S-1-5-32-544")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := windows.StringToSid("S-1-5-32-545")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if normalize, err := ownerNormalizationRequired(user, user, defaultOwner); err != nil || normalize {
+		t.Fatalf("current user owner = (%v, %v), want (false, nil)", normalize, err)
+	}
+	if normalize, err := ownerNormalizationRequired(defaultOwner, user, defaultOwner); err != nil || !normalize {
+		t.Fatalf("default token owner = (%v, %v), want (true, nil)", normalize, err)
+	}
+	if normalize, err := ownerNormalizationRequired(other, user, defaultOwner); err == nil || normalize {
+		t.Fatalf("unrelated owner = (%v, %v), want (false, error)", normalize, err)
+	}
+	if normalize, err := ownerNormalizationRequired(nil, user, defaultOwner); err == nil || normalize {
+		t.Fatalf("nil owner = (%v, %v), want (false, error)", normalize, err)
+	}
+}
+
+func TestRestrictCurrentUserOwnedPathDoesNotRequireWriteOwner(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		directory bool
@@ -27,6 +55,17 @@ func TestRestrictOwnerOnlyPathDoesNotRequireWriteOwner(t *testing.T) {
 				}
 			} else if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
 				t.Fatal(err)
+			}
+			handle, err := openOwnerOnlyMetadataHandle(path, tc.directory, true)
+			if err != nil {
+				t.Fatalf("open path for owner normalization: %v", err)
+			}
+			if err := normalizeCurrentProcessOwner(handle); err != nil {
+				_ = windows.CloseHandle(handle)
+				t.Fatalf("normalize current process owner: %v", err)
+			}
+			if err := windows.CloseHandle(handle); err != nil {
+				t.Fatalf("close owner-normalization handle: %v", err)
 			}
 			if err := setCurrentUserModifyOnlyACL(path, tc.directory); err != nil {
 				t.Fatalf("prepare modify-only ACL: %v", err)

@@ -76,15 +76,19 @@ func openOwnerOnlyMetadataHandle(path string, directory, writableSecurity bool) 
 	if directory {
 		attributes |= windows.FILE_FLAG_BACKUP_SEMANTICS
 	}
-	return windows.CreateFile(
-		pathPtr,
-		access,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil,
-		windows.OPEN_EXISTING,
-		attributes,
-		0,
-	)
+	share := uint32(windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE)
+	if writableSecurity {
+		// Windows may assign TOKEN_OWNER rather than TOKEN_USER to new objects.
+		// Request WRITE_OWNER when available, but do not require it for paths that are already user-owned.
+		handle, openErr := windows.CreateFile(pathPtr, access|windows.WRITE_OWNER, share, nil, windows.OPEN_EXISTING, attributes, 0)
+		if openErr == nil {
+			return handle, nil
+		}
+		if !errors.Is(openErr, windows.ERROR_ACCESS_DENIED) {
+			return 0, openErr
+		}
+	}
+	return windows.CreateFile(pathPtr, access, share, nil, windows.OPEN_EXISTING, attributes, 0)
 }
 
 func ownerOnlyACL(directory bool) (*windows.ACL, *windows.Tokenuser, error) {
@@ -179,7 +183,7 @@ func restrictOwnerOnlyHandle(handle windows.Handle) error {
 }
 
 func restrictOwnerOnlyHandleKind(handle windows.Handle, directory bool) error {
-	if err := validateCurrentProcessOwner(handle); err != nil {
+	if err := normalizeCurrentProcessOwner(handle); err != nil {
 		return err
 	}
 	acl, user, err := ownerOnlyACL(directory)
@@ -196,7 +200,11 @@ func restrictOwnerOnlyHandleKind(handle windows.Handle, directory bool) error {
 	return validateOwnerOnlyHandleKind(handle, directory)
 }
 
-func validateCurrentProcessOwner(handle windows.Handle) error {
+type tokenOwnerInformation struct {
+	owner *windows.SID
+}
+
+func normalizeCurrentProcessOwner(handle windows.Handle) error {
 	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
 	if err != nil {
 		return err
@@ -210,10 +218,57 @@ func validateCurrentProcessOwner(handle windows.Handle) error {
 		return err
 	}
 	defer runtime.KeepAlive(user)
-	if owner == nil || !owner.Equals(user.User.Sid) {
-		return errors.New("security descriptor owner does not match the process identity")
+	if owner != nil && owner.Equals(user.User.Sid) {
+		return nil
 	}
-	return nil
+	defaultOwner, err := currentProcessDefaultOwner()
+	if err != nil {
+		return err
+	}
+	normalize, err := ownerNormalizationRequired(owner, user.User.Sid, defaultOwner)
+	if err != nil {
+		return err
+	}
+	if !normalize {
+		return nil
+	}
+	return windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, user.User.Sid, nil, nil, nil)
+}
+
+func ownerNormalizationRequired(owner, user, defaultOwner *windows.SID) (bool, error) {
+	if owner == nil || user == nil || defaultOwner == nil {
+		return false, errors.New("security descriptor owner does not match the process identity")
+	}
+	if owner.Equals(user) {
+		return false, nil
+	}
+	if owner.Equals(defaultOwner) {
+		return true, nil
+	}
+	return false, errors.New("security descriptor owner does not match the process identity")
+}
+
+func currentProcessDefaultOwner() (*windows.SID, error) {
+	token := windows.GetCurrentProcessToken()
+	var size uint32
+	err := windows.GetTokenInformation(token, windows.TokenOwner, nil, 0, &size)
+	if err != nil && !errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
+		return nil, err
+	}
+	if size < uint32(unsafe.Sizeof(tokenOwnerInformation{})) {
+		return nil, errors.New("current process token owner information is invalid")
+	}
+	buffer := make([]byte, size)
+	if err := windows.GetTokenInformation(token, windows.TokenOwner, &buffer[0], size, &size); err != nil {
+		return nil, err
+	}
+	information := (*tokenOwnerInformation)(unsafe.Pointer(&buffer[0]))
+	if information.owner == nil || !information.owner.IsValid() {
+		return nil, errors.New("current process token owner information is invalid")
+	}
+	owner, err := information.owner.Copy()
+	runtime.KeepAlive(buffer)
+	return owner, err
 }
 
 func validateOwnerOnlyHandle(handle windows.Handle) error {
@@ -250,9 +305,17 @@ func TryAcquireOwnerOnlyFileLock(path string, mode FileLockMode, create bool) (*
 		disposition = windows.CREATE_NEW
 	}
 	const attrs = windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OPEN_REPARSE_POINT
-	handle, err := windows.CreateFile(pathPtr, access,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil, disposition, attrs, 0)
+	share := uint32(windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE)
+	var handle windows.Handle
+	if create {
+		// A newly created lock can inherit TOKEN_OWNER as its owner, so retain WRITE_OWNER when the parent grants it.
+		handle, err = windows.CreateFile(pathPtr, access|windows.WRITE_OWNER, share, nil, disposition, attrs, 0)
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			handle, err = windows.CreateFile(pathPtr, access, share, nil, disposition, attrs, 0)
+		}
+	} else {
+		handle, err = windows.CreateFile(pathPtr, access, share, nil, disposition, attrs, 0)
+	}
 	created := create && err == nil
 	if create && (errors.Is(err, windows.ERROR_FILE_EXISTS) || errors.Is(err, windows.ERROR_ALREADY_EXISTS)) {
 		access = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.READ_CONTROL
