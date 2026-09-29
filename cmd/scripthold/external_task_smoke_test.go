@@ -132,10 +132,7 @@ func TestExternalTaskSupervisorRecovery(t *testing.T) {
 	defer cancel()
 
 	supervisor, workerPID := startExternalTaskSupervisor(t, ctx, executable, publicRoot, environment, storeRoot)
-	defer func() {
-		stopExternalProcess(supervisor)
-		stopExternalPID(workerPID)
-	}()
+	defer func() { stopExternalSupervisorWorkers(supervisor, workerPID) }()
 
 	// Kill the worker itself: the supervisor must create a different one.
 	stopExternalPID(workerPID)
@@ -386,6 +383,26 @@ func stopExternalProcess(command *exec.Cmd) {
 	}
 	_ = command.Process.Kill()
 	_, _ = command.Process.Wait()
+}
+
+func stopExternalSupervisorWorkers(supervisor *exec.Cmd, workerPID int) {
+	var childPIDs []int
+	if supervisor != nil && supervisor.Process != nil {
+		childPIDs, _ = externalChildProcessIDs(supervisor.Process.Pid)
+	}
+	stopExternalProcess(supervisor)
+
+	seen := make(map[int]struct{}, len(childPIDs)+1)
+	for _, pid := range append(childPIDs, workerPID) {
+		if pid <= 0 {
+			continue
+		}
+		if _, ok := seen[pid]; ok {
+			continue
+		}
+		seen[pid] = struct{}{}
+		stopExternalPID(pid)
+	}
 }
 
 func stopExternalPID(pid int) {
