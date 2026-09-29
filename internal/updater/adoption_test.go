@@ -28,7 +28,7 @@ func adoptionBuildInfoForTest() *debug.BuildInfo {
 }
 
 func TestObserveInstalledBinaryEvidence(t *testing.T) {
-	path := filepath.Join(t.TempDir(), standaloneBinaryName(runtime.GOOS))
+	path := filepath.Join(canonicalTempDir(t), standaloneBinaryName(runtime.GOOS))
 	payload := []byte("installed-binary")
 	if err := os.WriteFile(path, payload, 0o700); err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestObserveInstalledBinaryEvidence(t *testing.T) {
 }
 
 func TestObserveInstalledBinaryStaticValidationPrecedesSmoke(t *testing.T) {
-	path := filepath.Join(t.TempDir(), standaloneBinaryName(runtime.GOOS))
+	path := filepath.Join(canonicalTempDir(t), standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestObserveInstalledBinaryStaticValidationPrecedesSmoke(t *testing.T) {
 }
 
 func TestObserveInstalledBinaryRejectsMutationDuringSmoke(t *testing.T) {
-	path := filepath.Join(t.TempDir(), standaloneBinaryName(runtime.GOOS))
+	path := filepath.Join(canonicalTempDir(t), standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestObserveInstalledBinaryRejectsMutationDuringSmoke(t *testing.T) {
 }
 
 func TestInitializeStableAdoptionPersistsOnce(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)

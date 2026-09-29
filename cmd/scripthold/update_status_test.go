@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -368,7 +369,8 @@ func TestRunCommandUpdateStatusRoutesBeforeServerConfiguration(t *testing.T) {
 	t.Cleanup(func() { version = originalVersion })
 
 	var stdout, stderr bytes.Buffer
-	code := runCommand(
+	admissionCalled := false
+	code := runCommandWithAdmissionAndSelfUpdate(
 		context.Background(),
 		[]string{"update", "status"},
 		&stdout,
@@ -379,9 +381,19 @@ func TestRunCommandUpdateStatusRoutesBeforeServerConfiguration(t *testing.T) {
 			}
 			return ""
 		},
+		func(context.Context) (normalProcessAdmission, error) {
+			admissionCalled = true
+			return nil, errors.New("server admission must not run")
+		},
+		func(ctx context.Context, args []string, stdout, stderr io.Writer, processVersion string) (int, bool) {
+			return tryRunSelfUpdateCommandWith(ctx, args, stdout, stderr, processVersion,
+				func(context.Context, string, bool) (updater.SelfUpdateView, error) {
+					return updater.SelfUpdateView{}, nil
+				})
+		},
 	)
-	if code != 0 || stderr.Len() != 0 {
-		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	if code != 0 || stderr.Len() != 0 || admissionCalled {
+		t.Fatalf("code=%d admissionCalled=%v stdout=%q stderr=%q", code, admissionCalled, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "State: not_adopted") ||
 		!strings.Contains(stdout.String(), "Process version: dev") {

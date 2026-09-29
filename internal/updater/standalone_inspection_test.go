@@ -8,7 +8,7 @@ import (
 )
 
 func TestInspectStandaloneExecutableAcceptsOrdinaryStandalone(t *testing.T) {
-	directory := t.TempDir()
+	directory := canonicalTempDir(t)
 	path := filepath.Join(directory, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("standalone"), 0o700); err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestInspectStandaloneExecutableAcceptsOrdinaryStandalone(t *testing.T) {
 func TestInspectStandaloneExecutableRejectsKnownMCPBLayout(t *testing.T) {
 	for _, goos := range []string{"windows", "linux", "darwin"} {
 		t.Run(goos, func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalTempDir(t)
 			server := filepath.Join(root, "server")
 			if err := os.Mkdir(server, 0o700); err != nil {
 				t.Fatal(err)
@@ -51,7 +51,7 @@ func TestInspectStandaloneExecutableRejectsKnownMCPBLayout(t *testing.T) {
 }
 
 func TestInspectStandaloneExecutableDoesNotGuessFromNearbyManifest(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	path := filepath.Join(root, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("standalone"), 0o700); err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestInspectStandaloneExecutableDoesNotGuessFromNearbyManifest(t *testing.T)
 }
 
 func TestInspectStandaloneExecutableRejectsHardLink(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	path := filepath.Join(root, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("standalone"), 0o700); err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestInspectStandaloneExecutableRejectsHardLink(t *testing.T) {
 }
 
 func TestInspectStandaloneExecutableRejectsAliasedPathComponents(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	realDirectory := filepath.Join(root, "real")
 	if err := os.Mkdir(realDirectory, 0o700); err != nil {
 		t.Fatal(err)

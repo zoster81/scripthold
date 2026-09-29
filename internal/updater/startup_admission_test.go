@@ -15,7 +15,7 @@ import (
 )
 
 func TestAdmitProcessIfStatePresentLeavesUnadoptedInstallationUntouched(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("not-a-real-build"), 0o700); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestAdmitProcessIfStatePresentLeavesUnadoptedInstallationUntouched(t *testi
 }
 
 func TestAdmitProcessIfStatePresentHoldsSharedUseForAdoptedStableState(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestAdmitProcessIfStatePresentHoldsSharedUseForAdoptedStableState(t *testin
 }
 
 func TestAdmitProcessIfStatePresentFailsClosedForInvalidExistingState(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)

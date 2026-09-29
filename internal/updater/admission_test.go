@@ -15,7 +15,7 @@ import (
 )
 
 func TestAdmitStableProcessHoldsSharedUseLock(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestAdmitStableProcessHoldsSharedUseLock(t *testing.T) {
 }
 
 func TestAdmitStableProcessRejectsObservedByteDrift(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestAdmitStableProcessRejectsObservedByteDrift(t *testing.T) {
 }
 
 func TestAdmitStableProcessRequiresUseLockBeforeControlRelease(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)

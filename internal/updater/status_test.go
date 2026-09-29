@@ -12,7 +12,7 @@ import (
 )
 
 func TestInstallationStatusNotAdoptedDoesNotCreateState(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(target, []byte("standalone"), 0o700); err != nil {
 		t.Fatal(err)

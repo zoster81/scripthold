@@ -13,7 +13,7 @@ import (
 
 func validStableStateForTest(t *testing.T) (*InstallationBoundary, *StandaloneInspection, installationState) {
 	t.Helper()
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(target, []byte("binary"), 0o700); err != nil {
 		t.Fatal(err)

@@ -70,7 +70,7 @@ func openOwnerOnlyMetadataHandle(path string, directory, writableSecurity bool) 
 	}
 	access := uint32(windows.FILE_READ_ATTRIBUTES | windows.READ_CONTROL)
 	if writableSecurity {
-		access |= windows.WRITE_DAC | windows.WRITE_OWNER
+		access |= windows.WRITE_DAC
 	}
 	attributes := uint32(windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OPEN_REPARSE_POINT)
 	if directory {
@@ -179,6 +179,9 @@ func restrictOwnerOnlyHandle(handle windows.Handle) error {
 }
 
 func restrictOwnerOnlyHandleKind(handle windows.Handle, directory bool) error {
+	if err := validateCurrentProcessOwner(handle); err != nil {
+		return err
+	}
 	acl, user, err := ownerOnlyACL(directory)
 	if err != nil {
 		return err
@@ -189,12 +192,28 @@ func restrictOwnerOnlyHandleKind(handle windows.Handle, directory bool) error {
 		return err
 	}
 	runtime.KeepAlive(acl)
-	if err := windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION, user.User.Sid, nil, nil, nil); err != nil {
-		return err
-	}
 	runtime.KeepAlive(user)
 	return validateOwnerOnlyHandleKind(handle, directory)
+}
+
+func validateCurrentProcessOwner(handle windows.Handle) error {
+	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return err
+	}
+	owner, _, err := descriptor.Owner()
+	if err != nil {
+		return err
+	}
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return err
+	}
+	defer runtime.KeepAlive(user)
+	if owner == nil || !owner.Equals(user.User.Sid) {
+		return errors.New("security descriptor owner does not match the process identity")
+	}
+	return nil
 }
 
 func validateOwnerOnlyHandle(handle windows.Handle) error {
@@ -227,7 +246,7 @@ func TryAcquireOwnerOnlyFileLock(path string, mode FileLockMode, create bool) (*
 	access := uint32(windows.GENERIC_READ | windows.GENERIC_WRITE | windows.READ_CONTROL)
 	disposition := uint32(windows.OPEN_EXISTING)
 	if create {
-		access |= windows.WRITE_DAC | windows.WRITE_OWNER
+		access |= windows.WRITE_DAC
 		disposition = windows.CREATE_NEW
 	}
 	const attrs = windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OPEN_REPARSE_POINT

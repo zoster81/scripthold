@@ -18,7 +18,7 @@ import (
 
 func pendingPreparationFixture(t *testing.T) (*InstallationBoundary, *StandaloneInspection, *ProcessAdmission, *PreparedCandidate, installedEvidenceDeps, []byte, []byte) {
 	t.Helper()
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	installedBytes := []byte("installed-binary")
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(target, installedBytes, 0o700); err != nil {

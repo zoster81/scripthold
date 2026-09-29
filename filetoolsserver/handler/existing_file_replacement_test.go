@@ -107,7 +107,7 @@ func TestPreparedExistingFileReplacementMatchesTargetSnapshotFingerprint(t *test
 }
 
 func TestInspectExistingFileReplacementBinding(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	first := filepath.Join(root, "first.txt")
 	second := filepath.Join(root, "second.txt")
 	if err := os.WriteFile(first, []byte("first"), 0o600); err != nil {
@@ -260,7 +260,7 @@ func TestExistingFileReplacementBatchStagesAndCommitsPreparedReplacement(t *test
 }
 
 func TestClassifyExistingFileReplacementUsesNeutralObservedStates(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "target.txt")
 	source := []byte("alpha")
 	result := []byte("omega")

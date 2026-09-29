@@ -171,7 +171,7 @@ func readExecutableXattrs(path string) (map[string][]byte, error) {
 			return nil, fmt.Errorf("duplicate executable xattr %q", name)
 		}
 		if name == "security.capability" {
-			return nil, errors.New("Linux executable capabilities are unsupported")
+			return nil, errors.New("linux executable capabilities are unsupported")
 		}
 		// XNU stores file-system extended ACL/security metadata under this
 		// dedicated security attribute. It is deliberately rejected rather

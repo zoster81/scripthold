@@ -36,6 +36,7 @@ type normalProcessAdmission interface {
 }
 
 type normalProcessAdmissionOpener func(context.Context) (normalProcessAdmission, error)
+type selfUpdateCommandRunner func(context.Context, []string, io.Writer, io.Writer, string) (int, bool)
 
 func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	return runCommandWithAdmission(ctx, args, stdout, stderr, getenv, func(ctx context.Context) (normalProcessAdmission, error) {
@@ -50,6 +51,17 @@ func runCommandWithAdmission(
 	getenv func(string) string,
 	openAdmission normalProcessAdmissionOpener,
 ) (exitCode int) {
+	return runCommandWithAdmissionAndSelfUpdate(ctx, args, stdout, stderr, getenv, openAdmission, tryRunSelfUpdateCommand)
+}
+
+func runCommandWithAdmissionAndSelfUpdate(
+	ctx context.Context,
+	args []string,
+	stdout, stderr io.Writer,
+	getenv func(string) string,
+	openAdmission normalProcessAdmissionOpener,
+	runSelfUpdate selfUpdateCommandRunner,
+) (exitCode int) {
 	// Keep the legacy exported version synchronized for existing embedders while
 	// the explicit server options remain authoritative for this process.
 	filetoolsserver.Version = version
@@ -61,8 +73,10 @@ func runCommandWithAdmission(
 	if code, matched := tryRunSelfUpdateHelper(ctx, args, stderr); matched {
 		return code
 	}
-	if code, matched := tryRunSelfUpdateCommand(ctx, args, stdout, stderr, version); matched {
-		return code
+	if runSelfUpdate != nil {
+		if code, matched := runSelfUpdate(ctx, args, stdout, stderr, version); matched {
+			return code
+		}
 	}
 
 	if openAdmission == nil {

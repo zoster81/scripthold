@@ -10,7 +10,7 @@ import (
 )
 
 func TestOpenInstallationBoundaryCreatesSiblingOwnerOnlyState(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(target, []byte("binary"), 0o700); err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestOpenInstallationBoundaryCreatesSiblingOwnerOnlyState(t *testing.T) {
 }
 
 func TestOpenInstallationBoundaryExistingOnlyDoesNotCreate(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(target, []byte("binary"), 0o700); err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestOpenInstallationBoundaryExistingOnlyDoesNotCreate(t *testing.T) {
 }
 
 func TestOpenInstallationBoundaryRejectsReplacedParentEvidence(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(target, []byte("binary"), 0o700); err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestOpenInstallationBoundaryRejectsPreexistingInsecureState(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission-mode assertion is Unix-specific")
 	}
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(target, []byte("binary"), 0o700); err != nil {
 		t.Fatal(err)

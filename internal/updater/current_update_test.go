@@ -15,7 +15,7 @@ import (
 
 func currentUpdateFixture(t *testing.T) (string, installedEvidenceDeps) {
 	t.Helper()
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	path := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	if err := os.WriteFile(path, []byte("installed-binary"), 0o700); err != nil {
 		t.Fatal(err)

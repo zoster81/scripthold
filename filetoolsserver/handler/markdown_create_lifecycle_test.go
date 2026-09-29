@@ -222,7 +222,7 @@ func TestMarkdownCreateLimitsConsumeNoMutation(t *testing.T) {
 }
 
 func TestMarkdownCreateTruthfulStateAfterCommittedReplaceError(t *testing.T) {
-	dir := t.TempDir()
+	dir := canonicalHandlerTestDir(t)
 	h := NewHandler([]string{dir})
 	path := filepath.Join(dir, "partial.md")
 	result, preview, err := h.HandleMarkdownCreate(context.Background(), nil, MarkdownCreateInput{

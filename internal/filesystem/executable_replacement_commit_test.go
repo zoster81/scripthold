@@ -83,7 +83,8 @@ func TestCommitExecutableReplacementCandidateRejectsChangedCandidate(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(candidate); err != nil {
+	retained := filepath.Join(dir, "retained-candidate")
+	if err := os.Rename(candidate, retained); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(candidate, []byte("replacement"), 0o700); err != nil {

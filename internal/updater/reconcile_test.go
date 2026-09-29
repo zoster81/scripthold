@@ -205,7 +205,7 @@ func TestReconcilePendingRejectsAmbiguousAndDamagedStates(t *testing.T) {
 }
 
 func TestReconcileStableRequiresStrictTargetIdentity(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	target := filepath.Join(parent, standaloneBinaryName(runtime.GOOS))
 	sourceBytes := []byte("stable-binary")
 	if err := os.WriteFile(target, sourceBytes, 0o700); err != nil {
@@ -219,7 +219,8 @@ func TestReconcileStableRequiresStrictTargetIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(target); err != nil {
+	retained := filepath.Join(parent, "retained-standalone")
+	if err := os.Rename(target, retained); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(target, sourceBytes, 0o700); err != nil {
