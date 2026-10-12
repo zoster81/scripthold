@@ -121,7 +121,11 @@ test('release workflow requires exact-commit Scorecard evidence and publishes pi
 
 test('container base images are pinned to immutable digests', () => {
   const dockerfile = read('Dockerfile');
-  assert.match(dockerfile, /^FROM golang:1\.27\.1-alpine3\.24@sha256:[0-9a-f]{64} AS builder$/m);
+  const declaredGoVersion = read('go.mod').match(/^go (1\.\d+\.\d+)$/m)?.[1];
+  assert.ok(declaredGoVersion, 'go.mod must pin a Go patch release');
+  const builder = dockerfile.match(/^FROM golang:(1\.\d+\.\d+)-alpine3\.24@sha256:[0-9a-f]{64} AS builder$/m);
+  assert.ok(builder, 'Go builder must pin a patch release and an immutable image digest');
+  assert.equal(builder[1], declaredGoVersion, 'Docker builder must use the Go release declared in go.mod');
   assert.match(dockerfile, /^FROM alpine:3\.24\.1@sha256:[0-9a-f]{64}$/m);
 });
 

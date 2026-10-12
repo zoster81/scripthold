@@ -2,6 +2,12 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
+## Unreleased
+
+### Security
+
+- Updated the required Go compiler and pinned multi-platform container builder to Go 1.27.2, incorporating the upstream standard-library security fixes. Container-build policy now checks that the builder's Go patch version matches `go.mod`.
+
 ## 3.3.0 - 2026-09-28
 
 ### Added
