@@ -1,6 +1,7 @@
 package backupstore
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -162,11 +163,18 @@ func persistIndex(root string, index Index) error {
 	if err != nil {
 		return sanitizedFilesystemError("backup index cannot be inspected", err)
 	}
-	if err := filesystem.ReplaceFile(path, data, filesystem.ReplaceOptions{Mode: 0o600, Expected: &expected}); err != nil {
+	staged, err := filesystem.StageReplacement(path, bytes.NewReader(data), 0o600, nil)
+	if err != nil {
+		return sanitizedFilesystemError("backup index could not be staged", err)
+	}
+	if err := staged.RestrictOwnerOnly(); err != nil {
+		return sanitizedFilesystemError("backup index staging permissions could not be restricted", errors.Join(err, staged.Cleanup()))
+	}
+	if _, err := staged.Commit(filesystem.ReplaceOptions{Mode: 0o600, Expected: &expected}); err != nil {
 		return sanitizedFilesystemError("backup index could not be replaced", err)
 	}
-	if err := restrictPathPermissions(path, false); err != nil {
-		return sanitizedFilesystemError("backup index permissions could not be restricted", err)
+	if err := validatePathPermissions(path, false); err != nil {
+		return sanitizedFilesystemError("backup index permissions are not owner-only after replacement", err)
 	}
 	info, err := os.Lstat(path)
 	if err != nil {

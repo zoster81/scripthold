@@ -124,6 +124,14 @@ test('GitHub workflows share one verified Node release', () => {
   assert.equal(new Set(versions.map((value) => value.split(':')[1])).size, 1);
 });
 
+test('setup-node stays on one verified immutable release across CI and publication', () => {
+  const steps = workflowFiles().flatMap(({ name, content }) =>
+    [...content.matchAll(/^\s*uses:\s*actions\/setup-node@([0-9a-f]{40})\s+#\s+v(\d+\.\d+\.\d+)$/gm)]
+      .map((match) => `${name}:${match[1]}:${match[2]}`));
+  assert.equal(steps.length, 7, 'all seven setup-node steps must use immutable action SHAs');
+  assert.equal(new Set(steps.map((step) => step.split(':').slice(1).join(':'))).size, 1);
+});
+
 test('CodeQL scans pull requests targeting maintained branches and every pushed commit', () => {
   const workflow = read('.github/workflows/codeql.yml');
   assert.match(workflow, /pull_request:\s*\n\s*branches:\s*\n\s*- main\s*\n\s*- master/m);

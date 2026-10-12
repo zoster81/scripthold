@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Security
 
+- Pre-secured backup index staging files before atomic replacement, closing a Windows-only permissions window observable during concurrent captures.
 - Updated the required Go compiler and pinned multi-platform container builder to Go 1.27.2, incorporating the upstream standard-library security fixes. Container-build policy now checks that the builder's Go patch version matches `go.mod`.
 
 ### Changed
@@ -13,6 +14,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Kept CodeQL steps on one verified v4.38.3 action commit and grouped future Dependabot CodeQL action bumps to prevent incompatible workflow versions; updated Scorecard's upload-artifact action.
 - Refreshed the GitHub CI toolchain to match the newest qualified Go analyzer releases and Node.js 26.11.1, including a golangci-lint version compatible with Go 1.27.2.
 - Updated the Go system dependency `golang.org/x/sys` to v0.49.0.
+- Updated `golang.org/x/text` to v0.43.0 with its required dependency graph, and aligned all CI/publication `actions/setup-node` steps to the verified v7.1.0 commit with a consistency regression test.
 
 ## 3.3.0 - 2026-09-28
 
