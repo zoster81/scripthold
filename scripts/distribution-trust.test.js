@@ -48,7 +48,7 @@ test('OpenSSF Scorecard workflow stays on supported default-branch triggers', ()
   assert.match(scorecard, /publish_results:\s*true/);
   assert.match(scorecard, /results_file:\s*results\.sarif/);
   assert.match(scorecard, /persist-credentials:\s*false/);
-  assert.match(scorecard, /github\/codeql-action\/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63/);
+  assert.match(scorecard, /github\/codeql-action\/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d/);
 });
 
 test('README trust badges are evidence-backed and avoid unverified directory claims', () => {
@@ -96,6 +96,32 @@ test('release publishing defaults to read-only and grants write permission only 
   assert.match(beforeJobs, /permissions:\s*\n\s*contents:\s*read/m);
   assert.doesNotMatch(beforeJobs, /^\s*contents:\s*write\s*$/m);
   assert.match(workflow, /jobs:\s*\n\s*publish:.*?permissions:\s*\n\s*contents:\s*write/s);
+});
+
+test('CodeQL uses one immutable action release across every workflow step', () => {
+  const steps = [];
+  const pattern = /^\s*uses:\s*github\/codeql-action\/(init|autobuild|analyze|upload-sarif)@([0-9a-f]{40})\s+#\s+v(\d+\.\d+\.\d+)$/gm;
+  for (const workflow of workflowFiles()) {
+    for (const match of workflow.content.matchAll(pattern)) {
+      steps.push({ workflow: workflow.name, action: match[1], sha: match[2], version: match[3] });
+    }
+  }
+  assert.deepEqual(steps.map(({ workflow, action }) => `${workflow}:${action}`), [
+    'codeql.yml:init',
+    'codeql.yml:autobuild',
+    'codeql.yml:analyze',
+    'scorecard.yml:upload-sarif',
+  ]);
+  assert.equal(new Set(steps.map(({ sha, version }) => `${sha}:${version}`)).size, 1);
+  assert.match(read('.github/dependabot.yml'), /codeql-actions:\s*\n\s*patterns:\s*\n\s*- "github\/codeql-action\/\*"/);
+});
+
+test('GitHub workflows share one verified Node release', () => {
+  const versions = workflowFiles().flatMap(({ name, content }) =>
+    [...content.matchAll(/^\s*node-version:\s*['"]?(\d+\.\d+\.\d+)['"]?\s*$/gm)]
+      .map((match) => `${name}:${match[1]}`));
+  assert.ok(versions.length >= 4, 'CI and publication workflows should declare Node explicitly');
+  assert.equal(new Set(versions.map((value) => value.split(':')[1])).size, 1);
 });
 
 test('CodeQL scans pull requests targeting maintained branches and every pushed commit', () => {

@@ -7,7 +7,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/wlynxg/chardet v1.0.5
 	github.com/zoster81/marksplice v1.2.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	golang.org/x/text v0.42.0
 )
 

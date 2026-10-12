@@ -10,7 +10,7 @@ Prerequisites:
 
 - Go version declared by `go.mod`;
 - Git;
-- Node.js 26.8.2 for parity with the pinned GitHub release-script and publication workflows;
+- Node.js at the last verified version used by the GitHub release-script and publication workflows; check the current workflows before upgrading or publishing;
 - Bash, `curl`, `tar`, and `sha256sum` for workflow linting;
 - `golangci-lint` at the repository-pinned version for the full local quality gate;
 - a working C compiler only when running the Go race detector locally.
@@ -41,8 +41,8 @@ go mod verify
 go test ./... -count=1
 go vet ./...
 golangci-lint run ./...
-go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
-go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+staticcheck ./...
+govulncheck ./...
 
 # Release-script and CI-policy tests
 node --test scripts/check-markdown-links.test.js scripts/test-ci-policy.test.js scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-candidate-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
