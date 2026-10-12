@@ -1,5 +1,6 @@
 # Scripthold — Secure MCP Server for Local Workspaces
 
+[![AgentHub 已收录：Scripthold](https://myagenthub.cn/badge/io.github.zoster81/scripthold)](https://myagenthub.cn/p/io.github.zoster81/scripthold)
 <!-- mcp-name: io.github.zoster81/scripthold -->
 
 [![Test Suite](https://github.com/zoster81/scripthold/actions/workflows/test.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/test.yml?query=branch%3Amain)
