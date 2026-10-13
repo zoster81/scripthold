@@ -49,7 +49,7 @@ If a second reviewer cannot yet be arranged, keep Stage 1 enabled and explicitly
 
 - With the maintainer's own account, register the public project at [OpenSSF Best Practices](https://www.bestpractices.dev/), supply the canonical GitHub URL and answer the criteria with links to the actual policy, tests, branch rules and release evidence. Claim only requirements that are demonstrably met; pursue the passing badge through its real questionnaire. Account registration and attestation of organizational practices are human responsibilities.
 - In [GitHub repository security settings](https://github.com/zoster81/scripthold/settings/security_analysis), verify that Dependabot alerts/security updates, private vulnerability reporting, code scanning, secret scanning and push protection are enabled **where available**. Record unavailable features or plan limits honestly; do not claim they are enabled without checking. Protect the maintainer account with passkeys or two-factor authentication and securely retained recovery methods.
-- Continue generating real GitHub OIDC/Sigstore attestations for **future** immutable release assets through the existing Release workflow. Verify the signature/subject/checksum relationship independently. Do not re-label `.sigstore.json` as another provenance format, retrofit unearned attestations to historic builds, or publish a new release merely to affect the historical signed-release score.
+- Continue generating real GitHub OIDC/Sigstore attestations for **future** immutable release assets through the existing Release workflow. Verify the signature/subject/checksum relationship independently. For future releases, additionally publish the original signed DSSE envelope as an in-toto JSONL companion only after independent verification of the Sigstore bundle, exact source and every release checksum. The JSONL reuses the original signature and requires the accompanying Sigstore bundle for certificate/transparency evidence; it is not a renamed bundle or a new attestation. Never retrofit unearned attestations to historic builds or publish a new release merely to affect the historical signed-release score.
 - Monitor [the public Scorecard results](https://securityscorecards.dev/viewer/?uri=github.com/zoster81/scripthold) for subsequent, correctly attributed scans. Historical repository age, contributor diversity and reviewed changesets take time; a successful CI run is not automatically the same as a PR checked **before** merge. Avoid artificial commits, fake reviewers, misleading badges or relaxed scans to change the number.
 
 ## Release flow
@@ -85,7 +85,7 @@ If a second reviewer cannot yet be arranged, keep Stage 1 enabled and explicitly
    - has a successful `Release candidate` job in that run;
    - has a successful OpenSSF Scorecard `push` run on the default `main` branch for that exact SHA.
 9. GoReleaser publishes the normal release assets: six raw binaries, six platform archives, and `checksums.txt`, with the documentation/support files configured by `.goreleaser.yml`.
-10. The same release job generates signed Sigstore SLSA build provenance for every normal asset listed by `checksums.txt`, persists the attestation through GitHub's attestation service, and attaches the generated `.sigstore.json` bundle to the immutable GitHub Release.
+10. The same release job generates signed Sigstore SLSA build provenance for every normal asset listed by `checksums.txt`, persists the attestation through GitHub's attestation service, checks every original release asset against its checksum and independently verifies the attestation's signature, builder, source and subject with GitHub CLI. Only on success does it attach both the original `.sigstore.json` bundle and the same signed DSSE envelope as `.intoto.jsonl` to the immutable GitHub Release. Consumers must retain the bundle for Sigstore trust evidence; JSONL alone is not independently sufficient.
 11. GitHub then runs the MCPB and Registry workflows in order. Those workflows verify the immutable release/tag inputs and published checksums before producing their GitHub-only outputs.
 
 The tag-triggered Release workflow attests the already-completed exact-commit Test Suite and OpenSSF Scorecard push evidence instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser. The Test Suite push gate already includes Gitleaks and `goreleaser check` in addition to the full native/platform/security evidence. Scorecard itself remains on its supported default-branch execution path; release tags do not invoke the Scorecard action directly.
@@ -196,7 +196,7 @@ After GitHub publication completes:
 2. verify the expected normal GoReleaser asset names are present;
 3. download `checksums.txt` plus the 12 normal raw/archive assets and independently verify every SHA-256 entry;
 4. execute `--version` on a representative compatible published binary where infrastructure permits;
-5. verify that the release contains the expected `.sigstore.json` provenance bundle and that GitHub attestation verification succeeds for at least one independently downloaded normal release asset;
+5. verify that new releases contain the original `.sigstore.json` bundle and the matching `.intoto.jsonl` signed envelope, and that GitHub attestation verification succeeds for independently downloaded normal release assets;
 6. confirm the GitHub MCPB job and Registry job both completed successfully and that the expected MCPB asset names/checksum manifest are attached, **without downloading or validating the real MCPB bundles locally**;
 7. verify the Registry reports the intended semantic version and inspect its package types/transports;
 8. verify discovery destinations independently where a stable supported read API or public listing exists; do not replace missing APIs with form scraping;
@@ -226,7 +226,7 @@ After tagging:
 
 - [ ] Release workflow verifies the immutable annotated tag and exact Test Suite-gated commit;
 - [ ] GoReleaser publication succeeds;
-- [ ] signed Sigstore SLSA build provenance is generated for the normal release assets, persisted as a GitHub attestation, and attached to the Release as a `.sigstore.json` bundle;
+- [ ] signed Sigstore SLSA build provenance is generated for the normal release assets, persisted as a GitHub attestation, cryptographically verified against the release assets and source, and attached as the original `.sigstore.json` bundle alongside its unchanged `.intoto.jsonl` DSSE envelope;
 - [ ] GitHub-only MCPB publication succeeds;
 - [ ] GitHub-only Registry publication succeeds;
 - [ ] normal GoReleaser assets independently match `checksums.txt`;

@@ -125,13 +125,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Node.js for provenance validation
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+
       - name: Generate signed release provenance
         id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
 
-      - name: Attach provenance bundle to GitHub Release
+      - name: Validate signed provenance and produce interoperable in-toto envelope
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          node scripts/release-provenance.js \
+            "${PROVENANCE_BUNDLE}" dist/checksums.txt dist/artifacts.json \
+            "${GITHUB_REF_NAME}" "${GITHUB_SHA}" \
+            "scripthold-${GITHUB_REF_NAME}-provenance.intoto.jsonl"
+
+      - name: Attach verified provenance to GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,9 +157,11 @@ jobs:
         run: |
           set -euo pipefail
           provenance="scripthold-${GITHUB_REF_NAME}-provenance.sigstore.json"
+          intoto="scripthold-${GITHUB_REF_NAME}-provenance.intoto.jsonl"
           test -f "${PROVENANCE_BUNDLE}"
+          test -f "${intoto}"
           cp "${PROVENANCE_BUNDLE}" "${provenance}"
-          gh release upload "${GITHUB_REF_NAME}" "${provenance}"
+          gh release upload "${GITHUB_REF_NAME}" "${provenance}" "${intoto}"
 
   publish-mcpb:
     needs: release

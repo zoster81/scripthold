@@ -128,7 +128,7 @@ test('setup-node stays on one verified immutable release across CI and publicati
   const steps = workflowFiles().flatMap(({ name, content }) =>
     [...content.matchAll(/^\s*uses:\s*actions\/setup-node@([0-9a-f]{40})\s+#\s+v(\d+\.\d+\.\d+)$/gm)]
       .map((match) => `${name}:${match[1]}:${match[2]}`));
-  assert.equal(steps.length, 7, 'all seven setup-node steps must use immutable action SHAs');
+  assert.equal(steps.length, 8, 'all eight setup-node steps must use immutable action SHAs');
   assert.equal(new Set(steps.map((step) => step.split(':').slice(1).join(':'))).size, 1);
 });
 

@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Security
 
+- Added fail-closed verification of every normal release artifact and its signed Sigstore SLSA provenance before publishing an unchanged in-toto DSSE JSONL companion alongside the original bundle, improving independent release verification without introducing new signatures or weakening existing gates.
 - Pre-secured backup index staging files before atomic replacement, closing a Windows-only permissions window observable during concurrent captures.
 - Updated the required Go compiler and pinned multi-platform container builder to Go 1.27.2, incorporating the upstream standard-library security fixes. Container-build policy now checks that the builder's Go patch version matches `go.mod`.
 
