@@ -29,6 +29,14 @@ Do not add credentials, real tunnel identifiers, private launcher copies, workst
 
 Keep pull requests focused. Separate unrelated refactors, dependency updates, generated metadata changes, and behavior changes whenever practical.
 
+## Review ownership and merge safety
+
+The repository's [CODEOWNERS](.github/CODEOWNERS) file identifies the maintainer responsible for reviewing changes. Ownership makes responsibility visible and can request reviews; **it does not certify that any change received an independent review**. Pull-request approvals must come from an authorized human who actually examined the current diff. Authors must not approve their own changes, use alternate accounts to manufacture approvals, or merge a failed or unreviewed contribution merely to improve a security score.
+
+Prefer an ordinary branch and pull request for every change. Before merging, inspect the final diff, resolve review conversations, and require the applicable `Release candidate` check from the Test Suite and `Analyze (Go)` from CodeQL to succeed for the pull request's current head. Documentation-only PRs still require their policy checks; external fork workflow runs may need a maintainer's explicit approval before tests can run.
+
+Repository rules enforce these practices only after the maintainer activates the corresponding GitHub ruleset. The [maintainer setup procedure](docs/PUBLISHING.md#repository-governance-and-openssf-best-practices) describes the safe staged rollout, including the independent-review prerequisite. Do not assume CODEOWNERS alone enforces review.
+
 ## Common commands
 
 ```bash

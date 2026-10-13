@@ -22,6 +22,36 @@ The following actions remain explicit maintainer decisions and are never inciden
 - deployment, active rollback, or runtime restart;
 - toolchain upgrades.
 
+## Repository governance and OpenSSF Best Practices
+
+The OpenSSF Scorecard is a diagnostic, not a release gate or a reason to generate artificial activity. Protect the supply chain by requiring genuine pull requests, working CI, independent review when a reviewer is available, and verifiable release attestations. The [contributor review policy](../CONTRIBUTING.md#review-ownership-and-merge-safety) and `.github/CODEOWNERS` describe the human responsibilities; **only GitHub repository rules can enforce them**.
+
+The following setup is an **operator checklist**, not a claim that these settings are currently enabled. Configure it from GitHub using repository administrator access; the project workflows cannot change repository rules or register a Best Practices account on the maintainer's behalf.
+
+### Stage 1: require PRs and real CI without locking out a solo maintainer
+
+1. Open [the repository rulesets](https://github.com/zoster81/scripthold/settings/rules) and edit the active `Main integrity` branch ruleset for `main`. Keep deletion and non-fast-forward protection enabled, with no broad bypass exceptions.
+2. Enable **Require a pull request before merging**. While operating as a solo maintainer, use **zero required approving reviews** initially; this still requires a PR but does not pretend to provide independent human review.
+3. Enable **Require status checks to pass before merging** and select the existing GitHub Actions checks **`Release candidate`** (Test Suite) and **`Analyze (Go)`** (CodeQL), using the real check names shown on a recent PR. Where GitHub offers a check-source selector, use the GitHub Actions app. Require the branch to be up to date before merging. Do not require individual matrix jobs that are legitimately skipped by the repository's evidence-tier policy.
+4. Test the ruleset against a small, legitimate documentation PR: verify both required checks complete and the PR cannot merge while either is pending or failing; verify that an approved result can actually merge. External contributors' first-time Actions runs may require maintainer approval before checks can start. Do not use `pull_request_target` with untrusted code or grant extra token permissions to make a pending check pass.
+5. Revisit existing release procedures after activating the ruleset: publication still requires a successful **full-tier push-event** `Release candidate` on the exact merged commit. A green PR check alone is not sufficient.
+
+### Stage 2: require independent human review
+
+1. Arrange an **independent trusted reviewer** with explicit repository write access who can actually inspect security, code and release workflow changes. Agree on availability and emergency maintenance coverage before making the next step mandatory.
+2. Update CODEOWNERS to add the authorized reviewer where responsibility genuinely applies, including `.github/CODEOWNERS` and workflow/release-security files. Do not invent reviewers or use alternate identities to manufacture approvals.
+3. In the same ruleset enable **one required approving review**, **dismiss stale approvals when new changes are pushed**, **require approval of the most recent reviewable push**, and optionally **require review from code owners** only after an eligible, distinct code owner can approve a maintainer-authored change. Require conversations to be resolved where supported.
+4. Verify with a real PR that self-approval is rejected, the other reviewer can approve, new changes invalidate stale approval, and failed or pending CI prevents merging. Keep bypass permissions narrowly scoped and auditable; do not disable security controls just to unblock routine updates.
+
+If a second reviewer cannot yet be arranged, keep Stage 1 enabled and explicitly report that independent review is **not** enforced. Introducing a mandatory one-person review rule before an eligible reviewer exists would prevent legitimate maintenance.
+
+### OpenSSF Best Practices and provenance
+
+- With the maintainer's own account, register the public project at [OpenSSF Best Practices](https://www.bestpractices.dev/), supply the canonical GitHub URL and answer the criteria with links to the actual policy, tests, branch rules and release evidence. Claim only requirements that are demonstrably met; pursue the passing badge through its real questionnaire. Account registration and attestation of organizational practices are human responsibilities.
+- In [GitHub repository security settings](https://github.com/zoster81/scripthold/settings/security_analysis), verify that Dependabot alerts/security updates, private vulnerability reporting, code scanning, secret scanning and push protection are enabled **where available**. Record unavailable features or plan limits honestly; do not claim they are enabled without checking. Protect the maintainer account with passkeys or two-factor authentication and securely retained recovery methods.
+- Continue generating real GitHub OIDC/Sigstore attestations for **future** immutable release assets through the existing Release workflow. Verify the signature/subject/checksum relationship independently. Do not re-label `.sigstore.json` as another provenance format, retrofit unearned attestations to historic builds, or publish a new release merely to affect the historical signed-release score.
+- Monitor [the public Scorecard results](https://securityscorecards.dev/viewer/?uri=github.com/zoster81/scripthold) for subsequent, correctly attributed scans. Historical repository age, contributor diversity and reviewed changesets take time; a successful CI run is not automatically the same as a PR checked **before** merge. Avoid artificial commits, fake reviewers, misleading badges or relaxed scans to change the number.
+
 ## Release flow
 
 1. Complete the release-scoped roadmap work and its documented verification gate.

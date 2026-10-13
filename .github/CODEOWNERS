@@ -1,0 +1,6 @@
+# Identify the current accountable maintainer for review requests.
+# Ownership alone does not enforce independent approvals; see docs/PUBLISHING.md.
+* @zoster81
+
+# Protect the workflow configuration and ownership policy itself.
+/.github/ @zoster81
