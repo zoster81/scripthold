@@ -207,6 +207,8 @@ The first implementation is a private-service bearer-token profile, not a comple
 - Direct non-loopback traffic requires TLS.
 - The server does not generate self-signed certificates automatically.
 - TLS files are read at startup and their paths, keys, and certificate contents are not logged.
+- Before accepting direct TLS connections, the server rejects any presented X.509 certificate with an RSA key shorter than 2048 bits, an ECDSA curve shorter than 224 bits, or an unsupported public-key algorithm. Ed25519 certificates are accepted. Malformed presented certificates and weak keys abort startup without disclosing certificate contents or private file paths. Certificate trust-chain verification remains the TLS client's responsibility.
+- A trusted reverse proxy that terminates TLS remains responsible for enforcing its own certificate key-strength policy; Scripthold does not control certificates presented by external proxies.
 - Only a bounded `X-Forwarded-For` chain is consumed, and only from trusted proxy peers. `Forwarded`, `X-Forwarded-Host`, and `X-Forwarded-Proto` are ignored.
 - When plaintext non-loopback service is permitted only behind a proxy, direct peers outside `MCP_HTTP_TRUSTED_PROXY_CIDRS` are rejected before routing.
 - A trusted proxy never bypasses application bearer authentication.
