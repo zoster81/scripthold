@@ -3,16 +3,156 @@ package httptransport
 import (
 	"bufio"
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/zoster81/scripthold/filetoolsserver"
 )
+
+func makeRunnerTestCertificate(t *testing.T, key crypto.Signer) ([]byte, []byte) {
+	t.Helper()
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "localhost"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER})
+}
+
+func TestTLSCertificateKeyStrength(t *testing.T) {
+	weakRSA, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strongRSA, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecdsaKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var strong, weak tls.Certificate
+	for _, tc := range []struct {
+		name  string
+		key   crypto.Signer
+		valid bool
+	}{
+		{name: "weak RSA", key: weakRSA},
+		{name: "RSA 2048", key: strongRSA, valid: true},
+		{name: "ECDSA P-256", key: ecdsaKey, valid: true},
+		{name: "Ed25519", key: edKey, valid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			certPEM, keyPEM := makeRunnerTestCertificate(t, tc.key)
+			pair, err := tls.X509KeyPair(certPEM, keyPEM)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validateTLSCertificateKeyStrength(pair); (err == nil) != tc.valid {
+				t.Fatalf("validation error = %v, want valid = %t", err, tc.valid)
+			}
+			switch tc.name {
+			case "weak RSA":
+				weak = pair
+			case "RSA 2048":
+				strong = pair
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name        string
+		certificate tls.Certificate
+	}{
+		{name: "empty chain"},
+		{name: "invalid DER", certificate: tls.Certificate{Certificate: [][]byte{[]byte("not DER")}}},
+		{name: "weak intermediate", certificate: tls.Certificate{
+			Certificate: [][]byte{strong.Certificate[0], weak.Certificate[0]},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateTLSCertificateKeyStrength(tc.certificate); err == nil {
+				t.Fatal("invalid TLS certificate chain was accepted")
+			}
+		})
+	}
+}
+
+func TestRunnerRejectsWeakTLSCertificateAndClosesListener(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM := makeRunnerTestCertificate(t, key)
+	dir := t.TempDir()
+	certFile, keyFile := filepath.Join(dir, "server-cert.pem"), filepath.Join(dir, "server-key.pem")
+	if err := os.WriteFile(certFile, certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := validTestConfig(2)
+	cfg.TLSCertFile, cfg.TLSKeyFile = certFile, keyFile
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if err := listener.(*net.TCPListener).SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err = (Runner{Config: cfg, Listener: listener}).Run(
+		ctx, filetoolsserver.BuildServer(filetoolsserver.ServerOptions{Version: "runner"}),
+	)
+	if err == nil || !strings.Contains(err.Error(), "insufficient") {
+		t.Fatalf("weak TLS certificate was not rejected at startup: %v", err)
+	}
+	if strings.Contains(err.Error(), certFile) || strings.Contains(err.Error(), keyFile) {
+		t.Fatalf("TLS certificate error leaked configured paths: %v", err)
+	}
+	if _, err := listener.Accept(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("listener should be closed after rejected TLS certificate: %v", err)
+	}
+}
 
 func TestRunnerRedactsTLSFilePaths(t *testing.T) {
 	cfg := validTestConfig(2)

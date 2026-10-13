@@ -2,7 +2,11 @@ package httptransport
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"log"
@@ -44,6 +48,10 @@ func (runner Runner) Run(ctx context.Context, server *mcp.Server) error {
 		if err != nil {
 			_ = listener.Close()
 			return errors.New("failed to load HTTP TLS certificate or key")
+		}
+		if err := validateTLSCertificateKeyStrength(certificate); err != nil {
+			_ = listener.Close()
+			return err
 		}
 		listener = tls.NewListener(listener, &tls.Config{
 			MinVersion:   tls.VersionTLS12,
@@ -94,4 +102,30 @@ func (runner Runner) Run(ctx context.Context, server *mcp.Server) error {
 		}
 		return ctx.Err()
 	}
+}
+
+// Validate every certificate the server presents before accepting TLS connections.
+func validateTLSCertificateKeyStrength(certificate tls.Certificate) error {
+	if len(certificate.Certificate) == 0 {
+		return errors.New("HTTP TLS certificate chain is empty")
+	}
+	for _, der := range certificate.Certificate {
+		parsed, err := x509.ParseCertificate(der)
+		if err != nil {
+			return errors.New("HTTP TLS certificate chain contains an invalid certificate")
+		}
+		strong := false
+		switch key := parsed.PublicKey.(type) {
+		case *rsa.PublicKey:
+			strong = key.N != nil && key.N.BitLen() >= 2048
+		case *ecdsa.PublicKey:
+			strong = key.Curve != nil && key.Curve.Params() != nil && key.Curve.Params().BitSize >= 224
+		case ed25519.PublicKey:
+			strong = len(key) == ed25519.PublicKeySize
+		}
+		if !strong {
+			return errors.New("HTTP TLS certificate chain contains an insufficient or unsupported public key")
+		}
+	}
+	return nil
 }
