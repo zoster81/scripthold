@@ -132,6 +132,7 @@ func TestEvidenceMapIsIndependentCompleteAndCurrent(t *testing.T) {
 		}
 	}
 	assertAllGoTestDirectoriesClassified(t, root, goDirectories)
+	assertAllNodeScriptTestsClassified(t, root, got.TestGroups)
 
 	gateByID := make(map[string]gate, len(got.Gates))
 	for _, item := range got.Gates {
@@ -216,6 +217,35 @@ func TestEvidenceMapIsIndependentCompleteAndCurrent(t *testing.T) {
 	for _, category := range got.RequiredCategories {
 		if !categorySeen[category] {
 			t.Fatalf("required category %q has no invariant", category)
+		}
+	}
+}
+
+func assertAllNodeScriptTestsClassified(t *testing.T, root string, groups []testGroup) {
+	t.Helper()
+	owners := make(map[string]string)
+	for _, group := range groups {
+		if group.Kind != "node" {
+			continue
+		}
+		for _, file := range group.Files {
+			if prior, exists := owners[file]; exists {
+				t.Fatalf("Node test %q is owned by both %q and %q", file, prior, group.ID)
+			}
+			owners[file] = group.ID
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "scripts"))
+	if err != nil {
+		t.Fatalf("read Node script tests: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".test.js") {
+			continue
+		}
+		file := "scripts/" + entry.Name()
+		if _, exists := owners[file]; !exists {
+			t.Errorf("Node test %q has no canonical evidence-map owner", file)
 		}
 	}
 }
