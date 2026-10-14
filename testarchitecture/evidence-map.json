@@ -33,6 +33,7 @@
     {"id":"go.markdownintelligence","kind":"go-package","directory":"internal/markdownintelligence","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
     {"id":"go.operation","kind":"go-package","directory":"internal/operation","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
     {"id":"go.projectidentity","kind":"go-package","directory":"internal/projectidentity","classification":"canonical-owner","failureClasses":["deterministic"],"platforms":["all"],"expenseTier":"fast"},
+    {"id":"go.releasearchive","kind":"go-package","directory":"internal/releasearchive","classification":"canonical-owner","failureClasses":["deterministic","integration"],"platforms":["all","windows","linux","darwin"],"expenseTier":"fast"},
     {"id":"go.responsecontinuation","kind":"go-package","directory":"internal/responsecontinuation","classification":"canonical-owner","failureClasses":["deterministic","race"],"platforms":["all"],"expenseTier":"fast"},
     {"id":"go.security","kind":"go-package","directory":"internal/security","classification":"canonical-owner","failureClasses":["deterministic","fuzz","platform"],"platforms":["all","windows","linux","darwin"],"expenseTier":"medium"},
     {"id":"go.sourceintelligence","kind":"go-package","directory":"internal/sourceintelligence","classification":"canonical-owner","failureClasses":["deterministic","race","fuzz","integration"],"platforms":["all"],"expenseTier":"slow"},
@@ -156,7 +157,7 @@
     {
       "id":"release.exact-commit-publication","category":"release-publication","requirement":"A public release is tagged only from the exact clean main commit whose push Test Suite/Release candidate passed; GoReleaser then publishes immutable native assets and checksums.","canonicalLayer":"exact-commit release provenance and GoReleaser",
       "contracts":[{"path":"docs/PUBLISHING.md","role":"immutable publication procedure"}],
-      "testOwners":["node.release-scripts","node.ci-policy","go.cmd-scripthold"],"gateOwners":["ci.gitleaks","ci.release-config","ci.release-candidate","release.exact-push-attestation","release.goreleaser"],"failureClasses":["deterministic","platform","integration","external-acceptance"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true
+      "testOwners":["node.release-scripts","node.ci-policy","go.cmd-scripthold","go.releasearchive"],"gateOwners":["ci.gitleaks","ci.release-config","ci.release-candidate","release.exact-push-attestation","release.goreleaser"],"failureClasses":["deterministic","platform","integration","external-acceptance"],"platforms":["github","windows","linux","darwin"],"expenseTier":"very-slow","releaseBlocking":true
     },
     {
       "id":"release.github-only-mcpb-registry","category":"release-publication","requirement":"Real MCPB packaging is GitHub-only and checksum-bound to immutable release binaries; exactly six validated bundles feed a fork-owned Registry manifest published with the pinned verified publisher and OIDC.","canonicalLayer":"GitHub MCPB and MCP Registry publication workflows",
