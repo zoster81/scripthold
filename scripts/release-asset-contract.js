@@ -110,6 +110,52 @@ async function verifyStagedAssetStream(expected, source) {
   return { name: expected.name, size, sha256: expected.sha256 };
 }
 
+const MAX_STAGING_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024;
+
+function validPositiveID(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function stagedArtifactName(stage, runId, producerAttempt) {
+  requireCondition(stage === 'normal' || stage === 'mcpb', 'invalid staging group');
+  requireCondition(validPositiveID(runId), 'invalid workflow run id');
+  requireCondition(validPositiveID(producerAttempt), 'invalid producer run attempt');
+  return `scripthold-${stage}-${runId}-${producerAttempt}`;
+}
+
+// The expected ID, SHA and digest must come from trusted workflow/job outputs.
+// REST metadata alone does not authenticate the payload's extracted file bytes.
+function verifyRunStagingArtifact(expected, remote) {
+  requireCondition(expected && typeof expected === 'object' && !Array.isArray(expected),
+    'invalid expected staging identity');
+  requireCondition(expected.repository === REPOSITORY, 'unexpected staging repository');
+  requireCondition(validPositiveID(expected.repositoryId), 'invalid staging repository id');
+  expectedReleaseAssetNames(expected.tag);
+  requireCondition(typeof expected.commit === 'string' && COMMIT_SHA.test(expected.commit),
+    'invalid staged source commit');
+  const name = stagedArtifactName(expected.stage, expected.runId, expected.producerAttempt);
+  requireCondition(validPositiveID(expected.uploadId), 'invalid upload artifact id');
+  requireCondition(typeof expected.uploadDigest === 'string' && SHA256.test(expected.uploadDigest),
+    'invalid producer artifact digest');
+  requireCondition(remote && typeof remote === 'object' && !Array.isArray(remote),
+    'invalid GitHub Actions artifact metadata');
+  requireCondition(remote.id === expected.uploadId && remote.name === name,
+    'Actions artifact identity mismatch');
+  requireCondition(remote.expired === false, 'Actions artifact expired or not confirmed');
+  requireCondition(Number.isSafeInteger(remote.size_in_bytes) &&
+    remote.size_in_bytes > 0 && remote.size_in_bytes <= MAX_STAGING_ARCHIVE_BYTES,
+    'invalid Actions archive size');
+  requireCondition(remote.digest === 'sha256:' + expected.uploadDigest,
+    'Actions artifact archive digest mismatch');
+  const run = remote.workflow_run;
+  requireCondition(run && typeof run === 'object' && !Array.isArray(run),
+    'missing artifact workflow identity');
+  requireCondition(run.id === expected.runId && run.repository_id === expected.repositoryId &&
+    run.head_repository_id === expected.repositoryId && run.head_sha === expected.commit,
+    'Actions artifact workflow provenance mismatch');
+  return { artifactId: remote.id, name, archiveDigest: remote.digest, size: remote.size_in_bytes };
+}
+
 function verifyDraftAssetSet(manifest, release, remoteAssets) {
   const expected = validateStagedManifest(manifest);
   requireCondition(release && typeof release === 'object' && !Array.isArray(release),
@@ -144,4 +190,4 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
 }
 
 module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
-  verifyStagedAssetStream };
+  verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact };

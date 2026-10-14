@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
-  verifyStagedAssetStream } =
+  verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -186,6 +186,81 @@ test('stream verification propagates source errors and rejects nonbinary chunks'
   await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(['not a byte buffer'])));
   async function *failing() { yield bytes; throw new Error('source failure'); }
   await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(failing())), /source failure/);
+});
+
+function actionsStageFixture() {
+  const uploadDigest = 'e'.repeat(64);
+  const expected = {
+    repository: 'zoster81/scripthold', repositoryId: 1234,
+    tag: TAG, commit: COMMIT, runId: 9001, producerAttempt: 1,
+    stage: 'normal', uploadId: 7654, uploadDigest,
+  };
+  const remote = {
+    id: 7654, name: 'scripthold-normal-9001-1', size_in_bytes: 4096,
+    digest: 'sha256:' + uploadDigest, expired: false,
+    workflow_run: {
+      id: 9001, repository_id: 1234, head_repository_id: 1234,
+      head_sha: COMMIT,
+    },
+  };
+  return { expected, remote };
+}
+
+test('binds an Actions upload to exact source, repository, run, producer attempt and digest', () => {
+  const { expected, remote } = actionsStageFixture();
+  assert.equal(stagedArtifactName('normal', 9001, 1), remote.name);
+  assert.equal(stagedArtifactName('mcpb', 9001, 2), 'scripthold-mcpb-9001-2');
+  assert.deepEqual(verifyRunStagingArtifact(expected, remote), {
+    artifactId: 7654, name: remote.name, archiveDigest: remote.digest, size: 4096,
+  });
+});
+
+test('fails closed on malformed or out-of-scope staging authorities', () => {
+  for (const change of [
+    { repository: 'attacker/another' },
+    { repositoryId: 0 }, { repositoryId: '1234' },
+    { commit: 'a'.repeat(40) }, { commit: 'A'.repeat(40) },
+    { tag: '../v3.4.0' },
+    { runId: 0 }, { runId: '9001' },
+    { producerAttempt: 0 }, { producerAttempt: -1 },
+    { stage: 'latest' }, { uploadId: 0 }, { uploadId: '7654' },
+    { uploadDigest: 'G'.repeat(64) },
+  ]) {
+    const { expected, remote } = actionsStageFixture();
+    assert.throws(() => verifyRunStagingArtifact({ ...expected, ...change }, remote));
+  }
+  for (const args of [['normal', 0, 1], ['mcpb', 1, 0], ['latest', 1, 1]]) {
+    assert.throws(() => stagedArtifactName(...args));
+  }
+});
+
+test('rejects mismatched, expired or malformed authenticated GitHub artifact metadata', () => {
+  for (const change of [
+    { id: 7655 }, { name: 'scripthold-normal-9001-2' },
+    { name: '../scripthold-normal-9001-1' },
+    { digest: 'sha256:' + '0'.repeat(64) },
+    { digest: 'e'.repeat(64) },
+    { expired: true }, { expired: undefined }, { size_in_bytes: 0 },
+    { size_in_bytes: 2 ** 43 }, { size_in_bytes: 1.5 },
+    { workflow_run: null },
+    { workflow_run: { id: 9, repository_id: 1234, head_repository_id: 1234, head_sha: COMMIT } },
+    { workflow_run: { id: 9001, repository_id: 999, head_repository_id: 1234, head_sha: COMMIT } },
+    { workflow_run: { id: 9001, repository_id: 1234, head_repository_id: 999, head_sha: COMMIT } },
+    { workflow_run: { id: 9001, repository_id: 1234, head_repository_id: 1234, head_sha: 'a'.repeat(40) } },
+  ]) {
+    const { expected, remote } = actionsStageFixture();
+    assert.throws(() => verifyRunStagingArtifact(expected, { ...remote, ...change }));
+  }
+  const { expected } = actionsStageFixture();
+  assert.throws(() => verifyRunStagingArtifact(expected, null));
+});
+
+test('binds each stage and avoids selecting artifacts by latest run or mutable name', () => {
+  const { expected, remote } = actionsStageFixture();
+  const mcpbExpected = { ...expected, stage: 'mcpb', producerAttempt: 2 };
+  assert.throws(() => verifyRunStagingArtifact(mcpbExpected, remote));
+  assert.deepEqual(verifyRunStagingArtifact(mcpbExpected,
+    { ...remote, name: 'scripthold-mcpb-9001-2' }).artifactId, 7654);
 });
 
 test('rejects malformed remote input and duplicate remote asset ids', () => {
