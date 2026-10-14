@@ -153,6 +153,11 @@ test('release workflow requires exact-commit Scorecard evidence and publishes pi
   assert.match(workflow, /gh release upload/);
 });
 
+test('release asset manifest contract is always exercised by CI policy', () => {
+  const workflow = read('.github/workflows/test.yml');
+  assert.match(workflow, /node --test [^\n]*scripts\/release-asset-contract\.test\.js/m);
+});
+
 test('container base images are pinned to immutable digests', () => {
   const dockerfile = read('Dockerfile');
   const declaredGoVersion = read('go.mod').match(/^go (1\.\d+\.\d+)$/m)?.[1];
