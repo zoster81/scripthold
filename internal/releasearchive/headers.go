@@ -94,9 +94,10 @@ func preflightZIPHeaders(source io.ReaderAt, archiveSize int64, expected map[str
 		}
 		flags, method := u16(central[8:10]), u16(central[10:12])
 		compressed, original := u32(central[20:24]), u32(central[24:28])
-		if flags&1 != 0 || (method != 0 && method != 8) ||
+		if flags & ^uint16(0x0808) != 0 || (method != 0 && method != 8) ||
 			compressed == 0 || compressed == 0xffffffff ||
-			original == 0xffffffff || int64(original) != expectedFile.Size {
+			original == 0xffffffff || int64(original) != expectedFile.Size ||
+			(method == 0 && compressed != original) {
 			return nil, fmt.Errorf("unsupported ZIP compression or lengths for %q", name)
 		}
 		localOffset := int64(u32(central[42:46]))
@@ -118,11 +119,41 @@ func preflightZIPHeaders(source io.ReaderAt, archiveSize int64, expected map[str
 		if !bytes.Equal(localName, nameBytes) {
 			return nil, fmt.Errorf("ZIP local/central name mismatch for %q", name)
 		}
+		if flags&8 == 0 && (u32(local[14:18]) != u32(central[16:20]) ||
+			u32(local[18:22]) != compressed || u32(local[22:26]) != original) {
+			return nil, fmt.Errorf("ZIP local/central checksum or size mismatch for %q", name)
+		}
 		dataOffset := localOffset + zipLocalHeaderSize + int64(nameLen) +
 			int64(u16(local[28:30]))
 		dataEnd := dataOffset + int64(compressed)
 		if dataOffset < localOffset || dataEnd > dirOffset || dataEnd < dataOffset {
 			return nil, fmt.Errorf("invalid ZIP compressed data boundary for %q", name)
+		}
+		if flags&8 != 0 {
+			// ZIP data descriptors may omit their 4-byte signature. Validate
+			// all values against the already bounded central record, rather
+			// than treating an unrelated gap as trusted metadata.
+			var first [4]byte
+			if err := read(dataEnd, first[:]); err != nil {
+				return nil, fmt.Errorf("read ZIP data descriptor for %q: %w", name, err)
+			}
+			checksumOffset := dataEnd
+			if u32(first[:]) == 0x08074b50 {
+				checksumOffset += 4
+			}
+			var descriptor [12]byte
+			if err := read(checksumOffset, descriptor[:]); err != nil {
+				return nil, fmt.Errorf("read ZIP data descriptor for %q: %w", name, err)
+			}
+			if u32(descriptor[0:4]) != u32(central[16:20]) ||
+				u32(descriptor[4:8]) != compressed ||
+				u32(descriptor[8:12]) != original {
+				return nil, fmt.Errorf("ZIP data descriptor mismatch for %q", name)
+			}
+			dataEnd = checksumOffset + int64(len(descriptor))
+			if dataEnd > dirOffset {
+				return nil, fmt.Errorf("ZIP data descriptor outside file data for %q", name)
+			}
 		}
 		dataOffsets[name] = dataOffset
 		extents = append(extents, zipExtent{localOffset, dataEnd})
@@ -136,9 +167,12 @@ func preflightZIPHeaders(source io.ReaderAt, archiveSize int64, expected map[str
 		return nil, errors.New("ZIP prefix or unsupported local header layout")
 	}
 	for i := 1; i < len(extents); i++ {
-		if extents[i].start < extents[i-1].end {
-			return nil, errors.New("overlapping ZIP local file records")
+		if extents[i].start != extents[i-1].end {
+			return nil, errors.New("ZIP local records overlap or contain unaccounted bytes")
 		}
+	}
+	if extents[len(extents)-1].end != dirOffset {
+		return nil, errors.New("unaccounted bytes before ZIP central directory")
 	}
 	return dataOffsets, nil
 }

@@ -322,6 +322,113 @@ func TestVerifyRejectsUnsupportedZIPLayoutsBeforeParsing(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsConflictingZIPDataDescriptors(t *testing.T) {
+	archive := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{"checksums.txt", "synthetic descriptor bytes", 0o644}})
+	want := []ExpectedFile{fileExpect("checksums.txt", "synthetic descriptor bytes")}
+	central := bytes.Index(archive, []byte{'P', 'K', 1, 2})
+	if central < 0 || binary.LittleEndian.Uint16(archive[central+8:central+10])&8 == 0 {
+		t.Fatal("synthetic ZIP must have a data descriptor")
+	}
+	data := int(binary.LittleEndian.Uint32(archive[central+20 : central+24]))
+	descriptor := 30 + len("checksums.txt") + data
+	if descriptor+16 > central ||
+		!bytes.Equal(archive[descriptor:descriptor+4], []byte{'P', 'K', 7, 8}) {
+		t.Fatal("unexpected signed ZIP descriptor layout")
+	}
+	for _, tc := range []struct {
+		name   string
+		offset int
+	}{
+		{"changed compressed CRC", descriptor + 4},
+		{"changed compressed length", descriptor + 8},
+		{"changed uncompressed length", descriptor + 12},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := bytes.Clone(archive)
+			mutated[tc.offset] ^= 1
+			if err := Verify(bytes.NewReader(mutated), int64(len(mutated)), want); err == nil {
+				t.Fatal("accepted conflicting ZIP data descriptor")
+			}
+		})
+	}
+}
+
+func TestVerifyRejectsUnaccountedZIPGap(t *testing.T) {
+	archive := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{"checksums.txt", "synthetic bytes", 0o644}})
+	central := bytes.Index(archive, []byte{'P', 'K', 1, 2})
+	if central < 0 {
+		t.Fatal("missing central header")
+	}
+	// Deliberately insert a byte before the central directory and point the
+	// end record to its new location. Original file bytes and CRC remain valid.
+	mutated := append(bytes.Clone(archive[:central]), append([]byte{0}, archive[central:]...)...)
+	eocd := len(mutated) - 22
+	binary.LittleEndian.PutUint32(mutated[eocd+16:eocd+20], uint32(central+1))
+	want := []ExpectedFile{fileExpect("checksums.txt", "synthetic bytes")}
+	if err := Verify(bytes.NewReader(mutated), int64(len(mutated)), want); err == nil {
+		t.Fatal("accepted unaccounted ZIP bytes before the central directory")
+	}
+}
+
+func TestVerifyAcceptsUnsignedZIPDataDescriptor(t *testing.T) {
+	const name, content = "checksums.txt", "legitimate unsigned descriptor"
+	original := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{name, content, 0o644}})
+	central := bytes.Index(original, []byte{'P', 'K', 1, 2})
+	if central < 16 || !bytes.Equal(original[central-16:central-12], []byte{'P', 'K', 7, 8}) {
+		t.Fatal("synthetic ZIP must have a signed 16-byte descriptor")
+	}
+	// Remove only the optional signature; update the central directory
+	// offset. Preserve the checksum, original bytes and all sizes.
+	mutated := append(bytes.Clone(original[:central-16]), original[central-12:]...)
+	eocd := len(mutated) - 22
+	binary.LittleEndian.PutUint32(mutated[eocd+16:eocd+20], uint32(central-4))
+	if err := Verify(bytes.NewReader(mutated), int64(len(mutated)),
+		[]ExpectedFile{fileExpect(name, content)}); err != nil {
+		t.Fatalf("rejected legitimate ZIP descriptor without signature: %v", err)
+	}
+}
+
+func TestVerifyChecksLocalHeaderValuesWithoutDescriptor(t *testing.T) {
+	const name, content = "checksums.txt", "legitimate stored bytes"
+	original := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{name, content, 0o644}})
+	central := bytes.Index(original, []byte{'P', 'K', 1, 2})
+	if central < 16 || !bytes.Equal(original[central-16:central-12], []byte{'P', 'K', 7, 8}) {
+		t.Fatal("synthetic ZIP must have a signed descriptor")
+	}
+	// Convert the in-memory test fixture to a legal ZIP with no data
+	// descriptor and sizes/checksum stored in the local file header.
+	mutated := append(bytes.Clone(original[:central-16]), original[central:]...)
+	newCentral := central - 16
+	binary.LittleEndian.PutUint16(mutated[6:8], 0)
+	binary.LittleEndian.PutUint16(mutated[newCentral+8:newCentral+10], 0)
+	copy(mutated[14:26], mutated[newCentral+16:newCentral+28])
+	eocd := len(mutated) - 22
+	binary.LittleEndian.PutUint32(mutated[eocd+16:eocd+20], uint32(newCentral))
+	want := []ExpectedFile{fileExpect(name, content)}
+	if err := Verify(bytes.NewReader(mutated), int64(len(mutated)), want); err != nil {
+		t.Fatalf("rejected valid ZIP without a data descriptor: %v", err)
+	}
+	for _, off := range []int{14, 18, 22} {
+		broken := bytes.Clone(mutated)
+		broken[off] ^= 1
+		if err := Verify(bytes.NewReader(broken), int64(len(broken)), want); err == nil {
+			t.Fatalf("accepted inconsistent local header byte at offset %d", off)
+		}
+	}
+}
+
 func TestVerifyRejectsBadAuthorityAndImpossibleLimits(t *testing.T) {
 	data := archiveFixture(t, []struct {
 		name, content string
