@@ -56,6 +56,10 @@ func Verify(source io.ReaderAt, archiveSize int64, files []ExpectedFile) error {
 		expected[file.Name] = file
 	}
 
+	dataOffsets, err := preflightZIPHeaders(source, archiveSize, expected)
+	if err != nil {
+		return fmt.Errorf("ZIP header preflight: %w", err)
+	}
 	reader, err := zip.NewReader(source, archiveSize)
 	if err != nil {
 		return fmt.Errorf("open staging ZIP: %w", err)
@@ -73,6 +77,11 @@ func Verify(source io.ReaderAt, archiveSize int64, files []ExpectedFile) error {
 			return fmt.Errorf("duplicate staging ZIP entry %q", member.Name)
 		}
 		seen[member.Name] = true
+		actualOffset, offsetErr := member.DataOffset()
+		if offsetErr != nil || actualOffset != dataOffsets[member.Name] {
+			return fmt.Errorf("ZIP reader/local header offset mismatch for %q: %w",
+				member.Name, errors.Join(zip.ErrFormat, offsetErr))
+		}
 		mode := member.Mode()
 		if !mode.IsRegular() || mode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 ||
 			member.Flags&1 != 0 {

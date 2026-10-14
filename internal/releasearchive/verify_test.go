@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -205,7 +206,7 @@ func TestVerifyRejectsDuplicateEntryWithMatchingEntryCount(t *testing.T) {
 		fileExpect("scripthold_linux_amd64", second),
 	}
 	err := Verify(bytes.NewReader(archive), int64(len(archive)), expected)
-	if err == nil || !strings.Contains(err.Error(), "duplicate staging ZIP entry") {
+	if err == nil || !strings.Contains(err.Error(), "duplicate ZIP") {
 		t.Fatalf("duplicate ZIP entry not specifically rejected: %v", err)
 	}
 }
@@ -226,6 +227,98 @@ func TestVerifyDetectsCRCFailureIndependentlyOfSHA256(t *testing.T) {
 		[]ExpectedFile{fileExpect("checksums.txt", original)})
 	if !errors.Is(err, zip.ErrChecksum) {
 		t.Fatalf("expected ZIP CRC mismatch, got %v", err)
+	}
+}
+
+func TestVerifyRejectsConflictingZIPLocalHeaders(t *testing.T) {
+	const name = "checksums.txt"
+	const content = "unchanged original bytes"
+	archive := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{name, content, 0o644}})
+	want := []ExpectedFile{fileExpect(name, content)}
+	for _, tc := range []struct {
+		name   string
+		change func([]byte)
+	}{
+		{"local filename differs from central filename", func(b []byte) { b[30] ^= 1 }},
+		{"local method differs from central method", func(b []byte) { b[8] = 8 }},
+		{"local flags differ from central flags", func(b []byte) { b[6] ^= 0x08 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := bytes.Clone(archive)
+			tc.change(mutated)
+			if err := Verify(bytes.NewReader(mutated), int64(len(mutated)), want); err == nil {
+				t.Fatal("accepted inconsistent local and central ZIP headers")
+			}
+		})
+	}
+}
+
+func TestVerifyRejectsMisleadingZIPDirectoryCounts(t *testing.T) {
+	const name = "checksums.txt"
+	const content = "bounded ZIP bytes"
+	archive := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{name, content, 0o644}})
+	want := []ExpectedFile{fileExpect(name, content)}
+	for _, count := range []uint16{0, 23, 0xffff} {
+		mutated := bytes.Clone(archive)
+		eocd := len(mutated) - 22
+		if !bytes.Equal(mutated[eocd:eocd+4], []byte{'P', 'K', 5, 6}) {
+			t.Fatal("unexpected ZIP test fixture footer")
+		}
+		binary.LittleEndian.PutUint16(mutated[eocd+8:eocd+10], count)
+		binary.LittleEndian.PutUint16(mutated[eocd+10:eocd+12], count)
+		if err := Verify(bytes.NewReader(mutated), int64(len(mutated)), want); err == nil {
+			t.Fatalf("accepted false ZIP directory count %d", count)
+		}
+	}
+}
+
+func TestVerifyRejectsUnsupportedZIPLayoutsBeforeParsing(t *testing.T) {
+	const name = "checksums.txt"
+	const content = "nonrelease ZIP fixture"
+	original := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{name, content, 0o644}})
+	want := []ExpectedFile{fileExpect(name, content)}
+	for _, tc := range []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{"central record offset changed", func(b []byte) []byte {
+			index := bytes.Index(b, []byte{'P', 'K', 1, 2})
+			if index < 0 {
+				t.Fatal("missing central header")
+			}
+			binary.LittleEndian.PutUint32(b[index+42:index+46], 1)
+			return b
+		}},
+		{"ZIP64 footer record count", func(b []byte) []byte {
+			eocd := len(b) - 22
+			binary.LittleEndian.PutUint16(b[eocd+8:eocd+10], 0xffff)
+			binary.LittleEndian.PutUint16(b[eocd+10:eocd+12], 0xffff)
+			return b
+		}},
+		{"ZIP central directory displaced", func(b []byte) []byte {
+			eocd := len(b) - 22
+			binary.LittleEndian.PutUint32(b[eocd+16:eocd+20], 0)
+			return b
+		}},
+		{"appended trailer", func(b []byte) []byte {
+			return append(b, []byte("unrecognized data")...)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := tc.mutate(bytes.Clone(original))
+			if err := Verify(bytes.NewReader(mutated), int64(len(mutated)), want); err == nil {
+				t.Fatal("accepted unsupported ZIP archive layout")
+			}
+		})
 	}
 }
 
