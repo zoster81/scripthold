@@ -23,7 +23,8 @@ type zipExtent struct {
 // preflightZIPHeaders reads only bounded ZIP metadata before archive/zip.NewReader
 // can allocate for attacker-declared central-directory records. The staging
 // contract deliberately accepts only single-disk, non-ZIP64 archives without
-// comments or prepended data. Broader ZIP dialects require separate qualification.
+// extra fields, comments or prepended data. Broader ZIP dialects require
+// separate qualification.
 func preflightZIPHeaders(source io.ReaderAt, archiveSize int64, expected map[string]ExpectedFile) (map[string]int64, error) {
 	if archiveSize < zipEndHeaderSize || len(expected) == 0 || len(expected) > maxFiles {
 		return nil, errors.New("invalid ZIP preflight bounds")
@@ -76,7 +77,7 @@ func preflightZIPHeaders(source io.ReaderAt, archiveSize int64, expected map[str
 		extraLen := int64(u16(central[30:32]))
 		commentLen := int64(u16(central[32:34]))
 		recordSize := int64(zipCentralHeaderSize+nameLen) + extraLen + commentLen
-		if nameLen == 0 || nameLen > maxStagedNameBytes ||
+		if nameLen == 0 || nameLen > maxStagedNameBytes || extraLen != 0 || commentLen != 0 ||
 			recordSize > endOffset-pos || u16(central[34:36]) != 0 {
 			return nil, errors.New("invalid ZIP central record length or disk")
 		}
@@ -109,7 +110,8 @@ func preflightZIPHeaders(source io.ReaderAt, archiveSize int64, expected map[str
 			return nil, err
 		}
 		if u32(local[:4]) != 0x04034b50 || u16(local[6:8]) != flags ||
-			u16(local[8:10]) != method || int(u16(local[26:28])) != nameLen {
+			u16(local[8:10]) != method || int(u16(local[26:28])) != nameLen ||
+			u16(local[28:30]) != 0 {
 			return nil, fmt.Errorf("ZIP local/central header mismatch for %q", name)
 		}
 		localName := make([]byte, nameLen)

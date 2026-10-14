@@ -429,6 +429,60 @@ func TestVerifyChecksLocalHeaderValuesWithoutDescriptor(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsUnreviewedZIPExtraFieldsAndComments(t *testing.T) {
+	const name, content = "checksums.txt", "synthetic ZIP member"
+	original := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{name, content, 0o644}})
+	central := bytes.Index(original, []byte{'P', 'K', 1, 2})
+	if central < 0 || bytes.Index(original, []byte{'P', 'K', 5, 6}) != len(original)-zipEndHeaderSize {
+		t.Fatal("unexpected synthetic ZIP fixture")
+	}
+	extra := []byte{0xfe, 0xca, 0, 0} // well-formed, unknown extra field
+	for _, tc := range []struct {
+		name   string
+		mutate func() []byte
+	}{
+		{"local extra", func() []byte {
+			pos := zipLocalHeaderSize + int(binary.LittleEndian.Uint16(original[26:28]))
+			b := append(bytes.Clone(original[:pos]), append(bytes.Clone(extra), original[pos:]...)...)
+			binary.LittleEndian.PutUint16(b[28:30], uint16(len(extra)))
+			eocd := len(b) - zipEndHeaderSize
+			binary.LittleEndian.PutUint32(b[eocd+16:eocd+20], uint32(central+len(extra)))
+			return b
+		}},
+		{"central extra", func() []byte {
+			pos := central + zipCentralHeaderSize + int(binary.LittleEndian.Uint16(original[central+28:central+30]))
+			b := append(bytes.Clone(original[:pos]), append(bytes.Clone(extra), original[pos:]...)...)
+			binary.LittleEndian.PutUint16(b[central+30:central+32], uint16(len(extra)))
+			eocd := len(b) - zipEndHeaderSize
+			binary.LittleEndian.PutUint32(b[eocd+12:eocd+16],
+				binary.LittleEndian.Uint32(original[len(original)-zipEndHeaderSize+12:])+uint32(len(extra)))
+			return b
+		}},
+		{"central comment", func() []byte {
+			pos := central + zipCentralHeaderSize + int(binary.LittleEndian.Uint16(original[central+28:central+30]))
+			b := append(bytes.Clone(original[:pos]), append(bytes.Clone(extra), original[pos:]...)...)
+			binary.LittleEndian.PutUint16(b[central+32:central+34], uint16(len(extra)))
+			eocd := len(b) - zipEndHeaderSize
+			binary.LittleEndian.PutUint32(b[eocd+12:eocd+16],
+				binary.LittleEndian.Uint32(original[len(original)-zipEndHeaderSize+12:])+uint32(len(extra)))
+			return b
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := tc.mutate()
+			// This dialect is intentionally unsupported even with unchanged
+			// original payload bytes and authenticated digest.
+			if err := Verify(bytes.NewReader(b), int64(len(b)),
+				[]ExpectedFile{fileExpect(name, content)}); err == nil {
+				t.Fatal("accepted unreviewed ZIP metadata extension")
+			}
+		})
+	}
+}
+
 func TestVerifyRejectsBadAuthorityAndImpossibleLimits(t *testing.T) {
 	data := archiveFixture(t, []struct {
 		name, content string
