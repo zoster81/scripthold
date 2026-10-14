@@ -2,7 +2,8 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet } =
+const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
+  verifyStagedAssetStream } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -131,6 +132,60 @@ test('rejects missing, unexpected, duplicate and corrupt remote objects', () => 
   for (const assets of wrong) {
     assert.throws(() => verifyDraftAssetSet(original, release(), assets));
   }
+});
+
+test('streams staged bytes and verifies the original digest without buffering whole release files', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const chunks = [Buffer.from('verified '), Buffer.from('native executable bytes')];
+  const expected = {
+    name: 'scripthold_linux_amd64',
+    size: chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+    sha256: createHash('sha256').update(Buffer.concat(chunks)).digest('hex'),
+  };
+  const result = await verifyStagedAssetStream(expected, Readable.from(chunks));
+  assert.equal(result.name, expected.name);
+  assert.equal(result.sha256, expected.sha256);
+  assert.equal(result.size, expected.size);
+});
+
+test('stream verification rejects wrong bytes, truncated/oversized content and malformed metadata', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const bytes = Buffer.from('normal archive bytes');
+  const expected = {
+    name: 'scripthold_linux_amd64.tar.gz',
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+  for (const values of [
+    [Buffer.from('normal archive byte!')],
+    [bytes.subarray(0, bytes.length - 1)],
+    [bytes, Buffer.from('extra')],
+    [],
+  ]) {
+    await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(values)));
+  }
+  for (const change of [
+    { name: '../escape' }, { name: 'unknown.bin' },
+    { size: 0 }, { size: 1.5 }, { size: Number.MAX_SAFE_INTEGER },
+    { sha256: 'A'.repeat(64) }, { sha256: '0'.repeat(63) },
+  ]) {
+    await assert.rejects(() => verifyStagedAssetStream({ ...expected, ...change }, Readable.from([bytes])));
+  }
+});
+
+test('stream verification propagates source errors and rejects nonbinary chunks', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const bytes = Buffer.from('normal binary');
+  const expected = {
+    name: 'checksums.txt', size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+  await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(['not a byte buffer'])));
+  async function *failing() { yield bytes; throw new Error('source failure'); }
+  await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(failing())), /source failure/);
 });
 
 test('rejects malformed remote input and duplicate remote asset ids', () => {

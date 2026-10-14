@@ -1,5 +1,7 @@
 'use strict';
 
+const { createHash } = require('node:crypto');
+
 const REPOSITORY = 'zoster81/scripthold';
 const MAX_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -73,6 +75,41 @@ function validateStagedManifest(manifest) {
   return result;
 }
 
+function isRecognizedReleaseAssetName(name) {
+  return typeof name === 'string' && (
+    NORMAL_ASSETS.includes(name) ||
+    MCPB_ASSETS.includes(name) ||
+    name === 'checksums.txt' ||
+    name === 'mcpb-checksums.txt' ||
+    /^scripthold-v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?-provenance\.(?:sigstore\.json|intoto\.jsonl)$/.test(name)
+  );
+}
+
+// The caller owns file authorization and opens the stream; this check verifies actual
+// transferred bytes, not only the claimed checksum metadata in a staging manifest.
+async function verifyStagedAssetStream(expected, source) {
+  requireCondition(expected && typeof expected === 'object' &&
+    isRecognizedReleaseAssetName(expected.name), 'unexpected release asset name');
+  requireCondition(Number.isSafeInteger(expected.size) && expected.size > 0 &&
+    expected.size <= MAX_ASSET_BYTES, 'invalid release asset size');
+  requireCondition(typeof expected.sha256 === 'string' && SHA256.test(expected.sha256),
+    'invalid release asset digest');
+  requireCondition(source && typeof source[Symbol.asyncIterator] === 'function',
+    'release asset requires a readable byte stream');
+
+  const digest = createHash('sha256');
+  let size = 0;
+  for await (const chunk of source) {
+    requireCondition(chunk instanceof Uint8Array, 'release asset stream contains nonbinary data');
+    size += chunk.byteLength;
+    requireCondition(size <= expected.size, 'release asset exceeds its declared size');
+    digest.update(chunk);
+  }
+  requireCondition(size === expected.size, 'release asset size mismatch');
+  requireCondition(digest.digest('hex') === expected.sha256, 'release asset digest mismatch');
+  return { name: expected.name, size, sha256: expected.sha256 };
+}
+
 function verifyDraftAssetSet(manifest, release, remoteAssets) {
   const expected = validateStagedManifest(manifest);
   requireCondition(release && typeof release === 'object' && !Array.isArray(release),
@@ -106,4 +143,5 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
   return { releaseId: release.id, tag: manifest.tag, commit: manifest.commit, count: seenNames.size };
 }
 
-module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet };
+module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
+  verifyStagedAssetStream };
