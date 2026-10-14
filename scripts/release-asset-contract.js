@@ -85,6 +85,21 @@ function isRecognizedReleaseAssetName(name) {
   );
 }
 
+async function verifyExactBytes(source, declaredSize, sha256) {
+  requireCondition(source && typeof source[Symbol.asyncIterator] === 'function',
+    'asset requires a readable byte stream');
+  const hash = createHash('sha256');
+  let size = 0;
+  for await (const chunk of source) {
+    requireCondition(chunk instanceof Uint8Array, 'asset stream contains nonbinary data');
+    size += chunk.byteLength;
+    requireCondition(size <= declaredSize, 'asset exceeds declared size');
+    hash.update(chunk);
+  }
+  requireCondition(size === declaredSize, 'asset size mismatch');
+  requireCondition(hash.digest('hex') === sha256, 'asset digest mismatch');
+}
+
 // The caller owns file authorization and opens the stream; this check verifies actual
 // transferred bytes, not only the claimed checksum metadata in a staging manifest.
 async function verifyStagedAssetStream(expected, source) {
@@ -94,20 +109,8 @@ async function verifyStagedAssetStream(expected, source) {
     expected.size <= MAX_ASSET_BYTES, 'invalid release asset size');
   requireCondition(typeof expected.sha256 === 'string' && SHA256.test(expected.sha256),
     'invalid release asset digest');
-  requireCondition(source && typeof source[Symbol.asyncIterator] === 'function',
-    'release asset requires a readable byte stream');
-
-  const digest = createHash('sha256');
-  let size = 0;
-  for await (const chunk of source) {
-    requireCondition(chunk instanceof Uint8Array, 'release asset stream contains nonbinary data');
-    size += chunk.byteLength;
-    requireCondition(size <= expected.size, 'release asset exceeds its declared size');
-    digest.update(chunk);
-  }
-  requireCondition(size === expected.size, 'release asset size mismatch');
-  requireCondition(digest.digest('hex') === expected.sha256, 'release asset digest mismatch');
-  return { name: expected.name, size, sha256: expected.sha256 };
+  await verifyExactBytes(source, expected.size, expected.sha256);
+  return { name: expected.name, size: expected.size, sha256: expected.sha256 };
 }
 
 const MAX_STAGING_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024;
@@ -156,6 +159,55 @@ function verifyRunStagingArtifact(expected, remote) {
   return { artifactId: remote.id, name, archiveDigest: remote.digest, size: remote.size_in_bytes };
 }
 
+// The exact producer-upload ID, SHA and run are authenticated against the
+// GitHub Actions artifact record before examining downloaded archive bytes.
+async function verifyStagingArchiveStream(expected, remote, source) {
+  const archive = verifyRunStagingArtifact(expected, remote);
+  await verifyExactBytes(source, archive.size, expected.uploadDigest);
+  return archive;
+}
+
+// This is a fail-closed *pre-extraction* inventory check. Its caller must use
+// a trustworthy ZIP metadata reader and independently constrain extraction;
+// list validation itself neither parses ZIP structures nor extracts files.
+function validateStagingArchiveEntries(manifest, stage, entries) {
+  const all = validateStagedManifest(manifest);
+  requireCondition(stage === 'normal' || stage === 'mcpb', 'invalid staging group');
+  const expected = new Map([...all].filter(([name]) => stage === 'normal'
+    ? !name.endsWith('.mcpb') && name !== 'mcpb-checksums.txt'
+    : name.endsWith('.mcpb') || name === 'mcpb-checksums.txt'));
+  requireCondition(Array.isArray(entries) && entries.length === expected.size,
+    'invalid staged ZIP entry count');
+  const seen = new Set();
+  let compressedTotal = 0;
+  for (const entry of entries) {
+    requireCondition(entry && typeof entry === 'object' && !Array.isArray(entry),
+      'invalid ZIP entry metadata');
+    requireCondition(typeof entry.name === 'string' && expected.has(entry.name),
+      'unexpected ZIP entry name or path');
+    requireCondition(!seen.has(entry.name), 'duplicate ZIP entry name');
+    requireCondition(entry.type === 'file', 'ZIP entry must be an ordinary file');
+    requireCondition(entry.size === expected.get(entry.name).size,
+      'ZIP entry uncompressed size mismatch');
+    requireCondition(Number.isSafeInteger(entry.compressedSize) &&
+      entry.compressedSize > 0 && entry.compressedSize <= MAX_STAGING_ARCHIVE_BYTES,
+      'invalid ZIP compressed size');
+    if (entry.unixMode !== undefined) {
+      requireCondition(Number.isSafeInteger(entry.unixMode) &&
+        entry.unixMode >= 0 && entry.unixMode <= 0o177777 &&
+        (entry.unixMode & 0o170000) === 0o100000 &&
+        (entry.unixMode & 0o7000) === 0,
+      'ZIP entry Unix mode must be regular file');
+    }
+    compressedTotal += entry.compressedSize;
+    requireCondition(compressedTotal <= MAX_STAGING_ARCHIVE_BYTES,
+      'ZIP compressed entries exceed staging size bound');
+    seen.add(entry.name);
+  }
+  requireCondition(seen.size === expected.size, 'incomplete staging inventory');
+  return seen;
+}
+
 function verifyDraftAssetSet(manifest, release, remoteAssets) {
   const expected = validateStagedManifest(manifest);
   requireCondition(release && typeof release === 'object' && !Array.isArray(release),
@@ -190,4 +242,5 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
 }
 
 module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
-  verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact };
+  verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
+  verifyStagingArchiveStream, validateStagingArchiveEntries };

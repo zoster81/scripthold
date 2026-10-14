@@ -3,7 +3,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
-  verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact } =
+  verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
+  verifyStagingArchiveStream, validateStagingArchiveEntries } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -261,6 +262,94 @@ test('binds each stage and avoids selecting artifacts by latest run or mutable n
   assert.throws(() => verifyRunStagingArtifact(mcpbExpected, remote));
   assert.deepEqual(verifyRunStagingArtifact(mcpbExpected,
     { ...remote, name: 'scripthold-mcpb-9001-2' }).artifactId, 7654);
+});
+
+
+test('checks the actual downloaded Actions archive byte stream against the verified producer', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const { expected, remote } = actionsStageFixture();
+  const parts = [Buffer.from('ZIP-test-header'), Buffer.from('verified compressed data')];
+  const bytes = Buffer.concat(parts);
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const producer = { ...expected, uploadDigest: hash };
+  const github = { ...remote, digest: 'sha256:' + hash, size_in_bytes: bytes.length };
+  assert.deepEqual(await verifyStagingArchiveStream(producer, github, Readable.from(parts)), {
+    artifactId: expected.uploadId, name: remote.name,
+    archiveDigest: github.digest, size: bytes.length,
+  });
+});
+
+test('rejects tampered, truncated, oversized and malformed Actions archive streams', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const { expected, remote } = actionsStageFixture();
+  const bytes = Buffer.from('synthetic ZIP bytes, not a release asset');
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const producer = { ...expected, uploadDigest: hash };
+  const github = { ...remote, digest: 'sha256:' + hash, size_in_bytes: bytes.length };
+  for (const parts of [
+    [Buffer.from('synthetic ZIP byteS, not a release asset')],
+    [bytes.subarray(0, bytes.length - 1)],
+    [bytes, Buffer.from('x')],
+    [],
+  ]) {
+    await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(parts)));
+  }
+  await assert.rejects(() => verifyStagingArchiveStream(
+    producer, { ...github, id: github.id + 1 }, Readable.from([bytes])));
+  await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(['not bytes'])));
+  async function* broken() { yield bytes; throw new Error('stream interrupted'); }
+  await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(broken())),
+    /stream interrupted/);
+});
+
+function stagedEntryFixture(stage = 'normal') {
+  const manifest = fixture();
+  const names = manifest.assets.filter(a => stage === 'normal'
+    ? !a.name.endsWith('.mcpb') && a.name !== 'mcpb-checksums.txt'
+    : a.name.endsWith('.mcpb') || a.name === 'mcpb-checksums.txt');
+  return { manifest, entries: names.map(a => ({
+    name: a.name, type: 'file', size: a.size, compressedSize: Math.max(1, a.size - 8),
+  })) };
+}
+
+test('checks a flat exact archive inventory before any extraction', () => {
+  for (const stage of ['normal', 'mcpb']) {
+    const { manifest, entries } = stagedEntryFixture(stage);
+    const names = validateStagingArchiveEntries(manifest, stage, entries);
+    assert.equal(names.size, stage === 'normal' ? 15 : 7);
+    assert.ok(names.has(stage === 'normal' ? 'checksums.txt' : 'mcpb-checksums.txt'));
+  }
+});
+
+test('refuses unexpected paths, symlinks, duplicates and inconsistent archive metadata', () => {
+  const { manifest, entries } = stagedEntryFixture();
+  const changes = [
+    (a) => { a[0].name = '../outside'; },
+    (a) => { a[0].name = '/absolute'; },
+    (a) => { a[0].name = 'dir\\\\escape'; },
+    (a) => { a[1].name = a[0].name; },
+    (a) => { a[0].type = 'symlink'; },
+    (a) => { a[0].type = 'directory'; },
+    (a) => { a[0].size++; },
+    (a) => { a[0].compressedSize = -1; },
+    (a) => { a[0].compressedSize = 2 ** 43; },
+    (a) => { a[0].unixMode = 0o120777; },
+    (a) => { a[0].unixMode = 0o040755; },
+    (a) => { a[0].unixMode = 0o100644 + 2 ** 32; },
+    (a) => { a[0].unixMode = 0o100644 + 0.5; },
+    (a) => { a[0].unixMode = 0o104755; },
+  ];
+  for (const change of changes) {
+    const copy = entries.map(e => ({ ...e }));
+    change(copy);
+    assert.throws(() => validateStagingArchiveEntries(manifest, 'normal', copy));
+  }
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'normal', entries.slice(1)));
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'mcpb', entries));
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'latest', entries));
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'normal', null));
 });
 
 test('rejects malformed remote input and duplicate remote asset ids', () => {
