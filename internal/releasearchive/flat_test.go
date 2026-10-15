@@ -238,6 +238,45 @@ func TestCleanupCreatedRawStagingFileRemovesOnlyOriginalObject(t *testing.T) {
 	})
 }
 
+func TestCleanupCreatedRawStagingDirectoryPreservesReplacement(t *testing.T) {
+	parent := t.TempDir()
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	stage, err := createPrivateRawStagingDirectory(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(stage)
+	created, err := root.Lstat(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(stage, filepath.Join(parent, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(stage, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeCreatedStagingDirectory(root, name, created); err == nil {
+		t.Fatal("cleanup deleted a replacement staging directory")
+	}
+	if info, err := os.Lstat(stage); err != nil || !info.IsDir() {
+		t.Fatalf("replacement directory was removed: %v", err)
+	}
+	if info, err := os.Lstat(filepath.Join(parent, "moved")); err != nil || !info.IsDir() {
+		t.Fatalf("original directory disappeared: %v", err)
+	}
+	if err := root.Remove(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Remove("moved"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreatePrivateRawStagingDirectoryAnchorsAndSeparatesEachRun(t *testing.T) {
 	parent := t.TempDir()
 	first, err := createPrivateRawStagingDirectory(parent)

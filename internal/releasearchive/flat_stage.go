@@ -195,6 +195,27 @@ func stageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName string, 
 	return nil
 }
 
+// removeCreatedStagingDirectory refuses to remove a different directory
+// substituted for the new staging path after an initialization failure.
+// This is a fail-closed identity check within the single-writer trust model,
+// not an atomic unlink-by-inode operation.
+func removeCreatedStagingDirectory(root *os.Root, name string, created os.FileInfo) error {
+	if created == nil {
+		return errors.New("missing identity of originally created staging directory")
+	}
+	current, err := root.Lstat(name)
+	if err != nil {
+		return fmt.Errorf("inspect failed staging directory before cleanup: %w", err)
+	}
+	if !current.IsDir() || !os.SameFile(created, current) {
+		return errors.New("staging directory path replaced; refusing unsafe cleanup")
+	}
+	if err := root.Remove(name); err != nil {
+		return fmt.Errorf("remove created staging directory: %w", err)
+	}
+	return nil
+}
+
 func createPrivateRawStagingDirectory(parent string) (stage string, err error) {
 	if parent == "" || !filepath.IsAbs(parent) {
 		return "", errors.New("staging parent must be an absolute trusted runner directory")
@@ -232,11 +253,12 @@ func createPrivateRawStagingDirectory(parent string) (stage string, err error) {
 			return "", fmt.Errorf("create private staging root: %w", err)
 		}
 		complete := filepath.Join(parent, name)
-		// The directory is still empty, so failed checks can safely remove
-		// only this freshly created entry via the anchored parent descriptor.
+		// Only the directory we created may be removed on initialization
+		// failure. An unexpected path replacement must remain untouched.
+		var createdInfo os.FileInfo
 		defer func() {
 			if err != nil {
-				err = errors.Join(err, parentRoot.Remove(name))
+				err = errors.Join(err, removeCreatedStagingDirectory(parentRoot, name, createdInfo))
 			}
 		}()
 		created, statErr := parentRoot.Lstat(name)
@@ -246,6 +268,7 @@ func createPrivateRawStagingDirectory(parent string) (stage string, err error) {
 		if !created.IsDir() || created.Mode()&os.ModeSymlink != 0 {
 			return "", errors.New("new staging root is not a real directory")
 		}
+		createdInfo = created
 		if checkErr := verifyPrivateStagingRoot(created); checkErr != nil {
 			return "", fmt.Errorf("staging root permissions: %w", checkErr)
 		}
