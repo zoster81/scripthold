@@ -92,6 +92,45 @@ If a second reviewer cannot yet be arranged, keep Stage 1 enabled and explicitly
 
 The tag-triggered Release workflow attests the already-completed exact-commit Test Suite and OpenSSF Scorecard push evidence instead of rerunning the full expensive race/static/vulnerability/fuzz/cross-build/container matrix before GoReleaser. The Test Suite push gate already includes Gitleaks and `goreleaser check` in addition to the full native/platform/security evidence. Scorecard itself remains on its supported default-branch execution path; release tags do not invoke the Scorecard action directly.
 
+## Future immutable-release pipeline: prevention requirements (not active)
+
+The current GitHub release, GitHub-only MCPB, and Registry workflows remain the supported publication path. Do not enable GitHub's release-immutability setting or replace these workflows based on a green build alone. Any replacement must retain the release format and trust evidence that users already receive, while eliminating the need to add assets after public publication. Historical CI failures involving temporary-path aliases, dependency/version mismatches, and incorrect package types inform the following **design requirements**, not changes to the working runtime.
+
+### Preserve release authority and output semantics
+
+- Require an annotated release tag on the exact current `main` commit, a successful **full-tier push-event** Test Suite `Release candidate` for that SHA, and a successful Scorecard **main-branch push** run for the same SHA. Scorecard does not support release-tag execution. A passing PR, a skipped required job, a different commit, or a rerun selected only by a mutable name is insufficient.
+- Keep GoReleaser, Node, the MCPB CLI, publishing tools, and external Actions pinned and compatible. Update every `github/codeql-action` component together; mixed versions can fail even when the individual action references are valid. Do not combine speculative toolchain upgrades with the pipeline migration.
+- Qualify the exact GoReleaser version with publication skipped, not snapshot semantics. Preserve the six original binaries, six platform archives, checksum list, embedded version, archive contents, timestamps/modes, release notes from GoReleaser, and existing title/prerelease behavior. Archive/checksum paths differ from raw binary build paths; validate each type inside its producer, then transmit **no producer-local path** to another job.
+- Preserve the genuine Sigstore/SLSA attestation for the **12 normal binary/archive subjects**. Publish its verified original bundle and signed in-toto envelope without fabricating subjects or signatures for later MCPB bundles.
+
+### Keep host paths and file identities separate
+
+The filesystem of one GitHub job is not the filesystem of another. In particular, macOS may expose the same trusted temporary directory as both `/var/folders/...` and `/private/var/folders/...`, and Windows may expose a directory through a short 8.3 alias such as `RUNNER~1`. The future producer-to-consumer manifest must carry only exact allowlisted ASCII asset names, sizes and SHA-256 hashes, plus authenticated repository, source commit, workflow run, producer attempt, and numeric GitHub artifact IDs. Never transfer `/tmp`, `/var/tmp`, `$RUNNER_TEMP`, Windows/UNC paths, or GoReleaser build paths as asset authority. Never repair an untrusted name using `basename`, case conversion, Unicode normalization, or separator replacement; reject a noncanonical input.
+
+Within each Linux staging job, use fresh, private, single-owner destinations and verified ordinary-file identities. Resolve and authorize the intended directory boundary before access, prevent symlink/hardlink and rename races, verify actual streamed bytes, and fail without overwriting existing files when an input changes. Do not reject a legitimate platform-provided temporary-directory parent solely because its *spelling* includes a system alias; distinguish trusted ancestor resolution from an untrusted leaf. Executable modes and MCPB layout must come from the verified release/packaging contract, not from permissions assumed to survive GitHub artifact transfer.
+
+### Transfer complete typed inventories before publication
+
+The planned design separates an unprivileged normal release producer, a GitHub-only MCPB producer, and one narrowly privileged finalizer. Each stage has its own exact, independently validated allowlist:
+
+- **15 normal files:** six raw binaries, six platform archives, `checksums.txt`, and two authentic provenance companions.
+- **7 MCPB files:** six real, GitHub-produced platform-specific `.mcpb` packages and `mcpb-checksums.txt`.
+- **22 public release files:** only the verified combination of both inventories. Release notes and GoReleaser internal metadata are authenticated transfer inputs, **not extra public assets**.
+
+When using the pinned raw-file GitHub artifact actions, set `upload-artifact` to `archive: false`, `if-no-files-found: error`, and `overwrite: false`. A raw upload uses the **physical filename**, not its configured artifact `name`; names must be deterministic, attempt-specific, and mapped back to the original allowlisted asset by trusted metadata. For `download-artifact`, select authenticated numeric `artifact-ids`, use a fresh private destination, `skip-decompress: true`, and `digest-mismatch: error`. This matters especially for original `.zip` release files, which must remain byte-identical files rather than being automatically extracted. Independently check that **every** requested ID and all 22 byte streams arrived: action success or server-reported digest alone is not sufficient.
+
+The builder and packaging jobs must not receive `contents: write`. The finalizer alone may create an unpublished GitHub **draft**, resume only exactly matching pre-existing draft assets, verify the remote 22-file set against original size/digest and source identity, then perform the single public-publish transition. A partial upload, conflicting asset, stale attempt, duplicate job, or failed remote verification must leave the release unpublished; never overwrite a published release. Disable or repurpose any independent manual post-publication upload/repair entrypoints before enabling immutability. Publish Registry metadata through the existing separate OIDC job **after** the verified public release, with idempotent error handling; a Registry outage must not trigger mutation of an immutable GitHub release.
+
+Pin the **publisher and packaging code revision** as well as the input asset commit. Reusable workflows and manual dispatch must not silently run mutable `main` scripts against a different tag without an explicit, verified code-identity contract. Serialize competing publication entrypoints for the same tag.
+
+### Required evidence before approving this migration
+
+Treat the existing CI and release scripts as a coupled system. Update release/MCPB/Registry workflows, source/provenance validators, `scripts/distribution-trust.test.js`, `scripts/test-ci-policy.test.js`, architecture tests, and `testarchitecture/evidence-map.json` together. Replace policy assertions that explicitly require *late* `gh release upload` or broad write permissions with **stronger** assertions for the draft-only finalizer, read-only producers, source binding, and absence of post-publication mutation. Never delete or skip a failing security gate merely to make a changed workflow green.
+
+Before the first review push, require negative tests for missing/duplicate/wrong-type assets, 15+7 inventory mismatches, path aliases (including Windows 8.3 and macOS temporary roots), symlink/replacement races, wrong run or attempt, incomplete download, missing IDs, raw ZIP byte preservation, malicious names, token misuse, mixed workflow-code revisions, and every draft/retry/finalizer failure boundary. Run applicable Node/Go, actionlint/ShellCheck, static/vulnerability, provenance, and complete-diff checks. A subsequent **authorized, non-release** GitHub workflow test must prove the exact pinned raw upload/download behavior across jobs using harmless synthetic files; it must not create a public tag, release, or local MCPB package. Only after the actual cross-platform full-tier CI and this integration evidence pass may a maintainer authorize a genuine immutable release.
+
+See [Development Checklist](DEVELOPMENT_CHECKLIST.md) for the reusable review and verification gate. These are **future requirements**, not claims that the draft-first pipeline, raw cross-job transfer, or immutable publication already works.
+
 ## Core release and discovery syndication
 
 The **core release** is the product publication authority: exact-SHA Test Suite qualification, annotated tag, GoReleaser assets, signed Sigstore build provenance for those normal assets, GitHub-only MCPB assets, and MCP Registry publication. OpenSSF Scorecard and third-party discovery directories are supporting trust/discovery evidence; their outage or indexing delay must not retroactively make an already-valid core release appear failed.
