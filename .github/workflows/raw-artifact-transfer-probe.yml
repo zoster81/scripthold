@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       ids: ${{ steps.collect.outputs.ids }}
+      attempt: ${{ steps.collect.outputs.attempt }}
     steps:
       - name: Generate synthetic bytes
         shell: bash
@@ -20,9 +21,13 @@ jobs:
           set -euo pipefail
           mkdir -m 700 fixtures
           for i in $(seq 1 15); do
-            extension=dat
-            if [[ "$i" -eq 12 ]]; then extension=zip; fi
-            printf 'raw-probe:normal:%02d\n' "$i" > "fixtures/probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-normal-$(printf '%02d' "$i").${extension}"
+            number="$(printf '%02d' "$i")"
+            if [[ "$i" -eq 12 ]]; then
+              # A valid, empty ZIP (22 bytes), not a package or release asset.
+              printf '%s' 'UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==' | base64 --decode > "fixtures/probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-normal-${number}.zip"
+            else
+              printf 'raw-probe:normal:%02d\n' "$i" > "fixtures/probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-normal-${number}.dat"
+            fi
           done
       - name: Upload synthetic normal 01
         id: a1
@@ -163,20 +168,47 @@ jobs:
           A13: ${{ steps.a13.outputs.artifact-id }}
           A14: ${{ steps.a14.outputs.artifact-id }}
           A15: ${{ steps.a15.outputs.artifact-id }}
+          D1: ${{ steps.a1.outputs.artifact-digest }}
+          D2: ${{ steps.a2.outputs.artifact-digest }}
+          D3: ${{ steps.a3.outputs.artifact-digest }}
+          D4: ${{ steps.a4.outputs.artifact-digest }}
+          D5: ${{ steps.a5.outputs.artifact-digest }}
+          D6: ${{ steps.a6.outputs.artifact-digest }}
+          D7: ${{ steps.a7.outputs.artifact-digest }}
+          D8: ${{ steps.a8.outputs.artifact-digest }}
+          D9: ${{ steps.a9.outputs.artifact-digest }}
+          D10: ${{ steps.a10.outputs.artifact-digest }}
+          D11: ${{ steps.a11.outputs.artifact-digest }}
+          D12: ${{ steps.a12.outputs.artifact-digest }}
+          D13: ${{ steps.a13.outputs.artifact-digest }}
+          D14: ${{ steps.a14.outputs.artifact-digest }}
+          D15: ${{ steps.a15.outputs.artifact-digest }}
         run: |
           set -euo pipefail
           ids=()
-          for var in A1 A2 A3 A4 A5 A6 A7 A8 A9 A10 A11 A12 A13 A14 A15; do
-            id="${!var}"
+          for i in $(seq 1 15); do
+            id_var="A${i}"
+            digest_var="D${i}"
+            id="${!id_var}"
+            digest="${!digest_var}"
             [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+            number="$(printf '%02d' "$i")"
+            extension=dat
+            if [[ "$i" -eq 12 ]]; then extension=zip; fi
+            file="fixtures/probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-normal-${number}.${extension}"
+            actual="$(sha256sum "$file")"
+            [[ "${actual%% *}" == "$digest" ]] || exit 1
             ids+=("$id")
           done
           (IFS=,; echo "ids=${ids[*]}") >> "$GITHUB_OUTPUT"
+          echo "attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
   package:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       ids: ${{ steps.collect.outputs.ids }}
+      attempt: ${{ steps.collect.outputs.attempt }}
     steps:
       - name: Generate synthetic bytes
         shell: bash
@@ -253,15 +285,32 @@ jobs:
           A5: ${{ steps.a5.outputs.artifact-id }}
           A6: ${{ steps.a6.outputs.artifact-id }}
           A7: ${{ steps.a7.outputs.artifact-id }}
+          D1: ${{ steps.a1.outputs.artifact-digest }}
+          D2: ${{ steps.a2.outputs.artifact-digest }}
+          D3: ${{ steps.a3.outputs.artifact-digest }}
+          D4: ${{ steps.a4.outputs.artifact-digest }}
+          D5: ${{ steps.a5.outputs.artifact-digest }}
+          D6: ${{ steps.a6.outputs.artifact-digest }}
+          D7: ${{ steps.a7.outputs.artifact-digest }}
         run: |
           set -euo pipefail
           ids=()
-          for var in A1 A2 A3 A4 A5 A6 A7; do
-            id="${!var}"
+          for i in $(seq 1 7); do
+            id_var="A${i}"
+            digest_var="D${i}"
+            id="${!id_var}"
+            digest="${!digest_var}"
             [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+            number="$(printf '%02d' "$i")"
+            extension=dat
+            file="fixtures/probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-package-${number}.${extension}"
+            actual="$(sha256sum "$file")"
+            [[ "${actual%% *}" == "$digest" ]] || exit 1
             ids+=("$id")
           done
           (IFS=,; echo "ids=${ids[*]}") >> "$GITHUB_OUTPUT"
+          echo "attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
   consumer:
     needs: [normal, package]
     runs-on: ubuntu-latest
@@ -286,6 +335,8 @@ jobs:
         env:
           NORMAL_IDS: ${{ needs.normal.outputs.ids }}
           PACKAGE_IDS: ${{ needs.package.outputs.ids }}
+          NORMAL_ATTEMPT: ${{ needs.normal.outputs.attempt }}
+          PACKAGE_ATTEMPT: ${{ needs.package.outputs.attempt }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -294,22 +345,32 @@ jobs:
           const root = path.join(process.env.RUNNER_TEMP, 'raw-probe');
           const ids = (process.env.NORMAL_IDS + ',' + process.env.PACKAGE_IDS).split(',');
           if (ids.length !== 22 || new Set(ids).size !== 22 ||
-              ids.some(id => !/^[1-9][0-9]*$/.test(id))) throw Error('invalid IDs');
+              ids.some(id => !/^[1-9][0-9]*$/.test(id) ||
+                !Number.isSafeInteger(Number(id)))) throw Error('invalid IDs');
           const dir = fs.lstatSync(root);
           if (!dir.isDirectory() || dir.isSymbolicLink() || (dir.mode & 0o077))
             throw Error('unsafe destination');
+          const attempts = new Map([
+            ['normal', process.env.NORMAL_ATTEMPT],
+            ['package', process.env.PACKAGE_ATTEMPT],
+          ]);
+          for (const attempt of attempts.values()) {
+            if (!/^[1-9][0-9]*$/.test(attempt)) throw Error('invalid producer attempt');
+          }
           const expected = [];
           for (const [group, count] of [['normal', 15], ['package', 7]]) {
             for (let i = 1; i <= count; i++) {
               const number = String(i).padStart(2, '0');
               const extension = group === 'normal' && i === 12 ? 'zip' : 'dat';
-              const name = `probe-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${group}-${number}.${extension}`;
+              const name = `probe-${process.env.GITHUB_RUN_ID}-${attempts.get(group)}-${group}-${number}.${extension}`;
               expected.push(name);
               const entry = fs.lstatSync(path.join(root, name));
               if (!entry.isFile() || entry.nlink !== 1) throw Error('unsafe file');
               const bytes = fs.readFileSync(path.join(root, name));
-              if (!bytes.equals(Buffer.from(`raw-probe:${group}:${number}\n`)))
-                throw Error('changed original bytes');
+              const original = group === 'normal' && i === 12
+                ? Buffer.from('504b0506000000000000000000000000000000000000', 'hex')
+                : Buffer.from(`raw-probe:${group}:${number}\n`);
+              if (!bytes.equals(original)) throw Error('changed original bytes');
             }
           }
           if (JSON.stringify(fs.readdirSync(root).sort()) !== JSON.stringify(expected.sort()))
