@@ -38,6 +38,27 @@ func StageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName string, 
 	return stageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName, expected)
 }
 
+// removeCreatedStagingFile refuses to unlink a different object if the
+// freshly created output pathname was replaced before error recovery.
+// The directory is private and single-writer; this is an identity check,
+// not an atomic unlink-by-inode guarantee against a hostile same-UID racer.
+func removeCreatedStagingFile(root *os.Root, name string, created os.FileInfo) error {
+	if created == nil {
+		return errors.New("missing identity of originally created staging file")
+	}
+	current, err := root.Lstat(name)
+	if err != nil {
+		return fmt.Errorf("inspect failed staging output before cleanup: %w", err)
+	}
+	if !current.Mode().IsRegular() || !os.SameFile(created, current) {
+		return errors.New("staging file path was replaced; refusing unsafe cleanup")
+	}
+	if err := root.Remove(name); err != nil {
+		return fmt.Errorf("remove created staging output: %w", err)
+	}
+	return nil
+}
+
 func stageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName string, expected ExpectedFile) (err error) {
 	if !filepath.IsAbs(sourceDir) || !filepath.IsAbs(stageDir) ||
 		!portableStagingName(sourceName) || !portableStagingName(stageName) ||
@@ -99,9 +120,14 @@ func stageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName string, 
 	if err != nil {
 		return fmt.Errorf("create exclusive staging file: %w", err)
 	}
+	createdInfo, infoErr := dest.Stat()
+	if infoErr != nil {
+		_ = dest.Close()
+		return fmt.Errorf("inspect exclusive staging output: %w", infoErr)
+	}
 	defer func() {
 		if err != nil {
-			err = errors.Join(err, destRoot.Remove(stageName))
+			err = errors.Join(err, removeCreatedStagingFile(destRoot, stageName, createdInfo))
 		}
 	}()
 	hash := sha256.New()

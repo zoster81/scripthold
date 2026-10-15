@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -172,6 +173,69 @@ func TestVerifyFlatDirectoryRequiresPrivateLinuxDirectory(t *testing.T) {
 	if err := verifyFlatDirectory(dir, expected); err == nil {
 		t.Fatal("directory accessible to another user accepted")
 	}
+}
+
+func TestCleanupCreatedRawStagingFileRemovesOnlyOriginalObject(t *testing.T) {
+	t.Run("original", func(t *testing.T) {
+		dir := t.TempDir()
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer root.Close()
+		file, err := root.OpenFile("raw-good", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := file.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := removeCreatedStagingFile(root, "raw-good", info); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "raw-good")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("owned failed staging file remained: %v", err)
+		}
+	})
+	t.Run("replaced path", func(t *testing.T) {
+		dir := t.TempDir()
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer root.Close()
+		file, err := root.OpenFile("raw-good", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := file.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(filepath.Join(dir, "raw-good"), filepath.Join(dir, "moved")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "raw-good"), []byte("replacement"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := removeCreatedStagingFile(root, "raw-good", created); err == nil {
+			t.Fatal("cleanup silently deleted a replacement object")
+		}
+		got, err := os.ReadFile(filepath.Join(dir, "raw-good"))
+		if err != nil || string(got) != "replacement" {
+			t.Fatalf("cleanup damaged replacement: %v", err)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "moved")); err != nil {
+			t.Fatalf("cleanup deleted original after rename: %v", err)
+		}
+	})
 }
 
 func TestCreatePrivateRawStagingDirectoryAnchorsAndSeparatesEachRun(t *testing.T) {
