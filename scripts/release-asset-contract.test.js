@@ -5,7 +5,8 @@ const test = require('node:test');
 const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
-  verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName } =
+  verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
+  verifyRawStagingInventory } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -443,6 +444,81 @@ test('raw artifact stream rejects corruption, truncation, extension and source f
   await assert.rejects(() =>
     verifyRawStagingStream(manifest, expected, github, Readable.from(interrupted())),
     /stream interrupted/);
+});
+
+function rawInventoryFixture() {
+  const manifest = fixture();
+  const entries = manifest.assets.map((asset, index) => {
+    const stage = asset.name.endsWith('.mcpb') || asset.name === 'mcpb-checksums.txt'
+      ? 'mcpb' : 'normal';
+    const producerAttempt = stage === 'normal' ? 1 : 2;
+    const expected = {
+      repository: manifest.repository, repositoryId: 1234,
+      tag: manifest.tag, commit: manifest.commit,
+      runId: 9001, producerAttempt, stage, fileName: asset.name,
+      uploadId: 2000 + index, uploadDigest: asset.sha256,
+    };
+    return { expected, remote: {
+      id: expected.uploadId,
+      name: rawStagingArtifactName(stage, 9001, producerAttempt, asset.name),
+      size_in_bytes: asset.size, digest: 'sha256:' + asset.sha256,
+      expired: false, workflow_run: {
+        id: 9001, repository_id: 1234, head_repository_id: 1234,
+        head_sha: manifest.commit,
+      },
+    } };
+  });
+  return { manifest, entries };
+}
+
+test('accepts exactly 22 unique verified raw uploads with different job attempts', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const result = verifyRawStagingInventory(manifest, entries.slice().reverse());
+  assert.equal(result.size, 22);
+  assert.deepEqual([...result.keys()], expectedReleaseAssetNames(TAG));
+  for (const { expected, remote } of entries) {
+    assert.deepEqual(result.get(expected.fileName), {
+      artifactId: expected.uploadId, artifactName: remote.name,
+      fileName: expected.fileName,
+      size: remote.size_in_bytes, sha256: expected.uploadDigest,
+    });
+  }
+});
+
+test('rejects incomplete, duplicate, extra or identity-conflicting raw inventories', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  for (const variant of [
+    null, {}, [], entries.slice(1),
+    [...entries, entries[0]],
+    entries.map((item, index) => index === 1 ? entries[0] : item),
+    entries.map((item, index) => index === 1 ? { ...item,
+      expected: { ...item.expected, uploadId: entries[0].expected.uploadId },
+      remote: { ...item.remote, id: entries[0].remote.id } } : item),
+    entries.map((item, index) => index === 1 ? { ...item,
+      remote: { ...item.remote, digest: 'sha256:' + 'f'.repeat(64) } } : item),
+    entries.map((item, index) => index === 1 ? { expected: null, remote: item.remote } : item),
+  ]) {
+    assert.throws(() => verifyRawStagingInventory(manifest, variant));
+  }
+});
+
+test('raw inventory rejects mixed workflow runs and mixed attempts within one stage', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  for (const patch of [
+    (item) => ({ ...item, expected: { ...item.expected, repositoryId: 456 },
+      remote: { ...item.remote, workflow_run: {
+        ...item.remote.workflow_run, repository_id: 456, head_repository_id: 456 } } }),
+    (item) => ({ ...item, expected: { ...item.expected, runId: 9002 },
+      remote: { ...item.remote, name: rawStagingArtifactName(item.expected.stage,
+        9002, item.expected.producerAttempt, item.expected.fileName),
+      workflow_run: { ...item.remote.workflow_run, id: 9002 } } }),
+    (item) => ({ ...item, expected: { ...item.expected, producerAttempt: 3 },
+      remote: { ...item.remote, name: rawStagingArtifactName(item.expected.stage,
+        item.expected.runId, 3, item.expected.fileName) } }),
+  ]) {
+    const mixed = entries.map((item, index) => index === 1 ? patch(item) : item);
+    assert.throws(() => verifyRawStagingInventory(manifest, mixed));
+  }
 });
 
 function stagedEntryFixture(stage = 'normal') {

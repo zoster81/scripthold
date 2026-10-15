@@ -216,6 +216,49 @@ async function verifyRawStagingStream(manifest, expected, remote, source) {
   return file;
 }
 
+// Before any transfer, require the exact 22 original release files, each bound
+// to an authenticated upload ID/digest. download-artifact@v8 only warns if one
+// of several requested artifact IDs is absent, so action success is not enough.
+// This is metadata-only: consumers must still verify all 22 downloaded streams.
+function verifyRawStagingInventory(manifest, entries) {
+  const files = validateStagedManifest(manifest);
+  requireCondition(Array.isArray(entries) && entries.length === files.size,
+    'raw staging inventory must include exactly 22 uploads');
+  const found = new Map();
+  const seenIDs = new Set();
+  const attempts = new Map();
+  let runId;
+  let repositoryId;
+  for (const item of entries) {
+    requireCondition(item && typeof item === 'object' && !Array.isArray(item),
+      'invalid raw staging entry');
+    const expected = item.expected;
+    const artifact = verifyRawStagingArtifact(manifest, expected, item.remote);
+    requireCondition(!found.has(artifact.fileName), 'duplicate raw staging file');
+    requireCondition(!seenIDs.has(artifact.artifactId), 'duplicate raw staging artifact ID');
+    if (runId === undefined) {
+      runId = expected.runId;
+      repositoryId = expected.repositoryId;
+    }
+    requireCondition(expected.runId === runId && expected.repositoryId === repositoryId,
+      'mixed raw staging workflow identity');
+    if (attempts.has(expected.stage)) {
+      requireCondition(attempts.get(expected.stage) === expected.producerAttempt,
+        'mixed producer attempts in raw staging group');
+    } else {
+      attempts.set(expected.stage, expected.producerAttempt);
+    }
+    found.set(artifact.fileName, artifact);
+    seenIDs.add(artifact.artifactId);
+  }
+  const canonical = new Map();
+  for (const name of files.keys()) {
+    requireCondition(found.has(name), 'missing raw staging file');
+    canonical.set(name, found.get(name));
+  }
+  return canonical;
+}
+
 // The exact producer-upload ID, SHA and run are authenticated against the
 // GitHub Actions artifact record before examining downloaded archive bytes.
 async function verifyStagingArchiveStream(expected, remote, source) {
@@ -301,4 +344,5 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
 module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
-  verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName };
+  verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
+  verifyRawStagingInventory };
