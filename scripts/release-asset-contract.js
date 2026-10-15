@@ -49,15 +49,19 @@ function expectedReleaseAssetNames(tag) {
   ];
 }
 
-function validateStagedManifest(manifest) {
+function validateManifestAssets(manifest, stage) {
   requireCondition(manifest && typeof manifest === 'object' && !Array.isArray(manifest),
     'invalid staging manifest');
   requireCondition(manifest.repository === REPOSITORY, 'unexpected repository');
   requireCondition(typeof manifest.commit === 'string' && COMMIT_SHA.test(manifest.commit),
     'invalid exact source commit');
-  const expected = new Set(expectedReleaseAssetNames(manifest.tag));
+  const names = expectedReleaseAssetNames(manifest.tag);
+  const expected = new Set(stage === null ? names : names.filter((name) => {
+    const mcpb = name.endsWith('.mcpb') || name === 'mcpb-checksums.txt';
+    return (stage === 'mcpb') === mcpb;
+  }));
   requireCondition(Array.isArray(manifest.assets) && manifest.assets.length === expected.size,
-    'expected exactly 22 assets');
+    `expected exactly ${expected.size} assets`);
   const result = new Map();
   for (const asset of manifest.assets) {
     requireCondition(asset && typeof asset === 'object' && !Array.isArray(asset),
@@ -73,6 +77,40 @@ function validateStagedManifest(manifest) {
   }
   requireCondition(result.size === expected.size, 'missing staged assets');
   return result;
+}
+
+function validateStagedManifest(manifest) {
+  return validateManifestAssets(manifest, null);
+}
+
+// Producers authenticate only their own stage; this must never relax the
+// complete 22-file manifest required by the draft-publication finalizer.
+function validateStagedGroupManifest(manifest) {
+  requireCondition(manifest && typeof manifest === 'object' && !Array.isArray(manifest) &&
+    (manifest.stage === 'normal' || manifest.stage === 'mcpb'),
+  'invalid staging group');
+  return validateManifestAssets(manifest, manifest.stage);
+}
+
+// Preserve source provenance while copying metadata out of the independent
+// producer objects. Local filesystem paths are intentionally not retained.
+function composeStagedGroupManifests(normal, mcpb) {
+  requireCondition(normal?.stage === 'normal' && mcpb?.stage === 'mcpb',
+    'expected normal and MCPB staging groups in order');
+  const normalFiles = validateStagedGroupManifest(normal);
+  const mcpbFiles = validateStagedGroupManifest(mcpb);
+  requireCondition(normal.repository === mcpb.repository && normal.tag === mcpb.tag &&
+    normal.commit === mcpb.commit, 'producer manifests reference different sources');
+  const assets = expectedReleaseAssetNames(normal.tag).map((name) => {
+    const asset = normalFiles.get(name) ?? mcpbFiles.get(name);
+    requireCondition(asset !== undefined, 'missing composed staging file');
+    return { name, size: asset.size, sha256: asset.sha256 };
+  });
+  const complete = {
+    repository: normal.repository, tag: normal.tag, commit: normal.commit, assets,
+  };
+  validateStagedManifest(complete);
+  return complete;
 }
 
 function isRecognizedReleaseAssetName(name) {
@@ -360,4 +398,5 @@ module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraf
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
   verifyRawStagingInventory, verifyRawStagingPayloads,
-  isRecognizedReleaseAssetName };
+  isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  composeStagedGroupManifests };

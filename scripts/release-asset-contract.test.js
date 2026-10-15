@@ -7,7 +7,8 @@ const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
   verifyRawStagingInventory, verifyRawStagingPayloads,
-  isRecognizedReleaseAssetName } =
+  isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  composeStagedGroupManifests } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -35,6 +36,88 @@ function remote(manifest) {
 function release() {
   return { id: 42, tag_name: TAG, draft: true, immutable: false };
 }
+
+function groupManifest(stage) {
+  const full = fixture();
+  return {
+    repository: full.repository, tag: full.tag, commit: full.commit, stage,
+    assets: full.assets.filter((asset) => stage === 'mcpb'
+      ? asset.name.endsWith('.mcpb') || asset.name === 'mcpb-checksums.txt'
+      : !asset.name.endsWith('.mcpb') && asset.name !== 'mcpb-checksums.txt'),
+  };
+}
+
+test('normal and MCPB producers validate only their own exact 15/7 manifest', () => {
+  const normal = groupManifest('normal');
+  const mcpb = groupManifest('mcpb');
+  assert.equal(validateStagedGroupManifest(normal).size, 15);
+  assert.equal(validateStagedGroupManifest(mcpb).size, 7);
+  assert.throws(() => validateStagedManifest(normal), /22 assets/);
+  assert.throws(() => validateStagedManifest(mcpb), /22 assets/);
+});
+
+test('composes validated producer manifests into an independent canonical 22-file manifest', () => {
+  const normal = groupManifest('normal');
+  const mcpb = groupManifest('mcpb');
+  const merged = composeStagedGroupManifests(normal, mcpb);
+  assert.deepEqual(merged, fixture());
+  assert.equal(validateStagedManifest(merged).size, 22);
+  normal.assets[0].sha256 = 'f'.repeat(64);
+  mcpb.assets[0].size = 1234567;
+  assert.deepEqual(merged, fixture(), 'composed entries must not alias producer metadata');
+});
+
+test('the composed 22-file manifest feeds the existing authenticated raw inventory gate', () => {
+  const merged = composeStagedGroupManifests(groupManifest('normal'), groupManifest('mcpb'));
+  const { entries } = rawInventoryFixture();
+  const verified = verifyRawStagingInventory(merged, entries);
+  assert.equal(verified.size, 22);
+  assert.deepEqual([...verified.keys()], expectedReleaseAssetNames(TAG));
+});
+
+test('rejects malformed, incomplete, duplicated, mixed-type or wrong-stage producer manifests', () => {
+  for (const stage of ['normal', 'mcpb']) {
+    const valid = groupManifest(stage);
+    const wrongStageFile = groupManifest(stage === 'normal' ? 'mcpb' : 'normal').assets[0];
+    for (const input of [
+      null, {}, [],
+      { ...valid, stage: 'other' },
+      { ...valid, stage: undefined },
+      { ...valid, repository: 'attacker/repository' },
+      { ...valid, tag: '../v3.4.0' },
+      { ...valid, commit: 'z'.repeat(40) },
+      { ...valid, assets: null },
+      { ...valid, assets: valid.assets.slice(1) },
+      { ...valid, assets: [...valid.assets, valid.assets[0]] },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, name: wrongStageFile.name } : a) },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, name: '../escape' } : a) },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, size: 0 } : a) },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, sha256: 'A'.repeat(64) } : a) },
+    ]) {
+      assert.throws(() => validateStagedGroupManifest(input));
+    }
+  }
+});
+
+test('composition rejects swapped stages and mixed repository, tag or source commit', () => {
+  const normal = groupManifest('normal');
+  const mcpb = groupManifest('mcpb');
+  for (const [a, b] of [
+    [mcpb, normal], [normal, normal], [mcpb, mcpb],
+    [null, mcpb], [normal, undefined],
+    [normal, { ...mcpb, repository: 'other/repo' }],
+    [normal, { ...mcpb, commit: '2'.repeat(40) }],
+    [normal, { ...mcpb, tag: 'v3.4.1' }],
+    [{ ...normal, assets: normal.assets.slice(1) }, mcpb],
+    [normal, { ...mcpb, assets: mcpb.assets.slice(1) }],
+  ]) {
+    assert.throws(() => composeStagedGroupManifests(a, b));
+  }
+});
 
 test('release basenames are portable across Windows, Linux and macOS filesystems', () => {
   const path = require('node:path');
