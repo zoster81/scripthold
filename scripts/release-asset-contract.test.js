@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
-  verifyStagingArchiveStream, validateStagingArchiveEntries } =
+  verifyStagingArchiveStream, validateStagingArchiveEntries,
+  verifyRawStagingArtifact, verifyRawStagingStream } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -301,6 +302,98 @@ test('rejects tampered, truncated, oversized and malformed Actions archive strea
   await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(['not bytes'])));
   async function* broken() { yield bytes; throw new Error('stream interrupted'); }
   await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(broken())),
+    /stream interrupted/);
+});
+
+function rawStageFixture(fileName = 'scripthold_linux_amd64', stage = 'normal') {
+  const { createHash } = require('node:crypto');
+  const manifest = fixture();
+  const bytes = Buffer.from('synthetic staging bytes, not a release package');
+  const asset = manifest.assets.find((item) => item.name === fileName);
+  if (!asset) throw new Error('invalid synthetic test name');
+  asset.size = bytes.length;
+  asset.sha256 = createHash('sha256').update(bytes).digest('hex');
+  const expected = {
+    repository: manifest.repository, repositoryId: 1234, tag: manifest.tag,
+    commit: manifest.commit, runId: 9001, producerAttempt: 2, stage,
+    fileName, uploadId: 7654, uploadDigest: asset.sha256,
+  };
+  const github = {
+    id: expected.uploadId, name: fileName, size_in_bytes: asset.size,
+    digest: 'sha256:' + asset.sha256, expired: false,
+    workflow_run: {
+      id: expected.runId, repository_id: expected.repositoryId,
+      head_repository_id: expected.repositoryId, head_sha: expected.commit,
+    },
+  };
+  return { manifest, expected, github, bytes };
+}
+
+test('authenticates a raw Actions artifact by immutable ID, manifest bytes and producer identity', async () => {
+  const { Readable } = require('node:stream');
+  for (const [name, stage] of [
+    ['scripthold_linux_amd64', 'normal'],
+    ['checksums.txt', 'normal'],
+    ['scripthold_linux_amd64.mcpb', 'mcpb'],
+    ['mcpb-checksums.txt', 'mcpb'],
+  ]) {
+    const { manifest, expected, github, bytes } = rawStageFixture(name, stage);
+    const match = {
+      artifactId: expected.uploadId, name, size: bytes.length,
+      sha256: expected.uploadDigest,
+    };
+    assert.deepEqual(verifyRawStagingArtifact(manifest, expected, github), match);
+    assert.deepEqual(await verifyRawStagingStream(
+      manifest, expected, github, Readable.from([bytes.subarray(0, 7), bytes.subarray(7)])), match);
+  }
+});
+
+test('raw artifact metadata rejects impersonation, wrong manifest and stage confusion', () => {
+  const { manifest, expected, github } = rawStageFixture();
+  for (const patch of [
+    { repository: 'attacker/fork' }, { repositoryId: '1234' }, { repositoryId: 0 },
+    { tag: 'v3.4.1' }, { commit: 'a'.repeat(40) },
+    { runId: 9002 }, { producerAttempt: 0 }, { producerAttempt: '2' },
+    { stage: 'mcpb' }, { stage: 'unknown' }, { fileName: '../escape' },
+    { fileName: 'unknown.bin' }, { fileName: 'scripthold_linux_amd64.mcpb' },
+    { uploadId: 0 }, { uploadId: '7654' },
+    { uploadDigest: 'f'.repeat(64) }, { uploadDigest: 'F'.repeat(64) },
+  ]) {
+    assert.throws(() => verifyRawStagingArtifact(manifest, { ...expected, ...patch }, github));
+  }
+  for (const patch of [
+    { id: 7655 }, { name: 'checksums.txt' }, { name: '../escape' },
+    { digest: 'sha256:' + '0'.repeat(64) }, { digest: expected.uploadDigest },
+    { size_in_bytes: github.size_in_bytes + 1 }, { size_in_bytes: '43' },
+    { expired: true }, { expired: undefined },
+    { workflow_run: null },
+    { workflow_run: { ...github.workflow_run, head_sha: 'a'.repeat(40) } },
+    { workflow_run: { ...github.workflow_run, id: 9002 } },
+    { workflow_run: { ...github.workflow_run, repository_id: 99 } },
+  ]) {
+    assert.throws(() => verifyRawStagingArtifact(manifest, expected, { ...github, ...patch }));
+  }
+  assert.throws(() => verifyRawStagingArtifact(manifest, expected, null));
+  assert.throws(() => verifyRawStagingArtifact({ ...manifest, commit: 'a'.repeat(40) }, expected, github));
+  assert.throws(() => verifyRawStagingArtifact(
+    { ...manifest, assets: manifest.assets.slice(1) }, expected, github));
+});
+
+test('raw artifact stream rejects corruption, truncation, extension and source failures', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, expected, github, bytes } = rawStageFixture();
+  for (const chunks of [
+    [], [bytes.subarray(0, -1)], [Buffer.from('modified, original bytes never trusted')],
+    [bytes, Buffer.from('x')],
+  ]) {
+    await assert.rejects(() =>
+      verifyRawStagingStream(manifest, expected, github, Readable.from(chunks)));
+  }
+  await assert.rejects(() =>
+    verifyRawStagingStream(manifest, expected, github, Readable.from(['not binary'])));
+  async function* interrupted() { yield bytes; throw new Error('stream interrupted'); }
+  await assert.rejects(() =>
+    verifyRawStagingStream(manifest, expected, github, Readable.from(interrupted())),
     /stream interrupted/);
 });
 

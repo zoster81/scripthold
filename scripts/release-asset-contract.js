@@ -126,9 +126,9 @@ function stagedArtifactName(stage, runId, producerAttempt) {
   return `scripthold-${stage}-${runId}-${producerAttempt}`;
 }
 
-// The expected ID, SHA and digest must come from trusted workflow/job outputs.
-// REST metadata alone does not authenticate the payload's extracted file bytes.
-function verifyRunStagingArtifact(expected, remote) {
+// Artifact name comes from the verified ZIP stage convention or the manifest's
+// exact file name in v7 unarchived mode. Never select by a mutable name alone.
+function verifyStagingArtifactMetadata(expected, remote, name, maxBytes) {
   requireCondition(expected && typeof expected === 'object' && !Array.isArray(expected),
     'invalid expected staging identity');
   requireCondition(expected.repository === REPOSITORY, 'unexpected staging repository');
@@ -136,7 +136,6 @@ function verifyRunStagingArtifact(expected, remote) {
   expectedReleaseAssetNames(expected.tag);
   requireCondition(typeof expected.commit === 'string' && COMMIT_SHA.test(expected.commit),
     'invalid staged source commit');
-  const name = stagedArtifactName(expected.stage, expected.runId, expected.producerAttempt);
   requireCondition(validPositiveID(expected.uploadId), 'invalid upload artifact id');
   requireCondition(typeof expected.uploadDigest === 'string' && SHA256.test(expected.uploadDigest),
     'invalid producer artifact digest');
@@ -146,10 +145,10 @@ function verifyRunStagingArtifact(expected, remote) {
     'Actions artifact identity mismatch');
   requireCondition(remote.expired === false, 'Actions artifact expired or not confirmed');
   requireCondition(Number.isSafeInteger(remote.size_in_bytes) &&
-    remote.size_in_bytes > 0 && remote.size_in_bytes <= MAX_STAGING_ARCHIVE_BYTES,
-    'invalid Actions archive size');
+    remote.size_in_bytes > 0 && remote.size_in_bytes <= maxBytes,
+    'invalid Actions artifact size');
   requireCondition(remote.digest === 'sha256:' + expected.uploadDigest,
-    'Actions artifact archive digest mismatch');
+    'Actions artifact digest mismatch');
   const run = remote.workflow_run;
   requireCondition(run && typeof run === 'object' && !Array.isArray(run),
     'missing artifact workflow identity');
@@ -157,6 +156,49 @@ function verifyRunStagingArtifact(expected, remote) {
     run.head_repository_id === expected.repositoryId && run.head_sha === expected.commit,
     'Actions artifact workflow provenance mismatch');
   return { artifactId: remote.id, name, archiveDigest: remote.digest, size: remote.size_in_bytes };
+}
+
+// The expected ID, SHA and digest must come from trusted workflow/job outputs.
+// REST metadata alone does not authenticate the payload's extracted file bytes.
+function verifyRunStagingArtifact(expected, remote) {
+  requireCondition(expected && typeof expected === 'object' && !Array.isArray(expected),
+    'invalid expected staging identity');
+  const name = stagedArtifactName(expected.stage, expected.runId, expected.producerAttempt);
+  return verifyStagingArtifactMetadata(expected, remote, name, MAX_STAGING_ARCHIVE_BYTES);
+}
+
+// A v7 upload with archive:false uses the *original file basename* as artifact
+// name. Its digest must equal the independently authenticated original file SHA.
+// This does not open/download the file or grant execution/permission authority.
+function verifyRawStagingArtifact(manifest, expected, remote) {
+  const files = validateStagedManifest(manifest);
+  requireCondition(expected && typeof expected === 'object' && !Array.isArray(expected),
+    'invalid raw staging identity');
+  requireCondition(expected.repository === manifest.repository &&
+    expected.commit === manifest.commit && expected.tag === manifest.tag,
+    'raw staging manifest provenance mismatch');
+  stagedArtifactName(expected.stage, expected.runId, expected.producerAttempt);
+  requireCondition(typeof expected.fileName === 'string' && files.has(expected.fileName),
+    'unrecognized raw staging filename');
+  const inMCPB = expected.fileName.endsWith('.mcpb') || expected.fileName === 'mcpb-checksums.txt';
+  requireCondition((expected.stage === 'mcpb') === inMCPB,
+    'raw staging file belongs to a different stage');
+  const original = files.get(expected.fileName);
+  requireCondition(expected.uploadDigest === original.sha256,
+    'raw uploaded digest differs from original manifest');
+  const record = verifyStagingArtifactMetadata(expected, remote, expected.fileName, MAX_ASSET_BYTES);
+  requireCondition(record.size === original.size,
+    'raw uploaded length differs from original manifest');
+  return { artifactId: record.artifactId, name: expected.fileName,
+    size: original.size, sha256: original.sha256 };
+}
+
+// Callers must independently authorize/open a stable source by the proven ID
+// in owner-controlled staging. The byte stream itself is checked, not just REST metadata.
+async function verifyRawStagingStream(manifest, expected, remote, source) {
+  const file = verifyRawStagingArtifact(manifest, expected, remote);
+  await verifyExactBytes(source, file.size, file.sha256);
+  return file;
 }
 
 // The exact producer-upload ID, SHA and run are authenticated against the
@@ -243,4 +285,5 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
 
 module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
-  verifyStagingArchiveStream, validateStagingArchiveEntries };
+  verifyStagingArchiveStream, validateStagingArchiveEntries,
+  verifyRawStagingArtifact, verifyRawStagingStream };
