@@ -126,8 +126,22 @@ function stagedArtifactName(stage, runId, producerAttempt) {
   return `scripthold-${stage}-${runId}-${producerAttempt}`;
 }
 
+// The pinned upload-artifact v7 action ignores 'name' with archive:false
+// and instead uses the actual file basename. Reusing a basename across run
+// attempts causes name conflicts, so the producer must stage a copy under
+// this deterministic attempt-scoped basename without modifying original bytes.
+function rawStagingArtifactName(stage, runId, producerAttempt, fileName) {
+  stagedArtifactName(stage, runId, producerAttempt);
+  requireCondition(isRecognizedReleaseAssetName(fileName), 'invalid raw staging filename');
+  const inMCPB = fileName.endsWith('.mcpb') || fileName === 'mcpb-checksums.txt';
+  requireCondition((stage === 'mcpb') === inMCPB, 'raw staging file belongs to a different stage');
+  const name = `scripthold-raw-${stage}-${runId}-${producerAttempt}-${fileName}`;
+  requireCondition(name.length <= 240, 'raw staging artifact name is too long');
+  return name;
+}
+
 // Artifact name comes from the verified ZIP stage convention or the manifest's
-// exact file name in v7 unarchived mode. Never select by a mutable name alone.
+// exact attempt-scoped file name in v7 unarchived mode. Never select by name alone.
 function verifyStagingArtifactMetadata(expected, remote, name, maxBytes) {
   requireCondition(expected && typeof expected === 'object' && !Array.isArray(expected),
     'invalid expected staging identity');
@@ -167,8 +181,8 @@ function verifyRunStagingArtifact(expected, remote) {
   return verifyStagingArtifactMetadata(expected, remote, name, MAX_STAGING_ARCHIVE_BYTES);
 }
 
-// A v7 upload with archive:false uses the *original file basename* as artifact
-// name. Its digest must equal the independently authenticated original file SHA.
+// A v7 upload with archive:false uses the uploaded file's basename as
+// artifact name. Its digest must equal the original release file SHA.
 // This does not open/download the file or grant execution/permission authority.
 function verifyRawStagingArtifact(manifest, expected, remote) {
   const files = validateStagedManifest(manifest);
@@ -177,7 +191,6 @@ function verifyRawStagingArtifact(manifest, expected, remote) {
   requireCondition(expected.repository === manifest.repository &&
     expected.commit === manifest.commit && expected.tag === manifest.tag,
     'raw staging manifest provenance mismatch');
-  stagedArtifactName(expected.stage, expected.runId, expected.producerAttempt);
   requireCondition(typeof expected.fileName === 'string' && files.has(expected.fileName),
     'unrecognized raw staging filename');
   const inMCPB = expected.fileName.endsWith('.mcpb') || expected.fileName === 'mcpb-checksums.txt';
@@ -186,11 +199,13 @@ function verifyRawStagingArtifact(manifest, expected, remote) {
   const original = files.get(expected.fileName);
   requireCondition(expected.uploadDigest === original.sha256,
     'raw uploaded digest differs from original manifest');
-  const record = verifyStagingArtifactMetadata(expected, remote, expected.fileName, MAX_ASSET_BYTES);
+  const artifactName = rawStagingArtifactName(expected.stage, expected.runId,
+    expected.producerAttempt, expected.fileName);
+  const record = verifyStagingArtifactMetadata(expected, remote, artifactName, MAX_ASSET_BYTES);
   requireCondition(record.size === original.size,
     'raw uploaded length differs from original manifest');
-  return { artifactId: record.artifactId, name: expected.fileName,
-    size: original.size, sha256: original.sha256 };
+  return { artifactId: record.artifactId, artifactName,
+    fileName: expected.fileName, size: original.size, sha256: original.sha256 };
 }
 
 // Callers must independently authorize/open a stable source by the proven ID
@@ -286,4 +301,4 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
 module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
-  verifyRawStagingArtifact, verifyRawStagingStream };
+  verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName };

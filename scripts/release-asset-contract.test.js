@@ -5,7 +5,7 @@ const test = require('node:test');
 const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
-  verifyRawStagingArtifact, verifyRawStagingStream } =
+  verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -319,7 +319,9 @@ function rawStageFixture(fileName = 'scripthold_linux_amd64', stage = 'normal') 
     fileName, uploadId: 7654, uploadDigest: asset.sha256,
   };
   const github = {
-    id: expected.uploadId, name: fileName, size_in_bytes: asset.size,
+    id: expected.uploadId,
+    name: rawStagingArtifactName(stage, expected.runId, expected.producerAttempt, fileName),
+    size_in_bytes: asset.size,
     digest: 'sha256:' + asset.sha256, expired: false,
     workflow_run: {
       id: expected.runId, repository_id: expected.repositoryId,
@@ -339,13 +341,59 @@ test('authenticates a raw Actions artifact by immutable ID, manifest bytes and p
   ]) {
     const { manifest, expected, github, bytes } = rawStageFixture(name, stage);
     const match = {
-      artifactId: expected.uploadId, name, size: bytes.length,
-      sha256: expected.uploadDigest,
+      artifactId: expected.uploadId, artifactName: github.name,
+      fileName: name, size: bytes.length, sha256: expected.uploadDigest,
     };
     assert.deepEqual(verifyRawStagingArtifact(manifest, expected, github), match);
     assert.deepEqual(await verifyRawStagingStream(
       manifest, expected, github, Readable.from([bytes.subarray(0, 7), bytes.subarray(7)])), match);
   }
+});
+
+test('raw artifact naming prevents same-run rerun collisions for all 22 files', () => {
+  const names = expectedReleaseAssetNames(TAG);
+  const first = new Set();
+  const second = new Set();
+  for (const name of names) {
+    const stage = name.endsWith('.mcpb') || name === 'mcpb-checksums.txt'
+      ? 'mcpb' : 'normal';
+    const a = rawStagingArtifactName(stage, 9001, 1, name);
+    const b = rawStagingArtifactName(stage, 9001, 2, name);
+    assert.notEqual(a, b);
+    assert.ok(a.endsWith('-' + name));
+    assert.ok(a.length <= 240);
+    first.add(a);
+    second.add(b);
+  }
+  assert.equal(first.size, 22);
+  assert.equal(second.size, 22);
+  assert.equal(new Set([...first, ...second]).size, 44);
+  assert.notEqual(rawStagingArtifactName('normal', 9001, 1, 'checksums.txt'),
+    rawStagingArtifactName('normal', 9002, 1, 'checksums.txt'));
+});
+
+test('raw artifact name builder rejects unsafe, malformed and oversized producer identity', () => {
+  for (const [stage, run, attempt, file] of [
+    ['bad', 9001, 1, 'checksums.txt'], ['normal', 0, 1, 'checksums.txt'],
+    ['normal', '9001', 1, 'checksums.txt'], ['normal', 9001, 0, 'checksums.txt'],
+    ['normal', 9001, 1.5, 'checksums.txt'], ['normal', 9001, 1, '../checksums.txt'],
+    ['normal', 9001, 1, 'nested/checksums.txt'], ['normal', 9001, 1, 'other'],
+    ['mcpb', 9001, 1, 'checksums.txt'],
+    ['normal', 9001, 1, 'scripthold-v3.4.0-' + 'a'.repeat(280) + '-provenance.intoto.jsonl'],
+  ]) {
+    assert.throws(() => rawStagingArtifactName(stage, run, attempt, file));
+  }
+});
+
+test('raw artifact metadata rejects name reuse by another producer attempt', () => {
+  const { manifest, expected, github } = rawStageFixture();
+  assert.throws(() => verifyRawStagingArtifact(manifest,
+    { ...expected, producerAttempt: 3 }, github), /identity/);
+  assert.throws(() => verifyRawStagingArtifact(manifest, expected,
+    { ...github, name: expected.fileName }), /identity/);
+  assert.throws(() => verifyRawStagingArtifact(manifest, expected,
+    { ...github, name: rawStagingArtifactName(expected.stage, 9001, 3, expected.fileName) }),
+  /identity/);
 });
 
 test('raw artifact metadata rejects impersonation, wrong manifest and stage confusion', () => {
