@@ -297,6 +297,24 @@ function verifyRawStagingInventory(manifest, entries) {
   return canonical;
 }
 
+// The pinned download-artifact v8 derives multi-download subdirectories from
+// remote artifact names and only warns when some requested IDs are missing.
+// Download one authenticated ID per private caller-owned slot instead. No host
+// path is transmitted here; consumers must create and secure slot directories,
+// verify the sole downloaded filename and check its original bytes.
+function planRawStagingDownloads(manifest, entries) {
+  const files = verifyRawStagingInventory(manifest, entries);
+  return [...files.values()].map((file, index) => ({
+    artifactId: file.artifactId,
+    artifactIdsInput: String(file.artifactId),
+    slot: 'slot-' + String(index + 1).padStart(2, '0'),
+    artifactName: file.artifactName,
+    fileName: file.fileName,
+    size: file.size,
+    sha256: file.sha256,
+  }));
+}
+
 // Validate the complete inventory before any stream is requested, then hash
 // each authenticated original payload once in manifest order. The caller must
 // open a stable no-follow source and retain its immutable bytes for subsequent
@@ -398,5 +416,5 @@ module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraf
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
   verifyRawStagingInventory, verifyRawStagingPayloads,
-  isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  planRawStagingDownloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
   composeStagedGroupManifests };

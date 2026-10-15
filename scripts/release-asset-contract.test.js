@@ -7,7 +7,7 @@ const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
   verifyRawStagingInventory, verifyRawStagingPayloads,
-  isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  planRawStagingDownloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
   composeStagedGroupManifests } =
   require('./release-asset-contract');
 
@@ -585,6 +585,47 @@ function rawInventoryFixture() {
   });
   return { manifest, entries };
 }
+
+test('plans 22 authenticated raw downloads into private numeric slots, one immutable ID each', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plans = planRawStagingDownloads(manifest, entries.slice().reverse());
+  assert.equal(plans.length, 22);
+  assert.deepEqual(plans.map((plan) => plan.fileName), expectedReleaseAssetNames(TAG));
+  for (const [i, plan] of plans.entries()) {
+    const name = manifest.assets[i].name;
+    const { expected, remote } = entries[i];
+    assert.deepEqual(plan, {
+      artifactId: expected.uploadId,
+      artifactIdsInput: String(expected.uploadId),
+      slot: 'slot-' + String(i + 1).padStart(2, '0'),
+      artifactName: remote.name,
+      fileName: name, size: manifest.assets[i].size,
+      sha256: manifest.assets[i].sha256,
+    });
+    assert.match(plan.slot, /^slot-[0-9]{2}$/);
+    assert.ok(!Object.hasOwn(plan, 'path'),
+      'the source must not grant a host path to the receiving job');
+  }
+  assert.equal(new Set(plans.map((plan) => plan.slot)).size, 22);
+  assert.equal(new Set(plans.map((plan) => plan.artifactId)).size, 22);
+});
+
+test('raw per-ID download planning fails closed on incomplete, duplicated or forged metadata', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  for (const variant of [
+    null, [], entries.slice(1), [...entries, entries[0]],
+    entries.map((v, i) => i === 0 ? { ...v, remote: { ...v.remote,
+      name: '../slot-01' } } : v),
+    entries.map((v, i) => i === 0 ? { ...v, expected: { ...v.expected,
+      uploadId: '2000junk' } } : v),
+    entries.map((v, i) => i === 0 ? { ...v, remote: { ...v.remote,
+      id: 9999 } } : v),
+    entries.map((v, i) => i === 0 ? { ...v, expected: { ...v.expected,
+      producerAttempt: 42 } } : v),
+  ]) {
+    assert.throws(() => planRawStagingDownloads(manifest, variant));
+  }
+});
 
 test('accepts exactly 22 unique verified raw uploads with different job attempts', () => {
   const { manifest, entries } = rawInventoryFixture();
