@@ -1,6 +1,7 @@
 package releasearchive
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -170,6 +171,294 @@ func TestVerifyFlatDirectoryRequiresPrivateLinuxDirectory(t *testing.T) {
 	}
 	if err := verifyFlatDirectory(dir, expected); err == nil {
 		t.Fatal("directory accessible to another user accepted")
+	}
+}
+
+func TestCreatePrivateRawStagingDirectoryAnchorsAndSeparatesEachRun(t *testing.T) {
+	parent := t.TempDir()
+	first, err := createPrivateRawStagingDirectory(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := createPrivateRawStagingDirectory(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || filepath.Dir(first) != parent || filepath.Dir(second) != parent {
+		t.Fatalf("unexpected staging paths: %q, %q", first, second)
+	}
+	for _, path := range []string{first, second} {
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("staging root is not a real directory: %q: %v", path, err)
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("staging must start empty: %q: %v", path, err)
+		}
+		if runtime.GOOS == "linux" {
+			if err := verifyPrivateStagingRoot(info); err != nil {
+				t.Fatalf("new staging directory lacks owner-only mode: %v", err)
+			}
+		}
+	}
+}
+
+func TestCreatePrivateRawStagingDirectoryRejectsInvalidParents(t *testing.T) {
+	parent := t.TempDir()
+	ordinary := filepath.Join(parent, "file")
+	if err := os.WriteFile(ordinary, []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"", ".", "relative", ordinary, filepath.Join(parent, "missing")} {
+		if _, err := createPrivateRawStagingDirectory(path); err == nil {
+			t.Fatalf("untrusted or unusable staging parent %q accepted", path)
+		}
+	}
+}
+
+func TestCreatePrivateRawStagingDirectoryPermitsTrustedParentAlias(t *testing.T) {
+	parent := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(parent, alias); err != nil {
+		t.Skipf("system symlink alias creation unavailable: %v", err)
+	}
+	stage, err := createPrivateRawStagingDirectory(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(stage); err != nil || !info.IsDir() {
+		t.Fatalf("fresh stage under trusted alias missing: %v", err)
+	}
+}
+
+func TestCreatePrivateRawStagingDirectoryRequiresLinuxForPublication(t *testing.T) {
+	path, err := CreatePrivateRawStagingDirectory(t.TempDir())
+	if runtime.GOOS == "linux" {
+		if err != nil || path == "" {
+			t.Fatalf("Linux publication staging unexpectedly refused: %v", err)
+		}
+	} else if err == nil || path != "" {
+		t.Fatal("non-Linux platform was allowed to create a publication staging root")
+	}
+}
+
+func TestStageVerifiedSourceFileCreatesOnlyExclusiveDigestMatchedRawCopy(t *testing.T) {
+	parent := t.TempDir()
+	stage, err := createPrivateRawStagingDirectory(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	contents := []byte("synthetic source bytes, not a binary or package")
+	if err := os.WriteFile(filepath.Join(source, "scripthold"), contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	name := "scripthold-raw-normal-9001-2-scripthold_linux_amd64"
+	expected := flatExpected("scripthold_linux_amd64", contents)
+	if err := stageVerifiedSourceFile(source, "scripthold", stage, name, expected); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := os.ReadFile(filepath.Join(stage, name))
+	if err != nil || !bytes.Equal(staged, contents) {
+		t.Fatalf("staged bytes differed: %v", err)
+	}
+	if runtime.GOOS == "linux" {
+		if info, err := os.Lstat(filepath.Join(stage, name)); err != nil ||
+			info.Mode().Perm() != 0o600 {
+			t.Fatalf("staged file not mode 0600: %v", err)
+		}
+		if err := VerifyFlatDirectory(stage, []ExpectedFile{flatExpected(name, contents)}); err != nil {
+			t.Fatalf("final file verifier rejected newly staged content: %v", err)
+		}
+	}
+	if err := stageVerifiedSourceFile(source, "scripthold", stage, name, expected); err == nil {
+		t.Fatal("existing staged file overwritten")
+	}
+	still, err := os.ReadFile(filepath.Join(stage, name))
+	if err != nil || !bytes.Equal(still, contents) {
+		t.Fatalf("existing output was modified: %v", err)
+	}
+}
+
+func TestStageVerifiedSourceFileFailsClosedAndLeavesNoOutput(t *testing.T) {
+	cases := []struct {
+		name, src, dest string
+		body, expected  string
+	}{
+		{"digest mismatch", "scripthold", "raw-good", "wrong content", "source content"},
+		{"wrong length", "scripthold", "raw-good", "too large", "short"},
+		{"source alias", "RUNNER~1", "raw-good", "source content", "source content"},
+		{"destination traversal", "scripthold", "../escape", "source content", "source content"},
+		{"destination short alias", "scripthold", "RUNNER~1", "source content", "source content"},
+		{"destination windows drive", "scripthold", "C:\\evil", "source content", "source content"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := t.TempDir()
+			stage, err := createPrivateRawStagingDirectory(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.src == "scripthold" {
+				if err := os.WriteFile(filepath.Join(source, tc.src), []byte(tc.body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			expected := flatExpected("scripthold_linux_amd64", []byte(tc.expected))
+			if err := stageVerifiedSourceFile(source, tc.src, stage, tc.dest, expected); err == nil {
+				t.Fatal("invalid stage succeeded")
+			}
+			entries, err := os.ReadDir(stage)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("stage failed without removing its failed output: %v", err)
+			}
+		})
+	}
+}
+
+func TestStageVerifiedSourceFileRejectsLinkedSourceAndExistingDest(t *testing.T) {
+	t.Run("source hardlink", func(t *testing.T) {
+		source := t.TempDir()
+		target := filepath.Join(source, "scripthold")
+		content := []byte("safe synthetic payload")
+		if err := os.WriteFile(target, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(target, filepath.Join(t.TempDir(), "alias")); err != nil {
+			t.Skipf("hardlink unsupported: %v", err)
+		}
+		stage, err := createPrivateRawStagingDirectory(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := stageVerifiedSourceFile(source, "scripthold", stage, "raw-good",
+			flatExpected("scripthold_linux_amd64", content)); err == nil {
+			t.Fatal("hardlinked source accepted")
+		}
+	})
+	t.Run("preexisting destination", func(t *testing.T) {
+		source := t.TempDir()
+		stage, err := createPrivateRawStagingDirectory(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := []byte("trusted source bytes")
+		if err := os.WriteFile(filepath.Join(source, "scripthold"), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		const name = "raw-good"
+		if err := os.WriteFile(filepath.Join(stage, name), []byte("prior"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := stageVerifiedSourceFile(source, "scripthold", stage, name,
+			flatExpected("scripthold_linux_amd64", content)); err == nil {
+			t.Fatal("existing destination overwritten")
+		}
+		previous, err := os.ReadFile(filepath.Join(stage, name))
+		if err != nil || string(previous) != "prior" {
+			t.Fatalf("existing destination was modified: %v", err)
+		}
+	})
+}
+
+func TestCreatePrivateRawStagingDirectoryConcurrentCallersNeverReuseName(t *testing.T) {
+	const workers = 16
+	parent := t.TempDir()
+	results := make(chan string, workers)
+	failures := make(chan error, workers)
+	for range workers {
+		go func() {
+			path, err := createPrivateRawStagingDirectory(parent)
+			if err != nil {
+				failures <- err
+				return
+			}
+			results <- path
+		}()
+	}
+	seen := make(map[string]bool, workers)
+	for range workers {
+		select {
+		case path := <-results:
+			if seen[path] {
+				t.Errorf("concurrent callers reused private staging path: %s", path)
+			}
+			seen[path] = true
+		case err := <-failures:
+			t.Error(err)
+		}
+	}
+	if len(seen) != workers {
+		t.Fatalf("expected %d distinct private stages; got %d", workers, len(seen))
+	}
+}
+
+func TestStageVerifiedSourceFileRejectsRealSourceAndDestinationSymlinks(t *testing.T) {
+	t.Run("source symlink", func(t *testing.T) {
+		source := t.TempDir()
+		stage, err := createPrivateRawStagingDirectory(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := []byte("synthetic source alias bytes")
+		target := filepath.Join(t.TempDir(), "outside")
+		if err := os.WriteFile(target, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(source, "scripthold")); err != nil {
+			t.Skipf("symlink creation unsupported on host: %v", err)
+		}
+		if err := stageVerifiedSourceFile(source, "scripthold", stage, "raw-good",
+			flatExpected("scripthold_linux_amd64", body)); err == nil {
+			t.Fatal("symbolic source leaf was accepted")
+		}
+		if entries, err := os.ReadDir(stage); err != nil || len(entries) != 0 {
+			t.Fatalf("source symlink failure created staged content: %v", err)
+		}
+	})
+	t.Run("existing destination symlink", func(t *testing.T) {
+		source := t.TempDir()
+		stage, err := createPrivateRawStagingDirectory(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := []byte("synthetic source bytes")
+		if err := os.WriteFile(filepath.Join(source, "scripthold"), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "outside")
+		if err := os.WriteFile(target, []byte("untouched"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(stage, "raw-good")); err != nil {
+			t.Skipf("symlink creation unsupported on host: %v", err)
+		}
+		if err := stageVerifiedSourceFile(source, "scripthold", stage, "raw-good",
+			flatExpected("scripthold_linux_amd64", body)); err == nil {
+			t.Fatal("existing symlink was overwritten")
+		}
+		got, err := os.ReadFile(target)
+		if err != nil || string(got) != "untouched" {
+			t.Fatalf("outside symlink target changed: %v", err)
+		}
+	})
+}
+
+func TestStageVerifiedSourceFileRequiresLinuxForPublication(t *testing.T) {
+	source := t.TempDir()
+	stage := t.TempDir()
+	body := []byte("synthetic only")
+	if err := os.WriteFile(filepath.Join(source, "scripthold"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := StageVerifiedSourceFile(source, "scripthold", stage, "raw-good",
+		flatExpected("scripthold_linux_amd64", body))
+	if runtime.GOOS == "linux" && err != nil {
+		t.Fatalf("Linux stage refused: %v", err)
+	}
+	if runtime.GOOS != "linux" && err == nil {
+		t.Fatal("non-Linux source staging was authorized")
 	}
 }
 
