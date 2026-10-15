@@ -304,15 +304,20 @@ function verifyRawStagingInventory(manifest, entries) {
 // verify the sole downloaded filename and check its original bytes.
 function planRawStagingDownloads(manifest, entries) {
   const files = verifyRawStagingInventory(manifest, entries);
-  return [...files.values()].map((file, index) => ({
-    artifactId: file.artifactId,
-    artifactIdsInput: String(file.artifactId),
-    slot: 'slot-' + String(index + 1).padStart(2, '0'),
-    artifactName: file.artifactName,
-    fileName: file.fileName,
-    size: file.size,
-    sha256: file.sha256,
-  }));
+  // Manifest asset order is untrusted; slot assignments must not change when
+  // producer JSON happens to enumerate the same verified files differently.
+  return expectedReleaseAssetNames(manifest.tag).map((name, index) => {
+    const file = files.get(name);
+    return {
+      artifactId: file.artifactId,
+      artifactIdsInput: String(file.artifactId),
+      slot: 'slot-' + String(index + 1).padStart(2, '0'),
+      artifactName: file.artifactName,
+      fileName: file.fileName,
+      size: file.size,
+      sha256: file.sha256,
+    };
+  });
 }
 
 // Validate the complete inventory before any stream is requested, then hash

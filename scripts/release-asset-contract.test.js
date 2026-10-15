@@ -608,6 +608,9 @@ test('plans 22 authenticated raw downloads into private numeric slots, one immut
   }
   assert.equal(new Set(plans.map((plan) => plan.slot)).size, 22);
   assert.equal(new Set(plans.map((plan) => plan.artifactId)).size, 22);
+  const reordered = { ...manifest, assets: manifest.assets.slice().reverse() };
+  assert.deepEqual(planRawStagingDownloads(reordered, entries), plans,
+    'slot assignment must be independent of producer manifest ordering');
 });
 
 test('raw per-ID download planning fails closed on incomplete, duplicated or forged metadata', () => {
