@@ -7,7 +7,8 @@ const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
   verifyRawStagingInventory, verifyRawStagingPayloads,
-  planRawStagingDownloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  planRawStagingDownloads, planRawStagingBatch, verifyRawStagingBatchEntries,
+  verifyRawStagingBatchPayloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
   composeStagedGroupManifests } =
   require('./release-asset-contract');
 
@@ -630,6 +631,63 @@ test('raw per-ID download planning fails closed on incomplete, duplicated or for
   }
 });
 
+test('plans a single pinned raw Actions download from all 22 authenticated IDs', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plan = planRawStagingBatch(manifest, entries.slice().reverse());
+  const canonical = planRawStagingDownloads(manifest, entries);
+  assert.deepEqual(plan.actionInputs, {
+    'artifact-ids': canonical.map((file) => String(file.artifactId)).join(','),
+    'merge-multiple': true,
+    'skip-decompress': true,
+    'digest-mismatch': 'error',
+  });
+  assert.equal(plan.files.length, 22);
+  assert.deepEqual(plan.files, canonical.map(({ artifactId, artifactName, fileName, size, sha256 }) =>
+    ({ artifactId, artifactName, fileName, size, sha256 })));
+  assert.ok(!Object.hasOwn(plan.actionInputs, 'path'));
+  const reordered = { ...manifest, assets: manifest.assets.slice().reverse() };
+  assert.deepEqual(planRawStagingBatch(reordered, entries), plan);
+});
+
+test('authenticates exact flat raw download metadata before reading any payloads', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plan = planRawStagingBatch(manifest, entries);
+  const observed = plan.files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  const accepted = verifyRawStagingBatchEntries(manifest, entries, observed.slice().reverse());
+  assert.deepEqual([...accepted.keys()], plan.files.map((file) => file.fileName));
+  for (const [index, file] of plan.files.entries()) {
+    assert.deepEqual(accepted.get(file.fileName), file);
+    assert.equal(observed[index].name, file.artifactName);
+  }
+});
+
+test('raw multi-download inventory rejects missing, duplicate, paths, links and altered lengths', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plan = planRawStagingBatch(manifest, entries);
+  const observed = plan.files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  for (const variant of [
+    null, [], observed.slice(1), [...observed, observed[0]],
+    observed.map((v, i) => i === 1 ? observed[0] : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: '../' + v.name } : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: 'sub\\\\' + v.name } : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: v.name.toUpperCase() } : v),
+    observed.map((v, i) => i === 0 ? { ...v, type: 'symlink' } : v),
+    observed.map((v, i) => i === 0 ? { ...v, type: 'directory' } : v),
+    observed.map((v, i) => i === 0 ? { ...v, nlink: 2 } : v),
+    observed.map((v, i) => i === 0 ? { ...v, nlink: undefined } : v),
+    observed.map((v, i) => i === 0 ? { ...v, size: v.size + 1 } : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: 'RUNNER~1' } : v),
+  ]) {
+    assert.throws(() => verifyRawStagingBatchEntries(manifest, entries, variant));
+  }
+  assert.throws(() => verifyRawStagingBatchEntries(manifest, entries.slice(1), observed),
+    /22 uploads/);
+});
+
 test('accepts exactly 22 unique verified raw uploads with different job attempts', () => {
   const { manifest, entries } = rawInventoryFixture();
   const result = verifyRawStagingInventory(manifest, entries.slice().reverse());
@@ -696,6 +754,43 @@ function rawPayloadFixture() {
   }
   return { manifest, entries, opaqueBytes };
 }
+
+test('raw batch byte gate refuses incomplete directory before any source open', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  const plan = planRawStagingBatch(manifest, entries);
+  const observed = plan.files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  let opened = 0;
+  const source = (file) => {
+    opened++;
+    return Readable.from([opaqueBytes.get(file.fileName)]);
+  };
+  await assert.rejects(() => verifyRawStagingBatchPayloads(manifest, entries,
+    observed.slice(1), source));
+  assert.equal(opened, 0, 'no stream may open until all entries have been checked');
+  const valid = await verifyRawStagingBatchPayloads(manifest, entries,
+    observed.slice().reverse(), source);
+  assert.equal(valid.size, 22);
+  assert.equal(opened, 22);
+});
+
+test('raw batch byte gate rejects altered bytes after valid metadata', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  const observed = planRawStagingBatch(manifest, entries).files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  let opened = 0;
+  await assert.rejects(() => verifyRawStagingBatchPayloads(manifest, entries,
+    observed, (file) => {
+      opened++;
+      const bytes = opaqueBytes.get(file.fileName);
+      return Readable.from([opened === 6 ? Buffer.alloc(bytes.length) : bytes]);
+    }), /digest mismatch/);
+  assert.equal(opened, 6, 'corruption must stop the batch before further reads');
+});
 
 test('verifies every original raw staging byte stream after the 22-item identity gate', async () => {
   const { Readable } = require('node:stream');

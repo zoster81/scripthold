@@ -320,18 +320,76 @@ function planRawStagingDownloads(manifest, entries) {
   });
 }
 
+// The pinned download-artifact v8 accepts a CSV of IDs in one action step.
+// Explicit merge-multiple prevents the action from constructing directory names
+// from remote metadata; all IDs must still be rechecked after its warning-only
+// missing-ID behavior. The caller supplies a fresh private destination path.
+function planRawStagingBatch(manifest, entries) {
+  const files = planRawStagingDownloads(manifest, entries).map(({
+    artifactId, artifactName, fileName, size, sha256,
+  }) => ({ artifactId, artifactName, fileName, size, sha256 }));
+  return {
+    actionInputs: {
+      'artifact-ids': files.map((file) => String(file.artifactId)).join(','),
+      'merge-multiple': true,
+      'skip-decompress': true,
+      'digest-mismatch': 'error',
+    },
+    files,
+  };
+}
+
+// The caller must enumerate an owner-controlled directory using lstat/fstat
+// with no-follow, stable inode and parent-directory checks. This metadata
+// preflight alone does not authorize opening paths or prove the payload bytes.
+function verifyRawStagingBatchEntries(manifest, entries, observed) {
+  const expected = planRawStagingBatch(manifest, entries).files;
+  requireCondition(Array.isArray(observed) && observed.length === expected.length,
+    'raw batch must contain exactly 22 downloaded files');
+  const byPhysicalName = new Map(expected.map((file) => [file.artifactName, file]));
+  const found = new Set();
+  for (const item of observed) {
+    requireCondition(item && typeof item === 'object' && !Array.isArray(item) &&
+      typeof item.name === 'string' && byPhysicalName.has(item.name),
+    'unexpected raw batch file name or path');
+    requireCondition(!found.has(item.name), 'duplicate raw batch file');
+    requireCondition(item.type === 'file' && item.nlink === 1,
+      'raw batch entry must be a single-link regular file');
+    requireCondition(item.size === byPhysicalName.get(item.name).size,
+      'raw batch file size mismatch');
+    found.add(item.name);
+  }
+  const canonical = new Map();
+  for (const file of expected) {
+    requireCondition(found.has(file.artifactName), 'missing raw batch file');
+    canonical.set(file.fileName, file);
+  }
+  return canonical;
+}
+
 // Validate the complete inventory before any stream is requested, then hash
 // each authenticated original payload once in manifest order. The caller must
 // open a stable no-follow source and retain its immutable bytes for subsequent
 // use: hashing a path now cannot prove it stays unchanged for a later upload.
-async function verifyRawStagingPayloads(manifest, entries, openSource) {
-  const files = verifyRawStagingInventory(manifest, entries);
+async function verifyRawStagingSources(files, openSource) {
   requireCondition(typeof openSource === 'function', 'invalid raw staging source opener');
   for (const file of files.values()) {
     const source = await openSource(file);
     await verifyExactBytes(source, file.size, file.sha256);
   }
   return files;
+}
+
+async function verifyRawStagingPayloads(manifest, entries, openSource) {
+  return verifyRawStagingSources(verifyRawStagingInventory(manifest, entries), openSource);
+}
+
+// Always finish the flat-directory metadata check before opening even one
+// source. A Linux-only caller must still enforce no-follow and stable identity
+// while opening each file; an observed entry is not filesystem authorization.
+async function verifyRawStagingBatchPayloads(manifest, entries, observed, openSource) {
+  return verifyRawStagingSources(
+    verifyRawStagingBatchEntries(manifest, entries, observed), openSource);
 }
 
 // The exact producer-upload ID, SHA and run are authenticated against the
@@ -421,5 +479,6 @@ module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraf
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
   verifyRawStagingInventory, verifyRawStagingPayloads,
-  planRawStagingDownloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  planRawStagingDownloads, planRawStagingBatch, verifyRawStagingBatchEntries,
+  verifyRawStagingBatchPayloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
   composeStagedGroupManifests };
