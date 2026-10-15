@@ -90,6 +90,32 @@ test('prepares six verified native MCPB staging directories', (t) => {
   });
 });
 
+test('rejects noncanonical checksum paths, Windows aliases, and alternate basenames', (t) => {
+  const directory = createWorkspace(t);
+  const assets = path.join(directory, 'assets');
+  fs.mkdirSync(assets);
+  seedReleaseAssets(assets);
+  const validChecksums = fs.readFileSync(path.join(assets, 'checksums.txt'), 'utf8');
+  const target = targets[0][3];
+  for (const candidate of [
+    './' + target, '../' + target, 'sub/' + target,
+    'C:\\\\stage\\\\' + target, '\\\\server\\\\share\\\\' + target,
+    '..\\\\' + target, target.toUpperCase(), target + '.',
+    'SCRIPH~1.EXE', 'CON', 'CON.txt',
+    target + ':payload', target + ' ', 'scripthold_wındows_amd64.exe',
+  ]) {
+    const checksumPath = path.join(directory, 'candidate-checksums.txt');
+    fs.writeFileSync(checksumPath, validChecksums.replace('  ' + target, '  ' + candidate));
+    const output = path.join(directory, 'mcpb-output');
+    const result = spawnSync(process.execPath,
+      [preparer, 'v2.1.0', checksumPath, assets, output, repositoryRoot],
+      { cwd: repositoryRoot, encoding: 'utf8' });
+    assert.notEqual(result.status, 0, 'should reject ' + JSON.stringify(candidate));
+    assert.match(result.stderr, /checksum|asset|name|unexpected/i);
+    assert.equal(fs.existsSync(output), false);
+  }
+});
+
 test('rejects a release binary whose bytes do not match checksums.txt', (t) => {
   const directory = createWorkspace(t);
   const assets = path.join(directory, 'assets');

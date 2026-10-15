@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { isRecognizedReleaseAssetName } = require('./release-asset-contract');
 
 const forkRepository = 'https://github.com/zoster81/scripthold';
 const forkRegistryName = 'io.github.zoster81/scripthold';
@@ -61,13 +62,16 @@ manifest.tools = catalog.tools.map(({ name, description }) => ({ name, descripti
 
 const checksums = new Map();
 for (const rawLine of fs.readFileSync(checksumsPath, 'utf8').split(/\r?\n/)) {
-  const line = rawLine.trim();
-  if (!line) continue;
-  const match = line.match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/);
+  if (rawLine === '') continue;
+  const match = rawLine.match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/);
   if (!match) {
     fail(`invalid checksums line: ${rawLine}`);
   }
-  const filename = path.basename(match[2].trim().replace(/\\/g, '/'));
+  // Never turn a path or alias into an authoritative release filename.
+  const filename = match[2];
+  if (!isRecognizedReleaseAssetName(filename)) {
+    fail(`invalid release checksum asset name: ${filename}`);
+  }
   if (checksums.has(filename)) {
     fail(`duplicate checksum entry for ${filename}`);
   }

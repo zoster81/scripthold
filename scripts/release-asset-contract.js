@@ -359,4 +359,5 @@ module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraf
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
-  verifyRawStagingInventory, verifyRawStagingPayloads };
+  verifyRawStagingInventory, verifyRawStagingPayloads,
+  isRecognizedReleaseAssetName };

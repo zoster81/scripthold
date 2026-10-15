@@ -6,7 +6,8 @@ const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
-  verifyRawStagingInventory, verifyRawStagingPayloads } =
+  verifyRawStagingInventory, verifyRawStagingPayloads,
+  isRecognizedReleaseAssetName } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -34,6 +35,37 @@ function remote(manifest) {
 function release() {
   return { id: 42, tag_name: TAG, draft: true, immutable: false };
 }
+
+test('release basenames are portable across Windows, Linux and macOS filesystems', () => {
+  const path = require('node:path');
+  const names = expectedReleaseAssetNames(TAG);
+  const folded = new Set();
+  for (const name of names) {
+    assert.equal(isRecognizedReleaseAssetName(name), true);
+    assert.match(name, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+    assert.equal(path.win32.basename(name), name);
+    assert.equal(path.posix.basename(name), name);
+    assert.equal(name.normalize('NFD'), name);
+    assert.equal(name.normalize('NFC'), name);
+    assert.ok(!/[~:]|[. ]$/.test(name));
+    assert.ok(Buffer.byteLength(name, 'utf8') <= 240);
+    const foldedName = name.toLowerCase();
+    assert.ok(!folded.has(foldedName), 'Windows/case-insensitive name collision');
+    folded.add(foldedName);
+  }
+  assert.equal(folded.size, 22);
+  for (const name of [
+    'SCRIPH~1.EXE', 'CON', 'NUL.txt', 'COM1.mcpb',
+    'scripthold_windows_amd64.exe.', 'scripthold_windows_amd64.exe ',
+    'sub/scripthold_windows_amd64.exe', 'sub\\\\scripthold_windows_amd64.exe',
+    'C:\\\\stage\\\\scripthold_windows_amd64.exe',
+    '//server/share/scripthold_windows_amd64.exe',
+    'scripthold_windows_amd64.exe:ads', 'scripthold_wındows_amd64.exe',
+    'scripthold_WINDOWS_amd64.exe',
+  ]) {
+    assert.equal(isRecognizedReleaseAssetName(name), false, 'unsafe name: ' + name);
+  }
+});
 
 test('enumerates exactly 22 uniquely named versioned assets, including real attestation companions', () => {
   const names = expectedReleaseAssetNames(TAG);
