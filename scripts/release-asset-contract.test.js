@@ -6,7 +6,7 @@ const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
-  verifyRawStagingInventory } =
+  verifyRawStagingInventory, verifyRawStagingPayloads } =
   require('./release-asset-contract');
 
 const TAG = 'v3.4.0';
@@ -519,6 +519,71 @@ test('raw inventory rejects mixed workflow runs and mixed attempts within one st
     const mixed = entries.map((item, index) => index === 1 ? patch(item) : item);
     assert.throws(() => verifyRawStagingInventory(manifest, mixed));
   }
+});
+
+function rawPayloadFixture() {
+  const { createHash } = require('node:crypto');
+  const { manifest, entries } = rawInventoryFixture();
+  const opaqueBytes = new Map();
+  for (const [index, asset] of manifest.assets.entries()) {
+    // These are arbitrary short strings, never packaged MCPB contents.
+    const bytes = Buffer.from('opaque unit-test bytes #' + index);
+    opaqueBytes.set(asset.name, bytes);
+    asset.size = bytes.length;
+    asset.sha256 = createHash('sha256').update(bytes).digest('hex');
+    entries[index].expected.uploadDigest = asset.sha256;
+    entries[index].remote.size_in_bytes = asset.size;
+    entries[index].remote.digest = 'sha256:' + asset.sha256;
+  }
+  return { manifest, entries, opaqueBytes };
+}
+
+test('verifies every original raw staging byte stream after the 22-item identity gate', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  const opened = [];
+  const result = await verifyRawStagingPayloads(manifest, entries.slice().reverse(), (file) => {
+    opened.push(file.fileName);
+    const bytes = opaqueBytes.get(file.fileName);
+    return Readable.from([bytes.subarray(0, 3), bytes.subarray(3)]);
+  });
+  assert.equal(result.size, 22);
+  assert.deepEqual(opened, expectedReleaseAssetNames(TAG));
+});
+
+test('raw staging byte gate rejects missing, truncated, wrong and interrupted streams', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  for (const mode of ['missing', 'truncated', 'wrong', 'interrupted', 'nonbinary']) {
+    let count = 0;
+    await assert.rejects(() => verifyRawStagingPayloads(manifest, entries, (file) => {
+      count++;
+      const bytes = opaqueBytes.get(file.fileName);
+      if (count !== 7) return Readable.from([bytes]);
+      if (mode === 'missing') return undefined;
+      if (mode === 'truncated') return Readable.from([bytes.subarray(1)]);
+      if (mode === 'wrong') return Readable.from([Buffer.alloc(bytes.length)]);
+      if (mode === 'nonbinary') return Readable.from(['text']);
+      return Readable.from((async function* () {
+        yield bytes;
+        throw new Error('interrupted source');
+      })());
+    }));
+    assert.equal(count, 7, 'must stop on first invalid source');
+  }
+});
+
+test('raw staging preflight rejects missing metadata before opening any sources', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  let count = 0;
+  await assert.rejects(() => verifyRawStagingPayloads(manifest, entries.slice(0, -1), (file) => {
+    count++;
+    return Readable.from([opaqueBytes.get(file.fileName)]);
+  }));
+  assert.equal(count, 0);
+  await assert.rejects(() => verifyRawStagingPayloads(manifest, entries, null));
+  assert.equal(count, 0);
 });
 
 function stagedEntryFixture(stage = 'normal') {

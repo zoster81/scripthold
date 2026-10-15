@@ -259,6 +259,20 @@ function verifyRawStagingInventory(manifest, entries) {
   return canonical;
 }
 
+// Validate the complete inventory before any stream is requested, then hash
+// each authenticated original payload once in manifest order. The caller must
+// open a stable no-follow source and retain its immutable bytes for subsequent
+// use: hashing a path now cannot prove it stays unchanged for a later upload.
+async function verifyRawStagingPayloads(manifest, entries, openSource) {
+  const files = verifyRawStagingInventory(manifest, entries);
+  requireCondition(typeof openSource === 'function', 'invalid raw staging source opener');
+  for (const file of files.values()) {
+    const source = await openSource(file);
+    await verifyExactBytes(source, file.size, file.sha256);
+  }
+  return files;
+}
+
 // The exact producer-upload ID, SHA and run are authenticated against the
 // GitHub Actions artifact record before examining downloaded archive bytes.
 async function verifyStagingArchiveStream(expected, remote, source) {
@@ -345,4 +359,4 @@ module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraf
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
-  verifyRawStagingInventory };
+  verifyRawStagingInventory, verifyRawStagingPayloads };
