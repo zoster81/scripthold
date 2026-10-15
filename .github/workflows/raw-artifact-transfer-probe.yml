@@ -1,0 +1,318 @@
+# Synthetic non-release cross-job raw artifact transport proof.
+name: Raw artifact transfer probe
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/raw-artifact-transfer-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  normal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ids: ${{ steps.collect.outputs.ids }}
+    steps:
+      - name: Generate synthetic bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -m 700 fixtures
+          for i in $(seq 1 15); do
+            extension=dat
+            if [[ "$i" -eq 12 ]]; then extension=zip; fi
+            printf 'raw-probe:normal:%02d\n' "$i" > "fixtures/probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-normal-$(printf '%02d' "$i").${extension}"
+          done
+      - name: Upload synthetic normal 01
+        id: a1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-01.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 02
+        id: a2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-02.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 03
+        id: a3
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-03.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 04
+        id: a4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-04.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 05
+        id: a5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-05.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 06
+        id: a6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-06.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 07
+        id: a7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-07.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 08
+        id: a8
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-08.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 09
+        id: a9
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-09.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 10
+        id: a10
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-10.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 11
+        id: a11
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-11.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 12
+        id: a12
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-12.zip
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 13
+        id: a13
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-13.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 14
+        id: a14
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-14.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic normal 15
+        id: a15
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-normal-15.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Collect numeric artifact IDs
+        id: collect
+        shell: bash
+        env:
+          A1: ${{ steps.a1.outputs.artifact-id }}
+          A2: ${{ steps.a2.outputs.artifact-id }}
+          A3: ${{ steps.a3.outputs.artifact-id }}
+          A4: ${{ steps.a4.outputs.artifact-id }}
+          A5: ${{ steps.a5.outputs.artifact-id }}
+          A6: ${{ steps.a6.outputs.artifact-id }}
+          A7: ${{ steps.a7.outputs.artifact-id }}
+          A8: ${{ steps.a8.outputs.artifact-id }}
+          A9: ${{ steps.a9.outputs.artifact-id }}
+          A10: ${{ steps.a10.outputs.artifact-id }}
+          A11: ${{ steps.a11.outputs.artifact-id }}
+          A12: ${{ steps.a12.outputs.artifact-id }}
+          A13: ${{ steps.a13.outputs.artifact-id }}
+          A14: ${{ steps.a14.outputs.artifact-id }}
+          A15: ${{ steps.a15.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ids=()
+          for var in A1 A2 A3 A4 A5 A6 A7 A8 A9 A10 A11 A12 A13 A14 A15; do
+            id="${!var}"
+            [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+            ids+=("$id")
+          done
+          (IFS=,; echo "ids=${ids[*]}") >> "$GITHUB_OUTPUT"
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ids: ${{ steps.collect.outputs.ids }}
+    steps:
+      - name: Generate synthetic bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -m 700 fixtures
+          for i in $(seq 1 7); do
+            printf 'raw-probe:package:%02d\n' "$i" > "fixtures/probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-package-$(printf '%02d' "$i").dat"
+          done
+      - name: Upload synthetic package 01
+        id: a1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-package-01.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic package 02
+        id: a2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-package-02.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic package 03
+        id: a3
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-package-03.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic package 04
+        id: a4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-package-04.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic package 05
+        id: a5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-package-05.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic package 06
+        id: a6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-package-06.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Upload synthetic package 07
+        id: a7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-package-07.dat
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+      - name: Collect numeric artifact IDs
+        id: collect
+        shell: bash
+        env:
+          A1: ${{ steps.a1.outputs.artifact-id }}
+          A2: ${{ steps.a2.outputs.artifact-id }}
+          A3: ${{ steps.a3.outputs.artifact-id }}
+          A4: ${{ steps.a4.outputs.artifact-id }}
+          A5: ${{ steps.a5.outputs.artifact-id }}
+          A6: ${{ steps.a6.outputs.artifact-id }}
+          A7: ${{ steps.a7.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ids=()
+          for var in A1 A2 A3 A4 A5 A6 A7; do
+            id="${!var}"
+            [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+            ids+=("$id")
+          done
+          (IFS=,; echo "ids=${ids[*]}") >> "$GITHUB_OUTPUT"
+  consumer:
+    needs: [normal, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Allocate private destination
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -m 700 "$RUNNER_TEMP/raw-probe"
+      - name: Raw-download exactly 22 IDs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ needs.normal.outputs.ids }},${{ needs.package.outputs.ids }}
+          merge-multiple: true
+          skip-decompress: true
+          digest-mismatch: error
+          path: ${{ runner.temp }}/raw-probe
+      - name: Verify complete inventory and bytes
+        shell: bash
+        env:
+          NORMAL_IDS: ${{ needs.normal.outputs.ids }}
+          PACKAGE_IDS: ${{ needs.package.outputs.ids }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = path.join(process.env.RUNNER_TEMP, 'raw-probe');
+          const ids = (process.env.NORMAL_IDS + ',' + process.env.PACKAGE_IDS).split(',');
+          if (ids.length !== 22 || new Set(ids).size !== 22 ||
+              ids.some(id => !/^[1-9][0-9]*$/.test(id))) throw Error('invalid IDs');
+          const dir = fs.lstatSync(root);
+          if (!dir.isDirectory() || dir.isSymbolicLink() || (dir.mode & 0o077))
+            throw Error('unsafe destination');
+          const expected = [];
+          for (const [group, count] of [['normal', 15], ['package', 7]]) {
+            for (let i = 1; i <= count; i++) {
+              const number = String(i).padStart(2, '0');
+              const extension = group === 'normal' && i === 12 ? 'zip' : 'dat';
+              const name = `probe-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${group}-${number}.${extension}`;
+              expected.push(name);
+              const entry = fs.lstatSync(path.join(root, name));
+              if (!entry.isFile() || entry.nlink !== 1) throw Error('unsafe file');
+              const bytes = fs.readFileSync(path.join(root, name));
+              if (!bytes.equals(Buffer.from(`raw-probe:${group}:${number}\n`)))
+                throw Error('changed original bytes');
+            }
+          }
+          if (JSON.stringify(fs.readdirSync(root).sort()) !== JSON.stringify(expected.sort()))
+            throw Error('unexpected or missing physical files');
+          console.log('22/22 exact synthetic raw transfers verified');
+          NODE
