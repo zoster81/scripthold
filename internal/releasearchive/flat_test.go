@@ -550,15 +550,31 @@ func TestStageVerifiedSourceFileRejectsRealSourceAndDestinationSymlinks(t *testi
 
 func TestStageVerifiedSourceFileRequiresLinuxForPublication(t *testing.T) {
 	source := t.TempDir()
-	stage := t.TempDir()
+	// The publication API requires an owner-private staging root. A generic
+	// testing.TempDir is not a substitute for that explicit preparation.
+	stage, err := createPrivateRawStagingDirectory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := []byte("synthetic only")
 	if err := os.WriteFile(filepath.Join(source, "scripthold"), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := StageVerifiedSourceFile(source, "scripthold", stage, "raw-good",
-		flatExpected("scripthold_linux_amd64", body))
+	expected := flatExpected("scripthold_linux_amd64", body)
+	if runtime.GOOS == "linux" {
+		if err := os.Chmod(stage, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := StageVerifiedSourceFile(source, "scripthold", stage, "raw-good", expected); err == nil {
+			t.Fatal("Linux stage accepted a directory accessible to other users")
+		}
+		if err := os.Chmod(stage, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = StageVerifiedSourceFile(source, "scripthold", stage, "raw-good", expected)
 	if runtime.GOOS == "linux" && err != nil {
-		t.Fatalf("Linux stage refused: %v", err)
+		t.Fatalf("Linux private stage refused: %v", err)
 	}
 	if runtime.GOOS != "linux" && err == nil {
 		t.Fatal("non-Linux source staging was authorized")
