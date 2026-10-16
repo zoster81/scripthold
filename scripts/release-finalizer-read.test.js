@@ -1,0 +1,220 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const { expectedReleaseAssetNames } = require('./release-asset-contract');
+const { readReleaseObservation } = require('./release-finalizer-read');
+const { planReleaseFinalizerStep } = require('./release-finalizer-plan');
+
+const TAG = 'v3.4.0';
+const TOKEN = 'test_private_token_without_network';
+const RELEASE_ID = 123;
+const BASE = 'https://api.github.com/repos/zoster81/scripthold/releases';
+const RELEASE_URL = BASE + '/' + RELEASE_ID;
+const ASSETS_URL = RELEASE_URL + '/assets?per_page=100&page=1';
+
+function fixture() {
+  const release = { id: RELEASE_ID, tag_name: TAG, draft: true, immutable: false };
+  const assets = expectedReleaseAssetNames(TAG).map((name, i) => ({
+    id: i + 10, name, size: i + 100, state: 'uploaded',
+    digest: 'sha256:' + (i + 1).toString(16).padStart(64, '0'),
+  }));
+  return { release, assets };
+}
+
+function response(value, status = 200, headers = {}) {
+  return new Response(value === null ? null : JSON.stringify(value), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', ...headers },
+  });
+}
+
+function client({ release, assets, errors = {}, mutate = null } = {}) {
+  const calls = [];
+  let releaseReads = 0;
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === RELEASE_URL) {
+      releaseReads++;
+      return errors['release' + releaseReads] ||
+        response(releaseReads === 2 && mutate ? mutate(release) : release);
+    }
+    assert.equal(url, ASSETS_URL, 'only expected release assets may be fetched');
+    return errors.assets || response(assets, 200, errors.assetsHeaders);
+  };
+  return { fetchImpl, calls };
+}
+
+test('authenticates only exact read-only GitHub endpoints and returns a bound draft inventory', async () => {
+  const { release, assets } = fixture();
+  const fake = client({ release, assets });
+  const observation = await readReleaseObservation({
+    releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  });
+  assert.equal(observation.kind, 'present');
+  assert.deepEqual(observation.release, release);
+  assert.deepEqual(observation.assetPage.assets, assets);
+  assert.deepEqual(fake.calls.map((call) => call.url), [RELEASE_URL, ASSETS_URL, RELEASE_URL]);
+  for (const { init } of fake.calls) {
+    assert.equal(init.method, 'GET');
+    assert.equal(init.redirect, 'error');
+    assert.equal(init.cache, 'no-store');
+    assert.equal(init.headers.Authorization, 'Bearer ' + TOKEN);
+    assert.equal(init.headers.Accept, 'application/vnd.github+json');
+    assert.equal(init.headers['X-GitHub-Api-Version'], '2022-11-28');
+  }
+  assert.notEqual(observation.release, release);
+  assert.notEqual(observation.assetPage.assets[0], assets[0]);
+});
+
+test('recognizes authenticated 404 only as an absence observation, never permission to create', async () => {
+  const { release, assets } = fixture();
+  const fake = client({ release, assets, errors: { release1: response({ message: 'Not Found' }, 404) } });
+  assert.deepEqual(await readReleaseObservation({
+    releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), { kind: 'absent', status: 404 });
+  assert.equal(fake.calls.length, 1);
+});
+
+test('rejects invalid identity, token and transport before issuing any request', async () => {
+  const { release, assets } = fixture();
+  const fake = client({ release, assets });
+  for (const patch of [
+    { releaseId: 0 }, { releaseId: '123' }, { releaseId: 2 ** 53 },
+    { tag: '../escape' }, { tag: 'v3.3.0/../../' },
+    { token: '' }, { token: 'bad\r\nHeader: injected' },
+    { fetchImpl: null },
+  ]) {
+    await assert.rejects(readReleaseObservation({
+      releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl, ...patch,
+    }), Error);
+  }
+  assert.equal(fake.calls.length, 0);
+});
+
+test('fails closed on authentication errors, redirects, rate limits and malformed GitHub JSON', async () => {
+  const { release, assets } = fixture();
+  for (const bad of [
+    response({ message: 'Unauthorized' }, 401),
+    response({ message: 'Forbidden' }, 403),
+    response({ message: 'Busy' }, 500),
+    response({ message: 'Limited' }, 429),
+    response(null, 302, { Location: 'https://example.org/redirect' }),
+    new Response('oops', { status: 200, headers: { 'content-type': 'text/plain' } }),
+    new Response('{', { status: 200, headers: { 'content-type': 'application/json' } }),
+    new Response(new Uint8Array([0xff, 0xfe]), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }),
+  ]) {
+    const fake = client({ release, assets, errors: { release1: bad } });
+    await assert.rejects(readReleaseObservation({
+      releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+});
+
+test('detects release identity/state changing across its asset read', async () => {
+  const { release, assets } = fixture();
+  for (const mutate of [
+    (r) => ({ ...r, draft: false }),
+    (r) => ({ ...r, immutable: true }),
+    (r) => ({ ...r, tag_name: 'v3.3.0' }),
+    (r) => ({ ...r, id: RELEASE_ID + 1 }),
+  ]) {
+    const fake = client({ release, assets, mutate });
+    await assert.rejects(readReleaseObservation({
+      releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+});
+
+test('rejects asset pagination and unbounded or inconsistent release responses', async () => {
+  const { release, assets } = fixture();
+  for (const patch of [
+    { assetsHeaders: { Link: '<https://api.github.com/next>; rel="next"' } },
+    { assets: assets.concat({ ...assets[0], id: 999 }) },
+    { assets: null },
+  ]) {
+    const fake = client({ release,
+      assets: Object.hasOwn(patch, 'assets') ? patch.assets : assets,
+      errors: { assetsHeaders: patch.assetsHeaders },
+    });
+    await assert.rejects(readReleaseObservation({
+      releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+  for (const mismatch of [
+    { ...release, id: RELEASE_ID + 1 },
+    { ...release, tag_name: 'v1.0.0' },
+    { ...release, draft: 'true' },
+    { ...release, immutable: undefined },
+  ]) {
+    const fake = client({ release: mismatch, assets });
+    await assert.rejects(readReleaseObservation({
+      releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+});
+
+test('reader and planner agree on a real API-shaped complete draft and a partial draft', async () => {
+  const { release, assets } = fixture();
+  const manifest = {
+    repository: 'zoster81/scripthold', tag: TAG, commit: 'a'.repeat(40),
+    assets: assets.map((asset) => ({
+      name: asset.name, size: asset.size, sha256: asset.digest.slice(7),
+    })),
+  };
+  const run = (id, path) => ({
+    id, run_number: id, run_attempt: 1, head_branch: 'main',
+    head_sha: manifest.commit, event: 'push', conclusion: 'success', path,
+    head_repository: { full_name: manifest.repository },
+  });
+  const authority = {
+    repository: manifest.repository, tag: TAG, commit: manifest.commit,
+    publisherCommit: manifest.commit, manifest,
+    tagRef: { ref: 'refs/tags/' + TAG, object: { type: 'tag', sha: 'b'.repeat(40) } },
+    tagObject: { tag: TAG, sha: 'b'.repeat(40),
+      object: { type: 'commit', sha: manifest.commit } },
+    mainRef: { ref: 'refs/heads/main',
+      object: { type: 'commit', sha: manifest.commit } },
+    testRuns: { workflow_runs: [run(11, '.github/workflows/test.yml')] },
+    scorecardRuns: { workflow_runs: [run(12, '.github/workflows/scorecard.yml')] },
+    testJobs: { jobs: [{ name: 'Release candidate', status: 'completed',
+      conclusion: 'success', run_id: 11, run_attempt: 1, head_sha: manifest.commit }] },
+  };
+  for (const [subset, expectedStep] of [
+    [assets.slice(0, 4), 'upload-candidate'],
+    [assets, 'publish-candidate'],
+  ]) {
+    const fake = client({ release, assets: subset });
+    const observation = await readReleaseObservation({
+      releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    });
+    assert.equal(planReleaseFinalizerStep(authority, observation).step, expectedStep);
+  }
+});
+
+test('bounds response bytes and propagates network/stream failures without retrying', async () => {
+  const { release, assets } = fixture();
+  const requests = [];
+  const tooLarge = new Response(' '.repeat(600000), {
+    headers: { 'content-type': 'application/json' },
+  });
+  const fetchImpl = async (url) => { requests.push(url); return tooLarge; };
+  await assert.rejects(readReleaseObservation({
+    releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl,
+  }), Error);
+  assert.equal(requests.length, 1);
+
+  let count = 0;
+  await assert.rejects(readReleaseObservation({
+    releaseId: RELEASE_ID, tag: TAG, token: TOKEN,
+    fetchImpl: async () => { count++; throw new Error('connection lost'); },
+  }), /connection lost/);
+  assert.equal(count, 1);
+
+  const fake = client({ release, assets });
+  await assert.doesNotReject(readReleaseObservation({
+    releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }));
+});
