@@ -211,4 +211,5 @@ async function discoverReleaseByTag({ tag, token, fetchImpl = globalThis.fetch }
   return { kind: 'candidate', releaseId: candidate.id, observation };
 }
 
-module.exports = { readReleaseObservation, discoverReleaseByTag };
+module.exports = { readReleaseObservation, discoverReleaseByTag,
+  makeGitHubGet, readJsonResponse };
