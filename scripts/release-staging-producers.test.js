@@ -9,6 +9,8 @@ const { expectedReleaseAssetNames, rawStagingArtifactName,
   validateStagedManifest, planRawStagingBatch } = require('./release-asset-contract');
 const { assembleRawReleaseStaging, assembleRawNormalHandoff,
   verifyRawNormalHandoffPayloads } = require('./release-staging-producers');
+const { readRawNormalStaging, readRawCompleteStaging } =
+  require('./release-staging-rest');
 
 const TAG = 'v3.4.0';
 const COMMIT = 'a'.repeat(40);
@@ -288,4 +290,183 @@ test('normal handoff rejects incomplete, forged, mixed and path-bearing input', 
     mutate(f);
     assert.throws(() => assembleRawNormalHandoff(f.normal));
   }
+});
+
+function rawRestFixture() {
+  const verified = fixture();
+  const remoteById = new Map(
+    [...verified.normal.uploads, ...verified.mcpb.uploads]
+      .map((upload) => [upload.uploadId, upload.remote]));
+  const omitRemote = (producer) => ({
+    ...producer,
+    uploads: producer.uploads.map(({ fileName, uploadId, uploadDigest }) =>
+      ({ fileName, uploadId, uploadDigest })),
+  });
+  return { normal: omitRemote(verified.normal), mcpb: omitRemote(verified.mcpb),
+    remoteById };
+}
+
+const ARTIFACT_API = 'https://api.github.com/repos/zoster81/scripthold/actions/artifacts/';
+
+function rawRestClient(artifacts) {
+  const calls = [];
+  return {
+    calls,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      assert.match(url, /^https:\/\/api\.github\.com\/repos\/zoster81\/scripthold\/actions\/artifacts\/[1-9][0-9]*$/);
+      const id = Number(url.slice(ARTIFACT_API.length));
+      return new Response(JSON.stringify(artifacts.get(id)), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    },
+  };
+}
+
+test('authenticated GitHub GETs bind the exact 15 normal stage artifact IDs', async () => {
+  const { normal, remoteById } = rawRestFixture();
+  remoteById.get(1000).localPath = '/var/tmp/runner-private';
+  remoteById.get(1000).download_url = 'https://attacker.example/resource';
+  const client = rawRestClient(remoteById);
+  const value = await readRawNormalStaging({
+    normal, token: 'test-token', fetchImpl: client.fetchImpl,
+  });
+  const expected = assembleRawNormalHandoff(fixture().normal);
+  assert.deepEqual(value.manifest, expected.manifest);
+  assert.deepEqual(value.batch, expected.batch);
+  assert.deepEqual(value.producer.uploads.map(u => u.uploadId),
+    expected.batch.files.map(f => f.artifactId));
+  assert.deepEqual(client.calls.map(c => c.url),
+    expected.batch.files.map(f => ARTIFACT_API + f.artifactId));
+  assert.equal(client.calls.length, 15);
+  for (const { init } of client.calls) {
+    assert.equal(init.method, 'GET');
+    assert.equal(init.redirect, 'error');
+    assert.equal(init.cache, 'no-store');
+    assert.equal(init.headers.Authorization, 'Bearer test-token');
+  }
+  assert.ok(!JSON.stringify(value).includes('test-token'));
+  assert.ok(!JSON.stringify(value).includes('/var/tmp'));
+  assert.ok(!JSON.stringify(value).includes('attacker.example'));
+});
+
+test('authenticated REST observation is usable by the separate complete byte-stream gate', async () => {
+  const { normal, observed, bytes } = normalByteFixture();
+  const remoteById = new Map(normal.uploads.map(u => [u.uploadId, u.remote]));
+  const source = { ...normal, uploads: normal.uploads.map(
+    ({ fileName, uploadId, uploadDigest }) => ({ fileName, uploadId, uploadDigest })) };
+  const client = rawRestClient(remoteById);
+  const received = await readRawNormalStaging({
+    normal: source, token: 'test-token', fetchImpl: client.fetchImpl,
+  });
+  const verified = await verifyRawNormalHandoffPayloads(received.producer, observed,
+    (file) => Readable.from([bytes.get(file.fileName)]));
+  assert.equal(verified.size, 15);
+});
+
+test('authenticated REST adapter assembles an exact 15+7 immutable-ID manifest', async () => {
+  const { normal, mcpb, remoteById } = rawRestFixture();
+  normal.uploads.reverse();
+  mcpb.uploads.reverse();
+  normal.manifest.assets.reverse();
+  mcpb.manifest.assets.reverse();
+  const client = rawRestClient(remoteById);
+  const value = await readRawCompleteStaging({
+    normal, mcpb, token: 'test-token', fetchImpl: client.fetchImpl,
+  });
+  assert.deepEqual(value.manifest.assets.map(a => a.name), expectedReleaseAssetNames(TAG));
+  assert.equal(value.batch.files.length, 22);
+  assert.deepEqual(value.batch.files.map(f => f.artifactId),
+    client.calls.map(c => Number(c.url.slice(ARTIFACT_API.length))));
+  assert.deepEqual(value.batch.actionInputs['artifact-ids'],
+    value.batch.files.map(f => String(f.artifactId)).join(','));
+});
+
+test('rejects incomplete producer IDs and mixed provenance before any GitHub REST request', async () => {
+  for (const mutate of [
+    f => { f.normal.uploads.pop(); },
+    f => { f.normal.uploads[1].uploadId = f.normal.uploads[0].uploadId; },
+    f => { f.normal.uploads[0].uploadId = 0; },
+    f => { f.normal.uploads[0].uploadId = '1000'; },
+    f => { f.normal.uploads[0].fileName = '../escape'; },
+    f => { f.normal.uploads[0].uploadDigest = 'f'.repeat(64); },
+    f => { f.normal.uploads[0].path = '/tmp/outside'; },
+    f => { f.normal.repositoryId = 0; },
+    f => { f.normal.producerAttempt = 0; },
+    f => { f.normal.manifest.stage = 'mcpb'; },
+    f => { f.normal.manifest.assets[0].absolutePath = '/var/tmp/copy'; },
+    f => { f.mcpb.runId++; },
+    f => { f.mcpb.manifest.commit = 'b'.repeat(40); },
+    f => { f.mcpb.uploads[0].uploadId = f.normal.uploads[0].uploadId; },
+  ]) {
+    const f = rawRestFixture();
+    mutate(f);
+    const client = rawRestClient(f.remoteById);
+    await assert.rejects(readRawCompleteStaging({
+      normal: f.normal, mcpb: f.mcpb, token: 'test-token',
+      fetchImpl: client.fetchImpl,
+    }));
+    assert.equal(client.calls.length, 0, 'no API read after invalid producer inventory');
+  }
+});
+
+test('rejects wrong or expired GitHub artifacts even from an exact ID endpoint', async () => {
+  for (const mutate of [
+    r => { r.id++; },
+    r => { r.name = 'name-for-another-upload'; },
+    r => { r.expired = true; },
+    r => { r.size_in_bytes++; },
+    r => { r.digest = 'sha256:' + 'f'.repeat(64); },
+    r => { r.workflow_run.id++; },
+    r => { r.workflow_run.head_sha = 'b'.repeat(40); },
+    r => { r.workflow_run.repository_id++; },
+  ]) {
+    const f = rawRestFixture();
+    const record = structuredClone(f.remoteById.get(1000));
+    mutate(record);
+    f.remoteById.set(1000, record);
+    const client = rawRestClient(f.remoteById);
+    await assert.rejects(readRawNormalStaging({
+      normal: f.normal, token: 'test-token', fetchImpl: client.fetchImpl,
+    }));
+  }
+});
+
+test('raw GitHub artifact reader rejects unauthorized, redirect and corrupt REST responses', async () => {
+  const { normal } = rawRestFixture();
+  const responses = [
+    new Response('forbidden', { status: 403 }),
+    new Response(null, { status: 302,
+      headers: { location: 'https://attacker.example/data' } }),
+    new Response('not-json', { status: 200,
+      headers: { 'content-type': 'text/plain' } }),
+    new Response('{', { status: 200,
+      headers: { 'content-type': 'application/json' } }),
+  ];
+  for (const response of responses) {
+    let requested = 0;
+    await assert.rejects(readRawNormalStaging({
+      normal, token: 'test-token',
+      fetchImpl: async (_url, init) => {
+        requested++;
+        assert.equal(init.method, 'GET');
+        return response;
+      },
+    }));
+    assert.equal(requested, 1);
+  }
+});
+
+test('raw REST reader never accepts malformed auth or an untrusted client', async () => {
+  const { normal } = rawRestFixture();
+  let fetched = false;
+  for (const patch of [
+    { token: '' }, { token: 'not\nvalid' }, { fetchImpl: null },
+  ]) {
+    await assert.rejects(readRawNormalStaging({
+      normal, token: 'test-token', fetchImpl: async () => { fetched = true; },
+      ...patch,
+    }));
+  }
+  assert.equal(fetched, false);
 });
