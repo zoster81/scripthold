@@ -110,7 +110,7 @@ jobs:
         run: node --test scripts/check-markdown-links.test.js scripts/distribution-trust.test.js scripts/test-ci-policy.test.js
 
       - name: Test release and fuzz orchestration scripts
-        run: node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-asset-contract.test.js scripts/raw-artifact-transfer-probe.test.js scripts/release-candidate-provenance.test.js scripts/release-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
+        run: node --test scripts/generate-server-json.test.js scripts/prepare-mcpb-assets.test.js scripts/release-asset-contract.test.js scripts/release-finalizer-plan.test.js scripts/raw-artifact-transfer-probe.test.js scripts/release-candidate-provenance.test.js scripts/release-provenance.test.js scripts/run-fuzz.test.js scripts/verify-release-version.test.js
 
       - name: Validate local Markdown links
         run: node scripts/check-markdown-links.js
