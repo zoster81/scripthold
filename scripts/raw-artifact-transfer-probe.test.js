@@ -25,6 +25,64 @@ function loadVerifier() {
 
 const verifier = loadVerifier();
 
+function assertSafeTransferWorkflow(yaml) {
+  assert.match(yaml, /^on:\r?\n  pull_request:\r?\n/m);
+  assert.match(yaml, /^permissions:\r?\n  contents: read\r?$/m);
+  assert.doesNotMatch(yaml, /^\s*contents: write\s*$/m);
+  assert.doesNotMatch(yaml, /^\s*(?:pull_request_target|release|push):\s*$/m);
+
+  const producerSteps = [...yaml.matchAll(
+    /^      - name: Upload synthetic (normal|package) (\d{2})\r?\n([\s\S]*?)(?=^      - name:|^  (?:consumer|normal|package):)/gm,
+  )];
+  assert.equal(producerSteps.length, 22);
+  assert.equal((yaml.match(/^        uses: actions\/upload-artifact@/gm) || []).length, 22);
+  for (const [index, [, group, number, body]] of producerSteps.entries()) {
+    const expectedGroup = index < 15 ? 'normal' : 'package';
+    const expectedNumber = String(index < 15 ? index + 1 : index - 14).padStart(2, '0');
+    assert.equal(group, expectedGroup);
+    assert.equal(number, expectedNumber);
+    assert.match(body, /^        uses: actions\/upload-artifact@[0-9a-f]{40}\s+# v7\.0\.2\r?$/m);
+    assert.match(body, /^          archive: false\r?$/m);
+    assert.match(body, /^          overwrite: false\r?$/m);
+    assert.match(body, /^          if-no-files-found: error\r?$/m);
+    const extension = group === 'normal' && number === '12' ? 'zip' : 'dat';
+    const pathLine = '          path: fixtures/probe-${{ github.run_id }}-${{ github.run_attempt }}-' +
+      group + '-' + number + '.' + extension;
+    assert.ok(body.split(/\r?\n/).includes(pathLine), 'wrong producer filename');
+    assert.doesNotMatch(body, /^          name:/m);
+  }
+  const downloads = [...yaml.matchAll(
+    /^        uses: actions\/download-artifact@([0-9a-f]{40}) # v8\r?$/gm,
+  )];
+  assert.equal(downloads.length, 1);
+  assert.match(yaml, /^          artifact-ids: \$\{\{ needs\.normal\.outputs\.ids \}\},\$\{\{ needs\.package\.outputs\.ids \}\}\r?$/m);
+  for (const [key, value] of [
+    ['merge-multiple', 'true'],
+    ['skip-decompress', 'true'],
+    ['digest-mismatch', 'error'],
+  ]) {
+    assert.match(yaml, new RegExp('^          ' + key + ': ' + value + '\\r?$', 'm'));
+  }
+}
+
+test('isolated raw-transfer workflow retains strict publication and artifact policy', () => {
+  const yaml = fs.readFileSync(workflow, 'utf8');
+  assertSafeTransferWorkflow(yaml);
+  for (const [original, unsafe] of [
+    ['archive: false', 'archive: true'],
+    ['overwrite: false', 'overwrite: true'],
+    ['if-no-files-found: error', 'if-no-files-found: warn'],
+    ['skip-decompress: true', 'skip-decompress: false'],
+    ['digest-mismatch: error', 'digest-mismatch: warn'],
+    ['contents: read', 'contents: write'],
+    ['merge-multiple: true', 'merge-multiple: false'],
+  ]) {
+    assert.ok(yaml.includes(original), 'missing expected input ' + original);
+    assert.throws(() => assertSafeTransferWorkflow(yaml.replace(original, unsafe)),
+      undefined, 'unsafe workflow change was not detected: ' + unsafe);
+  }
+});
+
 test('producer ZIP fixture and both producer attempts match consumer expectations', () => {
   const yaml = fs.readFileSync(workflow, 'utf8');
   const encoded = /printf '%s' '([A-Za-z0-9+/=]+)' \| base64 --decode/.exec(yaml);
