@@ -487,15 +487,16 @@ function planDraftAssetResume(manifest, release, remoteAssets) {
   return { releaseId: release.id, tag: manifest.tag, commit: manifest.commit, present, missing };
 }
 
-function verifyDraftAssetSet(manifest, release, remoteAssets) {
+function verifyReleaseAssetSetForState(manifest, release, remoteAssets,
+  expectedDraft, expectedImmutable, invalidStateMessage) {
   const expected = validateStagedManifest(manifest);
   requireCondition(release && typeof release === 'object' && !Array.isArray(release),
     'invalid GitHub release');
   requireCondition(Number.isSafeInteger(release.id) && release.id > 0,
     'invalid GitHub release id');
   requireCondition(release.tag_name === manifest.tag, 'release tag mismatch');
-  requireCondition(release.draft === true && release.immutable === false,
-    'GitHub release is not an unpublished mutable draft');
+  requireCondition(release.draft === expectedDraft && release.immutable === expectedImmutable,
+    invalidStateMessage);
   requireCondition(Array.isArray(remoteAssets) && remoteAssets.length === expected.size,
     'expected exactly 22 uploaded assets');
   const seenNames = new Set();
@@ -520,7 +521,20 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
   return { releaseId: release.id, tag: manifest.tag, commit: manifest.commit, count: seenNames.size };
 }
 
+function verifyDraftAssetSet(manifest, release, remoteAssets) {
+  return verifyReleaseAssetSetForState(manifest, release, remoteAssets, true, false,
+    'GitHub release is not an unpublished mutable draft');
+}
+
+// Check the remote result after an uncertain publication response. This never
+// repairs or mutates a public release.
+function verifyPublishedAssetSet(manifest, release, remoteAssets) {
+  return verifyReleaseAssetSetForState(manifest, release, remoteAssets, false, true,
+    'GitHub release is not published and immutable');
+}
+
 module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
+  verifyPublishedAssetSet,
   planDraftAssetResume,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,

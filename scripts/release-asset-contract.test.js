@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
+  verifyPublishedAssetSet,
   planDraftAssetResume,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
@@ -285,6 +286,44 @@ test('verifies 22 uploaded GitHub assets by their exact per-file digest and size
   assert.deepEqual(verifyDraftAssetSet(manifest, release(), remote(manifest)), {
     releaseId: 42, tag: TAG, commit: COMMIT, count: 22,
   });
+});
+
+
+test('verifies complete immutable published release without relaxing draft-only prepublish gate', () => {
+  const manifest = fixture();
+  const published = { ...release(), draft: false, immutable: true };
+  assert.deepEqual(verifyPublishedAssetSet(manifest, published, remote(manifest)), {
+    releaseId: 42, tag: TAG, commit: COMMIT, count: 22,
+  });
+  assert.throws(() => verifyDraftAssetSet(manifest, published, remote(manifest)),
+    /unpublished mutable draft/);
+});
+
+test('does not acknowledge incomplete or mutable public releases after an uncertain publish', () => {
+  const manifest = fixture();
+  const published = { ...release(), draft: false, immutable: true };
+  for (const patch of [
+    { draft: true },
+    { immutable: false },
+    { immutable: undefined },
+    { tag_name: 'v3.3.0' },
+    { id: '42' },
+  ]) {
+    assert.throws(() => verifyPublishedAssetSet(manifest, { ...published, ...patch },
+      remote(manifest)), (error) => error?.name === 'Error');
+  }
+  const assets = remote(manifest);
+  for (const entries of [
+    assets.slice(1),
+    assets.concat(assets[0]),
+    assets.map((a, i) => i === 1 ? { ...a, name: a.name + '.old' } : a),
+    assets.map((a, i) => i === 1 ? { ...a, digest: 'sha256:' + 'f'.repeat(64) } : a),
+    assets.map((a, i) => i === 2 ? { ...a, state: 'starter' } : a),
+    assets.map((a, i) => i === 3 ? { ...a, id: assets[0].id } : a),
+  ]) {
+    assert.throws(() => verifyPublishedAssetSet(manifest, published, entries),
+      (error) => error?.name === 'Error');
+  }
 });
 
 test('rejects non-draft, wrong-tag, invalid ID and immutable release metadata', () => {
