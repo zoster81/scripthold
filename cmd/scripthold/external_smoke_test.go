@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -22,6 +23,48 @@ const (
 	externalSmokeRootEnv       = "MCP_EXTERNAL_SMOKE_EXPECTED_ROOT"
 	externalSmokeTempRoot      = "{TEMP_ROOT}"
 )
+
+// Native smoke processes must never inherit an operator's active MCP stores,
+// credentials, or execution policy from the machine running the test.
+func TestFilterExternalSmokeEnvironment(t *testing.T) {
+	inherited := []string{
+		"PATH=C:\\Windows\\System32",
+		"MCP_DEFERRED_OPERATION_STORE_DIR=C:\\private\\active",
+		"mcp_http_token=private",
+		"MCP_ENABLE_EXECUTION=1",
+		"MCP_EXTERNAL_SMOKE_EXECUTABLE=C:\\private\\binary.exe",
+		"SAFE=value=with=equals",
+		"=C:=C:\\working-directory",
+		"MCPX=keep",
+	}
+	want := []string{
+		"PATH=C:\\Windows\\System32",
+		"SAFE=value=with=equals",
+		"=C:=C:\\working-directory",
+		"MCPX=keep",
+	}
+	got := filterExternalSmokeEnvironment(inherited)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered environment = %#v, want %#v", got, want)
+	}
+	if !reflect.DeepEqual(inherited[1], "MCP_DEFERRED_OPERATION_STORE_DIR=C:\\private\\active") {
+		t.Fatal("filter changed caller environment")
+	}
+}
+
+// Keep only the host runtime environment. All MCP settings required by a
+// smoke test are supplied explicitly to its child processes.
+func filterExternalSmokeEnvironment(inherited []string) []string {
+	filtered := make([]string, 0, len(inherited))
+	for _, entry := range inherited {
+		name, _, _ := strings.Cut(entry, "=")
+		if len(name) >= len("MCP_") && strings.EqualFold(name[:len("MCP_")], "MCP_") {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
 
 func TestExternalStdioBinarySmoke(t *testing.T) {
 	executable := os.Getenv(externalSmokeExecutableEnv)
@@ -69,6 +112,7 @@ func TestExternalStdioBinarySmoke(t *testing.T) {
 	defer cancel()
 
 	command := exec.CommandContext(ctx, executable, args...)
+	command.Env = filterExternalSmokeEnvironment(os.Environ())
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 

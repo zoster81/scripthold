@@ -70,6 +70,29 @@ test('generates a fork-owned manifest from release checksums', (t) => {
   );
 });
 
+test('rejects noncanonical release checksum identities across host filesystems', (t) => {
+  const directory = createWorkspace(t);
+  const filename = expectedFiles[0];
+  const basic = expectedFiles.map((name, i) => `${checksumFor(i)}  ${name}`);
+  basic.push(`${'f'.repeat(64)}  scripthold_windows_amd64.zip`);
+  for (const candidate of [
+    '../' + filename, './' + filename, 'folder/' + filename,
+    'C:\\\\stage\\\\' + filename, '\\\\server\\\\share\\\\' + filename,
+    '..\\\\' + filename, filename.toUpperCase(),
+    filename + '.', filename + ':ads', 'SCRIPH~1.MCP',
+    'CON.txt', filename + ' ', 'scripthold_wındows_amd64.mcpb',
+  ]) {
+    const checksumFile = path.join(directory, 'mcpb-checksums.txt');
+    const outputFile = path.join(directory, 'server.json');
+    fs.writeFileSync(checksumFile, basic.join('\n').replace('  ' + filename, '  ' + candidate));
+    const result = spawnSync(process.execPath, [generator, 'v2.3.4',
+      checksumFile, outputFile, repositoryRoot],
+    { cwd: repositoryRoot, encoding: 'utf8' });
+    assert.notEqual(result.status, 0, 'unexpected acceptance: ' + JSON.stringify(candidate));
+    assert.equal(fs.existsSync(outputFile), false);
+  }
+});
+
 test('fails when an MCPB package checksum is missing', (t) => {
   const directory = createWorkspace(t);
   const checksumsPath = path.join(directory, 'checksums.txt');

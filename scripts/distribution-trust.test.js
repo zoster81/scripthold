@@ -126,10 +126,15 @@ test('GitHub workflows share one verified Node release', () => {
 
 test('setup-node stays on one verified immutable release across CI and publication', () => {
   const steps = workflowFiles().flatMap(({ name, content }) =>
-    [...content.matchAll(/^\s*uses:\s*actions\/setup-node@([0-9a-f]{40})\s+#\s+v(\d+\.\d+\.\d+)$/gm)]
-      .map((match) => `${name}:${match[1]}:${match[2]}`));
-  assert.equal(steps.length, 8, 'all eight setup-node steps must use immutable action SHAs');
-  assert.equal(new Set(steps.map((step) => step.split(':').slice(1).join(':'))).size, 1);
+    content.split(/\r?\n/).filter((line) =>
+      /^\s*uses:\s*actions\/setup-node@/.test(line)).map((line) => {
+      const match = /^\s*uses:\s*actions\/setup-node@([0-9a-f]{40})\s+#\s+v(\d+\.\d+\.\d+)\s*$/.exec(line);
+      assert.ok(match, `setup-node in ${name} must pin its exact SHA and version`);
+      return { name, sha: match[1], version: match[2] };
+    }));
+  assert.ok(steps.length >= 8, 'CI and publication must retain pinned Node setup coverage');
+  assert.ok(steps.some((step) => step.name === 'release-finalizer-preflight.yml'));
+  assert.equal(new Set(steps.map(({ sha, version }) => `${sha}:${version}`)).size, 1);
 });
 
 test('CodeQL scans pull requests targeting maintained branches and every pushed commit', () => {
@@ -151,6 +156,11 @@ test('release workflow requires exact-commit Scorecard evidence and publishes pi
   assert.match(workflow, /subject-checksums:\s*dist\/checksums\.txt/);
   assert.match(workflow, /provenance\.sigstore\.json/);
   assert.match(workflow, /gh release upload/);
+});
+
+test('release asset manifest contract is always exercised by CI policy', () => {
+  const workflow = read('.github/workflows/test.yml');
+  assert.match(workflow, /node --test [^\n]*scripts\/release-asset-contract\.test\.js/m);
 });
 
 test('container base images are pinned to immutable digests', () => {

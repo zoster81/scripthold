@@ -73,6 +73,72 @@ function verifySuccessfulReleaseCandidateJob(payload) {
   }
 }
 
+// This is a read-only snapshot validation, not a publication permit. The caller
+// must fetch these objects from authenticated repository-scoped GitHub APIs,
+// serialize competing finalizers and recheck immediately before each mutation.
+function validatePublicationAuthoritySnapshot(evidence) {
+  const validSHA = (sha) => typeof sha === 'string' && /^[0-9a-f]{40}$/.test(sha);
+  const requireAuthority = (condition, reason) => {
+    if (!condition) throw new Error(reason);
+  };
+  requireAuthority(evidence && typeof evidence === 'object' && !Array.isArray(evidence),
+    'invalid publication evidence');
+  const { repository, tag, commit, publisherCommit, manifest, tagRef, tagObject, mainRef,
+    testRuns, scorecardRuns, testJobs } = evidence;
+  requireAuthority(repository === 'zoster81/scripthold', 'unexpected publication repository');
+  requireAuthority(typeof tag === 'string' &&
+    /^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(tag),
+  'invalid publication tag');
+  requireAuthority(validSHA(commit) && publisherCommit === commit,
+    'publisher code revision does not match source commit');
+  // Bind authority to the declared 22-file manifest; the payload bytes
+  // are authenticated separately before publication.
+  // Lazy import keeps the existing release-candidate CLI modes independent.
+  const { validateStagedManifest } = require('./release-asset-contract');
+  validateStagedManifest(manifest);
+  requireAuthority(manifest.repository === repository && manifest.tag === tag &&
+    manifest.commit === commit, 'staged assets do not match publication identity');
+
+  requireAuthority(tagRef && tagRef.ref === 'refs/tags/' + tag &&
+    tagRef.object && tagRef.object.type === 'tag' &&
+    validSHA(tagRef.object.sha), 'tag must be an annotated Git tag reference');
+  requireAuthority(tagObject && tagObject.sha === tagRef.object.sha &&
+    tagObject.tag === tag && tagObject.object &&
+    tagObject.object.type === 'commit' && tagObject.object.sha === commit,
+  'annotated Git tag does not resolve to exact source commit');
+  requireAuthority(mainRef && mainRef.ref === 'refs/heads/main' &&
+    mainRef.object && mainRef.object.type === 'commit' &&
+    mainRef.object.sha === commit, 'main ref differs from release commit');
+
+  for (const [payload, field] of [
+    [testRuns, 'workflow_runs'], [scorecardRuns, 'workflow_runs'], [testJobs, 'jobs'],
+  ]) {
+    requireAuthority(payload && typeof payload === 'object' &&
+      Array.isArray(payload[field]) && payload[field].length <= 1000,
+    'unbounded or invalid GitHub publication evidence');
+  }
+  const testRunId = selectExactSuccessfulPushRun(testRuns, { sha: commit, repository });
+  const scorecardRunId = selectExactSuccessfulScorecardRun(scorecardRuns,
+    { sha: commit, repository });
+  requireAuthority(Number.isSafeInteger(testRunId) && testRunId > 0 &&
+    Number.isSafeInteger(scorecardRunId) && scorecardRunId > 0,
+  'invalid exact-commit workflow run IDs');
+  requireAuthority(scorecardRuns.workflow_runs.filter((run) =>
+    run && run.id === scorecardRunId).length === 1,
+  'ambiguous Scorecard run identity');
+  const selected = testRuns.workflow_runs.filter((run) => run && run.id === testRunId);
+  requireAuthority(selected.length === 1 &&
+    Number.isSafeInteger(selected[0].run_attempt) && selected[0].run_attempt > 0,
+  'ambiguous test run attempt');
+  const candidate = testJobs.jobs.filter((job) => job && job.name === 'Release candidate');
+  requireAuthority(candidate.length === 1 && candidate[0].status === 'completed' &&
+    candidate[0].conclusion === 'success' &&
+    candidate[0].head_sha === commit && candidate[0].run_id === testRunId &&
+    candidate[0].run_attempt === selected[0].run_attempt,
+  'Release candidate job is not bound to successful exact run attempt');
+  return { repository, tag, commit, testRunId, scorecardRunId };
+}
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -127,4 +193,5 @@ module.exports = {
   selectExactSuccessfulPushRun,
   selectExactSuccessfulScorecardRun,
   verifySuccessfulReleaseCandidateJob,
+  validatePublicationAuthoritySnapshot,
 };

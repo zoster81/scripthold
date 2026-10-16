@@ -1,0 +1,1000 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
+  verifyPublishedAssetSet,
+  planDraftAssetResume,
+  verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
+  verifyStagingArchiveStream, validateStagingArchiveEntries,
+  verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
+  verifyRawStagingInventory, verifyRawStagingPayloads,
+  planRawStagingDownloads, planRawStagingBatch, verifyRawStagingBatchEntries,
+  verifyRawStagingBatchPayloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  composeStagedGroupManifests } =
+  require('./release-asset-contract');
+
+const TAG = 'v3.4.0';
+const COMMIT = '1'.repeat(40);
+
+function fixture() {
+  const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
+    name,
+    size: index + 100,
+    sha256: (index + 1).toString(16).padStart(64, '0'),
+  }));
+  return { repository: 'zoster81/scripthold', tag: TAG, commit: COMMIT, assets };
+}
+
+function remote(manifest) {
+  return manifest.assets.map((asset, index) => ({
+    id: index + 1,
+    name: asset.name,
+    size: asset.size,
+    digest: 'sha256:' + asset.sha256,
+    state: 'uploaded',
+  }));
+}
+
+function release() {
+  return { id: 42, tag_name: TAG, target_commitish: 'main', draft: true, immutable: false };
+}
+
+function groupManifest(stage) {
+  const full = fixture();
+  return {
+    repository: full.repository, tag: full.tag, commit: full.commit, stage,
+    assets: full.assets.filter((asset) => stage === 'mcpb'
+      ? asset.name.endsWith('.mcpb') || asset.name === 'mcpb-checksums.txt'
+      : !asset.name.endsWith('.mcpb') && asset.name !== 'mcpb-checksums.txt'),
+  };
+}
+
+test('normal and MCPB producers validate only their own exact 15/7 manifest', () => {
+  const normal = groupManifest('normal');
+  const mcpb = groupManifest('mcpb');
+  assert.equal(validateStagedGroupManifest(normal).size, 15);
+  assert.equal(validateStagedGroupManifest(mcpb).size, 7);
+  assert.throws(() => validateStagedManifest(normal), /22 assets/);
+  assert.throws(() => validateStagedManifest(mcpb), /22 assets/);
+});
+
+test('composes validated producer manifests into an independent canonical 22-file manifest', () => {
+  const normal = groupManifest('normal');
+  const mcpb = groupManifest('mcpb');
+  const merged = composeStagedGroupManifests(normal, mcpb);
+  assert.deepEqual(merged, fixture());
+  assert.equal(validateStagedManifest(merged).size, 22);
+  normal.assets[0].sha256 = 'f'.repeat(64);
+  mcpb.assets[0].size = 1234567;
+  assert.deepEqual(merged, fixture(), 'composed entries must not alias producer metadata');
+});
+
+test('the composed 22-file manifest feeds the existing authenticated raw inventory gate', () => {
+  const merged = composeStagedGroupManifests(groupManifest('normal'), groupManifest('mcpb'));
+  const { entries } = rawInventoryFixture();
+  const verified = verifyRawStagingInventory(merged, entries);
+  assert.equal(verified.size, 22);
+  assert.deepEqual([...verified.keys()], expectedReleaseAssetNames(TAG));
+});
+
+test('rejects malformed, incomplete, duplicated, mixed-type or wrong-stage producer manifests', () => {
+  for (const stage of ['normal', 'mcpb']) {
+    const valid = groupManifest(stage);
+    const wrongStageFile = groupManifest(stage === 'normal' ? 'mcpb' : 'normal').assets[0];
+    for (const input of [
+      null, {}, [],
+      { ...valid, stage: 'other' },
+      { ...valid, stage: undefined },
+      { ...valid, repository: 'attacker/repository' },
+      { ...valid, tag: '../v3.4.0' },
+      { ...valid, commit: 'z'.repeat(40) },
+      { ...valid, assets: null },
+      { ...valid, assets: valid.assets.slice(1) },
+      { ...valid, assets: [...valid.assets, valid.assets[0]] },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, name: wrongStageFile.name } : a) },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, name: '../escape' } : a) },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, size: 0 } : a) },
+      { ...valid, assets: valid.assets.map((a, i) =>
+        i === 0 ? { ...a, sha256: 'A'.repeat(64) } : a) },
+    ]) {
+      assert.throws(() => validateStagedGroupManifest(input));
+    }
+  }
+});
+
+test('composition rejects swapped stages and mixed repository, tag or source commit', () => {
+  const normal = groupManifest('normal');
+  const mcpb = groupManifest('mcpb');
+  for (const [a, b] of [
+    [mcpb, normal], [normal, normal], [mcpb, mcpb],
+    [null, mcpb], [normal, undefined],
+    [normal, { ...mcpb, repository: 'other/repo' }],
+    [normal, { ...mcpb, commit: '2'.repeat(40) }],
+    [normal, { ...mcpb, tag: 'v3.4.1' }],
+    [{ ...normal, assets: normal.assets.slice(1) }, mcpb],
+    [normal, { ...mcpb, assets: mcpb.assets.slice(1) }],
+  ]) {
+    assert.throws(() => composeStagedGroupManifests(a, b));
+  }
+});
+
+test('release basenames are portable across Windows, Linux and macOS filesystems', () => {
+  const path = require('node:path');
+  const names = expectedReleaseAssetNames(TAG);
+  const folded = new Set();
+  for (const name of names) {
+    assert.equal(isRecognizedReleaseAssetName(name), true);
+    assert.match(name, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+    assert.equal(path.win32.basename(name), name);
+    assert.equal(path.posix.basename(name), name);
+    assert.equal(name.normalize('NFD'), name);
+    assert.equal(name.normalize('NFC'), name);
+    assert.ok(!/[~:]|[. ]$/.test(name));
+    assert.ok(Buffer.byteLength(name, 'utf8') <= 240);
+    const foldedName = name.toLowerCase();
+    assert.ok(!folded.has(foldedName), 'Windows/case-insensitive name collision');
+    folded.add(foldedName);
+  }
+  assert.equal(folded.size, 22);
+  for (const name of [
+    'SCRIPH~1.EXE', 'CON', 'NUL.txt', 'COM1.mcpb',
+    'scripthold_windows_amd64.exe.', 'scripthold_windows_amd64.exe ',
+    'sub/scripthold_windows_amd64.exe', 'sub\\\\scripthold_windows_amd64.exe',
+    'C:\\\\stage\\\\scripthold_windows_amd64.exe',
+    '//server/share/scripthold_windows_amd64.exe',
+    'scripthold_windows_amd64.exe:ads', 'scripthold_wındows_amd64.exe',
+    'scripthold_WINDOWS_amd64.exe',
+  ]) {
+    assert.equal(isRecognizedReleaseAssetName(name), false, 'unsafe name: ' + name);
+  }
+});
+
+test('enumerates exactly 22 uniquely named versioned assets, including real attestation companions', () => {
+  const names = expectedReleaseAssetNames(TAG);
+  assert.equal(names.length, 22);
+  assert.equal(new Set(names).size, 22);
+  assert.ok(names.includes('checksums.txt'));
+  assert.ok(names.includes('mcpb-checksums.txt'));
+  assert.ok(names.includes('scripthold-v3.4.0-provenance.sigstore.json'));
+  assert.ok(names.includes('scripthold-v3.4.0-provenance.intoto.jsonl'));
+  assert.equal(names.filter((n) => n.endsWith('.mcpb')).length, 6);
+});
+
+test('rejects invalid version tags', () => {
+  for (const tag of ['', '../v3.4.0', 'v3.4.0/', 'v3.4.0\n', 'latest', 'v3.4.0+meta']) {
+    assert.throws(() => expectedReleaseAssetNames(tag), /release tag/);
+  }
+});
+
+test('accepts a fully specified, exact-size offline staging manifest', () => {
+  assert.equal(validateStagedManifest(fixture()).size, 22);
+});
+
+test('rejects malformed manifest authority', () => {
+  for (const patch of [
+    { repository: 'someone/else' },
+    { tag: 'v3.4.0/evil' },
+    { commit: 'g'.repeat(40) },
+    { commit: 'A'.repeat(40) },
+  ]) {
+    assert.throws(() => validateStagedManifest({ ...fixture(), ...patch }));
+  }
+});
+
+test('rejects missing, unexpected and duplicate staged names', () => {
+  const original = fixture();
+  const missing = { ...original, assets: original.assets.slice(0, -1) };
+  assert.throws(() => validateStagedManifest(missing), /22 assets/);
+  const unexpected = fixture();
+  unexpected.assets[0].name = 'evil.tar.gz';
+  assert.throws(() => validateStagedManifest(unexpected), /unexpected/);
+  const duplicate = fixture();
+  duplicate.assets[1].name = duplicate.assets[0].name;
+  assert.throws(() => validateStagedManifest(duplicate), /duplicate/);
+});
+
+test('rejects malformed staged digests, size or filename types', () => {
+  for (const patch of [
+    { sha256: '0'.repeat(63) },
+    { sha256: 'F'.repeat(64) },
+    { size: 0 },
+    { size: -1 },
+    { size: 1.5 },
+    { size: Number.MAX_SAFE_INTEGER + 1 },
+    { name: '../archive' },
+  ]) {
+    const manifest = fixture();
+    Object.assign(manifest.assets[0], patch);
+    assert.throws(() => validateStagedManifest(manifest));
+  }
+});
+
+test('rejects non-array and oversized staging metadata', () => {
+  assert.throws(() => validateStagedManifest({ ...fixture(), assets: null }));
+  assert.throws(() => validateStagedManifest({ ...fixture(), assets: new Array(9999) }));
+});
+
+test('plans safe draft resume without weakening final 22-asset publication gate', () => {
+  const manifest = fixture();
+  const draft = { ...release(), target_commitish: COMMIT };
+  const assets = remote(manifest);
+  const empty = planDraftAssetResume(manifest, draft, []);
+  assert.equal(empty.releaseId, draft.id);
+  assert.deepEqual(empty.present, []);
+  assert.deepEqual(empty.missing, expectedReleaseAssetNames(TAG));
+  const part = planDraftAssetResume(manifest, draft, [assets[2], assets[0]]);
+  assert.deepEqual(part.present, [
+    { name: assets[0].name, id: assets[0].id },
+    { name: assets[2].name, id: assets[2].id },
+  ]);
+  assert.equal(part.missing.length, 20);
+  assert.ok(!part.missing.includes(assets[0].name));
+  assert.ok(!part.missing.includes(assets[2].name));
+  assert.deepEqual(planDraftAssetResume(manifest, draft, assets).missing, []);
+  // GitHub does not use target_commitish when an annotated tag already exists.
+  assert.deepEqual(planDraftAssetResume(manifest,
+    { ...draft, target_commitish: undefined }, []).missing, expectedReleaseAssetNames(TAG));
+  assert.throws(() => verifyDraftAssetSet(manifest, draft, assets.slice(1)),
+    /exactly 22/, 'partial resume must never enable public publication');
+});
+
+const isDraftContractError = (error) => error instanceof Error && error.name === 'Error';
+
+test('draft resume rejects wrong tag, non-draft and ambiguous metadata', () => {
+  const manifest = fixture();
+  const draft = { ...release(), target_commitish: COMMIT };
+  const wrong = [
+    { draft: false },
+    { immutable: true },
+    { immutable: undefined },
+    { tag_name: 'v8.1.0' },
+    { id: '42' },
+  ];
+  for (const patch of wrong) {
+    assert.throws(() => planDraftAssetResume(manifest, { ...draft, ...patch }, []), isDraftContractError);
+  }
+  assert.throws(() => planDraftAssetResume({ ...manifest, commit: 'bad' }, draft, []), isDraftContractError);
+  assert.throws(() => planDraftAssetResume(manifest, draft, null), isDraftContractError);
+  assert.throws(() => planDraftAssetResume(manifest, draft, new Array(23)), isDraftContractError);
+});
+
+test('draft resume fails closed on any conflicting or unfinished remote asset', () => {
+  const manifest = fixture();
+  const draft = { ...release(), target_commitish: COMMIT };
+  const assets = remote(manifest);
+  for (const bad of [
+    [{ ...assets[0], name: '../escape.zip' }],
+    [assets[0], { ...assets[1], name: assets[0].name }],
+    [assets[0], { ...assets[1], id: assets[0].id }],
+    [{ ...assets[0], id: 0 }],
+    [{ ...assets[0], size: assets[0].size + 1 }],
+    [{ ...assets[0], digest: 'sha256:' + 'f'.repeat(64) }],
+    [{ ...assets[0], state: 'starter' }],
+    [{ ...assets[0], digest: undefined }],
+    [{ ...assets[0], id: Number.MAX_SAFE_INTEGER + 1 }],
+  ]) {
+    assert.throws(() => planDraftAssetResume(manifest, draft, bad), isDraftContractError);
+  }
+});
+
+test('verifies 22 uploaded GitHub assets by their exact per-file digest and size', () => {
+  const manifest = fixture();
+  assert.deepEqual(verifyDraftAssetSet(manifest, release(), remote(manifest)), {
+    releaseId: 42, tag: TAG, commit: COMMIT, count: 22,
+  });
+});
+
+
+test('verifies complete immutable published release without relaxing draft-only prepublish gate', () => {
+  const manifest = fixture();
+  const published = { ...release(), draft: false, immutable: true };
+  assert.deepEqual(verifyPublishedAssetSet(manifest, published, remote(manifest)), {
+    releaseId: 42, tag: TAG, commit: COMMIT, count: 22,
+  });
+  assert.throws(() => verifyDraftAssetSet(manifest, published, remote(manifest)),
+    /unpublished mutable draft/);
+});
+
+test('does not acknowledge incomplete or mutable public releases after an uncertain publish', () => {
+  const manifest = fixture();
+  const published = { ...release(), draft: false, immutable: true };
+  for (const patch of [
+    { draft: true },
+    { immutable: false },
+    { immutable: undefined },
+    { tag_name: 'v3.3.0' },
+    { id: '42' },
+  ]) {
+    assert.throws(() => verifyPublishedAssetSet(manifest, { ...published, ...patch },
+      remote(manifest)), (error) => error?.name === 'Error');
+  }
+  const assets = remote(manifest);
+  for (const entries of [
+    assets.slice(1),
+    assets.concat(assets[0]),
+    assets.map((a, i) => i === 1 ? { ...a, name: a.name + '.old' } : a),
+    assets.map((a, i) => i === 1 ? { ...a, digest: 'sha256:' + 'f'.repeat(64) } : a),
+    assets.map((a, i) => i === 2 ? { ...a, state: 'starter' } : a),
+    assets.map((a, i) => i === 3 ? { ...a, id: assets[0].id } : a),
+  ]) {
+    assert.throws(() => verifyPublishedAssetSet(manifest, published, entries),
+      (error) => error?.name === 'Error');
+  }
+});
+
+test('rejects non-draft, wrong-tag, invalid ID and immutable release metadata', () => {
+  const manifest = fixture();
+  for (const patch of [
+    { draft: false },
+    { immutable: true },
+    { id: 0 },
+    { id: '42' },
+    { tag_name: 'v3.3.0' },
+  ]) {
+    assert.throws(() => verifyDraftAssetSet(manifest, { ...release(), ...patch }, remote(manifest)));
+  }
+});
+
+test('rejects missing, unexpected, duplicate and corrupt remote objects', () => {
+  const original = fixture();
+  const good = remote(original);
+  const wrong = [
+    good.slice(1),
+    good.map((a, i) => i === 0 ? { ...a, name: 'surprise.zip' } : a),
+    good.map((a, i) => i === 1 ? { ...a, name: good[0].name } : a),
+    good.map((a, i) => i === 0 ? { ...a, digest: 'sha256:' + 'f'.repeat(64) } : a),
+    good.map((a, i) => i === 0 ? { ...a, size: a.size + 1 } : a),
+    good.map((a, i) => i === 0 ? { ...a, state: 'starter' } : a),
+    good.map((a, i) => i === 0 ? { ...a, id: '1' } : a),
+  ];
+  for (const assets of wrong) {
+    assert.throws(() => verifyDraftAssetSet(original, release(), assets));
+  }
+});
+
+test('streams staged bytes and verifies the original digest without buffering whole release files', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const chunks = [Buffer.from('verified '), Buffer.from('native executable bytes')];
+  const expected = {
+    name: 'scripthold_linux_amd64',
+    size: chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+    sha256: createHash('sha256').update(Buffer.concat(chunks)).digest('hex'),
+  };
+  const result = await verifyStagedAssetStream(expected, Readable.from(chunks));
+  assert.equal(result.name, expected.name);
+  assert.equal(result.sha256, expected.sha256);
+  assert.equal(result.size, expected.size);
+});
+
+test('stream verification rejects wrong bytes, truncated/oversized content and malformed metadata', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const bytes = Buffer.from('normal archive bytes');
+  const expected = {
+    name: 'scripthold_linux_amd64.tar.gz',
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+  for (const values of [
+    [Buffer.from('normal archive byte!')],
+    [bytes.subarray(0, bytes.length - 1)],
+    [bytes, Buffer.from('extra')],
+    [],
+  ]) {
+    await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(values)));
+  }
+  for (const change of [
+    { name: '../escape' }, { name: 'unknown.bin' },
+    { size: 0 }, { size: 1.5 }, { size: Number.MAX_SAFE_INTEGER },
+    { sha256: 'A'.repeat(64) }, { sha256: '0'.repeat(63) },
+  ]) {
+    await assert.rejects(() => verifyStagedAssetStream({ ...expected, ...change }, Readable.from([bytes])));
+  }
+});
+
+test('stream verification propagates source errors and rejects nonbinary chunks', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const bytes = Buffer.from('normal binary');
+  const expected = {
+    name: 'checksums.txt', size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+  await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(['not a byte buffer'])));
+  async function *failing() { yield bytes; throw new Error('source failure'); }
+  await assert.rejects(() => verifyStagedAssetStream(expected, Readable.from(failing())), /source failure/);
+});
+
+function actionsStageFixture() {
+  const uploadDigest = 'e'.repeat(64);
+  const expected = {
+    repository: 'zoster81/scripthold', repositoryId: 1234,
+    tag: TAG, commit: COMMIT, runId: 9001, producerAttempt: 1,
+    stage: 'normal', uploadId: 7654, uploadDigest,
+  };
+  const remote = {
+    id: 7654, name: 'scripthold-normal-9001-1', size_in_bytes: 4096,
+    digest: 'sha256:' + uploadDigest, expired: false,
+    workflow_run: {
+      id: 9001, repository_id: 1234, head_repository_id: 1234,
+      head_sha: COMMIT,
+    },
+  };
+  return { expected, remote };
+}
+
+test('binds an Actions upload to exact source, repository, run, producer attempt and digest', () => {
+  const { expected, remote } = actionsStageFixture();
+  assert.equal(stagedArtifactName('normal', 9001, 1), remote.name);
+  assert.equal(stagedArtifactName('mcpb', 9001, 2), 'scripthold-mcpb-9001-2');
+  assert.deepEqual(verifyRunStagingArtifact(expected, remote), {
+    artifactId: 7654, name: remote.name, archiveDigest: remote.digest, size: 4096,
+  });
+});
+
+test('fails closed on malformed or out-of-scope staging authorities', () => {
+  for (const change of [
+    { repository: 'attacker/another' },
+    { repositoryId: 0 }, { repositoryId: '1234' },
+    { commit: 'a'.repeat(40) }, { commit: 'A'.repeat(40) },
+    { tag: '../v3.4.0' },
+    { runId: 0 }, { runId: '9001' },
+    { producerAttempt: 0 }, { producerAttempt: -1 },
+    { stage: 'latest' }, { uploadId: 0 }, { uploadId: '7654' },
+    { uploadDigest: 'G'.repeat(64) },
+  ]) {
+    const { expected, remote } = actionsStageFixture();
+    assert.throws(() => verifyRunStagingArtifact({ ...expected, ...change }, remote));
+  }
+  for (const args of [['normal', 0, 1], ['mcpb', 1, 0], ['latest', 1, 1]]) {
+    assert.throws(() => stagedArtifactName(...args));
+  }
+});
+
+test('rejects mismatched, expired or malformed authenticated GitHub artifact metadata', () => {
+  for (const change of [
+    { id: 7655 }, { name: 'scripthold-normal-9001-2' },
+    { name: '../scripthold-normal-9001-1' },
+    { digest: 'sha256:' + '0'.repeat(64) },
+    { digest: 'e'.repeat(64) },
+    { expired: true }, { expired: undefined }, { size_in_bytes: 0 },
+    { size_in_bytes: 2 ** 43 }, { size_in_bytes: 1.5 },
+    { workflow_run: null },
+    { workflow_run: { id: 9, repository_id: 1234, head_repository_id: 1234, head_sha: COMMIT } },
+    { workflow_run: { id: 9001, repository_id: 999, head_repository_id: 1234, head_sha: COMMIT } },
+    { workflow_run: { id: 9001, repository_id: 1234, head_repository_id: 999, head_sha: COMMIT } },
+    { workflow_run: { id: 9001, repository_id: 1234, head_repository_id: 1234, head_sha: 'a'.repeat(40) } },
+  ]) {
+    const { expected, remote } = actionsStageFixture();
+    assert.throws(() => verifyRunStagingArtifact(expected, { ...remote, ...change }));
+  }
+  const { expected } = actionsStageFixture();
+  assert.throws(() => verifyRunStagingArtifact(expected, null));
+});
+
+test('binds each stage and avoids selecting artifacts by latest run or mutable name', () => {
+  const { expected, remote } = actionsStageFixture();
+  const mcpbExpected = { ...expected, stage: 'mcpb', producerAttempt: 2 };
+  assert.throws(() => verifyRunStagingArtifact(mcpbExpected, remote));
+  assert.deepEqual(verifyRunStagingArtifact(mcpbExpected,
+    { ...remote, name: 'scripthold-mcpb-9001-2' }).artifactId, 7654);
+});
+
+
+test('checks the actual downloaded Actions archive byte stream against the verified producer', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const { expected, remote } = actionsStageFixture();
+  const parts = [Buffer.from('ZIP-test-header'), Buffer.from('verified compressed data')];
+  const bytes = Buffer.concat(parts);
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const producer = { ...expected, uploadDigest: hash };
+  const github = { ...remote, digest: 'sha256:' + hash, size_in_bytes: bytes.length };
+  assert.deepEqual(await verifyStagingArchiveStream(producer, github, Readable.from(parts)), {
+    artifactId: expected.uploadId, name: remote.name,
+    archiveDigest: github.digest, size: bytes.length,
+  });
+});
+
+test('rejects tampered, truncated, oversized and malformed Actions archive streams', async () => {
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const { expected, remote } = actionsStageFixture();
+  const bytes = Buffer.from('synthetic ZIP bytes, not a release asset');
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const producer = { ...expected, uploadDigest: hash };
+  const github = { ...remote, digest: 'sha256:' + hash, size_in_bytes: bytes.length };
+  for (const parts of [
+    [Buffer.from('synthetic ZIP byteS, not a release asset')],
+    [bytes.subarray(0, bytes.length - 1)],
+    [bytes, Buffer.from('x')],
+    [],
+  ]) {
+    await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(parts)));
+  }
+  await assert.rejects(() => verifyStagingArchiveStream(
+    producer, { ...github, id: github.id + 1 }, Readable.from([bytes])));
+  await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(['not bytes'])));
+  async function* broken() { yield bytes; throw new Error('stream interrupted'); }
+  await assert.rejects(() => verifyStagingArchiveStream(producer, github, Readable.from(broken())),
+    /stream interrupted/);
+});
+
+function rawStageFixture(fileName = 'scripthold_linux_amd64', stage = 'normal') {
+  const { createHash } = require('node:crypto');
+  const manifest = fixture();
+  const bytes = Buffer.from('synthetic staging bytes, not a release package');
+  const asset = manifest.assets.find((item) => item.name === fileName);
+  if (!asset) throw new Error('invalid synthetic test name');
+  asset.size = bytes.length;
+  asset.sha256 = createHash('sha256').update(bytes).digest('hex');
+  const expected = {
+    repository: manifest.repository, repositoryId: 1234, tag: manifest.tag,
+    commit: manifest.commit, runId: 9001, producerAttempt: 2, stage,
+    fileName, uploadId: 7654, uploadDigest: asset.sha256,
+  };
+  const github = {
+    id: expected.uploadId,
+    name: rawStagingArtifactName(stage, expected.runId, expected.producerAttempt, fileName),
+    size_in_bytes: asset.size,
+    digest: 'sha256:' + asset.sha256, expired: false,
+    workflow_run: {
+      id: expected.runId, repository_id: expected.repositoryId,
+      head_repository_id: expected.repositoryId, head_sha: expected.commit,
+    },
+  };
+  return { manifest, expected, github, bytes };
+}
+
+test('authenticates a raw Actions artifact by immutable ID, manifest bytes and producer identity', async () => {
+  const { Readable } = require('node:stream');
+  for (const [name, stage] of [
+    ['scripthold_linux_amd64', 'normal'],
+    ['checksums.txt', 'normal'],
+    ['scripthold_linux_amd64.mcpb', 'mcpb'],
+    ['mcpb-checksums.txt', 'mcpb'],
+  ]) {
+    const { manifest, expected, github, bytes } = rawStageFixture(name, stage);
+    const match = {
+      artifactId: expected.uploadId, artifactName: github.name,
+      fileName: name, size: bytes.length, sha256: expected.uploadDigest,
+    };
+    assert.deepEqual(verifyRawStagingArtifact(manifest, expected, github), match);
+    assert.deepEqual(await verifyRawStagingStream(
+      manifest, expected, github, Readable.from([bytes.subarray(0, 7), bytes.subarray(7)])), match);
+  }
+});
+
+test('raw artifact naming prevents same-run rerun collisions for all 22 files', () => {
+  const names = expectedReleaseAssetNames(TAG);
+  const first = new Set();
+  const second = new Set();
+  for (const name of names) {
+    const stage = name.endsWith('.mcpb') || name === 'mcpb-checksums.txt'
+      ? 'mcpb' : 'normal';
+    const a = rawStagingArtifactName(stage, 9001, 1, name);
+    const b = rawStagingArtifactName(stage, 9001, 2, name);
+    assert.notEqual(a, b);
+    assert.ok(a.endsWith('-' + name));
+    assert.ok(a.length <= 240);
+    first.add(a);
+    second.add(b);
+  }
+  assert.equal(first.size, 22);
+  assert.equal(second.size, 22);
+  assert.equal(new Set([...first, ...second]).size, 44);
+  assert.notEqual(rawStagingArtifactName('normal', 9001, 1, 'checksums.txt'),
+    rawStagingArtifactName('normal', 9002, 1, 'checksums.txt'));
+});
+
+test('raw artifact name builder rejects unsafe, malformed and oversized producer identity', () => {
+  for (const [stage, run, attempt, file] of [
+    ['bad', 9001, 1, 'checksums.txt'], ['normal', 0, 1, 'checksums.txt'],
+    ['normal', '9001', 1, 'checksums.txt'], ['normal', 9001, 0, 'checksums.txt'],
+    ['normal', 9001, 1.5, 'checksums.txt'], ['normal', 9001, 1, '../checksums.txt'],
+    ['normal', 9001, 1, 'nested/checksums.txt'], ['normal', 9001, 1, 'other'],
+    ['mcpb', 9001, 1, 'checksums.txt'],
+    ['normal', 9001, 1, 'scripthold-v3.4.0-' + 'a'.repeat(280) + '-provenance.intoto.jsonl'],
+  ]) {
+    assert.throws(() => rawStagingArtifactName(stage, run, attempt, file));
+  }
+});
+
+test('raw artifact metadata rejects name reuse by another producer attempt', () => {
+  const { manifest, expected, github } = rawStageFixture();
+  assert.throws(() => verifyRawStagingArtifact(manifest,
+    { ...expected, producerAttempt: 3 }, github), /identity/);
+  assert.throws(() => verifyRawStagingArtifact(manifest, expected,
+    { ...github, name: expected.fileName }), /identity/);
+  assert.throws(() => verifyRawStagingArtifact(manifest, expected,
+    { ...github, name: rawStagingArtifactName(expected.stage, 9001, 3, expected.fileName) }),
+  /identity/);
+});
+
+test('raw artifact metadata rejects impersonation, wrong manifest and stage confusion', () => {
+  const { manifest, expected, github } = rawStageFixture();
+  for (const patch of [
+    { repository: 'attacker/fork' }, { repositoryId: '1234' }, { repositoryId: 0 },
+    { tag: 'v3.4.1' }, { commit: 'a'.repeat(40) },
+    { runId: 9002 }, { producerAttempt: 0 }, { producerAttempt: '2' },
+    { stage: 'mcpb' }, { stage: 'unknown' }, { fileName: '../escape' },
+    { fileName: 'unknown.bin' }, { fileName: 'scripthold_linux_amd64.mcpb' },
+    { uploadId: 0 }, { uploadId: '7654' },
+    { uploadDigest: 'f'.repeat(64) }, { uploadDigest: 'F'.repeat(64) },
+  ]) {
+    assert.throws(() => verifyRawStagingArtifact(manifest, { ...expected, ...patch }, github));
+  }
+  for (const patch of [
+    { id: 7655 }, { name: 'checksums.txt' }, { name: '../escape' },
+    { digest: 'sha256:' + '0'.repeat(64) }, { digest: expected.uploadDigest },
+    { size_in_bytes: github.size_in_bytes + 1 }, { size_in_bytes: '43' },
+    { expired: true }, { expired: undefined },
+    { workflow_run: null },
+    { workflow_run: { ...github.workflow_run, head_sha: 'a'.repeat(40) } },
+    { workflow_run: { ...github.workflow_run, id: 9002 } },
+    { workflow_run: { ...github.workflow_run, repository_id: 99 } },
+  ]) {
+    assert.throws(() => verifyRawStagingArtifact(manifest, expected, { ...github, ...patch }));
+  }
+  assert.throws(() => verifyRawStagingArtifact(manifest, expected, null));
+  assert.throws(() => verifyRawStagingArtifact({ ...manifest, commit: 'a'.repeat(40) }, expected, github));
+  assert.throws(() => verifyRawStagingArtifact(
+    { ...manifest, assets: manifest.assets.slice(1) }, expected, github));
+});
+
+test('raw artifact stream rejects corruption, truncation, extension and source failures', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, expected, github, bytes } = rawStageFixture();
+  for (const chunks of [
+    [], [bytes.subarray(0, -1)], [Buffer.from('modified, original bytes never trusted')],
+    [bytes, Buffer.from('x')],
+  ]) {
+    await assert.rejects(() =>
+      verifyRawStagingStream(manifest, expected, github, Readable.from(chunks)));
+  }
+  await assert.rejects(() =>
+    verifyRawStagingStream(manifest, expected, github, Readable.from(['not binary'])));
+  async function* interrupted() { yield bytes; throw new Error('stream interrupted'); }
+  await assert.rejects(() =>
+    verifyRawStagingStream(manifest, expected, github, Readable.from(interrupted())),
+    /stream interrupted/);
+});
+
+function rawInventoryFixture() {
+  const manifest = fixture();
+  const entries = manifest.assets.map((asset, index) => {
+    const stage = asset.name.endsWith('.mcpb') || asset.name === 'mcpb-checksums.txt'
+      ? 'mcpb' : 'normal';
+    const producerAttempt = stage === 'normal' ? 1 : 2;
+    const expected = {
+      repository: manifest.repository, repositoryId: 1234,
+      tag: manifest.tag, commit: manifest.commit,
+      runId: 9001, producerAttempt, stage, fileName: asset.name,
+      uploadId: 2000 + index, uploadDigest: asset.sha256,
+    };
+    return { expected, remote: {
+      id: expected.uploadId,
+      name: rawStagingArtifactName(stage, 9001, producerAttempt, asset.name),
+      size_in_bytes: asset.size, digest: 'sha256:' + asset.sha256,
+      expired: false, workflow_run: {
+        id: 9001, repository_id: 1234, head_repository_id: 1234,
+        head_sha: manifest.commit,
+      },
+    } };
+  });
+  return { manifest, entries };
+}
+
+test('plans 22 authenticated raw downloads into private numeric slots, one immutable ID each', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plans = planRawStagingDownloads(manifest, entries.slice().reverse());
+  assert.equal(plans.length, 22);
+  assert.deepEqual(plans.map((plan) => plan.fileName), expectedReleaseAssetNames(TAG));
+  for (const [i, plan] of plans.entries()) {
+    const name = manifest.assets[i].name;
+    const { expected, remote } = entries[i];
+    assert.deepEqual(plan, {
+      artifactId: expected.uploadId,
+      artifactIdsInput: String(expected.uploadId),
+      slot: 'slot-' + String(i + 1).padStart(2, '0'),
+      artifactName: remote.name,
+      fileName: name, size: manifest.assets[i].size,
+      sha256: manifest.assets[i].sha256,
+    });
+    assert.match(plan.slot, /^slot-[0-9]{2}$/);
+    assert.ok(!Object.hasOwn(plan, 'path'),
+      'the source must not grant a host path to the receiving job');
+  }
+  assert.equal(new Set(plans.map((plan) => plan.slot)).size, 22);
+  assert.equal(new Set(plans.map((plan) => plan.artifactId)).size, 22);
+  const reordered = { ...manifest, assets: manifest.assets.slice().reverse() };
+  assert.deepEqual(planRawStagingDownloads(reordered, entries), plans,
+    'slot assignment must be independent of producer manifest ordering');
+});
+
+test('raw per-ID download planning fails closed on incomplete, duplicated or forged metadata', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  for (const variant of [
+    null, [], entries.slice(1), [...entries, entries[0]],
+    entries.map((v, i) => i === 0 ? { ...v, remote: { ...v.remote,
+      name: '../slot-01' } } : v),
+    entries.map((v, i) => i === 0 ? { ...v, expected: { ...v.expected,
+      uploadId: '2000junk' } } : v),
+    entries.map((v, i) => i === 0 ? { ...v, remote: { ...v.remote,
+      id: 9999 } } : v),
+    entries.map((v, i) => i === 0 ? { ...v, expected: { ...v.expected,
+      producerAttempt: 42 } } : v),
+  ]) {
+    assert.throws(() => planRawStagingDownloads(manifest, variant));
+  }
+});
+
+test('plans a single pinned raw Actions download from all 22 authenticated IDs', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plan = planRawStagingBatch(manifest, entries.slice().reverse());
+  const canonical = planRawStagingDownloads(manifest, entries);
+  assert.deepEqual(plan.actionInputs, {
+    'artifact-ids': canonical.map((file) => String(file.artifactId)).join(','),
+    'merge-multiple': true,
+    'skip-decompress': true,
+    'digest-mismatch': 'error',
+  });
+  assert.equal(plan.files.length, 22);
+  assert.deepEqual(plan.files, canonical.map(({ artifactId, artifactName, fileName, size, sha256 }) =>
+    ({ artifactId, artifactName, fileName, size, sha256 })));
+  assert.ok(!Object.hasOwn(plan.actionInputs, 'path'));
+  const reordered = { ...manifest, assets: manifest.assets.slice().reverse() };
+  assert.deepEqual(planRawStagingBatch(reordered, entries), plan);
+});
+
+test('authenticates exact flat raw download metadata before reading any payloads', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plan = planRawStagingBatch(manifest, entries);
+  const observed = plan.files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  const accepted = verifyRawStagingBatchEntries(manifest, entries, observed.slice().reverse());
+  assert.deepEqual([...accepted.keys()], plan.files.map((file) => file.fileName));
+  for (const [index, file] of plan.files.entries()) {
+    assert.deepEqual(accepted.get(file.fileName), file);
+    assert.equal(observed[index].name, file.artifactName);
+  }
+});
+
+test('raw multi-download inventory rejects missing, duplicate, paths, links and altered lengths', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const plan = planRawStagingBatch(manifest, entries);
+  const observed = plan.files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  for (const variant of [
+    null, [], observed.slice(1), [...observed, observed[0]],
+    observed.map((v, i) => i === 1 ? observed[0] : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: '../' + v.name } : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: 'sub\\\\' + v.name } : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: v.name.toUpperCase() } : v),
+    observed.map((v, i) => i === 0 ? { ...v, type: 'symlink' } : v),
+    observed.map((v, i) => i === 0 ? { ...v, type: 'directory' } : v),
+    observed.map((v, i) => i === 0 ? { ...v, nlink: 2 } : v),
+    observed.map((v, i) => i === 0 ? { ...v, nlink: undefined } : v),
+    observed.map((v, i) => i === 0 ? { ...v, size: v.size + 1 } : v),
+    observed.map((v, i) => i === 0 ? { ...v, name: 'RUNNER~1' } : v),
+  ]) {
+    assert.throws(() => verifyRawStagingBatchEntries(manifest, entries, variant));
+  }
+  assert.throws(() => verifyRawStagingBatchEntries(manifest, entries.slice(1), observed),
+    /22 uploads/);
+});
+
+test('accepts exactly 22 unique verified raw uploads with different job attempts', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  const result = verifyRawStagingInventory(manifest, entries.slice().reverse());
+  assert.equal(result.size, 22);
+  assert.deepEqual([...result.keys()], expectedReleaseAssetNames(TAG));
+  for (const { expected, remote } of entries) {
+    assert.deepEqual(result.get(expected.fileName), {
+      artifactId: expected.uploadId, artifactName: remote.name,
+      fileName: expected.fileName,
+      size: remote.size_in_bytes, sha256: expected.uploadDigest,
+    });
+  }
+});
+
+test('rejects incomplete, duplicate, extra or identity-conflicting raw inventories', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  for (const variant of [
+    null, {}, [], entries.slice(1),
+    [...entries, entries[0]],
+    entries.map((item, index) => index === 1 ? entries[0] : item),
+    entries.map((item, index) => index === 1 ? { ...item,
+      expected: { ...item.expected, uploadId: entries[0].expected.uploadId },
+      remote: { ...item.remote, id: entries[0].remote.id } } : item),
+    entries.map((item, index) => index === 1 ? { ...item,
+      remote: { ...item.remote, digest: 'sha256:' + 'f'.repeat(64) } } : item),
+    entries.map((item, index) => index === 1 ? { expected: null, remote: item.remote } : item),
+  ]) {
+    assert.throws(() => verifyRawStagingInventory(manifest, variant));
+  }
+});
+
+test('raw inventory rejects mixed workflow runs and mixed attempts within one stage', () => {
+  const { manifest, entries } = rawInventoryFixture();
+  for (const patch of [
+    (item) => ({ ...item, expected: { ...item.expected, repositoryId: 456 },
+      remote: { ...item.remote, workflow_run: {
+        ...item.remote.workflow_run, repository_id: 456, head_repository_id: 456 } } }),
+    (item) => ({ ...item, expected: { ...item.expected, runId: 9002 },
+      remote: { ...item.remote, name: rawStagingArtifactName(item.expected.stage,
+        9002, item.expected.producerAttempt, item.expected.fileName),
+      workflow_run: { ...item.remote.workflow_run, id: 9002 } } }),
+    (item) => ({ ...item, expected: { ...item.expected, producerAttempt: 3 },
+      remote: { ...item.remote, name: rawStagingArtifactName(item.expected.stage,
+        item.expected.runId, 3, item.expected.fileName) } }),
+  ]) {
+    const mixed = entries.map((item, index) => index === 1 ? patch(item) : item);
+    assert.throws(() => verifyRawStagingInventory(manifest, mixed));
+  }
+});
+
+function rawPayloadFixture() {
+  const { createHash } = require('node:crypto');
+  const { manifest, entries } = rawInventoryFixture();
+  const opaqueBytes = new Map();
+  for (const [index, asset] of manifest.assets.entries()) {
+    // These are arbitrary short strings, never packaged MCPB contents.
+    const bytes = Buffer.from('opaque unit-test bytes #' + index);
+    opaqueBytes.set(asset.name, bytes);
+    asset.size = bytes.length;
+    asset.sha256 = createHash('sha256').update(bytes).digest('hex');
+    entries[index].expected.uploadDigest = asset.sha256;
+    entries[index].remote.size_in_bytes = asset.size;
+    entries[index].remote.digest = 'sha256:' + asset.sha256;
+  }
+  return { manifest, entries, opaqueBytes };
+}
+
+test('raw batch byte gate refuses incomplete directory before any source open', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  const plan = planRawStagingBatch(manifest, entries);
+  const observed = plan.files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  let opened = 0;
+  const source = (file) => {
+    opened++;
+    return Readable.from([opaqueBytes.get(file.fileName)]);
+  };
+  await assert.rejects(() => verifyRawStagingBatchPayloads(manifest, entries,
+    observed.slice(1), source));
+  assert.equal(opened, 0, 'no stream may open until all entries have been checked');
+  const valid = await verifyRawStagingBatchPayloads(manifest, entries,
+    observed.slice().reverse(), source);
+  assert.equal(valid.size, 22);
+  assert.equal(opened, 22);
+});
+
+test('raw batch byte gate rejects altered bytes after valid metadata', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  const observed = planRawStagingBatch(manifest, entries).files.map((file) => ({
+    name: file.artifactName, type: 'file', size: file.size, nlink: 1,
+  }));
+  let opened = 0;
+  await assert.rejects(() => verifyRawStagingBatchPayloads(manifest, entries,
+    observed, (file) => {
+      opened++;
+      const bytes = opaqueBytes.get(file.fileName);
+      return Readable.from([opened === 6 ? Buffer.alloc(bytes.length) : bytes]);
+    }), /digest mismatch/);
+  assert.equal(opened, 6, 'corruption must stop the batch before further reads');
+});
+
+test('verifies every original raw staging byte stream after the 22-item identity gate', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  const opened = [];
+  const result = await verifyRawStagingPayloads(manifest, entries.slice().reverse(), (file) => {
+    opened.push(file.fileName);
+    const bytes = opaqueBytes.get(file.fileName);
+    return Readable.from([bytes.subarray(0, 3), bytes.subarray(3)]);
+  });
+  assert.equal(result.size, 22);
+  assert.deepEqual(opened, expectedReleaseAssetNames(TAG));
+});
+
+test('raw staging byte gate rejects missing, truncated, wrong and interrupted streams', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  for (const mode of ['missing', 'truncated', 'wrong', 'interrupted', 'nonbinary']) {
+    let count = 0;
+    await assert.rejects(() => verifyRawStagingPayloads(manifest, entries, (file) => {
+      count++;
+      const bytes = opaqueBytes.get(file.fileName);
+      if (count !== 7) return Readable.from([bytes]);
+      if (mode === 'missing') return undefined;
+      if (mode === 'truncated') return Readable.from([bytes.subarray(1)]);
+      if (mode === 'wrong') return Readable.from([Buffer.alloc(bytes.length)]);
+      if (mode === 'nonbinary') return Readable.from(['text']);
+      return Readable.from((async function* () {
+        yield bytes;
+        throw new Error('interrupted source');
+      })());
+    }));
+    assert.equal(count, 7, 'must stop on first invalid source');
+  }
+});
+
+test('raw staging preflight rejects missing metadata before opening any sources', async () => {
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  let count = 0;
+  await assert.rejects(() => verifyRawStagingPayloads(manifest, entries.slice(0, -1), (file) => {
+    count++;
+    return Readable.from([opaqueBytes.get(file.fileName)]);
+  }));
+  assert.equal(count, 0);
+  await assert.rejects(() => verifyRawStagingPayloads(manifest, entries, null));
+  assert.equal(count, 0);
+});
+
+function stagedEntryFixture(stage = 'normal') {
+  const manifest = fixture();
+  const names = manifest.assets.filter(a => stage === 'normal'
+    ? !a.name.endsWith('.mcpb') && a.name !== 'mcpb-checksums.txt'
+    : a.name.endsWith('.mcpb') || a.name === 'mcpb-checksums.txt');
+  return { manifest, entries: names.map(a => ({
+    name: a.name, type: 'file', size: a.size, compressedSize: Math.max(1, a.size - 8),
+  })) };
+}
+
+test('checks a flat exact archive inventory before any extraction', () => {
+  for (const stage of ['normal', 'mcpb']) {
+    const { manifest, entries } = stagedEntryFixture(stage);
+    const names = validateStagingArchiveEntries(manifest, stage, entries);
+    assert.equal(names.size, stage === 'normal' ? 15 : 7);
+    assert.ok(names.has(stage === 'normal' ? 'checksums.txt' : 'mcpb-checksums.txt'));
+  }
+});
+
+test('refuses unexpected paths, symlinks, duplicates and inconsistent archive metadata', () => {
+  const { manifest, entries } = stagedEntryFixture();
+  const changes = [
+    (a) => { a[0].name = '../outside'; },
+    (a) => { a[0].name = '/absolute'; },
+    (a) => { a[0].name = 'dir\\\\escape'; },
+    (a) => { a[1].name = a[0].name; },
+    (a) => { a[0].type = 'symlink'; },
+    (a) => { a[0].type = 'directory'; },
+    (a) => { a[0].size++; },
+    (a) => { a[0].compressedSize = -1; },
+    (a) => { a[0].compressedSize = 2 ** 43; },
+    (a) => { a[0].unixMode = 0o120777; },
+    (a) => { a[0].unixMode = 0o040755; },
+    (a) => { a[0].unixMode = 0o100644 + 2 ** 32; },
+    (a) => { a[0].unixMode = 0o100644 + 0.5; },
+    (a) => { a[0].unixMode = 0o104755; },
+  ];
+  for (const change of changes) {
+    const copy = entries.map(e => ({ ...e }));
+    change(copy);
+    assert.throws(() => validateStagingArchiveEntries(manifest, 'normal', copy));
+  }
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'normal', entries.slice(1)));
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'mcpb', entries));
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'latest', entries));
+  assert.throws(() => validateStagingArchiveEntries(manifest, 'normal', null));
+});
+
+test('rejects malformed remote input and duplicate remote asset ids', () => {
+  const manifest = fixture();
+  assert.throws(() => verifyDraftAssetSet(manifest, release(), null));
+  const assets = remote(manifest);
+  assets[1].id = assets[0].id;
+  assert.throws(() => verifyDraftAssetSet(manifest, release(), assets), /duplicate/);
+});

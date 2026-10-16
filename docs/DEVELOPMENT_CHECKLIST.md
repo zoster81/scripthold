@@ -152,6 +152,23 @@ For pre-push/promotion or cross-cutting changes:
 - [ ] never create, pack, simulate, dry-run, checksum, or validate real `.mcpb` bundles locally, and never generate the final MCPB-backed Registry manifest locally;
 - [ ] no credentials, tokens, private keys, cookies, real tunnel identifiers, or workstation state added.
 
+### Future immutable-release workflow redesign (not the current release flow)
+
+Use this extra gate only when proposing changes to GitHub release, MCPB, provenance, or Registry publication. [PUBLISHING.md](PUBLISHING.md#future-immutable-release-pipeline-prevention-requirements-not-active) defines the authoritative failure-prevention contract; do not infer that current-release CI qualifies a redesigned workflow.
+
+- [ ] Start from historical CI failure **classes**, not just green current tests: temporary-directory aliases, Windows short names, permission/link races, wrong MCPB subject types, mixed pinned Action versions, and incomplete/late publication.
+- [ ] Compare the unchanged current GoReleaser/MCPB/Registry output contract with the planned flow. Preserve real archive/binary paths, version metadata, original release notes, genuine 12-subject signed provenance, six authentic GitHub-only MCPB packages, checksum semantics, and stable consumer URLs.
+- [ ] Keep producer-local filesystem paths out of cross-job manifests. Test Windows drive/UNC/8.3 aliases, macOS `/var` versus `/private/var`, `/tmp` and `/var/tmp`, symlink and hardlink escapes, case/Unicode collisions, path length and malicious separators. Do not treat all legitimate system-alias ancestors as attacks.
+- [ ] Use verified, owner-controlled, no-follow, exclusive staging and stable file identity before checking original bytes; exercise replacement/rename/permission/concurrent-writer failures and no-overwrite cleanup.
+- [ ] Authenticate each stage by exact repository/commit/run/attempt, original name/size/SHA and GitHub numeric artifact ID. Independently validate both stage inventories and require the complete published set before transition.
+- [ ] Set one-file `upload-artifact` options `archive: false`, `if-no-files-found: error`, `overwrite: false`; set `download-artifact` options `artifact-ids`, `skip-decompress: true`, `digest-mismatch: error`, and an isolated `path`. Check the physical staged basename and the post-download **original bytes**, including files that end in `.zip`.
+- [ ] Exercise wrong/missing/duplicate IDs, stale attempts, mismatched digests, incomplete download, truncated or altered streams, and unexpected filenames even when the GitHub Action itself reports success.
+- [ ] Give build and packaging jobs read-only publication authority, and only the finalizer the minimum write authority needed for an unpublished draft. Bind **workflow helper revision** as well as tagged source SHA; reject mutable-main versus tag code drift and independent post-publication repair writes.
+- [ ] Exercise draft state transitions: cancellation, partial upload, API timeout after success, duplicate/retried upload, conflicting existing asset, publish collision, and Registry failure after publication. Resume exact matches only; never overwrite an already-published asset.
+- [ ] Update all coupled workflow, Node policy, `testarchitecture/evidence-map.json`, architectural tests, and maintainer documentation in one reviewed batch. Replace obsolete old-flow assertions with **stronger** negative/security tests, never remove them merely to pass.
+- [ ] Pin related CodeQL components and compiler/analysis tooling as compatible units; keep the existing exact-SHA Test Suite and supported main-push Scorecard provenance gate. Workflow/script changes must receive the full evidence tier.
+- [ ] Before authorizing a public tag/release, require normal static/Node/Go workflow qualification, actionlint/ShellCheck, source-format/diff review, and **real GitHub cross-job raw-transfer evidence** from a harmless non-release synthetic test. Report missing proof; never simulate real MCPB packaging locally.
+
 ## 7. Documentation and metadata
 
 - [ ] Update only documents whose behavior, status, contract, or navigation changed.
@@ -190,7 +207,7 @@ Use this section only for an explicitly requested internal build.
 
 ## 10. Public release gate
 
-Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. This checklist intentionally does not duplicate historical release evidence or GitHub-only MCPB packaging steps.
+Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. The items below describe the **currently active** multi-job publishing flow; the future immutable-release migration has a separate, not-yet-active gate above. This checklist intentionally does not duplicate historical release evidence or GitHub-only MCPB packaging steps.
 
 - [ ] release-scoped milestone complete;
 - [ ] exact clean commit and dated changelog entry verified;

@@ -1,0 +1,63 @@
+# Preparation only. No GitHub Release, tag, asset, or Registry writes.
+name: Future release finalizer preflight (read-only)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing canonical release tag to validate (no publication)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# A future single-writer finalizer must retain this exact group for BOTH
+# entrypoints. A newer pending run may replace an older pending run.
+concurrency:
+  group: scripthold-immutable-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate-event:
+    name: Validate release event (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out requested ref without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+
+      - name: Validate event and canonical concurrency group
+        shell: bash
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          node scripts/release-finalizer-entrypoint.js
+
+      - name: Verify exact annotated tag and main source (read-only)
+        shell: bash
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG_INPUT: ${{ inputs.tag }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release-finalizer-source.js

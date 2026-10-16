@@ -19,6 +19,14 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Require an exact clean commit and the release procedure in [`PUBLISHING.md`](PUBLISHING.md) for public release authority.
 - Do not accumulate implementation diaries or per-phase evidence in this file.
 
+## Planned publication hardening (not active)
+
+Future release engineering may introduce GitHub-enforced immutable releases, but **the current 3.3.0 publication pipeline remains the supported, functioning flow**. This is a release-infrastructure change, not a new MCP capability or an approved 4.0 scope.
+
+- **Outcome:** prepare and verify the complete normal/provenance/MCPB asset set before public publication, using least-privileged jobs, exact source/run identities, and fail-closed draft recovery. Preserve the existing GoReleaser archives, genuine signed evidence, GitHub-only MCPB packaging, and Registry output.
+- **Design boundary:** prevent recurrence of historical CI failures involving Windows 8.3 paths, macOS temporary-directory aliases, link/permission races, tool-version mismatches, Scorecard execution on tags, incorrect package types, and post-publication asset mutations. The durable requirements and negative-test gate are in [PUBLISHING.md](PUBLISHING.md#future-immutable-release-pipeline-prevention-requirements-not-active), with reusable verification in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md#future-immutable-release-workflow-redesign-not-the-current-release-flow).
+- **Promotion gate:** review the workflows, trust validators, CI policy/evidence map, tests, and documentation as one coherent change; qualify the exact GitHub cross-job transfer using harmless synthetic files and the full supported platform matrix before any genuine release. Do not create artificial public releases or locally produce MCPB bundles to obtain evidence.
+
 ## Reserved 4.0 boundary
 
 Version 4.0 is reserved for a deliberately reviewed major compatibility or capability boundary after the 3.x work. Its scope is not frozen.

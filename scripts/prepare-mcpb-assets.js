@@ -4,6 +4,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { isRecognizedReleaseAssetName } = require('./release-asset-contract');
 
 const targets = [
   { os: 'windows', arch: 'amd64', platform: 'win32', sourceFile: 'scripthold_windows_amd64.exe', bundleFile: 'scripthold_windows_amd64.mcpb', binaryFile: 'scripthold.exe' },
@@ -29,11 +30,13 @@ function parseVersion(raw) {
 function parseChecksums(filename) {
   const checksums = new Map();
   for (const rawLine of fs.readFileSync(filename, 'utf8').split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const match = line.match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/);
+    if (rawLine === '') continue;
+    const match = rawLine.match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/);
     if (!match) fail(`invalid checksums line: ${rawLine}`);
-    const name = path.basename(match[2].trim().replace(/\\/g, '/'));
+    // Checksums describe exact release basenames, not paths to normalize.
+    // Collapsing separators would silently accept Windows/Unix path aliases.
+    const name = match[2];
+    if (!isRecognizedReleaseAssetName(name)) fail(`invalid release checksum asset name: ${name}`);
     if (checksums.has(name)) fail(`duplicate checksum entry for ${name}`);
     checksums.set(name, match[1].toLowerCase());
   }
