@@ -29,7 +29,7 @@ func TestExternalDurableTaskLifecycle(t *testing.T) {
 	if err := os.MkdirAll(publicRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	environment := append(os.Environ(),
+	environment := append(filterExternalSmokeEnvironment(os.Environ()),
 		"MCP_TASK_STORE_DIR="+storeRoot,
 		"MCP_ENABLE_EXECUTION=1",
 		"MCP_TASK_MAX_CONCURRENCY=2",
@@ -118,7 +118,7 @@ func TestExternalTaskSupervisorRecovery(t *testing.T) {
 	if err := os.MkdirAll(publicRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	environment := append(os.Environ(),
+	environment := append(filterExternalSmokeEnvironment(os.Environ()),
 		"MCP_TASK_STORE_DIR="+storeRoot,
 		"MCP_ENABLE_EXECUTION=1",
 		"MCP_TASK_MAX_CONCURRENCY=2",
