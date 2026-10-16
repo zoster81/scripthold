@@ -4,6 +4,8 @@ const {
   composeStagedGroupManifests,
   validateStagedGroupManifest,
   planRawStagingBatch,
+  planRawNormalStagingBatch,
+  verifyRawNormalStagingBatchPayloads,
 } = require('./release-asset-contract');
 
 const PRODUCER_KEYS = ['manifest', 'repositoryId', 'runId', 'producerAttempt', 'uploads'];
@@ -69,4 +71,32 @@ function assembleRawReleaseStaging(normal, mcpb) {
   return { manifest, batch: planRawStagingBatch(manifest, entries) };
 }
 
-module.exports = { assembleRawReleaseStaging };
+// Only the verified 15-file normal inventory is handed to the GitHub-only
+// MCPB producer. Keep this distinct from the complete publication manifest.
+function assembleRawNormalHandoff(normal) {
+  const entries = stagingEntries(normal, 'normal');
+  const batch = planRawNormalStagingBatch(normal.manifest, entries);
+  return {
+    manifest: {
+      repository: normal.manifest.repository,
+      tag: normal.manifest.tag,
+      commit: normal.manifest.commit,
+      stage: 'normal',
+      assets: batch.files.map(({ fileName, size, sha256 }) => ({
+        name: fileName, size, sha256,
+      })),
+    },
+    batch,
+  };
+}
+
+// Caller must open stable, no-follow immutable sources from an isolated private
+// destination. This gate checks every physical filename and original byte stream
+// before any received normal asset can be used by the future MCPB producer.
+async function verifyRawNormalHandoffPayloads(normal, observed, openSource) {
+  const entries = stagingEntries(normal, 'normal');
+  return verifyRawNormalStagingBatchPayloads(normal.manifest, entries, observed, openSource);
+}
+
+module.exports = { assembleRawReleaseStaging, assembleRawNormalHandoff,
+  verifyRawNormalHandoffPayloads };

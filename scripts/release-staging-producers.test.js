@@ -3,9 +3,12 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { expectedReleaseAssetNames, rawStagingArtifactName } =
-  require('./release-asset-contract');
-const { assembleRawReleaseStaging } = require('./release-staging-producers');
+const { createHash } = require('node:crypto');
+const { Readable } = require('node:stream');
+const { expectedReleaseAssetNames, rawStagingArtifactName,
+  validateStagedManifest, planRawStagingBatch } = require('./release-asset-contract');
+const { assembleRawReleaseStaging, assembleRawNormalHandoff,
+  verifyRawNormalHandoffPayloads } = require('./release-staging-producers');
 
 const TAG = 'v3.4.0';
 const COMMIT = 'a'.repeat(40);
@@ -159,4 +162,130 @@ test('never uses an invalid producer, missing remote observation or nonarrays as
   }
   f.normal.uploads[0].remote = null;
   assert.throws(() => assembleRawReleaseStaging(f.normal, f.mcpb));
+});
+
+test('normal-only handoff produces exactly 15 authenticated raw IDs for MCPB input', () => {
+  const { normal } = fixture();
+  const result = assembleRawNormalHandoff(normal);
+  const names = expectedReleaseAssetNames(TAG).filter(name =>
+    !name.endsWith('.mcpb') && name !== 'mcpb-checksums.txt');
+  assert.equal(result.manifest.stage, 'normal');
+  assert.deepEqual(result.manifest.assets.map(a => a.name), names);
+  assert.deepEqual(result.batch.files.map(f => f.fileName), names);
+  assert.equal(result.batch.files.length, 15);
+  assert.equal(new Set(result.batch.files.map(f => f.artifactId)).size, 15);
+  assert.deepEqual(result.batch.actionInputs, {
+    'artifact-ids': result.batch.files.map(f => String(f.artifactId)).join(','),
+    'merge-multiple': true, 'skip-decompress': true, 'digest-mismatch': 'error',
+  });
+  assert.throws(() => validateStagedManifest(result.manifest), /22 assets/,
+    'final publication still requires a complete 22-file manifest');
+  assert.throws(() => planRawStagingBatch(result.manifest, []), /22 assets/,
+    'full raw-download planner must never accept the normal-only handoff');
+  assert.ok(!JSON.stringify(result).includes('workflow_run'));
+  assert.ok(!JSON.stringify(result).includes('/tmp'));
+  normal.manifest.assets[0].size = 1;
+  normal.uploads[0].remote.digest = 'sha256:' + 'f'.repeat(64);
+  assert.equal(result.manifest.assets[0].size, 200);
+});
+
+test('normal handoff authenticates all 15 original streams before MCPB packaging', async () => {
+  const { normal, observed, bytes } = normalByteFixture();
+  const opened = [];
+  const result = await verifyRawNormalHandoffPayloads(normal, observed.slice().reverse(), (file) => {
+    opened.push(file.fileName);
+    return Readable.from([bytes.get(file.fileName)]);
+  });
+  assert.equal(result.size, 15);
+  assert.deepEqual(opened, expectedReleaseAssetNames(TAG).filter(name =>
+    !name.endsWith('.mcpb') && name !== 'mcpb-checksums.txt'));
+});
+
+test('normal handoff rejects incomplete directory before opening a source', async () => {
+  const { normal, observed, bytes } = normalByteFixture();
+  for (const mutate of [
+    x => x.pop(),
+    x => { x[1] = x[0]; },
+    x => { x[0].type = 'symlink'; },
+    x => { x[0].nlink = 2; },
+    x => { x[0].name = '../escape'; },
+    x => { x[0].size++; },
+  ]) {
+    const invalid = structuredClone(observed);
+    mutate(invalid);
+    let opened = 0;
+    await assert.rejects(() => verifyRawNormalHandoffPayloads(normal, invalid,
+      (file) => { opened++; return Readable.from([bytes.get(file.fileName)]); }));
+    assert.equal(opened, 0, 'no streams before complete inventory verification');
+  }
+});
+
+test('normal handoff refuses corrupt and interrupted streams', async () => {
+  const { normal, observed, bytes } = normalByteFixture();
+  for (const failure of ['changed', 'truncated', 'interrupted']) {
+    let opened = 0;
+    await assert.rejects(() => verifyRawNormalHandoffPayloads(normal, observed, (file) => {
+      opened++;
+      const source = bytes.get(file.fileName);
+      if (opened !== 4) return Readable.from([source]);
+      if (failure === 'changed') return Readable.from([Buffer.alloc(source.length)]);
+      if (failure === 'truncated') return Readable.from([source.subarray(1)]);
+      return Readable.from((async function* () {
+        yield source;
+        throw new Error('interrupted normal-stage transfer');
+      })());
+    }));
+    assert.equal(opened, 4);
+  }
+});
+
+function normalByteFixture() {
+  const { normal } = fixture();
+  const bytes = new Map();
+  for (const asset of normal.manifest.assets) {
+    const content = Buffer.from('normal-stage original:' + asset.name);
+    bytes.set(asset.name, content);
+    asset.size = content.length;
+    asset.sha256 = createHash('sha256').update(content).digest('hex');
+    const upload = normal.uploads.find(item => item.fileName === asset.name);
+    upload.uploadDigest = asset.sha256;
+    upload.remote.size_in_bytes = asset.size;
+    upload.remote.digest = 'sha256:' + asset.sha256;
+  }
+  const observed = assembleRawNormalHandoff(normal).batch.files.map(file => ({
+    name: file.artifactName, type: 'file', nlink: 1, size: file.size,
+  }));
+  return { normal, observed, bytes };
+}
+
+test('normal handoff cannot depend on producer enumeration order', () => {
+  const { normal } = fixture();
+  const shuffled = structuredClone(normal);
+  shuffled.manifest.assets.reverse();
+  shuffled.uploads.reverse();
+  assert.deepEqual(assembleRawNormalHandoff(shuffled), assembleRawNormalHandoff(normal));
+});
+
+test('normal handoff rejects incomplete, forged, mixed and path-bearing input', () => {
+  for (const mutate of [
+    f => { f.normal.uploads.pop(); },
+    f => { f.normal.uploads.push(f.normal.uploads[0]); },
+    f => { f.normal.uploads[0].uploadId = f.normal.uploads[1].uploadId; },
+    f => { f.normal.uploads[0].fileName = '../escape'; },
+    f => { f.normal.uploads[0].remote.expired = true; },
+    f => { f.normal.uploads[0].remote.size_in_bytes++; },
+    f => { f.normal.uploads[0].uploadDigest = 'b'.repeat(64); },
+    f => { f.normal.uploads[0].remote.workflow_run.id++; },
+    f => { f.normal.uploads[0].remote.name = rawStagingArtifactName(
+      'normal', RUN_ID, 2, f.normal.uploads[0].fileName); },
+    f => { f.normal.manifest.stage = 'mcpb'; },
+    f => { f.normal.manifest.tag = 'v3.5.0'; },
+    f => { f.normal.manifest.commit = 'c'.repeat(40); },
+    f => { f.normal.manifest.assets[0].filePath = '/tmp/producer'; },
+    f => { f.normal.uploads[0].path = 'C:\\\\unsafe'; },
+  ]) {
+    const f = fixture();
+    mutate(f);
+    assert.throws(() => assembleRawNormalHandoff(f.normal));
+  }
 });
