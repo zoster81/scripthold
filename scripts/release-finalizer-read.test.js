@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
-const { readReleaseObservation } = require('./release-finalizer-read');
+const { readReleaseObservation, discoverReleaseByTag } = require('./release-finalizer-read');
 const { planReleaseFinalizerStep } = require('./release-finalizer-plan');
 
 const TAG = 'v3.4.0';
@@ -192,6 +192,178 @@ test('reader and planner agree on a real API-shaped complete draft and a partial
     });
     assert.equal(planReleaseFinalizerStep(authority, observation).step, expectedStep);
   }
+});
+
+
+function releaseListFetch({ pages, release = fixture().release, assets = fixture().assets,
+  pageHeaders = {}, responseErrors = {}, mutate = null }) {
+  const calls = [];
+  let releaseReads = 0;
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (Object.hasOwn(responseErrors, url)) return responseErrors[url];
+    if (url === RELEASE_URL) {
+      releaseReads++;
+      return response(releaseReads === 2 && mutate ? mutate(release) : release);
+    }
+    if (url === ASSETS_URL) return response(assets);
+    const page = Number(new URL(url).searchParams.get('page'));
+    assert.equal(url, BASE + '?per_page=30&page=' + page);
+    return response(pages[page - 1] || [], 200, pageHeaders[page] || {});
+  };
+  return { calls, fetchImpl };
+}
+
+test('discovers a unique draft in a complete, bounded authenticated release list', async () => {
+  const { release, assets } = fixture();
+  const releases = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v3.3.' + i, draft: false, immutable: false,
+  }));
+  const fake = releaseListFetch({
+    pages: [releases, [
+      { id: 44, tag_name: 'v3.3.30', draft: false, immutable: false },
+      release,
+    ]], release, assets,
+  });
+  const result = await discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  });
+  assert.deepEqual(result, {
+    kind: 'candidate', releaseId: RELEASE_ID,
+    observation: { kind: 'present', release,
+      assetPage: { status: 200, request: { releaseId: RELEASE_ID, page: 1, perPage: 100 },
+        link: null, assets } },
+  });
+  assert.deepEqual(fake.calls.map((c) => c.url), [
+    BASE + '?per_page=30&page=1', BASE + '?per_page=30&page=2',
+    RELEASE_URL, ASSETS_URL, RELEASE_URL,
+  ]);
+  for (const { init } of fake.calls) {
+    assert.equal(init.method, 'GET');
+    assert.equal(init.redirect, 'error');
+    assert.equal(init.cache, 'no-store');
+  }
+});
+
+test('does not convert an apparently absent release into creation permission', async () => {
+  const fake = releaseListFetch({ pages: [[
+    { id: 999, tag_name: 'v3.3.0', draft: false, immutable: false },
+  ]] });
+  const result = await discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  });
+  assert.deepEqual(result, { kind: 'not-found-unproven', tag: TAG });
+  assert.equal(fake.calls.length, 1);
+});
+
+test('rejects duplicate release tags, duplicate IDs and malformed list entries', async () => {
+  const { release } = fixture();
+  for (const page of [
+    [release, { ...release, id: 124 }],
+    [release, { ...release, tag_name: 'v3.4.1' }],
+    [{ ...release, id: '123' }],
+    [{ ...release, draft: 'false' }],
+    [{ ...release, immutable: undefined }],
+    [null],
+    [{}],
+  ]) {
+    const fake = releaseListFetch({ pages: [page] });
+    await assert.rejects(discoverReleaseByTag({
+      tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+});
+
+test('rejects incomplete, forged or inconsistent paginated GitHub lists', async () => {
+  const prefix = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v2.1.' + i, draft: false, immutable: false,
+  }));
+  for (const headers of [
+    { link: '<https://evil.example/releases?per_page=30&page=2>; rel="next"' },
+    { link: '<https://api.github.com/repos/zoster81/scripthold/releases?per_page=30&page=3>; rel="next"' },
+    { link: '<https://api.github.com/repos/zoster81/scripthold/releases?per_page=30&page=2>; rel="next", <https://api.github.com/repos/zoster81/scripthold/releases?per_page=30&page=2>; rel="next"' },
+    { link: 'malformed' },
+  ]) {
+    const fake = releaseListFetch({ pages: [prefix, []], pageHeaders: { 1: headers } });
+    await assert.rejects(discoverReleaseByTag({
+      tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+  const fake = releaseListFetch({ pages: [prefix.slice(0, 2)],
+    pageHeaders: { 1: { link:
+      '<https://api.github.com/repos/zoster81/scripthold/releases?per_page=30&page=2>; rel="next"' } } });
+  await assert.rejects(discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), Error);
+});
+
+
+test('accepts actual GitHub-style next/last and prev/first pagination relations', async () => {
+  const first = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v2.0.' + i, draft: false, immutable: false,
+  }));
+  const next = BASE + '?page=2&per_page=30';
+  const prior = BASE + '?page=1&per_page=30';
+  const fake = releaseListFetch({ pages: [first, [fixture().release]],
+    pageHeaders: {
+      1: { Link: '<' + next + '>; rel="next", <' + next + '>; rel="last"' },
+      2: { Link: '<' + prior + '>; rel="prev", <' + prior + '>; rel="first"' },
+    },
+  });
+  const result = await discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  });
+  assert.equal(result.kind, 'candidate');
+  assert.equal(result.releaseId, RELEASE_ID);
+});
+
+test('rejects an ID repeated on later pages even when its tag differs', async () => {
+  const first = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v2.0.' + i, draft: false, immutable: false,
+  }));
+  const fake = releaseListFetch({ pages: [first, [{
+    id: first[0].id, tag_name: TAG, draft: true, immutable: false,
+  }]] });
+  await assert.rejects(discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), /duplicate or malformed/);
+});
+
+test('rejects unauthorized, wrong-origin, wrong state and mutated candidate rechecks', async () => {
+  const { release } = fixture();
+  for (const bad of [response({ message: 'Forbidden' }, 403),
+    response({ message: 'Not Found' }, 404),
+    response({ message: 'limited' }, 429),
+    new Response('bad JSON', { status: 200, headers: { 'content-type': 'application/json' } })]) {
+    const fake = releaseListFetch({ pages: [[release]],
+      responseErrors: { [BASE + '?per_page=30&page=1']: bad } });
+    await assert.rejects(discoverReleaseByTag({
+      tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+  for (const mutate of [
+    (r) => ({ ...r, tag_name: 'v3.3.0' }),
+    (r) => ({ ...r, draft: false }),
+    (r) => ({ ...r, id: 9999 }),
+  ]) {
+    const fake = releaseListFetch({ pages: [[release]], mutate });
+    await assert.rejects(discoverReleaseByTag({
+      tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+    }), Error);
+  }
+});
+
+test('never trusts truncated searches after a bounded release page limit', async () => {
+  const pages = Array.from({ length: 21 }, (_, n) =>
+    Array.from({ length: 30 }, (_, i) => ({
+      id: n * 30 + i + 20000, tag_name: 'v5.' + n + '.' + i,
+      draft: false, immutable: false,
+    })));
+  const fake = releaseListFetch({ pages });
+  await assert.rejects(discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), /page limit|bounded/);
+  assert.ok(fake.calls.length <= 20);
 });
 
 test('bounds response bytes and propagates network/stream failures without retrying', async () => {
