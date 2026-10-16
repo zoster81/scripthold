@@ -4,11 +4,13 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const test = require('node:test');
+const { expectedReleaseAssetNames } = require('./release-asset-contract');
 
 const {
   selectExactSuccessfulPushRun,
   selectExactSuccessfulScorecardRun,
   verifySuccessfulReleaseCandidateJob,
+  validatePublicationAuthoritySnapshot,
 } = require('./release-candidate-provenance');
 
 function run(overrides = {}) {
@@ -106,6 +108,128 @@ test('verifies exactly one successful Release candidate job', () => {
       () => verifySuccessfulReleaseCandidateJob({ jobs }),
       /exactly one successful Release candidate job/,
     );
+  }
+});
+
+const AUTH_SHA = 'a'.repeat(40);
+const ANNOTATED_TAG_SHA = 'b'.repeat(40);
+
+function publicationEvidence() {
+  const tag = 'v3.4.0';
+  return {
+    repository: 'zoster81/scripthold',
+    tag,
+    commit: AUTH_SHA,
+    publisherCommit: AUTH_SHA,
+    manifest: { repository: 'zoster81/scripthold', tag, commit: AUTH_SHA,
+      assets: expectedReleaseAssetNames(tag).map((name, i) => ({
+        name, size: i + 1, sha256: 'a'.repeat(64),
+      })),
+    },
+    tagRef: {
+      ref: 'refs/tags/' + tag,
+      object: { type: 'tag', sha: ANNOTATED_TAG_SHA },
+    },
+    tagObject: {
+      sha: ANNOTATED_TAG_SHA, tag,
+      object: { type: 'commit', sha: AUTH_SHA },
+    },
+    mainRef: {
+      ref: 'refs/heads/main',
+      object: { type: 'commit', sha: AUTH_SHA },
+    },
+    testRuns: { workflow_runs: [
+      run({ id: 124, run_number: 8, run_attempt: 2, head_sha: AUTH_SHA }),
+    ] },
+    scorecardRuns: { workflow_runs: [
+      run({ id: 125, run_number: 3, head_sha: AUTH_SHA,
+        path: '.github/workflows/scorecard.yml' }),
+    ] },
+    testJobs: { jobs: [
+      { name: 'Release candidate', status: 'completed', conclusion: 'success',
+        run_id: 124, run_attempt: 2, head_sha: AUTH_SHA },
+    ] },
+  };
+}
+
+test('validates exact annotated tag, main push gates and publisher revision snapshot', () => {
+  assert.deepEqual(validatePublicationAuthoritySnapshot(publicationEvidence()), {
+    repository: 'zoster81/scripthold',
+    tag: 'v3.4.0',
+    commit: AUTH_SHA,
+    testRunId: 124,
+    scorecardRunId: 125,
+  });
+});
+
+test('rejects tampered Git tag, source and mutable publisher identities', () => {
+  for (const mutate of [
+    (e) => { e.repository = 'other/repository'; },
+    (e) => { e.tag = 'refs/tags/v3.4.0'; },
+    (e) => { e.tagRef.ref = 'refs/heads/main'; },
+    (e) => { e.tagRef.object.type = 'commit'; },
+    (e) => { e.tagRef.object.sha = 'c'.repeat(40); },
+    (e) => { e.tagObject.tag = 'v3.3.0'; },
+    (e) => { e.tagObject.sha = 'c'.repeat(40); },
+    (e) => { e.tagObject.object.type = 'tag'; },
+    (e) => { e.tagObject.object.sha = 'c'.repeat(40); },
+    (e) => { e.mainRef.ref = 'refs/heads/release'; },
+    (e) => { e.mainRef.object.type = 'tag'; },
+    (e) => { e.mainRef.object.sha = 'c'.repeat(40); },
+    (e) => { e.publisherCommit = 'main'; },
+    (e) => { e.publisherCommit = 'c'.repeat(40); },
+    (e) => { e.commit = 'not-a-sha'; },
+    (e) => { e.manifest.commit = 'c'.repeat(40); },
+    (e) => { e.manifest.assets[0].name = '../outside'; },
+    (e) => { e.manifest.repository = 'wrong/repo'; },
+  ]) {
+    const evidence = publicationEvidence();
+    mutate(evidence);
+    assert.throws(() => validatePublicationAuthoritySnapshot(evidence),
+      Error, 'untrusted tag or publication code was accepted');
+  }
+});
+
+test('rejects wrong CI and Scorecard run or unbound candidate job', () => {
+  for (const mutate of [
+    (e) => { e.testRuns.workflow_runs[0].head_sha = 'c'.repeat(40); },
+    (e) => { e.testRuns.workflow_runs[0].event = 'pull_request'; },
+    (e) => { e.testRuns.workflow_runs[0].head_branch = 'feature'; },
+    (e) => { e.testRuns.workflow_runs[0].conclusion = 'failure'; },
+    (e) => { e.testRuns.workflow_runs[0].path = '.github/workflows/codeql.yml'; },
+    (e) => { e.testRuns.workflow_runs[0].run_attempt = 3; },
+    (e) => { e.testRuns.workflow_runs[0].id = '124'; },
+    (e) => { e.scorecardRuns.workflow_runs[0].event = 'workflow_dispatch'; },
+    (e) => { e.scorecardRuns.workflow_runs[0].head_sha = 'c'.repeat(40); },
+    (e) => { e.scorecardRuns.workflow_runs[0].path = '.github/workflows/test.yml'; },
+    (e) => { e.testJobs.jobs[0].run_id = 999; },
+    (e) => { e.testJobs.jobs[0].run_attempt = 1; },
+    (e) => { e.testJobs.jobs[0].status = 'in_progress'; },
+    (e) => { e.testJobs.jobs[0].head_sha = 'c'.repeat(40); },
+    (e) => { e.scorecardRuns.workflow_runs[0].id = '125'; },
+    (e) => { e.testRuns.workflow_runs.push({ ...e.testRuns.workflow_runs[0] }); },
+    (e) => { e.testJobs.jobs[0].conclusion = 'skipped'; },
+    (e) => { e.testJobs.jobs.push({ ...e.testJobs.jobs[0] }); },
+    (e) => { e.testJobs.jobs = []; },
+  ]) {
+    const evidence = publicationEvidence();
+    mutate(evidence);
+    assert.throws(() => validatePublicationAuthoritySnapshot(evidence),
+      Error, 'wrong-run evidence or missing gate was accepted');
+  }
+});
+
+test('rejects malformed, missing and oversized authority snapshots', () => {
+  for (const input of [
+    null, [], {}, { ...publicationEvidence(), tagRef: null },
+    { ...publicationEvidence(), tagObject: null },
+    { ...publicationEvidence(), mainRef: null },
+    { ...publicationEvidence(), manifest: null },
+    { ...publicationEvidence(), testRuns: {} },
+    { ...publicationEvidence(), scorecardRuns: { workflow_runs: new Array(1001) } },
+    { ...publicationEvidence(), testJobs: { jobs: new Array(1001) } },
+  ]) {
+    assert.throws(() => validatePublicationAuthoritySnapshot(input), Error);
   }
 });
 
