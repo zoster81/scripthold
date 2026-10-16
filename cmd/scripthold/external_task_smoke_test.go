@@ -329,6 +329,12 @@ func waitExternalTaskStatus(t *testing.T, ctx context.Context, session *mcp.Clie
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	// The detached executor is deliberately independent of its worker. If
+	// this test times out, cancel the still-active task before TempDir cleanup
+	// so its log handles can close before TempDir cleanup on Windows.
+	if !isExternalTerminal(last.Status) {
+		cancelExternalTaskAfterFailedWait(t, session, id)
+	}
 	if err := ctx.Err(); err != nil {
 		t.Fatalf("task %s status=%s, want %s; parent context ended: %v", id, last.Status, wanted, err)
 	}
@@ -337,6 +343,50 @@ func waitExternalTaskStatus(t *testing.T, ctx context.Context, session *mcp.Clie
 	}
 	t.Fatalf("task %s status=%s, want %s", id, last.Status, wanted)
 	return last
+}
+
+// cancelExternalTaskAfterFailedWait is failure-path cleanup, not a retry or
+// extension of the status watchdog. Preserve the original test failure even
+// if the task subsequently finishes, cannot be canceled, or remains running.
+func cancelExternalTaskAfterFailedWait(t *testing.T, session *mcp.ClientSession, id string) {
+	t.Helper()
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	result, err := session.CallTool(cleanupCtx, &mcp.CallToolParams{
+		Name:      "task_cancel",
+		Arguments: map[string]any{"taskId": id, "reason": "failed external smoke test cleanup"},
+	})
+	if err != nil {
+		t.Logf("failed smoke-test task cleanup: task_cancel error=%v", err)
+		return
+	}
+	if result == nil || result.IsError {
+		t.Log("failed smoke-test task cleanup: task_cancel was rejected")
+		return
+	}
+
+	var lastStatus string
+	for cleanupCtx.Err() == nil {
+		lookupCtx, stopLookup := context.WithTimeout(cleanupCtx, 2*time.Second)
+		statusResult, lookupErr := session.CallTool(lookupCtx, &mcp.CallToolParams{
+			Name: "task_get", Arguments: map[string]any{"taskId": id},
+		})
+		stopLookup()
+		if lookupErr == nil && statusResult != nil && !statusResult.IsError {
+			state, _ := statusResult.StructuredContent.(map[string]any)
+			lastStatus, _ = state["status"].(string)
+			if isExternalTerminal(lastStatus) {
+				t.Logf("failed smoke-test task cleanup: task reached terminal state %s", lastStatus)
+				return
+			}
+		}
+		select {
+		case <-cleanupCtx.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	t.Logf("failed smoke-test task cleanup: task did not reach terminal state; last=%s", lastStatus)
 }
 
 func assertExternalTaskLog(t *testing.T, ctx context.Context, session *mcp.ClientSession, id, wanted string) {
