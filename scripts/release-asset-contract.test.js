@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
+  planDraftAssetResume,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
@@ -35,7 +36,7 @@ function remote(manifest) {
 }
 
 function release() {
-  return { id: 42, tag_name: TAG, draft: true, immutable: false };
+  return { id: 42, tag_name: TAG, target_commitish: 'main', draft: true, immutable: false };
 }
 
 function groupManifest(stage) {
@@ -214,6 +215,69 @@ test('rejects malformed staged digests, size or filename types', () => {
 test('rejects non-array and oversized staging metadata', () => {
   assert.throws(() => validateStagedManifest({ ...fixture(), assets: null }));
   assert.throws(() => validateStagedManifest({ ...fixture(), assets: new Array(9999) }));
+});
+
+test('plans safe draft resume without weakening final 22-asset publication gate', () => {
+  const manifest = fixture();
+  const draft = { ...release(), target_commitish: COMMIT };
+  const assets = remote(manifest);
+  const empty = planDraftAssetResume(manifest, draft, []);
+  assert.equal(empty.releaseId, draft.id);
+  assert.deepEqual(empty.present, []);
+  assert.deepEqual(empty.missing, expectedReleaseAssetNames(TAG));
+  const part = planDraftAssetResume(manifest, draft, [assets[2], assets[0]]);
+  assert.deepEqual(part.present, [
+    { name: assets[0].name, id: assets[0].id },
+    { name: assets[2].name, id: assets[2].id },
+  ]);
+  assert.equal(part.missing.length, 20);
+  assert.ok(!part.missing.includes(assets[0].name));
+  assert.ok(!part.missing.includes(assets[2].name));
+  assert.deepEqual(planDraftAssetResume(manifest, draft, assets).missing, []);
+  // GitHub does not use target_commitish when an annotated tag already exists.
+  assert.deepEqual(planDraftAssetResume(manifest,
+    { ...draft, target_commitish: undefined }, []).missing, expectedReleaseAssetNames(TAG));
+  assert.throws(() => verifyDraftAssetSet(manifest, draft, assets.slice(1)),
+    /exactly 22/, 'partial resume must never enable public publication');
+});
+
+const isDraftContractError = (error) => error instanceof Error && error.name === 'Error';
+
+test('draft resume rejects wrong tag, non-draft and ambiguous metadata', () => {
+  const manifest = fixture();
+  const draft = { ...release(), target_commitish: COMMIT };
+  const wrong = [
+    { draft: false },
+    { immutable: true },
+    { immutable: undefined },
+    { tag_name: 'v8.1.0' },
+    { id: '42' },
+  ];
+  for (const patch of wrong) {
+    assert.throws(() => planDraftAssetResume(manifest, { ...draft, ...patch }, []), isDraftContractError);
+  }
+  assert.throws(() => planDraftAssetResume({ ...manifest, commit: 'bad' }, draft, []), isDraftContractError);
+  assert.throws(() => planDraftAssetResume(manifest, draft, null), isDraftContractError);
+  assert.throws(() => planDraftAssetResume(manifest, draft, new Array(23)), isDraftContractError);
+});
+
+test('draft resume fails closed on any conflicting or unfinished remote asset', () => {
+  const manifest = fixture();
+  const draft = { ...release(), target_commitish: COMMIT };
+  const assets = remote(manifest);
+  for (const bad of [
+    [{ ...assets[0], name: '../escape.zip' }],
+    [assets[0], { ...assets[1], name: assets[0].name }],
+    [assets[0], { ...assets[1], id: assets[0].id }],
+    [{ ...assets[0], id: 0 }],
+    [{ ...assets[0], size: assets[0].size + 1 }],
+    [{ ...assets[0], digest: 'sha256:' + 'f'.repeat(64) }],
+    [{ ...assets[0], state: 'starter' }],
+    [{ ...assets[0], digest: undefined }],
+    [{ ...assets[0], id: Number.MAX_SAFE_INTEGER + 1 }],
+  ]) {
+    assert.throws(() => planDraftAssetResume(manifest, draft, bad), isDraftContractError);
+  }
 });
 
 test('verifies 22 uploaded GitHub assets by their exact per-file digest and size', () => {

@@ -441,6 +441,52 @@ function validateStagingArchiveEntries(manifest, stage, entries) {
   return seen;
 }
 
+// This is a read-only plan, not publication authority. The caller must bind
+// and recheck the annotated tag, exact source commit, and remote inventory
+// before every mutation, then run verifyDraftAssetSet before publication.
+// GitHub ignores release.target_commitish when the tag already exists; only
+// independently resolved annotated Git tag evidence binds the source commit.
+function planDraftAssetResume(manifest, release, remoteAssets) {
+  const expected = validateStagedManifest(manifest);
+  requireCondition(release && typeof release === 'object' && !Array.isArray(release),
+    'invalid GitHub draft release');
+  requireCondition(Number.isSafeInteger(release.id) && release.id > 0,
+    'invalid GitHub draft id');
+  requireCondition(release.tag_name === manifest.tag, 'draft tag mismatch');
+  requireCondition(release.draft === true && release.immutable === false,
+    'draft must remain unpublished and mutable');
+  requireCondition(Array.isArray(remoteAssets) && remoteAssets.length <= expected.size,
+    'invalid partial draft inventory');
+  const presentByName = new Map();
+  const seenIds = new Set();
+  for (const asset of remoteAssets) {
+    requireCondition(asset && typeof asset === 'object' && !Array.isArray(asset),
+      'invalid remote draft asset');
+    requireCondition(typeof asset.name === 'string' && expected.has(asset.name),
+      'unexpected remote draft asset');
+    requireCondition(!presentByName.has(asset.name), 'duplicate draft asset name');
+    requireCondition(Number.isSafeInteger(asset.id) && asset.id > 0 && !seenIds.has(asset.id),
+      'duplicate or invalid draft asset id');
+    requireCondition(asset.state === 'uploaded', 'draft asset upload is incomplete');
+    const original = expected.get(asset.name);
+    requireCondition(asset.size === original.size &&
+      asset.digest === 'sha256:' + original.sha256,
+    'draft asset bytes conflict with staging manifest');
+    presentByName.set(asset.name, asset.id);
+    seenIds.add(asset.id);
+  }
+  const present = [];
+  const missing = [];
+  for (const name of expectedReleaseAssetNames(manifest.tag)) {
+    if (presentByName.has(name)) {
+      present.push({ name, id: presentByName.get(name) });
+    } else {
+      missing.push(name);
+    }
+  }
+  return { releaseId: release.id, tag: manifest.tag, commit: manifest.commit, present, missing };
+}
+
 function verifyDraftAssetSet(manifest, release, remoteAssets) {
   const expected = validateStagedManifest(manifest);
   requireCondition(release && typeof release === 'object' && !Array.isArray(release),
@@ -475,6 +521,7 @@ function verifyDraftAssetSet(manifest, release, remoteAssets) {
 }
 
 module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraftAssetSet,
+  planDraftAssetResume,
   verifyStagedAssetStream, stagedArtifactName, verifyRunStagingArtifact,
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
