@@ -70,7 +70,8 @@ test('reads exact GitHub tag/main/test/scorecard/job evidence with GET only', as
     token: TOKEN, fetchImpl: mock.fetchImpl,
   });
   assert.deepEqual(result, { repository: REPO, tag: TAG, commit: COMMIT,
-    testRunId: 111, scorecardRunId: 222 });
+    testRunId: 111, scorecardRunId: 222,
+    tagObjectSha: TAG_SHA, testRunAttempt: 2 });
   assert.deepEqual(mock.calls.map((x) => x.url), mock.urls);
   for (const { init } of mock.calls) {
     assert.equal(init.method, 'GET');

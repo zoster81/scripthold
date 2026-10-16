@@ -70,10 +70,14 @@ async function readPublicationAuthority({
     '/attempts/' + testRun.run_attempt + '/jobs?per_page=100&page=1';
   const testJobs = await getCompleteList(get, jobsUrl, 'jobs');
 
-  return validatePublicationAuthoritySnapshot({
+  const verdict = validatePublicationAuthoritySnapshot({
     repository: manifest.repository, tag, commit, publisherCommit, manifest,
     tagRef, tagObject, mainRef, testRuns, scorecardRuns, testJobs,
   });
+  // The Git tag object's identity matters across separate provider reads:
+  // a replaced annotated tag can peel to the same source commit.
+  return { ...verdict, tagObjectSha: tagRef.object.sha,
+    testRunAttempt: testRun.run_attempt };
 }
 
 module.exports = { readPublicationAuthority };
