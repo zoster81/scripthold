@@ -2,6 +2,10 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const { resolveFinalizerActionContext } = require('./release-finalizer-entrypoint');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { resolveFinalizerEvent, inspectFinalizerPreflight } =
   require('./release-finalizer-preflight');
@@ -86,6 +90,97 @@ function provider({ differentTagObject = false, absent = false,
   };
   return { fetchImpl, calls };
 }
+
+test('entrypoint normalizes GitHub Actions context without accepting branch or foreign tags', () => {
+  const push = resolveFinalizerActionContext({
+    GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/tags/' + TAG,
+    GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: '',
+  });
+  const manual = resolveFinalizerActionContext({
+    GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+    GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: TAG,
+  });
+  assert.deepEqual(push, manual);
+  assert.equal(push.group, 'scripthold-immutable-release-' + TAG);
+  for (const context of [
+    { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main',
+      GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: '' },
+    { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/feature',
+      GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: TAG },
+    { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+      GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: '' },
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/tags/' + TAG,
+      GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: '' },
+    { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/tags/' + TAG,
+      GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: TAG },
+    { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/tags/' + TAG,
+      GITHUB_REPOSITORY: 'other/repository', RELEASE_TAG_INPUT: '' },
+    { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+      GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: 'v3.4.0\ninvalid' },
+    {},
+  ]) {
+    assert.throws(() => resolveFinalizerActionContext(context), Error);
+  }
+});
+
+test('actual entrypoint process succeeds only for authorized read-only events', () => {
+  const entrypoint = path.join(__dirname, 'release-finalizer-entrypoint.js');
+  const base = {
+    ...process.env,
+    GITHUB_REPOSITORY: REPO,
+    RELEASE_TAG_INPUT: '',
+  };
+  for (const env of [
+    { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/tags/' + TAG,
+      RELEASE_TAG_INPUT: '' },
+    { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+      RELEASE_TAG_INPUT: TAG },
+  ]) {
+    const run = spawnSync(process.execPath, [entrypoint], {
+      encoding: 'utf8', env: { ...base, ...env }, timeout: 10000,
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /Validated read-only finalizer group:/);
+  }
+  for (const env of [
+    { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main',
+      RELEASE_TAG_INPUT: '' },
+    { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/feature',
+      RELEASE_TAG_INPUT: TAG },
+    { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+      RELEASE_TAG_INPUT: '../escape' },
+  ]) {
+    const run = spawnSync(process.execPath, [entrypoint], {
+      encoding: 'utf8', env: { ...base, ...env }, timeout: 10000,
+    });
+    assert.notEqual(run.status, 0);
+    assert.equal(run.stdout, '');
+    assert.match(run.stderr, /Refusing untrusted release preflight event/);
+  }
+});
+
+test('future single-writer workflow is read-only and has a matching cross-trigger group', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows',
+    'release-finalizer-preflight.yml'), 'utf8');
+  assert.match(workflow, /^on:\n  push:\n    tags:\n      - 'v\*'\n  workflow_dispatch:/m);
+  assert.match(workflow, /^permissions:\n  contents: read\n/m);
+  assert.match(workflow, /^concurrency:\n  group: scripthold-immutable-release-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}\n  cancel-in-progress: false$/m);
+  assert.doesNotMatch(workflow, /^\s+[a-z-]+: write\s*$/m);
+  assert.doesNotMatch(workflow, /\$\{\{\s*secrets\./);
+  assert.doesNotMatch(workflow, /^\s+environment:/m);
+  assert.deepEqual([...workflow.matchAll(/^ {6}- name: (.+)$/gm)].map((m) => m[1]), [
+    'Check out requested ref without persisted credentials',
+    'Set up pinned Node.js',
+    'Validate event and canonical concurrency group',
+  ]);
+  assert.deepEqual([...workflow.matchAll(/^ {8}uses: ([^\s]+).*$/gm)].map((m) => m[1]), [
+    'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+    'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
+  ]);
+  assert.equal([...workflow.matchAll(/^ {8}run: \|$/gm)].length, 1);
+  assert.match(workflow, /^ {10}persist-credentials: false$/m);
+  assert.match(workflow, /^ {10}set -euo pipefail\n {10}node scripts\/release-finalizer-entrypoint\.js$/m);
+});
 
 test('normalizes push-tag and manual-main events to one exact concurrency group', () => {
   const push = resolveFinalizerEvent(tagEvent());
