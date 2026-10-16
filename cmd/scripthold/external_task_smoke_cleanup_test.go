@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -81,5 +82,43 @@ func TestExternalSmokeFailureCleanupReturnsAfterRejectedCancellation(t *testing.
 	cancelExternalTaskAfterFailedWait(t, clientSession, "task-test")
 	if cancelCalls.Load() != 1 {
 		t.Fatalf("task_cancel called %d times, want exactly one", cancelCalls.Load())
+	}
+}
+
+func TestExternalTaskStateDiagnosticIncludesOnlyBoundedMetadata(t *testing.T) {
+	state := parseExternalTaskState(map[string]any{
+		"status":       "running",
+		"createdAt":    "2026-10-16T16:00:00Z",
+		"startedAt":    "2026-10-16T16:00:01Z",
+		"updatedAt":    "2026-10-16T16:00:02Z",
+		"finishedAt":   "",
+		"workerOnline": true,
+		"command":      "private-command-must-not-appear",
+	})
+	got := state.diagnostic()
+	for _, part := range []string{
+		"status=running", "createdAt=2026-10-16T16:00:00Z",
+		"startedAt=2026-10-16T16:00:01Z", "updatedAt=2026-10-16T16:00:02Z",
+		"finishedAt=unknown", "workerOnline=true",
+	} {
+		if !strings.Contains(got, part) {
+			t.Errorf("missing %q in diagnostic %q", part, got)
+		}
+	}
+	if strings.Contains(got, "private-command-must-not-appear") {
+		t.Fatal("diagnostic exposed arbitrary task metadata")
+	}
+}
+
+func TestExternalTaskStateDiagnosticHandlesMalformedFields(t *testing.T) {
+	for _, payload := range []any{
+		nil,
+		"not-a-map",
+		map[string]any{"status": 7, "createdAt": "bad-time", "workerOnline": "true"},
+	} {
+		got := parseExternalTaskState(payload).diagnostic()
+		if !strings.Contains(got, "createdAt=unknown") || !strings.Contains(got, "workerOnline=unknown") {
+			t.Errorf("malformed task state should remain unknown: %q", got)
+		}
 	}
 }

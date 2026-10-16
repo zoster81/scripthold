@@ -164,8 +164,9 @@ func TestExternalTaskSupervisorRecovery(t *testing.T) {
 }
 
 type externalTaskState struct {
-	Status                string
-	StartedAt, FinishedAt *time.Time
+	Status                                      string
+	CreatedAt, StartedAt, UpdatedAt, FinishedAt *time.Time
+	WorkerOnline                                string
 }
 
 func canonicalExternalTaskTestDir(t *testing.T) string {
@@ -316,15 +317,12 @@ func waitExternalTaskStatus(t *testing.T, ctx context.Context, session *mcp.Clie
 			lastErr = fmt.Errorf("task_get returned an MCP error")
 		} else {
 			lastErr = nil
-			content, _ := result.StructuredContent.(map[string]any)
-			last.Status, _ = content["status"].(string)
-			last.StartedAt = parseExternalTime(content["startedAt"])
-			last.FinishedAt = parseExternalTime(content["finishedAt"])
+			last = parseExternalTaskState(result.StructuredContent)
 			if last.Status == wanted {
 				return last
 			}
 			if isExternalTerminal(last.Status) && last.Status != wanted {
-				t.Fatalf("task %s reached %s, want %s", id, last.Status, wanted)
+				t.Fatalf("task %s reached unexpected terminal state; %s, want %s", id, last.diagnostic(), wanted)
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -336,12 +334,12 @@ func waitExternalTaskStatus(t *testing.T, ctx context.Context, session *mcp.Clie
 		cancelExternalTaskAfterFailedWait(t, session, id)
 	}
 	if err := ctx.Err(); err != nil {
-		t.Fatalf("task %s status=%s, want %s; parent context ended: %v", id, last.Status, wanted, err)
+		t.Fatalf("task %s %s, want %s; parent context ended: %v", id, last.diagnostic(), wanted, err)
 	}
 	if lastErr != nil {
-		t.Fatalf("task %s status=%s, want %s; last task_get error: %v", id, last.Status, wanted, lastErr)
+		t.Fatalf("task %s %s, want %s; last task_get error: %v", id, last.diagnostic(), wanted, lastErr)
 	}
-	t.Fatalf("task %s status=%s, want %s", id, last.Status, wanted)
+	t.Fatalf("task %s %s, want %s", id, last.diagnostic(), wanted)
 	return last
 }
 
@@ -401,6 +399,45 @@ func assertExternalTaskLog(t *testing.T, ctx context.Context, session *mcp.Clien
 	if !strings.Contains(data, wanted) {
 		t.Fatalf("stdout %q does not contain %q", data, wanted)
 	}
+}
+
+// parseExternalTaskState deliberately selects only fixed, public task metadata.
+// Diagnostics must never serialize arbitrary tool output, commands or paths.
+func parseExternalTaskState(payload any) externalTaskState {
+	state := externalTaskState{Status: "unknown", WorkerOnline: "unknown"}
+	content, ok := payload.(map[string]any)
+	if !ok {
+		return state
+	}
+	status, _ := content["status"].(string)
+	switch status {
+	case "queued", "starting", "running", "succeeded", "failed", "timed_out", "cancelled", "interrupted":
+		state.Status = status
+	}
+	state.CreatedAt = parseExternalTime(content["createdAt"])
+	state.StartedAt = parseExternalTime(content["startedAt"])
+	state.UpdatedAt = parseExternalTime(content["updatedAt"])
+	state.FinishedAt = parseExternalTime(content["finishedAt"])
+	if online, valid := content["workerOnline"].(bool); valid {
+		if online {
+			state.WorkerOnline = "true"
+		} else {
+			state.WorkerOnline = "false"
+		}
+	}
+	return state
+}
+
+func (state externalTaskState) diagnostic() string {
+	formatTime := func(instant *time.Time) string {
+		if instant == nil {
+			return "unknown"
+		}
+		return instant.UTC().Format(time.RFC3339Nano)
+	}
+	return fmt.Sprintf("status=%s createdAt=%s startedAt=%s updatedAt=%s finishedAt=%s workerOnline=%s",
+		state.Status, formatTime(state.CreatedAt), formatTime(state.StartedAt),
+		formatTime(state.UpdatedAt), formatTime(state.FinishedAt), state.WorkerOnline)
 }
 
 func parseExternalTime(value any) *time.Time {
