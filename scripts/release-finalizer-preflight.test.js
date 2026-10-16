@@ -172,12 +172,20 @@ test('future single-writer workflow is read-only and has a matching cross-trigge
     'Check out requested ref without persisted credentials',
     'Set up pinned Node.js',
     'Validate event and canonical concurrency group',
+    'Verify exact annotated tag and main source (read-only)',
   ]);
   assert.deepEqual([...workflow.matchAll(/^ {8}uses: ([^\s]+).*$/gm)].map((m) => m[1]), [
     'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
     'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
   ]);
-  assert.equal([...workflow.matchAll(/^ {8}run: \|$/gm)].length, 1);
+  assert.equal([...workflow.matchAll(/^ {8}run: \|$/gm)].length, 2);
+  const [eventSteps, sourceStep, ...unexpected] = workflow.split(
+    '      - name: Verify exact annotated tag and main source (read-only)');
+  assert.equal(unexpected.length, 0, 'unexpected extra source-verification steps');
+  assert.doesNotMatch(eventSteps, /GITHUB_TOKEN:|github\.token/);
+  assert.match(sourceStep, /^          GITHUB_TOKEN: \$\{\{ github\.token \}\}$/m);
+  assert.match(sourceStep, /^          GITHUB_SHA: \$\{\{ github\.sha \}\}$/m);
+  assert.match(sourceStep, /^          set -euo pipefail\n          node scripts\/release-finalizer-source\.js$/m);
   assert.match(workflow, /^ {10}persist-credentials: false$/m);
   assert.match(workflow, /^ {10}set -euo pipefail\n {10}node scripts\/release-finalizer-entrypoint\.js$/m);
 });

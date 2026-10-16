@@ -48,3 +48,16 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/release-finalizer-entrypoint.js
+
+      - name: Verify exact annotated tag and main source (read-only)
+        shell: bash
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG_INPUT: ${{ inputs.tag }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release-finalizer-source.js
