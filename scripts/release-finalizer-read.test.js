@@ -297,6 +297,93 @@ test('rejects incomplete, forged or inconsistent paginated GitHub lists', async 
   }), Error);
 });
 
+test('rejects premature release-list completion against an advertised last page', async () => {
+  const { release } = fixture();
+  const first = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v2.4.' + i, draft: false, immutable: false,
+  }));
+  first[0] = release;
+  const next = BASE + '?per_page=30&page=2';
+  const last = BASE + '?per_page=30&page=3';
+  const fake = releaseListFetch({
+    pages: [first, [{ id: 5000, tag_name: 'v2.5.0', draft: false, immutable: false }]],
+    pageHeaders: { 1: { Link:
+      '<' + next + '>; rel="next", <' + last + '>; rel="last"' } },
+  });
+  await assert.rejects(discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), /pagination|incomplete|last page/);
+  assert.equal(fake.calls.some((call) => call.url === RELEASE_URL), false);
+});
+
+test('rejects a next page inconsistent with the advertised last page', async () => {
+  const first = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v2.0.' + i, draft: false, immutable: false,
+  }));
+  const next = BASE + '?page=2&per_page=30';
+  const current = BASE + '?page=1&per_page=30';
+  const fake = releaseListFetch({
+    pages: [first, [fixture().release]],
+    pageHeaders: { 1: { Link:
+      '<' + next + '>; rel="next", <' + current + '>; rel="last"' } },
+  });
+  await assert.rejects(discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), /pagination|last page/);
+  assert.equal(fake.calls.length, 1);
+});
+
+test('rejects a changed advertised last page across authenticated reads', async () => {
+  const first = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v2.0.' + i, draft: false, immutable: false,
+  }));
+  const second = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 2000, tag_name: 'v2.1.' + i, draft: false, immutable: false,
+  }));
+  const page2 = BASE + '?page=2&per_page=30';
+  const page3 = BASE + '?page=3&per_page=30';
+  const page4 = BASE + '?page=4&per_page=30';
+  const fake = releaseListFetch({
+    pages: [first, second],
+    pageHeaders: {
+      1: { Link: '<' + page2 + '>; rel="next", <' + page3 + '>; rel="last"' },
+      2: { Link: '<' + page3 + '>; rel="next", <' + page4 + '>; rel="last"' },
+    },
+  });
+  await assert.rejects(discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), /inconsistent.*last page/);
+  assert.equal(fake.calls.length, 2);
+});
+
+test('accepts an exactly full advertised final page after checking the empty tail', async () => {
+  const { release } = fixture();
+  const first = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1000, tag_name: 'v2.0.' + i, draft: false, immutable: false,
+  }));
+  first[0] = release;
+  const second = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 2000, tag_name: 'v2.1.' + i, draft: false, immutable: false,
+  }));
+  const next = BASE + '?page=2&per_page=30';
+  const prior = BASE + '?page=1&per_page=30';
+  const fake = releaseListFetch({
+    pages: [first, second, []],
+    pageHeaders: {
+      1: { Link: '<' + next + '>; rel="next", <' + next + '>; rel="last"' },
+      2: { Link: '<' + prior + '>; rel="prev", <' + prior + '>; rel="first"' },
+    },
+  });
+  const result = await discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  });
+  assert.equal(result.kind, 'candidate');
+  assert.equal(result.releaseId, RELEASE_ID);
+  assert.deepEqual(fake.calls.slice(0, 3).map((call) => call.url), [
+    BASE + '?per_page=30&page=1', BASE + '?per_page=30&page=2',
+    BASE + '?per_page=30&page=3',
+  ]);
+});
 
 test('accepts actual GitHub-style next/last and prev/first pagination relations', async () => {
   const first = Array.from({ length: 30 }, (_, i) => ({

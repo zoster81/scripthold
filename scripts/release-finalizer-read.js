@@ -126,10 +126,11 @@ const MAX_RELEASE_PAGES = 20;
 // A non-executable pagination check. GitHub may include prev/first/last
 // alongside next; every supplied link must stay on the exact repository API.
 function verifyReleaseListLinks(link, currentPage, entries) {
-  if (link === null) return;
+  if (link === null) return null;
   requireCondition(typeof link === 'string' && link.length > 0 && link.length <= 4096,
     'invalid GitHub release pagination header');
   const relations = new Set();
+  let lastPage = null;
   for (const item of link.split(',')) {
     const match = /^<([^<>]+)>;\s*rel="(next|prev|first|last)"$/.exec(item.trim());
     requireCondition(match && !relations.has(match[2]),
@@ -157,9 +158,12 @@ function verifyReleaseListLinks(link, currentPage, entries) {
       (match[2] !== 'first' || page === 1) &&
       (match[2] !== 'last' || page >= currentPage),
     'inconsistent release pagination');
+    if (match[2] === 'last') lastPage = page;
   }
-  requireCondition(!relations.has('next') || entries === RELEASES_PER_PAGE,
-    'release list unexpectedly truncated');
+  requireCondition(!relations.has('next') || (entries === RELEASES_PER_PAGE &&
+    (lastPage === null || lastPage > currentPage)),
+  'release list pagination contradicts advertised last page');
+  return lastPage;
 }
 
 // Read-only recovery discovery. It can find one candidate from a completely
@@ -173,13 +177,26 @@ async function discoverReleaseByTag({ tag, token, fetchImpl = globalThis.fetch }
   const ids = new Set();
   let candidate = null;
   let complete = false;
+  let advertisedLastPage = null;
   for (let page = 1; page <= MAX_RELEASE_PAGES; page++) {
     const url = API + '?per_page=' + RELEASES_PER_PAGE + '&page=' + page;
     const result = await get(url);
     const entries = await readJsonResponse(result, url);
     requireCondition(Array.isArray(entries) && entries.length <= RELEASES_PER_PAGE,
       'invalid or oversized GitHub release list page');
-    verifyReleaseListLinks(result.headers.get('link'), page, entries.length);
+    const statedLastPage = verifyReleaseListLinks(
+      result.headers.get('link'), page, entries.length);
+    if (statedLastPage !== null && statedLastPage !== undefined) {
+      requireCondition(statedLastPage <= MAX_RELEASE_PAGES &&
+        (advertisedLastPage === null || advertisedLastPage === statedLastPage),
+      'inconsistent GitHub release last page');
+      advertisedLastPage = statedLastPage;
+    }
+    if (advertisedLastPage !== null) {
+      requireCondition(page <= advertisedLastPage ||
+        (page === advertisedLastPage + 1 && entries.length === 0),
+      'release list pagination exceeded advertised last page');
+    }
     for (const entry of entries) {
       requireCondition(entry && typeof entry === 'object' && !Array.isArray(entry) &&
         Number.isSafeInteger(entry.id) && entry.id > 0 &&
@@ -193,6 +210,10 @@ async function discoverReleaseByTag({ tag, token, fetchImpl = globalThis.fetch }
       }
     }
     if (entries.length < RELEASES_PER_PAGE) {
+      requireCondition(advertisedLastPage === null ||
+        page === advertisedLastPage ||
+        (page === advertisedLastPage + 1 && entries.length === 0),
+      'release list pagination ended before advertised last page');
       complete = true;
       break;
     }
