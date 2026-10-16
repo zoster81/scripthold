@@ -222,8 +222,7 @@ function verifyRunStagingArtifact(expected, remote) {
 // A v7 upload with archive:false uses the uploaded file's basename as
 // artifact name. Its digest must equal the original release file SHA.
 // This does not open/download the file or grant execution/permission authority.
-function verifyRawStagingArtifact(manifest, expected, remote) {
-  const files = validateStagedManifest(manifest);
+function verifyRawStagingArtifactFromFiles(manifest, files, expected, remote) {
   requireCondition(expected && typeof expected === 'object' && !Array.isArray(expected),
     'invalid raw staging identity');
   requireCondition(expected.repository === manifest.repository &&
@@ -246,6 +245,11 @@ function verifyRawStagingArtifact(manifest, expected, remote) {
     fileName: expected.fileName, size: original.size, sha256: original.sha256 };
 }
 
+function verifyRawStagingArtifact(manifest, expected, remote) {
+  return verifyRawStagingArtifactFromFiles(manifest, validateStagedManifest(manifest),
+    expected, remote);
+}
+
 // Callers must independently authorize/open a stable source by the proven ID
 // in owner-controlled staging. The byte stream itself is checked, not just REST metadata.
 async function verifyRawStagingStream(manifest, expected, remote, source) {
@@ -254,14 +258,13 @@ async function verifyRawStagingStream(manifest, expected, remote, source) {
   return file;
 }
 
-// Before any transfer, require the exact 22 original release files, each bound
-// to an authenticated upload ID/digest. download-artifact@v8 only warns if one
-// of several requested artifact IDs is absent, so action success is not enough.
-// This is metadata-only: consumers must still verify all 22 downloaded streams.
-function verifyRawStagingInventory(manifest, entries) {
-  const files = validateStagedManifest(manifest);
+// Validate a pre-authorized file inventory without relaxing the caller's
+// selected 15-file producer stage or complete 22-file publication contract.
+// Download-artifact@v8 can warn instead of failing on a missing artifact ID.
+// Every actual downloaded byte stream must still be checked independently.
+function verifyRawStagingInventoryWithFiles(manifest, files, entries) {
   requireCondition(Array.isArray(entries) && entries.length === files.size,
-    'raw staging inventory must include exactly 22 uploads');
+    `raw staging inventory must include exactly ${files.size} uploads`);
   const found = new Map();
   const seenIDs = new Set();
   const attempts = new Map();
@@ -271,7 +274,7 @@ function verifyRawStagingInventory(manifest, entries) {
     requireCondition(item && typeof item === 'object' && !Array.isArray(item),
       'invalid raw staging entry');
     const expected = item.expected;
-    const artifact = verifyRawStagingArtifact(manifest, expected, item.remote);
+    const artifact = verifyRawStagingArtifactFromFiles(manifest, files, expected, item.remote);
     requireCondition(!found.has(artifact.fileName), 'duplicate raw staging file');
     requireCondition(!seenIDs.has(artifact.artifactId), 'duplicate raw staging artifact ID');
     if (runId === undefined) {
@@ -295,6 +298,10 @@ function verifyRawStagingInventory(manifest, entries) {
     canonical.set(name, found.get(name));
   }
   return canonical;
+}
+
+function verifyRawStagingInventory(manifest, entries) {
+  return verifyRawStagingInventoryWithFiles(manifest, validateStagedManifest(manifest), entries);
 }
 
 // The pinned download-artifact v8 derives multi-download subdirectories from
@@ -324,10 +331,7 @@ function planRawStagingDownloads(manifest, entries) {
 // Explicit merge-multiple prevents the action from constructing directory names
 // from remote metadata; all IDs must still be rechecked after its warning-only
 // missing-ID behavior. The caller supplies a fresh private destination path.
-function planRawStagingBatch(manifest, entries) {
-  const files = planRawStagingDownloads(manifest, entries).map(({
-    artifactId, artifactName, fileName, size, sha256,
-  }) => ({ artifactId, artifactName, fileName, size, sha256 }));
+function rawBatchFromFiles(files) {
   return {
     actionInputs: {
       'artifact-ids': files.map((file) => String(file.artifactId)).join(','),
@@ -339,13 +343,31 @@ function planRawStagingBatch(manifest, entries) {
   };
 }
 
+function planRawStagingBatch(manifest, entries) {
+  const files = planRawStagingDownloads(manifest, entries).map(({
+    artifactId, artifactName, fileName, size, sha256,
+  }) => ({ artifactId, artifactName, fileName, size, sha256 }));
+  return rawBatchFromFiles(files);
+}
+
+// A strictly normal-stage handoff for the later genuine MCPB producer. This
+// deliberately does not relax any of the finalizer's 22-file entrypoints.
+function planRawNormalStagingBatch(manifest, entries) {
+  requireCondition(manifest?.stage === 'normal', 'expected normal staging manifest');
+  const files = validateStagedGroupManifest(manifest);
+  const inventory = verifyRawStagingInventoryWithFiles(manifest, files, entries);
+  const canonical = expectedReleaseAssetNames(manifest.tag)
+    .filter(name => !name.endsWith('.mcpb') && name !== 'mcpb-checksums.txt')
+    .map(name => inventory.get(name));
+  return rawBatchFromFiles(canonical);
+}
+
 // The caller must enumerate an owner-controlled directory using lstat/fstat
 // with no-follow, stable inode and parent-directory checks. This metadata
 // preflight alone does not authorize opening paths or prove the payload bytes.
-function verifyRawStagingBatchEntries(manifest, entries, observed) {
-  const expected = planRawStagingBatch(manifest, entries).files;
+function verifyRawStagingBatchEntriesFromPlan(expected, observed) {
   requireCondition(Array.isArray(observed) && observed.length === expected.length,
-    'raw batch must contain exactly 22 downloaded files');
+    `raw batch must contain exactly ${expected.length} downloaded files`);
   const byPhysicalName = new Map(expected.map((file) => [file.artifactName, file]));
   const found = new Set();
   for (const item of observed) {
@@ -365,6 +387,16 @@ function verifyRawStagingBatchEntries(manifest, entries, observed) {
     canonical.set(file.fileName, file);
   }
   return canonical;
+}
+
+function verifyRawStagingBatchEntries(manifest, entries, observed) {
+  return verifyRawStagingBatchEntriesFromPlan(planRawStagingBatch(manifest, entries).files,
+    observed);
+}
+
+function verifyRawNormalStagingBatchEntries(manifest, entries, observed) {
+  return verifyRawStagingBatchEntriesFromPlan(planRawNormalStagingBatch(manifest, entries).files,
+    observed);
 }
 
 // Validate the complete inventory before any stream is requested, then hash
@@ -390,6 +422,11 @@ async function verifyRawStagingPayloads(manifest, entries, openSource) {
 async function verifyRawStagingBatchPayloads(manifest, entries, observed, openSource) {
   return verifyRawStagingSources(
     verifyRawStagingBatchEntries(manifest, entries, observed), openSource);
+}
+
+async function verifyRawNormalStagingBatchPayloads(manifest, entries, observed, openSource) {
+  return verifyRawStagingSources(
+    verifyRawNormalStagingBatchEntries(manifest, entries, observed), openSource);
 }
 
 // The exact producer-upload ID, SHA and run are authenticated against the
@@ -540,6 +577,8 @@ module.exports = { expectedReleaseAssetNames, validateStagedManifest, verifyDraf
   verifyStagingArchiveStream, validateStagingArchiveEntries,
   verifyRawStagingArtifact, verifyRawStagingStream, rawStagingArtifactName,
   verifyRawStagingInventory, verifyRawStagingPayloads,
-  planRawStagingDownloads, planRawStagingBatch, verifyRawStagingBatchEntries,
-  verifyRawStagingBatchPayloads, isRecognizedReleaseAssetName, validateStagedGroupManifest,
+  planRawStagingDownloads, planRawStagingBatch, planRawNormalStagingBatch,
+  verifyRawStagingBatchEntries, verifyRawNormalStagingBatchEntries,
+  verifyRawStagingBatchPayloads, verifyRawNormalStagingBatchPayloads,
+  isRecognizedReleaseAssetName, validateStagedGroupManifest,
   composeStagedGroupManifests };
