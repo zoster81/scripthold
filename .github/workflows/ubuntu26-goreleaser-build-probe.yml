@@ -1,0 +1,50 @@
+# Non-publishing Ubuntu 26.04 build and scratch-capacity qualification.
+name: Ubuntu 26 GoReleaser build probe
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ubuntu26-goreleaser-build-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source with tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up pinned Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Inspect build scratch volumes before compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for directory in /tmp /var/tmp "${RUNNER_TEMP}" "${GITHUB_WORKSPACE}"; do
+            test -d "${directory}"
+            printf '\n=== %s ===\n' "${directory}"
+            df -hPT -- "${directory}"
+            df -Pi -- "${directory}"
+            findmnt -T "${directory}" -no TARGET,SOURCE,FSTYPE,OPTIONS
+          done
+      - name: Compile the six genuine GoReleaser binary targets without publishing
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: 'v2.18.1'
+          args: build --clean
+      - name: Check all six binaries and report remaining scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(find dist -type f \( -name scripthold -o -name scripthold.exe \) -print | wc -l)"
+          test "${count}" -eq 6
+          printf 'Six non-published GoReleaser binary targets built successfully\n'
+          df -hPT -- /tmp "${GITHUB_WORKSPACE}"
+          df -Pi -- /tmp "${GITHUB_WORKSPACE}"
+          findmnt -T /tmp -no TARGET,SOURCE,FSTYPE,OPTIONS

@@ -122,6 +122,34 @@ test('PR trusted-base matrices still route Linux jobs to Ubuntu 26.04', () => {
   assert.equal(workflow.split(mapping).length - 1, 2);
 });
 
+function assertNonpublishingUbuntu26BuildProbe(yaml) {
+  assert.match(yaml, /^on:\r?\n  pull_request:\r?\n    paths:\r?\n      - '\.github\/workflows\/ubuntu26-goreleaser-build-probe\.yml'\r?\n  workflow_dispatch:\r?$/m);
+  assert.match(yaml, /^permissions:\r?\n  contents: read\r?$/m);
+  assert.match(yaml, /^    runs-on: ubuntu-26\.04\r?$/m);
+  assert.match(yaml, /^          version: 'v2\.18\.1'\r?$/m);
+  assert.match(yaml, /^          args: build --clean\r?$/m);
+  assert.match(yaml, /df -hPT/);
+  assert.match(yaml, /findmnt -T/);
+  assert.doesNotMatch(yaml, /contents: write|id-token: write|GITHUB_TOKEN|gh release|upload-artifact|--snapshot|args: release/);
+}
+
+test('Ubuntu 26 GoReleaser rehearsal only builds locally on hosted runner', () => {
+  const filename = path.join(__dirname, '..', '.github', 'workflows',
+    'ubuntu26-goreleaser-build-probe.yml');
+  const yaml = fs.readFileSync(filename, 'utf8');
+  assertNonpublishingUbuntu26BuildProbe(yaml);
+  for (const [expected, unsafe] of [
+    ['    runs-on: ubuntu-26.04', '    runs-on: ubuntu-latest'],
+    ['  contents: read', '  contents: write'],
+    ['          args: build --clean', '          args: release --clean'],
+    ["          version: 'v2.18.1'", "          version: 'latest'"],
+  ]) {
+    assert.ok(yaml.includes(expected));
+    assert.throws(() => assertNonpublishingUbuntu26BuildProbe(
+      yaml.replace(expected, unsafe)));
+  }
+});
+
 test('targeted package selection is derived from the evidence map', () => {
   const evidenceMap = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'testarchitecture', 'evidence-map.json'), 'utf8'));
   const race = selectGoPackages(evidenceMap, 'race', 'linux');
