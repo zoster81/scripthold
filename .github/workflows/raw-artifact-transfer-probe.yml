@@ -416,6 +416,20 @@ jobs:
             throw Error('unexpected or missing physical files');
           console.log('22/22 exact synthetic raw transfers verified');
           NODE
+      - name: Allocate isolated normal download directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -m 700 "$RUNNER_TEMP/raw-normal-probe"
+      - name: Download exactly 15 normal IDs for native staging
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ needs.normal.outputs.ids }}
+          merge-multiple: true
+          skip-decompress: true
+          digest-mismatch: error
+          path: ${{ runner.temp }}/raw-normal-probe
       - name: Checkout isolated Go test source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

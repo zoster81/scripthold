@@ -38,7 +38,9 @@ func TestCITransferredNormalHandoff(t *testing.T) {
 	if temp == "" || !filepath.IsAbs(temp) {
 		t.Fatal("runner temporary directory is not absolute")
 	}
-	sourceDir := filepath.Join(temp, "raw-probe")
+	// The 15 normals are downloaded separately because the strict private
+	// staging source must contain exactly 15 entries, never all 22 assets.
+	sourceDir := filepath.Join(temp, "raw-normal-probe")
 	parent := t.TempDir()
 	zipOriginal, err := hex.DecodeString("504b0506000000000000000000000000000000000000")
 	if err != nil || len(zipOriginal) != 22 {

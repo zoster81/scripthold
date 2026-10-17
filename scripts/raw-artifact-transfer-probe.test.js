@@ -56,14 +56,18 @@ function assertSafeTransferWorkflow(yaml) {
   const downloads = [...yaml.matchAll(
     /^        uses: actions\/download-artifact@([0-9a-f]{40}) # v8\r?$/gm,
   )];
-  assert.equal(downloads.length, 1);
+  assert.equal(downloads.length, 2);
+  assert.match(yaml, /^          artifact-ids: \$\{\{ needs\.normal\.outputs\.ids \}\}$/m);
+  assert.match(yaml, /^          path: \$\{\{ runner\.temp \}\}\/raw-normal-probe$/m);
   assert.match(yaml, /^          artifact-ids: \$\{\{ needs\.normal\.outputs\.ids \}\},\$\{\{ needs\.package\.outputs\.ids \}\}\r?$/m);
   for (const [key, value] of [
     ['merge-multiple', 'true'],
     ['skip-decompress', 'true'],
     ['digest-mismatch', 'error'],
   ]) {
-    assert.match(yaml, new RegExp('^          ' + key + ': ' + value + '\\r?$', 'm'));
+    const exact = new RegExp('^          ' + key + ': ' + value + '\\r?$', 'gm');
+    assert.equal([...yaml.matchAll(exact)].length, 2,
+      'both strict raw-download steps must keep ' + key);
   }
 }
 
@@ -121,12 +125,17 @@ test('isolated raw-transfer workflow retains strict publication and artifact pol
 function assertNativeNormalStagingProbe(yaml) {
   const consumer = yaml.slice(yaml.indexOf('\n  consumer:\n'));
   const verified = consumer.indexOf("console.log('22/22 exact synthetic raw transfers verified')");
+  const isolated = consumer.indexOf('      - name: Download exactly 15 normal IDs for native staging');
   const checkout = consumer.indexOf('      - name: Checkout isolated Go test source');
   const go = consumer.indexOf('      - name: Verify native private handoff of the 15 transferred originals');
-  assert.ok(verified >= 0 && checkout > verified && go > checkout,
+  assert.ok(verified >= 0 && isolated > verified && checkout > isolated && go > checkout,
     'staging may consume raw downloads only after complete 22-byte validation');
   assert.match(consumer, /^        uses: actions\/checkout@[0-9a-f]{40} # v7\.0\.1$/m);
   assert.match(consumer, /^        uses: actions\/setup-go@[0-9a-f]{40} # v7\.0\.0$/m);
+  const separate = consumer.slice(isolated, checkout);
+  assert.match(separate, /^          artifact-ids: \$\{\{ needs\.normal\.outputs\.ids \}\}$/m);
+  assert.match(separate, /^          digest-mismatch: error$/m);
+  assert.match(separate, /^          path: \$\{\{ runner\.temp \}\}\/raw-normal-probe$/m);
   const goStep = consumer.slice(go);
   assert.match(goStep, /^          RAW_NORMAL_PROBE: '1'$/m);
   assert.match(goStep, /^          NORMAL_ATTEMPT: \$\{\{ needs\.normal\.outputs\.attempt \}\}$/m);
@@ -140,6 +149,8 @@ test('Linux native 15-original staging runs after authentic cross-job byte proof
     ["      - name: Verify native private handoff of the 15 transferred originals",
       "      - name: Skip native private handoff"],
     ["          RAW_NORMAL_PROBE: '1'", "          RAW_NORMAL_PROBE: '0'"],
+    ["          path: ${{ runner.temp }}/raw-normal-probe",
+      "          path: ${{ runner.temp }}/raw-probe"],
     ["          NORMAL_ATTEMPT: ${{ needs.normal.outputs.attempt }}",
       "          NORMAL_ATTEMPT: 1"],
   ]) {
