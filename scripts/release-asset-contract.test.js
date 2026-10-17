@@ -908,6 +908,26 @@ test('verifies every original raw staging byte stream after the 22-item identity
   assert.deepEqual(opened, expectedReleaseAssetNames(TAG));
 });
 
+test('complete 22-file source opener cannot replace validated digest after an await', async () => {
+  const { createHash } = require('node:crypto');
+  const { Readable } = require('node:stream');
+  const { manifest, entries, opaqueBytes } = rawPayloadFixture();
+  const forged = Buffer.from('forged complete payload');
+  let opened = 0;
+  await assert.rejects(() => verifyRawStagingPayloads(manifest, entries,
+    async (file) => {
+      opened++;
+      await Promise.resolve();
+      if (opened === 1) {
+        file.size = forged.length;
+        file.sha256 = createHash('sha256').update(forged).digest('hex');
+        return Readable.from([forged]);
+      }
+      return Readable.from([opaqueBytes.get(file.fileName)]);
+    }), /asset (?:size|digest) mismatch/);
+  assert.equal(opened, 1);
+});
+
 test('raw staging byte gate rejects missing, truncated, wrong and interrupted streams', async () => {
   const { Readable } = require('node:stream');
   const { manifest, entries, opaqueBytes } = rawPayloadFixture();

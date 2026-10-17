@@ -90,6 +90,19 @@ function assembleRawNormalHandoff(normal) {
   };
 }
 
+// The future Linux-only Go stager expects a mapping from the physical
+// archive:false download basename to the original release name and digest.
+// Derive it exclusively from the already authenticated immutable-ID plan,
+// never from user-supplied paths or downloaded artifact display names.
+// The plan does not authenticate the physical downloaded bytes.
+function planRawNormalPrivateStage(normal) {
+  const { batch } = assembleRawNormalHandoff(normal);
+  return batch.files.map(({ artifactName, fileName, size, sha256 }) => ({
+    downloadName: artifactName,
+    original: { name: fileName, size, sha256 },
+  }));
+}
+
 // Caller must open stable, no-follow immutable sources from an isolated private
 // destination. This gate checks every physical filename and original byte stream
 // before any received normal asset can be used by the future MCPB producer.
@@ -99,4 +112,4 @@ async function verifyRawNormalHandoffPayloads(normal, observed, openSource) {
 }
 
 module.exports = { assembleRawReleaseStaging, assembleRawNormalHandoff,
-  verifyRawNormalHandoffPayloads };
+  planRawNormalPrivateStage, verifyRawNormalHandoffPayloads };

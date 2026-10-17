@@ -8,7 +8,7 @@ const { Readable } = require('node:stream');
 const { expectedReleaseAssetNames, rawStagingArtifactName,
   validateStagedManifest, planRawStagingBatch } = require('./release-asset-contract');
 const { assembleRawReleaseStaging, assembleRawNormalHandoff,
-  verifyRawNormalHandoffPayloads } = require('./release-staging-producers');
+  planRawNormalPrivateStage, verifyRawNormalHandoffPayloads } = require('./release-staging-producers');
 const { readRawNormalStaging, readRawCompleteStaging,
   readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging } =
   require('./release-staging-rest');
@@ -192,6 +192,38 @@ test('normal-only handoff produces exactly 15 authenticated raw IDs for MCPB inp
   assert.equal(result.manifest.assets[0].size, 200);
 });
 
+test('normal handoff projects exact verified raw originals for private Go staging', () => {
+  const { normal } = fixture();
+  const { batch } = assembleRawNormalHandoff(normal);
+  const projected = planRawNormalPrivateStage(normal);
+  assert.deepEqual(projected, batch.files.map(file => ({
+    downloadName: file.artifactName,
+    original: { name: file.fileName, size: file.size, sha256: file.sha256 },
+  })));
+  assert.equal(projected.length, 15);
+  assert.equal(new Set(projected.map(file => file.downloadName)).size, 15);
+  assert.ok(!JSON.stringify(projected).includes('artifactId'));
+  assert.ok(!JSON.stringify(projected).includes('remote'));
+  normal.manifest.assets[0].size = 1;
+  normal.uploads[0].remote.digest = 'sha256:' + 'f'.repeat(64);
+  assert.equal(projected[0].original.size, batch.files[0].size);
+  assert.deepEqual(projected[0].original.sha256, batch.files[0].sha256);
+});
+
+test('normal Go staging projection refuses unauthenticated producer uploads', () => {
+  for (const mutate of [
+    n => { n.uploads[0].uploadDigest = 'f'.repeat(64); },
+    n => { n.uploads[0].remote.digest = 'sha256:' + 'f'.repeat(64); },
+    n => { n.uploads[0].remote.name = 'wrong-name'; },
+    n => { n.uploads[0].uploadId = n.uploads[1].uploadId; },
+    n => { n.uploads.pop(); },
+  ]) {
+    const { normal } = fixture();
+    mutate(normal);
+    assert.throws(() => planRawNormalPrivateStage(normal));
+  }
+});
+
 test('normal handoff authenticates all 15 original streams before MCPB packaging', async () => {
   const { normal, observed, bytes } = normalByteFixture();
   const opened = [];
@@ -221,6 +253,40 @@ test('normal handoff rejects incomplete directory before opening a source', asyn
       (file) => { opened++; return Readable.from([bytes.get(file.fileName)]); }));
     assert.equal(opened, 0, 'no streams before complete inventory verification');
   }
+});
+
+test('normal handoff rejects an opener that forges its own byte authority', async () => {
+  const { normal, observed, bytes } = normalByteFixture();
+  const forged = Buffer.from('forged normal payload');
+  let opened = 0;
+  await assert.rejects(() => verifyRawNormalHandoffPayloads(normal, observed, (file) => {
+    opened++;
+    if (opened === 1) {
+      file.size = forged.length;
+      file.sha256 = createHash('sha256').update(forged).digest('hex');
+      return Readable.from([forged]);
+    }
+    return Readable.from([bytes.get(file.fileName)]);
+  }), /asset (?:size|digest) mismatch/);
+  assert.equal(opened, 1, 'must stop on first forged source');
+});
+
+test('normal handoff opener changes cannot corrupt returned trusted inventory', async () => {
+  const { normal, observed, bytes } = normalByteFixture();
+  let original;
+  let firstName;
+  const verified = await verifyRawNormalHandoffPayloads(normal, observed, (file) => {
+    if (!firstName) {
+      firstName = file.fileName;
+      original = { size: file.size, sha256: file.sha256 };
+      file.size = 1;
+      file.sha256 = '0'.repeat(64);
+    }
+    return Readable.from([bytes.get(file.fileName)]);
+  });
+  assert.equal(verified.size, 15);
+  assert.equal(verified.get(firstName).size, original.size);
+  assert.equal(verified.get(firstName).sha256, original.sha256);
 });
 
 test('normal handoff refuses corrupt and interrupted streams', async () => {
