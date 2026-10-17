@@ -405,8 +405,11 @@ function verifyRawNormalStagingBatchEntries(manifest, entries, observed) {
 // use: hashing a path now cannot prove it stays unchanged for a later upload.
 async function verifyRawStagingSources(files, openSource) {
   requireCondition(typeof openSource === 'function', 'invalid raw staging source opener');
-  for (const file of files.values()) {
-    const source = await openSource(file);
+  // The opener is caller-supplied: never let it rewrite trusted expected values
+  // across an await or mutate the inventory returned after verification.
+  const pinned = [...files.values()].map(file => ({ ...file }));
+  for (const file of pinned) {
+    const source = await openSource({ ...file });
     await verifyExactBytes(source, file.size, file.sha256);
   }
   return files;
