@@ -127,7 +127,7 @@ function assertNonpublishingUbuntu26BuildProbe(yaml) {
   assert.match(yaml, /^permissions:\r?\n  contents: read\r?$/m);
   assert.match(yaml, /^    runs-on: ubuntu-26\.04\r?$/m);
   assert.match(yaml, /^          version: 'v2\.18\.1'\r?$/m);
-  assert.match(yaml, /^          args: build --clean\r?$/m);
+  assert.match(yaml, /^          args: build --clean --skip=validate\r?$/m);
   assert.match(yaml, /df -hPT/);
   assert.match(yaml, /findmnt -T/);
   assert.doesNotMatch(yaml, /contents: write|id-token: write|GITHUB_TOKEN|gh release|upload-artifact|--snapshot|args: release/);
@@ -141,7 +141,7 @@ test('Ubuntu 26 GoReleaser rehearsal only builds locally on hosted runner', () =
   for (const [expected, unsafe] of [
     ['    runs-on: ubuntu-26.04', '    runs-on: ubuntu-latest'],
     ['  contents: read', '  contents: write'],
-    ['          args: build --clean', '          args: release --clean'],
+    ['          args: build --clean --skip=validate', '          args: release --clean'],
     ["          version: 'v2.18.1'", "          version: 'latest'"],
   ]) {
     assert.ok(yaml.includes(expected));
