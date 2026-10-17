@@ -188,6 +188,7 @@ function verifySourceRun(run, plan, policy) {
 // The run is reread after the job pages to detect an intervening rerun.
 async function verifySourceJobs(plans, sourcePolicy, token, fetchImpl) {
   validateSourcePolicy(sourcePolicy);
+  const policy = { ...sourcePolicy };
   const first = plans[0];
   for (const plan of plans) {
     ensure(plan.runId === first.runId &&
@@ -199,14 +200,14 @@ async function verifySourceJobs(plans, sourcePolicy, token, fetchImpl) {
   const get = makeGitHubGet(token, fetchImpl);
   const runUrl = JOBS_API + first.runId;
   const run = await readJsonResponse(await get(runUrl), runUrl);
-  for (const plan of plans) verifySourceRun(run, plan, sourcePolicy);
+  for (const plan of plans) verifySourceRun(run, plan, policy);
   const jobs = [];
   for (const plan of plans) {
     const url = runUrl + '/attempts/' + plan.producerAttempt +
       '/jobs?per_page=100&page=1';
     const page = await getCompleteList(get, url, 'jobs');
     const name = plan.manifest.stage === 'normal'
-      ? sourcePolicy.normalJobName : sourcePolicy.mcpbJobName;
+      ? policy.normalJobName : policy.mcpbJobName;
     const matches = page.jobs.filter(job => job && job.name === name);
     ensure(matches.length === 1 && validId(matches[0].id) &&
       matches[0].run_id === plan.runId &&
@@ -221,7 +222,7 @@ async function verifySourceJobs(plans, sourcePolicy, token, fetchImpl) {
     });
   }
   const last = await readJsonResponse(await get(runUrl), runUrl);
-  for (const plan of plans) verifySourceRun(last, plan, sourcePolicy);
+  for (const plan of plans) verifySourceRun(last, plan, policy);
   ensure(last.run_attempt === run.run_attempt,
     'source workflow was rerun during evidence read');
   return jobs;
@@ -232,7 +233,7 @@ async function readJobVerifiedRawNormalStaging({
 }) {
   const plan = stageUploadPlan(normal, 'normal', new Set());
   const jobs = await verifySourceJobs([plan], sourcePolicy, token, fetchImpl);
-  const result = await readRawNormalStaging({ normal, token, fetchImpl });
+  const result = await readRawNormalStaging({ normal: plan, token, fetchImpl });
   return { ...result, jobs };
 }
 
@@ -243,7 +244,8 @@ async function readJobVerifiedRawCompleteStaging({
   const first = stageUploadPlan(normal, 'normal', seen);
   const second = stageUploadPlan(mcpb, 'mcpb', seen);
   const jobs = await verifySourceJobs([first, second], sourcePolicy, token, fetchImpl);
-  const result = await readRawCompleteStaging({ normal, mcpb, token, fetchImpl });
+  const result = await readRawCompleteStaging({ normal: first, mcpb: second,
+    token, fetchImpl });
   return { ...result, jobs };
 }
 

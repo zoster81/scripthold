@@ -673,3 +673,28 @@ test('source job evidence never authorizes a failed completed workflow run', asy
   }));
   assert.equal(f.calls.filter(url => url.startsWith(ARTIFACT_API)).length, 0);
 });
+
+test('job verification pins prevalidated producer and policy snapshots across awaits', async () => {
+  const f = jobRestFixture();
+  const policy = { ...SOURCE_POLICY };
+  const original = f.fetchImpl;
+  let mutated = false;
+  const fetchImpl = (url, init) => {
+    if (!mutated && url === JOBS_API + RUN_ID) {
+      mutated = true;
+      policy.workflowId = 99999;
+      f.normal.runId = 9;
+      f.normal.uploads[0].uploadId = 99999;
+      f.normal.manifest.assets[0].sha256 = 'f'.repeat(64);
+    }
+    return original(url, init);
+  };
+  const result = await readJobVerifiedRawNormalStaging({
+    normal: f.normal, sourcePolicy: policy, token: 'test-token', fetchImpl,
+  });
+  assert.equal(mutated, true);
+  assert.equal(result.batch.files.length, 15);
+  assert.equal(result.batch.files[0].artifactId, 1000);
+  assert.ok(!f.calls.some(url => url.includes('99999')));
+  assert.deepEqual(result.jobs, [{ stage: 'normal', jobId: 801, runAttempt: 1 }]);
+});
