@@ -21,7 +21,7 @@ permissions:
 jobs:
   publish:
     if: github.repository == 'zoster81/scripthold' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       VERSION_TAG: ${{ inputs.version }}
@@ -30,6 +30,17 @@ jobs:
       MCPB_VERSION: 2.1.2
       MCPB_NPM_INTEGRITY: sha512-goRbBC8ySo7SWb7tRzr+tL6FxDc4JPTRCdgfD2omba7freofvjq5rom1lBnYHZHo6Mizs1jAHJeN53aZbDoy8A==
     steps:
+      - name: Prepare disk-backed scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "${RUNNER_TEMP}" && test -w "${RUNNER_TEMP}"
+          case "$(findmnt -n -T "${RUNNER_TEMP}" -o FSTYPE)" in
+            ext4|xfs|btrfs|zfs) ;;
+            *) echo 'runner scratch is not on a supported disk filesystem' >&2; exit 1 ;;
+          esac
+          df -hPT -- "${RUNNER_TEMP}"
+          printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "${RUNNER_TEMP}" "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
       - name: Checkout Registry workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
