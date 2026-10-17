@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -28,6 +29,7 @@ const verifier = loadVerifier();
 function assertSafeTransferWorkflow(yaml) {
   assert.match(yaml, /^on:\r?\n  pull_request:\r?\n/m);
   assert.match(yaml, /^permissions:\r?\n  contents: read\r?$/m);
+  assert.match(yaml, /^  consumer:\r?\n    needs: \[normal, package\]\r?$/m);
   assert.doesNotMatch(yaml, /^\s*contents: write\s*$/m);
   assert.doesNotMatch(yaml, /^\s*(?:pull_request_target|release|push):\s*$/m);
 
@@ -65,6 +67,38 @@ function assertSafeTransferWorkflow(yaml) {
   }
 }
 
+function assertPinnedUbuntuProbe(yaml) {
+  assert.match(yaml, /^  workflow_dispatch:\r?\npermissions:\r?$/m);
+  const runsOn = [...yaml.matchAll(/^    runs-on: (.+)\r?$/gm)].map(([, label]) =>
+    label.replace(/\r$/, ''));
+  assert.deepEqual(runsOn, Array(3).fill('ubuntu-26.04'));
+  assert.doesNotMatch(yaml, /ubuntu-24\.04|ubuntu-latest|self-hosted/);
+}
+
+test('synthetic raw artifact probe pins all three jobs to Ubuntu 26.04', () => {
+  const yaml = fs.readFileSync(workflow, 'utf8');
+  assertPinnedUbuntuProbe(yaml);
+  for (const [needle, changed] of [
+    ['runs-on: ubuntu-26.04', 'runs-on: ubuntu-24.04'],
+    ['runs-on: ubuntu-26.04', 'runs-on: ubuntu-latest'],
+    ['runs-on: ubuntu-26.04', 'runs-on: self-hosted'],
+    ['runs-on: ubuntu-26.04', 'runs-on: ${{ inputs.ubuntu_image }}'],
+    ['  workflow_dispatch:\npermissions:',
+      '  workflow_dispatch:\n    inputs:\n      ubuntu_image:\n        type: string\npermissions:'],
+  ]) {
+    assert.ok(yaml.includes(needle), 'missing expected workflow contract');
+    assert.throws(() => assertPinnedUbuntuProbe(yaml.replace(needle, changed)),
+      undefined, 'unsafe runner image selection accepted: ' + changed);
+  }
+});
+
+test('actionlint only allows the officially available Ubuntu 26.04 runner label', () => {
+  const config = fs.readFileSync(path.join(__dirname, '..', '.github', 'actionlint.yaml'), 'utf8');
+  const active = config.split(/\r?\n/).filter(line =>
+    line.trim() && !line.trim().startsWith('#')).join('\n');
+  assert.equal(active, 'self-hosted-runner:\n  labels:\n    - ubuntu-26.04');
+});
+
 test('isolated raw-transfer workflow retains strict publication and artifact policy', () => {
   const yaml = fs.readFileSync(workflow, 'utf8');
   assertSafeTransferWorkflow(yaml);
@@ -76,6 +110,7 @@ test('isolated raw-transfer workflow retains strict publication and artifact pol
     ['digest-mismatch: error', 'digest-mismatch: warn'],
     ['contents: read', 'contents: write'],
     ['merge-multiple: true', 'merge-multiple: false'],
+    ['needs: [normal, package]', 'needs: [normal]'],
   ]) {
     assert.ok(yaml.includes(original), 'missing expected input ' + original);
     assert.throws(() => assertSafeTransferWorkflow(yaml.replace(original, unsafe)),
@@ -91,6 +126,26 @@ test('producer ZIP fixture and both producer attempts match consumer expectation
   assert.equal((yaml.match(/attempt: \$\{\{ steps\.collect\.outputs\.attempt \}\}/g) || []).length, 2);
   assert.equal((yaml.match(/^\s+D\d+: \$\{\{ steps\.a\d+\.outputs\.artifact-digest \}\}$/gm) || []).length, 22);
   assert.equal((yaml.match(/actual="\$\(sha256sum "\$file"\)"/g) || []).length, 2);
+});
+
+test('native job outputs bind ordered SHA-256 vectors and successful direct dependencies', () => {
+  const yaml = fs.readFileSync(workflow, 'utf8');
+  for (const group of ['normal', 'package']) {
+    const start = yaml.indexOf('  ' + group + ':');
+    const end = yaml.indexOf(group === 'normal' ? '  package:' : '  consumer:', start);
+    assert.ok(start >= 0 && end > start);
+    const producer = yaml.slice(start, end);
+    assert.ok(producer.includes('      digests: ${{ steps.collect.outputs.digests }}'));
+    assert.ok(producer.includes('echo "digests=${digests[*]}"'));
+  }
+  for (const group of ['normal', 'package']) {
+    assert.ok(yaml.includes('          ' + group.toUpperCase() +
+      '_DIGESTS: ${{ needs.' + group + '.outputs.digests }}'));
+    assert.ok(yaml.includes('          ' + group.toUpperCase() +
+      '_RESULT: ${{ needs.' + group + '.result }}'));
+  }
+  assert.ok(verifier.includes("createHash('sha256')"));
+  assert.ok(verifier.includes('artifact digest mismatch'));
 });
 
 function createFixture(t, normalAttempt = '1', packageAttempt = '2') {
@@ -112,11 +167,16 @@ function createFixture(t, normalAttempt = '1', packageAttempt = '2') {
       names.push(name);
     }
   }
+  const digest = (name) => crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(root, name))).digest('hex');
   return { parent, root, names, env: {
     RUNNER_TEMP: parent, GITHUB_RUN_ID: '9001', GITHUB_RUN_ATTEMPT: '9',
     NORMAL_ATTEMPT: normalAttempt, PACKAGE_ATTEMPT: packageAttempt,
+    NORMAL_RESULT: 'success', PACKAGE_RESULT: 'success',
     NORMAL_IDS: Array.from({ length: 15 }, (_, i) => String(i + 1)).join(','),
     PACKAGE_IDS: Array.from({ length: 7 }, (_, i) => String(i + 16)).join(','),
+    NORMAL_DIGESTS: names.slice(0, 15).map(digest).join(','),
+    PACKAGE_DIGESTS: names.slice(15).map(digest).join(','),
   } };
 }
 
@@ -158,7 +218,7 @@ test('rejects missing, extra, corrupt and renamed physical files', (t) => {
   const fixture = createFixture(t);
   const target = path.join(fixture.root, fixture.names[0]);
   fs.writeFileSync(target, 'changed but same-sized');
-  assert.throws(() => runVerifier(fixture), /changed original bytes/);
+  assert.throws(() => runVerifier(fixture), /artifact digest mismatch/);
   fs.writeFileSync(target, 'raw-probe:normal:01\n');
   fs.rmSync(target);
   assert.throws(() => runVerifier(fixture), /ENOENT/);
@@ -186,11 +246,64 @@ test('rejects invalid ID inventories and missing or mixed producer attempts', (t
   }
 });
 
+test('rejects missing, malformed, stale or reordered digest and ID evidence', (t) => {
+  const fixture = createFixture(t, '1', '3');
+  const normal = fixture.env.NORMAL_DIGESTS.split(',');
+  const pkg = fixture.env.PACKAGE_DIGESTS.split(',');
+  const swapped = [...normal];
+  [swapped[0], swapped[1]] = [swapped[1], swapped[0]];
+  const tests = [
+    [{ NORMAL_DIGESTS: '' }, /invalid producer digests/],
+    [{ PACKAGE_DIGESTS: pkg.slice(0, -1).join(',') }, /invalid producer digests/],
+    [{ NORMAL_DIGESTS: normal.concat(normal[0]).join(',') }, /invalid producer digests/],
+    [{ NORMAL_DIGESTS: normal.join(',').toUpperCase() }, /invalid producer digests/],
+    [{ NORMAL_DIGESTS: '0'.repeat(64) + ',' + normal.slice(1).join(',') }, /artifact digest mismatch/],
+    [{ NORMAL_DIGESTS: swapped.join(',') }, /artifact digest mismatch/],
+    [{ PACKAGE_DIGESTS: pkg.concat('0'.repeat(64)).join(',') }, /invalid producer digests/],
+    [{ NORMAL_IDS: fixture.env.NORMAL_IDS.split(',').slice(1).join(','),
+       PACKAGE_IDS: '1,' + fixture.env.PACKAGE_IDS }, /invalid IDs/],
+    [{ NORMAL_RESULT: 'skipped' }, /untrusted producer result/],
+    [{ PACKAGE_RESULT: 'failure' }, /untrusted producer result/],
+    [{ NORMAL_ATTEMPT: '10' }, /invalid producer attempt/],
+    [{ GITHUB_RUN_ATTEMPT: '0' }, /invalid run attempt/],
+  ];
+  for (const [overrides, message] of tests) {
+    assert.throws(() => runVerifier(fixture, overrides), message,
+      'missing fail-closed check: ' + JSON.stringify(overrides));
+  }
+  assert.deepEqual(runVerifier(fixture), ['22/22 exact synthetic raw transfers verified']);
+});
+
+test('rejects digest reuse when original bytes differ', (t) => {
+  const fixture = createFixture(t);
+  const original = fixture.env.NORMAL_DIGESTS.split(',');
+  original[1] = original[0];
+  assert.throws(() => runVerifier(fixture, { NORMAL_DIGESTS: original.join(',') }),
+    /artifact digest mismatch/);
+});
+
+test('rejects substituted bytes even when forged producer digest matches them', (t) => {
+  const fixture = createFixture(t);
+  for (const index of [0, 11, 15]) {
+    const file = path.join(fixture.root, fixture.names[index]);
+    const original = fs.readFileSync(file);
+    const altered = Buffer.from('forged synthetic payload');
+    fs.writeFileSync(file, altered);
+    const group = index < 15 ? 'NORMAL_DIGESTS' : 'PACKAGE_DIGESTS';
+    const digestIndex = index < 15 ? index : index - 15;
+    const digests = fixture.env[group].split(',');
+    digests[digestIndex] = crypto.createHash('sha256').update(altered).digest('hex');
+    assert.throws(() => runVerifier(fixture, { [group]: digests.join(',') }),
+      /changed original bytes/);
+    fs.writeFileSync(file, original);
+  }
+});
+
 test('refuses corruption of an original valid ZIP, not only its filename', (t) => {
   const fixture = createFixture(t);
   const file = path.join(fixture.root, fixture.names[11]);
   fs.writeFileSync(file, Buffer.alloc(zipBytes.length));
-  assert.throws(() => runVerifier(fixture), /changed original bytes/);
+  assert.throws(() => runVerifier(fixture), /artifact digest mismatch/);
 });
 
 test('rejects a symlink that replaces a downloaded file', (t) => {

@@ -9,10 +9,11 @@ permissions:
   contents: read
 jobs:
   normal:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
       ids: ${{ steps.collect.outputs.ids }}
+      digests: ${{ steps.collect.outputs.digests }}
       attempt: ${{ steps.collect.outputs.attempt }}
     steps:
       - name: Generate synthetic bytes
@@ -186,6 +187,7 @@ jobs:
         run: |
           set -euo pipefail
           ids=()
+          digests=()
           for i in $(seq 1 15); do
             id_var="A${i}"
             digest_var="D${i}"
@@ -200,14 +202,19 @@ jobs:
             actual="$(sha256sum "$file")"
             [[ "${actual%% *}" == "$digest" ]] || exit 1
             ids+=("$id")
+            digests+=("$digest")
           done
-          (IFS=,; echo "ids=${ids[*]}") >> "$GITHUB_OUTPUT"
-          echo "attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          {
+            (IFS=,; echo "ids=${ids[*]}")
+            (IFS=,; echo "digests=${digests[*]}")
+            echo "attempt=${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_OUTPUT"
   package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
       ids: ${{ steps.collect.outputs.ids }}
+      digests: ${{ steps.collect.outputs.digests }}
       attempt: ${{ steps.collect.outputs.attempt }}
     steps:
       - name: Generate synthetic bytes
@@ -295,6 +302,7 @@ jobs:
         run: |
           set -euo pipefail
           ids=()
+          digests=()
           for i in $(seq 1 7); do
             id_var="A${i}"
             digest_var="D${i}"
@@ -308,12 +316,16 @@ jobs:
             actual="$(sha256sum "$file")"
             [[ "${actual%% *}" == "$digest" ]] || exit 1
             ids+=("$id")
+            digests+=("$digest")
           done
-          (IFS=,; echo "ids=${ids[*]}") >> "$GITHUB_OUTPUT"
-          echo "attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          {
+            (IFS=,; echo "ids=${ids[*]}")
+            (IFS=,; echo "digests=${digests[*]}")
+            echo "attempt=${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_OUTPUT"
   consumer:
     needs: [normal, package]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Allocate private destination
@@ -335,6 +347,10 @@ jobs:
         env:
           NORMAL_IDS: ${{ needs.normal.outputs.ids }}
           PACKAGE_IDS: ${{ needs.package.outputs.ids }}
+          NORMAL_DIGESTS: ${{ needs.normal.outputs.digests }}
+          PACKAGE_DIGESTS: ${{ needs.package.outputs.digests }}
+          NORMAL_RESULT: ${{ needs.normal.result }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
           NORMAL_ATTEMPT: ${{ needs.normal.outputs.attempt }}
           PACKAGE_ATTEMPT: ${{ needs.package.outputs.attempt }}
         run: |
@@ -342,9 +358,13 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
+          const crypto = require('node:crypto');
           const root = path.join(process.env.RUNNER_TEMP, 'raw-probe');
-          const ids = (process.env.NORMAL_IDS + ',' + process.env.PACKAGE_IDS).split(',');
-          if (ids.length !== 22 || new Set(ids).size !== 22 ||
+          const normalIds = process.env.NORMAL_IDS.split(',');
+          const packageIds = process.env.PACKAGE_IDS.split(',');
+          const ids = [...normalIds, ...packageIds];
+          if (normalIds.length !== 15 || packageIds.length !== 7 ||
+              new Set(ids).size !== 22 ||
               ids.some(id => !/^[1-9][0-9]*$/.test(id) ||
                 !Number.isSafeInteger(Number(id)))) throw Error('invalid IDs');
           const dir = fs.lstatSync(root);
@@ -354,8 +374,24 @@ jobs:
             ['normal', process.env.NORMAL_ATTEMPT],
             ['package', process.env.PACKAGE_ATTEMPT],
           ]);
+          const currentAttempt = process.env.GITHUB_RUN_ATTEMPT;
+          if (!/^[1-9][0-9]*$/.test(currentAttempt) ||
+              !Number.isSafeInteger(Number(currentAttempt))) throw Error('invalid run attempt');
           for (const attempt of attempts.values()) {
-            if (!/^[1-9][0-9]*$/.test(attempt)) throw Error('invalid producer attempt');
+            if (!/^[1-9][0-9]*$/.test(attempt) ||
+                !Number.isSafeInteger(Number(attempt)) || Number(attempt) > Number(currentAttempt))
+              throw Error('invalid producer attempt');
+          }
+          if (process.env.NORMAL_RESULT !== 'success' ||
+              process.env.PACKAGE_RESULT !== 'success') throw Error('untrusted producer result');
+          const digests = new Map();
+          for (const [group, count] of [['normal', 15], ['package', 7]]) {
+            const raw = process.env[group.toUpperCase() + '_DIGESTS'];
+            const values = typeof raw === 'string' ? raw.split(',') : [];
+            if (values.length !== count ||
+                values.some(digest => !/^[0-9a-f]{64}$/.test(digest)))
+              throw Error('invalid producer digests');
+            digests.set(group, values);
           }
           const expected = [];
           for (const [group, count] of [['normal', 15], ['package', 7]]) {
@@ -367,6 +403,9 @@ jobs:
               const entry = fs.lstatSync(path.join(root, name));
               if (!entry.isFile() || entry.nlink !== 1) throw Error('unsafe file');
               const bytes = fs.readFileSync(path.join(root, name));
+              const actualDigest = crypto.createHash('sha256').update(bytes).digest('hex');
+              if (actualDigest !== digests.get(group)[i - 1])
+                throw Error('artifact digest mismatch');
               const original = group === 'normal' && i === 12
                 ? Buffer.from('504b0506000000000000000000000000000000000000', 'hex')
                 : Buffer.from(`raw-probe:${group}:${number}\n`);

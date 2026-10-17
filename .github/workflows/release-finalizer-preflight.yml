@@ -24,7 +24,7 @@ concurrency:
 jobs:
   validate-event:
     name: Validate release event (read-only)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Check out requested ref without persisted credentials
