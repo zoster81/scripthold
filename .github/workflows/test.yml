@@ -21,7 +21,7 @@ concurrency:
 jobs:
   classify:
     name: Select evidence tier
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       tier: ${{ steps.classify.outputs.tier }}
@@ -53,7 +53,7 @@ jobs:
             {
               printf '%s\n' 'tier=full'
               printf '%s\n' 'reason=non-PR, bootstrap, or untrusted policy change requires full qualification'
-              printf '%s\n' 'race_matrix=[{"os":"ubuntu-latest","scope":"full"},{"os":"windows-latest","scope":"full"},{"os":"macos-latest","scope":"full"}]'
+              printf '%s\n' 'race_matrix=[{"os":"ubuntu-26.04","scope":"full"},{"os":"windows-latest","scope":"full"},{"os":"macos-latest","scope":"full"}]'
               printf '%s\n' 'platform_matrix=[{"os":"windows-latest","platform":"windows","scope":"full"},{"os":"macos-latest","platform":"darwin","scope":"full"}]'
             } >> "${GITHUB_OUTPUT}"
           }
@@ -79,7 +79,7 @@ jobs:
   policy:
     name: Policy and documentation
     needs: classify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -117,7 +117,7 @@ jobs:
 
   gitleaks:
     name: Gitleaks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Checkout full history
@@ -137,7 +137,7 @@ jobs:
     name: Verify modules
     needs: classify
     if: needs.classify.outputs.tier != 'docs'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -158,7 +158,7 @@ jobs:
     name: Linux regression
     needs: classify
     if: needs.classify.outputs.tier != 'docs'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -181,7 +181,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.classify.outputs.platform_matrix) }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-26.04' || matrix.os }}
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -212,7 +212,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.classify.outputs.race_matrix) }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-26.04' || matrix.os }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -236,7 +236,7 @@ jobs:
     name: Static and vulnerability analysis
     needs: classify
     if: needs.classify.outputs.tier != 'docs'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -271,7 +271,7 @@ jobs:
     name: Deterministic fuzz smoke
     needs: classify
     if: needs.classify.outputs.tier != 'docs'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -300,7 +300,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-26.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -335,7 +335,7 @@ jobs:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     needs: classify
     if: needs.classify.outputs.tier == 'full'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -387,7 +387,7 @@ jobs:
     name: Container smoke
     needs: classify
     if: needs.classify.outputs.tier == 'full'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -500,7 +500,7 @@ jobs:
     name: Release configuration
     needs: classify
     if: needs.classify.outputs.tier == 'full'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -536,7 +536,7 @@ jobs:
       - cross-build
       - container-smoke
       - release-config
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Checkout

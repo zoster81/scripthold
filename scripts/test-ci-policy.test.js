@@ -98,7 +98,7 @@ test('required jobs are monotonic across evidence tiers', () => {
 
 test('matrix selection preserves full exact-SHA breadth while narrowing ordinary Go evidence', () => {
   const go = matrixOutputsForTier('go');
-  assert.deepEqual(go.race, [{os: 'ubuntu-latest', scope: 'targeted'}]);
+  assert.deepEqual(go.race, [{os: 'ubuntu-26.04', scope: 'targeted'}]);
   assert.deepEqual(go.platform, [
     {os: 'windows-latest', platform: 'windows', scope: 'targeted'},
     {os: 'macos-latest', platform: 'darwin', scope: 'targeted'},
@@ -106,7 +106,7 @@ test('matrix selection preserves full exact-SHA breadth while narrowing ordinary
 
   const full = matrixOutputsForTier('full');
   assert.deepEqual(full.race, [
-    {os: 'ubuntu-latest', scope: 'full'},
+    {os: 'ubuntu-26.04', scope: 'full'},
     {os: 'windows-latest', scope: 'full'},
     {os: 'macos-latest', scope: 'full'},
   ]);
@@ -114,6 +114,40 @@ test('matrix selection preserves full exact-SHA breadth while narrowing ordinary
     {os: 'windows-latest', platform: 'windows', scope: 'full'},
     {os: 'macos-latest', platform: 'darwin', scope: 'full'},
   ]);
+});
+
+test('PR trusted-base matrices still route Linux jobs to Ubuntu 26.04', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'test.yml'), 'utf8');
+  const mapping = "runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-26.04' || matrix.os }}";
+  assert.equal(workflow.split(mapping).length - 1, 2);
+});
+
+function assertNonpublishingUbuntu26BuildProbe(yaml) {
+  assert.match(yaml, /^on:\r?\n  pull_request:\r?\n    paths:\r?\n      - '\.github\/workflows\/ubuntu26-goreleaser-build-probe\.yml'\r?\n  workflow_dispatch:\r?$/m);
+  assert.match(yaml, /^permissions:\r?\n  contents: read\r?$/m);
+  assert.match(yaml, /^    runs-on: ubuntu-26\.04\r?$/m);
+  assert.match(yaml, /^          version: 'v2\.18\.1'\r?$/m);
+  assert.match(yaml, /^          args: build --clean --skip=validate\r?$/m);
+  assert.match(yaml, /df -hPT/);
+  assert.match(yaml, /findmnt -T/);
+  assert.doesNotMatch(yaml, /contents: write|id-token: write|GITHUB_TOKEN|gh release|upload-artifact|--snapshot|args: release/);
+}
+
+test('Ubuntu 26 GoReleaser rehearsal only builds locally on hosted runner', () => {
+  const filename = path.join(__dirname, '..', '.github', 'workflows',
+    'ubuntu26-goreleaser-build-probe.yml');
+  const yaml = fs.readFileSync(filename, 'utf8');
+  assertNonpublishingUbuntu26BuildProbe(yaml);
+  for (const [expected, unsafe] of [
+    ['    runs-on: ubuntu-26.04', '    runs-on: ubuntu-latest'],
+    ['  contents: read', '  contents: write'],
+    ['          args: build --clean --skip=validate', '          args: release --clean'],
+    ["          version: 'v2.18.1'", "          version: 'latest'"],
+  ]) {
+    assert.ok(yaml.includes(expected));
+    assert.throws(() => assertNonpublishingUbuntu26BuildProbe(
+      yaml.replace(expected, unsafe)));
+  }
 });
 
 test('targeted package selection is derived from the evidence map', () => {
