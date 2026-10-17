@@ -9,7 +9,8 @@ const { expectedReleaseAssetNames, rawStagingArtifactName,
   validateStagedManifest, planRawStagingBatch } = require('./release-asset-contract');
 const { assembleRawReleaseStaging, assembleRawNormalHandoff,
   verifyRawNormalHandoffPayloads } = require('./release-staging-producers');
-const { readRawNormalStaging, readRawCompleteStaging } =
+const { readRawNormalStaging, readRawCompleteStaging,
+  readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging } =
   require('./release-staging-rest');
 
 const TAG = 'v3.4.0';
@@ -469,4 +470,206 @@ test('raw REST reader never accepts malformed auth or an untrusted client', asyn
     }));
   }
   assert.equal(fetched, false);
+});
+
+const JOBS_API = 'https://api.github.com/repos/zoster81/scripthold/actions/runs/';
+const SOURCE_POLICY = Object.freeze({
+  workflowId: 17,
+  workflowPath: '.github/workflows/immutable-staging.yml',
+  event: 'push',
+  normalJobName: 'Produce normal assets',
+  mcpbJobName: 'Produce MCPB assets',
+});
+
+function jobRestFixture() {
+  const f = rawRestFixture();
+  const run = {
+    id: RUN_ID, run_attempt: 3, workflow_id: SOURCE_POLICY.workflowId,
+    path: SOURCE_POLICY.workflowPath, event: SOURCE_POLICY.event,
+    head_sha: COMMIT, status: 'in_progress',
+    repository: { id: REPOSITORY_ID, full_name: REPOSITORY },
+    head_repository: { id: REPOSITORY_ID, full_name: REPOSITORY },
+  };
+  const normalJob = {
+    id: 801, name: SOURCE_POLICY.normalJobName, run_id: RUN_ID,
+    run_attempt: 1, head_sha: COMMIT,
+    status: 'completed', conclusion: 'success',
+  };
+  const mcpbJob = {
+    id: 803, name: SOURCE_POLICY.mcpbJobName, run_id: RUN_ID,
+    run_attempt: 3, head_sha: COMMIT,
+    status: 'completed', conclusion: 'success',
+  };
+  const pages = new Map([[1, [normalJob]], [3, [mcpbJob]]]);
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push(url);
+    assert.equal(init.method, 'GET');
+    assert.equal(init.redirect, 'error');
+    const attempt = /^https:\/\/api\.github\.com\/repos\/zoster81\/scripthold\/actions\/runs\/53001\/attempts\/([1-9]\d*)\/jobs\?per_page=100&page=1$/.exec(url);
+    let payload;
+    if (url === JOBS_API + RUN_ID) payload = run;
+    else if (attempt) {
+      const jobs = pages.get(Number(attempt[1])) ?? [];
+      payload = { total_count: jobs.length, jobs };
+    } else if (url.startsWith(ARTIFACT_API)) {
+      payload = f.remoteById.get(Number(url.slice(ARTIFACT_API.length)));
+    } else {
+      assert.fail('Unexpected authenticated REST endpoint: ' + url);
+    }
+    return new Response(JSON.stringify(payload), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    });
+  };
+  return { ...f, run, normalJob, mcpbJob, pages, calls, fetchImpl };
+}
+
+test('source job proof binds the 15-file handoff to a successful exact attempt', async () => {
+  const f = jobRestFixture();
+  const result = await readJobVerifiedRawNormalStaging({
+    normal: f.normal, sourcePolicy: SOURCE_POLICY, token: 'test-token',
+    fetchImpl: f.fetchImpl,
+  });
+  assert.equal(result.batch.files.length, 15);
+  assert.deepEqual(result.jobs, [{ stage: 'normal', jobId: 801, runAttempt: 1 }]);
+  assert.deepEqual(f.calls.slice(0, 3), [
+    JOBS_API + RUN_ID,
+    JOBS_API + RUN_ID + '/attempts/1/jobs?per_page=100&page=1',
+    JOBS_API + RUN_ID,
+  ]);
+  assert.equal(f.calls.length, 18);
+});
+
+test('source job proof authenticates two independent producer attempts', async () => {
+  const f = jobRestFixture();
+  const result = await readJobVerifiedRawCompleteStaging({
+    normal: f.normal, mcpb: f.mcpb, sourcePolicy: SOURCE_POLICY,
+    token: 'test-token', fetchImpl: f.fetchImpl,
+  });
+  assert.equal(result.batch.files.length, 22);
+  assert.deepEqual(result.jobs, [
+    { stage: 'normal', jobId: 801, runAttempt: 1 },
+    { stage: 'mcpb', jobId: 803, runAttempt: 3 },
+  ]);
+  assert.deepEqual(f.calls.slice(0, 4), [
+    JOBS_API + RUN_ID,
+    JOBS_API + RUN_ID + '/attempts/1/jobs?per_page=100&page=1',
+    JOBS_API + RUN_ID + '/attempts/3/jobs?per_page=100&page=1',
+    JOBS_API + RUN_ID,
+  ]);
+  assert.equal(f.calls.length, 26);
+});
+
+test('source job proof rejects wrong workflow, job, SHA, attempts and duplication', async () => {
+  for (const mutate of [
+    f => { f.run.workflow_id++; },
+    f => { f.run.path += '/different'; },
+    f => { f.run.event = 'pull_request'; },
+    f => { f.run.head_sha = 'b'.repeat(40); },
+    f => { f.run.repository.id++; },
+    f => { f.run.head_repository.full_name = 'attacker/fork'; },
+    f => { f.run.run_attempt = 2; },
+    f => { f.normalJob.run_attempt = 3; },
+    f => { f.normalJob.head_sha = 'b'.repeat(40); },
+    f => { f.normalJob.conclusion = 'failure'; },
+    f => { f.normalJob.status = 'in_progress'; },
+    f => { f.pages.get(1).push(structuredClone(f.normalJob)); },
+    f => { f.normalJob.name = 'Untrusted job'; },
+  ]) {
+    const f = jobRestFixture();
+    mutate(f);
+    await assert.rejects(readJobVerifiedRawCompleteStaging({
+      normal: f.normal, mcpb: f.mcpb, sourcePolicy: SOURCE_POLICY,
+      token: 'test-token', fetchImpl: f.fetchImpl,
+    }));
+    assert.equal(f.calls.some(url => url.startsWith(ARTIFACT_API)), false);
+  }
+});
+
+test('invalid job policy or producer inventory causes zero GitHub reads', async () => {
+  for (const sourcePolicy of [
+    null, { ...SOURCE_POLICY, workflowId: '17' },
+    { ...SOURCE_POLICY, normalJobName: '../wrong' },
+    { ...SOURCE_POLICY, source: 'attacker' },
+  ]) {
+    const f = jobRestFixture();
+    await assert.rejects(readJobVerifiedRawNormalStaging({
+      normal: f.normal, sourcePolicy, token: 'test-token', fetchImpl: f.fetchImpl,
+    }));
+    assert.equal(f.calls.length, 0);
+  }
+  const f = jobRestFixture();
+  f.normal.uploads[0].uploadId = 0;
+  await assert.rejects(readJobVerifiedRawNormalStaging({
+    normal: f.normal, sourcePolicy: SOURCE_POLICY,
+    token: 'test-token', fetchImpl: f.fetchImpl,
+  }));
+  assert.equal(f.calls.length, 0);
+});
+
+test('source job reader rejects missing pages, pagination and changed run attempts', async () => {
+  const f = jobRestFixture();
+  const original = f.fetchImpl;
+  let runReads = 0;
+  f.fetchImpl = async (url, init) => {
+    const response = await original(url, init);
+    if (url === JOBS_API + RUN_ID && ++runReads === 2) {
+      return new Response(JSON.stringify({ ...f.run, run_attempt: 4 }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    }
+    return response;
+  };
+  await assert.rejects(readJobVerifiedRawNormalStaging({
+    normal: f.normal, sourcePolicy: SOURCE_POLICY,
+    token: 'test-token', fetchImpl: f.fetchImpl,
+  }), /rerun/);
+  assert.equal(f.calls.some(url => url.startsWith(ARTIFACT_API)), false);
+
+  for (const corrupt of ['partial', 'paginated', 'oversized', 'foreign']) {
+    const g = jobRestFixture();
+    const base = g.fetchImpl;
+    g.fetchImpl = async (url, init) => {
+      const response = await base(url, init);
+      if (!url.includes('/attempts/1/jobs?')) return response;
+      if (corrupt === 'foreign') {
+        return new Response(JSON.stringify({ total_count: 1,
+          jobs: [{ ...g.normalJob, run_id: RUN_ID + 1 }] }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (corrupt === 'partial') {
+        return new Response(JSON.stringify({ total_count: 2, jobs: [g.normalJob] }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (corrupt === 'paginated') {
+        return new Response(JSON.stringify({ total_count: 1, jobs: [g.normalJob] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json',
+            link: '<https://api.github.com/repos/zoster81/scripthold/actions/runs/53001/attempts/1/jobs?per_page=100&page=2>; rel="next"' },
+        });
+      }
+      return new Response(JSON.stringify({ total_count: 1, jobs: [g.normalJob] }), {
+        status: 200, headers: { 'content-type': 'application/json',
+          'content-length': '900000' },
+      });
+    };
+    await assert.rejects(readJobVerifiedRawNormalStaging({
+      normal: g.normal, sourcePolicy: SOURCE_POLICY,
+      token: 'test-token', fetchImpl: g.fetchImpl,
+    }));
+    assert.equal(g.calls.some(url => url.startsWith(ARTIFACT_API)), false);
+  }
+});
+
+test('source job evidence never authorizes a failed completed workflow run', async () => {
+  const f = jobRestFixture();
+  f.run.status = 'completed';
+  f.run.conclusion = 'failure';
+  await assert.rejects(readJobVerifiedRawNormalStaging({
+    normal: f.normal, sourcePolicy: SOURCE_POLICY,
+    token: 'test-token', fetchImpl: f.fetchImpl,
+  }));
+  assert.equal(f.calls.filter(url => url.startsWith(ARTIFACT_API)).length, 0);
 });

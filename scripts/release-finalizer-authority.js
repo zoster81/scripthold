@@ -80,4 +80,4 @@ async function readPublicationAuthority({
     testRunAttempt: testRun.run_attempt };
 }
 
-module.exports = { readPublicationAuthority };
+module.exports = { readPublicationAuthority, getCompleteList };
