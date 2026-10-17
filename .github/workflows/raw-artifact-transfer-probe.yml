@@ -416,3 +416,23 @@ jobs:
             throw Error('unexpected or missing physical files');
           console.log('22/22 exact synthetic raw transfers verified');
           NODE
+      - name: Checkout isolated Go test source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go for the native private stage
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Verify native private handoff of the 15 transferred originals
+        shell: bash
+        env:
+          RAW_NORMAL_PROBE: '1'
+          NORMAL_ATTEMPT: ${{ needs.normal.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export TMPDIR="$RUNNER_TEMP"
+          export GOTMPDIR="$RUNNER_TEMP"
+          go test ./internal/releasearchive -run '^TestCITransferredNormalHandoff$' -count=1 -v

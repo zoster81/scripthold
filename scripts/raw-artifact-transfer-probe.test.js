@@ -118,6 +118,38 @@ test('isolated raw-transfer workflow retains strict publication and artifact pol
   }
 });
 
+function assertNativeNormalStagingProbe(yaml) {
+  const consumer = yaml.slice(yaml.indexOf('\n  consumer:\n'));
+  const verified = consumer.indexOf("console.log('22/22 exact synthetic raw transfers verified')");
+  const checkout = consumer.indexOf('      - name: Checkout isolated Go test source');
+  const go = consumer.indexOf('      - name: Verify native private handoff of the 15 transferred originals');
+  assert.ok(verified >= 0 && checkout > verified && go > checkout,
+    'staging may consume raw downloads only after complete 22-byte validation');
+  assert.match(consumer, /^        uses: actions\/checkout@[0-9a-f]{40} # v7\.0\.1$/m);
+  assert.match(consumer, /^        uses: actions\/setup-go@[0-9a-f]{40} # v7\.0\.0$/m);
+  const goStep = consumer.slice(go);
+  assert.match(goStep, /^          RAW_NORMAL_PROBE: '1'$/m);
+  assert.match(goStep, /^          NORMAL_ATTEMPT: \$\{\{ needs\.normal\.outputs\.attempt \}\}$/m);
+  assert.match(consumer, /^          go test \.\/internal\/releasearchive -run '\^TestCITransferredNormalHandoff\$' -count=1 -v$/m);
+}
+
+test('Linux native 15-original staging runs after authentic cross-job byte proof', () => {
+  const yaml = fs.readFileSync(workflow, 'utf8');
+  assertNativeNormalStagingProbe(yaml);
+  for (const [good, bad] of [
+    ["      - name: Verify native private handoff of the 15 transferred originals",
+      "      - name: Skip native private handoff"],
+    ["          RAW_NORMAL_PROBE: '1'", "          RAW_NORMAL_PROBE: '0'"],
+    ["          NORMAL_ATTEMPT: ${{ needs.normal.outputs.attempt }}",
+      "          NORMAL_ATTEMPT: 1"],
+  ]) {
+    assert.ok(yaml.includes(good));
+    const index = yaml.lastIndexOf(good);
+    const mutated = yaml.slice(0, index) + bad + yaml.slice(index + good.length);
+    assert.throws(() => assertNativeNormalStagingProbe(mutated));
+  }
+});
+
 test('producer ZIP fixture and both producer attempts match consumer expectations', () => {
   const yaml = fs.readFileSync(workflow, 'utf8');
   const encoded = /printf '%s' '([A-Za-z0-9+/=]+)' \| base64 --decode/.exec(yaml);
