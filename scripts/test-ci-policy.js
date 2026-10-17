@@ -156,7 +156,7 @@ function matrixOutputsForTier(tier) {
   if (tier === 'full') {
     return {
       race: [
-        {os: 'ubuntu-latest', scope: 'full'},
+        {os: 'ubuntu-26.04', scope: 'full'},
         {os: 'windows-latest', scope: 'full'},
         {os: 'macos-latest', scope: 'full'},
       ],
@@ -168,7 +168,7 @@ function matrixOutputsForTier(tier) {
   }
   if (tier === 'go') {
     return {
-      race: [{os: 'ubuntu-latest', scope: 'targeted'}],
+      race: [{os: 'ubuntu-26.04', scope: 'targeted'}],
       platform: [
         {os: 'windows-latest', platform: 'windows', scope: 'targeted'},
         {os: 'macos-latest', platform: 'darwin', scope: 'targeted'},
@@ -176,8 +176,8 @@ function matrixOutputsForTier(tier) {
     };
   }
   return {
-    race: [{os: 'ubuntu-latest', scope: 'targeted'}],
-    platform: [{os: 'ubuntu-latest', platform: 'linux', scope: 'targeted'}],
+    race: [{os: 'ubuntu-26.04', scope: 'targeted'}],
+    platform: [{os: 'ubuntu-26.04', platform: 'linux', scope: 'targeted'}],
   };
 }
 

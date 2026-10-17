@@ -98,7 +98,7 @@ test('required jobs are monotonic across evidence tiers', () => {
 
 test('matrix selection preserves full exact-SHA breadth while narrowing ordinary Go evidence', () => {
   const go = matrixOutputsForTier('go');
-  assert.deepEqual(go.race, [{os: 'ubuntu-latest', scope: 'targeted'}]);
+  assert.deepEqual(go.race, [{os: 'ubuntu-26.04', scope: 'targeted'}]);
   assert.deepEqual(go.platform, [
     {os: 'windows-latest', platform: 'windows', scope: 'targeted'},
     {os: 'macos-latest', platform: 'darwin', scope: 'targeted'},
@@ -106,7 +106,7 @@ test('matrix selection preserves full exact-SHA breadth while narrowing ordinary
 
   const full = matrixOutputsForTier('full');
   assert.deepEqual(full.race, [
-    {os: 'ubuntu-latest', scope: 'full'},
+    {os: 'ubuntu-26.04', scope: 'full'},
     {os: 'windows-latest', scope: 'full'},
     {os: 'macos-latest', scope: 'full'},
   ]);
