@@ -8,7 +8,8 @@ const { Readable } = require('node:stream');
 const { expectedReleaseAssetNames, rawStagingArtifactName,
   validateStagedManifest, planRawStagingBatch } = require('./release-asset-contract');
 const { assembleRawReleaseStaging, assembleRawNormalHandoff,
-  planRawNormalPrivateStage, verifyRawNormalHandoffPayloads } = require('./release-staging-producers');
+  planRawNormalPrivateStage, verifyRawNormalHandoffPayloads,
+  verifyPreparedMcpbBinaryPayloads } = require('./release-staging-producers');
 const { readRawNormalStaging, readRawCompleteStaging,
   readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging } =
   require('./release-staging-rest');
@@ -165,6 +166,105 @@ test('never uses an invalid producer, missing remote observation or nonarrays as
   }
   f.normal.uploads[0].remote = null;
   assert.throws(() => assembleRawReleaseStaging(f.normal, f.mcpb));
+});
+
+function preparedBinaryFixture() {
+  const normal = fixture().normal;
+  const originals = new Map();
+  for (const asset of normal.manifest.assets) {
+    if (!/^scripthold_(?:windows|linux|darwin)_(?:amd64|arm64)(?:\.exe)?$/.test(asset.name)) {
+      continue;
+    }
+    const bytes = Buffer.from('verified staged binary: ' + asset.name + '\n');
+    asset.size = bytes.length;
+    asset.sha256 = createHash('sha256').update(bytes).digest('hex');
+    const upload = normal.uploads.find(x => x.fileName === asset.name);
+    upload.uploadDigest = asset.sha256;
+    upload.remote.digest = 'sha256:' + asset.sha256;
+    upload.remote.size_in_bytes = bytes.length;
+    originals.set(asset.name, bytes);
+  }
+  assert.equal(originals.size, 6);
+  return { normal, originals };
+}
+
+test('verifies the exact six prepared MCPB server bytes against independently pinned normal originals', async () => {
+  const { normal, originals } = preparedBinaryFixture();
+  const opened = [];
+  const result = await verifyPreparedMcpbBinaryPayloads(normal, async (target) => {
+    opened.push(target);
+    return Readable.from([originals.get(target.sourceFile)]);
+  });
+  assert.equal(opened.length, 6);
+  assert.deepEqual(opened, result);
+  assert.equal(new Set(result.map(x => x.stageDirectory)).size, 6);
+  for (const item of result) {
+    assert.ok(originals.has(item.sourceFile));
+    assert.equal(item.stageDirectory, item.sourceFile.replace(/\.exe$/, ''));
+    assert.equal(item.binaryFile, item.sourceFile.endsWith('.exe') ?
+      'scripthold.exe' : 'scripthold');
+    assert.equal(item.sha256, createHash('sha256')
+      .update(originals.get(item.sourceFile)).digest('hex'));
+  }
+});
+
+test('refuses missing or changed bytes after preparing the six MCPB server inputs', async () => {
+  const { normal, originals } = preparedBinaryFixture();
+  const first = [...originals.keys()][0];
+  for (const invalid of [
+    () => Buffer.from('altered bytes of same size', 'utf8'),
+    () => Buffer.alloc(0),
+    () => null,
+  ]) {
+    await assert.rejects(verifyPreparedMcpbBinaryPayloads(normal, async (target) => {
+      if (target.sourceFile !== first) return Readable.from([originals.get(target.sourceFile)]);
+      const bytes = invalid();
+      return bytes === null ? null : Readable.from([bytes]);
+    }));
+  }
+});
+
+test('rejects forged later producer digests and changed prepared bytes across await', async () => {
+  const { normal, originals } = preparedBinaryFixture();
+  const names = [...originals.keys()];
+  const second = names[1];
+  const corrupted = Buffer.from(originals.get(second));
+  corrupted[0] ^= 0xff;
+  let calls = 0;
+  await assert.rejects(
+    verifyPreparedMcpbBinaryPayloads(normal, async (target) => {
+      if (++calls === 1) {
+        const forged = createHash('sha256').update(corrupted).digest('hex');
+        normal.manifest.assets.find(x => x.name === second).sha256 = forged;
+        normal.uploads.find(x => x.fileName === second).uploadDigest = forged;
+      }
+      const bytes = target.sourceFile === second ?
+        corrupted : originals.get(target.sourceFile);
+      return Readable.from([bytes]);
+    }),
+    /asset digest mismatch/,
+  );
+});
+
+test('pins all six expected bytes before asynchronous callback mutation', async () => {
+  const { normal, originals } = preparedBinaryFixture();
+  const names = [...originals.keys()];
+  let calls = 0;
+  const verified = await verifyPreparedMcpbBinaryPayloads(normal, async (target) => {
+    if (++calls === 1) {
+      const victim = normal.manifest.assets.find(x => x.name === names[1]);
+      victim.size = 1;
+      victim.sha256 = 'f'.repeat(64);
+      const forged = target;
+      forged.size = 1;
+      forged.sha256 = 'f'.repeat(64);
+    }
+    return Readable.from([originals.get(target.sourceFile)]);
+  });
+  assert.equal(calls, 6);
+  assert.equal(verified[1].sha256,
+    createHash('sha256').update(originals.get(names[1])).digest('hex'));
+  assert.notEqual(verified[0].sha256, 'f'.repeat(64));
 });
 
 test('normal-only handoff produces exactly 15 authenticated raw IDs for MCPB input', () => {
