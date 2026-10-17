@@ -8,6 +8,7 @@ const {
 const { assembleRawNormalHandoff, assembleRawReleaseStaging } =
   require('./release-staging-producers');
 const { makeGitHubGet, readJsonResponse } = require('./release-finalizer-read');
+const { getCompleteList } = require('./release-finalizer-authority');
 
 const API = 'https://api.github.com/repos/zoster81/scripthold/actions/artifacts/';
 const REPOSITORY = 'zoster81/scripthold';
@@ -139,4 +140,114 @@ async function readRawCompleteStaging({
     ...assembleRawReleaseStaging(authenticNormal, authenticMCPB) };
 }
 
-module.exports = { readRawNormalStaging, readRawCompleteStaging };
+
+// A stage claim cannot establish which job ran. This optional, future-only
+// layer checks an independently supplied, reviewed workflow/job policy
+// against exact run and attempt-scoped GitHub REST job data. Artifact REST
+// metadata does not contain an uploader job ID, so this is NOT proof that
+// the successful job created each artifact (nor publication authority).
+const SOURCE_KEYS = [
+  'workflowId', 'workflowPath', 'event', 'normalJobName', 'mcpbJobName',
+];
+const JOBS_API = 'https://api.github.com/repos/zoster81/scripthold/actions/runs/';
+
+function validateSourcePolicy(sourcePolicy) {
+  exactRecord(sourcePolicy, SOURCE_KEYS, 'trusted workflow policy');
+  ensure(validId(sourcePolicy.workflowId) &&
+    typeof sourcePolicy.workflowPath === 'string' &&
+    /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/
+      .test(sourcePolicy.workflowPath) &&
+    ['push', 'workflow_dispatch'].includes(sourcePolicy.event),
+  'invalid trusted workflow identity');
+  for (const name of [sourcePolicy.normalJobName, sourcePolicy.mcpbJobName]) {
+    ensure(typeof name === 'string' &&
+      /^[A-Za-z0-9][A-Za-z0-9 ()_.-]{0,99}$/.test(name),
+    'invalid trusted producer job name');
+  }
+  ensure(sourcePolicy.normalJobName !== sourcePolicy.mcpbJobName,
+    'ambiguous trusted producer job names');
+}
+
+function verifySourceRun(run, plan, policy) {
+  ensure(run && typeof run === 'object' && !Array.isArray(run) &&
+    run.id === plan.runId && run.workflow_id === policy.workflowId &&
+    run.path === policy.workflowPath && run.event === policy.event &&
+    run.head_sha === plan.manifest.commit &&
+    validId(run.run_attempt) && run.run_attempt >= plan.producerAttempt &&
+    run.repository?.id === plan.repositoryId &&
+    run.repository?.full_name === REPOSITORY &&
+    run.head_repository?.id === plan.repositoryId &&
+    run.head_repository?.full_name === REPOSITORY &&
+    (run.status === 'in_progress' ||
+      (run.status === 'completed' && run.conclusion === 'success')),
+  'source workflow run or attempt is not trustworthy');
+}
+
+// This check is read-only; all producer inputs are prevalidated before GET.
+// Attempt-scoped job URLs avoid the default latest-attempt ambiguity on reruns.
+// The run is reread after the job pages to detect an intervening rerun.
+async function verifySourceJobs(plans, sourcePolicy, token, fetchImpl) {
+  validateSourcePolicy(sourcePolicy);
+  const policy = { ...sourcePolicy };
+  const first = plans[0];
+  for (const plan of plans) {
+    ensure(plan.runId === first.runId &&
+      plan.repositoryId === first.repositoryId &&
+      plan.manifest.tag === first.manifest.tag &&
+      plan.manifest.commit === first.manifest.commit,
+    'staging jobs have mixed workflow source identities');
+  }
+  const get = makeGitHubGet(token, fetchImpl);
+  const runUrl = JOBS_API + first.runId;
+  const run = await readJsonResponse(await get(runUrl), runUrl);
+  for (const plan of plans) verifySourceRun(run, plan, policy);
+  const jobs = [];
+  for (const plan of plans) {
+    const url = runUrl + '/attempts/' + plan.producerAttempt +
+      '/jobs?per_page=100&page=1';
+    const page = await getCompleteList(get, url, 'jobs');
+    const name = plan.manifest.stage === 'normal'
+      ? policy.normalJobName : policy.mcpbJobName;
+    const matches = page.jobs.filter(job => job && job.name === name);
+    ensure(matches.length === 1 && validId(matches[0].id) &&
+      matches[0].run_id === plan.runId &&
+      matches[0].run_attempt === plan.producerAttempt &&
+      matches[0].head_sha === plan.manifest.commit &&
+      matches[0].status === 'completed' &&
+      matches[0].conclusion === 'success',
+    'producer job is not a successful exact-attempt job');
+    jobs.push({
+      stage: plan.manifest.stage, jobId: matches[0].id,
+      runAttempt: plan.producerAttempt,
+    });
+  }
+  const last = await readJsonResponse(await get(runUrl), runUrl);
+  for (const plan of plans) verifySourceRun(last, plan, policy);
+  ensure(last.run_attempt === run.run_attempt,
+    'source workflow was rerun during evidence read');
+  return jobs;
+}
+
+async function readJobVerifiedRawNormalStaging({
+  normal, sourcePolicy, token, fetchImpl = globalThis.fetch,
+}) {
+  const plan = stageUploadPlan(normal, 'normal', new Set());
+  const jobs = await verifySourceJobs([plan], sourcePolicy, token, fetchImpl);
+  const result = await readRawNormalStaging({ normal: plan, token, fetchImpl });
+  return { ...result, jobs };
+}
+
+async function readJobVerifiedRawCompleteStaging({
+  normal, mcpb, sourcePolicy, token, fetchImpl = globalThis.fetch,
+}) {
+  const seen = new Set();
+  const first = stageUploadPlan(normal, 'normal', seen);
+  const second = stageUploadPlan(mcpb, 'mcpb', seen);
+  const jobs = await verifySourceJobs([first, second], sourcePolicy, token, fetchImpl);
+  const result = await readRawCompleteStaging({ normal: first, mcpb: second,
+    token, fetchImpl });
+  return { ...result, jobs };
+}
+
+module.exports = { readRawNormalStaging, readRawCompleteStaging,
+  readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging };
