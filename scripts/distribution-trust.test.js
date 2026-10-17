@@ -90,6 +90,34 @@ test('distribution documentation preserves core release and third-party syndicat
   assert.match(publishing, /does not support release-tag pushes/i);
 });
 
+test('publication and Scorecard pin Ubuntu 26 without a floating runner', () => {
+  for (const [name, expectedJobs] of [
+    ['release.yml', 2],
+    ['publish-mcpb-assets.yml', 1],
+    ['publish-registry.yml', 1],
+    ['scorecard.yml', 1],
+  ]) {
+    const yaml = read('.github/workflows/' + name);
+    assert.equal((yaml.match(/^    runs-on: ubuntu-26\.04$/gm) || []).length,
+      expectedJobs, name);
+    assert.doesNotMatch(yaml, /ubuntu-latest|ubuntu-24\.04/, name);
+  }
+});
+
+test('all publishing jobs require disk-backed scratch before handling release data', () => {
+  for (const name of ['release.yml', 'publish-mcpb-assets.yml', 'publish-registry.yml']) {
+    const yaml = read('.github/workflows/' + name);
+    const steps = yaml.split('      - name: Prepare disk-backed scratch');
+    assert.equal(steps.length, 2, name);
+    assert.match(steps[1], /findmnt -n -T "\$\{RUNNER_TEMP\}" -o FSTYPE/);
+    assert.match(steps[1], /ext4\|xfs\|btrfs\|zfs/);
+    assert.match(steps[1], /TMPDIR=%s/);
+    assert.match(steps[1], /GOTMPDIR=%s/);
+    assert.match(steps[1], /\$\{GITHUB_ENV\}/);
+    assert.ok(steps[0].includes('runs-on: ubuntu-26.04'), name);
+  }
+});
+
 test('release publishing defaults to read-only and grants write permission only at the job that needs it', () => {
   const workflow = read('.github/workflows/publish-mcpb-assets.yml');
   const beforeJobs = workflow.split(/^jobs:\s*$/m, 1)[0];

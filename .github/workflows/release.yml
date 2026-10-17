@@ -18,7 +18,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Checkout immutable release tag
@@ -102,7 +102,7 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -110,6 +110,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Prepare disk-backed scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "${RUNNER_TEMP}" && test -w "${RUNNER_TEMP}"
+          case "$(findmnt -n -T "${RUNNER_TEMP}" -o FSTYPE)" in
+            ext4|xfs|btrfs|zfs) ;;
+            *) echo 'runner scratch is not on a supported disk filesystem' >&2; exit 1 ;;
+          esac
+          df -hPT -- "${RUNNER_TEMP}"
+          printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "${RUNNER_TEMP}" "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

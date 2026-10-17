@@ -22,6 +22,12 @@ The following actions remain explicit maintainer decisions and are never inciden
 - deployment, active rollback, or runtime restart;
 - toolchain upgrades.
 
+## Linux publishing runner and temporary storage
+
+The Release, MCPB packaging, Registry publication, and OpenSSF Scorecard workflows use the explicit GitHub-hosted `ubuntu-26.04` image, rather than the floating `ubuntu-latest` label. The release, MCPB, and Registry jobs check that the runner-provided temporary directory is writable and backed by an accepted disk filesystem (`ext4`, `xfs`, `btrfs`, or `zfs`). They then set `TMPDIR` and `GOTMPDIR` for subsequent steps through `GITHUB_ENV`. An unexpected or RAM-backed runner temporary filesystem causes a fail-closed error before heavy build or packaging work.
+
+This preflight avoids the Ubuntu 26.04 RAM-backed `/tmp` quota for tools that respect these environment variables. It does not remount `/tmp`, control tools that ignore the variables, or replace exact-commit, tag, checksum, provenance, MCPB, or Registry release verification. The full publication chain must still be qualified through an authorized genuine release; passing non-publishing GoReleaser builds or synthetic artifact-transfer tests is not that evidence.
+
 ## Repository governance and OpenSSF Best Practices
 
 The OpenSSF Scorecard is a diagnostic, not a release gate or a reason to generate artificial activity. Protect the supply chain by requiring genuine pull requests, working CI, independent review when a reviewer is available, and verifiable release attestations. The [contributor review policy](../CONTRIBUTING.md#review-ownership-and-merge-safety) and `.github/CODEOWNERS` describe the human responsibilities; **only GitHub repository rules can enforce them**.
