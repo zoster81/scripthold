@@ -6,6 +6,7 @@ const {
   planRawStagingBatch,
   planRawNormalStagingBatch,
   verifyRawNormalStagingBatchPayloads,
+  verifyStagedAssetStream,
 } = require('./release-asset-contract');
 
 const PRODUCER_KEYS = ['manifest', 'repositoryId', 'runId', 'producerAttempt', 'uploads'];
@@ -111,5 +112,41 @@ async function verifyRawNormalHandoffPayloads(normal, observed, openSource) {
   return verifyRawNormalStagingBatchPayloads(normal.manifest, entries, observed, openSource);
 }
 
+// This future-only post-preparation gate verifies the six ACTUAL server
+// inputs destined for MCPB packaging against authenticated ORIGINAL binary
+// digests, rather than trusting the earlier source check or the copy step.
+// It performs no filesystem I/O itself: the future job must open the six
+// prepared binaries from a single-owner, stable no-follow stage. The later
+// packaged MCPB bytes still require their own GitHub-only verification.
+async function verifyPreparedMcpbBinaryPayloads(normal, openPrepared) {
+  if (typeof openPrepared !== 'function') {
+    throw new Error('prepared binary verifier requires an authenticated source opener');
+  }
+  const { manifest } = assembleRawNormalHandoff(normal);
+  const expected = manifest.assets
+    .filter(({ name }) =>
+      /^scripthold_(?:windows|linux|darwin)_(?:amd64|arm64)(?:\.exe)?$/.test(name))
+    .map(({ name, size, sha256 }) => ({
+      sourceFile: name,
+      stageDirectory: name.replace(/\.exe$/, ''),
+      binaryFile: name.endsWith('.exe') ? 'scripthold.exe' : 'scripthold',
+      size, sha256,
+    }));
+  if (expected.length !== 6 ||
+      new Set(expected.map(x => x.stageDirectory)).size !== 6) {
+    throw new Error('expected exactly six original release binaries');
+  }
+  // Keep independent scalar authority across await and give the caller a
+  // separate copy; it must not be able to rewrite later expected digests.
+  for (const item of expected) {
+    const stream = await openPrepared({ ...item });
+    await verifyStagedAssetStream({
+      name: item.sourceFile, size: item.size, sha256: item.sha256,
+    }, stream);
+  }
+  return expected.map(item => ({ ...item }));
+}
+
 module.exports = { assembleRawReleaseStaging, assembleRawNormalHandoff,
-  planRawNormalPrivateStage, verifyRawNormalHandoffPayloads };
+  planRawNormalPrivateStage, verifyRawNormalHandoffPayloads,
+  verifyPreparedMcpbBinaryPayloads };
