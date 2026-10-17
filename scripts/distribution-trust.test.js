@@ -96,6 +96,7 @@ test('publication and Scorecard pin Ubuntu 26 without a floating runner', () => 
     ['publish-mcpb-assets.yml', 1],
     ['publish-registry.yml', 1],
     ['scorecard.yml', 1],
+    ['release-finalizer-preflight.yml', 1],
   ]) {
     const yaml = read('.github/workflows/' + name);
     assert.equal((yaml.match(/^    runs-on: ubuntu-26\.04$/gm) || []).length,
