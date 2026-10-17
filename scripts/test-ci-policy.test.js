@@ -116,6 +116,12 @@ test('matrix selection preserves full exact-SHA breadth while narrowing ordinary
   ]);
 });
 
+test('PR trusted-base matrices still route Linux jobs to Ubuntu 26.04', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'test.yml'), 'utf8');
+  const mapping = "runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-26.04' || matrix.os }}";
+  assert.equal(workflow.split(mapping).length - 1, 2);
+});
+
 test('targeted package selection is derived from the evidence map', () => {
   const evidenceMap = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'testarchitecture', 'evidence-map.json'), 'utf8'));
   const race = selectGoPackages(evidenceMap, 'race', 'linux');
