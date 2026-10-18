@@ -44,11 +44,11 @@ test('OpenSSF Scorecard workflow stays on supported default-branch triggers', ()
   assert.doesNotMatch(scorecard, /tags:\s*\n\s*- ['"]v\*['"]/m);
   assert.match(scorecard, /schedule:\s*\n\s*- cron:/m);
   assert.match(scorecard, /permissions:\s*\n\s*contents: read\s*\n\s*security-events: write\s*\n\s*id-token: write/m);
-  assert.match(scorecard, /ossf\/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc/);
+  assert.match(scorecard, /ossf\/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e/);
   assert.match(scorecard, /publish_results:\s*true/);
   assert.match(scorecard, /results_file:\s*results\.sarif/);
   assert.match(scorecard, /persist-credentials:\s*false/);
-  assert.match(scorecard, /github\/codeql-action\/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d/);
+  assert.match(scorecard, /github\/codeql-action\/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/);
 });
 
 test('README trust badges are evidence-backed and avoid unverified directory claims', () => {

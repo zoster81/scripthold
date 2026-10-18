@@ -75,7 +75,7 @@ func TestTestSuiteUsesFailClosedEvidenceTiers(t *testing.T) {
 		"run-targeted --failure-class platform --platform",
 		"gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e",
 		"GITLEAKS_VERSION: '8.30.1'",
-		"goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94",
+		"goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de",
 		"args: check",
 		"if: ${{ always() }}",
 	} {
