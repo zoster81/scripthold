@@ -11,8 +11,8 @@ const { assembleRawReleaseStaging, assembleRawNormalHandoff,
   planRawNormalPrivateStage, verifyRawNormalHandoffPayloads,
   verifyPreparedMcpbBinaryPayloads } = require('./release-staging-producers');
 const { readRawNormalStaging, readRawCompleteStaging,
-  readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging } =
-  require('./release-staging-rest');
+  readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging,
+  bindRawUploadJobOutputs } = require('./release-staging-rest');
 
 const TAG = 'v3.4.0';
 const COMMIT = 'a'.repeat(40);
@@ -51,6 +51,71 @@ function fixture() {
   };
   return { normal: makeStage('normal', 1), mcpb: makeStage('mcpb', 3) };
 }
+
+function capturedJobOutputs(producer) {
+  return {
+    ids: producer.uploads.map(({ uploadId }) => String(uploadId)).join(','),
+    digests: producer.uploads.map(({ uploadDigest }) => uploadDigest).join(','),
+    attempt: String(producer.producerAttempt),
+  };
+}
+
+test('binds canonical synthetic raw step output vectors to original identities', () => {
+  for (const name of ['normal', 'mcpb']) {
+    const producer = fixture()[name];
+    const outputs = capturedJobOutputs(producer);
+    producer.manifest.assets.reverse();
+    const bound = bindRawUploadJobOutputs({
+      manifest: producer.manifest, repositoryId: producer.repositoryId,
+      runId: producer.runId, producerAttempt: producer.producerAttempt,
+      jobOutputs: outputs,
+    });
+    assert.equal(bound.uploads.length, name === 'normal' ? 15 : 7);
+    assert.deepEqual(bound.uploads.map(item => item.fileName),
+      fixture()[name].manifest.assets.map(item => item.name));
+    assert.deepEqual(bound.uploads.map(item => item.uploadId),
+      producer.uploads.map(item => item.uploadId));
+    assert.deepEqual(bound.uploads.map(item => item.uploadDigest),
+      producer.uploads.map(item => item.uploadDigest));
+    producer.manifest.assets[0].sha256 = 'f'.repeat(64);
+    assert.notEqual(bound.manifest.assets[0].sha256, producer.manifest.assets[0].sha256);
+  }
+});
+
+test('raw step output binding rejects incomplete, stale, forged and noncanonical vectors', () => {
+  const failures = [
+    f => { f.jobOutputs.ids = f.jobOutputs.ids.split(',').slice(1).join(','); },
+    f => { f.jobOutputs.digests = f.jobOutputs.digests.split(',').slice(0, -1).join(','); },
+    f => { f.jobOutputs.ids = f.jobOutputs.ids.replace(/^1000/, '01000'); },
+    f => { f.jobOutputs.ids = f.jobOutputs.ids.replace(/^1000/, '1e3'); },
+    f => { f.jobOutputs.ids = f.jobOutputs.ids.replace(/^1000/, '9007199254740992'); },
+    f => { f.jobOutputs.ids = f.jobOutputs.ids.replace(/^1000/, '1001'); },
+    f => { f.jobOutputs.ids = f.jobOutputs.ids + ',10000'; },
+    f => { f.jobOutputs.digests = f.jobOutputs.digests.toUpperCase(); },
+    f => { f.jobOutputs.digests = f.jobOutputs.digests.replace(/^0{63}1/, 'f'.repeat(64)); },
+    f => { f.jobOutputs.digests = f.jobOutputs.digests.replace(',', ',\n'); },
+    f => { f.jobOutputs.attempt = '01'; },
+    f => { f.jobOutputs.attempt = '3'; },
+    f => { f.jobOutputs.attempt = 1; },
+    f => { f.jobOutputs.ids = '1,'.repeat(100000); },
+    f => { f.jobOutputs.extra = 'ignored'; },
+    f => { f.manifest.stage = 'wrong'; },
+    f => { f.repositoryId = 0; },
+    f => { f.runId = '53001'; },
+    f => { f.producerAttempt = 0; },
+    f => { f.manifest.assets[0].sha256 = 'e'.repeat(64); },
+  ];
+  for (const mutate of failures) {
+    const producer = fixture().normal;
+    const input = {
+      manifest: producer.manifest, repositoryId: producer.repositoryId,
+      runId: producer.runId, producerAttempt: producer.producerAttempt,
+      jobOutputs: capturedJobOutputs(producer),
+    };
+    mutate(input);
+    assert.throws(() => bindRawUploadJobOutputs(input));
+  }
+});
 
 test('assembles the exact 15+7 raw producer evidence into one canonical read-only batch', () => {
   const { normal, mcpb } = fixture();

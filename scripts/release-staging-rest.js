@@ -81,6 +81,55 @@ function stageUploadPlan(producer, stage, seenIds) {
   };
 }
 
+// Bind comma-separated output vectors from the reviewed producer job's fixed
+// upload-artifact steps to the canonical stage allowlist. The caller must obtain
+// these values from trusted job step outputs, not a producer-supplied manifest.
+// This adapter validates *claims*, not their GitHub origin or transferred bytes.
+function bindRawUploadJobOutputs({
+  manifest, repositoryId, runId, producerAttempt, jobOutputs,
+}) {
+  exactRecord(manifest, MANIFEST_KEYS, 'staging manifest');
+  ensure(validId(repositoryId) && validId(runId) && validId(producerAttempt),
+    'invalid trusted producer job identity');
+  exactRecord(jobOutputs, ['ids', 'digests', 'attempt'],
+    'trusted upload step outputs');
+  ensure(typeof jobOutputs.attempt === 'string' &&
+    jobOutputs.attempt === String(producerAttempt),
+  'upload step attempt differs from trusted producer attempt');
+  const files = validateStagedGroupManifest(manifest);
+  const names = expectedReleaseAssetNames(manifest.tag)
+    .filter(name => files.has(name));
+
+  // Limit decoding before splitting to prevent unbounded untrusted output.
+  ensure(typeof jobOutputs.ids === 'string' &&
+    jobOutputs.ids.length <= 17 * names.length - 1 &&
+    typeof jobOutputs.digests === 'string' &&
+    jobOutputs.digests.length <= 65 * names.length,
+  'oversized upload step output vector');
+  const ids = jobOutputs.ids.split(',');
+  const digests = jobOutputs.digests.split(',');
+  ensure(ids.length === names.length && digests.length === names.length,
+    'incomplete upload step output vector');
+  const seen = new Set();
+  const uploads = names.map((fileName, index) => {
+    const text = ids[index];
+    ensure(/^[1-9][0-9]*$/.test(text),
+      'noncanonical numeric upload step ID');
+    const uploadId = Number(text);
+    ensure(validId(uploadId) && String(uploadId) === text && !seen.has(uploadId),
+      'invalid, unsafe or duplicate upload step ID');
+    const uploadDigest = digests[index];
+    ensure(SHA256.test(uploadDigest) &&
+      uploadDigest === files.get(fileName).sha256,
+    'upload step digest differs from original file');
+    seen.add(uploadId);
+    return { fileName, uploadId, uploadDigest };
+  });
+  return stageUploadPlan({
+    manifest, repositoryId, runId, producerAttempt, uploads,
+  }, manifest.stage, new Set());
+}
+
 // Retain only the exact provider fields that have defined trust meaning.
 // The response still MUST be bound to original SHA/size and actual downloaded
 // bytes by the shared 15/22-file verifier; HTTPS metadata is not a mutation permit.
@@ -250,4 +299,5 @@ async function readJobVerifiedRawCompleteStaging({
 }
 
 module.exports = { readRawNormalStaging, readRawCompleteStaging,
-  readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging };
+  readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging,
+  bindRawUploadJobOutputs };
