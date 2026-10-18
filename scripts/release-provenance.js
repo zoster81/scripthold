@@ -185,4 +185,5 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseChecksums, projectBundle, validateArtifacts, verificationArguments, publish };
+module.exports = { parseChecksums, projectBundle, validateArtifacts,
+  verificationArguments, verifyWithGitHubCLI, publish };
