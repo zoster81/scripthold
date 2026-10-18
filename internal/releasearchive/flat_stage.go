@@ -38,6 +38,84 @@ func StageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName string, 
 	return stageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName, expected)
 }
 
+// StageVerifiedProducerSourceFile stages one independently authenticated
+// original from a nested GoReleaser build directory or the flat dist root.
+// The caller owns and trusts distDir; relativeSubdir must be an exact,
+// single-component directory from the separately validated build catalog.
+// Neither path nor returned stage name is cross-job release authority.
+func StageVerifiedProducerSourceFile(distDir, relativeSubdir, sourceName, stageDir, stageName string, expected ExpectedFile) error {
+	if runtime.GOOS != "linux" {
+		return errors.New("producer original staging requires a Linux runner")
+	}
+	return stageVerifiedProducerSourceFile(distDir, relativeSubdir, sourceName, stageDir, stageName, expected)
+}
+
+// stageVerifiedProducerSourceFile is also exercised by cross-platform tests.
+// The opened dist and build roots remain pinned throughout the same-byte copy.
+func stageVerifiedProducerSourceFile(distDir, relativeSubdir, sourceName, stageDir, stageName string, expected ExpectedFile) error {
+	if !filepath.IsAbs(distDir) || !filepath.IsAbs(stageDir) ||
+		(relativeSubdir != "" && !portableStagingName(relativeSubdir)) ||
+		!portableStagingName(sourceName) || !portableStagingName(stageName) ||
+		!portableStagingName(expected.Name) ||
+		expected.Size <= 0 || expected.Size > maxAssetBytes || !validDigest(expected.SHA256) {
+		return errors.New("invalid producer original source or destination")
+	}
+	initial, err := os.Lstat(distDir)
+	if err != nil {
+		return fmt.Errorf("inspect producer dist directory: %w", err)
+	}
+	if !initial.IsDir() || initial.Mode()&os.ModeSymlink != 0 {
+		return errors.New("producer dist root must be a real directory")
+	}
+	distRoot, err := os.OpenRoot(distDir)
+	if err != nil {
+		return fmt.Errorf("anchor producer dist directory: %w", err)
+	}
+	defer distRoot.Close()
+	pinned, err := distRoot.Stat(".")
+	if err != nil || !os.SameFile(initial, pinned) || initial.Mode() != pinned.Mode() {
+		return errors.New("producer dist root changed while opening")
+	}
+	sourceRoot := distRoot
+	var initialChild os.FileInfo
+	if relativeSubdir != "" {
+		initialChild, err = distRoot.Lstat(relativeSubdir)
+		if err != nil {
+			return fmt.Errorf("inspect producer build directory: %w", err)
+		}
+		if !initialChild.IsDir() || initialChild.Mode()&os.ModeSymlink != 0 {
+			return errors.New("producer build directory must be a real directory")
+		}
+		buildRoot, openErr := distRoot.OpenRoot(relativeSubdir)
+		if openErr != nil {
+			return fmt.Errorf("anchor producer build directory: %w", openErr)
+		}
+		defer buildRoot.Close()
+		currentChild, statErr := buildRoot.Stat(".")
+		if statErr != nil || !os.SameFile(initialChild, currentChild) ||
+			initialChild.Mode() != currentChild.Mode() {
+			return errors.New("producer build directory changed while opening")
+		}
+		sourceRoot = buildRoot
+	}
+	if err := stageVerifiedSourceFromRoot(sourceRoot, sourceName, stageDir, stageName, expected); err != nil {
+		return err
+	}
+	if relativeSubdir != "" {
+		child, err := distRoot.Lstat(relativeSubdir)
+		if err != nil || !child.IsDir() || !os.SameFile(initialChild, child) ||
+			initialChild.Mode() != child.Mode() {
+			return errors.New("producer build directory changed during staging")
+		}
+	}
+	afterRoot, err := os.Lstat(distDir)
+	if err != nil || !afterRoot.IsDir() || !os.SameFile(initial, afterRoot) ||
+		initial.Mode() != afterRoot.Mode() {
+		return errors.New("producer dist directory changed during staging")
+	}
+	return nil
+}
+
 // removeCreatedStagingFile refuses to unlink a different object if the
 // freshly created output pathname was replaced before error recovery.
 // The directory is private and single-writer; this is an identity check,
@@ -74,6 +152,17 @@ func stageVerifiedSourceFile(sourceDir, sourceName, stageDir, stageName string, 
 		return fmt.Errorf("open producer source directory: %w", err)
 	}
 	defer sourceRoot.Close()
+	return stageVerifiedSourceFromRoot(sourceRoot, sourceName, stageDir, stageName, expected)
+}
+
+// The rooted source handle, not a subsequently resolved absolute pathname,
+// carries source authority across preflight, copy, and identity revalidation.
+func stageVerifiedSourceFromRoot(sourceRoot *os.Root, sourceName, stageDir, stageName string, expected ExpectedFile) (err error) {
+	if !portableStagingName(sourceName) || !portableStagingName(stageName) ||
+		!portableStagingName(expected.Name) || expected.Size <= 0 ||
+		expected.Size > maxAssetBytes || !validDigest(expected.SHA256) {
+		return errors.New("invalid authenticated rooted source or destination")
+	}
 	before, err := sourceRoot.Lstat(sourceName)
 	if err != nil {
 		return fmt.Errorf("inspect producer source: %w", err)
