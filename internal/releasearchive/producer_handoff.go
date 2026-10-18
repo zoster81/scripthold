@@ -26,12 +26,30 @@ func StageNormalProducerOriginals(tag, distDir, stagingParent string, runID, att
 	return stageNormalProducerOriginals(tag, distDir, stagingParent, runID, attempt, plan, trusted)
 }
 
+// StageNormalProducerOriginalsWithSidecars stages the exact same 15 originals
+// when the authentic signed bundle and in-toto JSONL live outside GoReleaser
+// dist. The sidecar roots are trusted producer-local directories, not artifact
+// manifests; the caller must independently authenticate the original bytes,
+// signer, and GitHub source/run identity before invoking this helper.
+// A nonempty path with an error is a nonpublishable partial stage.
+func StageNormalProducerOriginalsWithSidecars(tag, distDir, bundleDir, intotoDir, stagingParent string, runID, attempt int64, plan []NormalProducerSource, trusted []ExpectedFile) (string, error) {
+	if runtime.GOOS != "linux" {
+		return "", errors.New("normal original producer staging requires native Linux")
+	}
+	return stageNormalProducerOriginalsWithSidecars(tag, distDir, bundleDir, intotoDir, stagingParent, runID, attempt, plan, trusted)
+}
+
 // stageNormalProducerOriginals is exercised on other operating systems;
 // Linux owns the public owner-only staging and syncing contract.
 func stageNormalProducerOriginals(tag, distDir, stagingParent string, runID, attempt int64, plan []NormalProducerSource, trusted []ExpectedFile) (string, error) {
+	return stageNormalProducerOriginalsWithSidecars(tag, distDir, distDir, distDir, stagingParent, runID, attempt, plan, trusted)
+}
+
+func stageNormalProducerOriginalsWithSidecars(tag, distDir, bundleDir, intotoDir, stagingParent string, runID, attempt int64, plan []NormalProducerSource, trusted []ExpectedFile) (string, error) {
 	if runID <= 0 || runID > maxGitHubArtifactNumber ||
 		attempt <= 0 || attempt > maxGitHubArtifactNumber ||
-		!filepath.IsAbs(distDir) || !filepath.IsAbs(stagingParent) {
+		!filepath.IsAbs(distDir) || !filepath.IsAbs(bundleDir) ||
+		!filepath.IsAbs(intotoDir) || !filepath.IsAbs(stagingParent) {
 		return "", errors.New("invalid producer identity or trusted directory")
 	}
 	bound, err := BindNormalProducerSourcePlan(tag, plan, trusted)
@@ -72,6 +90,21 @@ func stageNormalProducerOriginals(tag, distDir, stagingParent string, runID, att
 	if err != nil {
 		return "", fmt.Errorf("resolve trusted staging parent: %w", err)
 	}
+	// Sidecar source roots may also be the staging parent. Only canonical
+	// fixed-leaf originals are read; in that case a private staging child is
+	// created in the shared parent without rewriting either source file.
+	for _, sidecarRoot := range []string{bundleDir, intotoDir} {
+		info, statErr := os.Lstat(sidecarRoot)
+		if statErr != nil {
+			return "", fmt.Errorf("inspect trusted provenance root: %w", statErr)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("provenance source root must be a real directory")
+		}
+		if _, resolveErr := filepath.EvalSymlinks(sidecarRoot); resolveErr != nil {
+			return "", fmt.Errorf("resolve trusted provenance root: %w", resolveErr)
+		}
+	}
 	for _, pair := range [][2]string{{sourceReal, parentReal}, {parentReal, sourceReal}} {
 		rel, relErr := filepath.Rel(pair[0], pair[1])
 		if relErr != nil {
@@ -86,7 +119,14 @@ func stageNormalProducerOriginals(tag, distDir, stagingParent string, runID, att
 		return "", err
 	}
 	for i, original := range bound {
-		if err := stageVerifiedProducerSourceFile(distDir, original.SourceSubdir,
+		sourceDir := distDir
+		switch original.Original.Name {
+		case "scripthold-" + tag + "-provenance.sigstore.json":
+			sourceDir = bundleDir
+		case "scripthold-" + tag + "-provenance.intoto.jsonl":
+			sourceDir = intotoDir
+		}
+		if err := stageVerifiedProducerSourceFile(sourceDir, original.SourceSubdir,
 			original.SourceLeaf, stage, physical[i].Name, original.Original); err != nil {
 			return stage, fmt.Errorf("stage original %q: %w", original.Original.Name, err)
 		}
