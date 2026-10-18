@@ -150,6 +150,41 @@ test('Ubuntu 26 GoReleaser rehearsal only builds locally on hosted runner', () =
   }
 });
 
+test('manual Ubuntu 26 complete normal rehearsal cannot publish or trust a local tag alias', () => {
+  const file = path.join(__dirname, '..', '.github', 'workflows',
+    'ubuntu26-normal-release-rehearsal.yml');
+  const yaml = fs.readFileSync(file, 'utf8');
+  const assertSafe = text => {
+    assert.match(text, /^on:\r?\n  workflow_dispatch:\r?\n    inputs:/m);
+    assert.match(text, /^permissions:\r?\n  contents: read\r?$/m);
+    assert.match(text, /^    runs-on: ubuntu-26\.04\r?$/m);
+    assert.match(text, /test "\$\{GITHUB_REF\}" = refs\/heads\/main/);
+    assert.match(text, /test "\$\(git cat-file -t "\$\{tagref\}"\)" = tag/);
+    assert.match(text, /git ls-remote --tags origin/);
+    assert.match(text, /test "\$\(git rev-parse HEAD\)" = "\$\{commit\}"/);
+    assert.match(text, /test "\$\(git rev-parse HEAD\)" = "\$\{TAG_COMMIT\}"/);
+    assert.equal(text.split('persist-credentials: false').length - 1, 2);
+    assert.doesNotMatch(text, /persist-credentials: true/);
+    assert.match(text, /workdir: source/);
+    assert.match(text, /^          version: 'v2\.18\.1'\r?$/m);
+    assert.match(text, /^          args: release --clean --skip=publish,announce\r?$/m);
+    assert.match(text, /node \.\.\/verifier\/scripts\/release-normal-rehearsal\.js/);
+    assert.doesNotMatch(text, /contents: write|packages: write|id-token: write|attestations: write/);
+    assert.doesNotMatch(text, /GITHUB_TOKEN|GH_TOKEN|secrets\.|gh release|upload-artifact|--snapshot|gh api/);
+  };
+  assertSafe(yaml);
+  for (const [safe, unsafe] of [
+    ['  contents: read', '  contents: write'],
+    ['release --clean --skip=publish,announce', 'release --clean'],
+    ['persist-credentials: false', 'persist-credentials: true'],
+    ['test "${GITHUB_REF}" = refs/heads/main', 'test "${GITHUB_REF}" = refs/tags/main'],
+    ["version: 'v2.18.1'", "version: 'latest'"],
+  ]) {
+    assert.ok(yaml.includes(safe));
+    assert.throws(() => assertSafe(yaml.replace(safe, unsafe)));
+  }
+});
+
 test('targeted package selection is derived from the evidence map', () => {
   const evidenceMap = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'testarchitecture', 'evidence-map.json'), 'utf8'));
   const race = selectGoPackages(evidenceMap, 'race', 'linux');
