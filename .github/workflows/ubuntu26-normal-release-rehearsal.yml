@@ -1,0 +1,112 @@
+# Manual, read-only qualification of genuine normal GoReleaser output on an existing tag.
+# Never signs, uploads, publishes, or creates a release or an MCPB.
+name: Ubuntu 26 normal release rehearsal (nonpublishing)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing annotated Scripthold release tag (no publication)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out the audited rehearsal verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: verifier
+          persist-credentials: false
+
+      - name: Reject unexpected dispatch and tag
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = workflow_dispatch
+          test "${GITHUB_REPOSITORY}" = zoster81/scripthold
+          test "${GITHUB_REF}" = refs/heads/main
+          [[ "${REQUESTED_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          printf 'REHEARSAL_TAG=%s\n' "${REQUESTED_TAG}" >> "${GITHUB_ENV}"
+
+      - name: Check out the existing release tag as separate build source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind annotated remote tag object and peeled source commit
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          tagref="refs/tags/${REHEARSAL_TAG}"
+          object="$(git ls-remote --tags origin "${tagref}" | awk -v ref="${tagref}" '$2 == ref {print $1}')"
+          commit="$(git ls-remote --tags origin "${tagref}^{}" | awk -v ref="${tagref}^{}" '$2 == ref {print $1}')"
+          [[ "${object}" =~ ^[0-9a-f]{40}$ && "${commit}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git cat-file -t "${tagref}")" = tag
+          test "$(git rev-parse "${tagref}")" = "${object}"
+          test "$(git rev-parse "${tagref}^{}")" = "${commit}"
+          test "$(git rev-parse HEAD)" = "${commit}"
+          test -z "$(git status --porcelain)"
+          printf 'TAG_OBJECT=%s\nTAG_COMMIT=%s\n' "${object}" "${commit}" >> "${GITHUB_ENV}"
+
+      - name: Require disk-backed build scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "${RUNNER_TEMP}" && test -w "${RUNNER_TEMP}"
+          case "$(findmnt -n -T "${RUNNER_TEMP}" -o FSTYPE)" in
+            ext4|xfs|btrfs|zfs) ;;
+            *) echo 'unsupported or RAM-backed build scratch' >&2; exit 1 ;;
+          esac
+          df -hPT -- "${RUNNER_TEMP}" "${GITHUB_WORKSPACE}"
+          printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "${RUNNER_TEMP}" "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
+
+      - name: Set up Go from the exact historical source
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+
+      - name: Build genuine archives and binaries without publication
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: 'v2.18.1'
+          workdir: source
+          args: release --clean --skip=publish,announce
+
+      - name: Set up pinned Node for independent output checks
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+
+      - name: Check all 13 original assets and their checksum closure
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          node ../verifier/scripts/release-normal-rehearsal.js "${REHEARSAL_TAG}" .
+
+      - name: Recheck immutable source before recording successful evidence
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          tagref="refs/tags/${REHEARSAL_TAG}"
+          test "$(git ls-remote --tags origin "${tagref}" | awk -v ref="${tagref}" '$2 == ref {print $1}')" = "${TAG_OBJECT}"
+          test "$(git ls-remote --tags origin "${tagref}^{}" | awk -v ref="${tagref}^{}" '$2 == ref {print $1}')" = "${TAG_COMMIT}"
+          test "$(git rev-parse HEAD)" = "${TAG_COMMIT}"
+          echo 'Verified 13 original GoReleaser assets on Ubuntu 26.04; no publication or upload performed.'
