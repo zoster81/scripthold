@@ -250,6 +250,43 @@ func assertAllNodeScriptTestsClassified(t *testing.T, root string, groups []test
 	}
 }
 
+// Release-archive staging has Linux-only public operations, platform-specific
+// file primitives, and a concurrent directory allocation test. Go-only CI must
+// exercise the core on Windows/macOS and use the targeted race profile.
+func TestReleaseArchiveTargetedRaceAndPlatformCoverage(t *testing.T) {
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "testarchitecture", "evidence-map.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest evidenceMap
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range manifest.TestGroups {
+		if group.ID != "go.releasearchive" {
+			continue
+		}
+		if group.Kind != "go-package" || group.Directory != "internal/releasearchive" {
+			t.Fatalf("release archive package owner changed: %+v", group)
+		}
+		classes := set(group.FailureClasses...)
+		for _, category := range []string{"race", "platform"} {
+			if !classes[category] {
+				t.Fatalf("release archive missing targeted %s CI coverage", category)
+			}
+		}
+		platforms := set(group.Platforms...)
+		for _, platform := range []string{"linux", "windows", "darwin"} {
+			if !platforms["all"] && !platforms[platform] {
+				t.Fatalf("release archive omits %s from targeted CI", platform)
+			}
+		}
+		return
+	}
+	t.Fatal("release archive test owner missing from evidence map")
+}
+
 func TestLocalValidationProfilesAreExplicitAndComplementary(t *testing.T) {
 	root := repositoryRoot(t)
 	data, err := os.ReadFile(filepath.Join(root, "testarchitecture", "evidence-map.json"))
