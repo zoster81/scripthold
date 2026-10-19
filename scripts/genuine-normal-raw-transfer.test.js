@@ -92,3 +92,19 @@ test('hosted proof pins a read-only historical build and exactly 13 raw transfer
   assert.doesNotMatch(yaml,
     /contents: write|id-token: write|attestations: write|packages: write|gh release (?:upload|create|edit)|secrets\./);
 });
+
+test('historical Sigstore checks all freshly transferred original bytes without signing', () => {
+  const yaml = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows',
+    'ubuntu26-genuine-normal-transfer-proof.yml'), 'utf8');
+  assert.match(yaml, /name: Download pinned historical published Sigstore bundle/);
+  assert.match(yaml, /gh release download v3\.3\.0/);
+  assert.match(yaml, /399105468/);
+  assert.match(yaml, /4c64c68b642d2d807774f3e123cc97eb33d7b916214b3dec0717204e43c00a31/);
+  assert.match(yaml, /name: Verify twelve rebuilt original bytes with historical real signatures/);
+  assert.match(yaml, /projectBundle\(/);
+  assert.match(yaml, /verifyWithGitHubCLI\(/);
+  assert.match(yaml, /PROBE_DIGESTS: \$\{\{ needs\.producer\.outputs\.digests \}\}/);
+  assert.match(yaml, /PROBE_SOURCE_ATTEMPT: \$\{\{ needs\.producer\.outputs\.attempt \}\}/);
+  assert.doesNotMatch(yaml,
+    /id-token: write|attestations: write|contents: write|gh attestation store|gh release upload/);
+});
