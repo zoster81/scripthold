@@ -357,3 +357,99 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/genuine-normal-source-evidence.js
+      - name: Download pinned historical published Sigstore bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(gh api repos/zoster81/scripthold/releases/tags/v3.3.0 --jq .id)" = 399105468
+          stage="$RUNNER_TEMP/historical-sigstore"
+          mkdir -m 700 -- "$stage"
+          gh release download v3.3.0 --repo zoster81/scripthold \
+            --pattern scripthold-v3.3.0-provenance.sigstore.json --dir "$stage"
+      - name: Verify twelve rebuilt original bytes with historical real signatures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE_SOURCE_ATTEMPT: ${{ needs.producer.outputs.attempt }}
+          PROBE_DIGESTS: ${{ needs.producer.outputs.digests }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          'use strict';
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { createHash } = require('node:crypto');
+          const { expectedReleaseAssetNames } = require('./scripts/release-asset-contract');
+          const { parseChecksums, projectBundle, verifyWithGitHubCLI } =
+            require('./scripts/release-provenance');
+
+          const tag = 'v3.3.0';
+          const commit = 'aac3a46bf71135f73594341f1b97dcf08c552832';
+          const repo = 'zoster81/scripthold';
+          const id = process.env.GITHUB_RUN_ID;
+          const attempt = process.env.PROBE_SOURCE_ATTEMPT;
+          assert.match(id, /^[1-9][0-9]*$/);
+          assert.match(attempt, /^[1-9][0-9]*$/);
+          assert.ok(Number.isSafeInteger(Number(id)) && Number.isSafeInteger(Number(attempt)));
+          const digests = process.env.PROBE_DIGESTS.split(',');
+          assert.equal(digests.length, 13);
+          assert.ok(digests.every(d => /^[0-9a-f]{64}$/.test(d)));
+          const names = expectedReleaseAssetNames(tag).slice(0, 13);
+          const privateRoot = process.env.RUNNER_TEMP;
+          const rawRoot = path.join(privateRoot, 'genuine-raw-stage');
+          const historicalRoot = path.join(privateRoot, 'historical-sigstore');
+          const destRoot = path.join(privateRoot, 'historical-rebuild-subjects');
+          assert.deepEqual(fs.readdirSync(historicalRoot),
+            ['scripthold-v3.3.0-provenance.sigstore.json']);
+          fs.mkdirSync(destRoot, { mode: 0o700 });
+          function rawFile(index) {
+            return path.join(rawRoot, 'genuine-' + id + '-' + attempt +
+              '-normal-' + String(index + 1).padStart(2, '0'));
+          }
+          async function sha256File(file, maxSize) {
+            const st = fs.lstatSync(file);
+            assert.ok(st.isFile() && !st.isSymbolicLink() && st.nlink === 1 &&
+              st.size > 0 && st.size <= maxSize, 'unsafe original file');
+            const hash = createHash('sha256');
+            for await (const chunk of fs.createReadStream(file)) hash.update(chunk);
+            assert.equal(fs.lstatSync(file).size, st.size, 'changing original file');
+            return hash.digest('hex');
+          }
+          async function main() {
+            const bundlePath = path.join(historicalRoot,
+              'scripthold-v3.3.0-provenance.sigstore.json');
+            assert.equal(await sha256File(bundlePath, 65536),
+              '4c64c68b642d2d807774f3e123cc97eb33d7b916214b3dec0717204e43c00a31',
+              'historical original bundle digest mismatch');
+            const bundle = JSON.parse(fs.readFileSync(bundlePath, 'utf8'));
+            const checksumsPath = rawFile(12);
+            assert.equal(await sha256File(checksumsPath, 16384), digests[12],
+              'transferred original checksums mismatch');
+            const checksums = parseChecksums(fs.readFileSync(checksumsPath, 'utf8'));
+            assert.equal(checksums.size, 12);
+            projectBundle(bundle, checksums, tag, commit, repo);
+            for (let i = 0; i < 12; i++) {
+              const name = names[i];
+              const source = rawFile(i);
+              const expected = digests[i];
+              assert.equal(checksums.get(name), expected, 'subject checksum mismatch');
+              assert.equal(await sha256File(source, 2 * 1024 * 1024 * 1024), expected,
+                'transferred original changed');
+              const target = path.join(destRoot, name);
+              fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+              assert.equal(await sha256File(target, 2 * 1024 * 1024 * 1024),
+                expected, 'private signed-subject copy differs');
+              verifyWithGitHubCLI(target, bundlePath, repo, tag, commit);
+              assert.equal(await sha256File(target, 2 * 1024 * 1024 * 1024),
+                expected, 'subject changed during signature check');
+              console.log('Historical genuine signature verified on rebuilt raw original:', name);
+            }
+            assert.equal(fs.readdirSync(destRoot).length, 12);
+            console.log('VERIFIED 12/12 historical genuine signatures against transferred rebuilt originals');
+          }
+          main().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
