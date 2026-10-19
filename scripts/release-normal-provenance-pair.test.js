@@ -106,7 +106,56 @@ test('rejects forged inventory, unchecked checksum subjects and wrong source ide
   assert.throws(() => verify({ ...f, manifest: changed }));
 });
 
-test('rejects changed signed payload, builder path and in-toto envelope', () => {
+test('rejects forged source identities even when both sidecars and manifest agree', () => {
+  // Mutate the signed payload, update BOTH original companion files, and
+  // rehash their manifest entries. A stale-sidecar rejection would not prove
+  // the signed source, builder, or subject checks are actually enforced.
+  const attacks = [
+    [s => { s.predicate.buildDefinition.externalParameters.workflow.ref =
+      'refs/heads/main'; }, /release source mismatch/],
+    [s => { s.predicate.buildDefinition.externalParameters.workflow.path =
+      '.github/workflows/ubuntu26-genuine-normal-transfer-proof.yml'; },
+    /release source mismatch/],
+    [s => { s.predicate.buildDefinition.externalParameters.workflow.repository =
+      'https://github.com/other/repository'; }, /release source mismatch/],
+    [s => { s.predicate.runDetails.builder.id =
+      'https://github.com/zoster81/scripthold/.github/workflows/probe.yml@refs/tags/' + TAG; },
+    /builder identity mismatch/],
+    [s => { s.predicate.buildDefinition.resolvedDependencies[0].uri =
+      'git+https://github.com/zoster81/scripthold@refs/heads/main'; },
+    /source commit mismatch/],
+    [s => { s.predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit =
+      'b'.repeat(40); }, /source commit mismatch/],
+    [s => { s.subject[0].digest.sha256 = 'b'.repeat(64); },
+    /subject checksum mismatch/],
+    [s => { s.subject[0].name = 'foreign_subject'; },
+    /subject checksum mismatch/],
+  ];
+  for (const [mutate, reason] of attacks) {
+    const f = fixture();
+    const statement = structuredClone(f.statement);
+    mutate(statement);
+    const envelope = {
+      ...f.envelope, payload: Buffer.from(JSON.stringify(statement)).toString('base64'),
+    };
+    const bundle = { ...f.bundle, dsseEnvelope: envelope };
+    const bundleBytes = Buffer.from(JSON.stringify(bundle));
+    const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
+    const manifest = structuredClone(f.manifest);
+    for (const [suffix, bytes] of [
+      ['.sigstore.json', bundleBytes], ['.intoto.jsonl', envelopeBytes],
+    ]) {
+      const asset = manifest.assets.find(item => item.name.endsWith(suffix));
+      assert.ok(asset);
+      asset.size = bytes.length;
+      asset.sha256 = sha(bytes);
+    }
+    assert.throws(() => checkNormalProvenancePair(
+      manifest, f.checksums, bundleBytes, envelopeBytes), reason);
+  }
+});
+
+test('rejects bundle/envelope divergence even when bundle metadata is rehashed', () => {
   const f = fixture();
   for (const mutate of [
     s => { s.subject[0].digest.sha256 = 'b'.repeat(64); },
