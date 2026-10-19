@@ -35,6 +35,7 @@ Apply only the checks relevant to the change, but report skipped checks explicit
 - [ ] Include normal, edge, invalid-input, regression, filesystem-failure, encoding/BOM, line-ending, cancellation, concurrency, and platform cases as applicable.
 - [ ] Include security-negative tests, not only successful paths.
 - [ ] For durable tasks, cover idempotency conflict, queue/concurrency bounds, logical locks, frontend/worker/supervisor failure, stale recovery, at-most-once behavior, process-tree cancellation, cursor gaps, retention, and allowed-directory changes between restarts.
+- [ ] For cancellation tests, check prompt execution-context cancellation separately from durable terminal-state persistence; hold the control lock deterministically to test that distinction instead of assuming both phases complete within one short deadline.
 - [ ] For structured execution, verify fixed invocation, argument construction, working-directory confinement, environment filtering, timeout, cancellation, and bounded diagnostics without a shell.
 
 ## 3. Devil's advocate review
