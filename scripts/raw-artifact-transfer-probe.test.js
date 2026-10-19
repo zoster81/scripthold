@@ -32,6 +32,12 @@ function assertSafeTransferWorkflow(yaml) {
   assert.match(yaml, /^  consumer:\r?\n    needs: \[normal, package\]\r?$/m);
   assert.doesNotMatch(yaml, /^\s*contents: write\s*$/m);
   assert.doesNotMatch(yaml, /^\s*(?:pull_request_target|release|push):\s*$/m);
+  assert.match(yaml, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
+  assert.match(yaml, /^          GH_TOKEN: \$\{\{ github\.token \}\}$/m);
+  assert.match(yaml, /^          PROBE_SOURCE_SHA: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}$/m);
+  assert.match(yaml, /^          NORMAL_IDS: \$\{\{ needs\.normal\.outputs\.ids \}\}$/m);
+  assert.match(yaml, /^          PACKAGE_IDS: \$\{\{ needs\.package\.outputs\.ids \}\}$/m);
+  assert.match(yaml, /^          node scripts\/raw-probe-source-evidence\.js$/m);
 
   const producerSteps = [...yaml.matchAll(
     /^      - name: Upload synthetic (normal|package) (\d{2})\r?\n([\s\S]*?)(?=^      - name:|^  (?:consumer|normal|package):)/gm,
@@ -115,6 +121,8 @@ test('isolated raw-transfer workflow retains strict publication and artifact pol
     ['contents: read', 'contents: write'],
     ['merge-multiple: true', 'merge-multiple: false'],
     ['needs: [normal, package]', 'needs: [normal]'],
+    ['      actions: read', '      actions: write'],
+    ['node scripts/raw-probe-source-evidence.js', 'echo not-verifying'],
   ]) {
     assert.ok(yaml.includes(original), 'missing expected input ' + original);
     assert.throws(() => assertSafeTransferWorkflow(yaml.replace(original, unsafe)),
