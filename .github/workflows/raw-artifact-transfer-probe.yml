@@ -327,6 +327,9 @@ jobs:
     needs: [normal, package]
     runs-on: ubuntu-26.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Allocate private destination
         shell: bash
@@ -434,6 +437,21 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Verify exact producer run attempts and 22 artifact IDs through GitHub REST
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PROBE_SOURCE_EVENT: ${{ github.event_name }}
+          NORMAL_IDS: ${{ needs.normal.outputs.ids }}
+          NORMAL_DIGESTS: ${{ needs.normal.outputs.digests }}
+          NORMAL_ATTEMPT: ${{ needs.normal.outputs.attempt }}
+          PACKAGE_IDS: ${{ needs.package.outputs.ids }}
+          PACKAGE_DIGESTS: ${{ needs.package.outputs.digests }}
+          PACKAGE_ATTEMPT: ${{ needs.package.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          node scripts/raw-probe-source-evidence.js
       - name: Set up Go for the native private stage
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
