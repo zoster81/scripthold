@@ -1,0 +1,306 @@
+# Read-only release-tag rebuild and raw transfer of 13 genuine GoReleaser
+# originals. This is not the complete 15-file signed producer/release pipeline.
+name: Ubuntu 26 genuine normal raw transfer proof (nonpublishing)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ubuntu26-genuine-normal-transfer-proof.yml'
+      - 'scripts/genuine-normal-raw-transfer.js'
+      - 'scripts/genuine-normal-raw-transfer.test.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  producer:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    outputs:
+      ids: ${{ steps.collect.outputs.ids }}
+      digests: ${{ steps.collect.outputs.digests }}
+      attempt: ${{ steps.collect.outputs.attempt }}
+    steps:
+      - name: Checkout audited verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: verifier
+      - name: Checkout historical annotated release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v3.3.0
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Pin immutable remote source identity
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = zoster81/scripthold
+          tagref=refs/tags/v3.3.0
+          object="$(git ls-remote --tags origin "$tagref" | awk -v ref="$tagref" '$2 == ref {print $1}')"
+          commit="$(git ls-remote --tags origin "$tagref^{}" | awk -v ref="$tagref^{}" '$2 == ref {print $1}')"
+          test "$object" = 5d1cde029753e4b75fbe3236febaecb905a82820
+          test "$commit" = aac3a46bf71135f73594341f1b97dcf08c552832
+          test "$(git cat-file -t "$tagref")" = tag
+          test "$(git rev-parse HEAD)" = "$commit"
+          test -z "$(git status --porcelain)"
+      - name: Require disk-backed private build scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP" && test -w "$RUNNER_TEMP"
+          case "$(findmnt -n -T "$RUNNER_TEMP" -o FSTYPE)" in
+            ext4|xfs|btrfs|zfs) ;;
+            *) exit 1 ;;
+          esac
+          printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Set up historical Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+      - name: Build genuine normal originals without publication
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: 'v2.18.1'
+          workdir: source
+          args: release --clean --skip=publish,announce
+      - name: Set up fixed Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+      - name: Verify all 13 original outputs and make checked same-byte private copies
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          node verifier/scripts/release-normal-rehearsal.js v3.3.0 source
+          stage="$RUNNER_TEMP/genuine-raw-uploads"
+          mkdir -m 700 -- "$stage"
+          mapfile -t originals < <(node -e "console.log(require('./verifier/scripts/release-asset-contract').expectedReleaseAssetNames('v3.3.0').slice(0, 13).join('\n'))")
+          test "${#originals[@]}" -eq 13
+          for i in "${!originals[@]}"; do
+            number="$(printf '%02d' "$((i + 1))")"
+            dest="$stage/genuine-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-normal-$number"
+            cp -- "source/dist/${originals[$i]}" "$dest"
+            cmp -- "source/dist/${originals[$i]}" "$dest"
+          done
+          test "$(find "$stage" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 13
+      - name: Upload genuine original 01 unchanged
+        id: a1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-01
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 02 unchanged
+        id: a2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-02
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 03 unchanged
+        id: a3
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-03
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 04 unchanged
+        id: a4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-04
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 05 unchanged
+        id: a5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-05
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 06 unchanged
+        id: a6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-06
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 07 unchanged
+        id: a7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-07
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 08 unchanged
+        id: a8
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-08
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 09 unchanged
+        id: a9
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-09
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 10 unchanged
+        id: a10
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-10
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 11 unchanged
+        id: a11
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-11
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 12 unchanged
+        id: a12
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-12
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload genuine original 13 unchanged
+        id: a13
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/genuine-raw-uploads/genuine-${{ github.run_id }}-${{ github.run_attempt }}-normal-13
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Bind thirteen upload action outputs
+        id: collect
+        shell: bash
+        env:
+          A1: ${{ steps.a1.outputs.artifact-id }}
+          A2: ${{ steps.a2.outputs.artifact-id }}
+          A3: ${{ steps.a3.outputs.artifact-id }}
+          A4: ${{ steps.a4.outputs.artifact-id }}
+          A5: ${{ steps.a5.outputs.artifact-id }}
+          A6: ${{ steps.a6.outputs.artifact-id }}
+          A7: ${{ steps.a7.outputs.artifact-id }}
+          A8: ${{ steps.a8.outputs.artifact-id }}
+          A9: ${{ steps.a9.outputs.artifact-id }}
+          A10: ${{ steps.a10.outputs.artifact-id }}
+          A11: ${{ steps.a11.outputs.artifact-id }}
+          A12: ${{ steps.a12.outputs.artifact-id }}
+          A13: ${{ steps.a13.outputs.artifact-id }}
+          D1: ${{ steps.a1.outputs.artifact-digest }}
+          D2: ${{ steps.a2.outputs.artifact-digest }}
+          D3: ${{ steps.a3.outputs.artifact-digest }}
+          D4: ${{ steps.a4.outputs.artifact-digest }}
+          D5: ${{ steps.a5.outputs.artifact-digest }}
+          D6: ${{ steps.a6.outputs.artifact-digest }}
+          D7: ${{ steps.a7.outputs.artifact-digest }}
+          D8: ${{ steps.a8.outputs.artifact-digest }}
+          D9: ${{ steps.a9.outputs.artifact-digest }}
+          D10: ${{ steps.a10.outputs.artifact-digest }}
+          D11: ${{ steps.a11.outputs.artifact-digest }}
+          D12: ${{ steps.a12.outputs.artifact-digest }}
+          D13: ${{ steps.a13.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          ids=()
+          digests=()
+          for i in $(seq 1 13); do
+            id_var="A$i"
+            digest_var="D$i"
+            id="${!id_var}"
+            digest="${!digest_var}"
+            [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+            ids+=("$id")
+            digests+=("$digest")
+          done
+          test "$(printf '%s\n' "${ids[@]}" | sort -u | wc -l)" -eq 13
+          {
+            (IFS=,; echo "ids=${ids[*]}")
+            (IFS=,; echo "digests=${digests[*]}")
+            echo "attempt=$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_OUTPUT"
+
+  consumer:
+    needs: producer
+    runs-on: ubuntu-26.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Allocate single-owner private raw destination
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -m 700 -- "$RUNNER_TEMP/genuine-raw-stage"
+      - name: Download exactly thirteen immutable artifact IDs without decompression
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ needs.producer.outputs.ids }}
+          merge-multiple: true
+          skip-decompress: true
+          digest-mismatch: error
+          path: ${{ runner.temp }}/genuine-raw-stage
+      - name: Checkout independent original byte verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up fixed Node on consumer
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+      - name: Verify thirteen original raw bytes and canonical checksums
+        shell: bash
+        env:
+          PROBE_TAG: v3.3.0
+          PROBE_RUN_ID: ${{ github.run_id }}
+          PROBE_SOURCE_ATTEMPT: ${{ needs.producer.outputs.attempt }}
+          PROBE_IDS: ${{ needs.producer.outputs.ids }}
+          PROBE_DIGESTS: ${{ needs.producer.outputs.digests }}
+          PRODUCER_RESULT: ${{ needs.producer.result }}
+          PROBE_DIR: ${{ runner.temp }}/genuine-raw-stage
+        run: |
+          set -euo pipefail
+          node scripts/genuine-normal-raw-transfer.js
