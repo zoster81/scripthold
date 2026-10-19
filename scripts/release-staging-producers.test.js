@@ -768,7 +768,8 @@ test('source job proof binds the 15-file handoff to a successful exact attempt',
     JOBS_API + RUN_ID + '/attempts/1/jobs?per_page=100&page=1',
     JOBS_API + RUN_ID,
   ]);
-  assert.equal(f.calls.length, 18);
+  assert.equal(f.calls.length, 19);
+  assert.equal(f.calls.at(-1), JOBS_API + RUN_ID);
 });
 
 test('source job proof authenticates two independent producer attempts', async () => {
@@ -788,7 +789,8 @@ test('source job proof authenticates two independent producer attempts', async (
     JOBS_API + RUN_ID + '/attempts/3/jobs?per_page=100&page=1',
     JOBS_API + RUN_ID,
   ]);
-  assert.equal(f.calls.length, 26);
+  assert.equal(f.calls.length, 27);
+  assert.equal(f.calls.at(-1), JOBS_API + RUN_ID);
 });
 
 test('source job proof rejects wrong workflow, job, SHA, attempts and duplication', async () => {
@@ -903,6 +905,33 @@ test('source job evidence never authorizes a failed completed workflow run', asy
     token: 'test-token', fetchImpl: f.fetchImpl,
   }));
   assert.equal(f.calls.filter(url => url.startsWith(ARTIFACT_API)).length, 0);
+});
+
+test('source job reader rejects a rerun after the last artifact metadata read', async () => {
+  for (const group of ['normal', 'complete']) {
+    const f = jobRestFixture();
+    const original = f.fetchImpl;
+    let runReads = 0;
+    f.fetchImpl = async (url, init) => {
+      const response = await original(url, init);
+      if (url === JOBS_API + RUN_ID && ++runReads === 3) {
+        return new Response(JSON.stringify({ ...f.run, run_attempt: 4 }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      return response;
+    };
+    const args = { normal: f.normal, sourcePolicy: SOURCE_POLICY,
+      token: 'test-token', fetchImpl: f.fetchImpl };
+    if (group === 'complete') args.mcpb = f.mcpb;
+    const read = group === 'normal'
+      ? readJobVerifiedRawNormalStaging : readJobVerifiedRawCompleteStaging;
+    await assert.rejects(read(args), /rerun/);
+    assert.equal(f.calls.filter(url => url.startsWith(ARTIFACT_API)).length,
+      group === 'normal' ? 15 : 22,
+      'a late rerun must be detected after reading all original artifact IDs');
+    assert.equal(runReads, 3, 'one final independent source-run read');
+  }
 });
 
 test('job verification pins prevalidated producer and policy snapshots across awaits', async () => {
