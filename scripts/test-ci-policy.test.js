@@ -185,6 +185,38 @@ test('manual Ubuntu 26 complete normal rehearsal cannot publish or trust a local
   }
 });
 
+test('real historical Sigstore proof is nonpublishing and pins source identity', () => {
+  const file = path.join(__dirname, '..', '.github', 'workflows',
+    'ubuntu26-authentic-provenance-proof.yml');
+  const yaml = fs.readFileSync(file, 'utf8');
+  const assertSafe = text => {
+    assert.match(text, /^on:\r?\n  pull_request:\r?\n    paths:\r?\n      - '\.github\/workflows\/ubuntu26-authentic-provenance-proof\.yml'\r?\n  workflow_dispatch:\r?$/m);
+    assert.match(text, /^permissions:\r?\n  contents: read\r?$/m);
+    assert.match(text, /^    runs-on: ubuntu-26\.04\r?$/m);
+    assert.match(text, /persist-credentials: false/);
+    assert.match(text, /v3\.3\.0/);
+    assert.match(text, /aac3a46bf71135f73594341f1b97dcf08c552832/);
+    assert.match(text, /5d1cde029753e4b75fbe3236febaecb905a82820/);
+    assert.match(text, /gh release download v3\.3\.0/);
+    assert.match(text, /verifyWithGitHubCLI\(subject, bundlePath, repo, tag, sha\)/);
+    const verifier = fs.readFileSync(path.join(__dirname, 'release-provenance.js'), 'utf8');
+    assert.match(verifier, /'--deny-self-hosted-runners'/);
+    assert.match(text, /projectBundle/);
+    assert.doesNotMatch(text, /contents: write|id-token: write|attestations: write|packages: write/);
+    assert.doesNotMatch(text, /gh release (?:upload|create|edit|delete)|goreleaser|upload-artifact|secrets\./);
+  };
+  assertSafe(yaml);
+  for (const [safe, unsafe] of [
+    ['  contents: read', '  contents: write'],
+    ['    runs-on: ubuntu-26.04', '    runs-on: ubuntu-latest'],
+    ['persist-credentials: false', 'persist-credentials: true'],
+    ['verifyWithGitHubCLI(subject, bundlePath, repo, tag, sha)', 'console.log(subject)'],
+  ]) {
+    assert.ok(yaml.includes(safe));
+    assert.throws(() => assertSafe(yaml.replace(safe, unsafe)));
+  }
+});
+
 test('targeted package selection is derived from the evidence map', () => {
   const evidenceMap = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'testarchitecture', 'evidence-map.json'), 'utf8'));
   const race = selectGoPackages(evidenceMap, 'race', 'linux');

@@ -1,0 +1,124 @@
+# Nonpublishing, read-only hosted-Linux proof using authentic v3.3.0 release originals.
+# The old release lacks a public in-toto JSONL file: not a full 15-file staging proof.
+name: Ubuntu 26 authentic provenance proof (nonpublishing)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ubuntu26-authentic-provenance-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-originals:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout read-only verification source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up exact Node version
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+
+      - name: Confirm real annotated tag identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref=refs/tags/v3.3.0
+          object="$(git ls-remote --tags https://github.com/zoster81/scripthold.git "$ref" |
+            awk '$2 == "refs/tags/v3.3.0" { print $1 }')"
+          peeled="$(git ls-remote --tags https://github.com/zoster81/scripthold.git "$ref^{}" |
+            awk '$2 == "refs/tags/v3.3.0^{}" { print $1 }')"
+          test "$object" = 5d1cde029753e4b75fbe3236febaecb905a82820
+          test "$peeled" = aac3a46bf71135f73594341f1b97dcf08c552832
+
+      - name: Fetch real signed originals without altering the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP" && test -w "$RUNNER_TEMP"
+          case "$(findmnt -n -T "$RUNNER_TEMP" -o FSTYPE)" in
+            ext4|xfs|btrfs|zfs) ;;
+            *) echo 'Unsupported scratch filesystem' >&2; exit 1 ;;
+          esac
+          stage="$(mktemp -d -- "$RUNNER_TEMP/scripthold-real-sigstore.XXXXXXXX")"
+          chmod 700 "$stage"
+          printf 'EVIDENCE_DIR=%s\n' "$stage" >> "$GITHUB_ENV"
+          test "$(gh api repos/zoster81/scripthold/releases/tags/v3.3.0 --jq '.id')" = 399105468
+          subjects=(
+            scripthold_darwin_amd64 scripthold_darwin_amd64.tar.gz
+            scripthold_darwin_arm64 scripthold_darwin_arm64.tar.gz
+            scripthold_linux_amd64 scripthold_linux_amd64.tar.gz
+            scripthold_linux_arm64 scripthold_linux_arm64.tar.gz
+            scripthold_windows_amd64.exe scripthold_windows_amd64.zip
+            scripthold_windows_arm64.exe scripthold_windows_arm64.zip
+          )
+          patterns=(--pattern checksums.txt --pattern scripthold-v3.3.0-provenance.sigstore.json)
+          for name in "${subjects[@]}"; do patterns+=(--pattern "$name"); done
+          gh release download v3.3.0 --repo zoster81/scripthold --dir "$stage" "${patterns[@]}"
+
+      - name: Check all 12 original checksums and genuine certificates
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          'use strict';
+          const assert = require('node:assert/strict');
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { parseChecksums, projectBundle, verifyWithGitHubCLI } =
+            require('./scripts/release-provenance');
+          const { expectedReleaseAssetNames } = require('./scripts/release-asset-contract');
+          async function main() {
+            const tag = 'v3.3.0';
+            const sha = 'aac3a46bf71135f73594341f1b97dcf08c552832';
+            const repo = 'zoster81/scripthold';
+            const dir = process.env.EVIDENCE_DIR;
+            assert.ok(path.isAbsolute(dir), 'missing private stage');
+            const bundleName = 'scripthold-v3.3.0-provenance.sigstore.json';
+            const subjects = expectedReleaseAssetNames(tag).filter(name =>
+              name !== 'checksums.txt' && name !== 'mcpb-checksums.txt' &&
+              !name.endsWith('.mcpb') && !name.includes('-provenance.'));
+            assert.equal(subjects.length, 12);
+            const names = [...subjects, 'checksums.txt', bundleName].sort();
+            assert.deepEqual(fs.readdirSync(dir).sort(), names,
+              'unexpected or missing published original files');
+            for (const name of names) {
+              const st = fs.lstatSync(path.join(dir, name));
+              assert.ok(st.isFile() && !st.isSymbolicLink() && st.nlink === 1,
+                'unsafe original file type or link count');
+            }
+            const checksumsPath = path.join(dir, 'checksums.txt');
+            const bundlePath = path.join(dir, bundleName);
+            assert.ok(fs.statSync(checksumsPath).size <= 16384);
+            assert.ok(fs.statSync(bundlePath).size <= 65536);
+            const checksums = parseChecksums(fs.readFileSync(checksumsPath, 'utf8'));
+            assert.deepEqual([...checksums.keys()].sort(), subjects.sort(),
+              'wrong genuine signed original subjects');
+            projectBundle(JSON.parse(fs.readFileSync(bundlePath, 'utf8')),
+              checksums, tag, sha, repo);
+            for (const name of subjects) {
+              const subject = path.join(dir, name);
+              const hash = crypto.createHash('sha256');
+              for await (const chunk of fs.createReadStream(subject)) hash.update(chunk);
+              assert.equal(hash.digest('hex'), checksums.get(name),
+                'signed subject checksum mismatch');
+              verifyWithGitHubCLI(subject, bundlePath, repo, tag, sha);
+              console.log('VERIFIED authentic signed original:', name);
+            }
+            console.log('VERIFIED 12/12 genuine published signatures on Ubuntu 26.04');
+          }
+          main().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
