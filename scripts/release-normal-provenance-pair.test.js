@@ -2,10 +2,12 @@
 
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
+const { Readable } = require('node:stream');
 const test = require('node:test');
 
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { checkNormalProvenancePair } = require('./release-normal-provenance-pair');
+const { measureNormalSourcePayloads } = require('./release-normal-source');
 
 const TAG = 'v3.4.0';
 const COMMIT = 'a'.repeat(40);
@@ -63,7 +65,7 @@ function fixture() {
       name, size: bytes.get(name).length, sha256: sha(bytes.get(name)),
     })),
   };
-  return { manifest, checksums, bundleBytes, envelopeBytes, bundle, envelope, statement };
+  return { bytes, manifest, checksums, bundleBytes, envelopeBytes, bundle, envelope, statement };
 }
 
 function verify(f) {
@@ -75,6 +77,40 @@ test('checks both unchanged original sidecars against the exact 15-file inventor
   assert.equal(verify(f), undefined);
   assert.equal(f.manifest.assets.length, 15);
   assert.equal(f.statement.subject.length, 12);
+});
+
+test('producer measurement and original signed-pair checks reject a rechecksummed binary swap', async () => {
+  const f = fixture();
+  const measure = bytes => measureNormalSourcePayloads(TAG, COMMIT,
+    f.manifest.assets.map(({ name }) => ({
+      name, type: 'file', nlink: 1, size: bytes.get(name).length,
+    })), async ({ name }) => Readable.from([bytes.get(name)]));
+
+  const measured = await measure(f.bytes);
+  assert.deepEqual(measured, f.manifest);
+  assert.equal(checkNormalProvenancePair(
+    measured, f.checksums, f.bundleBytes, f.envelopeBytes), undefined);
+
+  // The producer could recompute both raw binary SHA and checksums and still
+  // satisfy its unsigned inventory check. The unchanged signed statement
+  // must independently reject those self-consistent but substituted bytes.
+  const swapped = new Map(f.bytes);
+  const name = f.manifest.assets[0].name;
+  const replacement = Buffer.from(swapped.get(name));
+  replacement[0] ^= 0xff;
+  swapped.set(name, replacement);
+  const binaryNames = f.manifest.assets.slice(0, 12).map(asset => asset.name);
+  const rewrittenChecksums = Buffer.from(binaryNames.map(subject =>
+    sha(swapped.get(subject)) + '  ' + subject).join('\n') + '\n');
+  swapped.set('checksums.txt', rewrittenChecksums);
+
+  const attackerManifest = await measure(swapped);
+  assert.notEqual(attackerManifest.assets[0].sha256, measured.assets[0].sha256);
+  assert.notEqual(attackerManifest.assets[12].sha256, measured.assets[12].sha256);
+  assert.throws(() => checkNormalProvenancePair(
+    attackerManifest, rewrittenChecksums, f.bundleBytes, f.envelopeBytes),
+  /subject checksum mismatch/);
+  // Structural consistency alone never asserts a genuine Sigstore signature.
 });
 
 test('rejects changed, missing and oversized original sidecar bytes', () => {
