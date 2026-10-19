@@ -274,16 +274,30 @@ async function verifySourceJobs(plans, sourcePolicy, token, fetchImpl) {
   for (const plan of plans) verifySourceRun(last, plan, policy);
   ensure(last.run_attempt === run.run_attempt,
     'source workflow was rerun during evidence read');
-  return jobs;
+  return { jobs, runAttempt: last.run_attempt, policy };
+}
+
+// Artifact metadata is read in a separate sequence after the producer jobs.
+// Re-observe the trusted run so a rerun during those reads is not silently
+// combined with the earlier successful job evidence. This is a bounded
+// observation, not an atomic GitHub snapshot or publication authority.
+async function recheckSourceAfterArtifacts(plan, source, token, fetchImpl) {
+  const get = makeGitHubGet(token, fetchImpl);
+  const url = JOBS_API + plan.runId;
+  const run = await readJsonResponse(await get(url), url);
+  verifySourceRun(run, plan, source.policy);
+  ensure(run.run_attempt === source.runAttempt,
+    'source workflow was rerun after artifact metadata reads');
 }
 
 async function readJobVerifiedRawNormalStaging({
   normal, sourcePolicy, token, fetchImpl = globalThis.fetch,
 }) {
   const plan = stageUploadPlan(normal, 'normal', new Set());
-  const jobs = await verifySourceJobs([plan], sourcePolicy, token, fetchImpl);
+  const source = await verifySourceJobs([plan], sourcePolicy, token, fetchImpl);
   const result = await readRawNormalStaging({ normal: plan, token, fetchImpl });
-  return { ...result, jobs };
+  await recheckSourceAfterArtifacts(plan, source, token, fetchImpl);
+  return { ...result, jobs: source.jobs };
 }
 
 async function readJobVerifiedRawCompleteStaging({
@@ -292,10 +306,11 @@ async function readJobVerifiedRawCompleteStaging({
   const seen = new Set();
   const first = stageUploadPlan(normal, 'normal', seen);
   const second = stageUploadPlan(mcpb, 'mcpb', seen);
-  const jobs = await verifySourceJobs([first, second], sourcePolicy, token, fetchImpl);
+  const source = await verifySourceJobs([first, second], sourcePolicy, token, fetchImpl);
   const result = await readRawCompleteStaging({ normal: first, mcpb: second,
     token, fetchImpl });
-  return { ...result, jobs };
+  await recheckSourceAfterArtifacts(first, source, token, fetchImpl);
+  return { ...result, jobs: source.jobs };
 }
 
 module.exports = { readRawNormalStaging, readRawCompleteStaging,
