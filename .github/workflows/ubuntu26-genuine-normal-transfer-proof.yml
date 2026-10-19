@@ -345,3 +345,15 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/genuine-normal-raw-transfer.js
+      - name: Corroborate exact source producer and thirteen artifact IDs via GitHub REST
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GENUINE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GENUINE_SOURCE_EVENT: ${{ github.event_name }}
+          PROBE_SOURCE_ATTEMPT: ${{ needs.producer.outputs.attempt }}
+          PROBE_IDS: ${{ needs.producer.outputs.ids }}
+          PROBE_DIGESTS: ${{ needs.producer.outputs.digests }}
+        run: |
+          set -euo pipefail
+          node scripts/genuine-normal-source-evidence.js
