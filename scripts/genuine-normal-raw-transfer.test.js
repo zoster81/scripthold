@@ -86,6 +86,9 @@ test('hosted proof pins a read-only historical build and exactly 13 raw transfer
   assert.match(yaml, /digest-mismatch: error/);
   assert.match(yaml, /needs: producer/);
   assert.match(yaml, /node scripts\/genuine-normal-raw-transfer\.js/);
+  assert.match(yaml, /validateArtifacts\(checksums, artifacts, 'source'\)/);
+  assert.doesNotMatch(yaml, /cp -- "source\/dist\//);
+  assert.match(yaml, /hashFile\(destination\)/);
   assert.doesNotMatch(yaml,
     /contents: write|id-token: write|attestations: write|packages: write|gh release (?:upload|create|edit)|secrets\./);
 });

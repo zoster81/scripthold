@@ -80,18 +80,59 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          node verifier/scripts/release-normal-rehearsal.js v3.3.0 source
-          stage="$RUNNER_TEMP/genuine-raw-uploads"
-          mkdir -m 700 -- "$stage"
-          mapfile -t originals < <(node -e "console.log(require('./verifier/scripts/release-asset-contract').expectedReleaseAssetNames('v3.3.0').slice(0, 13).join('\n'))")
-          test "${#originals[@]}" -eq 13
-          for i in "${!originals[@]}"; do
-            number="$(printf '%02d' "$((i + 1))")"
-            dest="$stage/genuine-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-normal-$number"
-            cp -- "source/dist/${originals[$i]}" "$dest"
-            cmp -- "source/dist/${originals[$i]}" "$dest"
-          done
-          test "$(find "$stage" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 13
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { createHash } = require('node:crypto');
+          const { expectedReleaseAssetNames } =
+            require('./verifier/scripts/release-asset-contract');
+          const { verifyNormalBuildOutput } =
+            require('./verifier/scripts/release-normal-rehearsal');
+          const { parseChecksums, validateArtifacts } =
+            require('./verifier/scripts/release-provenance');
+          async function hashFile(filename) {
+            const hash = createHash('sha256');
+            for await (const chunk of fs.createReadStream(filename)) hash.update(chunk);
+            return hash.digest('hex');
+          }
+          async function main() {
+            const tag = 'v3.3.0';
+            const cwd = 'source';
+            await verifyNormalBuildOutput(tag, cwd);
+            const checksumsPath = path.resolve(cwd, 'dist', 'checksums.txt');
+            const checksums = parseChecksums(fs.readFileSync(checksumsPath, 'utf8'));
+            const artifacts = JSON.parse(fs.readFileSync(
+              path.resolve(cwd, 'dist', 'artifacts.json'), 'utf8'));
+            const sources = await validateArtifacts(checksums, artifacts, 'source');
+            const originals = expectedReleaseAssetNames(tag).slice(0, 13);
+            if (originals.length !== 13 || sources.size !== 12) {
+              throw new Error('incomplete original GoReleaser paths');
+            }
+            const stage = path.resolve(process.env.RUNNER_TEMP, 'genuine-raw-uploads');
+            fs.mkdirSync(stage, { mode: 0o700 });
+            for (let i = 0; i < originals.length; i++) {
+              const name = originals[i];
+              const source = name === 'checksums.txt'
+                ? checksumsPath : sources.get(name);
+              if (!source) throw new Error('missing canonical original source');
+              const originalHash = name === 'checksums.txt'
+                ? await hashFile(checksumsPath) : checksums.get(name);
+              const number = String(i + 1).padStart(2, '0');
+              const destination = path.join(stage, 'genuine-' +
+                process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT +
+                '-normal-' + number);
+              fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL);
+              if (await hashFile(destination) !== originalHash) {
+                throw new Error('original changed during private copy');
+              }
+            }
+            if (fs.readdirSync(stage).length !== 13) {
+              throw new Error('unexpected private original inventory');
+            }
+          }
+          main().catch(error => { console.error(error.message); process.exitCode = 1; });
+          NODE
       - name: Upload genuine original 01 unchanged
         id: a1
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
