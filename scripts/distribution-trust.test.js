@@ -92,7 +92,7 @@ test('distribution documentation preserves core release and third-party syndicat
 
 test('publication and Scorecard pin Ubuntu 26 without a floating runner', () => {
   for (const [name, expectedJobs] of [
-    ['release.yml', 2],
+    ['release.yml', 3],
     ['publish-mcpb-assets.yml', 1],
     ['publish-registry.yml', 1],
     ['scorecard.yml', 1],
@@ -119,12 +119,33 @@ test('all publishing jobs require disk-backed scratch before handling release da
   }
 });
 
-test('release publishing defaults to read-only and grants write permission only at the job that needs it', () => {
+test('signed normal handoff creates a private destination before raw artifact download', () => {
   const workflow = read('.github/workflows/publish-mcpb-assets.yml');
+  const setup = workflow.indexOf('      - name: Prepare disk-backed scratch');
+  const download = workflow.indexOf('      - name: Download signed original private normal artifacts');
+  const verify = workflow.indexOf('      - name: Verify authentic same-run normal inputs');
+  assert.ok(setup >= 0 && setup < download && download < verify,
+    'private destination must precede the untrusted downloaded bytes');
+  const beforeDownload = workflow.slice(setup, download);
+  assert.match(beforeDownload, /umask 077/);
+  assert.match(beforeDownload, /mkdir -m 700 -- "\$RUNNER_TEMP\/private-normal-raw"/);
+  assert.doesNotMatch(beforeDownload, /chmod [0-9]+.*private-normal-raw/,
+    'repairing permissions after an unsafe download is not an acceptable preflight');
+});
+
+test('future GitHub-only MCPB producer has read-only repository access while publication is disabled', () => {
+  const workflow = read('.github/workflows/publish-mcpb-assets.yml');
+  const release = read('.github/workflows/release.yml');
   const beforeJobs = workflow.split(/^jobs:\s*$/m, 1)[0];
   assert.match(beforeJobs, /permissions:\s*\n\s*contents:\s*read/m);
-  assert.doesNotMatch(beforeJobs, /^\s*contents:\s*write\s*$/m);
-  assert.match(workflow, /jobs:\s*\n\s*publish:.*?permissions:\s*\n\s*contents:\s*write/s);
+  assert.doesNotMatch(workflow, /^\s*contents:\s*write\s*$/m);
+  assert.match(workflow,
+    /jobs:\s*\n\s*publish:.*?permissions:\s*\n\s*contents:\s*read\s*\n\s*actions:\s*read/s);
+  assert.match(release,
+    /\n  finalize:\s*\n\s*needs: \[release, publish-mcpb\]\s*\n\s*permissions:\s*\n\s*contents: read\s*\n\s*actions: read/);
+  assert.match(release, /publication is disabled until the single-writer finalizer is qualified/);
+  assert.match(release, /publish-registry:\s*\n\s*needs: finalize/);
+  assert.doesNotMatch(workflow, /gh release upload/);
 });
 
 test('CodeQL uses one immutable action release across every workflow step', () => {
@@ -173,18 +194,23 @@ test('CodeQL scans pull requests targeting maintained branches and every pushed 
   assert.doesNotMatch(workflow, /push:\s*\n\s*branches:/m);
 });
 
-test('release workflow requires exact-commit Scorecard evidence and publishes pinned Sigstore provenance', () => {
+test('tagged producer keeps exact-commit Scorecard and authentic Sigstore evidence without publishing', () => {
   const workflow = read('.github/workflows/release.yml');
   assert.match(workflow, /actions\/workflows\/scorecard\.yml\/runs/);
   assert.match(workflow, /-f branch=main/);
   assert.match(workflow, /-f event=push/);
   assert.match(workflow, /-f head_sha="\$\{TAG_COMMIT\}"/);
   assert.match(workflow, /select-scorecard-run/);
-  assert.match(workflow, /release:\s*\n\s*needs: verify.*?permissions:\s*\n\s*contents: write\s*\n\s*id-token: write\s*\n\s*attestations: write\s*\n\s*artifact-metadata: write/s);
+  assert.match(workflow, /release:\s*\n\s*needs: verify.*?permissions:\s*\n\s*contents: read\s*\n\s*id-token: write\s*\n\s*attestations: write\s*\n\s*artifact-metadata: write/s);
+  assert.match(workflow, /args: release --clean --skip=publish,announce/);
   assert.match(workflow, /actions\/attest@1e69f48acb82d1966a394da916b4c1698aa569d6\s+# v4\.2\.2/);
   assert.match(workflow, /subject-checksums:\s*dist\/checksums\.txt/);
   assert.match(workflow, /provenance\.sigstore\.json/);
-  assert.match(workflow, /gh release upload/);
+  assert.match(workflow, /provenance\.intoto\.jsonl/);
+  assert.match(workflow, /group: scripthold-immutable-release-\$\{\{ github.ref_name \}\}/);
+  assert.doesNotMatch(workflow, /gh release upload/);
+  assert.doesNotMatch(workflow, /^\s*contents: write\s*$/m);
+  assert.match(workflow, /publication is disabled until the single-writer finalizer is qualified/);
 });
 
 test('release asset manifest contract is always exercised by CI policy', () => {

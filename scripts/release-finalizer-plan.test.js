@@ -2,7 +2,12 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const fs = require('node:fs');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
+const { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease } = require('./release-finalizer-write');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
+const { encodeGoReleaserNotes } = require('./release-normal-source');
 const { normalizeReleaseAssetPage, planReleaseFinalizerStep } =
   require('./release-finalizer-plan');
 
@@ -10,6 +15,9 @@ const COMMIT = 'a'.repeat(40);
 const TAG_OBJECT = 'b'.repeat(40);
 const TAG = 'v3.4.0';
 const REPO = 'zoster81/scripthold';
+const API = 'https://api.github.com/repos/zoster81/scripthold';
+const NOTES = 'Trusted GoReleaser notes for next version\n';
+const notesMetadata = () => encodeGoReleaserNotes(Buffer.from(NOTES));
 
 function fixture() {
   const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
@@ -54,6 +62,373 @@ function found(assets, flags = {}) {
     assetPage: page(assets),
   };
 }
+
+test('draft asset writer refuses ambiguous or conflicting release states before any upload', async () => {
+  const { uploadOneDraftAsset } = require('./release-finalizer-write');
+  const { authority, remote } = fixture();
+  const calls = [];
+  const fake = async (url, options) => {
+    calls.push({ url, method: options?.method });
+    return new Response('', { status: 403 });
+  };
+  await assert.rejects(uploadOneDraftAsset({
+    manifest: authority.manifest,
+    publisherCommit: COMMIT,
+    token: 'test_token_not_live',
+    normalDir: 'not-an-authorized-source',
+    mcpbDir: 'not-an-authorized-source',
+    fetchImpl: fake,
+  }));
+  assert.equal(calls.filter(x => x.method !== 'GET').length, 0);
+  assert.equal(remote.length, 22);
+});
+
+function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
+  preverifiedRemoteAssets = false, metadataPatch = {}, changeNotesBeforePost = false } = {}) {
+  const original = Buffer.from('verified original test binary bytes');
+  const sha256 = createHash('sha256').update(original).digest('hex');
+  const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
+    name, size: index === 0 ? original.length : 1,
+    sha256: index === 0 ? sha256 : 'f'.repeat(64),
+  }));
+  const manifest = { repository: REPO, tag: TAG, commit: COMMIT, assets };
+  let uploaded = false;
+  let postCount = 0;
+  let lookupCount = 0;
+  let releaseReads = 0;
+  const calls = [];
+  const tagObject = 'b'.repeat(40);
+  const run = (id, workflowPath) => ({
+    id, run_number: id, run_attempt: 1, head_sha: COMMIT,
+    head_branch: 'main', event: 'push', conclusion: 'success',
+    path: workflowPath, head_repository: { full_name: REPO },
+  });
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, method: options.method });
+    if (options.method === 'POST') {
+      postCount++;
+      assert.match(url, /^https:\/\/uploads\.github\.com\/repos\/zoster81\/scripthold\/releases\/123\/assets\?name=/);
+      assert.equal(options.headers['Content-Type'], 'application/octet-stream');
+      const received = [];
+      for await (const data of options.body) received.push(Buffer.from(data));
+      assert.deepEqual(Buffer.concat(received), original);
+      if (response === 'lost') throw new Error('ambiguous GitHub upload response');
+      if (response === 'conflict') return new Response('conflict', { status: 422 });
+      uploaded = true;
+      return new Response(JSON.stringify({
+        id: 501, name: assets[0].name,
+        state: 'uploaded', size: original.length,
+        digest: 'sha256:' + sha256,
+      }), { status: 201, headers: { 'content-type': 'application/json' } });
+    }
+    let body;
+    if (url === API + '/git/ref/tags/' + TAG) {
+      body = { ref: 'refs/tags/' + TAG, object: { type: 'tag', sha: tagObject } };
+    } else if (url === API + '/git/tags/' + tagObject) {
+      body = { tag: TAG, sha: tagObject, object: { type: 'commit', sha: COMMIT } };
+    } else if (url === API + '/git/ref/heads/main') {
+      body = { ref: 'refs/heads/main', object: { type: 'commit', sha: COMMIT } };
+    } else if (url.includes('/actions/workflows/test.yml/runs?')) {
+      body = { total_count: 1, workflow_runs: [run(11, '.github/workflows/test.yml')] };
+    } else if (url.includes('/actions/workflows/scorecard.yml/runs?')) {
+      body = { total_count: 1, workflow_runs: [run(12, '.github/workflows/scorecard.yml')] };
+    } else if (url.includes('/actions/runs/11/attempts/1/jobs?')) {
+      body = { total_count: 1, jobs: [{
+        name: 'Release candidate', status: 'completed', conclusion: 'success',
+        run_id: 11, run_attempt: 1, head_sha: COMMIT,
+      }] };
+    } else if (url === API + '/releases?per_page=30&page=1') {
+      lookupCount++;
+      body = [{ id: 123, tag_name: TAG, draft: !(changeBeforePost && lookupCount > 1),
+        immutable: false }];
+    } else if (url === API + '/releases/123') {
+      releaseReads++;
+      body = { id: 123, tag_name: TAG,
+        draft: !(changeBeforePost && lookupCount > 1),
+        immutable: false, name: TAG,
+        body: changeNotesBeforePost && releaseReads > 2 ? 'Tampered notes\n' : NOTES,
+        prerelease: false, ...metadataPatch };
+    } else if (url === API + '/releases/123/assets?per_page=100&page=1') {
+      body = [
+        ...(preverifiedRemoteAssets ? assets.slice(1).map((a, index) => ({
+          id: 600 + index, name: a.name, size: a.size,
+          digest: 'sha256:' + a.sha256, state: 'uploaded',
+        })) : []),
+        ...(uploaded ? [{
+          id: 501, name: assets[0].name,
+          size: original.length, digest: 'sha256:' + sha256,
+          state: 'uploaded',
+        }] : []),
+      ];
+    } else {
+      throw new Error('unexpected fake GitHub URL: ' + url);
+    }
+    return new Response(JSON.stringify(body), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    });
+  };
+  return { manifest, original, fetchImpl, calls,
+    get postCount() { return postCount; } };
+}
+
+test('existing draft rejects missing, forged and foreign GoReleaser notes before any API call', async () => {
+  for (const releaseNotesMetadata of [
+    undefined, NOTES, { ...notesMetadata(), size: 4 },
+    { ...notesMetadata(), sha256: '0'.repeat(64) },
+  ]) {
+    const fake = simulatedGitHubDraft();
+    await assert.rejects(uploadOneDraftAsset({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      releaseNotesMetadata, fetchImpl: fake.fetchImpl,
+    }));
+    assert.equal(fake.calls.length, 0);
+    assert.equal(fake.postCount, 0);
+  }
+});
+
+test('existing draft refuses foreign title, release body, prerelease and missing metadata', async () => {
+  for (const metadataPatch of [
+    { name: 'Other release' }, { body: 'Tampered notes\n' },
+    { prerelease: true }, { body: null },
+    { body: undefined }, { name: undefined }, { prerelease: undefined },
+  ]) {
+    const fake = simulatedGitHubDraft({ metadataPatch });
+    await assert.rejects(uploadOneDraftAsset({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }), /metadata|draft|body|note|release/i);
+    assert.equal(fake.postCount, 0);
+  }
+});
+
+test('changed release notes between source reads prevent even one draft upload', async () => {
+  const fake = simulatedGitHubDraft({ changeNotesBeforePost: true });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-notes-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    for (const dir of [normalDir, mcpbDir]) fs.mkdirSync(dir, { mode: 0o700 });
+    fs.writeFileSync(path.join(normalDir, fake.manifest.assets[0].name),
+      fake.original, { mode: 0o600 });
+    await assert.rejects(uploadOneDraftAsset({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      normalDir, mcpbDir, releaseNotesMetadata: notesMetadata(),
+      fetchImpl: fake.fetchImpl,
+    }));
+    assert.equal(fake.postCount, 0);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('uploads at most one independently confirmed original to an existing draft', async () => {
+  const fake = simulatedGitHubDraft();
+  const root = path.resolve(__dirname, '.test-finalizer-temp-');
+  // Use the repository-controlled directory, never the host default tmp.
+  const base = fs.mkdtempSync(root);
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    for (const dir of [normalDir, mcpbDir]) fs.mkdirSync(dir, { mode: 0o700 });
+    fs.writeFileSync(path.join(normalDir, fake.manifest.assets[0].name),
+      fake.original, { mode: 0o600 });
+    const answer = await uploadOneDraftAsset({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    });
+    assert.deepEqual(answer, { kind: 'uploaded', releaseId: 123,
+      name: fake.manifest.assets[0].name, assetId: 501, remaining: 21 });
+    assert.equal(fake.postCount, 1);
+    assert.ok(fake.calls.every(call =>
+      call.method === 'GET' || call.method === 'POST'));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('bounded draft runner resumes one missing original then checks all twenty-two', async () => {
+  const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: true });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-all-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    fs.writeFileSync(path.join(normalDir, fake.manifest.assets[0].name),
+      fake.original, { mode: 0o600 });
+    const result = await uploadAllDraftAssets({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    });
+    assert.deepEqual(result, { kind: 'draft-complete', releaseId: 123, count: 22 });
+    assert.equal(fake.postCount, 1, 'no retry or superfluous uploads');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('single-asset finalizer stops on conflicting, ambiguous or changed draft mutations', async () => {
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-reject-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    for (const dir of [normalDir, mcpbDir]) fs.mkdirSync(dir, { mode: 0o700 });
+    for (const kind of ['lost', 'conflict', 'changed']) {
+      const fake = simulatedGitHubDraft({
+        response: kind, changeBeforePost: kind === 'changed',
+      });
+      fs.writeFileSync(path.join(normalDir, fake.manifest.assets[0].name),
+        fake.original, { mode: 0o600 });
+      await assert.rejects(uploadOneDraftAsset({
+        manifest: fake.manifest, publisherCommit: COMMIT,
+        token: 'test_token_never_used_on_network', normalDir, mcpbDir,
+        releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+      }));
+      assert.equal(fake.postCount, kind === 'changed' ? 0 : 1,
+        'never retry an ambiguous or rejected upload');
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+function simulatedDraftCreation({ mode = 'success' } = {}) {
+  const { authority } = fixture();
+  const manifest = authority.manifest;
+  let created = false;
+  let writes = 0;
+  let listReads = 0;
+  const calls = [];
+  const run = (id, file) => ({
+    id, run_attempt: 1, head_sha: COMMIT, head_branch: 'main',
+    event: 'push', conclusion: 'success', path: file,
+    head_repository: { full_name: REPO },
+  });
+  const fetchImpl = async (url, opts) => {
+    calls.push({ url, method: opts.method });
+    if (opts.method === 'POST') {
+      writes++;
+      assert.equal(url, API + '/releases');
+      const payload = JSON.parse(opts.body);
+      assert.equal(payload.tag_name, TAG);
+      assert.equal(payload.draft, true);
+      assert.equal(payload.generate_release_notes, false);
+      assert.equal(payload.body, 'Trusted GoReleaser notes for next version\n');
+      if (mode === 'lost') throw new Error('lost creation response');
+      if (mode === 'conflict') return new Response('conflict', { status: 422 });
+      created = true;
+      return new Response(JSON.stringify({
+        id: 123, tag_name: TAG, draft: true, immutable: false,
+        name: TAG, body: payload.body,
+        prerelease: mode === 'forged-prerelease-response' ? true : false,
+      }), { status: 201, headers: { 'content-type': 'application/json' } });
+    }
+    if (url === API + '/releases/tags/' + TAG) {
+      return new Response(null, { status: mode === 'bad-status' ? 403 : 404 });
+    }
+    let result;
+    if (url === API + '/git/ref/tags/' + TAG) {
+      result = authority.tagRef;
+    } else if (url === API + '/git/tags/' + TAG_OBJECT) {
+      result = authority.tagObject;
+    } else if (url === API + '/git/ref/heads/main') {
+      result = authority.mainRef;
+    } else if (url.includes('/actions/workflows/test.yml/runs?')) {
+      result = { total_count: 1, workflow_runs: [run(11, '.github/workflows/test.yml')] };
+    } else if (url.includes('/actions/workflows/scorecard.yml/runs?')) {
+      result = { total_count: 1, workflow_runs: [run(12, '.github/workflows/scorecard.yml')] };
+    } else if (url.includes('/actions/runs/11/attempts/1/jobs?')) {
+      result = { total_count: 1, jobs: [authority.testJobs.jobs[0]] };
+    } else if (url === API + '/releases?per_page=30&page=1') {
+      listReads++;
+      result = created ? [{
+        id: 123, tag_name: TAG, draft: true, immutable: false,
+      }] : (mode === 'conflicting-list' ? [{
+        id: 444, tag_name: TAG, draft: true, immutable: false,
+      }] : []);
+    } else if (url === API + '/releases/123') {
+      result = { id: 123, tag_name: TAG, draft: true, immutable: false,
+        name: TAG, body: mode === 'tampered-remote-notes' ? 'Different text\n' : NOTES,
+        prerelease: false };
+    } else if (url === API + '/releases/444') {
+      result = { id: 444, tag_name: TAG, draft: true, immutable: false };
+    } else if (url === API + '/releases/123/assets?per_page=100&page=1' ||
+               url === API + '/releases/444/assets?per_page=100&page=1') {
+      result = [];
+    } else {
+      throw new Error('unexpected simulated GitHub URL: ' + url);
+    }
+    return new Response(JSON.stringify(result), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    });
+  };
+  return { manifest, fetchImpl, calls,
+    get writes() { return writes; }, get listReads() { return listReads; } };
+}
+
+test('creates one tagged unpublished draft only after authenticated absence checks', async () => {
+  const fake = simulatedDraftCreation();
+  const result = await createDraftRelease({
+    manifest: fake.manifest, publisherCommit: COMMIT,
+    token: 'test_token_never_used_on_network',
+    releaseNotesMetadata: encodeGoReleaserNotes(Buffer.from(
+      'Trusted GoReleaser notes for next version\n')),
+    fetchImpl: fake.fetchImpl,
+  });
+  assert.deepEqual(result, { kind: 'created', releaseId: 123, tag: TAG });
+  assert.equal(fake.writes, 1);
+  assert.ok(fake.listReads >= 3);
+});
+
+test('draft creation does not accept a changed API body or prerelease response', async () => {
+  for (const mode of ['tampered-remote-notes', 'forged-prerelease-response']) {
+    const fake = simulatedDraftCreation({ mode });
+    await assert.rejects(createDraftRelease({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }));
+    assert.equal(fake.writes, 1, 'never reissue an uncertain draft creation');
+  }
+});
+
+test('draft creation rejects forged or free-form notes before any GitHub API call', async () => {
+  const original = encodeGoReleaserNotes(Buffer.from(
+    'Trusted GoReleaser notes for next version\n', 'utf8'));
+  const candidates = [undefined, 'unattributed text', { ...original, sha256: '0'.repeat(64) },
+    { ...original, size: original.size - 1 }, { ...original, other: 'foreign' }];
+  for (const releaseNotesMetadata of candidates) {
+    const fake = simulatedDraftCreation();
+    await assert.rejects(createDraftRelease({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      releaseNotesMetadata, fetchImpl: fake.fetchImpl,
+    }));
+    assert.equal(fake.writes, 0);
+    assert.equal(fake.calls.length, 0, 'reject before reading from or writing to GitHub');
+  }
+});
+
+test('draft creation halts on inaccessible, conflicting, or uncertain responses', async () => {
+  for (const mode of ['bad-status', 'conflicting-list', 'conflict', 'lost']) {
+    const fake = simulatedDraftCreation({ mode });
+    await assert.rejects(createDraftRelease({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      releaseNotesMetadata: encodeGoReleaserNotes(Buffer.from(
+        'Trusted GoReleaser notes for next version\n')),
+      fetchImpl: fake.fetchImpl,
+    }));
+    assert.equal(fake.writes, mode === 'bad-status' ||
+      mode === 'conflicting-list' ? 0 : 1,
+    'invalid initial discovery cannot initiate a draft POST and ambiguous writes never retry');
+  }
+});
 
 test('accepts a complete bounded GitHub asset page without silently omitting more pages', () => {
   const { remote } = fixture();

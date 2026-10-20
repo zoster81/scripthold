@@ -4,28 +4,52 @@ on:
   workflow_call:
     inputs:
       version:
-        description: 'Release tag whose native binaries will be packaged as MCPB assets'
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Existing release tag to repair or complete (for example, v2.1.0)'
+      normal_manifest:
         required: true
         type: string
+      normal_ids:
+        required: true
+        type: string
+      normal_digests:
+        required: true
+        type: string
+      normal_attempt:
+        required: true
+        type: string
+    outputs:
+      manifest:
+        value: ${{ jobs.publish.outputs.manifest }}
+      ids:
+        value: ${{ jobs.publish.outputs.ids }}
+      digests:
+        value: ${{ jobs.publish.outputs.digests }}
+      attempt:
+        value: ${{ jobs.publish.outputs.attempt }}
 
 permissions:
   contents: read
 
 jobs:
   publish:
-    if: github.repository == 'zoster81/scripthold' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    if: github.repository == 'zoster81/scripthold' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
-      contents: write
+      contents: read
+      actions: read
+    outputs:
+      manifest: ${{ steps.stage-mcpb.outputs.manifest }}
+      ids: ${{ steps.collect.outputs.ids }}
+      digests: ${{ steps.collect.outputs.digests }}
+      attempt: ${{ steps.collect.outputs.attempt }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     env:
       VERSION_TAG: ${{ inputs.version }}
+      SOURCE_MANIFEST: ${{ inputs.normal_manifest }}
+      SOURCE_IDS: ${{ inputs.normal_ids }}
+      SOURCE_DIGESTS: ${{ inputs.normal_digests }}
+      SOURCE_ATTEMPT: ${{ inputs.normal_attempt }}
       MCPB_VERSION: 2.1.2
       MCPB_NPM_INTEGRITY: sha512-goRbBC8ySo7SWb7tRzr+tL6FxDc4JPTRCdgfD2omba7freofvjq5rom1lBnYHZHo6Mizs1jAHJeN53aZbDoy8A==
     steps:
@@ -39,6 +63,8 @@ jobs:
             *) echo 'runner scratch is not on a supported disk filesystem' >&2; exit 1 ;;
           esac
           df -hPT -- "${RUNNER_TEMP}"
+          umask 077
+          mkdir -m 700 -- "$RUNNER_TEMP/private-normal-raw"
           printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "${RUNNER_TEMP}" "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
       - name: Checkout packaging workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,43 +93,97 @@ jobs:
           tag_commit="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
           test "$(git rev-parse HEAD)" = "${tag_commit}"
 
-      - name: Download and verify GoReleaser assets
+      - name: Download signed original private normal artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ inputs.normal_ids }}
+          merge-multiple: true
+          skip-decompress: true
+          digest-mismatch: error
+          path: ${{ runner.temp }}/private-normal-raw
+
+      - name: Verify authentic same-run normal inputs before packaging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir release-assets
-          cd release-assets
-          curl -fSL --retry 3 --retry-all-errors \
-            "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/checksums.txt" \
-            -o checksums.txt
-          artifacts=(
-            scripthold_darwin_amd64
-            scripthold_darwin_amd64.tar.gz
-            scripthold_darwin_arm64
-            scripthold_darwin_arm64.tar.gz
-            scripthold_linux_amd64
-            scripthold_linux_amd64.tar.gz
-            scripthold_linux_arm64
-            scripthold_linux_arm64.tar.gz
-            scripthold_windows_amd64.exe
-            scripthold_windows_amd64.zip
-            scripthold_windows_arm64.exe
-            scripthold_windows_arm64.zip
-          )
-          expected_artifacts="$(printf '%s\n' "${artifacts[@]}" | LC_ALL=C sort)"
-          actual_artifacts="$(awk '{ name=$2; sub(/^\*/, "", name); print name }' checksums.txt | LC_ALL=C sort)"
-          if [[ "${actual_artifacts}" != "${expected_artifacts}" ]]; then
-            echo 'release checksum manifest does not contain the exact expected 12 GoReleaser assets' >&2
-            diff -u \
-              <(printf '%s\n' "${expected_artifacts}") \
-              <(printf '%s\n' "${actual_artifacts}") || true
-            exit 1
-          fi
-          for artifact in "${artifacts[@]}"; do
-            curl -fSL --retry 3 --retry-all-errors \
-              "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${artifact}" \
-              -o "${artifact}"
-          done
-          sha256sum --check checksums.txt
+          umask 077
+          mkdir -m 700 -- "$RUNNER_TEMP/private-normal-verified"
+          SOURCE_WORKFLOW_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml" --jq .id)"
+          export SOURCE_WORKFLOW_ID
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { bindRawUploadJobOutputs, readJobVerifiedRawNormalStaging } =
+            require('./publication-source/scripts/release-staging-rest');
+          const { planRawNormalPrivateStage, verifyRawNormalHandoffPayloads } =
+            require('./publication-source/scripts/release-staging-producers');
+          const { verifyStagedNormalAttestations } =
+            require('./publication-source/scripts/release-normal-attestation-verify');
+          async function main() {
+            const normal = bindRawUploadJobOutputs({
+              manifest: JSON.parse(process.env.SOURCE_MANIFEST),
+              repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+              runId: Number(process.env.GITHUB_RUN_ID),
+              producerAttempt: Number(process.env.SOURCE_ATTEMPT),
+              jobOutputs: {
+                ids: process.env.SOURCE_IDS, digests: process.env.SOURCE_DIGESTS,
+                attempt: process.env.SOURCE_ATTEMPT,
+              },
+            });
+            const policy = {
+              workflowId: Number(process.env.SOURCE_WORKFLOW_ID),
+              workflowPath: '.github/workflows/release.yml',
+              event: 'push',
+              normalJobName: 'release',
+              mcpbJobName: 'publish-mcpb / publish',
+            };
+            const checked = await readJobVerifiedRawNormalStaging({
+              normal, sourcePolicy: policy, token: process.env.GH_TOKEN,
+            });
+            const root = path.resolve(process.env.RUNNER_TEMP, 'private-normal-raw');
+            const target = path.resolve(process.env.RUNNER_TEMP, 'private-normal-verified');
+            for (const dir of [root, target]) {
+              const stat = fs.lstatSync(dir);
+              if (!stat.isDirectory() || stat.isSymbolicLink() ||
+                  stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0) {
+                throw new Error('private normal stage owner or mode mismatch');
+              }
+            }
+            const names = fs.readdirSync(root);
+            if (names.length !== 15) throw new Error('incomplete raw normal stage');
+            const observed = names.map(name => {
+              const stat = fs.lstatSync(path.join(root, name));
+              if (stat.uid !== process.getuid()) throw new Error('foreign input owner');
+              return { name, size: stat.size, nlink: stat.nlink,
+                type: stat.isFile() && !stat.isSymbolicLink() ? 'file' : 'unsafe' };
+            });
+            await verifyRawNormalHandoffPayloads(checked.producer, observed,
+              async ({ artifactName }) => fs.createReadStream(
+                path.join(root, artifactName), {
+                  flags: fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
+                }));
+            for (const file of planRawNormalPrivateStage(checked.producer)) {
+              fs.renameSync(path.join(root, file.downloadName),
+                path.join(target, file.original.name));
+            }
+            if (fs.readdirSync(root).length !== 0 ||
+                fs.readdirSync(target).length !== 15) {
+              throw new Error('unexpected signed original stage inventory');
+            }
+            const verified = await verifyStagedNormalAttestations(
+              checked.manifest, target);
+            if (verified.subjectsVerified !== 12) {
+              throw new Error('incomplete genuine signed normal attestation');
+            }
+          }
+          main().catch(error => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
+          NODE
 
       - name: Verify pinned MCPB CLI metadata
         run: |
@@ -116,10 +196,42 @@ jobs:
           set -euo pipefail
           node publication-source/scripts/prepare-mcpb-assets.js \
             "${VERSION_TAG}" \
-            release-assets/checksums.txt \
-            release-assets \
+            "$RUNNER_TEMP/private-normal-verified/checksums.txt" \
+            "$RUNNER_TEMP/private-normal-verified" \
             mcpb-stage \
             release-source
+
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { bindRawUploadJobOutputs } =
+            require('./publication-source/scripts/release-staging-rest');
+          const { verifyPreparedMcpbBinaryPayloads } =
+            require('./publication-source/scripts/release-staging-producers');
+          async function main() {
+            const normal = bindRawUploadJobOutputs({
+              manifest: JSON.parse(process.env.SOURCE_MANIFEST),
+              repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+              runId: Number(process.env.GITHUB_RUN_ID),
+              producerAttempt: Number(process.env.SOURCE_ATTEMPT),
+              jobOutputs: {
+                ids: process.env.SOURCE_IDS,
+                digests: process.env.SOURCE_DIGESTS,
+                attempt: process.env.SOURCE_ATTEMPT,
+              },
+            });
+            await verifyPreparedMcpbBinaryPayloads(normal,
+              async ({ stageDirectory, binaryFile }) => fs.createReadStream(
+                path.join('mcpb-stage', stageDirectory, 'server', binaryFile), {
+                  flags: fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
+                }));
+          }
+          main().catch(error => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
+          NODE
 
           command -v zip >/dev/null
           command -v unzip >/dev/null
@@ -159,27 +271,217 @@ jobs:
           test "$(wc -l < mcpb-output/mcpb-checksums.txt)" -eq 6
           cat mcpb-output/mcpb-checksums.txt
 
-      - name: Upload verified MCPB release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Stage exactly seven verified original MCPB bytes without publishing
+        id: stage-mcpb
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir existing-mcpb
-          assets=(mcpb-output/*.mcpb mcpb-output/mcpb-checksums.txt)
-          existing_names="$(gh release view "${VERSION_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
-          for asset in "${assets[@]}"; do
-            name="$(basename "${asset}")"
-            if grep -Fxq "${name}" <<<"${existing_names}"; then
-              gh release download "${VERSION_TAG}" \
-                --repo "${GITHUB_REPOSITORY}" \
-                --pattern "${name}" \
-                --dir existing-mcpb
-              if ! cmp -s "${asset}" "existing-mcpb/${name}"; then
-                echo "existing release asset differs: ${name}" >&2
-                exit 1
-              fi
-              echo "verified existing release asset: ${name}"
-            else
-              gh release upload "${VERSION_TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}"
-            fi
+          umask 077
+          (cd mcpb-output && sha256sum --check mcpb-checksums.txt)
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { createHash } = require('node:crypto');
+          const { expectedReleaseAssetNames, validateStagedGroupManifest,
+            rawStagingArtifactName } =
+            require('./publication-source/scripts/release-asset-contract');
+          const names = expectedReleaseAssetNames(process.env.VERSION_TAG).slice(15);
+          if (names.length !== 7) throw new Error('invalid seven-file MCPB inventory');
+          const from = path.resolve('mcpb-output');
+          const into = path.resolve(process.env.RUNNER_TEMP, 'private-mcpb-raw');
+          const present = fs.readdirSync(from).sort();
+          if (present.length !== 7 ||
+              names.some(name => !present.includes(name))) {
+            throw new Error('unexpected packaged MCPB output');
+          }
+          fs.mkdirSync(into, { mode: 0o700 });
+          if (fs.readdirSync(into).length !== 0) throw new Error('nonempty raw MCPB stage');
+          const assets = [];
+          for (const name of names) {
+            const filename = path.join(from, name);
+            const before = fs.lstatSync(filename);
+            if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 ||
+                before.size <= 0 || before.size > 2 * 1024 * 1024 * 1024) {
+              throw new Error('unsafe output package original');
+            }
+            const target = path.join(into, rawStagingArtifactName('mcpb',
+              Number(process.env.GITHUB_RUN_ID),
+              Number(process.env.GITHUB_RUN_ATTEMPT), name));
+            const reader = fs.openSync(filename,
+              fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+            let total = 0;
+            const hash = createHash('sha256');
+            try {
+              const pinned = fs.fstatSync(reader);
+              if (pinned.dev !== before.dev || pinned.ino !== before.ino ||
+                  pinned.nlink !== 1 || pinned.size !== before.size) {
+                throw new Error('packaged original changed before raw copy');
+              }
+              const writer = fs.openSync(target,
+                fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+              try {
+                const buffer = Buffer.allocUnsafe(65536);
+                let count;
+                while ((count = fs.readSync(reader, buffer, 0, buffer.length, null)) > 0) {
+                  total += count;
+                  if (total > pinned.size) throw new Error('oversized packaged original');
+                  hash.update(buffer.subarray(0, count));
+                  let offset = 0;
+                  while (offset < count) {
+                    const written = fs.writeSync(writer, buffer, offset, count - offset);
+                    if (written <= 0) throw new Error('MCPB raw copy made no progress');
+                    offset += written;
+                  }
+                }
+              } finally {
+                fs.closeSync(writer);
+              }
+              const after = fs.fstatSync(reader);
+              const byName = fs.lstatSync(filename);
+              if (total !== pinned.size || after.size !== pinned.size ||
+                  after.mtimeMs !== pinned.mtimeMs || after.ino !== pinned.ino ||
+                  after.dev !== pinned.dev || byName.ino !== pinned.ino ||
+                  byName.dev !== pinned.dev || byName.nlink !== 1) {
+                throw new Error('packaged MCPB original changed during raw copy');
+              }
+            } finally {
+              fs.closeSync(reader);
+            }
+            assets.push({ name, size: total, sha256: hash.digest('hex') });
+          }
+          const manifest = {
+            repository: process.env.GITHUB_REPOSITORY,
+            tag: process.env.VERSION_TAG,
+            commit: process.env.GITHUB_SHA,
+            stage: 'mcpb', assets,
+          };
+          validateStagedGroupManifest(manifest);
+          if (fs.readdirSync(into).length !== 7) {
+            throw new Error('raw package stage count changed');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,
+            'manifest=' + JSON.stringify(manifest) + '\n');
+          NODE
+
+      - name: Upload raw original MCPB 01
+        id: mcpb01
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-mcpb-raw/scripthold-raw-mcpb-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_darwin_amd64.mcpb
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload raw original MCPB 02
+        id: mcpb02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-mcpb-raw/scripthold-raw-mcpb-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_darwin_arm64.mcpb
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload raw original MCPB 03
+        id: mcpb03
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-mcpb-raw/scripthold-raw-mcpb-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_linux_amd64.mcpb
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload raw original MCPB 04
+        id: mcpb04
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-mcpb-raw/scripthold-raw-mcpb-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_linux_arm64.mcpb
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload raw original MCPB 05
+        id: mcpb05
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-mcpb-raw/scripthold-raw-mcpb-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_windows_amd64.mcpb
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload raw original MCPB 06
+        id: mcpb06
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-mcpb-raw/scripthold-raw-mcpb-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_windows_arm64.mcpb
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+      - name: Upload raw original MCPB 07
+        id: mcpb07
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-mcpb-raw/scripthold-raw-mcpb-${{ github.run_id }}-${{ github.run_attempt }}-mcpb-checksums.txt
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Bind seven exact raw MCPB upload identities
+        id: collect
+        shell: bash
+        env:
+          STAGE_MANIFEST: ${{ steps.stage-mcpb.outputs.manifest }}
+          A1: ${{ steps.mcpb01.outputs.artifact-id }}
+          D1: ${{ steps.mcpb01.outputs.artifact-digest }}
+          A2: ${{ steps.mcpb02.outputs.artifact-id }}
+          D2: ${{ steps.mcpb02.outputs.artifact-digest }}
+          A3: ${{ steps.mcpb03.outputs.artifact-id }}
+          D3: ${{ steps.mcpb03.outputs.artifact-digest }}
+          A4: ${{ steps.mcpb04.outputs.artifact-id }}
+          D4: ${{ steps.mcpb04.outputs.artifact-digest }}
+          A5: ${{ steps.mcpb05.outputs.artifact-id }}
+          D5: ${{ steps.mcpb05.outputs.artifact-digest }}
+          A6: ${{ steps.mcpb06.outputs.artifact-id }}
+          D6: ${{ steps.mcpb06.outputs.artifact-digest }}
+          A7: ${{ steps.mcpb07.outputs.artifact-id }}
+          D7: ${{ steps.mcpb07.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          ids=()
+          digests=()
+          for i in $(seq 1 7); do
+            ikey="A${i}"
+            dkey="D${i}"
+            id="${!ikey}"
+            digest="${!dkey}"
+            [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+            ids+=("$id")
+            digests+=("$digest")
           done
+          STAGE_IDS="$(IFS=,; echo "${ids[*]}")"
+          STAGE_DIGESTS="$(IFS=,; echo "${digests[*]}")"
+          export STAGE_IDS STAGE_DIGESTS
+          node <<'NODE'
+          'use strict';
+          const { bindRawUploadJobOutputs } =
+            require('./publication-source/scripts/release-staging-rest');
+          bindRawUploadJobOutputs({
+            manifest: JSON.parse(process.env.STAGE_MANIFEST),
+            repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+            runId: Number(process.env.GITHUB_RUN_ID),
+            producerAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            jobOutputs: {
+              ids: process.env.STAGE_IDS,
+              digests: process.env.STAGE_DIGESTS,
+              attempt: process.env.GITHUB_RUN_ATTEMPT,
+            },
+          });
+          NODE
+          {
+            echo "ids=${STAGE_IDS}"
+            echo "digests=${STAGE_DIGESTS}"
+            echo "attempt=${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_OUTPUT"

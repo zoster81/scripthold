@@ -245,6 +245,131 @@ test('the policy job explicitly executes every Node regression test in scripts',
     'unselected Node regression tests must fail the CI policy');
 });
 
+test('future tagged normal producer stages 15 genuine originals before any publication', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows',
+    'release.yml'), 'utf8');
+  const producer = workflow.split(/^  release:\r?$/m)[1]
+    ?.split(/^  publish-mcpb:\r?$/m)[0];
+  assert.ok(producer, 'missing original release.yml tagged normal producer');
+  assert.match(producer, /args: release --clean --skip=publish,announce/);
+  assert.match(producer, /id-token: write/);
+  assert.match(producer, /attestations: write/);
+  assert.match(producer, /uses: actions\/attest@/);
+  assert.match(producer, /release-normal-source/);
+  assert.match(producer, /release-normal-provenance-pair/);
+  assert.equal((producer.match(/uses: actions\/upload-artifact@/g) || []).length, 15);
+  assert.equal((producer.match(/archive: false/g) || []).length, 15);
+  assert.match(producer, /needs: verify/);
+  assert.doesNotMatch(producer, /contents: write|gh release (?:upload|create|edit)|GITHUB_TOKEN: \\$\\{\\{ secrets/);
+});
+
+test('raw upload output binding does not mask Bash command-substitution failures', () => {
+  for (const filename of ['release.yml', 'publish-mcpb-assets.yml']) {
+    const workflow = fs.readFileSync(path.join(__dirname, '..',
+      '.github', 'workflows', filename), 'utf8');
+    assert.doesNotMatch(workflow, /export STAGE_(?:IDS|DIGESTS)=/,
+      'export with assignment masks command substitution failures');
+    assert.match(workflow, /^\s+STAGE_IDS="\$\(IFS=,; echo "\$\{ids\[\*\]\}"\)"$/m);
+    assert.match(workflow, /^\s+STAGE_DIGESTS="\$\(IFS=,; echo "\$\{digests\[\*\]\}"\)"$/m);
+    assert.match(workflow, /^\s+export STAGE_IDS STAGE_DIGESTS$/m);
+  }
+});
+
+test('tagged producer preserves genuine signed DSSE without duplicating consumer signature checks', () => {
+  const root = path.join(__dirname, '..', '.github', 'workflows');
+  const workflow = fs.readFileSync(path.join(root, 'release.yml'), 'utf8');
+  const producer = workflow.split(/^  release:\r?$/m)[1]
+    ?.split(/^  publish-mcpb:\r?$/m)[0];
+  const consumer = fs.readFileSync(path.join(root, 'publish-mcpb-assets.yml'), 'utf8');
+  assert.ok(producer);
+  assert.match(producer, /projectBundle/);
+  assert.match(producer, /parseChecksums/);
+  assert.doesNotMatch(producer,
+    /node scripts\/release-provenance\.js|verifyWithGitHubCLI|gh attestation verify/);
+  assert.match(consumer, /verifyStagedNormalAttestations/);
+});
+
+test('tagged producer sends unchanged GoReleaser v2.18.1 notes directly to read-only finalizer', () => {
+  const yaml = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows',
+    'release.yml'), 'utf8');
+  const producer = yaml.split(/^  release:\r?$/m)[1]
+    ?.split(/^  publish-mcpb:\r?$/m)[0];
+  const finalizer = yaml.split(/^  finalize:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(producer && finalizer);
+  assert.ok(producer.includes('dist/CHANGELOG.md'));
+  assert.match(producer, /encodeGoReleaserNotes/);
+  assert.ok(producer.includes('notes_metadata: ${{ steps.stage.outputs.notes_metadata }}'));
+  assert.ok(finalizer.includes('SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}'));
+  assert.match(finalizer, /decodeGoReleaserNotes/);
+  assert.doesNotMatch(producer, /--release-notes|generate_release_notes: true/);
+  assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
+});
+
+test('future signed normal producer has an independently authenticated fifteen-file Linux consumer', () => {
+  const consumer = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'publish-mcpb-assets.yml'), 'utf8');
+  assert.match(consumer, /jobs:\s*publish:/);
+  assert.match(consumer, /contents: read/);
+  assert.match(consumer, /actions: read/);
+  assert.ok(consumer.includes('artifact-ids: ${{ inputs.normal_ids }}'));
+  assert.match(consumer, /skip-decompress: true/);
+  assert.match(consumer, /digest-mismatch: error/);
+  assert.match(consumer, /readJobVerifiedRawNormalStaging/);
+  assert.match(consumer, /verifyRawNormalHandoffPayloads/);
+  assert.match(consumer, /verifyStagedNormalAttestations/);
+  assert.doesNotMatch(consumer, /contents: write|id-token: write|attestations: write|gh release (?:upload|create|edit)/);
+});
+
+test('future GitHub-only MCPB job consumes signed private originals and emits seven raw assets', () => {
+  const root = path.join(__dirname, '..', '.github', 'workflows');
+  const workflow = fs.readFileSync(path.join(root, 'release.yml'), 'utf8');
+  const mcpb = fs.readFileSync(path.join(root, 'publish-mcpb-assets.yml'), 'utf8');
+  const caller = workflow.split(/^  publish-mcpb:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(caller && caller.includes('needs: release'));
+  assert.ok(caller.includes('normal_ids: ${{ needs.release.outputs.ids }}'));
+  assert.ok(caller.includes('normal_digests: ${{ needs.release.outputs.digests }}'));
+  assert.ok(caller.includes('normal_manifest: ${{ needs.release.outputs.manifest }}'));
+  assert.ok(caller.includes('normal_attempt: ${{ needs.release.outputs.attempt }}'));
+  assert.match(mcpb, /readJobVerifiedRawNormalStaging/);
+  assert.match(mcpb, /verifyRawNormalHandoffPayloads/);
+  assert.match(mcpb, /verifyStagedNormalAttestations/);
+  assert.match(mcpb, /verifyPreparedMcpbBinaryPayloads/);
+  assert.ok(mcpb.includes('artifact-ids: ${{ inputs.normal_ids }}'));
+  assert.match(mcpb, /skip-decompress: true/);
+  assert.match(mcpb, /digest-mismatch: error/);
+  assert.equal((mcpb.match(/uses: actions\/upload-artifact@/g) || []).length, 7);
+  assert.equal((mcpb.match(/archive: false/g) || []).length, 7);
+  assert.doesNotMatch(mcpb, /gh release upload|curl -fSL --retry 3 --retry-all-errors[\s\S]*releases\/download/);
+  assert.doesNotMatch(mcpb, /contents: write/);
+});
+
+test('future finalizer gates Registry on all 22 authenticated original files', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'release.yml'), 'utf8');
+  const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(finalizer, 'missing separate finalizer after genuine MCPB producer');
+  assert.match(finalizer, /needs: \[release, publish-mcpb\]/);
+  assert.match(finalizer, /contents: read/);
+  assert.match(finalizer, /actions: read/);
+  assert.match(finalizer, /readJobVerifiedRawCompleteStaging/);
+  assert.match(finalizer, /verifyRawCompleteHandoffPayloads/);
+  assert.doesNotMatch(finalizer, /verifyStagedNormalAttestations/,
+    'the successful MCPB dependency already verified all 12 genuine signatures');
+  assert.match(finalizer, /readPublicationAuthority/);
+  assert.ok(finalizer.includes('needs.release.outputs.ids'));
+  assert.ok(finalizer.includes('needs.publish-mcpb.outputs.ids'));
+  assert.match(finalizer, /skip-decompress: true/);
+  assert.match(finalizer, /digest-mismatch: error/);
+  assert.doesNotMatch(finalizer, /gh release (?:upload|create|edit)|contents: write/);
+  assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
+  const registry = workflow.split(/^  publish-registry:\r?$/m)[1];
+  assert.ok(registry.includes('needs: finalize'),
+    'Registry must never publish after merely building MCPB assets');
+});
+
 test('aggregate verification rejects failed or missing required evidence', () => {
   const success = Object.fromEntries(requiredJobsForTier('docs').map((job) => [job, 'success']));
   success['linux-regression'] = 'skipped';

@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: scripthold-immutable-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -97,8 +97,14 @@ jobs:
 
   release:
     needs: verify
+    outputs:
+      manifest: ${{ steps.stage.outputs.manifest }}
+      ids: ${{ steps.collect.outputs.ids }}
+      digests: ${{ steps.collect.outputs.digests }}
+      attempt: ${{ steps.collect.outputs.attempt }}
+      notes_metadata: ${{ steps.stage.outputs.notes_metadata }}
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
       artifact-metadata: write
@@ -132,9 +138,9 @@ jobs:
         with:
           distribution: goreleaser
           version: 'v2.18.1'
-          args: release --clean
+          args: release --clean --skip=publish,announce
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Set up Node.js for provenance validation
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -148,42 +154,580 @@ jobs:
         with:
           subject-checksums: dist/checksums.txt
 
-      - name: Validate signed provenance and produce interoperable in-toto envelope
+      - name: Preserve original signed in-toto envelope for the private handoff
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          node scripts/release-provenance.js \
-            "${PROVENANCE_BUNDLE}" dist/checksums.txt dist/artifacts.json \
-            "${GITHUB_REF_NAME}" "${GITHUB_SHA}" \
-            "scripthold-${GITHUB_REF_NAME}-provenance.intoto.jsonl"
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const { parseChecksums, projectBundle } =
+            require('./scripts/release-provenance');
+          const filename = process.env.PROVENANCE_BUNDLE;
+          const info = fs.lstatSync(filename);
+          if (!info.isFile() || info.isSymbolicLink() ||
+              info.nlink !== 1 || info.size <= 0 ||
+              info.size > 4 * 1024 * 1024) {
+            throw new Error('invalid original Sigstore bundle');
+          }
+          const checksums = parseChecksums(fs.readFileSync('dist/checksums.txt', 'utf8'));
+          const envelope = projectBundle(
+            JSON.parse(fs.readFileSync(filename, 'utf8')),
+            checksums, process.env.GITHUB_REF_NAME, process.env.GITHUB_SHA);
+          fs.writeFileSync(
+            'scripthold-' + process.env.GITHUB_REF_NAME + '-provenance.intoto.jsonl',
+            envelope, { flag: 'wx', mode: 0o600 });
+          NODE
 
-      - name: Attach verified provenance to GitHub Release
+      - name: Prepare and validate private normal originals
+        id: stage
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          provenance="scripthold-${GITHUB_REF_NAME}-provenance.sigstore.json"
-          intoto="scripthold-${GITHUB_REF_NAME}-provenance.intoto.jsonl"
-          test -f "${PROVENANCE_BUNDLE}"
-          test -f "${intoto}"
-          cp "${PROVENANCE_BUNDLE}" "${provenance}"
-          gh release upload "${GITHUB_REF_NAME}" "${provenance}" "${intoto}"
+          umask 077
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { planOriginalGoReleaserPaths } =
+            require('./scripts/release-goreleaser-original-paths');
+          const { expectedReleaseAssetNames, rawStagingArtifactName } =
+            require('./scripts/release-asset-contract');
+          const { measureNormalSourcePayloads, encodeGoReleaserNotes } =
+            require('./scripts/release-normal-source');
+          const { checkNormalProvenancePair } =
+            require('./scripts/release-normal-provenance-pair');
+
+          async function main() {
+            const tag = process.env.GITHUB_REF_NAME;
+            const sha = process.env.GITHUB_SHA;
+            const names = expectedReleaseAssetNames(tag).slice(0, 15);
+            const originals = planOriginalGoReleaserPaths(tag,
+              fs.readFileSync('dist/checksums.txt'),
+              JSON.parse(fs.readFileSync('dist/artifacts.json', 'utf8')));
+            if (names.length !== 15 || originals.length !== 13) {
+              throw new Error('incomplete trusted GoReleaser source');
+            }
+            const sources = [
+              ...originals.map(file => ({
+                name: file.name, path: path.join(file.sourceParent, file.sourceLeaf),
+              })),
+              { name: names[13], path: process.env.PROVENANCE_BUNDLE },
+              { name: names[14], path: names[14] },
+            ];
+            const dir = path.resolve(process.env.RUNNER_TEMP, 'private-normal-raw');
+            fs.mkdirSync(dir, { mode: 0o700 });
+            if (fs.readdirSync(dir).length !== 0) throw new Error('nonempty normal stage');
+            const run = Number(process.env.GITHUB_RUN_ID);
+            const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+            const staged = name => path.join(dir,
+              rawStagingArtifactName('normal', run, attempt, name));
+            for (const item of sources) {
+              const initial = fs.lstatSync(item.path);
+              if (!initial.isFile() || initial.isSymbolicLink() || initial.nlink !== 1) {
+                throw new Error('unsafe original normal source');
+              }
+              const input = fs.openSync(item.path,
+                fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+              try {
+                const pinned = fs.fstatSync(input);
+                if (pinned.dev !== initial.dev || pinned.ino !== initial.ino ||
+                    pinned.size !== initial.size) throw new Error('source changed');
+                const output = fs.openSync(staged(item.name),
+                  fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+                try {
+                  const buffer = Buffer.allocUnsafe(65536);
+                  let count;
+                  while ((count = fs.readSync(input, buffer, 0, buffer.length, null)) > 0) {
+                    let written = 0;
+                    while (written < count) {
+                      const n = fs.writeSync(output, buffer, written, count - written);
+                      if (n === 0) throw new Error('normal copy made no progress');
+                      written += n;
+                    }
+                  }
+                } finally {
+                  fs.closeSync(output);
+                }
+                const after = fs.fstatSync(input);
+                const current = fs.lstatSync(item.path);
+                if (after.dev !== pinned.dev || after.ino !== pinned.ino ||
+                    after.size !== pinned.size || after.mtimeMs !== pinned.mtimeMs ||
+                    current.dev !== pinned.dev || current.ino !== pinned.ino ||
+                    !current.isFile() || current.nlink !== 1) {
+                  throw new Error('source changed during staging');
+                }
+              } finally {
+                fs.closeSync(input);
+              }
+            }
+            if (fs.readdirSync(dir).length !== 15) throw new Error('invalid normal stage');
+            const observed = names.map(name => {
+              const stat = fs.lstatSync(staged(name));
+              return { name, type: stat.isFile() && !stat.isSymbolicLink()
+                ? 'file' : 'unsafe', nlink: stat.nlink, size: stat.size };
+            });
+            const manifest = await measureNormalSourcePayloads(
+              tag, sha, observed, async ({ name }) =>
+                fs.createReadStream(staged(name), {
+                  flags: fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
+                }));
+            checkNormalProvenancePair(manifest,
+              fs.readFileSync(staged('checksums.txt')),
+              fs.readFileSync(staged(names[13])), fs.readFileSync(staged(names[14])));
+            // GoReleaser v2.18.1 writes exact ctx.ReleaseNotes to this file.
+            // It is release metadata, not a 23rd public artifact or a new changelog.
+            const changelogPath = 'dist/CHANGELOG.md';
+            const notesBefore = fs.lstatSync(changelogPath);
+            if (!notesBefore.isFile() || notesBefore.isSymbolicLink() ||
+                notesBefore.nlink !== 1 || notesBefore.size > 65536) {
+              throw new Error('unsafe or oversized original GoReleaser notes');
+            }
+            const notesFd = fs.openSync(changelogPath,
+              fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+            let notesMetadata;
+            try {
+              const initial = fs.fstatSync(notesFd);
+              if (initial.dev !== notesBefore.dev || initial.ino !== notesBefore.ino ||
+                  initial.size !== notesBefore.size || initial.nlink !== 1) {
+                throw new Error('original GoReleaser notes changed before read');
+              }
+              const bytes = fs.readFileSync(notesFd);
+              const after = fs.fstatSync(notesFd);
+              const current = fs.lstatSync(changelogPath);
+              if (after.dev !== initial.dev || after.ino !== initial.ino ||
+                  after.size !== initial.size || after.mtimeMs !== initial.mtimeMs ||
+                  current.dev !== initial.dev || current.ino !== initial.ino ||
+                  current.nlink !== 1 || bytes.length !== initial.size) {
+                throw new Error('original GoReleaser notes changed during read');
+              }
+              notesMetadata = encodeGoReleaserNotes(bytes);
+            } finally {
+              fs.closeSync(notesFd);
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT,
+              'manifest=' + JSON.stringify(manifest) + '\n' +
+              'notes_metadata=' + JSON.stringify(notesMetadata) + '\n');
+          }
+          main().catch(error => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Upload original normal 01 private bytes
+        id: original01
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_darwin_amd64
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 02 private bytes
+        id: original02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_darwin_amd64.tar.gz
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 03 private bytes
+        id: original03
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_darwin_arm64
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 04 private bytes
+        id: original04
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_darwin_arm64.tar.gz
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 05 private bytes
+        id: original05
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_linux_amd64
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 06 private bytes
+        id: original06
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_linux_amd64.tar.gz
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 07 private bytes
+        id: original07
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_linux_arm64
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 08 private bytes
+        id: original08
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_linux_arm64.tar.gz
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 09 private bytes
+        id: original09
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_windows_amd64.exe
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 10 private bytes
+        id: original10
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_windows_amd64.zip
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 11 private bytes
+        id: original11
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_windows_arm64.exe
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 12 private bytes
+        id: original12
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold_windows_arm64.zip
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 13 private bytes
+        id: original13
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-checksums.txt
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 14 private bytes
+        id: original14
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold-${{ github.ref_name }}-provenance.sigstore.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Upload original normal 15 private bytes
+        id: original15
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/private-normal-raw/scripthold-raw-normal-${{ github.run_id }}-${{ github.run_attempt }}-scripthold-${{ github.ref_name }}-provenance.intoto.jsonl
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Bind fifteen private upload identities
+        id: collect
+        shell: bash
+        env:
+          STAGE_MANIFEST: ${{ steps.stage.outputs.manifest }}
+          A1: ${{ steps.original01.outputs.artifact-id }}
+          D1: ${{ steps.original01.outputs.artifact-digest }}
+          A2: ${{ steps.original02.outputs.artifact-id }}
+          D2: ${{ steps.original02.outputs.artifact-digest }}
+          A3: ${{ steps.original03.outputs.artifact-id }}
+          D3: ${{ steps.original03.outputs.artifact-digest }}
+          A4: ${{ steps.original04.outputs.artifact-id }}
+          D4: ${{ steps.original04.outputs.artifact-digest }}
+          A5: ${{ steps.original05.outputs.artifact-id }}
+          D5: ${{ steps.original05.outputs.artifact-digest }}
+          A6: ${{ steps.original06.outputs.artifact-id }}
+          D6: ${{ steps.original06.outputs.artifact-digest }}
+          A7: ${{ steps.original07.outputs.artifact-id }}
+          D7: ${{ steps.original07.outputs.artifact-digest }}
+          A8: ${{ steps.original08.outputs.artifact-id }}
+          D8: ${{ steps.original08.outputs.artifact-digest }}
+          A9: ${{ steps.original09.outputs.artifact-id }}
+          D9: ${{ steps.original09.outputs.artifact-digest }}
+          A10: ${{ steps.original10.outputs.artifact-id }}
+          D10: ${{ steps.original10.outputs.artifact-digest }}
+          A11: ${{ steps.original11.outputs.artifact-id }}
+          D11: ${{ steps.original11.outputs.artifact-digest }}
+          A12: ${{ steps.original12.outputs.artifact-id }}
+          D12: ${{ steps.original12.outputs.artifact-digest }}
+          A13: ${{ steps.original13.outputs.artifact-id }}
+          D13: ${{ steps.original13.outputs.artifact-digest }}
+          A14: ${{ steps.original14.outputs.artifact-id }}
+          D14: ${{ steps.original14.outputs.artifact-digest }}
+          A15: ${{ steps.original15.outputs.artifact-id }}
+          D15: ${{ steps.original15.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          ids=()
+          digests=()
+          for i in $(seq 1 15); do
+            idKey="A${i}"
+            digestKey="D${i}"
+            id="${!idKey}"
+            digest="${!digestKey}"
+            [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+            ids+=("$id")
+            digests+=("$digest")
+          done
+          STAGE_IDS="$(IFS=,; echo "${ids[*]}")"
+          STAGE_DIGESTS="$(IFS=,; echo "${digests[*]}")"
+          export STAGE_IDS STAGE_DIGESTS
+          node <<'NODE'
+          'use strict';
+          const { bindRawUploadJobOutputs } =
+            require('./scripts/release-staging-rest');
+          bindRawUploadJobOutputs({
+            manifest: JSON.parse(process.env.STAGE_MANIFEST),
+            repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+            runId: Number(process.env.GITHUB_RUN_ID),
+            producerAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            jobOutputs: {
+              ids: process.env.STAGE_IDS,
+              digests: process.env.STAGE_DIGESTS,
+              attempt: process.env.GITHUB_RUN_ATTEMPT,
+            },
+          });
+          NODE
+          {
+            echo "ids=${STAGE_IDS}"
+            echo "digests=${STAGE_DIGESTS}"
+            echo "attempt=${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_OUTPUT"
 
   publish-mcpb:
     needs: release
     permissions:
-      contents: write
+      contents: read
+      actions: read
     uses: ./.github/workflows/publish-mcpb-assets.yml
     with:
       version: ${{ github.ref_name }}
+      normal_manifest: ${{ needs.release.outputs.manifest }}
+      normal_ids: ${{ needs.release.outputs.ids }}
+      normal_digests: ${{ needs.release.outputs.digests }}
+      normal_attempt: ${{ needs.release.outputs.attempt }}
+
+  finalize:
+    needs: [release, publish-mcpb]
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - name: Require isolated disk-backed complete release staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP" && test -w "$RUNNER_TEMP"
+          case "$(findmnt -n -T "$RUNNER_TEMP" -o FSTYPE)" in
+            ext4|xfs|btrfs|zfs) ;;
+            *) echo 'untrusted finalizer scratch filesystem' >&2; exit 1 ;;
+          esac
+          umask 077
+          mkdir -m 700 -- "$RUNNER_TEMP/complete-raw"
+          mkdir -m 700 -- "$RUNNER_TEMP/complete-normal"
+          mkdir -m 700 -- "$RUNNER_TEMP/complete-mcpb"
+
+      - name: Download exact twenty-two source artifact IDs without decompression
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ needs.release.outputs.ids }},${{ needs.publish-mcpb.outputs.ids }}
+          merge-multiple: true
+          skip-decompress: true
+          digest-mismatch: error
+          path: ${{ runner.temp }}/complete-raw
+
+      - name: Check out the authoritative tagged source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+
+      - name: Verify exact producer jobs and all twenty-two downloaded original bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_NORMAL_MANIFEST: ${{ needs.release.outputs.manifest }}
+          SOURCE_NORMAL_IDS: ${{ needs.release.outputs.ids }}
+          SOURCE_NORMAL_DIGESTS: ${{ needs.release.outputs.digests }}
+          SOURCE_NORMAL_ATTEMPT: ${{ needs.release.outputs.attempt }}
+          SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}
+          SOURCE_MCPB_MANIFEST: ${{ needs.publish-mcpb.outputs.manifest }}
+          SOURCE_MCPB_IDS: ${{ needs.publish-mcpb.outputs.ids }}
+          SOURCE_MCPB_DIGESTS: ${{ needs.publish-mcpb.outputs.digests }}
+          SOURCE_MCPB_ATTEMPT: ${{ needs.publish-mcpb.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml" --jq .id)"
+          export SOURCE_WORKFLOW_ID="$workflow_id"
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { bindRawUploadJobOutputs, readJobVerifiedRawCompleteStaging } =
+            require('./scripts/release-staging-rest');
+          const { verifyRawCompleteHandoffPayloads } =
+            require('./scripts/release-staging-producers');
+          const { readPublicationAuthority } =
+            require('./scripts/release-finalizer-authority');
+          const { decodeGoReleaserNotes } =
+            require('./scripts/release-normal-source');
+
+          async function main() {
+            const producer = prefix => bindRawUploadJobOutputs({
+              manifest: JSON.parse(process.env['SOURCE_' + prefix + '_MANIFEST']),
+              repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+              runId: Number(process.env.GITHUB_RUN_ID),
+              producerAttempt: Number(process.env['SOURCE_' + prefix + '_ATTEMPT']),
+              jobOutputs: {
+                ids: process.env['SOURCE_' + prefix + '_IDS'],
+                digests: process.env['SOURCE_' + prefix + '_DIGESTS'],
+                attempt: process.env['SOURCE_' + prefix + '_ATTEMPT'],
+              },
+            });
+            const normal = producer('NORMAL');
+            const mcpb = producer('MCPB');
+            const trusted = await readJobVerifiedRawCompleteStaging({
+              normal, mcpb,
+              sourcePolicy: {
+                workflowId: Number(process.env.SOURCE_WORKFLOW_ID),
+                workflowPath: '.github/workflows/release.yml',
+                event: 'push',
+                normalJobName: 'release',
+                mcpbJobName: 'publish-mcpb / publish',
+              },
+              token: process.env.GH_TOKEN,
+            });
+            const releaseNotes = decodeGoReleaserNotes(
+              process.env.SOURCE_RELEASE_NOTES_METADATA);
+            if (releaseNotes.length < 2) {
+              throw new Error('unavailable exact original GoReleaser release notes');
+            }
+            if (trusted.manifest.commit !== process.env.GITHUB_SHA ||
+                trusted.manifest.tag !== process.env.GITHUB_REF_NAME ||
+                trusted.manifest.repository !== process.env.GITHUB_REPOSITORY) {
+              throw new Error('finalizer manifest disagrees with trusted tag checkout');
+            }
+            const root = path.resolve(process.env.RUNNER_TEMP, 'complete-raw');
+            const normalDir = path.resolve(process.env.RUNNER_TEMP, 'complete-normal');
+            const mcpbDir = path.resolve(process.env.RUNNER_TEMP, 'complete-mcpb');
+            for (const dir of [root, normalDir, mcpbDir]) {
+              const info = fs.lstatSync(dir);
+              if (!info.isDirectory() || info.isSymbolicLink() ||
+                  info.uid !== process.getuid() || (info.mode & 0o077) !== 0) {
+                throw new Error('untrusted complete staging directory');
+              }
+            }
+            const names = fs.readdirSync(root);
+            if (names.length !== 22) {
+              throw new Error('complete original download must have exactly 22 entries');
+            }
+            const observed = names.map(name => {
+              const stat = fs.lstatSync(path.join(root, name));
+              if (stat.uid !== process.getuid()) {
+                throw new Error('untrusted downloaded original owner');
+              }
+              return { name, size: stat.size, nlink: stat.nlink,
+                type: stat.isFile() && !stat.isSymbolicLink() ? 'file' : 'unsafe' };
+            });
+            await verifyRawCompleteHandoffPayloads(
+              trusted.normal, trusted.mcpb, observed,
+              ({ artifactName }) => fs.createReadStream(path.join(root, artifactName), {
+                flags: fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
+              }));
+            for (const file of trusted.batch.files) {
+              const target = file.fileName.endsWith('.mcpb') ||
+                file.fileName === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+              fs.renameSync(path.join(root, file.artifactName),
+                path.join(target, file.fileName));
+            }
+            if (fs.readdirSync(root).length !== 0 ||
+                fs.readdirSync(normalDir).length !== 15 ||
+                fs.readdirSync(mcpbDir).length !== 7) {
+              throw new Error('complete original stage lost or gained an asset');
+            }
+            const authority = await readPublicationAuthority({
+              manifest: trusted.manifest,
+              publisherCommit: process.env.GITHUB_SHA,
+              token: process.env.GH_TOKEN,
+            });
+            if (authority.commit !== trusted.manifest.commit) {
+              throw new Error('release authority does not match twenty-two originals');
+            }
+            // The successful MCPB dependency verified all 12 original signatures.
+            // This finalizer verifies the same originals by run-bound SHA-256.
+            console.log('Verified 22 original assets, producer jobs and release authority; not publishing');
+          }
+          main().catch(error => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Fail closed until single-writer draft finalizer is implemented
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'publication is disabled until the single-writer finalizer is qualified' >&2
+          exit 1
 
   publish-registry:
-    needs: publish-mcpb
+    needs: finalize
     permissions:
       contents: read
       id-token: write

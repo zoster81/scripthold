@@ -6,7 +6,40 @@ const { Readable } = require('node:stream');
 const test = require('node:test');
 
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
-const { measureNormalSourcePayloads } = require('./release-normal-source');
+const { measureNormalSourcePayloads,
+  encodeGoReleaserNotes, decodeGoReleaserNotes } = require('./release-normal-source');
+test('preserves exact GoReleaser 2.18.1 generated dist notes without touching the 22 asset manifest', () => {
+  const body = Buffer.from('## Changelog\n* Fix: preserve notes exactly\n\n', 'utf8');
+  const metadata = encodeGoReleaserNotes(body);
+  assert.equal(metadata.v, 1);
+  assert.equal(metadata.size, body.length);
+  assert.equal(metadata.sha256, hash(body));
+  assert.deepEqual(Buffer.from(decodeGoReleaserNotes(metadata), 'utf8'), body);
+  assert.equal(decodeGoReleaserNotes(JSON.stringify(metadata)), body.toString('utf8'));
+  assert.equal(fixture().names.length, 15, 'notes are not another normal release artifact');
+});
+
+test('rejects forged, noncanonical, malformed or excessive GoReleaser notes', () => {
+  const valid = encodeGoReleaserNotes(Buffer.from('## Changelog\n', 'utf8'));
+  const corrupted = [
+    { ...valid, sha256: '0'.repeat(64) }, { ...valid, size: 1 },
+    { ...valid, base64: valid.base64 + '\n' },
+    { ...valid, base64: 'AA==' }, { ...valid, v: 2 },
+    { ...valid, injected: 'other notes' },
+  ];
+  for (const data of corrupted) {
+    assert.throws(() => decodeGoReleaserNotes(data));
+  }
+  for (const data of [Buffer.alloc(0), Buffer.from('no newline'),
+    Buffer.from('bad\r\n'), Buffer.from([0xff, 0x0a]),
+    Buffer.from([0, 10]), Buffer.from([0xef, 0xbb, 0xbf, 0x23, 0x0a]),
+    Buffer.alloc(65537, 10)]) {
+    assert.throws(() => encodeGoReleaserNotes(data));
+  }
+  assert.throws(() => decodeGoReleaserNotes('{}'));
+  assert.throws(() => decodeGoReleaserNotes(Buffer.from('invalid')));
+});
+
 
 const TAG = 'v3.4.0';
 const COMMIT = 'a'.repeat(40);

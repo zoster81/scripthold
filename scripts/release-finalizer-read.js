@@ -1,6 +1,7 @@
 'use strict';
 
-const { expectedReleaseAssetNames } = require('./release-asset-contract');
+const { expectedReleaseAssetNames, validateStagedManifest,
+  verifyPublishedAssetSet } = require('./release-asset-contract');
 const { normalizeReleaseAssetPage } = require('./release-finalizer-plan');
 
 const API = 'https://api.github.com/repos/zoster81/scripthold/releases';
@@ -16,10 +17,17 @@ function releaseIdentity(release, id, tag) {
     release.id === id && release.tag_name === tag &&
     typeof release.draft === 'boolean' && typeof release.immutable === 'boolean',
   'GitHub release identity or state mismatch');
-  return {
+  const result = {
     id: release.id, tag_name: release.tag_name,
     draft: release.draft, immutable: release.immutable,
   };
+  // Draft publishing must preserve the original title, notes and prerelease
+  // state. Expose them when GitHub supplies them, even if malformed, so the
+  // writer can reject an incomplete or conflicting draft without guessing.
+  for (const field of ['name', 'body', 'prerelease']) {
+    if (Object.hasOwn(release, field)) result[field] = release[field];
+  }
+  return result;
 }
 
 async function readJsonResponse(response, url) {
@@ -111,9 +119,8 @@ async function readReleaseObservation({ releaseId, tag, token, fetchImpl = globa
   // and immediate fresh reads before each mutation.
   const last = releaseIdentity(await readJsonResponse(await get(releaseUrl), releaseUrl),
     releaseId, tag);
-  requireCondition(first.id === last.id && first.tag_name === last.tag_name &&
-    first.draft === last.draft && first.immutable === last.immutable,
-  'GitHub release changed during asset inventory read');
+  requireCondition(JSON.stringify(first) === JSON.stringify(last),
+    'GitHub release identity, state or metadata changed during asset inventory read');
 
   return { kind: 'present', release: last,
     assetPage: { status: 200, request: page.request, link: page.link, assets } };
@@ -232,5 +239,41 @@ async function discoverReleaseByTag({ tag, token, fetchImpl = globalThis.fetch }
   return { kind: 'candidate', releaseId: candidate.id, observation };
 }
 
+// A separate administrator-authorized GET is required before any future
+// public transition. A 403, absent setting or disabled policy fails closed.
+// This is a point-in-time observation, not a lock or publication permit.
+// The ordinary workflow GITHUB_TOKEN is not assumed to have admin access.
+async function readImmutableReleasePolicy({
+  adminToken, fetchImpl = globalThis.fetch,
+} = {}) {
+  const url = 'https://api.github.com/repos/zoster81/scripthold/immutable-releases';
+  const response = await makeGitHubGet(adminToken, fetchImpl)(url);
+  const policy = await readJsonResponse(response, url);
+  requireCondition(policy && typeof policy === 'object' &&
+    !Array.isArray(policy) && policy.enabled === true &&
+    typeof policy.enforced_by_owner === 'boolean',
+  'GitHub immutable releases are not independently confirmed enabled');
+  return { enabled: true, enforcedByOwner: policy.enforced_by_owner };
+}
+
+// Read-only final-state proof for a previously identified release. GitHub
+// reports immutable:true only after publication; all 22 remote asset IDs,
+// names, sizes, digests and states must agree with the trusted original set.
+// This cannot establish the authenticity of the caller's input manifest.
+async function readVerifiedImmutablePublication({
+  manifest, releaseId, token, fetchImpl = globalThis.fetch,
+}) {
+  validateStagedManifest(manifest);
+  const observation = await readReleaseObservation({
+    releaseId, tag: manifest.tag, token, fetchImpl,
+  });
+  requireCondition(observation.kind === 'present',
+    'expected an independently observed immutable public release');
+  const verified = verifyPublishedAssetSet(manifest,
+    observation.release, observation.assetPage.assets);
+  return { releaseId: verified.releaseId, count: verified.count };
+}
+
 module.exports = { readReleaseObservation, discoverReleaseByTag,
+  readImmutableReleasePolicy, readVerifiedImmutablePublication,
   makeGitHubGet, readJsonResponse };

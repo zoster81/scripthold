@@ -3,7 +3,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
-const { readReleaseObservation, discoverReleaseByTag } = require('./release-finalizer-read');
+const { readReleaseObservation, discoverReleaseByTag,
+  readImmutableReleasePolicy, readVerifiedImmutablePublication } =
+  require('./release-finalizer-read');
 const { planReleaseFinalizerStep } = require('./release-finalizer-plan');
 
 const TAG = 'v3.4.0';
@@ -120,6 +122,9 @@ test('detects release identity/state changing across its asset read', async () =
     (r) => ({ ...r, immutable: true }),
     (r) => ({ ...r, tag_name: 'v3.3.0' }),
     (r) => ({ ...r, id: RELEASE_ID + 1 }),
+    (r) => ({ ...r, name: 'Tampered title' }),
+    (r) => ({ ...r, body: 'Tampered release notes' }),
+    (r) => ({ ...r, prerelease: true }),
   ]) {
     const fake = client({ release, assets, mutate });
     await assert.rejects(readReleaseObservation({
@@ -451,6 +456,84 @@ test('never trusts truncated searches after a bounded release page limit', async
     tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
   }), /page limit|bounded/);
   assert.ok(fake.calls.length <= 20);
+});
+
+test('reads GitHub immutable-release enforcement with a separate admin token and no writes', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return response({ enabled: true, enforced_by_owner: false });
+  };
+  assert.deepEqual(await readImmutableReleasePolicy({
+    adminToken: 'test_admin_token_not_live', fetchImpl,
+  }), { enabled: true, enforcedByOwner: false });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url,
+    'https://api.github.com/repos/zoster81/scripthold/immutable-releases');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.equal(calls[0].options.headers.Authorization,
+    'Bearer test_admin_token_not_live');
+  assert.equal(calls[0].options.redirect, 'error');
+  assert.equal(calls[0].options.cache, 'no-store');
+});
+
+test('immutable-release policy refuses disabled, ambiguous, inaccessible and malformed evidence', async () => {
+  for (const bad of [
+    response({ enabled: false, enforced_by_owner: false }),
+    response({ enabled: true }),
+    response({ enabled: 'true', enforced_by_owner: false }),
+    response({ enabled: true, enforced_by_owner: 'false' }),
+    response(null, 403),
+    response(null, 404),
+    response({ message: 'Unauthorized' }, 401),
+    new Response('not JSON', { status: 200, headers: { 'content-type': 'application/json' } }),
+  ]) {
+    let calls = 0;
+    await assert.rejects(readImmutableReleasePolicy({
+      adminToken: 'test_admin_token_not_live',
+      fetchImpl: async () => { calls++; return bad; },
+    }), Error);
+    assert.equal(calls, 1);
+  }
+  let calls = 0;
+  for (const adminToken of ['', 'header\r\ninj', undefined]) {
+    await assert.rejects(readImmutableReleasePolicy({
+      adminToken, fetchImpl: async () => { calls++; return response({ enabled: true }); },
+    }), Error);
+  }
+  assert.equal(calls, 0);
+});
+
+test('independently reads an exact 22-asset immutable published release', async () => {
+  const { release, assets } = fixture();
+  const manifest = { repository: 'zoster81/scripthold', tag: TAG,
+    commit: 'a'.repeat(40),
+    assets: assets.map(({ name, size, digest }) => ({
+      name, size, sha256: digest.slice('sha256:'.length),
+    })),
+  };
+  const published = { ...release, draft: false, immutable: true };
+  const fake = client({ release: published, assets });
+  assert.deepEqual(await readVerifiedImmutablePublication({
+    manifest, releaseId: RELEASE_ID, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), { releaseId: RELEASE_ID, count: 22 });
+  assert.deepEqual(fake.calls.map(c => c.url),
+    [RELEASE_URL, ASSETS_URL, RELEASE_URL]);
+
+  for (const [remote, original] of [
+    [{ ...published, immutable: false }, assets],
+    [{ ...published, draft: true }, assets],
+    [published, assets.slice(1)],
+    [published, assets.map((asset, i) =>
+      i === 3 ? { ...asset, digest: 'sha256:' + '0'.repeat(64) } : asset)],
+    [published, assets.map((asset, i) =>
+      i === 3 ? { ...asset, state: 'starter' } : asset)],
+  ]) {
+    const bad = client({ release: remote, assets: original });
+    await assert.rejects(readVerifiedImmutablePublication({
+      manifest, releaseId: RELEASE_ID, token: TOKEN, fetchImpl: bad.fetchImpl,
+    }), Error);
+  }
 });
 
 test('bounds response bytes and propagates network/stream failures without retrying', async () => {
