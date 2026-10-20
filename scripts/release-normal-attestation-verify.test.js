@@ -79,6 +79,25 @@ test('measures exactly 15 original stage bytes and the twelve signed subjects', 
   await assert.rejects(inspectNormalStage(f.manifest, f.dir), /digest|mismatch/);
 });
 
+test('enumerates at most sixteen entries for a fifteen-file private stage', async t => {
+  const f = fixture(t);
+  const unrestricted = fs.readdirSync;
+  fs.readdirSync = function (target, ...options) {
+    if (target === f.dir) {
+      throw new Error('unbounded directory listing is forbidden');
+    }
+    return unrestricted.call(this, target, ...options);
+  };
+  try {
+    assert.equal((await inspectNormalStage(f.manifest, f.dir)).size, 15);
+    fs.writeFileSync(path.join(f.dir, 'surplus-file'), Buffer.from('extra'));
+    await assert.rejects(inspectNormalStage(f.manifest, f.dir),
+      /exactly 15 original names/);
+  } finally {
+    fs.readdirSync = unrestricted;
+  }
+});
+
 test('bounded original sidecars never use an unbounded descriptor read', async t => {
   const f = fixture(t);
   const unboundedRead = fs.readFileSync;

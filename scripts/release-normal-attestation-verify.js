@@ -82,7 +82,20 @@ async function inspectNormalStage(manifest, stageDir) {
   const commit = manifest.commit;
   const names = normalNames(tag);
   const dir = trustedStageDir(stageDir);
-  const observed = fs.readdirSync(dir).sort();
+  // Read at most one name beyond the exact original inventory. Reading the
+  // entire directory would make this security preflight unbounded in memory.
+  const observed = [];
+  const listing = fs.opendirSync(dir, { bufferSize: names.length + 1 });
+  try {
+    for (let i = 0; i <= names.length; i++) {
+      const entry = listing.readSync();
+      if (entry === null) break;
+      observed.push(entry.name);
+    }
+  } finally {
+    listing.closeSync();
+  }
+  observed.sort();
   const required = [...names].sort();
   if (observed.length !== 15 ||
       observed.some((name, i) => name !== required[i])) {

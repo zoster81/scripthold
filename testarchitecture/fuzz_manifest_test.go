@@ -60,6 +60,7 @@ func TestFuzzManifestCoversRepositoryAndRequiredSmokeRisks(t *testing.T) {
 
 	allowedRisks := set(
 		"path-security",
+		"release-artifact-integrity",
 		"http-host-origin-proxy",
 		"http-protocol-jsonrpc",
 		"backup-format",

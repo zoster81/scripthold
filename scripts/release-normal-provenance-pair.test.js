@@ -2,10 +2,12 @@
 
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
+const { Readable } = require('node:stream');
 const test = require('node:test');
 
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { checkNormalProvenancePair } = require('./release-normal-provenance-pair');
+const { measureNormalSourcePayloads } = require('./release-normal-source');
 
 const TAG = 'v3.4.0';
 const COMMIT = 'a'.repeat(40);
@@ -63,7 +65,7 @@ function fixture() {
       name, size: bytes.get(name).length, sha256: sha(bytes.get(name)),
     })),
   };
-  return { manifest, checksums, bundleBytes, envelopeBytes, bundle, envelope, statement };
+  return { bytes, manifest, checksums, bundleBytes, envelopeBytes, bundle, envelope, statement };
 }
 
 function verify(f) {
@@ -75,6 +77,40 @@ test('checks both unchanged original sidecars against the exact 15-file inventor
   assert.equal(verify(f), undefined);
   assert.equal(f.manifest.assets.length, 15);
   assert.equal(f.statement.subject.length, 12);
+});
+
+test('producer measurement and original signed-pair checks reject a rechecksummed binary swap', async () => {
+  const f = fixture();
+  const measure = bytes => measureNormalSourcePayloads(TAG, COMMIT,
+    f.manifest.assets.map(({ name }) => ({
+      name, type: 'file', nlink: 1, size: bytes.get(name).length,
+    })), async ({ name }) => Readable.from([bytes.get(name)]));
+
+  const measured = await measure(f.bytes);
+  assert.deepEqual(measured, f.manifest);
+  assert.equal(checkNormalProvenancePair(
+    measured, f.checksums, f.bundleBytes, f.envelopeBytes), undefined);
+
+  // The producer could recompute both raw binary SHA and checksums and still
+  // satisfy its unsigned inventory check. The unchanged signed statement
+  // must independently reject those self-consistent but substituted bytes.
+  const swapped = new Map(f.bytes);
+  const name = f.manifest.assets[0].name;
+  const replacement = Buffer.from(swapped.get(name));
+  replacement[0] ^= 0xff;
+  swapped.set(name, replacement);
+  const binaryNames = f.manifest.assets.slice(0, 12).map(asset => asset.name);
+  const rewrittenChecksums = Buffer.from(binaryNames.map(subject =>
+    sha(swapped.get(subject)) + '  ' + subject).join('\n') + '\n');
+  swapped.set('checksums.txt', rewrittenChecksums);
+
+  const attackerManifest = await measure(swapped);
+  assert.notEqual(attackerManifest.assets[0].sha256, measured.assets[0].sha256);
+  assert.notEqual(attackerManifest.assets[12].sha256, measured.assets[12].sha256);
+  assert.throws(() => checkNormalProvenancePair(
+    attackerManifest, rewrittenChecksums, f.bundleBytes, f.envelopeBytes),
+  /subject checksum mismatch/);
+  // Structural consistency alone never asserts a genuine Sigstore signature.
 });
 
 test('rejects changed, missing and oversized original sidecar bytes', () => {
@@ -106,7 +142,56 @@ test('rejects forged inventory, unchecked checksum subjects and wrong source ide
   assert.throws(() => verify({ ...f, manifest: changed }));
 });
 
-test('rejects changed signed payload, builder path and in-toto envelope', () => {
+test('rejects forged source identities even when both sidecars and manifest agree', () => {
+  // Mutate the signed payload, update BOTH original companion files, and
+  // rehash their manifest entries. A stale-sidecar rejection would not prove
+  // the signed source, builder, or subject checks are actually enforced.
+  const attacks = [
+    [s => { s.predicate.buildDefinition.externalParameters.workflow.ref =
+      'refs/heads/main'; }, /release source mismatch/],
+    [s => { s.predicate.buildDefinition.externalParameters.workflow.path =
+      '.github/workflows/ubuntu26-genuine-normal-transfer-proof.yml'; },
+    /release source mismatch/],
+    [s => { s.predicate.buildDefinition.externalParameters.workflow.repository =
+      'https://github.com/other/repository'; }, /release source mismatch/],
+    [s => { s.predicate.runDetails.builder.id =
+      'https://github.com/zoster81/scripthold/.github/workflows/probe.yml@refs/tags/' + TAG; },
+    /builder identity mismatch/],
+    [s => { s.predicate.buildDefinition.resolvedDependencies[0].uri =
+      'git+https://github.com/zoster81/scripthold@refs/heads/main'; },
+    /source commit mismatch/],
+    [s => { s.predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit =
+      'b'.repeat(40); }, /source commit mismatch/],
+    [s => { s.subject[0].digest.sha256 = 'b'.repeat(64); },
+    /subject checksum mismatch/],
+    [s => { s.subject[0].name = 'foreign_subject'; },
+    /subject checksum mismatch/],
+  ];
+  for (const [mutate, reason] of attacks) {
+    const f = fixture();
+    const statement = structuredClone(f.statement);
+    mutate(statement);
+    const envelope = {
+      ...f.envelope, payload: Buffer.from(JSON.stringify(statement)).toString('base64'),
+    };
+    const bundle = { ...f.bundle, dsseEnvelope: envelope };
+    const bundleBytes = Buffer.from(JSON.stringify(bundle));
+    const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
+    const manifest = structuredClone(f.manifest);
+    for (const [suffix, bytes] of [
+      ['.sigstore.json', bundleBytes], ['.intoto.jsonl', envelopeBytes],
+    ]) {
+      const asset = manifest.assets.find(item => item.name.endsWith(suffix));
+      assert.ok(asset);
+      asset.size = bytes.length;
+      asset.sha256 = sha(bytes);
+    }
+    assert.throws(() => checkNormalProvenancePair(
+      manifest, f.checksums, bundleBytes, envelopeBytes), reason);
+  }
+});
+
+test('rejects bundle/envelope divergence even when bundle metadata is rehashed', () => {
   const f = fixture();
   for (const mutate of [
     s => { s.subject[0].digest.sha256 = 'b'.repeat(64); },

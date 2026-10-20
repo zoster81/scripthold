@@ -164,6 +164,13 @@
       "profiles": ["smoke", "qualification"]
     },
     {
+      "id": "release-normal-handoff-plan-json",
+      "package": "./internal/releasearchive",
+      "target": "FuzzDecodeRawNormalHandoffPlan",
+      "riskCategories": ["release-artifact-integrity"],
+      "profiles": ["qualification"]
+    },
+    {
       "id": "path-containment",
       "package": "./internal/security",
       "target": "FuzzIsPathWithinAllowedDirectories",

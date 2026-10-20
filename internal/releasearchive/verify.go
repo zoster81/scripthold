@@ -100,7 +100,7 @@ func Verify(source io.ReaderAt, archiveSize int64, files []ExpectedFile) error {
 		sum := sha256.New()
 		// Reading one byte past the expected length reaches EOF so that
 		// archive/zip verifies the CRC-32 before the comparison below.
-		n, readErr := io.Copy(sum, io.LimitReader(body, file.Size+1))
+		n, readErr := io.Copy(sum, io.LimitReader(&boundedProgressReader{source: body}, file.Size+1))
 		closeErr := body.Close()
 		if readErr != nil || closeErr != nil {
 			return fmt.Errorf("read or close ZIP entry %q: %w", member.Name, errors.Join(readErr, closeErr))

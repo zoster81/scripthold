@@ -51,11 +51,77 @@ func TestExecuteObservesCancellationAfterStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := make(chan struct{})
+	cancelObserved := make(chan error, 1)
 	done := make(chan error, 1)
 	go func() {
 		done <- store.Execute(context.Background(), operation.OperationID, func(ctx context.Context, request Request) ([]byte, ResultMetadata, error) {
 			close(started)
 			<-ctx.Done()
+			cancelObserved <- ctx.Err()
+			return nil, ResultMetadata{}, ctx.Err()
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor did not start")
+	}
+	if _, err := store.Cancel(context.Background(), operation.OperationID, []string{public}); err != nil {
+		t.Fatal(err)
+	}
+	// Verify prompt propagation separately from final durable state storage.
+	select {
+	case err := <-cancelObserved:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("execution context = %v, want cancelled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("execution context did not observe cancellation")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("execute returned %v", err)
+		}
+	case <-time.After(storeLockWaitMaximum):
+		t.Fatal("executor did not persist cancellation")
+	}
+	observed, err := store.Get(operation.OperationID, []string{public})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status != StatusCancelled {
+		t.Fatalf("status = %s, want %s", observed.Status, StatusCancelled)
+	}
+}
+
+// Cancellation propagation must not depend on acquiring the control lock
+// needed to persist a terminal state.
+func TestExecuteCancellationPersistsAfterControlLockRelease(t *testing.T) {
+	store, public := newDeferredTestStore(t)
+	operation, err := store.Admit(context.Background(), Request{
+		Tool: "fingerprint_paths", Arguments: json.RawMessage(`{}`),
+		AllowedDirectories: []string{public}, MaxRuntimeSeconds: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	cancelObserved := make(chan struct{})
+	allowCallbackReturn := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(allowCallbackReturn)
+		}
+	}()
+	done := make(chan error, 1)
+	go func() {
+		done <- store.Execute(context.Background(), operation.OperationID, func(ctx context.Context, _ Request) ([]byte, ResultMetadata, error) {
+			close(started)
+			<-ctx.Done()
+			close(cancelObserved)
+			<-allowCallbackReturn
 			return nil, ResultMetadata{}, ctx.Err()
 		})
 	}()
@@ -68,12 +134,32 @@ func TestExecuteObservesCancellationAfterStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
+	case <-cancelObserved:
+	case <-time.After(3 * time.Second):
+		t.Fatal("execution context did not observe cancellation")
+	}
+	held, err := store.acquireControlLock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.close()
+	close(allowCallbackReturn)
+	released = true
+	select {
+	case err := <-done:
+		t.Fatalf("executor completed without control lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := held.close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
 	case err := <-done:
 		if err != nil {
 			t.Fatalf("execute returned %v", err)
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("executor did not stop after cancellation")
+	case <-time.After(storeLockWaitMaximum):
+		t.Fatal("executor did not persist cancellation after control lock release")
 	}
 	observed, err := store.Get(operation.OperationID, []string{public})
 	if err != nil {

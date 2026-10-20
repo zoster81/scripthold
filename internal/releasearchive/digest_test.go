@@ -4,11 +4,52 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"strings"
 	"testing"
 )
+
+type emptyArchiveReaderAt struct{ calls int }
+
+func (reader *emptyArchiveReaderAt) ReadAt(_ []byte, _ int64) (int, error) {
+	reader.calls++
+	if reader.calls <= 100 {
+		return 0, nil
+	}
+	return 0, errors.New("test reader did not make progress")
+}
+
+func TestVerifyOriginalDigestRejectsNonProgressingReaderAt(t *testing.T) {
+	reader := &emptyArchiveReaderAt{}
+	err := verifyOriginalDigest(reader, 32, strings.Repeat("0", 64))
+	if !errors.Is(err, io.ErrNoProgress) || reader.calls > 100 {
+		t.Fatalf("expected bounded no-progress error: calls=%d err=%v", reader.calls, err)
+	}
+}
+
+type intermittentArchiveReaderAt struct {
+	source io.ReaderAt
+	calls  int
+}
+
+func (reader *intermittentArchiveReaderAt) ReadAt(dst []byte, offset int64) (int, error) {
+	reader.calls++
+	if reader.calls%2 != 0 {
+		return 0, nil
+	}
+	return reader.source.ReadAt(dst, offset)
+}
+
+func TestVerifyOriginalDigestAllowsIntermittentEmptyReads(t *testing.T) {
+	content := []byte("synthetic authenticated compressed bytes")
+	sum := sha256.Sum256(content)
+	reader := &intermittentArchiveReaderAt{source: bytes.NewReader(content)}
+	if err := verifyOriginalDigest(reader, int64(len(content)), hex.EncodeToString(sum[:])); err != nil {
+		t.Fatalf("rejected valid stream with intermittent empty reads: %v", err)
+	}
+}
 
 func TestVerifyWithDigestChecksOriginalZIPAndContents(t *testing.T) {
 	files := []struct {

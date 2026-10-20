@@ -21,7 +21,7 @@ func DecodeRawNormalHandoffPlan(source io.Reader) ([]RawNormalFile, error) {
 	if source == nil {
 		return nil, errors.New("normal staging plan source is missing")
 	}
-	data, err := io.ReadAll(io.LimitReader(source, maxRawNormalPlanBytes+1))
+	data, err := io.ReadAll(io.LimitReader(&boundedProgressReader{source: source}, maxRawNormalPlanBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read normal staging plan: %w", err)
 	}
