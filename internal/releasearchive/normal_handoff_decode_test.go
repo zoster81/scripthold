@@ -3,7 +3,9 @@ package releasearchive
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -22,6 +24,62 @@ func rawNormalJSONFixture(t *testing.T) []byte {
 	}
 	out.WriteByte(']')
 	return out.Bytes()
+}
+
+// The source eventually reports an error, so an unfixed no-progress loop
+// fails this test deterministically without hanging.
+type emptyNormalReader struct{ calls int }
+
+func (reader *emptyNormalReader) Read(_ []byte) (int, error) {
+	reader.calls++
+	if reader.calls <= 100 {
+		return 0, nil
+	}
+	return 0, errors.New("reader exceeded the no-progress budget")
+}
+
+func TestDecodeRawNormalHandoffPlanRejectsNonProgressingReader(t *testing.T) {
+	reader := &emptyNormalReader{}
+	files, err := DecodeRawNormalHandoffPlan(reader)
+	if files != nil || !errors.Is(err, io.ErrNoProgress) || reader.calls > 100 {
+		t.Fatalf("expected bounded no-progress rejection: files=%v err=%v calls=%d", files, err, reader.calls)
+	}
+}
+
+type intermittentNormalReader struct {
+	source io.Reader
+	empty  bool
+}
+
+func (reader *intermittentNormalReader) Read(dst []byte) (int, error) {
+	reader.empty = !reader.empty
+	if reader.empty {
+		return 0, nil
+	}
+	return reader.source.Read(dst)
+}
+
+func TestDecodeRawNormalHandoffPlanAllowsIntermittentEmptyReads(t *testing.T) {
+	reader := &intermittentNormalReader{source: bytes.NewReader(rawNormalJSONFixture(t))}
+	files, err := DecodeRawNormalHandoffPlan(reader)
+	if err != nil || len(files) != 15 {
+		t.Fatalf("valid interrupted stream: files=%d err=%v", len(files), err)
+	}
+}
+
+type invalidNormalReadCount struct{ n int }
+
+func (reader invalidNormalReadCount) Read([]byte) (int, error) {
+	return reader.n, nil
+}
+
+func TestDecodeRawNormalHandoffPlanRejectsInvalidReadCounts(t *testing.T) {
+	for _, count := range []int{-1, 1 << 20} {
+		files, err := DecodeRawNormalHandoffPlan(invalidNormalReadCount{n: count})
+		if files != nil || err == nil || !strings.Contains(err.Error(), "invalid byte count") {
+			t.Fatalf("accepted invalid source read count %d: files=%v err=%v", count, files, err)
+		}
+	}
 }
 
 func TestDecodeRawNormalHandoffPlanExactFifteen(t *testing.T) {
