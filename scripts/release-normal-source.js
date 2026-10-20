@@ -7,6 +7,7 @@ const { verifyNormalChecksumClosure } = require('./release-normal-checksum-contr
 const MAX_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_CHECKSUM_BYTES = 16 * 1024;
 const MAX_ATTESTATION_BYTES = 4 * 1024 * 1024;
+const MAX_CONSECUTIVE_EMPTY_CHUNKS = 100;
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 
 // Measure a producer-owned, flat, private 15-file stage before any cross-job
@@ -59,10 +60,18 @@ async function measureNormalSourcePayloads(tag, commit, observed, openSource) {
     const digest = createHash('sha256');
     const fragments = [];
     let size = 0;
+    let emptyChunks = 0;
     for await (const chunk of source) {
       if (!(chunk instanceof Uint8Array)) {
         throw new Error('original asset stream contains nonbinary data');
       }
+      if (chunk.byteLength === 0) {
+        if (++emptyChunks >= MAX_CONSECUTIVE_EMPTY_CHUNKS) {
+          throw new Error('original asset stream made no progress');
+        }
+        continue;
+      }
+      emptyChunks = 0;
       size += chunk.byteLength;
       if (size > file.size) throw new Error('original asset exceeds declared size');
       digest.update(chunk);
