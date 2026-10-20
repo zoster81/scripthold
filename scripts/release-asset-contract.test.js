@@ -397,6 +397,29 @@ test('stream verification rejects wrong bytes, truncated/oversized content and m
   }
 });
 
+test('shared release stream verification rejects no progress but permits bounded gaps', async () => {
+  const { createHash } = require('node:crypto');
+  const bytes = Buffer.from('verified binary contents');
+  const expected = {
+    name: 'scripthold_linux_amd64', size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+  async function* endlessEmpty() {
+    for (let i = 0; i < 101; i++) yield Buffer.alloc(0);
+    throw new Error('unbounded stream consumed');
+  }
+  await assert.rejects(verifyStagedAssetStream(expected, endlessEmpty()),
+    /asset stream made no progress/);
+
+  async function* intermittent() {
+    for (let i = 0; i < 99; i++) yield Buffer.alloc(0);
+    yield bytes.subarray(0, 1);
+    for (let i = 0; i < 99; i++) yield Buffer.alloc(0);
+    yield bytes.subarray(1);
+  }
+  assert.deepEqual(await verifyStagedAssetStream(expected, intermittent()), expected);
+});
+
 test('stream verification propagates source errors and rejects nonbinary chunks', async () => {
   const { Readable } = require('node:stream');
   const { createHash } = require('node:crypto');
