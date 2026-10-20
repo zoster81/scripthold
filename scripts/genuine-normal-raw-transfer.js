@@ -44,9 +44,23 @@ async function verifyGenuineNormalRawTransfer({ tag, runId, attempt, ids, digest
     name, original: 'genuine-' + runId + '-' + attempt + '-normal-' +
       String(i + 1).padStart(2, '0'), digest: digests[i],
   }));
-  const observed = fs.readdirSync(root).sort();
-  if (observed.length !== expected.length ||
-      observed.some((name, i) => name !== expected.map(x => x.original).sort()[i])) {
+  // Inspect at most one entry beyond the required inventory, regardless
+  // of how many files an untrusted download directory contains.
+  const observed = [];
+  const listing = fs.opendirSync(root, { bufferSize: expected.length + 1 });
+  try {
+    for (let i = 0; i <= expected.length; i++) {
+      const entry = listing.readSync();
+      if (entry === null) break;
+      observed.push(entry.name);
+    }
+  } finally {
+    listing.closeSync();
+  }
+  observed.sort();
+  const required = expected.map(x => x.original).sort();
+  if (observed.length !== required.length ||
+      observed.some((name, i) => name !== required[i])) {
     throw new Error('raw original stage inventory mismatch');
   }
   const measured = new Map();

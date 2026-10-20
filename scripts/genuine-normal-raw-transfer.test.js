@@ -62,6 +62,22 @@ test('rejects malformed and duplicate IDs, digests, attempts and unexpected path
   await assert.rejects(verifyGenuineNormalRawTransfer(f), /inventory/);
 });
 
+test('bounds private download inventory inspection to fourteen entries', async t => {
+  const f = fixture(t);
+  const original = fs.readdirSync;
+  fs.readdirSync = function (target, ...args) {
+    if (target === f.dir) throw new Error('unbounded directory enumeration is forbidden');
+    return original.call(this, target, ...args);
+  };
+  try {
+    assert.deepEqual(await verifyGenuineNormalRawTransfer(f), { verified: 13, subjects: 12 });
+    fs.writeFileSync(path.join(f.dir, 'unexpected-surplus'), 'extra');
+    await assert.rejects(verifyGenuineNormalRawTransfer(f), /inventory/);
+  } finally {
+    fs.readdirSync = original;
+  }
+});
+
 test('rejects a symlink as transferred original without following it', async t => {
   const f = fixture(t);
   const target = path.join(f.dir, 'genuine-12345-2-normal-03');
