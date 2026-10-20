@@ -4,6 +4,7 @@ const { createHash } = require('node:crypto');
 
 const REPOSITORY = 'zoster81/scripthold';
 const MAX_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_CONSECUTIVE_EMPTY_CHUNKS = 100;
 const SHA256 = /^[0-9a-f]{64}$/;
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
 
@@ -128,8 +129,15 @@ async function verifyExactBytes(source, declaredSize, sha256) {
     'asset requires a readable byte stream');
   const hash = createHash('sha256');
   let size = 0;
+  let emptyChunks = 0;
   for await (const chunk of source) {
     requireCondition(chunk instanceof Uint8Array, 'asset stream contains nonbinary data');
+    if (chunk.byteLength === 0) {
+      requireCondition(++emptyChunks < MAX_CONSECUTIVE_EMPTY_CHUNKS,
+        'asset stream made no progress');
+      continue;
+    }
+    emptyChunks = 0;
     size += chunk.byteLength;
     requireCondition(size <= declaredSize, 'asset exceeds declared size');
     hash.update(chunk);
