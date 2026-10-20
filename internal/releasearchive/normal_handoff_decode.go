@@ -13,30 +13,6 @@ import (
 // to an arbitrarily large JSON document before any filesystem preflight.
 const maxRawNormalPlanBytes = 16 * 1024
 
-// Go's io.ReadAll is byte-bounded by LimitReader, but it can spin forever
-// if a source repeatedly violates the Reader progress convention. Guard the
-// caller-owned source independently without changing valid stream bytes.
-type normalPlanProgressReader struct {
-	source     io.Reader
-	emptyReads int
-}
-
-func (reader *normalPlanProgressReader) Read(dst []byte) (int, error) {
-	n, err := reader.source.Read(dst)
-	if n < 0 || n > len(dst) {
-		return 0, errors.New("normal staging plan reader returned invalid byte count")
-	}
-	if n == 0 && err == nil {
-		reader.emptyReads++
-		if reader.emptyReads >= 100 {
-			return 0, io.ErrNoProgress
-		}
-	} else {
-		reader.emptyReads = 0
-	}
-	return n, err
-}
-
 // DecodeRawNormalHandoffPlan parses an untrusted producer mapping without
 // filesystem access. It rejects unknown, repeated and case-aliased JSON fields,
 // trailing data, oversized input and invalid file metadata. The caller must
@@ -45,7 +21,7 @@ func DecodeRawNormalHandoffPlan(source io.Reader) ([]RawNormalFile, error) {
 	if source == nil {
 		return nil, errors.New("normal staging plan source is missing")
 	}
-	data, err := io.ReadAll(io.LimitReader(&normalPlanProgressReader{source: source}, maxRawNormalPlanBytes+1))
+	data, err := io.ReadAll(io.LimitReader(&boundedProgressReader{source: source}, maxRawNormalPlanBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read normal staging plan: %w", err)
 	}

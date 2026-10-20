@@ -35,7 +35,9 @@ func VerifyWithDigest(source io.ReaderAt, archiveSize int64, originalSHA256 stri
 
 func verifyOriginalDigest(source io.ReaderAt, archiveSize int64, expected string) error {
 	digest := sha256.New()
-	size, err := io.Copy(digest, io.NewSectionReader(source, 0, archiveSize))
+	size, err := io.Copy(digest, &boundedProgressReader{
+		source: io.NewSectionReader(source, 0, archiveSize),
+	})
 	if err != nil {
 		return fmt.Errorf("read original staging ZIP: %w", err)
 	}

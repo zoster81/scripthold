@@ -43,6 +43,80 @@ func fileExpect(name, content string) ExpectedFile {
 	return ExpectedFile{Name: name, Size: int64(len(content)), SHA256: hex.EncodeToString(hash[:])}
 }
 
+type stalledPayloadReaderAt struct {
+	data  []byte
+	start int64
+	end   int64
+	reads int
+}
+
+func (reader *stalledPayloadReaderAt) ReadAt(dst []byte, offset int64) (int, error) {
+	if offset >= reader.start && offset < reader.end {
+		reader.reads++
+		if reader.reads <= 100 {
+			return 0, nil
+		}
+		return 0, errors.New("test reader exceeded payload no-progress budget")
+	}
+	return bytes.NewReader(reader.data).ReadAt(dst, offset)
+}
+
+func TestVerifyRejectsNonProgressingZIPPayload(t *testing.T) {
+	const content = "original synthetic release bytes"
+	archive := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{"checksums.txt", content, 0o644}})
+	offset := bytes.Index(archive, []byte(content))
+	if offset < 0 {
+		t.Fatal("missing ZIP payload fixture")
+	}
+	reader := &stalledPayloadReaderAt{
+		data: archive, start: int64(offset), end: int64(offset + len(content)),
+	}
+	err := Verify(reader, int64(len(archive)), []ExpectedFile{fileExpect("checksums.txt", content)})
+	if !errors.Is(err, io.ErrNoProgress) || reader.reads > 100 {
+		t.Fatalf("expected bounded ZIP payload progress rejection, reads=%d err=%v", reader.reads, err)
+	}
+}
+
+type intermittentPayloadReaderAt struct {
+	data  []byte
+	start int64
+	end   int64
+	reads int
+}
+
+func (reader *intermittentPayloadReaderAt) ReadAt(dst []byte, offset int64) (int, error) {
+	if offset >= reader.start && offset < reader.end {
+		reader.reads++
+		if reader.reads%2 == 1 {
+			return 0, nil
+		}
+	}
+	return bytes.NewReader(reader.data).ReadAt(dst, offset)
+}
+
+func TestVerifyAllowsIntermittentEmptyZIPPayloadReads(t *testing.T) {
+	const content = "original synthetic ZIP data"
+	archive := archiveFixture(t, []struct {
+		name, content string
+		mode          os.FileMode
+	}{{"checksums.txt", content, 0o644}})
+	offset := bytes.Index(archive, []byte(content))
+	if offset < 0 {
+		t.Fatal("missing ZIP payload fixture")
+	}
+	reader := &intermittentPayloadReaderAt{
+		data: archive, start: int64(offset), end: int64(offset + len(content)),
+	}
+	if err := Verify(reader, int64(len(archive)), []ExpectedFile{
+		fileExpect("checksums.txt", content),
+	}); err != nil {
+		t.Fatalf("rejected ZIP with occasional empty reads: %v", err)
+	}
+}
+
 func TestVerifyReadsAndChecksEveryOriginalByteWithoutExtraction(t *testing.T) {
 	src := []struct {
 		name, content string
