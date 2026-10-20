@@ -231,6 +231,20 @@ test('targeted package selection is derived from the evidence map', () => {
   assert.ok(!windowsPlatform.includes('./internal/httptransport'));
 });
 
+test('the policy job explicitly executes every Node regression test in scripts', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'test.yml'), 'utf8');
+  const policyJob = workflow.split(/^  policy:\r?$/m)[1]?.split(/^  gitleaks:\r?$/m)[0];
+  assert.ok(policyJob, 'missing CI policy job');
+  const commands = [...policyJob.matchAll(/^ {8}run: node --test ([^\r\n]+)$/gm)];
+  assert.ok(commands.length > 0, 'missing Node regression execution in policy job');
+  const selected = new Set(commands.flatMap(([, args]) => args.trim().split(/\s+/)));
+  const required = fs.readdirSync(__dirname)
+    .filter(name => name.endsWith('.test.js'))
+    .map(name => 'scripts/' + name);
+  assert.deepEqual(required.filter(name => !selected.has(name)), [],
+    'unselected Node regression tests must fail the CI policy');
+});
+
 test('aggregate verification rejects failed or missing required evidence', () => {
   const success = Object.fromEntries(requiredJobsForTier('docs').map((job) => [job, 'success']));
   success['linux-regression'] = 'skipped';
