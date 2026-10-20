@@ -108,6 +108,31 @@ test('rejects oversize checksum/attestation metadata and wrong source identity',
   }
 });
 
+test('rejects a source that never advances while allowing intermittent empty chunks', async () => {
+  const f = fixture();
+  const original = f.names[0];
+  const noProgress = async function* () {
+    for (let i = 0; i < 101; i++) yield Buffer.alloc(0);
+    throw new Error('unbounded source consumed');
+  };
+  await assert.rejects(
+    measureNormalSourcePayloads(TAG, COMMIT, f.observed,
+      async ({ name }) => name === original ? noProgress() : Readable.from([f.bytes.get(name)])),
+    /original asset stream made no progress/,
+  );
+
+  const intermittent = async function* (bytes) {
+    for (let i = 0; i < 99; i++) yield Buffer.alloc(0);
+    yield bytes.subarray(0, 1);
+    for (let i = 0; i < 99; i++) yield Buffer.alloc(0);
+    yield bytes.subarray(1);
+  };
+  const measured = await measureNormalSourcePayloads(TAG, COMMIT, f.observed,
+    async ({ name }) => intermittent(f.bytes.get(name)));
+  assert.equal(measured.assets.length, 15);
+  assert.equal(measured.assets[0].sha256, hash(f.bytes.get(original)));
+});
+
 test('pins all sizes before await and does not let source opener rewrite the plan', async () => {
   const f = fixture();
   const original = f.observed[1].size;
