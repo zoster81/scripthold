@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -67,6 +68,23 @@ function fixture(t) {
     repository: 'zoster81/scripthold', tag: TAG, commit: COMMIT, stage: 'normal', assets,
   }, subjects, original };
 }
+
+test('native Linux refuses a structurally coherent but unauthentic signature', {
+  skip: process.platform !== 'linux',
+}, async t => {
+  // Exercise the real GitHub CLI rather than a mock verifier. A missing CLI
+  // must fail this qualification, not masquerade as rejected provenance.
+  const gh = spawnSync('gh', ['--version'], {
+    encoding: 'utf8', timeout: 10000, maxBuffer: 64 * 1024,
+  });
+  assert.equal(gh.error, undefined);
+  assert.equal(gh.status, 0, 'genuine GitHub CLI must be available on Linux');
+  const f = fixture(t);
+  assert.equal((await inspectNormalStage(f.manifest, f.dir)).size, 15,
+    'synthetic DSSE pair deliberately passes all structural and byte checks');
+  await assert.rejects(verifyStagedNormalAttestations(f.manifest, f.dir),
+    /cryptographic attestation verification failed/);
+});
 
 test('measures exactly 15 original stage bytes and the twelve signed subjects', async t => {
   const f = fixture(t);
