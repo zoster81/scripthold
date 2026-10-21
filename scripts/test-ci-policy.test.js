@@ -303,7 +303,10 @@ test('tagged producer sends unchanged GoReleaser notes to the independent read-o
   assert.match(producer, /encodeGoReleaserNotes/);
   assert.ok(producer.includes('notes_metadata: ${{ steps.stage.outputs.notes_metadata }}'));
   assert.ok(verifier.includes('SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}'));
-  assert.match(verifier, /decodeGoReleaserNotes/);
+  assert.match(verifier, /node scripts\/release-finalizer-complete-stage\.js/);
+  const localStage = fs.readFileSync(path.join(__dirname,
+    'release-finalizer-complete-stage.js'), 'utf8');
+  assert.match(localStage, /decodeGoReleaserNotes/);
   assert.doesNotMatch(producer, /--release-notes|generate_release_notes: true/);
   assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
 });
@@ -358,14 +361,16 @@ test('verified bytes and privileged release gate stay in distinct fail-closed jo
   assert.match(verify, /^    needs: \[release, publish-mcpb\]\r?$/m);
   assert.match(verify, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
   assert.doesNotMatch(verify, /^    environment:|contents: write|id-token: write|secrets\.|release-finalizer-write|prepareDraftAssets/);
-  assert.match(verify, /readJobVerifiedRawCompleteStaging/);
-  assert.match(verify, /verifyRawCompleteHandoffPayloads/);
-  assert.match(verify, /verifyDraftSourceInventory/);
-  assert.match(verify, /readPublicationAuthority/);
+  assert.match(verify, /node scripts\/release-finalizer-complete-stage\.js/);
+  const source = fs.readFileSync(path.join(__dirname,
+    'release-finalizer-complete-stage.js'), 'utf8');
+  for (const check of ['readJobVerifiedRawCompleteStaging',
+    'verifyRawCompleteHandoffPayloads', 'verifyDraftSourceInventory',
+    'readPublicationAuthority']) assert.ok(source.includes(check));
   assert.match(finalizer, /^    needs: \[release, publish-mcpb, verify-complete\]\r?$/m);
   assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
   assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
-  assert.doesNotMatch(finalizer, /download-artifact|readPublicationAuthority|github\.token|secrets\.|contents: write|id-token: write|finalizeCompleteRelease|prepareDraftAssets/);
+  assert.doesNotMatch(finalizer, /secrets\.|contents: write|id-token: write|finalizeCompleteRelease|prepareDraftAssets/);
   assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
   assert.match(finalizer, /^          exit 1\r?$/m);
   assert.match(workflow, /^  publish-registry:\r?\n    needs: finalize\r?$/m);
@@ -373,6 +378,45 @@ test('verified bytes and privileged release gate stay in distinct fail-closed jo
   const unsafe = finalizer.replace('          exit 1', '          exit 0');
   assert.doesNotMatch(unsafe, /^          exit 1\r?$/m);
   assert.throws(() => assert.match(unsafe, /^          exit 1\r?$/m));
+});
+
+test('protected finalizer independently verifies 22 downloaded originals on its runner', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'release.yml'), 'utf8');
+  const verifier = workflow.split(/^  verify-complete:\r?$/m)[1]
+    ?.split(/^  finalize:\r?$/m)[0];
+  const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(verifier && finalizer);
+  const required = [
+    /Require isolated disk-backed complete release staging/,
+    /actions\/download-artifact@[0-9a-f]{40}/,
+    /artifact-ids: \$\{\{ needs\.release\.outputs\.ids \}\},\$\{\{ needs\.publish-mcpb\.outputs\.ids \}\}/,
+    /skip-decompress: true/,
+    /digest-mismatch: error/,
+    /persist-credentials: false/,
+    /node scripts\/release-finalizer-complete-stage\.js/,
+    /SOURCE_NORMAL_MANIFEST: \$\{\{ needs\.release\.outputs\.manifest \}\}/,
+    /SOURCE_MCPB_MANIFEST: \$\{\{ needs\.publish-mcpb\.outputs\.manifest \}\}/,
+    /GH_TOKEN: \$\{\{ github\.token \}\}/,
+  ];
+  for (const job of [verifier, finalizer]) {
+    for (const pattern of required) assert.match(job, pattern);
+    assert.match(job, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
+    assert.doesNotMatch(job, /contents: write|id-token: write|secrets\.|finalizeCompleteRelease/);
+  }
+  assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
+  assert.ok(finalizer.indexOf('node scripts/release-finalizer-complete-stage.js') <
+    finalizer.indexOf('publication is disabled until the single-writer finalizer is qualified'));
+  const implementation = fs.readFileSync(path.join(__dirname,
+    'release-finalizer-complete-stage.js'), 'utf8');
+  for (const check of [
+    'readJobVerifiedRawCompleteStaging', 'verifyRawCompleteHandoffPayloads',
+    'verifyDraftSourceInventory', 'readPublicationAuthority',
+    'requireHostedTaggedVerifierContext', 'requireHostedTaggedWriterContext',
+  ]) assert.ok(implementation.includes(check), 'missing independent check: ' + check);
+  assert.doesNotMatch(implementation,
+    /require\('\.\/release-finalizer-write'\)|finalizeCompleteRelease|prepareDraftAssets/);
 });
 
 test('future tagged finalizer requires an approved release environment but cannot publish yet', () => {
@@ -409,20 +453,21 @@ test('unprivileged verifier binds GitHub-owned tagged context before accepting c
   const verifier = workflow.split(/^  verify-complete:\r?$/m)[1]
     ?.split(/^  finalize:\r?$/m)[0];
   assert.ok(verifier);
-  const importGuard = /requireHostedTaggedVerifierContext\s*\}\s*=\s*\r?\n\s*require\('\.\/scripts\/release-finalizer-preflight'\)/;
-  const call = /requireHostedTaggedVerifierContext\(process\.env,\s*\r?\n?\s*trusted\.manifest,\s*process\.env\.GITHUB_SHA\)/;
-  assert.match(verifier, importGuard);
-  assert.match(verifier, call);
-  const guardPosition = verifier.search(call);
-  const draftSourcePosition = verifier.indexOf('verifyDraftSourceInventory(trusted.manifest');
-  const authorityPosition = verifier.indexOf('await readPublicationAuthority');
+  const source = fs.readFileSync(path.join(__dirname,
+    'release-finalizer-complete-stage.js'), 'utf8');
+  assert.match(verifier, /node scripts\/release-finalizer-complete-stage\.js/);
+  const guard = /contextCheck\(process\.env, trusted\.manifest, process\.env\.GITHUB_SHA\)/;
+  assert.match(source, /requireHostedTaggedVerifierContext/);
+  assert.match(source, /requireHostedTaggedWriterContext/);
+  assert.match(source, guard);
+  const guardPosition = source.search(guard);
+  const draftSourcePosition = source.indexOf('verifyDraftSourceInventory(trusted.manifest');
+  const authorityPosition = source.indexOf('await readPublicationAuthority');
   assert.ok(guardPosition >= 0 && draftSourcePosition > guardPosition &&
     authorityPosition > guardPosition, 'verify tag source before authorizing any draft source');
   assert.doesNotMatch(verifier, /release-finalizer-write|contents: write|secrets\.|finalizeCompleteRelease/);
-  assert.throws(() => {
-    const unguarded = verifier.replace(call, '');
-    assert.match(unguarded, call);
-  }, /regular expression/);
+  assert.throws(() => assert.match(source.replace(guard, ''), guard),
+    /regular expression/);
 });
 
 test('future finalizer gates Registry on all 22 authenticated original files', () => {
@@ -436,15 +481,18 @@ test('future finalizer gates Registry on all 22 authenticated original files', (
   assert.match(verifier, /needs: \[release, publish-mcpb\]/);
   assert.match(verifier, /contents: read/);
   assert.match(verifier, /actions: read/);
-  assert.match(verifier, /readJobVerifiedRawCompleteStaging/);
-  assert.match(verifier, /verifyRawCompleteHandoffPayloads/);
-  assert.match(verifier, /verifyDraftSourceInventory/,
+  assert.match(verifier, /node scripts\/release-finalizer-complete-stage\.js/);
+  const source = fs.readFileSync(path.join(__dirname,
+    'release-finalizer-complete-stage.js'), 'utf8');
+  assert.match(source, /readJobVerifiedRawCompleteStaging/);
+  assert.match(source, /verifyRawCompleteHandoffPayloads/);
+  assert.match(source, /verifyDraftSourceInventory/,
     'the verified 22 originals must match the future draft writer input contract');
-  assert.doesNotMatch(verifier, /release-finalizer-write|prepareDraftAssets/,
-    'read-only verifier cannot import or invoke a release mutator');
-  assert.doesNotMatch(verifier, /verifyStagedNormalAttestations/,
+  assert.doesNotMatch(source, /release-finalizer-write|prepareDraftAssets/,
+    'read-only verification cannot import or invoke a release mutator');
+  assert.doesNotMatch(source, /verifyStagedNormalAttestations/,
     'the successful MCPB dependency already verified all 12 genuine signatures');
-  assert.match(verifier, /readPublicationAuthority/);
+  assert.match(source, /readPublicationAuthority/);
   assert.ok(verifier.includes('needs.release.outputs.ids'));
   assert.ok(verifier.includes('needs.publish-mcpb.outputs.ids'));
   assert.match(verifier, /skip-decompress: true/);

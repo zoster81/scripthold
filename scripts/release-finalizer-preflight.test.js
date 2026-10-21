@@ -8,7 +8,8 @@ const path = require('node:path');
 const { resolveFinalizerActionContext } = require('./release-finalizer-entrypoint');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { resolveFinalizerEvent, inspectFinalizerPreflight,
-  requireTaggedWriterContext, requireHostedTaggedVerifierContext } =
+  requireTaggedWriterContext, requireHostedTaggedVerifierContext,
+  requireHostedTaggedWriterContext } =
   require('./release-finalizer-preflight');
 
 const TAG = 'v3.4.0';
@@ -136,6 +137,10 @@ test('independent read-only verifier binds exact GitHub job while writer retains
     GITHUB_RUN_ATTEMPT: '1',
   };
   assert.doesNotThrow(() => requireHostedTaggedVerifierContext(hosted, MANIFEST, COMMIT));
+  const writer = { ...hosted, GITHUB_JOB: 'finalize' };
+  assert.doesNotThrow(() => requireHostedTaggedWriterContext(writer, MANIFEST, COMMIT));
+  assert.throws(() => requireHostedTaggedWriterContext(hosted, MANIFEST, COMMIT),
+    /invalid tagged release writer context/i);
   assert.doesNotThrow(() => requireTaggedWriterContext({
     eventName: 'push', repository: REPO, ref: hosted.GITHUB_REF,
     workflowRef: hosted.GITHUB_WORKFLOW_REF, sha: COMMIT,
@@ -161,6 +166,8 @@ test('independent read-only verifier binds exact GitHub job while writer retains
   }
   for (const invalid of [undefined, null, {}, []]) {
     assert.throws(() => requireHostedTaggedVerifierContext(
+      invalid, MANIFEST, COMMIT), Error);
+    assert.throws(() => requireHostedTaggedWriterContext(
       invalid, MANIFEST, COMMIT), Error);
   }
   assert.throws(() => requireHostedTaggedVerifierContext(

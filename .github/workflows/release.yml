@@ -616,120 +616,7 @@ jobs:
           set -euo pipefail
           workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml" --jq .id)"
           export SOURCE_WORKFLOW_ID="$workflow_id"
-          node <<'NODE'
-          'use strict';
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const { bindRawUploadJobOutputs, readJobVerifiedRawCompleteStaging } =
-            require('./scripts/release-staging-rest');
-          const { verifyRawCompleteHandoffPayloads } =
-            require('./scripts/release-staging-producers');
-          const { readPublicationAuthority } =
-            require('./scripts/release-finalizer-authority');
-          const { decodeGoReleaserNotes } =
-            require('./scripts/release-normal-source');
-          const { verifyDraftSourceInventory } =
-            require('./scripts/release-finalizer-source-inventory');
-          const { requireHostedTaggedVerifierContext } =
-            require('./scripts/release-finalizer-preflight');
-
-          async function main() {
-            const producer = prefix => bindRawUploadJobOutputs({
-              manifest: JSON.parse(process.env['SOURCE_' + prefix + '_MANIFEST']),
-              repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
-              runId: Number(process.env.GITHUB_RUN_ID),
-              producerAttempt: Number(process.env['SOURCE_' + prefix + '_ATTEMPT']),
-              jobOutputs: {
-                ids: process.env['SOURCE_' + prefix + '_IDS'],
-                digests: process.env['SOURCE_' + prefix + '_DIGESTS'],
-                attempt: process.env['SOURCE_' + prefix + '_ATTEMPT'],
-              },
-            });
-            const normal = producer('NORMAL');
-            const mcpb = producer('MCPB');
-            const trusted = await readJobVerifiedRawCompleteStaging({
-              normal, mcpb,
-              sourcePolicy: {
-                workflowId: Number(process.env.SOURCE_WORKFLOW_ID),
-                workflowPath: '.github/workflows/release.yml',
-                event: 'push',
-                normalJobName: 'release',
-                mcpbJobName: 'publish-mcpb / publish',
-              },
-              token: process.env.GH_TOKEN,
-            });
-            const releaseNotes = decodeGoReleaserNotes(
-              process.env.SOURCE_RELEASE_NOTES_METADATA);
-            if (releaseNotes.length < 2) {
-              throw new Error('unavailable exact original GoReleaser release notes');
-            }
-            if (trusted.manifest.commit !== process.env.GITHUB_SHA ||
-                trusted.manifest.tag !== process.env.GITHUB_REF_NAME ||
-                trusted.manifest.repository !== process.env.GITHUB_REPOSITORY) {
-              throw new Error('finalizer manifest disagrees with trusted tag checkout');
-            }
-            // Use the same exact tagged-release context guard as the inactive
-            // writer, but keep this hosted job strictly read-only.
-            requireHostedTaggedVerifierContext(process.env,
-              trusted.manifest, process.env.GITHUB_SHA);
-            const root = path.resolve(process.env.RUNNER_TEMP, 'complete-raw');
-            const normalDir = path.resolve(process.env.RUNNER_TEMP, 'complete-normal');
-            const mcpbDir = path.resolve(process.env.RUNNER_TEMP, 'complete-mcpb');
-            for (const dir of [root, normalDir, mcpbDir]) {
-              const info = fs.lstatSync(dir);
-              if (!info.isDirectory() || info.isSymbolicLink() ||
-                  info.uid !== process.getuid() || (info.mode & 0o077) !== 0) {
-                throw new Error('untrusted complete staging directory');
-              }
-            }
-            const names = fs.readdirSync(root);
-            if (names.length !== 22) {
-              throw new Error('complete original download must have exactly 22 entries');
-            }
-            const observed = names.map(name => {
-              const stat = fs.lstatSync(path.join(root, name));
-              if (stat.uid !== process.getuid()) {
-                throw new Error('untrusted downloaded original owner');
-              }
-              return { name, size: stat.size, nlink: stat.nlink,
-                type: stat.isFile() && !stat.isSymbolicLink() ? 'file' : 'unsafe' };
-            });
-            await verifyRawCompleteHandoffPayloads(
-              trusted.normal, trusted.mcpb, observed,
-              ({ artifactName }) => fs.createReadStream(path.join(root, artifactName), {
-                flags: fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
-              }));
-            for (const file of trusted.batch.files) {
-              const target = file.fileName.endsWith('.mcpb') ||
-                file.fileName === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
-              fs.renameSync(path.join(root, file.artifactName),
-                path.join(target, file.fileName));
-            }
-            if (fs.readdirSync(root).length !== 0 ||
-                fs.readdirSync(normalDir).length !== 15 ||
-                fs.readdirSync(mcpbDir).length !== 7) {
-              throw new Error('complete original stage lost or gained an asset');
-            }
-            // Check the exact future draft-writer input contract without granting
-            // a writer token or invoking any GitHub release mutation.
-            verifyDraftSourceInventory(trusted.manifest, normalDir, mcpbDir);
-            const authority = await readPublicationAuthority({
-              manifest: trusted.manifest,
-              publisherCommit: process.env.GITHUB_SHA,
-              token: process.env.GH_TOKEN,
-            });
-            if (authority.commit !== trusted.manifest.commit) {
-              throw new Error('release authority does not match twenty-two originals');
-            }
-            // The successful MCPB dependency verified all 12 original signatures.
-            // This finalizer verifies the same originals by run-bound SHA-256.
-            console.log('Verified 22 original assets, producer jobs and release authority; not publishing');
-          }
-          main().catch(error => {
-            console.error(error.message);
-            process.exitCode = 1;
-          });
-          NODE
+          node scripts/release-finalizer-complete-stage.js
 
   finalize:
     needs: [release, publish-mcpb, verify-complete]
@@ -740,8 +627,60 @@ jobs:
       contents: read
       actions: read
     runs-on: ubuntu-26.04
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
+      - name: Require isolated disk-backed complete release staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP" && test -w "$RUNNER_TEMP"
+          case "$(findmnt -n -T "$RUNNER_TEMP" -o FSTYPE)" in
+            ext4|xfs|btrfs|zfs) ;;
+            *) echo 'untrusted finalizer scratch filesystem' >&2; exit 1 ;;
+          esac
+          umask 077
+          mkdir -m 700 -- "$RUNNER_TEMP/complete-raw"
+          mkdir -m 700 -- "$RUNNER_TEMP/complete-normal"
+          mkdir -m 700 -- "$RUNNER_TEMP/complete-mcpb"
+
+      - name: Download exact twenty-two source artifact IDs without decompression
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ needs.release.outputs.ids }},${{ needs.publish-mcpb.outputs.ids }}
+          merge-multiple: true
+          skip-decompress: true
+          digest-mismatch: error
+          path: ${{ runner.temp }}/complete-raw
+
+      - name: Check out the authoritative tagged source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+
+      - name: Verify exact producer jobs and all twenty-two downloaded original bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_NORMAL_MANIFEST: ${{ needs.release.outputs.manifest }}
+          SOURCE_NORMAL_IDS: ${{ needs.release.outputs.ids }}
+          SOURCE_NORMAL_DIGESTS: ${{ needs.release.outputs.digests }}
+          SOURCE_NORMAL_ATTEMPT: ${{ needs.release.outputs.attempt }}
+          SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}
+          SOURCE_MCPB_MANIFEST: ${{ needs.publish-mcpb.outputs.manifest }}
+          SOURCE_MCPB_IDS: ${{ needs.publish-mcpb.outputs.ids }}
+          SOURCE_MCPB_DIGESTS: ${{ needs.publish-mcpb.outputs.digests }}
+          SOURCE_MCPB_ATTEMPT: ${{ needs.publish-mcpb.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml" --jq .id)"
+          export SOURCE_WORKFLOW_ID="$workflow_id"
+          node scripts/release-finalizer-complete-stage.js
       - name: Fail closed until single-writer draft finalizer is implemented
         shell: bash
         run: |

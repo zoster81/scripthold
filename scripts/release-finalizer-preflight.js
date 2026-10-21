@@ -68,7 +68,7 @@ function requireTaggedWriterContext(context, manifest, publisherCommit) {
   requireExpectedTaggedContext(context, manifest, publisherCommit, 'finalize');
 }
 
-function requireHostedTaggedVerifierContext(env, manifest, publisherCommit) {
+function requireHostedTaggedContext(env, manifest, publisherCommit, expectedJob) {
   requireCondition(env && typeof env === 'object' && !Array.isArray(env),
     'invalid hosted tagged release context');
   requireExpectedTaggedContext({
@@ -80,7 +80,15 @@ function requireHostedTaggedVerifierContext(env, manifest, publisherCommit) {
     job: env.GITHUB_JOB,
     runId: env.GITHUB_RUN_ID,
     runAttempt: env.GITHUB_RUN_ATTEMPT,
-  }, manifest, publisherCommit, 'verify-complete');
+  }, manifest, publisherCommit, expectedJob);
+}
+
+function requireHostedTaggedVerifierContext(env, manifest, publisherCommit) {
+  requireHostedTaggedContext(env, manifest, publisherCommit, 'verify-complete');
+}
+
+function requireHostedTaggedWriterContext(env, manifest, publisherCommit) {
+  requireHostedTaggedContext(env, manifest, publisherCommit, 'finalize');
 }
 
 // Read-only cross-check before a finalizer may consider a next-step proposal.
@@ -110,4 +118,5 @@ async function inspectFinalizerPreflight({
 }
 
 module.exports = { resolveFinalizerEvent, inspectFinalizerPreflight,
-  requireTaggedWriterContext, requireHostedTaggedVerifierContext };
+  requireTaggedWriterContext, requireHostedTaggedVerifierContext,
+  requireHostedTaggedWriterContext };
