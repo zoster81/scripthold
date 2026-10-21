@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
-  prepareDraftAssets } = require('./release-finalizer-write');
+  prepareDraftAssets, publishCompleteDraft } = require('./release-finalizer-write');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { encodeGoReleaserNotes } = require('./release-normal-source');
 const { normalizeReleaseAssetPage, planReleaseFinalizerStep } =
@@ -86,7 +86,7 @@ test('draft asset writer refuses ambiguous or conflicting release states before 
 
 function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   preverifiedRemoteAssets = false, metadataPatch = {}, changeNotesBeforePost = false,
-  startAbsent = false } = {}) {
+  startAbsent = false, publicationPolicy = 'enabled', publishResponse = 'success' } = {}) {
   const original = Buffer.from('verified original test binary bytes');
   const sha256 = createHash('sha256').update(original).digest('hex');
   const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
@@ -98,6 +98,9 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   let uploaded = false;
   const uploadedAssets = [];
   let created = !startAbsent;
+  let published = false;
+  let publishCount = 0;
+  let policyReads = 0;
   let createCount = 0;
   let postCount = 0;
   let lookupCount = 0;
@@ -111,6 +114,27 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   });
   const fetchImpl = async (url, options) => {
     calls.push({ url, method: options.method });
+    if (url === API + '/immutable-releases') {
+      assert.equal(options.method, 'GET');
+      assert.equal(options.headers.Authorization, 'Bearer admin_only_test_token');
+      policyReads++;
+      return new Response(JSON.stringify({ enabled: publicationPolicy === 'enabled' ||
+        (publicationPolicy === 'flip' && policyReads === 1),
+        enforced_by_owner: false }), { status: 200,
+        headers: { 'content-type': 'application/json' } });
+    }
+    if (options.method === 'PATCH') {
+      assert.equal(url, API + '/releases/123');
+      assert.deepEqual(JSON.parse(options.body), { draft: false });
+      publishCount++;
+      assert.equal(published, false, 'never publish the same release twice');
+      if (publishResponse === 'lost') throw new Error('lost GitHub publication response');
+      published = true;
+      return new Response(JSON.stringify({ id: 123, tag_name: TAG,
+        draft: false, immutable: true, name: TAG, body: NOTES,
+        prerelease: false }), { status: 200,
+        headers: { 'content-type': 'application/json' } });
+    }
     if (options.method === 'POST' && url === API + '/releases') {
       createCount++;
       assert.equal(created, false, 'a draft must not be created twice');
@@ -174,23 +198,25 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
     } else if (url === API + '/releases?per_page=30&page=1') {
       lookupCount++;
       body = created ? [{ id: 123, tag_name: TAG,
-        draft: !(changeBeforePost && lookupCount > 1),
-        immutable: false }] : [];
+        draft: !published && !(changeBeforePost && lookupCount > 1),
+        immutable: published }] : [];
     } else if (url === API + '/releases/tags/' + TAG && !created) {
       return new Response(null, { status: 404 });
     } else if (url === API + '/releases/123') {
       releaseReads++;
       body = { id: 123, tag_name: TAG,
-        draft: !(changeBeforePost && lookupCount > 1),
-        immutable: false, name: TAG,
+        draft: !published && !(changeBeforePost && lookupCount > 1),
+        immutable: published, name: TAG,
         body: changeNotesBeforePost && releaseReads > 2 ? 'Tampered notes\n' : NOTES,
         prerelease: false, ...metadataPatch };
     } else if (url === API + '/releases/123/assets?per_page=100&page=1') {
       body = startAbsent ? uploadedAssets : [
-        ...(preverifiedRemoteAssets ? assets.slice(1).map((a, index) => ({
-          id: 600 + index, name: a.name, size: a.size,
-          digest: 'sha256:' + a.sha256, state: 'uploaded',
-        })) : []),
+        ...(preverifiedRemoteAssets ?
+          (preverifiedRemoteAssets === 'complete' ? assets : assets.slice(1))
+            .map((a, index) => ({
+              id: 600 + index, name: a.name, size: a.size,
+              digest: 'sha256:' + a.sha256, state: 'uploaded',
+            })) : []),
         ...(uploaded ? [{
           id: 501, name: assets[0].name,
           size: original.length, digest: 'sha256:' + sha256,
@@ -206,7 +232,8 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   };
   return { manifest, original, fetchImpl, calls,
     get postCount() { return postCount; },
-    get createCount() { return createCount; } };
+    get createCount() { return createCount; },
+    get publishCount() { return publishCount; } };
 }
 
 test('existing draft rejects missing, forged and foreign GoReleaser notes before any API call', async () => {
@@ -365,6 +392,43 @@ test('draft preparation creates one draft and resumes without duplicate writes',
       { kind: 'draft-complete', releaseId: 123, count: 22 });
     assert.equal(fake.createCount, 1, 'only one draft may be created');
     assert.equal(fake.postCount, 22, 'each of the 22 original assets uploaded once');
+
+    // Each subsequent call must reject unsafe or changed disk inputs before
+    // making even a read-only GitHub request, despite a complete remote draft.
+    const previousRequests = fake.calls.length;
+    const originalPath = path.join(normalDir, fake.manifest.assets[0].name);
+    const extraPath = path.join(mcpbDir, 'unexpected-original');
+    fs.writeFileSync(extraPath, Buffer.from('not an allowed original'));
+    await assert.rejects(prepareDraftAssets(input), /inventory/i);
+    assert.equal(fake.calls.length, previousRequests);
+    fs.unlinkSync(extraPath);
+
+    fs.writeFileSync(originalPath, Buffer.from('wrong size'));
+    await assert.rejects(prepareDraftAssets(input), /unsafe original source/i);
+    assert.equal(fake.calls.length, previousRequests);
+    fs.writeFileSync(originalPath, fake.original);
+
+    const hardlink = path.join(base, 'alternate-hardlink');
+    fs.linkSync(originalPath, hardlink);
+    await assert.rejects(prepareDraftAssets(input), /unsafe original source/i);
+    assert.equal(fake.calls.length, previousRequests);
+    fs.unlinkSync(hardlink);
+
+    if (process.platform !== 'win32') {
+      const relocated = path.join(base, 'untrusted-original');
+      fs.renameSync(originalPath, relocated);
+      try {
+        fs.symlinkSync(relocated, originalPath);
+        await assert.rejects(prepareDraftAssets(input), /unsafe original source/i);
+        assert.equal(fake.calls.length, previousRequests);
+      } finally {
+        fs.unlinkSync(originalPath);
+        fs.renameSync(relocated, originalPath);
+      }
+    }
+    assert.deepEqual(await prepareDraftAssets(input),
+      { kind: 'draft-complete', releaseId: 123, count: 22 });
+    assert.equal(fake.postCount, 22, 'no writes after restoring trusted sources');
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -387,6 +451,62 @@ test('draft preparation refuses incomplete source staging before any GitHub requ
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
+});
+
+test('publishes only one complete 22-original draft after independent immutable policy checks', async () => {
+  const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: 'complete' });
+  const input = {
+    manifest: fake.manifest, publisherCommit: COMMIT,
+    token: 'test_token_never_used_on_network',
+    adminToken: 'admin_only_test_token',
+    releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+  };
+  assert.deepEqual(await publishCompleteDraft(input),
+    { kind: 'immutable-publication', releaseId: 123, count: 22 });
+  assert.equal(fake.publishCount, 1, 'one controlled draft-to-public transition');
+  assert.equal(fake.calls.filter(call => call.url === API + '/immutable-releases').length,
+    2, 'immutability policy is verified twice around the mutation');
+  assert.equal(fake.calls.filter(call => call.method === 'PATCH').length, 1);
+  assert.equal(fake.postCount, 0, 'publication must not create or upload files');
+  await assert.rejects(publishCompleteDraft(input), /draft|immutable|publication/i);
+  assert.equal(fake.publishCount, 1, 'repeated invocation must not republish');
+});
+
+test('incomplete inventory or disabled immutable policy forbids public release', async () => {
+  for (const opts of [
+    { preverifiedRemoteAssets: true },
+    { preverifiedRemoteAssets: 'complete', publicationPolicy: 'disabled' },
+    { preverifiedRemoteAssets: 'complete', publicationPolicy: 'flip' },
+    { preverifiedRemoteAssets: 'complete', metadataPatch: { body: 'altered notes' } },
+  ]) {
+    const fake = simulatedGitHubDraft(opts);
+    await assert.rejects(publishCompleteDraft({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      adminToken: 'admin_only_test_token',
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }), Error);
+    assert.equal(fake.publishCount, 0, 'no publishing with insufficient evidence');
+  }
+  const authorized = simulatedGitHubDraft({ preverifiedRemoteAssets: 'complete' });
+  await assert.rejects(publishCompleteDraft({
+    manifest: authorized.manifest, publisherCommit: COMMIT,
+    token: 'test_token_never_used_on_network',
+    releaseNotesMetadata: notesMetadata(), fetchImpl: authorized.fetchImpl,
+  }), /token/i);
+  assert.equal(authorized.publishCount, 0, 'no publication without admin read proof');
+});
+
+test('an ambiguous publication response stops without a second PATCH', async () => {
+  const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: 'complete',
+    publishResponse: 'lost' });
+  await assert.rejects(publishCompleteDraft({
+    manifest: fake.manifest, publisherCommit: COMMIT,
+    token: 'test_token_never_used_on_network',
+    adminToken: 'admin_only_test_token',
+    releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+  }), /lost GitHub publication response/);
+  assert.equal(fake.publishCount, 1, 'a failed/uncertain PATCH is never retried');
 });
 
 test('draft preparation never retries an ambiguous draft creation', async () => {

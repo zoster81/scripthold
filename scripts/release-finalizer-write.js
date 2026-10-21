@@ -5,7 +5,9 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { inspectFinalizerPreflight } = require('./release-finalizer-preflight');
 const { readPublicationAuthority } = require('./release-finalizer-authority');
-const { discoverReleaseByTag, makeGitHubGet } = require('./release-finalizer-read');
+const { discoverReleaseByTag, makeGitHubGet, readJsonResponse,
+  readImmutableReleasePolicy, readVerifiedImmutablePublication } =
+  require('./release-finalizer-read');
 const { validateStagedManifest } = require('./release-asset-contract');
 const { planDraftAssetResume } = require('./release-asset-contract');
 const { decodeGoReleaserNotes } = require('./release-normal-source');
@@ -339,5 +341,61 @@ async function prepareDraftAssets(input) {
   return uploadAllDraftAssets({ ...input, fetchImpl });
 }
 
+// A separate, future-only one-shot transition. Only an approved protected
+// GitHub Actions writer may call this after the 22 originals have been
+// authenticated and placed in one complete unpublished draft. This does NOT
+// acquire the required per-tag workflow lock or authorize a release itself.
+// Publication is never retried after an ambiguous GitHub PATCH response.
+async function publishCompleteDraft({
+  manifest, publisherCommit, token, adminToken, releaseNotesMetadata,
+  fetchImpl = globalThis.fetch,
+}) {
+  validateStagedManifest(manifest);
+  const releaseNotes = decodeGoReleaserNotes(releaseNotesMetadata);
+  const event = { eventName: 'push', repository: 'zoster81/scripthold',
+    ref: 'refs/tags/' + manifest.tag };
+  const input = { event, manifest, publisherCommit, token, fetchImpl };
+  const firstPolicy = await readImmutableReleasePolicy({ adminToken, fetchImpl });
+  const first = selectedDraft(await inspectFinalizerPreflight(input),
+    manifest, releaseNotes);
+  requireCondition(first.plan.missing.length === 0 &&
+    first.plan.present.length === 22,
+  'cannot publish an incomplete GitHub draft');
+  const second = selectedDraft(await inspectFinalizerPreflight(input),
+    manifest, releaseNotes);
+  equalObservation(first, second);
+  const secondPolicy = await readImmutableReleasePolicy({ adminToken, fetchImpl });
+  requireCondition(JSON.stringify(firstPolicy) === JSON.stringify(secondPolicy),
+    'GitHub immutable release policy changed before publication');
+  const url = 'https://api.github.com/repos/zoster81/scripthold/releases/' +
+    first.release.id;
+  const response = await fetchImpl(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: 'Bearer ' + token,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+      'User-Agent': 'scripthold-release-draft-single-writer',
+    },
+    body: JSON.stringify({ draft: false }),
+    redirect: 'error', cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
+  });
+  const published = await readJsonResponse(response, url);
+  requireCondition(published.id === first.release.id &&
+    published.tag_name === manifest.tag &&
+    published.draft === false && published.immutable === true,
+  'GitHub did not confirm one immutable public release');
+  verifyDraftMetadata(published, manifest, releaseNotes);
+  const verified = await readVerifiedImmutablePublication({
+    manifest, releaseId: first.release.id, token, fetchImpl,
+  });
+  requireCondition(verified.count === 22,
+    'published release is missing original assets');
+  return { kind: 'immutable-publication', releaseId: verified.releaseId,
+    count: verified.count };
+}
+
 module.exports = { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
-  prepareDraftAssets };
+  prepareDraftAssets, publishCompleteDraft };
