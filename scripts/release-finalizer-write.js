@@ -352,6 +352,12 @@ async function publishCompleteDraft({
 }) {
   validateStagedManifest(manifest);
   const releaseNotes = decodeGoReleaserNotes(releaseNotesMetadata);
+  // Prevent one broad credential from silently collapsing the two
+  // independently scoped release-write and administration-read authorities.
+  requireCondition(typeof token === 'string' && token.length > 0 &&
+    typeof adminToken === 'string' && adminToken.length > 0 &&
+    adminToken !== token,
+  'separate publication and administrator-read tokens are required');
   const event = { eventName: 'push', repository: 'zoster81/scripthold',
     ref: 'refs/tags/' + manifest.tag };
   const input = { event, manifest, publisherCommit, token, fetchImpl };

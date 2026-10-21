@@ -497,6 +497,18 @@ test('incomplete inventory or disabled immutable policy forbids public release',
   assert.equal(authorized.publishCount, 0, 'no publication without admin read proof');
 });
 
+test('public release refuses shared admin-read and write credential before network', async () => {
+  const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: 'complete' });
+  await assert.rejects(publishCompleteDraft({
+    manifest: fake.manifest, publisherCommit: COMMIT,
+    token: 'same_broad_token', adminToken: 'same_broad_token',
+    releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+  }), /separate|distinct/i);
+  assert.equal(fake.calls.length, 0,
+    'shared administration and release-write authority must fail before GET');
+  assert.equal(fake.publishCount, 0);
+});
+
 test('an ambiguous publication response stops without a second PATCH', async () => {
   const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: 'complete',
     publishResponse: 'lost' });
