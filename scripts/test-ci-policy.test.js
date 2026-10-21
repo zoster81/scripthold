@@ -372,6 +372,28 @@ test('future tagged finalizer requires an approved release environment but canno
   }
 });
 
+test('protected read-only finalizer binds GitHub-owned tagged context before staging authority', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'release.yml'), 'utf8');
+  const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(finalizer);
+  const importGuard = /requireHostedTaggedFinalizerContext\s*\}\s*=\s*\r?\n\s*require\('\.\/scripts\/release-finalizer-preflight'\)/;
+  const call = /requireHostedTaggedFinalizerContext\(process\.env,\s*\r?\n?\s*trusted\.manifest,\s*process\.env\.GITHUB_SHA\)/;
+  assert.match(finalizer, importGuard);
+  assert.match(finalizer, call);
+  const guardPosition = finalizer.search(call);
+  const draftSourcePosition = finalizer.indexOf('verifyDraftSourceInventory(trusted.manifest');
+  const authorityPosition = finalizer.indexOf('await readPublicationAuthority');
+  assert.ok(guardPosition >= 0 && draftSourcePosition > guardPosition &&
+    authorityPosition > guardPosition, 'verify tag source before authorizing any draft source');
+  assert.doesNotMatch(finalizer, /release-finalizer-write|contents: write|secrets\.|finalizeCompleteRelease/);
+  assert.throws(() => {
+    const unguarded = finalizer.replace(call, '');
+    assert.match(unguarded, call);
+  }, /regular expression/);
+});
+
 test('future finalizer gates Registry on all 22 authenticated original files', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
     'workflows', 'release.yml'), 'utf8');

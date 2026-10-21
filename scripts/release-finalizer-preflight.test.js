@@ -7,7 +7,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { resolveFinalizerActionContext } = require('./release-finalizer-entrypoint');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
-const { resolveFinalizerEvent, inspectFinalizerPreflight } =
+const { resolveFinalizerEvent, inspectFinalizerPreflight,
+  requireTaggedWriterContext, requireHostedTaggedFinalizerContext } =
   require('./release-finalizer-preflight');
 
 const TAG = 'v3.4.0';
@@ -121,6 +122,48 @@ test('entrypoint normalizes GitHub Actions context without accepting branch or f
   ]) {
     assert.throws(() => resolveFinalizerActionContext(context), Error);
   }
+});
+
+test('hosted protected release validates exact built-in tag-push context with shared read-only guard', () => {
+  const hosted = {
+    GITHUB_EVENT_NAME: 'push',
+    GITHUB_REPOSITORY: REPO,
+    GITHUB_REF: 'refs/tags/' + TAG,
+    GITHUB_WORKFLOW_REF: REPO + '/.github/workflows/release.yml@refs/tags/' + TAG,
+    GITHUB_SHA: COMMIT,
+    GITHUB_JOB: 'finalize',
+    GITHUB_RUN_ID: '123456',
+    GITHUB_RUN_ATTEMPT: '1',
+  };
+  assert.doesNotThrow(() => requireHostedTaggedFinalizerContext(hosted, MANIFEST, COMMIT));
+  assert.doesNotThrow(() => requireTaggedWriterContext({
+    eventName: 'push', repository: REPO, ref: hosted.GITHUB_REF,
+    workflowRef: hosted.GITHUB_WORKFLOW_REF, sha: COMMIT,
+    job: 'finalize', runId: '123456', runAttempt: '1',
+  }, MANIFEST, COMMIT));
+  for (const [key, value] of [
+    ['GITHUB_EVENT_NAME', 'workflow_dispatch'],
+    ['GITHUB_REPOSITORY', 'attacker/repo'],
+    ['GITHUB_REF', 'refs/heads/main'],
+    ['GITHUB_REF', 'refs/tags/v9.9.9'],
+    ['GITHUB_WORKFLOW_REF', REPO + '/.github/workflows/test.yml@refs/tags/' + TAG],
+    ['GITHUB_WORKFLOW_REF', REPO + '/.github/workflows/release.yml@refs/heads/main'],
+    ['GITHUB_SHA', 'b'.repeat(40)],
+    ['GITHUB_JOB', 'verify'],
+    ['GITHUB_RUN_ID', '0'],
+    ['GITHUB_RUN_ID', '1e3'],
+    ['GITHUB_RUN_ATTEMPT', '-1'],
+  ]) {
+    assert.throws(() => requireHostedTaggedFinalizerContext({
+      ...hosted, [key]: value,
+    }, MANIFEST, COMMIT), /invalid tagged release writer context/i);
+  }
+  for (const invalid of [undefined, null, {}, []]) {
+    assert.throws(() => requireHostedTaggedFinalizerContext(
+      invalid, MANIFEST, COMMIT), Error);
+  }
+  assert.throws(() => requireHostedTaggedFinalizerContext(
+    hosted, MANIFEST, 'c'.repeat(40)), /invalid tagged release writer context/i);
 });
 
 test('actual entrypoint process succeeds only for authorized read-only events', () => {

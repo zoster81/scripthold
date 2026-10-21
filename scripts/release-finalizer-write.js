@@ -3,7 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { inspectFinalizerPreflight } = require('./release-finalizer-preflight');
+const { inspectFinalizerPreflight, requireTaggedWriterContext } =
+  require('./release-finalizer-preflight');
 const { readPublicationAuthority } = require('./release-finalizer-authority');
 const { discoverReleaseByTag, makeGitHubGet, readJsonResponse,
   readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
@@ -406,32 +407,6 @@ async function publishCompleteDraft({
     'published release is missing original assets');
   return { kind: 'immutable-publication', releaseId: verified.releaseId,
     count: verified.count };
-}
-
-// Defense in depth for the eventual protected job: reject anything except
-// the exact tag-triggered first-party Release job before any network access.
-// This is only a validation of supplied Actions context, NOT cryptographic
-// proof of a protected environment, job exclusivity, or token provenance.
-function requireTaggedWriterContext(context, manifest, publisherCommit) {
-  const keys = ['eventName', 'repository', 'ref', 'workflowRef',
-    'sha', 'job', 'runId', 'runAttempt'];
-  const validShape = context && typeof context === 'object' &&
-    !Array.isArray(context) && Object.keys(context).length === keys.length &&
-    keys.every(key => Object.hasOwn(context, key));
-  const valid = validShape && manifest && publisherCommit === manifest.commit &&
-    context.eventName === 'push' &&
-    context.repository === 'zoster81/scripthold' &&
-    context.ref === 'refs/tags/' + manifest.tag &&
-    context.workflowRef ===
-      'zoster81/scripthold/.github/workflows/release.yml@refs/tags/' + manifest.tag &&
-    context.sha === manifest.commit && context.job === 'finalize' &&
-    typeof context.runId === 'string' &&
-    /^[1-9][0-9]*$/.test(context.runId) &&
-    Number.isSafeInteger(Number(context.runId)) &&
-    typeof context.runAttempt === 'string' &&
-    /^[1-9][0-9]*$/.test(context.runAttempt) &&
-    Number.isSafeInteger(Number(context.runAttempt));
-  requireCondition(valid, 'invalid tagged release writer context');
 }
 
 // A future protected GitHub writer's single sequential entrypoint. The hosting

@@ -39,6 +39,46 @@ function resolveFinalizerEvent(event) {
   return { repository: REPOSITORY, tag, group: GROUP_PREFIX + tag };
 }
 
+// Shared defense in depth for both the current read-only tagged job and the
+// future protected writer. These supplied fields cannot prove environment
+// approval or authenticate GitHub's runner; the workflow enforces those gates.
+function requireTaggedWriterContext(context, manifest, publisherCommit) {
+  const keys = ['eventName', 'repository', 'ref', 'workflowRef',
+    'sha', 'job', 'runId', 'runAttempt'];
+  const validShape = context && typeof context === 'object' &&
+    !Array.isArray(context) && Object.keys(context).length === keys.length &&
+    keys.every(key => Object.hasOwn(context, key));
+  const valid = validShape && manifest && publisherCommit === manifest.commit &&
+    context.eventName === 'push' &&
+    context.repository === REPOSITORY &&
+    context.ref === 'refs/tags/' + manifest.tag &&
+    context.workflowRef ===
+      REPOSITORY + '/.github/workflows/release.yml@refs/tags/' + manifest.tag &&
+    context.sha === manifest.commit && context.job === 'finalize' &&
+    typeof context.runId === 'string' &&
+    /^[1-9][0-9]*$/.test(context.runId) &&
+    Number.isSafeInteger(Number(context.runId)) &&
+    typeof context.runAttempt === 'string' &&
+    /^[1-9][0-9]*$/.test(context.runAttempt) &&
+    Number.isSafeInteger(Number(context.runAttempt));
+  requireCondition(valid, 'invalid tagged release writer context');
+}
+
+function requireHostedTaggedFinalizerContext(env, manifest, publisherCommit) {
+  requireCondition(env && typeof env === 'object' && !Array.isArray(env),
+    'invalid hosted tagged release context');
+  requireTaggedWriterContext({
+    eventName: env.GITHUB_EVENT_NAME,
+    repository: env.GITHUB_REPOSITORY,
+    ref: env.GITHUB_REF,
+    workflowRef: env.GITHUB_WORKFLOW_REF,
+    sha: env.GITHUB_SHA,
+    job: env.GITHUB_JOB,
+    runId: env.GITHUB_RUN_ID,
+    runAttempt: env.GITHUB_RUN_ATTEMPT,
+  }, manifest, publisherCommit);
+}
+
 // Read-only cross-check before a finalizer may consider a next-step proposal.
 // It deliberately produces NO mutation permit. The actual writer must enforce
 // GitHub Actions single-writer concurrency, then run a fresh check again
@@ -65,4 +105,5 @@ async function inspectFinalizerPreflight({
   return { ...selected, authority: after, discovery };
 }
 
-module.exports = { resolveFinalizerEvent, inspectFinalizerPreflight };
+module.exports = { resolveFinalizerEvent, inspectFinalizerPreflight,
+  requireTaggedWriterContext, requireHostedTaggedFinalizerContext };

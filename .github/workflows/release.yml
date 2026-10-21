@@ -632,6 +632,8 @@ jobs:
             require('./scripts/release-normal-source');
           const { verifyDraftSourceInventory } =
             require('./scripts/release-finalizer-source-inventory');
+          const { requireHostedTaggedFinalizerContext } =
+            require('./scripts/release-finalizer-preflight');
 
           async function main() {
             const producer = prefix => bindRawUploadJobOutputs({
@@ -668,6 +670,10 @@ jobs:
                 trusted.manifest.repository !== process.env.GITHUB_REPOSITORY) {
               throw new Error('finalizer manifest disagrees with trusted tag checkout');
             }
+            // Use the same exact tagged-release context guard as the inactive
+            // writer, but keep this hosted job strictly read-only.
+            requireHostedTaggedFinalizerContext(process.env,
+              trusted.manifest, process.env.GITHUB_SHA);
             const root = path.resolve(process.env.RUNNER_TEMP, 'complete-raw');
             const normalDir = path.resolve(process.env.RUNNER_TEMP, 'complete-normal');
             const mcpbDir = path.resolve(process.env.RUNNER_TEMP, 'complete-mcpb');
