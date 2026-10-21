@@ -289,19 +289,21 @@ test('tagged producer preserves genuine signed DSSE without duplicating consumer
   assert.match(consumer, /verifyStagedNormalAttestations/);
 });
 
-test('tagged producer sends unchanged GoReleaser v2.18.1 notes directly to read-only finalizer', () => {
+test('tagged producer sends unchanged GoReleaser notes to the independent read-only verifier', () => {
   const yaml = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows',
     'release.yml'), 'utf8');
   const producer = yaml.split(/^  release:\r?$/m)[1]
     ?.split(/^  publish-mcpb:\r?$/m)[0];
+  const verifier = yaml.split(/^  verify-complete:\r?$/m)[1]
+    ?.split(/^  finalize:\r?$/m)[0];
   const finalizer = yaml.split(/^  finalize:\r?$/m)[1]
     ?.split(/^  publish-registry:\r?$/m)[0];
-  assert.ok(producer && finalizer);
+  assert.ok(producer && verifier && finalizer);
   assert.ok(producer.includes('dist/CHANGELOG.md'));
   assert.match(producer, /encodeGoReleaserNotes/);
   assert.ok(producer.includes('notes_metadata: ${{ steps.stage.outputs.notes_metadata }}'));
-  assert.ok(finalizer.includes('SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}'));
-  assert.match(finalizer, /decodeGoReleaserNotes/);
+  assert.ok(verifier.includes('SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}'));
+  assert.match(verifier, /decodeGoReleaserNotes/);
   assert.doesNotMatch(producer, /--release-notes|generate_release_notes: true/);
   assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
 });
@@ -345,13 +347,42 @@ test('future GitHub-only MCPB job consumes signed private originals and emits se
   assert.doesNotMatch(mcpb, /contents: write/);
 });
 
+test('verified bytes and privileged release gate stay in distinct fail-closed jobs', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'release.yml'), 'utf8');
+  const verify = workflow.split(/^  verify-complete:\r?$/m)[1]
+    ?.split(/^  finalize:\r?$/m)[0];
+  const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(verify && finalizer, 'require separate read-only verification and protected finalization');
+  assert.match(verify, /^    needs: \[release, publish-mcpb\]\r?$/m);
+  assert.match(verify, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
+  assert.doesNotMatch(verify, /^    environment:|contents: write|id-token: write|secrets\.|release-finalizer-write|prepareDraftAssets/);
+  assert.match(verify, /readJobVerifiedRawCompleteStaging/);
+  assert.match(verify, /verifyRawCompleteHandoffPayloads/);
+  assert.match(verify, /verifyDraftSourceInventory/);
+  assert.match(verify, /readPublicationAuthority/);
+  assert.match(finalizer, /^    needs: \[release, publish-mcpb, verify-complete\]\r?$/m);
+  assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
+  assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
+  assert.doesNotMatch(finalizer, /download-artifact|readPublicationAuthority|github\.token|secrets\.|contents: write|id-token: write|finalizeCompleteRelease|prepareDraftAssets/);
+  assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
+  assert.match(finalizer, /^          exit 1\r?$/m);
+  assert.match(workflow, /^  publish-registry:\r?\n    needs: finalize\r?$/m);
+  // A clean exit would let Registry proceed without an authorized publication.
+  const unsafe = finalizer.replace('          exit 1', '          exit 0');
+  assert.doesNotMatch(unsafe, /^          exit 1\r?$/m);
+  assert.throws(() => assert.match(unsafe, /^          exit 1\r?$/m));
+});
+
 test('future tagged finalizer requires an approved release environment but cannot publish yet', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
     'workflows', 'release.yml'), 'utf8');
   const assertSafe = source => {
     const finalizer = source.split(/^  finalize:\r?$/m)[1]
       ?.split(/^  publish-registry:\r?$/m)[0];
-    assert.ok(finalizer, 'missing single Release finalizer');
+    assert.ok(finalizer, 'missing protected Release finalizer');
+    assert.match(finalizer, /^    needs: \[release, publish-mcpb, verify-complete\]\r?$/m);
     assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
     assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
     assert.doesNotMatch(finalizer, /contents: write|id-token: write|secrets\.|finalizeCompleteRelease|prepareDraftAssets/);
@@ -372,24 +403,24 @@ test('future tagged finalizer requires an approved release environment but canno
   }
 });
 
-test('protected read-only finalizer binds GitHub-owned tagged context before staging authority', () => {
+test('unprivileged verifier binds GitHub-owned tagged context before accepting complete source authority', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
     'workflows', 'release.yml'), 'utf8');
-  const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
-    ?.split(/^  publish-registry:\r?$/m)[0];
-  assert.ok(finalizer);
-  const importGuard = /requireHostedTaggedFinalizerContext\s*\}\s*=\s*\r?\n\s*require\('\.\/scripts\/release-finalizer-preflight'\)/;
-  const call = /requireHostedTaggedFinalizerContext\(process\.env,\s*\r?\n?\s*trusted\.manifest,\s*process\.env\.GITHUB_SHA\)/;
-  assert.match(finalizer, importGuard);
-  assert.match(finalizer, call);
-  const guardPosition = finalizer.search(call);
-  const draftSourcePosition = finalizer.indexOf('verifyDraftSourceInventory(trusted.manifest');
-  const authorityPosition = finalizer.indexOf('await readPublicationAuthority');
+  const verifier = workflow.split(/^  verify-complete:\r?$/m)[1]
+    ?.split(/^  finalize:\r?$/m)[0];
+  assert.ok(verifier);
+  const importGuard = /requireHostedTaggedVerifierContext\s*\}\s*=\s*\r?\n\s*require\('\.\/scripts\/release-finalizer-preflight'\)/;
+  const call = /requireHostedTaggedVerifierContext\(process\.env,\s*\r?\n?\s*trusted\.manifest,\s*process\.env\.GITHUB_SHA\)/;
+  assert.match(verifier, importGuard);
+  assert.match(verifier, call);
+  const guardPosition = verifier.search(call);
+  const draftSourcePosition = verifier.indexOf('verifyDraftSourceInventory(trusted.manifest');
+  const authorityPosition = verifier.indexOf('await readPublicationAuthority');
   assert.ok(guardPosition >= 0 && draftSourcePosition > guardPosition &&
     authorityPosition > guardPosition, 'verify tag source before authorizing any draft source');
-  assert.doesNotMatch(finalizer, /release-finalizer-write|contents: write|secrets\.|finalizeCompleteRelease/);
+  assert.doesNotMatch(verifier, /release-finalizer-write|contents: write|secrets\.|finalizeCompleteRelease/);
   assert.throws(() => {
-    const unguarded = finalizer.replace(call, '');
+    const unguarded = verifier.replace(call, '');
     assert.match(unguarded, call);
   }, /regular expression/);
 });
@@ -397,26 +428,29 @@ test('protected read-only finalizer binds GitHub-owned tagged context before sta
 test('future finalizer gates Registry on all 22 authenticated original files', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
     'workflows', 'release.yml'), 'utf8');
+  const verifier = workflow.split(/^  verify-complete:\r?$/m)[1]
+    ?.split(/^  finalize:\r?$/m)[0];
   const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
     ?.split(/^  publish-registry:\r?$/m)[0];
-  assert.ok(finalizer, 'missing separate finalizer after genuine MCPB producer');
-  assert.match(finalizer, /needs: \[release, publish-mcpb\]/);
-  assert.match(finalizer, /contents: read/);
-  assert.match(finalizer, /actions: read/);
-  assert.match(finalizer, /readJobVerifiedRawCompleteStaging/);
-  assert.match(finalizer, /verifyRawCompleteHandoffPayloads/);
-  assert.match(finalizer, /verifyDraftSourceInventory/,
+  assert.ok(verifier && finalizer, 'missing separate verifier or finalizer');
+  assert.match(verifier, /needs: \[release, publish-mcpb\]/);
+  assert.match(verifier, /contents: read/);
+  assert.match(verifier, /actions: read/);
+  assert.match(verifier, /readJobVerifiedRawCompleteStaging/);
+  assert.match(verifier, /verifyRawCompleteHandoffPayloads/);
+  assert.match(verifier, /verifyDraftSourceInventory/,
     'the verified 22 originals must match the future draft writer input contract');
-  assert.doesNotMatch(finalizer, /release-finalizer-write|prepareDraftAssets/,
-    'read-only finalizer cannot import or invoke a release mutator');
-  assert.doesNotMatch(finalizer, /verifyStagedNormalAttestations/,
+  assert.doesNotMatch(verifier, /release-finalizer-write|prepareDraftAssets/,
+    'read-only verifier cannot import or invoke a release mutator');
+  assert.doesNotMatch(verifier, /verifyStagedNormalAttestations/,
     'the successful MCPB dependency already verified all 12 genuine signatures');
-  assert.match(finalizer, /readPublicationAuthority/);
-  assert.ok(finalizer.includes('needs.release.outputs.ids'));
-  assert.ok(finalizer.includes('needs.publish-mcpb.outputs.ids'));
-  assert.match(finalizer, /skip-decompress: true/);
-  assert.match(finalizer, /digest-mismatch: error/);
-  assert.doesNotMatch(finalizer, /gh release (?:upload|create|edit)|contents: write/);
+  assert.match(verifier, /readPublicationAuthority/);
+  assert.ok(verifier.includes('needs.release.outputs.ids'));
+  assert.ok(verifier.includes('needs.publish-mcpb.outputs.ids'));
+  assert.match(verifier, /skip-decompress: true/);
+  assert.match(verifier, /digest-mismatch: error/);
+  assert.doesNotMatch(verifier, /gh release (?:upload|create|edit)|contents: write/);
+  assert.match(finalizer, /needs: \[release, publish-mcpb, verify-complete\]/);
   assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
   const registry = workflow.split(/^  publish-registry:\r?$/m)[1];
   assert.ok(registry.includes('needs: finalize'),

@@ -8,7 +8,7 @@ const path = require('node:path');
 const { resolveFinalizerActionContext } = require('./release-finalizer-entrypoint');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { resolveFinalizerEvent, inspectFinalizerPreflight,
-  requireTaggedWriterContext, requireHostedTaggedFinalizerContext } =
+  requireTaggedWriterContext, requireHostedTaggedVerifierContext } =
   require('./release-finalizer-preflight');
 
 const TAG = 'v3.4.0';
@@ -124,18 +124,18 @@ test('entrypoint normalizes GitHub Actions context without accepting branch or f
   }
 });
 
-test('hosted protected release validates exact built-in tag-push context with shared read-only guard', () => {
+test('independent read-only verifier binds exact GitHub job while writer retains finalize identity', () => {
   const hosted = {
     GITHUB_EVENT_NAME: 'push',
     GITHUB_REPOSITORY: REPO,
     GITHUB_REF: 'refs/tags/' + TAG,
     GITHUB_WORKFLOW_REF: REPO + '/.github/workflows/release.yml@refs/tags/' + TAG,
     GITHUB_SHA: COMMIT,
-    GITHUB_JOB: 'finalize',
+    GITHUB_JOB: 'verify-complete',
     GITHUB_RUN_ID: '123456',
     GITHUB_RUN_ATTEMPT: '1',
   };
-  assert.doesNotThrow(() => requireHostedTaggedFinalizerContext(hosted, MANIFEST, COMMIT));
+  assert.doesNotThrow(() => requireHostedTaggedVerifierContext(hosted, MANIFEST, COMMIT));
   assert.doesNotThrow(() => requireTaggedWriterContext({
     eventName: 'push', repository: REPO, ref: hosted.GITHUB_REF,
     workflowRef: hosted.GITHUB_WORKFLOW_REF, sha: COMMIT,
@@ -149,20 +149,21 @@ test('hosted protected release validates exact built-in tag-push context with sh
     ['GITHUB_WORKFLOW_REF', REPO + '/.github/workflows/test.yml@refs/tags/' + TAG],
     ['GITHUB_WORKFLOW_REF', REPO + '/.github/workflows/release.yml@refs/heads/main'],
     ['GITHUB_SHA', 'b'.repeat(40)],
+    ['GITHUB_JOB', 'finalize'],
     ['GITHUB_JOB', 'verify'],
     ['GITHUB_RUN_ID', '0'],
     ['GITHUB_RUN_ID', '1e3'],
     ['GITHUB_RUN_ATTEMPT', '-1'],
   ]) {
-    assert.throws(() => requireHostedTaggedFinalizerContext({
+    assert.throws(() => requireHostedTaggedVerifierContext({
       ...hosted, [key]: value,
     }, MANIFEST, COMMIT), /invalid tagged release writer context/i);
   }
   for (const invalid of [undefined, null, {}, []]) {
-    assert.throws(() => requireHostedTaggedFinalizerContext(
+    assert.throws(() => requireHostedTaggedVerifierContext(
       invalid, MANIFEST, COMMIT), Error);
   }
-  assert.throws(() => requireHostedTaggedFinalizerContext(
+  assert.throws(() => requireHostedTaggedVerifierContext(
     hosted, MANIFEST, 'c'.repeat(40)), /invalid tagged release writer context/i);
 });
 

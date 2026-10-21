@@ -39,10 +39,10 @@ function resolveFinalizerEvent(event) {
   return { repository: REPOSITORY, tag, group: GROUP_PREFIX + tag };
 }
 
-// Shared defense in depth for both the current read-only tagged job and the
-// future protected writer. These supplied fields cannot prove environment
-// approval or authenticate GitHub's runner; the workflow enforces those gates.
-function requireTaggedWriterContext(context, manifest, publisherCommit) {
+// Shared defense in depth for the independent read-only byte verifier and
+// future approved writer. Each binds its own fixed GitHub job identity.
+// Supplied context cannot prove the environment approval or runner origin.
+function requireExpectedTaggedContext(context, manifest, publisherCommit, expectedJob) {
   const keys = ['eventName', 'repository', 'ref', 'workflowRef',
     'sha', 'job', 'runId', 'runAttempt'];
   const validShape = context && typeof context === 'object' &&
@@ -54,7 +54,7 @@ function requireTaggedWriterContext(context, manifest, publisherCommit) {
     context.ref === 'refs/tags/' + manifest.tag &&
     context.workflowRef ===
       REPOSITORY + '/.github/workflows/release.yml@refs/tags/' + manifest.tag &&
-    context.sha === manifest.commit && context.job === 'finalize' &&
+    context.sha === manifest.commit && context.job === expectedJob &&
     typeof context.runId === 'string' &&
     /^[1-9][0-9]*$/.test(context.runId) &&
     Number.isSafeInteger(Number(context.runId)) &&
@@ -64,10 +64,14 @@ function requireTaggedWriterContext(context, manifest, publisherCommit) {
   requireCondition(valid, 'invalid tagged release writer context');
 }
 
-function requireHostedTaggedFinalizerContext(env, manifest, publisherCommit) {
+function requireTaggedWriterContext(context, manifest, publisherCommit) {
+  requireExpectedTaggedContext(context, manifest, publisherCommit, 'finalize');
+}
+
+function requireHostedTaggedVerifierContext(env, manifest, publisherCommit) {
   requireCondition(env && typeof env === 'object' && !Array.isArray(env),
     'invalid hosted tagged release context');
-  requireTaggedWriterContext({
+  requireExpectedTaggedContext({
     eventName: env.GITHUB_EVENT_NAME,
     repository: env.GITHUB_REPOSITORY,
     ref: env.GITHUB_REF,
@@ -76,7 +80,7 @@ function requireHostedTaggedFinalizerContext(env, manifest, publisherCommit) {
     job: env.GITHUB_JOB,
     runId: env.GITHUB_RUN_ID,
     runAttempt: env.GITHUB_RUN_ATTEMPT,
-  }, manifest, publisherCommit);
+  }, manifest, publisherCommit, 'verify-complete');
 }
 
 // Read-only cross-check before a finalizer may consider a next-step proposal.
@@ -106,4 +110,4 @@ async function inspectFinalizerPreflight({
 }
 
 module.exports = { resolveFinalizerEvent, inspectFinalizerPreflight,
-  requireTaggedWriterContext, requireHostedTaggedFinalizerContext };
+  requireTaggedWriterContext, requireHostedTaggedVerifierContext };

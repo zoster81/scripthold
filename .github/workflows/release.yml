@@ -556,11 +556,9 @@ jobs:
       normal_digests: ${{ needs.release.outputs.digests }}
       normal_attempt: ${{ needs.release.outputs.attempt }}
 
-  finalize:
+  verify-complete:
     needs: [release, publish-mcpb]
-    # Approval is enforced by the separately configured GitHub environment.
-    # This job intentionally retains read-only authority and cannot publish.
-    environment: scripthold-immutable-publish
+    # Verify the actual 22 original bytes without granting publication authority.
     permissions:
       contents: read
       actions: read
@@ -632,7 +630,7 @@ jobs:
             require('./scripts/release-normal-source');
           const { verifyDraftSourceInventory } =
             require('./scripts/release-finalizer-source-inventory');
-          const { requireHostedTaggedFinalizerContext } =
+          const { requireHostedTaggedVerifierContext } =
             require('./scripts/release-finalizer-preflight');
 
           async function main() {
@@ -672,7 +670,7 @@ jobs:
             }
             // Use the same exact tagged-release context guard as the inactive
             // writer, but keep this hosted job strictly read-only.
-            requireHostedTaggedFinalizerContext(process.env,
+            requireHostedTaggedVerifierContext(process.env,
               trusted.manifest, process.env.GITHUB_SHA);
             const root = path.resolve(process.env.RUNNER_TEMP, 'complete-raw');
             const normalDir = path.resolve(process.env.RUNNER_TEMP, 'complete-normal');
@@ -733,6 +731,17 @@ jobs:
           });
           NODE
 
+  finalize:
+    needs: [release, publish-mcpb, verify-complete]
+    # Approval is enforced by the separately configured GitHub environment.
+    # A future writer must reauthenticate all 22 bytes at this new job boundary.
+    environment: scripthold-immutable-publish
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
       - name: Fail closed until single-writer draft finalizer is implemented
         shell: bash
         run: |
