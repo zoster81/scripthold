@@ -6,7 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
-  prepareDraftAssets, publishCompleteDraft } = require('./release-finalizer-write');
+  prepareDraftAssets, publishCompleteDraft,
+  finalizeCompleteRelease } = require('./release-finalizer-write');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { encodeGoReleaserNotes } = require('./release-normal-source');
 const { normalizeReleaseAssetPage, planReleaseFinalizerStep } =
@@ -507,6 +508,131 @@ test('public release refuses shared admin-read and write credential before netwo
   assert.equal(fake.calls.length, 0,
     'shared administration and release-write authority must fail before GET');
   assert.equal(fake.publishCount, 0);
+});
+
+test('single-writer coordinator completes one authenticated draft before one immutable publish', async () => {
+  const fake = simulatedGitHubDraft({ startAbsent: true });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-coordinator-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    for (const asset of fake.manifest.assets) {
+      const dir = asset.name.endsWith('.mcpb') ||
+        asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+      fs.writeFileSync(path.join(dir, asset.name),
+        asset.name === fake.manifest.assets[0].name ?
+          fake.original : Buffer.alloc(asset.size), { mode: 0o600 });
+    }
+    assert.deepEqual(await finalizeCompleteRelease({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }), { kind: 'immutable-publication', releaseId: 123, count: 22 });
+    assert.equal(fake.createCount, 1);
+    assert.equal(fake.postCount, 22);
+    assert.equal(fake.publishCount, 1);
+    const mutations = fake.calls.filter(call => call.method !== 'GET');
+    assert.equal(mutations[0].url, API + '/releases', 'draft is created first');
+    assert.equal(mutations.at(-1).method, 'PATCH', 'publication is last');
+    assert.equal(fake.calls[0].url, API + '/immutable-releases',
+      'immutable policy is checked before draft creation');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('single-writer coordinator fails before any network or mutation with unsafe inputs', async () => {
+  for (const overrides of [
+    {},
+    { adminToken: 'test_token_never_used_on_network' },
+    { adminToken: undefined },
+  ]) {
+    const fake = simulatedGitHubDraft({ startAbsent: true });
+    await assert.rejects(finalizeCompleteRelease({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      adminToken: 'admin_only_test_token',
+      releaseNotesMetadata: notesMetadata(),
+      normalDir: 'relative-unsafe-source', mcpbDir: 'relative-unsafe-source',
+      fetchImpl: fake.fetchImpl, ...overrides,
+    }), Error);
+    assert.equal(fake.calls.length, 0, 'untrusted inputs must fail before GitHub');
+  }
+  const disabled = simulatedGitHubDraft({
+    startAbsent: true, publicationPolicy: 'disabled',
+  });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-disabled-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    for (const asset of disabled.manifest.assets) {
+      const dir = asset.name.endsWith('.mcpb') ||
+        asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+      fs.writeFileSync(path.join(dir, asset.name),
+        asset.name === disabled.manifest.assets[0].name ?
+          disabled.original : Buffer.alloc(asset.size), { mode: 0o600 });
+    }
+    await assert.rejects(finalizeCompleteRelease({
+      manifest: disabled.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: disabled.fetchImpl,
+    }), /immutable|enabled/i);
+    assert.equal(disabled.createCount, 0);
+    assert.equal(disabled.postCount, 0);
+    assert.equal(disabled.publishCount, 0);
+    assert.deepEqual(disabled.calls.map(call => call.method), ['GET']);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('single-writer coordinator stops after ambiguous upload without publication', async () => {
+  const fake = simulatedGitHubDraft({
+    preverifiedRemoteAssets: true, response: 'lost',
+  });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-upload-fault-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    for (const asset of fake.manifest.assets) {
+      const dir = asset.name.endsWith('.mcpb') ||
+        asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+      fs.writeFileSync(path.join(dir, asset.name),
+        asset.name === fake.manifest.assets[0].name ?
+          fake.original : Buffer.alloc(asset.size), { mode: 0o600 });
+    }
+    await assert.rejects(finalizeCompleteRelease({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }), /ambiguous GitHub upload response/);
+    assert.equal(fake.createCount, 0);
+    assert.equal(fake.postCount, 1, 'failed/uncertain upload is not retried');
+    assert.equal(fake.publishCount, 0, 'no publication after ambiguous upload');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('one-shot publisher rejects a different release id before public PATCH', async () => {
+  const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: 'complete' });
+  await assert.rejects(publishCompleteDraft({
+    manifest: fake.manifest, publisherCommit: COMMIT,
+    token: 'test_token_never_used_on_network',
+    adminToken: 'admin_only_test_token',
+    releaseNotesMetadata: notesMetadata(), expectedReleaseId: 124,
+    fetchImpl: fake.fetchImpl,
+  }), /draft identity changed/);
+  assert.equal(fake.publishCount, 0, 'changed draft cannot be published');
 });
 
 test('an ambiguous publication response stops without a second PATCH', async () => {

@@ -348,7 +348,7 @@ async function prepareDraftAssets(input) {
 // Publication is never retried after an ambiguous GitHub PATCH response.
 async function publishCompleteDraft({
   manifest, publisherCommit, token, adminToken, releaseNotesMetadata,
-  fetchImpl = globalThis.fetch,
+  expectedReleaseId, fetchImpl = globalThis.fetch,
 }) {
   validateStagedManifest(manifest);
   const releaseNotes = decodeGoReleaserNotes(releaseNotesMetadata);
@@ -364,6 +364,10 @@ async function publishCompleteDraft({
   const firstPolicy = await readImmutableReleasePolicy({ adminToken, fetchImpl });
   const first = selectedDraft(await inspectFinalizerPreflight(input),
     manifest, releaseNotes);
+  requireCondition(expectedReleaseId === undefined ||
+    (Number.isSafeInteger(expectedReleaseId) && expectedReleaseId > 0 &&
+      first.release.id === expectedReleaseId),
+  'complete draft identity changed before publication');
   requireCondition(first.plan.missing.length === 0 &&
     first.plan.present.length === 22,
   'cannot publish an incomplete GitHub draft');
@@ -403,5 +407,39 @@ async function publishCompleteDraft({
     count: verified.count };
 }
 
+// A future protected GitHub writer's single sequential entrypoint. The hosting
+// workflow, not this helper, must prove tag-scoped concurrency and maintainer
+// environment approval. Never call this from a PR or an unprotected runner.
+// Check both credentials, original stage and immutable policy before any draft
+// creation/upload; publish only the exact draft prepared in this invocation.
+async function finalizeCompleteRelease(input) {
+  requireCondition(input && typeof input === 'object' &&
+    !Array.isArray(input), 'invalid protected finalizer input');
+  validateStagedManifest(input.manifest);
+  decodeGoReleaserNotes(input.releaseNotesMetadata);
+  requireCondition(typeof input.token === 'string' &&
+    input.token.length > 0 && input.token.length <= 4096 &&
+    /^[\x21-\x7e]+$/.test(input.token) &&
+    typeof input.adminToken === 'string' &&
+    input.adminToken.length > 0 && input.adminToken.length <= 4096 &&
+    /^[\x21-\x7e]+$/.test(input.adminToken) &&
+    input.token !== input.adminToken,
+  'distinct publication and administrator-read credentials are required');
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+  requireCondition(typeof fetchImpl === 'function',
+    'invalid finalizer GitHub API adapter');
+  verifyDraftSourceInventory(input.manifest, input.normalDir, input.mcpbDir);
+  await readImmutableReleasePolicy({ adminToken: input.adminToken, fetchImpl });
+  const authorized = { ...input, fetchImpl };
+  const prepared = await prepareDraftAssets(authorized);
+  requireCondition(prepared.kind === 'draft-complete' &&
+    prepared.count === 22 && Number.isSafeInteger(prepared.releaseId) &&
+    prepared.releaseId > 0,
+  'finalizer did not prepare an authenticated complete draft');
+  return publishCompleteDraft({
+    ...authorized, expectedReleaseId: prepared.releaseId,
+  });
+}
+
 module.exports = { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
-  prepareDraftAssets, publishCompleteDraft };
+  prepareDraftAssets, publishCompleteDraft, finalizeCompleteRelease };
