@@ -5,7 +5,8 @@ const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease } = require('./release-finalizer-write');
+const { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
+  prepareDraftAssets } = require('./release-finalizer-write');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { encodeGoReleaserNotes } = require('./release-normal-source');
 const { normalizeReleaseAssetPage, planReleaseFinalizerStep } =
@@ -84,15 +85,20 @@ test('draft asset writer refuses ambiguous or conflicting release states before 
 });
 
 function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
-  preverifiedRemoteAssets = false, metadataPatch = {}, changeNotesBeforePost = false } = {}) {
+  preverifiedRemoteAssets = false, metadataPatch = {}, changeNotesBeforePost = false,
+  startAbsent = false } = {}) {
   const original = Buffer.from('verified original test binary bytes');
   const sha256 = createHash('sha256').update(original).digest('hex');
   const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
     name, size: index === 0 ? original.length : 1,
-    sha256: index === 0 ? sha256 : 'f'.repeat(64),
+    sha256: index === 0 ? sha256 : startAbsent ?
+      createHash('sha256').update(Buffer.alloc(1)).digest('hex') : 'f'.repeat(64),
   }));
   const manifest = { repository: REPO, tag: TAG, commit: COMMIT, assets };
   let uploaded = false;
+  const uploadedAssets = [];
+  let created = !startAbsent;
+  let createCount = 0;
   let postCount = 0;
   let lookupCount = 0;
   let releaseReads = 0;
@@ -105,6 +111,34 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   });
   const fetchImpl = async (url, options) => {
     calls.push({ url, method: options.method });
+    if (options.method === 'POST' && url === API + '/releases') {
+      createCount++;
+      assert.equal(created, false, 'a draft must not be created twice');
+      const payload = JSON.parse(options.body);
+      assert.equal(payload.draft, true);
+      assert.equal(payload.body, NOTES);
+      created = true;
+      return new Response(JSON.stringify({ id: 123, tag_name: TAG,
+        draft: true, immutable: false, name: TAG, body: NOTES,
+        prerelease: false }), { status: 201,
+        headers: { 'content-type': 'application/json' } });
+    }
+    if (startAbsent && options.method === 'POST' &&
+        url.startsWith('https://uploads.github.com/repos/zoster81/scripthold/releases/123/assets?name=')) {
+      postCount++;
+      const name = new URL(url).searchParams.get('name');
+      const index = assets.findIndex(asset => asset.name === name);
+      assert.ok(index >= 0, 'only manifest originals may be uploaded');
+      assert.ok(!uploadedAssets.some(asset => asset.name === name), 'no duplicated upload');
+      const chunks = [];
+      for await (const chunk of options.body) chunks.push(Buffer.from(chunk));
+      assert.deepEqual(Buffer.concat(chunks), index === 0 ? original : Buffer.alloc(1));
+      const asset = { id: 501 + index, name, size: assets[index].size,
+        state: 'uploaded', digest: 'sha256:' + assets[index].sha256 };
+      uploadedAssets.push(asset);
+      return new Response(JSON.stringify(asset), { status: 201,
+        headers: { 'content-type': 'application/json' } });
+    }
     if (options.method === 'POST') {
       postCount++;
       assert.match(url, /^https:\/\/uploads\.github\.com\/repos\/zoster81\/scripthold\/releases\/123\/assets\?name=/);
@@ -139,8 +173,11 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
       }] };
     } else if (url === API + '/releases?per_page=30&page=1') {
       lookupCount++;
-      body = [{ id: 123, tag_name: TAG, draft: !(changeBeforePost && lookupCount > 1),
-        immutable: false }];
+      body = created ? [{ id: 123, tag_name: TAG,
+        draft: !(changeBeforePost && lookupCount > 1),
+        immutable: false }] : [];
+    } else if (url === API + '/releases/tags/' + TAG && !created) {
+      return new Response(null, { status: 404 });
     } else if (url === API + '/releases/123') {
       releaseReads++;
       body = { id: 123, tag_name: TAG,
@@ -149,7 +186,7 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
         body: changeNotesBeforePost && releaseReads > 2 ? 'Tampered notes\n' : NOTES,
         prerelease: false, ...metadataPatch };
     } else if (url === API + '/releases/123/assets?per_page=100&page=1') {
-      body = [
+      body = startAbsent ? uploadedAssets : [
         ...(preverifiedRemoteAssets ? assets.slice(1).map((a, index) => ({
           id: 600 + index, name: a.name, size: a.size,
           digest: 'sha256:' + a.sha256, state: 'uploaded',
@@ -168,7 +205,8 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
     });
   };
   return { manifest, original, fetchImpl, calls,
-    get postCount() { return postCount; } };
+    get postCount() { return postCount; },
+    get createCount() { return createCount; } };
 }
 
 test('existing draft rejects missing, forged and foreign GoReleaser notes before any API call', async () => {
@@ -267,6 +305,110 @@ test('bounded draft runner resumes one missing original then checks all twenty-t
     });
     assert.deepEqual(result, { kind: 'draft-complete', releaseId: 123, count: 22 });
     assert.equal(fake.postCount, 1, 'no retry or superfluous uploads');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('draft preparation resumes the existing authenticated draft without creating another', async () => {
+  const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: true });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-prepare-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    for (const asset of fake.manifest.assets) {
+      const dest = asset.name.endsWith('.mcpb') ||
+        asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+      const bytes = asset.name === fake.manifest.assets[0].name ?
+        fake.original : Buffer.alloc(asset.size, 0);
+      fs.writeFileSync(path.join(dest, asset.name), bytes, { mode: 0o600 });
+    }
+    const result = await prepareDraftAssets({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    });
+    assert.deepEqual(result, { kind: 'draft-complete', releaseId: 123, count: 22 });
+    assert.equal(fake.postCount, 1, 'only the missing original may be uploaded');
+    assert.equal(fake.calls.filter(call => call.url === API + '/releases' &&
+      call.method === 'POST').length, 0, 'never create a second draft');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('draft preparation creates one draft and resumes without duplicate writes', async () => {
+  const fake = simulatedGitHubDraft({ startAbsent: true });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-create-complete-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    for (const asset of fake.manifest.assets) {
+      const dest = asset.name.endsWith('.mcpb') ||
+        asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+      fs.writeFileSync(path.join(dest, asset.name),
+        asset.name === fake.manifest.assets[0].name ?
+          fake.original : Buffer.alloc(asset.size), { mode: 0o600 });
+    }
+    const input = {
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    };
+    assert.deepEqual(await prepareDraftAssets(input),
+      { kind: 'draft-complete', releaseId: 123, count: 22 });
+    assert.deepEqual(await prepareDraftAssets(input),
+      { kind: 'draft-complete', releaseId: 123, count: 22 });
+    assert.equal(fake.createCount, 1, 'only one draft may be created');
+    assert.equal(fake.postCount, 22, 'each of the 22 original assets uploaded once');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('draft preparation refuses incomplete source staging before any GitHub request', async () => {
+  const fake = simulatedDraftCreation();
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-incomplete-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    await assert.rejects(prepareDraftAssets({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }), /original|source|stage|inventory/i);
+    assert.equal(fake.calls.length, 0, 'no remote reads or writes with incomplete sources');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('draft preparation never retries an ambiguous draft creation', async () => {
+  const fake = simulatedDraftCreation({ mode: 'lost' });
+  const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-create-lost-'));
+  const normalDir = path.join(base, 'normal');
+  const mcpbDir = path.join(base, 'mcpb');
+  try {
+    fs.mkdirSync(normalDir, { mode: 0o700 });
+    fs.mkdirSync(mcpbDir, { mode: 0o700 });
+    for (const asset of fake.manifest.assets) {
+      const dest = asset.name.endsWith('.mcpb') ||
+        asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+      fs.writeFileSync(path.join(dest, asset.name), Buffer.alloc(asset.size),
+        { mode: 0o600 });
+    }
+    await assert.rejects(prepareDraftAssets({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network', normalDir, mcpbDir,
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }), /lost creation response/);
+    assert.equal(fake.writes, 1, 'an ambiguous draft POST may never be retried');
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
