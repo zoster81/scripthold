@@ -9,6 +9,7 @@ const { discoverReleaseByTag, makeGitHubGet } = require('./release-finalizer-rea
 const { validateStagedManifest } = require('./release-asset-contract');
 const { planDraftAssetResume } = require('./release-asset-contract');
 const { decodeGoReleaserNotes } = require('./release-normal-source');
+const { verifyDraftSourceInventory } = require('./release-finalizer-source-inventory');
 
 const UPLOAD_ORIGIN = 'https://uploads.github.com';
 const MAX_RESPONSE = 256 * 1024;
@@ -314,43 +315,6 @@ async function uploadAllDraftAssets(input) {
   throw new Error('draft upload exceeded maximum original asset count');
 }
 
-// Check the complete original-name stage before even reading the release
-// listing, especially before a first draft creation. The finalizer verifies
-// original SHA-256 at its job boundary; the per-upload writer rehashes its
-// source while holding a descriptor, so this pass only verifies inventory.
-function requireCompleteOriginalStage(manifest, normalDir, mcpbDir) {
-  const groups = [
-    { root: normalDir, assets: manifest.assets.filter(asset =>
-      !asset.name.endsWith('.mcpb') && asset.name !== 'mcpb-checksums.txt') },
-    { root: mcpbDir, assets: manifest.assets.filter(asset =>
-      asset.name.endsWith('.mcpb') || asset.name === 'mcpb-checksums.txt') },
-  ];
-  requireCondition(groups[0].assets.length === 15 && groups[1].assets.length === 7,
-    'expected fifteen normal and seven MCPB original sources');
-  for (const { root, assets } of groups) {
-    requireCondition(typeof root === 'string' && path.isAbsolute(root),
-      'original stage directory must be absolute');
-    const full = path.resolve(root);
-    const directory = fs.lstatSync(full);
-    requireCondition(directory.isDirectory() && !directory.isSymbolicLink() &&
-      (process.platform !== 'linux' ||
-        (directory.uid === process.getuid() && (directory.mode & 0o077) === 0)),
-    'original source stage directory is unsafe');
-    const actual = fs.readdirSync(full);
-    const expected = new Set(assets.map(asset => asset.name));
-    requireCondition(actual.length === expected.size &&
-      actual.every(name => expected.has(name)),
-    'incomplete or unexpected original source inventory');
-    for (const asset of assets) {
-      const file = fs.lstatSync(path.join(full, asset.name));
-      requireCondition(file.isFile() && !file.isSymbolicLink() &&
-        file.nlink === 1 && file.size === asset.size &&
-        (process.platform !== 'linux' || file.uid === process.getuid()),
-      'unsafe original source before draft preparation');
-    }
-  }
-}
-
 // One bounded coordinator for a future *authorized* single-writer job.
 // It never publishes. A missing draft still requires createDraftRelease's two
 // complete independent absence checks; ambiguous POST failures are terminal.
@@ -362,7 +326,7 @@ async function prepareDraftAssets(input) {
   'invalid GitHub writer token');
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;
   requireCondition(typeof fetchImpl === 'function', 'invalid GitHub fetch adapter');
-  requireCompleteOriginalStage(input.manifest, input.normalDir, input.mcpbDir);
+  verifyDraftSourceInventory(input.manifest, input.normalDir, input.mcpbDir);
   const discovery = await discoverReleaseByTag({
     tag: input.manifest.tag, token: input.token, fetchImpl,
   });

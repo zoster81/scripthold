@@ -356,6 +356,10 @@ test('future finalizer gates Registry on all 22 authenticated original files', (
   assert.match(finalizer, /actions: read/);
   assert.match(finalizer, /readJobVerifiedRawCompleteStaging/);
   assert.match(finalizer, /verifyRawCompleteHandoffPayloads/);
+  assert.match(finalizer, /verifyDraftSourceInventory/,
+    'the verified 22 originals must match the future draft writer input contract');
+  assert.doesNotMatch(finalizer, /release-finalizer-write|prepareDraftAssets/,
+    'read-only finalizer cannot import or invoke a release mutator');
   assert.doesNotMatch(finalizer, /verifyStagedNormalAttestations/,
     'the successful MCPB dependency already verified all 12 genuine signatures');
   assert.match(finalizer, /readPublicationAuthority/);

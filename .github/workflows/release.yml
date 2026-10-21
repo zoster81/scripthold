@@ -627,6 +627,8 @@ jobs:
             require('./scripts/release-finalizer-authority');
           const { decodeGoReleaserNotes } =
             require('./scripts/release-normal-source');
+          const { verifyDraftSourceInventory } =
+            require('./scripts/release-finalizer-source-inventory');
 
           async function main() {
             const producer = prefix => bindRawUploadJobOutputs({
@@ -701,6 +703,9 @@ jobs:
                 fs.readdirSync(mcpbDir).length !== 7) {
               throw new Error('complete original stage lost or gained an asset');
             }
+            // Check the exact future draft-writer input contract without granting
+            // a writer token or invoking any GitHub release mutation.
+            verifyDraftSourceInventory(trusted.manifest, normalDir, mcpbDir);
             const authority = await readPublicationAuthority({
               manifest: trusted.manifest,
               publisherCommit: process.env.GITHUB_SHA,
