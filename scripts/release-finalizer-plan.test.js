@@ -93,7 +93,7 @@ test('draft asset writer refuses ambiguous or conflicting release states before 
 function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   preverifiedRemoteAssets = false, metadataPatch = {}, changeNotesBeforePost = false,
   startAbsent = false, publicationPolicy = 'enabled', publishResponse = 'success',
-  environmentPolicy = 'protected' } = {}) {
+  environmentPolicy = 'protected', publicationTokenPolicy = 'scoped' } = {}) {
   const original = Buffer.from('verified original test binary bytes');
   const sha256 = createHash('sha256').update(original).digest('hex');
   const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
@@ -122,6 +122,24 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   });
   const fetchImpl = async (url, options) => {
     calls.push({ url, method: options.method });
+    if (url === 'https://api.github.com/installation/repositories?per_page=2&page=1') {
+      assert.equal(options.method, 'GET');
+      assert.equal(options.headers.Authorization, 'Bearer test_token_never_used_on_network');
+      if (publicationTokenPolicy === 'not-app') {
+        return new Response(JSON.stringify({ message: 'Forbidden' }),
+          { status: 403, headers: { 'content-type': 'application/json' } });
+      }
+      const valid = { id: 123, name: 'scripthold',
+        full_name: publicationTokenPolicy === 'foreign' ?
+          'attacker/scripthold' : 'zoster81/scripthold',
+        owner: { login: 'zoster81' } };
+      const repositories = publicationTokenPolicy === 'multiple' ?
+        [valid, { id: 124, name: 'other',
+          full_name: 'zoster81/other', owner: { login: 'zoster81' } }] : [valid];
+      return new Response(JSON.stringify({
+        total_count: repositories.length, repositories,
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (url === API + '/environments/scripthold-immutable-publish') {
       assert.equal(options.method, 'GET');
       assert.equal(options.headers.Authorization, 'Bearer admin_only_test_token');
@@ -611,6 +629,37 @@ test('single-writer coordinator completes one authenticated draft before one imm
     'environment protection must be rechecked before public publication');
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('single-writer forbids draft writes with an unscoped or non-App publication token', async () => {
+  for (const publicationTokenPolicy of ['foreign', 'multiple', 'not-app']) {
+    const fake = simulatedGitHubDraft({ startAbsent: true, publicationTokenPolicy });
+    const base = fs.mkdtempSync(path.resolve(__dirname, '.test-writer-token-scope-'));
+    const normalDir = path.join(base, 'normal');
+    const mcpbDir = path.join(base, 'mcpb');
+    try {
+      fs.mkdirSync(normalDir, { mode: 0o700 });
+      fs.mkdirSync(mcpbDir, { mode: 0o700 });
+      for (const asset of fake.manifest.assets) {
+        const dir = asset.name.endsWith('.mcpb') ||
+          asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+        fs.writeFileSync(path.join(dir, asset.name),
+          asset.name === fake.manifest.assets[0].name ?
+            fake.original : Buffer.alloc(asset.size), { mode: 0o600 });
+      }
+      await assert.rejects(finalizeCompleteRelease({
+        manifest: fake.manifest, publisherCommit: COMMIT,
+        token: 'test_token_never_used_on_network',
+        adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+        actionContext: validWriterContext(),
+        releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+      }), /installation|scope|repository|GitHub response/i);
+      assert.equal(fake.createCount + fake.postCount + fake.publishCount, 0,
+        'untrusted or overbroad credentials cannot perform any remote mutation');
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   }
 });
 

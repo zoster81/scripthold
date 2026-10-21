@@ -302,6 +302,29 @@ async function readProtectedFinalizerEnvironmentPolicy({
   return { protected: true, environment: env.name };
 }
 
+// Prove that a publication credential is a GitHub App installation token
+// exposing only this repository. The REST list does NOT prove its effective
+// permissions; the future mint action must request only contents:write.
+async function readScopedPublicationInstallation({
+  token, fetchImpl = globalThis.fetch,
+} = {}) {
+  const url = 'https://api.github.com/installation/repositories?per_page=2&page=1';
+  const response = await makeGitHubGet(token, fetchImpl)(url);
+  const listing = await readJsonResponse(response, url);
+  requireCondition(response.headers.get('link') === null &&
+    listing && typeof listing === 'object' && !Array.isArray(listing) &&
+    listing.total_count === 1 && Array.isArray(listing.repositories) &&
+    listing.repositories.length === 1,
+  'GitHub App installation token must be scoped to one repository');
+  const repo = listing.repositories[0];
+  requireCondition(repo && typeof repo === 'object' && !Array.isArray(repo) &&
+    Number.isSafeInteger(repo.id) && repo.id > 0 &&
+    repo.name === 'scripthold' && repo.full_name === 'zoster81/scripthold' &&
+    repo.owner?.login === 'zoster81',
+  'GitHub App installation repository scope is not authorized');
+  return { repository: repo.full_name };
+}
+
 // Read-only final-state proof for a previously identified release. GitHub
 // reports immutable:true only after publication; all 22 remote asset IDs,
 // names, sizes, digests and states must agree with the trusted original set.
@@ -322,5 +345,5 @@ async function readVerifiedImmutablePublication({
 
 module.exports = { readReleaseObservation, discoverReleaseByTag,
   readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
-  readVerifiedImmutablePublication,
+  readScopedPublicationInstallation, readVerifiedImmutablePublication,
   makeGitHubGet, readJsonResponse };

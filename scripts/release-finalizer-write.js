@@ -8,7 +8,7 @@ const { inspectFinalizerPreflight, requireTaggedWriterContext } =
 const { readPublicationAuthority } = require('./release-finalizer-authority');
 const { discoverReleaseByTag, makeGitHubGet, readJsonResponse,
   readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
-  readVerifiedImmutablePublication } =
+  readScopedPublicationInstallation, readVerifiedImmutablePublication } =
   require('./release-finalizer-read');
 const { validateStagedManifest } = require('./release-asset-contract');
 const { planDraftAssetResume } = require('./release-asset-contract');
@@ -435,6 +435,9 @@ async function finalizeCompleteRelease(input) {
   verifyDraftSourceInventory(input.manifest, input.normalDir, input.mcpbDir);
   await readProtectedFinalizerEnvironmentPolicy({ adminToken: input.adminToken, fetchImpl });
   await readImmutableReleasePolicy({ adminToken: input.adminToken, fetchImpl });
+  // A PAT, ordinary GITHUB_TOKEN, or a broader App installation cannot serve
+  // as a writer credential. GitHub mints the effective contents:write scope.
+  await readScopedPublicationInstallation({ token: input.token, fetchImpl });
   const authorized = { ...input, fetchImpl };
   const prepared = await prepareDraftAssets(authorized);
   requireCondition(prepared.kind === 'draft-complete' &&

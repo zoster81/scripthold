@@ -5,7 +5,7 @@ const test = require('node:test');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { readReleaseObservation, discoverReleaseByTag,
   readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
-  readVerifiedImmutablePublication } =
+  readScopedPublicationInstallation, readVerifiedImmutablePublication } =
   require('./release-finalizer-read');
 const { planReleaseFinalizerStep } = require('./release-finalizer-plan');
 
@@ -47,6 +47,61 @@ function client({ release, assets, errors = {}, mutate = null } = {}) {
   };
   return { fetchImpl, calls };
 }
+
+test('scoped publication credential must be a single-repository GitHub App installation token', async () => {
+  const url = 'https://api.github.com/installation/repositories?per_page=2&page=1';
+  const matching = () => ({ total_count: 1, repositories: [{
+    id: 123456, name: 'scripthold', full_name: 'zoster81/scripthold',
+    owner: { login: 'zoster81' },
+  }] });
+  const requests = [];
+  const validFetch = async (actual, init) => {
+    requests.push({ actual, init });
+    assert.equal(actual, url);
+    assert.equal(init.method, 'GET');
+    assert.equal(init.redirect, 'error');
+    assert.equal(init.cache, 'no-store');
+    assert.equal(init.headers.Authorization, 'Bearer publication_test_token');
+    return response(matching());
+  };
+  assert.deepEqual(await readScopedPublicationInstallation({
+    token: 'publication_test_token', fetchImpl: validFetch,
+  }), { repository: 'zoster81/scripthold' });
+  assert.equal(requests.length, 1);
+  for (const bad of [
+    { ...matching(), total_count: 2 },
+    { ...matching(), total_count: 0 },
+    { ...matching(), repositories: [] },
+    { ...matching(), repositories: [matching().repositories[0],
+      { id: 2, name: 'other', full_name: 'zoster81/other',
+        owner: { login: 'zoster81' } }] },
+    { ...matching(), repositories: [{ ...matching().repositories[0],
+      full_name: 'attacker/scripthold' }] },
+    { ...matching(), repositories: [{ ...matching().repositories[0],
+      owner: { login: 'attacker' } }] },
+    { ...matching(), repositories: [{ ...matching().repositories[0], id: 0 }] },
+  ]) {
+    await assert.rejects(readScopedPublicationInstallation({
+      token: 'publication_test_token', fetchImpl: async () => response(bad),
+    }), /installation|repository|scope/i);
+  }
+  await assert.rejects(readScopedPublicationInstallation({
+    token: 'publication_test_token',
+    fetchImpl: async () => response(matching(), 200,
+      { link: '<https://api.github.com/next>; rel="next"' }),
+  }), /installation|pagination|scope/i);
+  for (const status of [401, 403, 404]) {
+    await assert.rejects(readScopedPublicationInstallation({
+      token: 'publication_test_token',
+      fetchImpl: async () => response({ message: 'not an installation token' }, status),
+    }), /GitHub response/i);
+  }
+  for (const token of ['', 'bad\ninjection']) {
+    await assert.rejects(readScopedPublicationInstallation({
+      token, fetchImpl: async () => { throw new Error('unexpected network request'); },
+    }), /invalid GitHub token/i);
+  }
+});
 
 test('authenticates only exact read-only GitHub endpoints and returns a bound draft inventory', async () => {
   const { release, assets } = fixture();
