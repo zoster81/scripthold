@@ -20,6 +20,11 @@ const REPO = 'zoster81/scripthold';
 const API = 'https://api.github.com/repos/zoster81/scripthold';
 const NOTES = 'Trusted GoReleaser notes for next version\n';
 const notesMetadata = () => encodeGoReleaserNotes(Buffer.from(NOTES));
+const validWriterContext = () => ({
+  eventName: 'push', repository: REPO, ref: 'refs/tags/' + TAG,
+  workflowRef: REPO + '/.github/workflows/release.yml@refs/tags/' + TAG,
+  sha: COMMIT, job: 'finalize', runId: '12345', runAttempt: '1',
+});
 
 function fixture() {
   const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
@@ -510,6 +515,33 @@ test('public release refuses shared admin-read and write credential before netwo
   assert.equal(fake.publishCount, 0);
 });
 
+test('single-writer refuses untrusted tagged GitHub Actions context without contacting GitHub', async () => {
+  const trusted = validWriterContext();
+  for (const invalid of [
+    undefined, null, {},
+    { ...trusted, eventName: 'workflow_dispatch' },
+    { ...trusted, repository: 'other/repo' },
+    { ...trusted, ref: 'refs/heads/main' },
+    { ...trusted, ref: 'refs/tags/v0.0.0' },
+    { ...trusted, workflowRef: REPO + '/.github/workflows/test.yml@refs/tags/' + TAG },
+    { ...trusted, workflowRef: REPO + '/.github/workflows/release.yml@refs/heads/main' },
+    { ...trusted, sha: 'f'.repeat(40) },
+    { ...trusted, job: 'verify' },
+    { ...trusted, runId: '0' }, { ...trusted, runAttempt: '0' },
+    { ...trusted, unexpected: true },
+  ]) {
+    const fake = simulatedGitHubDraft({ preverifiedRemoteAssets: 'complete' });
+    await assert.rejects(finalizeCompleteRelease({
+      manifest: fake.manifest, publisherCommit: COMMIT,
+      token: 'test_token_never_used_on_network',
+      adminToken: 'admin_only_test_token', actionContext: invalid,
+      normalDir: 'not-an-authorized-source', mcpbDir: 'not-an-authorized-source',
+      releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+    }), /tagged release writer context/i);
+    assert.equal(fake.calls.length, 0, 'invalid workflow context has zero API calls');
+  }
+});
+
 test('single-writer coordinator completes one authenticated draft before one immutable publish', async () => {
   const fake = simulatedGitHubDraft({ startAbsent: true });
   const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-coordinator-'));
@@ -529,6 +561,7 @@ test('single-writer coordinator completes one authenticated draft before one imm
       manifest: fake.manifest, publisherCommit: COMMIT,
       token: 'test_token_never_used_on_network',
       adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      actionContext: validWriterContext(),
       releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
     }), { kind: 'immutable-publication', releaseId: 123, count: 22 });
     assert.equal(fake.createCount, 1);
@@ -557,6 +590,7 @@ test('single-writer coordinator fails before any network or mutation with unsafe
       adminToken: 'admin_only_test_token',
       releaseNotesMetadata: notesMetadata(),
       normalDir: 'relative-unsafe-source', mcpbDir: 'relative-unsafe-source',
+      actionContext: validWriterContext(),
       fetchImpl: fake.fetchImpl, ...overrides,
     }), Error);
     assert.equal(fake.calls.length, 0, 'untrusted inputs must fail before GitHub');
@@ -581,6 +615,7 @@ test('single-writer coordinator fails before any network or mutation with unsafe
       manifest: disabled.manifest, publisherCommit: COMMIT,
       token: 'test_token_never_used_on_network',
       adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      actionContext: validWriterContext(),
       releaseNotesMetadata: notesMetadata(), fetchImpl: disabled.fetchImpl,
     }), /immutable|enabled/i);
     assert.equal(disabled.createCount, 0);
@@ -613,6 +648,7 @@ test('single-writer coordinator stops after ambiguous upload without publication
       manifest: fake.manifest, publisherCommit: COMMIT,
       token: 'test_token_never_used_on_network',
       adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      actionContext: validWriterContext(),
       releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
     }), /ambiguous GitHub upload response/);
     assert.equal(fake.createCount, 0);

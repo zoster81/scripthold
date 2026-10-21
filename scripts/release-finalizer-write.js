@@ -407,6 +407,32 @@ async function publishCompleteDraft({
     count: verified.count };
 }
 
+// Defense in depth for the eventual protected job: reject anything except
+// the exact tag-triggered first-party Release job before any network access.
+// This is only a validation of supplied Actions context, NOT cryptographic
+// proof of a protected environment, job exclusivity, or token provenance.
+function requireTaggedWriterContext(context, manifest, publisherCommit) {
+  const keys = ['eventName', 'repository', 'ref', 'workflowRef',
+    'sha', 'job', 'runId', 'runAttempt'];
+  const validShape = context && typeof context === 'object' &&
+    !Array.isArray(context) && Object.keys(context).length === keys.length &&
+    keys.every(key => Object.hasOwn(context, key));
+  const valid = validShape && manifest && publisherCommit === manifest.commit &&
+    context.eventName === 'push' &&
+    context.repository === 'zoster81/scripthold' &&
+    context.ref === 'refs/tags/' + manifest.tag &&
+    context.workflowRef ===
+      'zoster81/scripthold/.github/workflows/release.yml@refs/tags/' + manifest.tag &&
+    context.sha === manifest.commit && context.job === 'finalize' &&
+    typeof context.runId === 'string' &&
+    /^[1-9][0-9]*$/.test(context.runId) &&
+    Number.isSafeInteger(Number(context.runId)) &&
+    typeof context.runAttempt === 'string' &&
+    /^[1-9][0-9]*$/.test(context.runAttempt) &&
+    Number.isSafeInteger(Number(context.runAttempt));
+  requireCondition(valid, 'invalid tagged release writer context');
+}
+
 // A future protected GitHub writer's single sequential entrypoint. The hosting
 // workflow, not this helper, must prove tag-scoped concurrency and maintainer
 // environment approval. Never call this from a PR or an unprotected runner.
@@ -417,6 +443,8 @@ async function finalizeCompleteRelease(input) {
     !Array.isArray(input), 'invalid protected finalizer input');
   validateStagedManifest(input.manifest);
   decodeGoReleaserNotes(input.releaseNotesMetadata);
+  requireTaggedWriterContext(input.actionContext, input.manifest,
+    input.publisherCommit);
   requireCondition(typeof input.token === 'string' &&
     input.token.length > 0 && input.token.length <= 4096 &&
     /^[\x21-\x7e]+$/.test(input.token) &&
