@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { readReleaseObservation, discoverReleaseByTag,
-  readImmutableReleasePolicy, readVerifiedImmutablePublication } =
+  readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
+  readVerifiedImmutablePublication } =
   require('./release-finalizer-read');
 const { planReleaseFinalizerStep } = require('./release-finalizer-plan');
 
@@ -502,6 +503,81 @@ test('immutable-release policy refuses disabled, ambiguous, inaccessible and mal
     }), Error);
   }
   assert.equal(calls, 0);
+});
+
+test('protected finalizer policy checks exact GitHub reviewer, tag-only refs and no admin bypass', async () => {
+  const envUrl = 'https://api.github.com/repos/zoster81/scripthold/environments/scripthold-immutable-publish';
+  const refsUrl = envUrl + '/deployment-branch-policies';
+  const environment = () => ({
+    name: 'scripthold-immutable-publish', can_admins_bypass: false,
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+    protection_rules: [
+      { type: 'required_reviewers', prevent_self_review: false,
+        reviewers: [{ type: 'User', reviewer: { id: 7560683, login: 'zoster81' } }] },
+      { type: 'branch_policy' },
+    ],
+  });
+  const policies = () => ({
+    total_count: 1, branch_policies: [{ name: 'v*', type: 'tag' }],
+  });
+  const run = async (env, refs, badHeaders = {}) => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      assert.equal(init.method, 'GET');
+      assert.equal(init.headers.Authorization, 'Bearer admin_only_test_token');
+      assert.equal(init.redirect, 'error');
+      assert.equal(init.cache, 'no-store');
+      if (url === envUrl) return response(env, 200, badHeaders);
+      assert.equal(url, refsUrl);
+      return response(refs);
+    };
+    return { calls, check: () => readProtectedFinalizerEnvironmentPolicy({
+      adminToken: 'admin_only_test_token', fetchImpl,
+    }) };
+  };
+  const valid = await run(environment(), policies());
+  assert.deepEqual(await valid.check(), { protected: true, environment: 'scripthold-immutable-publish' });
+  assert.deepEqual(valid.calls.map(x => x.url), [envUrl, refsUrl]);
+
+  const cases = [
+    [{ ...environment(), can_admins_bypass: true }, policies()],
+    [{ ...environment(), can_admins_bypass: undefined }, policies()],
+    [{ ...environment(), name: 'unprotected' }, policies()],
+    [{ ...environment(), deployment_branch_policy: {
+      protected_branches: true, custom_branch_policies: false } }, policies()],
+    [{ ...environment(), protection_rules: [{ type: 'branch_policy' }] }, policies()],
+    [{ ...environment(), protection_rules: environment().protection_rules.concat(
+      environment().protection_rules[0]) }, policies()],
+    [{ ...environment(), protection_rules: [
+      { ...environment().protection_rules[0], reviewers: [] },
+      { type: 'branch_policy' }] }, policies()],
+    [{ ...environment(), protection_rules: [
+      { ...environment().protection_rules[0], reviewers: [
+        { type: 'User', reviewer: { login: 'another-maintainer', id: 1 } }] },
+      { type: 'branch_policy' }] }, policies()],
+    [environment(), { total_count: 0, branch_policies: [] }],
+    [environment(), { total_count: 1, branch_policies: [{ name: 'main', type: 'branch' }] }],
+    [environment(), { total_count: 2, branch_policies: [
+      { name: 'v*', type: 'tag' }, { name: '*', type: 'branch' }] }],
+  ];
+  for (const [env, refs] of cases) {
+    const fake = await run(env, refs);
+    await assert.rejects(fake.check(), /protected|environment|tag policy/i);
+    assert.ok(fake.calls.length <= 2);
+    assert.equal(fake.calls.filter(x => x.init.method !== 'GET').length, 0);
+  }
+  const linked = await run(environment(), policies(), {
+    link: '<https://api.github.com/next>; rel="next"',
+  });
+  await assert.rejects(linked.check(), /protected|pagination|environment/i);
+  for (const [bad, status] of [[{ message: 'Forbidden' }, 403],
+    [{ message: 'Not Found' }, 404]]) {
+    const fetchImpl = async () => response(bad, status);
+    await assert.rejects(readProtectedFinalizerEnvironmentPolicy({
+      adminToken: 'admin_only_test_token', fetchImpl,
+    }), Error);
+  }
 });
 
 test('independently reads an exact 22-asset immutable published release', async () => {

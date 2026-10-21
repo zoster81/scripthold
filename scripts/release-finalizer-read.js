@@ -256,6 +256,52 @@ async function readImmutableReleasePolicy({
   return { enabled: true, enforcedByOwner: policy.enforced_by_owner };
 }
 
+// A future authorized writer must independently confirm its GitHub deployment
+// environment still requires the sole maintainer's approval and accepts only
+// version-tag deployments. This uses the separate Administration:read credential.
+// GitHub's own environment gate, not this observation, grants job approval.
+async function readProtectedFinalizerEnvironmentPolicy({
+  adminToken, fetchImpl = globalThis.fetch,
+} = {}) {
+  const base = 'https://api.github.com/repos/zoster81/scripthold/environments/' +
+    'scripthold-immutable-publish';
+  const get = makeGitHubGet(adminToken, fetchImpl);
+  const envResponse = await get(base);
+  const env = await readJsonResponse(envResponse, base);
+  requireCondition(envResponse.headers.get('link') === null &&
+    env && typeof env === 'object' && !Array.isArray(env) &&
+    env.name === 'scripthold-immutable-publish' &&
+    env.can_admins_bypass === false &&
+    env.deployment_branch_policy?.protected_branches === false &&
+    env.deployment_branch_policy?.custom_branch_policies === true &&
+    Array.isArray(env.protection_rules) && env.protection_rules.length === 2,
+  'GitHub finalizer environment is not independently protected');
+  const reviewerRules = env.protection_rules.filter(rule =>
+    rule && rule.type === 'required_reviewers');
+  const branchRules = env.protection_rules.filter(rule =>
+    rule && rule.type === 'branch_policy');
+  requireCondition(reviewerRules.length === 1 && branchRules.length === 1 &&
+    reviewerRules[0].prevent_self_review === false &&
+    Array.isArray(reviewerRules[0].reviewers) &&
+    reviewerRules[0].reviewers.length === 1 &&
+    reviewerRules[0].reviewers[0]?.type === 'User' &&
+    reviewerRules[0].reviewers[0].reviewer?.id === 7560683 &&
+    reviewerRules[0].reviewers[0].reviewer?.login === 'zoster81',
+  'GitHub finalizer environment lacks the exact protected maintainer reviewer');
+
+  const refsUrl = base + '/deployment-branch-policies';
+  const refsResponse = await get(refsUrl);
+  const refs = await readJsonResponse(refsResponse, refsUrl);
+  requireCondition(refsResponse.headers.get('link') === null &&
+    refs && typeof refs === 'object' && !Array.isArray(refs) &&
+    refs.total_count === 1 && Array.isArray(refs.branch_policies) &&
+    refs.branch_policies.length === 1 &&
+    refs.branch_policies[0]?.name === 'v*' &&
+    refs.branch_policies[0]?.type === 'tag',
+  'GitHub finalizer environment has an unsafe or incomplete tag policy');
+  return { protected: true, environment: env.name };
+}
+
 // Read-only final-state proof for a previously identified release. GitHub
 // reports immutable:true only after publication; all 22 remote asset IDs,
 // names, sizes, digests and states must agree with the trusted original set.
@@ -275,5 +321,6 @@ async function readVerifiedImmutablePublication({
 }
 
 module.exports = { readReleaseObservation, discoverReleaseByTag,
-  readImmutableReleasePolicy, readVerifiedImmutablePublication,
+  readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
+  readVerifiedImmutablePublication,
   makeGitHubGet, readJsonResponse };

@@ -6,7 +6,8 @@ const { createHash } = require('node:crypto');
 const { inspectFinalizerPreflight } = require('./release-finalizer-preflight');
 const { readPublicationAuthority } = require('./release-finalizer-authority');
 const { discoverReleaseByTag, makeGitHubGet, readJsonResponse,
-  readImmutableReleasePolicy, readVerifiedImmutablePublication } =
+  readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
+  readVerifiedImmutablePublication } =
   require('./release-finalizer-read');
 const { validateStagedManifest } = require('./release-asset-contract');
 const { planDraftAssetResume } = require('./release-asset-contract');
@@ -457,6 +458,7 @@ async function finalizeCompleteRelease(input) {
   requireCondition(typeof fetchImpl === 'function',
     'invalid finalizer GitHub API adapter');
   verifyDraftSourceInventory(input.manifest, input.normalDir, input.mcpbDir);
+  await readProtectedFinalizerEnvironmentPolicy({ adminToken: input.adminToken, fetchImpl });
   await readImmutableReleasePolicy({ adminToken: input.adminToken, fetchImpl });
   const authorized = { ...input, fetchImpl };
   const prepared = await prepareDraftAssets(authorized);
@@ -464,6 +466,9 @@ async function finalizeCompleteRelease(input) {
     prepared.count === 22 && Number.isSafeInteger(prepared.releaseId) &&
     prepared.releaseId > 0,
   'finalizer did not prepare an authenticated complete draft');
+  // The approval rules may change while the draft is being prepared.
+  // A drift blocks the public transition; GitHub remains the approval authority.
+  await readProtectedFinalizerEnvironmentPolicy({ adminToken: input.adminToken, fetchImpl });
   return publishCompleteDraft({
     ...authorized, expectedReleaseId: prepared.releaseId,
   });

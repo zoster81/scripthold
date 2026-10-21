@@ -92,7 +92,8 @@ test('draft asset writer refuses ambiguous or conflicting release states before 
 
 function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   preverifiedRemoteAssets = false, metadataPatch = {}, changeNotesBeforePost = false,
-  startAbsent = false, publicationPolicy = 'enabled', publishResponse = 'success' } = {}) {
+  startAbsent = false, publicationPolicy = 'enabled', publishResponse = 'success',
+  environmentPolicy = 'protected' } = {}) {
   const original = Buffer.from('verified original test binary bytes');
   const sha256 = createHash('sha256').update(original).digest('hex');
   const assets = expectedReleaseAssetNames(TAG).map((name, index) => ({
@@ -107,6 +108,7 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   let published = false;
   let publishCount = 0;
   let policyReads = 0;
+  let environmentReads = 0;
   let createCount = 0;
   let postCount = 0;
   let lookupCount = 0;
@@ -120,6 +122,35 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
   });
   const fetchImpl = async (url, options) => {
     calls.push({ url, method: options.method });
+    if (url === API + '/environments/scripthold-immutable-publish') {
+      assert.equal(options.method, 'GET');
+      assert.equal(options.headers.Authorization, 'Bearer admin_only_test_token');
+      environmentReads++;
+      return new Response(JSON.stringify({
+        name: 'scripthold-immutable-publish',
+        can_admins_bypass: environmentPolicy === 'bypass' ||
+          (environmentPolicy === 'flip' && environmentReads > 1),
+        deployment_branch_policy: {
+          protected_branches: false, custom_branch_policies: true,
+        },
+        protection_rules: [
+          { type: 'required_reviewers', prevent_self_review: false,
+            reviewers: [{ type: 'User',
+              reviewer: { id: 7560683, login: 'zoster81' } }] },
+          { type: 'branch_policy' },
+        ],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url === API + '/environments/scripthold-immutable-publish/deployment-branch-policies') {
+      assert.equal(options.method, 'GET');
+      assert.equal(options.headers.Authorization, 'Bearer admin_only_test_token');
+      return new Response(JSON.stringify({
+        total_count: 1, branch_policies: [{
+          type: environmentPolicy === 'wrong-ref' ? 'branch' : 'tag',
+          name: environmentPolicy === 'wrong-ref' ? 'main' : 'v*',
+        }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (url === API + '/immutable-releases') {
       assert.equal(options.method, 'GET');
       assert.equal(options.headers.Authorization, 'Bearer admin_only_test_token');
@@ -570,10 +601,51 @@ test('single-writer coordinator completes one authenticated draft before one imm
     const mutations = fake.calls.filter(call => call.method !== 'GET');
     assert.equal(mutations[0].url, API + '/releases', 'draft is created first');
     assert.equal(mutations.at(-1).method, 'PATCH', 'publication is last');
-    assert.equal(fake.calls[0].url, API + '/immutable-releases',
-      'immutable policy is checked before draft creation');
+    assert.equal(fake.calls[0].url,
+      API + '/environments/scripthold-immutable-publish',
+      'protected environment must be checked before any draft creation');
+    assert.equal(fake.calls[2].url, API + '/immutable-releases',
+      'immutable policy must also be checked before draft creation');
+    assert.equal(fake.calls.filter(call =>
+      call.url === API + '/environments/scripthold-immutable-publish').length, 2,
+    'environment protection must be rechecked before public publication');
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('single-writer halts on unsafe or changed protected GitHub deployment policy', async () => {
+  for (const environmentPolicy of ['bypass', 'wrong-ref', 'flip']) {
+    const fake = simulatedGitHubDraft({ startAbsent: true, environmentPolicy });
+    const base = fs.mkdtempSync(path.resolve(__dirname, '.test-protected-writer-policy-'));
+    const normalDir = path.join(base, 'normal');
+    const mcpbDir = path.join(base, 'mcpb');
+    try {
+      fs.mkdirSync(normalDir, { mode: 0o700 });
+      fs.mkdirSync(mcpbDir, { mode: 0o700 });
+      for (const asset of fake.manifest.assets) {
+        const dir = asset.name.endsWith('.mcpb') ||
+          asset.name === 'mcpb-checksums.txt' ? mcpbDir : normalDir;
+        fs.writeFileSync(path.join(dir, asset.name),
+          asset.name === fake.manifest.assets[0].name ?
+            fake.original : Buffer.alloc(asset.size), { mode: 0o600 });
+      }
+      await assert.rejects(finalizeCompleteRelease({
+        manifest: fake.manifest, publisherCommit: COMMIT,
+        token: 'test_token_never_used_on_network',
+        adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+        actionContext: validWriterContext(),
+        releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+      }), /protected|environment|tag policy/i);
+      assert.equal(fake.publishCount, 0,
+        'unsafe environment or mid-flight approval bypass must forbid public PATCH');
+      if (environmentPolicy !== 'flip') {
+        assert.equal(fake.createCount + fake.postCount, 0,
+          'never create or upload a draft without initial protected GitHub policy');
+      }
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   }
 });
 
@@ -621,7 +693,8 @@ test('single-writer coordinator fails before any network or mutation with unsafe
     assert.equal(disabled.createCount, 0);
     assert.equal(disabled.postCount, 0);
     assert.equal(disabled.publishCount, 0);
-    assert.deepEqual(disabled.calls.map(call => call.method), ['GET']);
+    assert.deepEqual(disabled.calls.map(call => call.method), ['GET', 'GET', 'GET'],
+      'environment and immutable policy reads must precede any mutation');
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
