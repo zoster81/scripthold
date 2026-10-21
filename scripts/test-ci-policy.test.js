@@ -345,6 +345,33 @@ test('future GitHub-only MCPB job consumes signed private originals and emits se
   assert.doesNotMatch(mcpb, /contents: write/);
 });
 
+test('future tagged finalizer requires an approved release environment but cannot publish yet', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'release.yml'), 'utf8');
+  const assertSafe = source => {
+    const finalizer = source.split(/^  finalize:\r?$/m)[1]
+      ?.split(/^  publish-registry:\r?$/m)[0];
+    assert.ok(finalizer, 'missing single Release finalizer');
+    assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
+    assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
+    assert.doesNotMatch(finalizer, /contents: write|id-token: write|secrets\.|finalizeCompleteRelease|prepareDraftAssets/);
+    assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
+    assert.match(finalizer, /^          exit 1\r?$/m);
+  };
+  assertSafe(workflow);
+  for (const [safe, unsafe] of [
+    ['    environment: scripthold-immutable-publish', '    environment: unprotected'],
+    ['    environment: scripthold-immutable-publish\n', ''],
+    ['    environment: scripthold-immutable-publish\n    permissions:\n      contents: read\n      actions: read',
+      '    environment: scripthold-immutable-publish\n    permissions:\n      contents: write\n      actions: read'],
+    ["          echo 'publication is disabled until the single-writer finalizer is qualified' >&2",
+      "          echo 'publication is permitted'"],
+  ]) {
+    assert.ok(workflow.includes(safe));
+    assert.throws(() => assertSafe(workflow.replace(safe, unsafe)));
+  }
+});
+
 test('future finalizer gates Registry on all 22 authenticated original files', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
     'workflows', 'release.yml'), 'utf8');

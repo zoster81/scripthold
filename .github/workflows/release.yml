@@ -558,6 +558,9 @@ jobs:
 
   finalize:
     needs: [release, publish-mcpb]
+    # Approval is enforced by the separately configured GitHub environment.
+    # This job intentionally retains read-only authority and cannot publish.
+    environment: scripthold-immutable-publish
     permissions:
       contents: read
       actions: read

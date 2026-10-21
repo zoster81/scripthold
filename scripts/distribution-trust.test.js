@@ -142,7 +142,7 @@ test('future GitHub-only MCPB producer has read-only repository access while pub
   assert.match(workflow,
     /jobs:\s*\n\s*publish:.*?permissions:\s*\n\s*contents:\s*read\s*\n\s*actions:\s*read/s);
   assert.match(release,
-    /\n  finalize:\s*\n\s*needs: \[release, publish-mcpb\]\s*\n\s*permissions:\s*\n\s*contents: read\s*\n\s*actions: read/);
+    /\n  finalize:\s*\n\s*needs: \[release, publish-mcpb\]\s*\n(?:\s*# [^\n]*\n)*\s*environment: scripthold-immutable-publish\s*\n\s*permissions:\s*\n\s*contents: read\s*\n\s*actions: read/);
   assert.match(release, /publication is disabled until the single-writer finalizer is qualified/);
   assert.match(release, /publish-registry:\s*\n\s*needs: finalize/);
   assert.doesNotMatch(workflow, /gh release upload/);
