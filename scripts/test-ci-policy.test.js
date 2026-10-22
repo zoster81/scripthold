@@ -308,7 +308,7 @@ test('tagged producer sends unchanged GoReleaser notes to the independent read-o
     'release-finalizer-complete-stage.js'), 'utf8');
   assert.match(localStage, /decodeGoReleaserNotes/);
   assert.doesNotMatch(producer, /--release-notes|generate_release_notes: true/);
-  assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
+  assert.match(finalizer, /Publish one verified immutable release/);
 });
 
 test('future signed normal producer has an independently authenticated fifteen-file Linux consumer', () => {
@@ -370,14 +370,34 @@ test('verified bytes and privileged release gate stay in distinct fail-closed jo
   assert.match(finalizer, /^    needs: \[release, publish-mcpb, verify-complete\]\r?$/m);
   assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
   assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
-  assert.doesNotMatch(finalizer, /^      contents: write$|id-token: write|finalizeCompleteRelease|prepareDraftAssets/m);
-  assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
-  assert.match(finalizer, /^          exit 1\r?$/m);
+  assert.doesNotMatch(finalizer, /^      contents: write$|id-token: write/m);
+  assert.match(finalizer, /Publish one verified immutable release/);
+  assert.match(finalizer, /const result = await finalizeCompleteRelease\(input\)/);
   assert.match(workflow, /^  publish-registry:\r?\n    needs: finalize\r?$/m);
-  // A clean exit would let Registry proceed without an authorized publication.
-  const unsafe = finalizer.replace('          exit 1', '          exit 0');
-  assert.doesNotMatch(unsafe, /^          exit 1\r?$/m);
-  assert.throws(() => assert.match(unsafe, /^          exit 1\r?$/m));
+  // Removing the authenticated mutator must invalidate the publication gate.
+  const requiredCall = /const result = await finalizeCompleteRelease\(input\)/;
+  const unsafe = finalizer.replace('await finalizeCompleteRelease(input)', 'undefined');
+  assert.match(finalizer, requiredCall);
+  assert.throws(() => assert.match(unsafe, requiredCall),
+    /regular expression/);
+});
+
+test('protected writer invokes the existing authenticated draft coordinator after approval', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'release.yml'), 'utf8');
+  const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(finalizer);
+  const check = finalizer.indexOf('node scripts/release-finalizer-complete-stage.js');
+  const admin = finalizer.indexOf('      - name: Mint short-lived administration reader');
+  const token = finalizer.indexOf('      - name: Mint short-lived release writer token');
+  const publish = finalizer.indexOf('      - name: Publish one verified immutable release');
+  assert.ok(check >= 0 && check < admin && admin < token && token < publish);
+  assert.match(finalizer, /const input = buildProtectedPublicationInput\(process\.env\);/);
+  assert.match(finalizer, /const result = await finalizeCompleteRelease\(input\);/);
+  assert.match(finalizer, /result\?\.kind !== 'immutable-publication'/);
+  assert.doesNotMatch(finalizer, /Fail closed until single-writer|gh release (?:upload|create|edit)/);
+  assert.match(workflow, /^  publish-registry:\r?\n    needs: finalize\r?$/m);
 });
 
 test('protected finalizer can mint only two repository-scoped App tokens after byte verification', () => {
@@ -392,16 +412,15 @@ test('protected finalizer can mint only two repository-scoped App tokens after b
   const verified = finalizer.indexOf('node scripts/release-finalizer-complete-stage.js');
   const minted = finalizer.indexOf('      - name: Mint short-lived administration reader');
   const second = finalizer.indexOf('      - name: Mint short-lived release writer token');
-  const checked = finalizer.indexOf('      - name: Validate protected publication input without publishing');
-  const stopped = finalizer.indexOf('      - name: Fail closed until single-writer draft finalizer');
+  const checked = finalizer.indexOf('      - name: Publish one verified immutable release');
   assert.ok(verified >= 0 && minted > verified && second > minted &&
-    checked > second && stopped > checked,
-  'protected input validation must follow byte verification and token issuance');
+    checked > second,
+  'protected writer must follow independent byte verification and token issuance');
   const pin = 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1';
   assert.equal(finalizer.split('uses: ' + pin).length - 1, 2);
   assert.equal((finalizer.match(/uses: actions\/create-github-app-token@/g) || []).length, 2);
   const sections = [finalizer.slice(minted, second), finalizer.slice(second, checked)];
-  const bridge = finalizer.slice(checked, stopped);
+  const bridge = finalizer.slice(checked);
   for (const required of [
     'SOURCE_NORMAL_MANIFEST: ${{ needs.release.outputs.manifest }}',
     'SOURCE_MCPB_MANIFEST: ${{ needs.publish-mcpb.outputs.manifest }}',
@@ -414,7 +433,8 @@ test('protected finalizer can mint only two repository-scoped App tokens after b
   ]) assert.ok(bridge.includes(required), 'missing protected binding: ' + required);
   assert.match(bridge, /^        shell: bash$/m);
   assert.match(bridge, /^          set -euo pipefail$/m);
-  assert.doesNotMatch(bridge, /finalizeCompleteRelease|prepareDraftAssets|gh release|GITHUB_OUTPUT|contents: write/);
+  assert.match(bridge, /await finalizeCompleteRelease\(input\)/);
+  assert.doesNotMatch(bridge, /gh release|GITHUB_OUTPUT|contents: write/);
   for (const section of sections) {
     assert.match(section, /app-id: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_ID \}\}/);
     assert.match(section, /private-key: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY \}\}/);
@@ -430,8 +450,8 @@ test('protected finalizer can mint only two repository-scoped App tokens after b
     ['secrets.SCRIPTHOLD_RELEASE_APP_ID', 'secrets.SCRIPTHOLD_RELEASE_APP_ID',
       'secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY',
       'secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY'].sort());
-  assert.match(finalizer, /^          exit 1$/m);
-  assert.doesNotMatch(finalizer, /finalizeCompleteRelease|prepareDraftAssets|id-token: write/);
+  assert.match(finalizer, /result\?\.kind !== 'immutable-publication'/);
+  assert.doesNotMatch(finalizer, /id-token: write/);
 });
 
 test('protected finalizer independently verifies 22 downloaded originals on its runner', () => {
@@ -457,12 +477,12 @@ test('protected finalizer independently verifies 22 downloaded originals on its 
   for (const job of [verifier, finalizer]) {
     for (const pattern of required) assert.match(job, pattern);
     assert.match(job, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
-    assert.doesNotMatch(job, /^      contents: write$|id-token: write|finalizeCompleteRelease/m);
+    assert.doesNotMatch(job, /^      contents: write$|id-token: write/m);
     if (job === verifier) assert.doesNotMatch(job, /secrets\./);
   }
   assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
   assert.ok(finalizer.indexOf('node scripts/release-finalizer-complete-stage.js') <
-    finalizer.indexOf('publication is disabled until the single-writer finalizer is qualified'));
+    finalizer.indexOf('      - name: Publish one verified immutable release'));
   const implementation = fs.readFileSync(path.join(__dirname,
     'release-finalizer-complete-stage.js'), 'utf8');
   for (const check of [
@@ -474,7 +494,7 @@ test('protected finalizer independently verifies 22 downloaded originals on its 
     /require\('\.\/release-finalizer-write'\)|finalizeCompleteRelease|prepareDraftAssets/);
 });
 
-test('future tagged finalizer requires an approved release environment but cannot publish yet', () => {
+test('future tagged publisher requires protected approval and cannot bypass the single writer', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
     'workflows', 'release.yml'), 'utf8');
   const assertSafe = source => {
@@ -484,9 +504,9 @@ test('future tagged finalizer requires an approved release environment but canno
     assert.match(finalizer, /^    needs: \[release, publish-mcpb, verify-complete\]\r?$/m);
     assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
     assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
-    assert.doesNotMatch(finalizer, /^      contents: write$|id-token: write|finalizeCompleteRelease|prepareDraftAssets/m);
-    assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
-    assert.match(finalizer, /^          exit 1\r?$/m);
+    assert.doesNotMatch(finalizer, /^      contents: write$|id-token: write/m);
+    assert.match(finalizer, /Publish one verified immutable release/);
+    assert.match(finalizer, /const result = await finalizeCompleteRelease\(input\)/);
   };
   assertSafe(workflow);
   for (const [safe, unsafe] of [
@@ -494,8 +514,8 @@ test('future tagged finalizer requires an approved release environment but canno
     ['    environment: scripthold-immutable-publish\n', ''],
     ['    environment: scripthold-immutable-publish\n    permissions:\n      contents: read\n      actions: read',
       '    environment: scripthold-immutable-publish\n    permissions:\n      contents: write\n      actions: read'],
-    ["          echo 'publication is disabled until the single-writer finalizer is qualified' >&2",
-      "          echo 'publication is permitted'"],
+    ["      - name: Publish one verified immutable release",
+      "      - name: Skip authenticated publication"],
   ]) {
     assert.ok(workflow.includes(safe));
     assert.throws(() => assertSafe(workflow.replace(safe, unsafe)));
@@ -554,7 +574,7 @@ test('future finalizer gates Registry on all 22 authenticated original files', (
   assert.match(verifier, /digest-mismatch: error/);
   assert.doesNotMatch(verifier, /gh release (?:upload|create|edit)|contents: write/);
   assert.match(finalizer, /needs: \[release, publish-mcpb, verify-complete\]/);
-  assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
+  assert.match(finalizer, /Publish one verified immutable release/);
   const registry = workflow.split(/^  publish-registry:\r?$/m)[1];
   assert.ok(registry.includes('needs: finalize'),
     'Registry must never publish after merely building MCPB assets');

@@ -145,7 +145,7 @@ test('future GitHub-only MCPB producer has read-only repository access while pub
     /\n  verify-complete:\s*\n\s*needs: \[release, publish-mcpb\]\s*\n(?:\s*# [^\n]*\n)*\s*permissions:\s*\n\s*contents: read\s*\n\s*actions: read/);
   assert.match(release,
     /\n  finalize:\s*\n\s*needs: \[release, publish-mcpb, verify-complete\]\s*\n(?:\s*# [^\n]*\n)*\s*environment: scripthold-immutable-publish\s*\n\s*permissions:\s*\n\s*contents: read\s*\n\s*actions: read/);
-  assert.match(release, /publication is disabled until the single-writer finalizer is qualified/);
+  assert.match(release, /Publish one verified immutable release/);
   assert.match(release, /publish-registry:\s*\n\s*needs: finalize/);
   assert.doesNotMatch(workflow, /gh release upload/);
 });
@@ -212,7 +212,7 @@ test('tagged producer keeps exact-commit Scorecard and authentic Sigstore eviden
   assert.match(workflow, /group: scripthold-immutable-release-\$\{\{ github.ref_name \}\}/);
   assert.doesNotMatch(workflow, /gh release upload/);
   assert.doesNotMatch(workflow, /^\s*contents: write\s*$/m);
-  assert.match(workflow, /publication is disabled until the single-writer finalizer is qualified/);
+  assert.match(workflow, /Publish one verified immutable release/);
 });
 
 test('release asset manifest contract is always exercised by CI policy', () => {

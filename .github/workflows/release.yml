@@ -704,9 +704,10 @@ jobs:
           repositories: scripthold
           permission-contents: write
 
-      # Check future writer arguments inside the approved job, but never invoke
-      # a release mutator. The fail-closed step below stays unconditional.
-      - name: Validate protected publication input without publishing
+      # The environment approval is independent of the complete byte verifier.
+      # Reauthenticate before each remote write; release publication is allowed
+      # only while GitHub immutability is confirmed by the separate admin reader.
+      - name: Publish one verified immutable release
         shell: bash
         env:
           SOURCE_NORMAL_MANIFEST: ${{ needs.release.outputs.manifest }}
@@ -719,21 +720,22 @@ jobs:
           set -euo pipefail
           node <<'NODE'
           'use strict';
-          const { buildProtectedPublicationInput } =
+          const { buildProtectedPublicationInput, finalizeCompleteRelease } =
             require('./scripts/release-finalizer-write');
-          const input = buildProtectedPublicationInput(process.env);
-          if (input.manifest.assets.length !== 22) {
-            throw new Error('incomplete protected publication input');
+          async function main() {
+            const input = buildProtectedPublicationInput(process.env);
+            const result = await finalizeCompleteRelease(input);
+            if (result?.kind !== 'immutable-publication' ||
+                result.count !== 22) {
+              throw new Error('immutable release finalization is incomplete');
+            }
+            console.log('Verified immutable release and all 22 original assets');
           }
-          console.log('Protected input checked without release mutation');
+          main().catch(error => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
           NODE
-
-      - name: Fail closed until single-writer draft finalizer is implemented
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'publication is disabled until the single-writer finalizer is qualified' >&2
-          exit 1
 
   publish-registry:
     needs: finalize
