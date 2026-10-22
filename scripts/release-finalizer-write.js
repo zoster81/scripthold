@@ -6,7 +6,7 @@ const { createHash } = require('node:crypto');
 const { inspectFinalizerPreflight, requireTaggedWriterContext,
   requireHostedTaggedWriterContext } = require('./release-finalizer-preflight');
 const { readPublicationAuthority } = require('./release-finalizer-authority');
-const { discoverReleaseByTag, makeGitHubGet, readJsonResponse,
+const { discoverReleaseByTag, readReleaseObservation, makeGitHubGet, readJsonResponse,
   readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
   readScopedPublicationInstallation, readVerifiedImmutablePublication } =
   require('./release-finalizer-read');
@@ -285,16 +285,17 @@ async function createDraftRelease({
     created.body === releaseNotes &&
     created.prerelease === /^v\d+\.\d+\.\d+-/.test(manifest.tag),
   'GitHub draft creation response differs from the producer metadata');
-  const observed = await discoverReleaseByTag({
-    tag: manifest.tag, token, fetchImpl,
+  // After POST, the releases listing can lag behind a draft available by ID.
+  // Re-read the returned immutable numeric identity, never infer a draft from POST alone.
+  const observed = await readReleaseObservation({
+    releaseId: created.id, tag: manifest.tag, token, fetchImpl,
   });
-  requireCondition(observed.kind === 'candidate' &&
-    observed.releaseId === created.id &&
-    observed.observation.release.draft === true &&
-    observed.observation.release.immutable === false &&
-    observed.observation.assetPage.assets.length === 0,
+  requireCondition(observed.kind === 'present' &&
+    observed.release.draft === true &&
+    observed.release.immutable === false &&
+    observed.assetPage.assets.length === 0,
   'created draft is not independently visible and empty');
-  verifyDraftMetadata(observed.observation.release, manifest, releaseNotes);
+  verifyDraftMetadata(observed.release, manifest, releaseNotes);
   const after = await readPublicationAuthority({
     ...input, token: authorityToken,
   });
