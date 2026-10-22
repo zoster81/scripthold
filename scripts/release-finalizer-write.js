@@ -140,7 +140,8 @@ async function trustedSource(name, asset, directories) {
 // The tagged workflow must hold the per-tag GitHub Actions concurrency lock.
 // This function cannot independently prove a lock or create/publish releases.
 async function uploadOneDraftAsset({
-  manifest, publisherCommit, token, normalDir, mcpbDir, releaseNotesMetadata,
+  manifest, publisherCommit, token, authorityToken = token,
+  normalDir, mcpbDir, releaseNotesMetadata,
   fetchImpl = globalThis.fetch,
 }) {
   validateStagedManifest(manifest);
@@ -151,7 +152,7 @@ async function uploadOneDraftAsset({
   requireCondition(typeof fetchImpl === 'function', 'invalid GitHub fetch adapter');
   const event = { eventName: 'push', repository: 'zoster81/scripthold',
     ref: 'refs/tags/' + manifest?.tag };
-  const input = { event, manifest, publisherCommit, token, fetchImpl };
+  const input = { event, manifest, publisherCommit, token, authorityToken, fetchImpl };
   const first = selectedDraft(await inspectFinalizerPreflight(input), manifest, releaseNotes);
   if (first.plan.missing.length === 0) {
     return { kind: 'draft-complete', releaseId: first.release.id, count: 22 };
@@ -211,8 +212,9 @@ function sameAuthority(a, b) {
 
 async function observeDraftAbsence(input) {
   const { manifest, publisherCommit, token, fetchImpl } = input;
+  const authorityToken = input.authorityToken ?? token;
   const authority = await readPublicationAuthority({
-    manifest, publisherCommit, token, fetchImpl,
+    manifest, publisherCommit, token: authorityToken, fetchImpl,
   });
   const list = await discoverReleaseByTag({
     tag: manifest.tag, token, fetchImpl,
@@ -226,7 +228,7 @@ async function observeDraftAbsence(input) {
     (!response.url || response.url === url),
   'draft tag lookup was not an exact GitHub 404');
   const next = await readPublicationAuthority({
-    manifest, publisherCommit, token, fetchImpl,
+    manifest, publisherCommit, token: authorityToken, fetchImpl,
   });
   sameAuthority(authority, next);
   return next;
@@ -237,8 +239,8 @@ async function observeDraftAbsence(input) {
 // Only create ONE draft from two separately inspected absence observations;
 // never publish here or interpret an uncertain POST as permission to retry.
 async function createDraftRelease({
-  manifest, publisherCommit, token, releaseNotesMetadata,
-  fetchImpl = globalThis.fetch,
+  manifest, publisherCommit, token, authorityToken = token,
+  releaseNotesMetadata, fetchImpl = globalThis.fetch,
 }) {
   validateStagedManifest(manifest);
   requireCondition(typeof token === 'string' && token.length > 0 &&
@@ -249,7 +251,7 @@ async function createDraftRelease({
   // Only the canonical output of the trusted tagged GoReleaser producer is
   // accepted. The caller must authenticate that producing job/run/attempt.
   const releaseNotes = decodeGoReleaserNotes(releaseNotesMetadata);
-  const input = { manifest, publisherCommit, token, fetchImpl };
+  const input = { manifest, publisherCommit, token, authorityToken, fetchImpl };
   const first = await observeDraftAbsence(input);
   const second = await observeDraftAbsence(input);
   sameAuthority(first, second);
@@ -292,7 +294,9 @@ async function createDraftRelease({
     observed.observation.assetPage.assets.length === 0,
   'created draft is not independently visible and empty');
   verifyDraftMetadata(observed.observation.release, manifest, releaseNotes);
-  const after = await readPublicationAuthority(input);
+  const after = await readPublicationAuthority({
+    ...input, token: authorityToken,
+  });
   sameAuthority(first, after);
   return { kind: 'created', releaseId: created.id, tag: manifest.tag };
 }
@@ -349,8 +353,8 @@ async function prepareDraftAssets(input) {
 // acquire the required per-tag workflow lock or authorize a release itself.
 // Publication is never retried after an ambiguous GitHub PATCH response.
 async function publishCompleteDraft({
-  manifest, publisherCommit, token, adminToken, releaseNotesMetadata,
-  expectedReleaseId, fetchImpl = globalThis.fetch,
+  manifest, publisherCommit, token, adminToken, authorityToken = token,
+  releaseNotesMetadata, expectedReleaseId, fetchImpl = globalThis.fetch,
 }) {
   validateStagedManifest(manifest);
   const releaseNotes = decodeGoReleaserNotes(releaseNotesMetadata);
@@ -362,7 +366,7 @@ async function publishCompleteDraft({
   'separate publication and administrator-read tokens are required');
   const event = { eventName: 'push', repository: 'zoster81/scripthold',
     ref: 'refs/tags/' + manifest.tag };
-  const input = { event, manifest, publisherCommit, token, fetchImpl };
+  const input = { event, manifest, publisherCommit, token, authorityToken, fetchImpl };
   const firstPolicy = await readImmutableReleasePolicy({ adminToken, fetchImpl });
   const first = selectedDraft(await inspectFinalizerPreflight(input),
     manifest, releaseNotes);
@@ -427,8 +431,13 @@ async function finalizeCompleteRelease(input) {
     typeof input.adminToken === 'string' &&
     input.adminToken.length > 0 && input.adminToken.length <= 4096 &&
     /^[\x21-\x7e]+$/.test(input.adminToken) &&
-    input.token !== input.adminToken,
-  'distinct publication and administrator-read credentials are required');
+    typeof input.authorityToken === 'string' &&
+    input.authorityToken.length > 0 && input.authorityToken.length <= 4096 &&
+    /^[\x21-\x7e]+$/.test(input.authorityToken) &&
+    input.token !== input.adminToken &&
+    input.authorityToken !== input.token &&
+    input.authorityToken !== input.adminToken,
+  'distinct release, administrator-read and Actions-read authority tokens required');
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;
   requireCondition(typeof fetchImpl === 'function',
     'invalid finalizer GitHub API adapter');

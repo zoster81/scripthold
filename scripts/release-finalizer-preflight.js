@@ -95,13 +95,16 @@ function requireHostedTaggedWriterContext(env, manifest, publisherCommit) {
 // GitHub Actions single-writer concurrency, then run a fresh check again
 // immediately before each remote mutation.
 async function inspectFinalizerPreflight({
-  event, manifest, publisherCommit, token, fetchImpl = globalThis.fetch,
+  event, manifest, publisherCommit, token, authorityToken = token,
+  fetchImpl = globalThis.fetch,
 }) {
   const selected = resolveFinalizerEvent(event);
   validateStagedManifest(manifest);
   requireCondition(manifest.repository === selected.repository &&
     manifest.tag === selected.tag, 'event tag disagrees with staging manifest');
-  const inputs = { manifest, publisherCommit, token, fetchImpl };
+  // Workflow authority requires Actions:read. A release-only App token must
+  // not be used for that API: keep it for release discovery and mutations.
+  const inputs = { manifest, publisherCommit, token: authorityToken, fetchImpl };
   const before = await readPublicationAuthority(inputs);
   const discovery = await discoverReleaseByTag({
     tag: selected.tag, token, fetchImpl,

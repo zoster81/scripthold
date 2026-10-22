@@ -121,7 +121,8 @@ function simulatedGitHubDraft({ response = 'success', changeBeforePost = false,
     path: workflowPath, head_repository: { full_name: REPO },
   });
   const fetchImpl = async (url, options) => {
-    calls.push({ url, method: options.method });
+    calls.push({ url, method: options.method,
+      authorization: options.headers?.Authorization });
     if (url === 'https://api.github.com/installation/repositories?per_page=2&page=1') {
       assert.equal(options.method, 'GET');
       assert.equal(options.headers.Authorization, 'Bearer test_token_never_used_on_network');
@@ -514,6 +515,7 @@ test('publishes only one complete 22-original draft after independent immutable 
     manifest: fake.manifest, publisherCommit: COMMIT,
     token: 'test_token_never_used_on_network',
     adminToken: 'admin_only_test_token',
+    authorityToken: 'readonly_actions_test_token',
     releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
   };
   assert.deepEqual(await publishCompleteDraft(input),
@@ -591,6 +593,26 @@ test('single-writer refuses untrusted tagged GitHub Actions context without cont
   }
 });
 
+test('protected coordinator requires a separate read-only Actions authority credential', async () => {
+  const valid = {
+    manifest: fixture().authority.manifest, publisherCommit: COMMIT,
+    token: 'test_token_never_used_on_network',
+    adminToken: 'admin_only_test_token',
+    actionContext: validWriterContext(),
+    normalDir: 'unsafe-source', mcpbDir: 'unsafe-source',
+    releaseNotesMetadata: notesMetadata(),
+  };
+  for (const authorityToken of [undefined, '', valid.token,
+    valid.adminToken, 'invalid\nheader']) {
+    let requests = 0;
+    await assert.rejects(finalizeCompleteRelease({
+      ...valid, authorityToken,
+      fetchImpl: async () => { requests++; throw new Error('unexpected network'); },
+    }), /distinct.*(read|authority)|authority.*token/i);
+    assert.equal(requests, 0, 'bad authority token must block all requests');
+  }
+});
+
 test('single-writer coordinator completes one authenticated draft before one immutable publish', async () => {
   const fake = simulatedGitHubDraft({ startAbsent: true });
   const base = fs.mkdtempSync(path.resolve(__dirname, '.test-finalizer-coordinator-'));
@@ -609,14 +631,24 @@ test('single-writer coordinator completes one authenticated draft before one imm
     assert.deepEqual(await finalizeCompleteRelease({
       manifest: fake.manifest, publisherCommit: COMMIT,
       token: 'test_token_never_used_on_network',
-      adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      adminToken: 'admin_only_test_token',
+      authorityToken: 'readonly_actions_test_token', normalDir, mcpbDir,
       actionContext: validWriterContext(),
       releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
     }), { kind: 'immutable-publication', releaseId: 123, count: 22 });
     assert.equal(fake.createCount, 1);
     assert.equal(fake.postCount, 22);
     assert.equal(fake.publishCount, 1);
+    const actionsReads = fake.calls.filter(call =>
+      call.url.includes('/actions/'));
+    assert.ok(actionsReads.length > 0, 'workflow provenance is read through Actions API');
+    assert.ok(actionsReads.every(call =>
+      call.authorization === 'Bearer readonly_actions_test_token'),
+    'release write-only App token must never read Actions authority');
     const mutations = fake.calls.filter(call => call.method !== 'GET');
+    assert.ok(mutations.every(call => call.authorization ===
+      'Bearer test_token_never_used_on_network'),
+    'read-only Actions token must not perform release mutations');
     assert.equal(mutations[0].url, API + '/releases', 'draft is created first');
     assert.equal(mutations.at(-1).method, 'PATCH', 'publication is last');
     assert.equal(fake.calls[0].url,
@@ -651,7 +683,8 @@ test('single-writer forbids draft writes with an unscoped or non-App publication
       await assert.rejects(finalizeCompleteRelease({
         manifest: fake.manifest, publisherCommit: COMMIT,
         token: 'test_token_never_used_on_network',
-        adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+        adminToken: 'admin_only_test_token',
+        authorityToken: 'readonly_actions_test_token', normalDir, mcpbDir,
         actionContext: validWriterContext(),
         releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
       }), /installation|scope|repository|GitHub response/i);
@@ -682,7 +715,8 @@ test('single-writer halts on unsafe or changed protected GitHub deployment polic
       await assert.rejects(finalizeCompleteRelease({
         manifest: fake.manifest, publisherCommit: COMMIT,
         token: 'test_token_never_used_on_network',
-        adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+        adminToken: 'admin_only_test_token',
+        authorityToken: 'readonly_actions_test_token', normalDir, mcpbDir,
         actionContext: validWriterContext(),
         releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
       }), /protected|environment|tag policy/i);
@@ -735,7 +769,8 @@ test('single-writer coordinator fails before any network or mutation with unsafe
     await assert.rejects(finalizeCompleteRelease({
       manifest: disabled.manifest, publisherCommit: COMMIT,
       token: 'test_token_never_used_on_network',
-      adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      adminToken: 'admin_only_test_token',
+      authorityToken: 'readonly_actions_test_token', normalDir, mcpbDir,
       actionContext: validWriterContext(),
       releaseNotesMetadata: notesMetadata(), fetchImpl: disabled.fetchImpl,
     }), /immutable|enabled/i);
@@ -769,7 +804,8 @@ test('single-writer coordinator stops after ambiguous upload without publication
     await assert.rejects(finalizeCompleteRelease({
       manifest: fake.manifest, publisherCommit: COMMIT,
       token: 'test_token_never_used_on_network',
-      adminToken: 'admin_only_test_token', normalDir, mcpbDir,
+      adminToken: 'admin_only_test_token',
+      authorityToken: 'readonly_actions_test_token', normalDir, mcpbDir,
       actionContext: validWriterContext(),
       releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
     }), /ambiguous GitHub upload response/);
