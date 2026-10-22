@@ -3,14 +3,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { inspectFinalizerPreflight, requireTaggedWriterContext } =
-  require('./release-finalizer-preflight');
+const { inspectFinalizerPreflight, requireTaggedWriterContext,
+  requireHostedTaggedWriterContext } = require('./release-finalizer-preflight');
 const { readPublicationAuthority } = require('./release-finalizer-authority');
 const { discoverReleaseByTag, makeGitHubGet, readJsonResponse,
   readImmutableReleasePolicy, readProtectedFinalizerEnvironmentPolicy,
   readScopedPublicationInstallation, readVerifiedImmutablePublication } =
   require('./release-finalizer-read');
-const { validateStagedManifest } = require('./release-asset-contract');
+const { validateStagedManifest, composeStagedGroupManifests } =
+  require('./release-asset-contract');
 const { planDraftAssetResume } = require('./release-asset-contract');
 const { decodeGoReleaserNotes } = require('./release-normal-source');
 const { verifyDraftSourceInventory } = require('./release-finalizer-source-inventory');
@@ -461,5 +462,68 @@ async function finalizeCompleteRelease(input) {
   });
 }
 
-module.exports = { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
+// Convert only the approved tagged job's fixed producer outputs into a
+// future writer call. This pure adapter neither opens files, authenticates
+// GitHub approval, creates tokens, nor invokes a release mutation.
+function buildProtectedPublicationInput(env) {
+  requireCondition(env && typeof env === 'object' && !Array.isArray(env),
+    'invalid protected finalizer environment');
+  const decodeGroup = (name) => {
+    const value = env[name];
+    requireCondition(typeof value === 'string' && value.length > 0 &&
+      Buffer.byteLength(value, 'utf8') <= 128 * 1024,
+    'invalid protected producer manifest length');
+    try {
+      return JSON.parse(value);
+    } catch {
+      throw new Error('invalid protected producer manifest JSON');
+    }
+  };
+  const manifest = composeStagedGroupManifests(
+    decodeGroup('SOURCE_NORMAL_MANIFEST'),
+    decodeGroup('SOURCE_MCPB_MANIFEST'));
+  requireCondition(env.GITHUB_REF_NAME === manifest.tag &&
+    env.GITHUB_SHA === manifest.commit,
+  'protected writer source differs from checked-out tag');
+  requireHostedTaggedWriterContext(env, manifest, manifest.commit);
+  const notes = env.SOURCE_RELEASE_NOTES_METADATA;
+  requireCondition(typeof notes === 'string' && notes.length > 0 &&
+    Buffer.byteLength(notes, 'utf8') <= 96000,
+  'invalid protected original release notes metadata');
+  decodeGoReleaserNotes(notes);
+
+  const token = env.SCRIPTHOLD_RELEASE_WRITE_TOKEN;
+  const adminToken = env.SCRIPTHOLD_RELEASE_ADMIN_READ_TOKEN;
+  const authorityToken = env.GH_TOKEN;
+  const valid = value => typeof value === 'string' && value.length > 0 &&
+    value.length <= 4096 && /^[\x21-\x7e]+$/.test(value);
+  requireCondition(valid(token) && valid(adminToken) &&
+    valid(authorityToken) && token !== adminToken &&
+    token !== authorityToken && adminToken !== authorityToken,
+  'distinct release, administrator-read and Actions-read authority tokens required');
+  const temp = env.RUNNER_TEMP;
+  requireCondition(typeof temp === 'string' && temp.length > 0 &&
+    temp.length <= 4096 && path.isAbsolute(temp) &&
+    path.resolve(temp) === temp, 'invalid protected runner temporary directory');
+  const actionContext = {
+    eventName: env.GITHUB_EVENT_NAME,
+    repository: env.GITHUB_REPOSITORY,
+    ref: env.GITHUB_REF,
+    workflowRef: env.GITHUB_WORKFLOW_REF,
+    sha: env.GITHUB_SHA,
+    job: env.GITHUB_JOB,
+    runId: env.GITHUB_RUN_ID,
+    runAttempt: env.GITHUB_RUN_ATTEMPT,
+  };
+  return {
+    manifest, publisherCommit: env.GITHUB_SHA, actionContext,
+    token, adminToken, authorityToken,
+    releaseNotesMetadata: notes,
+    normalDir: path.join(temp, 'complete-normal'),
+    mcpbDir: path.join(temp, 'complete-mcpb'),
+  };
+}
+
+module.exports = { buildProtectedPublicationInput,
+  uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
   prepareDraftAssets, publishCompleteDraft, finalizeCompleteRelease };

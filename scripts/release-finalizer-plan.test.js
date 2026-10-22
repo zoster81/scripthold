@@ -7,7 +7,8 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { uploadOneDraftAsset, uploadAllDraftAssets, createDraftRelease,
   prepareDraftAssets, publishCompleteDraft,
-  finalizeCompleteRelease } = require('./release-finalizer-write');
+  finalizeCompleteRelease, buildProtectedPublicationInput } =
+  require('./release-finalizer-write');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
 const { encodeGoReleaserNotes } = require('./release-normal-source');
 const { normalizeReleaseAssetPage, planReleaseFinalizerStep } =
@@ -24,6 +25,77 @@ const validWriterContext = () => ({
   eventName: 'push', repository: REPO, ref: 'refs/tags/' + TAG,
   workflowRef: REPO + '/.github/workflows/release.yml@refs/tags/' + TAG,
   sha: COMMIT, job: 'finalize', runId: '12345', runAttempt: '1',
+});
+
+function protectedStageEnvironment() {
+  const { manifest } = fixture().authority;
+  const normal = {
+    repository: REPO, tag: TAG, commit: COMMIT, stage: 'normal',
+    assets: manifest.assets.filter(a =>
+      !a.name.endsWith('.mcpb') && a.name !== 'mcpb-checksums.txt'),
+  };
+  const mcpb = {
+    repository: REPO, tag: TAG, commit: COMMIT, stage: 'mcpb',
+    assets: manifest.assets.filter(a =>
+      a.name.endsWith('.mcpb') || a.name === 'mcpb-checksums.txt'),
+  };
+  return {
+    GITHUB_EVENT_NAME: 'push', GITHUB_REPOSITORY: REPO,
+    GITHUB_REF: 'refs/tags/' + TAG, GITHUB_REF_NAME: TAG,
+    GITHUB_SHA: COMMIT, GITHUB_JOB: 'finalize',
+    GITHUB_WORKFLOW_REF: validWriterContext().workflowRef,
+    GITHUB_RUN_ID: '12345', GITHUB_RUN_ATTEMPT: '1',
+    RUNNER_TEMP: path.resolve(__dirname, '.test-future-approved-finalizer'),
+    SOURCE_NORMAL_MANIFEST: JSON.stringify(normal),
+    SOURCE_MCPB_MANIFEST: JSON.stringify(mcpb),
+    SOURCE_RELEASE_NOTES_METADATA: JSON.stringify(notesMetadata()),
+    SCRIPTHOLD_RELEASE_WRITE_TOKEN: 'test_write_scoped',
+    SCRIPTHOLD_RELEASE_ADMIN_READ_TOKEN: 'test_admin_read_scoped',
+    GH_TOKEN: 'test_actions_read_scoped',
+  };
+}
+
+test('pure protected publication adapter binds twenty-two originals and three distinct credentials', () => {
+  const env = protectedStageEnvironment();
+  const args = buildProtectedPublicationInput(env);
+  assert.deepEqual(args.manifest, fixture().authority.manifest);
+  assert.equal(args.publisherCommit, COMMIT);
+  assert.deepEqual(args.actionContext, validWriterContext());
+  assert.equal(args.token, env.SCRIPTHOLD_RELEASE_WRITE_TOKEN);
+  assert.equal(args.adminToken, env.SCRIPTHOLD_RELEASE_ADMIN_READ_TOKEN);
+  assert.equal(args.authorityToken, env.GH_TOKEN);
+  assert.equal(args.releaseNotesMetadata, env.SOURCE_RELEASE_NOTES_METADATA);
+  assert.equal(args.normalDir, path.join(env.RUNNER_TEMP, 'complete-normal'));
+  assert.equal(args.mcpbDir, path.join(env.RUNNER_TEMP, 'complete-mcpb'));
+});
+
+test('pure protected publication adapter rejects changed source, job and token authority', () => {
+  const env = protectedStageEnvironment();
+  const invalid = [
+    { GITHUB_EVENT_NAME: 'workflow_dispatch' },
+    { GITHUB_REF: 'refs/heads/main' },
+    { GITHUB_REF_NAME: 'v0.0.1' },
+    { GITHUB_JOB: 'verify-complete' },
+    { GITHUB_WORKFLOW_REF: REPO + '/.github/workflows/release.yml@refs/heads/main' },
+    { GITHUB_SHA: 'b'.repeat(40) },
+    { GITHUB_RUN_ATTEMPT: '0' },
+    { SOURCE_MCPB_MANIFEST: JSON.stringify({
+      ...JSON.parse(env.SOURCE_MCPB_MANIFEST), commit: 'b'.repeat(40),
+    }) },
+    { SOURCE_NORMAL_MANIFEST: '{bad-json' },
+    { SOURCE_NORMAL_MANIFEST: ' '.repeat(150000) },
+    { SOURCE_RELEASE_NOTES_METADATA: '{}' },
+    { RUNNER_TEMP: 'relative/runner' },
+    { SCRIPTHOLD_RELEASE_WRITE_TOKEN: '' },
+    { SCRIPTHOLD_RELEASE_ADMIN_READ_TOKEN: env.SCRIPTHOLD_RELEASE_WRITE_TOKEN },
+    { GH_TOKEN: env.SCRIPTHOLD_RELEASE_ADMIN_READ_TOKEN },
+    { GH_TOKEN: 'new\nline' },
+  ];
+  for (const patch of invalid) {
+    assert.throws(() => buildProtectedPublicationInput({ ...env, ...patch }),
+      Error, 'accepted unsafe protected input: ' + Object.keys(patch)[0]);
+  }
+  assert.throws(() => buildProtectedPublicationInput(undefined), Error);
 });
 
 function fixture() {
