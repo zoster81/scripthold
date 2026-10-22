@@ -6,15 +6,14 @@ const { readPublicationAuthority } = require('./release-finalizer-authority');
 const { discoverReleaseByTag } = require('./release-finalizer-read');
 
 const REPOSITORY = 'zoster81/scripthold';
-const GROUP_PREFIX = 'scripthold-immutable-release-';
+const GROUP_PREFIX = 'scripthold-readonly-preflight-';
 
 function requireCondition(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-// Both trigger types must resolve to the exact same GitHub Actions group.
-// This helper is NOT a lock: only the future workflow-level concurrency
-// configuration can serialize independent GitHub Actions runs.
+// Both read-only trigger types use a preflight group distinct from publication.
+// This helper is NOT a lock: only workflow-level concurrency can serialize runs.
 function resolveFinalizerEvent(event) {
   requireCondition(event && typeof event === 'object' &&
     !Array.isArray(event) && event.repository === REPOSITORY,

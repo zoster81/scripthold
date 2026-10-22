@@ -103,7 +103,7 @@ test('entrypoint normalizes GitHub Actions context without accepting branch or f
     GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: TAG,
   });
   assert.deepEqual(push, manual);
-  assert.equal(push.group, 'scripthold-immutable-release-' + TAG);
+  assert.equal(push.group, 'scripthold-readonly-preflight-' + TAG);
   for (const context of [
     { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main',
       GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: '' },
@@ -210,12 +210,13 @@ test('actual entrypoint process succeeds only for authorized read-only events', 
   }
 });
 
-test('future single-writer workflow is read-only and has a matching cross-trigger group', () => {
+test('read-only preflight never contends with publication concurrency', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows',
     'release-finalizer-preflight.yml'), 'utf8');
   assert.match(workflow, /^on:\n  push:\n    tags:\n      - 'v\*'\n  workflow_dispatch:/m);
   assert.match(workflow, /^permissions:\n  contents: read\n/m);
-  assert.match(workflow, /^concurrency:\n  group: scripthold-immutable-release-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}\n  cancel-in-progress: false$/m);
+  assert.match(workflow, /^concurrency:\n  group: scripthold-readonly-preflight-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}\n  cancel-in-progress: false$/m);
+  assert.doesNotMatch(workflow, /group: scripthold-immutable-release-/);
   assert.doesNotMatch(workflow, /^\s+[a-z-]+: write\s*$/m);
   assert.doesNotMatch(workflow, /\$\{\{\s*secrets\./);
   assert.doesNotMatch(workflow, /^\s+environment:/m);
@@ -245,7 +246,7 @@ test('normalizes push-tag and manual-main events to one exact concurrency group'
   const push = resolveFinalizerEvent(tagEvent());
   const manual = resolveFinalizerEvent(dispatchEvent());
   assert.deepEqual(push, {
-    repository: REPO, tag: TAG, group: 'scripthold-immutable-release-' + TAG,
+    repository: REPO, tag: TAG, group: 'scripthold-readonly-preflight-' + TAG,
   });
   assert.deepEqual(manual, push);
   assert.notEqual(resolveFinalizerEvent({
@@ -276,7 +277,7 @@ test('refreshes GitHub source evidence on both sides of draft discovery, read-on
     event: tagEvent(), manifest: MANIFEST, publisherCommit: COMMIT,
     token: TOKEN, fetchImpl: fake.fetchImpl,
   });
-  assert.equal(result.group, 'scripthold-immutable-release-' + TAG);
+  assert.equal(result.group, 'scripthold-readonly-preflight-' + TAG);
   assert.equal(result.tag, TAG);
   assert.equal(result.authority.commit, COMMIT);
   assert.equal(result.authority.tagObjectSha, 'b'.repeat(40));
