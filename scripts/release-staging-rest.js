@@ -209,8 +209,8 @@ function validateSourcePolicy(sourcePolicy) {
     ['push', 'workflow_dispatch'].includes(sourcePolicy.event),
   'invalid trusted workflow identity');
   for (const name of [sourcePolicy.normalJobName, sourcePolicy.mcpbJobName]) {
-    ensure(typeof name === 'string' &&
-      /^[A-Za-z0-9][A-Za-z0-9 ()_.-]{0,99}$/.test(name),
+    ensure(typeof name === 'string' && name.length <= 100 &&
+      /^[A-Za-z0-9][A-Za-z0-9 ()_.-]*(?: \/ [A-Za-z0-9][A-Za-z0-9 ()_.-]*)?$/.test(name),
     'invalid trusted producer job name');
   }
   ensure(sourcePolicy.normalJobName !== sourcePolicy.mcpbJobName,

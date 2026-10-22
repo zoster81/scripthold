@@ -87,4 +87,65 @@ async function measureNormalSourcePayloads(tag, commit, observed, openSource) {
   return manifest;
 }
 
-module.exports = { measureNormalSourcePayloads };
+// GoReleaser v2.18.1 writes its exact ctx.ReleaseNotes, including its final
+// LF, to dist/CHANGELOG.md. These bytes are metadata, never a release asset.
+// The producer owns the validated no-follow file handle and original run ID.
+const MAX_GORELEASER_NOTES_BYTES = 64 * 1024;
+
+function validateGoReleaserNotesBytes(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 2 ||
+      bytes.length > MAX_GORELEASER_NOTES_BYTES) {
+    throw new Error('invalid bounded original GoReleaser notes bytes');
+  }
+  let notes;
+  try {
+    notes = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('GoReleaser notes are not valid UTF-8');
+  }
+  if (!Buffer.from(notes, 'utf8').equals(bytes) || !notes.endsWith('\n') ||
+      /[\x00-\x08\x0b-\x1f\x7f]/.test(notes)) {
+    throw new Error('GoReleaser notes have invalid line endings or control bytes');
+  }
+  return notes;
+}
+
+function encodeGoReleaserNotes(bytes) {
+  validateGoReleaserNotesBytes(bytes);
+  return {
+    v: 1, size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    base64: bytes.toString('base64'),
+  };
+}
+
+function decodeGoReleaserNotes(input) {
+  let value = input;
+  if (typeof value === 'string') {
+    if (value.length > 96000) throw new Error('oversized GoReleaser notes metadata');
+    try {
+      value = JSON.parse(value);
+    } catch {
+      throw new Error('invalid GoReleaser notes metadata JSON');
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      Object.keys(value).sort().join(',') !== 'base64,sha256,size,v' ||
+      value.v !== 1 || !Number.isSafeInteger(value.size) ||
+      value.size < 2 || value.size > MAX_GORELEASER_NOTES_BYTES ||
+      typeof value.base64 !== 'string' || value.base64.length > 90000 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(value.base64) ||
+      typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256)) {
+    throw new Error('invalid GoReleaser notes metadata');
+  }
+  const bytes = Buffer.from(value.base64, 'base64');
+  if (bytes.length !== value.size ||
+      bytes.toString('base64') !== value.base64 ||
+      createHash('sha256').update(bytes).digest('hex') !== value.sha256) {
+    throw new Error('GoReleaser notes metadata does not match original bytes');
+  }
+  return validateGoReleaserNotesBytes(bytes);
+}
+
+module.exports = { measureNormalSourcePayloads,
+  encodeGoReleaserNotes, decodeGoReleaserNotes };

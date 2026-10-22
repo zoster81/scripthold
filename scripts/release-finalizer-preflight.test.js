@@ -7,7 +7,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { resolveFinalizerActionContext } = require('./release-finalizer-entrypoint');
 const { expectedReleaseAssetNames } = require('./release-asset-contract');
-const { resolveFinalizerEvent, inspectFinalizerPreflight } =
+const { resolveFinalizerEvent, inspectFinalizerPreflight,
+  requireTaggedWriterContext, requireHostedTaggedVerifierContext,
+  requireHostedTaggedWriterContext } =
   require('./release-finalizer-preflight');
 
 const TAG = 'v3.4.0';
@@ -101,7 +103,7 @@ test('entrypoint normalizes GitHub Actions context without accepting branch or f
     GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: TAG,
   });
   assert.deepEqual(push, manual);
-  assert.equal(push.group, 'scripthold-immutable-release-' + TAG);
+  assert.equal(push.group, 'scripthold-readonly-preflight-' + TAG);
   for (const context of [
     { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main',
       GITHUB_REPOSITORY: REPO, RELEASE_TAG_INPUT: '' },
@@ -121,6 +123,55 @@ test('entrypoint normalizes GitHub Actions context without accepting branch or f
   ]) {
     assert.throws(() => resolveFinalizerActionContext(context), Error);
   }
+});
+
+test('independent read-only verifier binds exact GitHub job while writer retains finalize identity', () => {
+  const hosted = {
+    GITHUB_EVENT_NAME: 'push',
+    GITHUB_REPOSITORY: REPO,
+    GITHUB_REF: 'refs/tags/' + TAG,
+    GITHUB_WORKFLOW_REF: REPO + '/.github/workflows/release.yml@refs/tags/' + TAG,
+    GITHUB_SHA: COMMIT,
+    GITHUB_JOB: 'verify-complete',
+    GITHUB_RUN_ID: '123456',
+    GITHUB_RUN_ATTEMPT: '1',
+  };
+  assert.doesNotThrow(() => requireHostedTaggedVerifierContext(hosted, MANIFEST, COMMIT));
+  const writer = { ...hosted, GITHUB_JOB: 'finalize' };
+  assert.doesNotThrow(() => requireHostedTaggedWriterContext(writer, MANIFEST, COMMIT));
+  assert.throws(() => requireHostedTaggedWriterContext(hosted, MANIFEST, COMMIT),
+    /invalid tagged release writer context/i);
+  assert.doesNotThrow(() => requireTaggedWriterContext({
+    eventName: 'push', repository: REPO, ref: hosted.GITHUB_REF,
+    workflowRef: hosted.GITHUB_WORKFLOW_REF, sha: COMMIT,
+    job: 'finalize', runId: '123456', runAttempt: '1',
+  }, MANIFEST, COMMIT));
+  for (const [key, value] of [
+    ['GITHUB_EVENT_NAME', 'workflow_dispatch'],
+    ['GITHUB_REPOSITORY', 'attacker/repo'],
+    ['GITHUB_REF', 'refs/heads/main'],
+    ['GITHUB_REF', 'refs/tags/v9.9.9'],
+    ['GITHUB_WORKFLOW_REF', REPO + '/.github/workflows/test.yml@refs/tags/' + TAG],
+    ['GITHUB_WORKFLOW_REF', REPO + '/.github/workflows/release.yml@refs/heads/main'],
+    ['GITHUB_SHA', 'b'.repeat(40)],
+    ['GITHUB_JOB', 'finalize'],
+    ['GITHUB_JOB', 'verify'],
+    ['GITHUB_RUN_ID', '0'],
+    ['GITHUB_RUN_ID', '1e3'],
+    ['GITHUB_RUN_ATTEMPT', '-1'],
+  ]) {
+    assert.throws(() => requireHostedTaggedVerifierContext({
+      ...hosted, [key]: value,
+    }, MANIFEST, COMMIT), /invalid tagged release writer context/i);
+  }
+  for (const invalid of [undefined, null, {}, []]) {
+    assert.throws(() => requireHostedTaggedVerifierContext(
+      invalid, MANIFEST, COMMIT), Error);
+    assert.throws(() => requireHostedTaggedWriterContext(
+      invalid, MANIFEST, COMMIT), Error);
+  }
+  assert.throws(() => requireHostedTaggedVerifierContext(
+    hosted, MANIFEST, 'c'.repeat(40)), /invalid tagged release writer context/i);
 });
 
 test('actual entrypoint process succeeds only for authorized read-only events', () => {
@@ -159,12 +210,13 @@ test('actual entrypoint process succeeds only for authorized read-only events', 
   }
 });
 
-test('future single-writer workflow is read-only and has a matching cross-trigger group', () => {
+test('read-only preflight never contends with publication concurrency', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows',
     'release-finalizer-preflight.yml'), 'utf8');
   assert.match(workflow, /^on:\n  push:\n    tags:\n      - 'v\*'\n  workflow_dispatch:/m);
   assert.match(workflow, /^permissions:\n  contents: read\n/m);
-  assert.match(workflow, /^concurrency:\n  group: scripthold-immutable-release-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}\n  cancel-in-progress: false$/m);
+  assert.match(workflow, /^concurrency:\n  group: scripthold-readonly-preflight-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}\n  cancel-in-progress: false$/m);
+  assert.doesNotMatch(workflow, /group: scripthold-immutable-release-/);
   assert.doesNotMatch(workflow, /^\s+[a-z-]+: write\s*$/m);
   assert.doesNotMatch(workflow, /\$\{\{\s*secrets\./);
   assert.doesNotMatch(workflow, /^\s+environment:/m);
@@ -194,7 +246,7 @@ test('normalizes push-tag and manual-main events to one exact concurrency group'
   const push = resolveFinalizerEvent(tagEvent());
   const manual = resolveFinalizerEvent(dispatchEvent());
   assert.deepEqual(push, {
-    repository: REPO, tag: TAG, group: 'scripthold-immutable-release-' + TAG,
+    repository: REPO, tag: TAG, group: 'scripthold-readonly-preflight-' + TAG,
   });
   assert.deepEqual(manual, push);
   assert.notEqual(resolveFinalizerEvent({
@@ -225,7 +277,7 @@ test('refreshes GitHub source evidence on both sides of draft discovery, read-on
     event: tagEvent(), manifest: MANIFEST, publisherCommit: COMMIT,
     token: TOKEN, fetchImpl: fake.fetchImpl,
   });
-  assert.equal(result.group, 'scripthold-immutable-release-' + TAG);
+  assert.equal(result.group, 'scripthold-readonly-preflight-' + TAG);
   assert.equal(result.tag, TAG);
   assert.equal(result.authority.commit, COMMIT);
   assert.equal(result.authority.tagObjectSha, 'b'.repeat(40));

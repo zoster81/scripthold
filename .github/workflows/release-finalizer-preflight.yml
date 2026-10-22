@@ -15,10 +15,10 @@ on:
 permissions:
   contents: read
 
-# A future single-writer finalizer must retain this exact group for BOTH
-# entrypoints. A newer pending run may replace an older pending run.
+# This read-only preflight must not queue against the future publication writer.
+# Only actual writers share the canonical immutable-release lock.
 concurrency:
-  group: scripthold-immutable-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: scripthold-readonly-preflight-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:

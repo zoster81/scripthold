@@ -9,7 +9,7 @@ const { expectedReleaseAssetNames, rawStagingArtifactName,
   validateStagedManifest, planRawStagingBatch } = require('./release-asset-contract');
 const { assembleRawReleaseStaging, assembleRawNormalHandoff,
   planRawNormalPrivateStage, verifyRawNormalHandoffPayloads,
-  verifyPreparedMcpbBinaryPayloads } = require('./release-staging-producers');
+  verifyRawCompleteHandoffPayloads, verifyPreparedMcpbBinaryPayloads } = require('./release-staging-producers');
 const { readRawNormalStaging, readRawCompleteStaging,
   readJobVerifiedRawNormalStaging, readJobVerifiedRawCompleteStaging,
   bindRawUploadJobOutputs } = require('./release-staging-rest');
@@ -709,7 +709,7 @@ const SOURCE_POLICY = Object.freeze({
   workflowPath: '.github/workflows/immutable-staging.yml',
   event: 'push',
   normalJobName: 'Produce normal assets',
-  mcpbJobName: 'Produce MCPB assets',
+  mcpbJobName: 'publish-mcpb / publish',
 });
 
 function jobRestFixture() {
@@ -754,6 +754,48 @@ function jobRestFixture() {
   };
   return { ...f, run, normalJob, mcpbJob, pages, calls, fetchImpl };
 }
+
+test('finalizer verifies all 22 original raw sources before suggesting publication', async () => {
+  const { normal, mcpb } = fixture();
+  const originals = new Map();
+  for (const producer of [normal, mcpb]) {
+    for (const asset of producer.manifest.assets) {
+      const bytes = Buffer.from('authentic stage original: ' + asset.name);
+      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      asset.size = bytes.length;
+      asset.sha256 = sha256;
+      const upload = producer.uploads.find(x => x.fileName === asset.name);
+      upload.uploadDigest = sha256;
+      upload.remote.size_in_bytes = bytes.length;
+      upload.remote.digest = 'sha256:' + sha256;
+      originals.set(asset.name, bytes);
+    }
+  }
+  const staged = assembleRawReleaseStaging(normal, mcpb);
+  const observed = staged.batch.files.map(file => ({
+    name: file.artifactName, size: file.size, type: 'file', nlink: 1,
+  })).reverse();
+  const opened = [];
+  const result = await verifyRawCompleteHandoffPayloads(normal, mcpb,
+    observed, ({ fileName }) => {
+      opened.push(fileName);
+      return Readable.from([originals.get(fileName)]);
+    });
+  assert.equal(result.size, 22);
+  assert.deepEqual(opened, expectedReleaseAssetNames(TAG));
+  let openedBeforeInvalid = 0;
+  await assert.rejects(verifyRawCompleteHandoffPayloads(normal, mcpb,
+    observed.slice(1), () => {
+      openedBeforeInvalid++;
+      return Readable.from([Buffer.alloc(0)]);
+    }));
+  assert.equal(openedBeforeInvalid, 0);
+  const corrupted = new Map(originals);
+  corrupted.set(staged.batch.files[20].fileName, Buffer.from('swapped package'));
+  await assert.rejects(verifyRawCompleteHandoffPayloads(normal, mcpb,
+    observed, ({ fileName }) => Readable.from([corrupted.get(fileName)])),
+  /asset (?:size|digest) mismatch/);
+});
 
 test('source job proof binds the 15-file handoff to a successful exact attempt', async () => {
   const f = jobRestFixture();

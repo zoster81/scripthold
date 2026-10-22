@@ -63,7 +63,7 @@ test('validates tag push and manual-main checkout from real read-only GitHub obj
     const result = await inspectFinalizerSource({ env, fetchImpl: f.fetchImpl });
     assert.deepEqual(result, {
       repository: REPO, tag: TAG, commit: SHA,
-      tagObjectSha: OBJECT_SHA, group: 'scripthold-immutable-release-' + TAG,
+      tagObjectSha: OBJECT_SHA, group: 'scripthold-readonly-preflight-' + TAG,
     });
     assert.equal(f.requests.length, 4);
     for (const { init } of f.requests) {
@@ -175,6 +175,6 @@ test('source-only action context retains manual and tag group identity', () => {
   assert.deepEqual(resolveSourceActionContext(pushEnv()),
     resolveSourceActionContext(manualEnv()));
   assert.deepEqual(resolveSourceActionContext(pushEnv()), {
-    repository: REPO, tag: TAG, group: 'scripthold-immutable-release-' + TAG,
+    repository: REPO, tag: TAG, group: 'scripthold-readonly-preflight-' + TAG,
   });
 });

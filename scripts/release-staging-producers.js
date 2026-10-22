@@ -5,7 +5,7 @@ const {
   validateStagedGroupManifest,
   planRawStagingBatch,
   planRawNormalStagingBatch,
-  verifyRawNormalStagingBatchPayloads,
+  verifyRawNormalStagingBatchPayloads, verifyRawStagingBatchPayloads,
   verifyStagedAssetStream,
 } = require('./release-asset-contract');
 
@@ -112,6 +112,17 @@ async function verifyRawNormalHandoffPayloads(normal, observed, openSource) {
   return verifyRawNormalStagingBatchPayloads(normal.manifest, entries, observed, openSource);
 }
 
+// Finalizer verifies the complete 22-file download, not merely the producer
+// metadata. Reject the entire inventory before opening any source byte stream.
+async function verifyRawCompleteHandoffPayloads(normal, mcpb, observed, openSource) {
+  const manifest = assembleRawReleaseStaging(normal, mcpb).manifest;
+  const entries = [
+    ...stagingEntries(normal, 'normal'),
+    ...stagingEntries(mcpb, 'mcpb'),
+  ];
+  return verifyRawStagingBatchPayloads(manifest, entries, observed, openSource);
+}
+
 // This future-only post-preparation gate verifies the six ACTUAL server
 // inputs destined for MCPB packaging against authenticated ORIGINAL binary
 // digests, rather than trusting the earlier source check or the copy step.
@@ -149,4 +160,4 @@ async function verifyPreparedMcpbBinaryPayloads(normal, openPrepared) {
 
 module.exports = { assembleRawReleaseStaging, assembleRawNormalHandoff,
   planRawNormalPrivateStage, verifyRawNormalHandoffPayloads,
-  verifyPreparedMcpbBinaryPayloads };
+  verifyRawCompleteHandoffPayloads, verifyPreparedMcpbBinaryPayloads };

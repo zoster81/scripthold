@@ -6,15 +6,14 @@ const { readPublicationAuthority } = require('./release-finalizer-authority');
 const { discoverReleaseByTag } = require('./release-finalizer-read');
 
 const REPOSITORY = 'zoster81/scripthold';
-const GROUP_PREFIX = 'scripthold-immutable-release-';
+const GROUP_PREFIX = 'scripthold-readonly-preflight-';
 
 function requireCondition(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-// Both trigger types must resolve to the exact same GitHub Actions group.
-// This helper is NOT a lock: only the future workflow-level concurrency
-// configuration can serialize independent GitHub Actions runs.
+// Both read-only trigger types use a preflight group distinct from publication.
+// This helper is NOT a lock: only workflow-level concurrency can serialize runs.
 function resolveFinalizerEvent(event) {
   requireCondition(event && typeof event === 'object' &&
     !Array.isArray(event) && event.repository === REPOSITORY,
@@ -39,18 +38,73 @@ function resolveFinalizerEvent(event) {
   return { repository: REPOSITORY, tag, group: GROUP_PREFIX + tag };
 }
 
+// Shared defense in depth for the independent read-only byte verifier and
+// future approved writer. Each binds its own fixed GitHub job identity.
+// Supplied context cannot prove the environment approval or runner origin.
+function requireExpectedTaggedContext(context, manifest, publisherCommit, expectedJob) {
+  const keys = ['eventName', 'repository', 'ref', 'workflowRef',
+    'sha', 'job', 'runId', 'runAttempt'];
+  const validShape = context && typeof context === 'object' &&
+    !Array.isArray(context) && Object.keys(context).length === keys.length &&
+    keys.every(key => Object.hasOwn(context, key));
+  const valid = validShape && manifest && publisherCommit === manifest.commit &&
+    context.eventName === 'push' &&
+    context.repository === REPOSITORY &&
+    context.ref === 'refs/tags/' + manifest.tag &&
+    context.workflowRef ===
+      REPOSITORY + '/.github/workflows/release.yml@refs/tags/' + manifest.tag &&
+    context.sha === manifest.commit && context.job === expectedJob &&
+    typeof context.runId === 'string' &&
+    /^[1-9][0-9]*$/.test(context.runId) &&
+    Number.isSafeInteger(Number(context.runId)) &&
+    typeof context.runAttempt === 'string' &&
+    /^[1-9][0-9]*$/.test(context.runAttempt) &&
+    Number.isSafeInteger(Number(context.runAttempt));
+  requireCondition(valid, 'invalid tagged release writer context');
+}
+
+function requireTaggedWriterContext(context, manifest, publisherCommit) {
+  requireExpectedTaggedContext(context, manifest, publisherCommit, 'finalize');
+}
+
+function requireHostedTaggedContext(env, manifest, publisherCommit, expectedJob) {
+  requireCondition(env && typeof env === 'object' && !Array.isArray(env),
+    'invalid hosted tagged release context');
+  requireExpectedTaggedContext({
+    eventName: env.GITHUB_EVENT_NAME,
+    repository: env.GITHUB_REPOSITORY,
+    ref: env.GITHUB_REF,
+    workflowRef: env.GITHUB_WORKFLOW_REF,
+    sha: env.GITHUB_SHA,
+    job: env.GITHUB_JOB,
+    runId: env.GITHUB_RUN_ID,
+    runAttempt: env.GITHUB_RUN_ATTEMPT,
+  }, manifest, publisherCommit, expectedJob);
+}
+
+function requireHostedTaggedVerifierContext(env, manifest, publisherCommit) {
+  requireHostedTaggedContext(env, manifest, publisherCommit, 'verify-complete');
+}
+
+function requireHostedTaggedWriterContext(env, manifest, publisherCommit) {
+  requireHostedTaggedContext(env, manifest, publisherCommit, 'finalize');
+}
+
 // Read-only cross-check before a finalizer may consider a next-step proposal.
 // It deliberately produces NO mutation permit. The actual writer must enforce
 // GitHub Actions single-writer concurrency, then run a fresh check again
 // immediately before each remote mutation.
 async function inspectFinalizerPreflight({
-  event, manifest, publisherCommit, token, fetchImpl = globalThis.fetch,
+  event, manifest, publisherCommit, token, authorityToken = token,
+  fetchImpl = globalThis.fetch,
 }) {
   const selected = resolveFinalizerEvent(event);
   validateStagedManifest(manifest);
   requireCondition(manifest.repository === selected.repository &&
     manifest.tag === selected.tag, 'event tag disagrees with staging manifest');
-  const inputs = { manifest, publisherCommit, token, fetchImpl };
+  // Workflow authority requires Actions:read. A release-only App token must
+  // not be used for that API: keep it for release discovery and mutations.
+  const inputs = { manifest, publisherCommit, token: authorityToken, fetchImpl };
   const before = await readPublicationAuthority(inputs);
   const discovery = await discoverReleaseByTag({
     tag: selected.tag, token, fetchImpl,
@@ -65,4 +119,6 @@ async function inspectFinalizerPreflight({
   return { ...selected, authority: after, discovery };
 }
 
-module.exports = { resolveFinalizerEvent, inspectFinalizerPreflight };
+module.exports = { resolveFinalizerEvent, inspectFinalizerPreflight,
+  requireTaggedWriterContext, requireHostedTaggedVerifierContext,
+  requireHostedTaggedWriterContext };
