@@ -153,9 +153,9 @@ For pre-push/promotion or cross-cutting changes:
 - [ ] never create, pack, simulate, dry-run, checksum, or validate real `.mcpb` bundles locally, and never generate the final MCPB-backed Registry manifest locally;
 - [ ] no credentials, tokens, private keys, cookies, real tunnel identifiers, or workstation state added.
 
-### Future immutable-release workflow redesign (not the current release flow)
+### Immutable-release workflow qualification (before first publication)
 
-Use this extra gate only when proposing changes to GitHub release, MCPB, provenance, or Registry publication. [PUBLISHING.md](PUBLISHING.md#future-immutable-release-pipeline-prevention-requirements-not-active) defines the authoritative failure-prevention contract; do not infer that current-release CI qualifies a redesigned workflow.
+Use this extra gate for release, MCPB, provenance or Registry publication changes and before the first genuine immutable release. [PUBLISHING.md](PUBLISHING.md#immutable-release-pipeline-prevention-requirements-first-publication-pending) defines the failure-prevention contract. Passing source CI does not qualify genuine tagged signing, packaging or public immutable publication.
 
 - [ ] Start from historical CI failure **classes**, not just green current tests: temporary-directory aliases, Windows short names, permission/link races, wrong MCPB subject types, mixed pinned Action versions, and incomplete/late publication.
 - [ ] Compare the unchanged current GoReleaser/MCPB/Registry output contract with the planned flow. Preserve real archive/binary paths, version metadata, original release notes, genuine 12-subject signed provenance, six authentic GitHub-only MCPB packages, checksum semantics, and stable consumer URLs.
