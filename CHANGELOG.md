@@ -4,6 +4,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+## 3.3.1 - 2026-10-23
+
 ### Security
 
 - Added fail-closed verification of every normal release artifact and its signed Sigstore SLSA provenance before publishing an unchanged in-toto DSSE JSONL companion alongside the original bundle, improving independent release verification without introducing new signatures or weakening existing gates.
