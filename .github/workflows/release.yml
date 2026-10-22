@@ -704,6 +704,30 @@ jobs:
           repositories: scripthold
           permission-contents: write
 
+      # Check future writer arguments inside the approved job, but never invoke
+      # a release mutator. The fail-closed step below stays unconditional.
+      - name: Validate protected publication input without publishing
+        shell: bash
+        env:
+          SOURCE_NORMAL_MANIFEST: ${{ needs.release.outputs.manifest }}
+          SOURCE_MCPB_MANIFEST: ${{ needs.publish-mcpb.outputs.manifest }}
+          SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}
+          SCRIPTHOLD_RELEASE_ADMIN_READ_TOKEN: ${{ steps.admin-reader-token.outputs.token }}
+          SCRIPTHOLD_RELEASE_WRITE_TOKEN: ${{ steps.release-writer-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          'use strict';
+          const { buildProtectedPublicationInput } =
+            require('./scripts/release-finalizer-write');
+          const input = buildProtectedPublicationInput(process.env);
+          if (input.manifest.assets.length !== 22) {
+            throw new Error('incomplete protected publication input');
+          }
+          console.log('Protected input checked without release mutation');
+          NODE
+
       - name: Fail closed until single-writer draft finalizer is implemented
         shell: bash
         run: |

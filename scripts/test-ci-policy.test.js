@@ -392,13 +392,29 @@ test('protected finalizer can mint only two repository-scoped App tokens after b
   const verified = finalizer.indexOf('node scripts/release-finalizer-complete-stage.js');
   const minted = finalizer.indexOf('      - name: Mint short-lived administration reader');
   const second = finalizer.indexOf('      - name: Mint short-lived release writer token');
+  const checked = finalizer.indexOf('      - name: Validate protected publication input without publishing');
   const stopped = finalizer.indexOf('      - name: Fail closed until single-writer draft finalizer');
-  assert.ok(verified >= 0 && minted > verified &&
-    second > minted && stopped > second, 'token issuance must follow independent staging');
+  assert.ok(verified >= 0 && minted > verified && second > minted &&
+    checked > second && stopped > checked,
+  'protected input validation must follow byte verification and token issuance');
   const pin = 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1';
   assert.equal(finalizer.split('uses: ' + pin).length - 1, 2);
   assert.equal((finalizer.match(/uses: actions\/create-github-app-token@/g) || []).length, 2);
-  const sections = [finalizer.slice(minted, second), finalizer.slice(second, stopped)];
+  const sections = [finalizer.slice(minted, second), finalizer.slice(second, checked)];
+  const bridge = finalizer.slice(checked, stopped);
+  for (const required of [
+    'SOURCE_NORMAL_MANIFEST: ${{ needs.release.outputs.manifest }}',
+    'SOURCE_MCPB_MANIFEST: ${{ needs.publish-mcpb.outputs.manifest }}',
+    'SOURCE_RELEASE_NOTES_METADATA: ${{ needs.release.outputs.notes_metadata }}',
+    'SCRIPTHOLD_RELEASE_ADMIN_READ_TOKEN: ${{ steps.admin-reader-token.outputs.token }}',
+    'SCRIPTHOLD_RELEASE_WRITE_TOKEN: ${{ steps.release-writer-token.outputs.token }}',
+    'GH_TOKEN: ${{ github.token }}',
+    "require('./scripts/release-finalizer-write')",
+    'buildProtectedPublicationInput(process.env)',
+  ]) assert.ok(bridge.includes(required), 'missing protected binding: ' + required);
+  assert.match(bridge, /^        shell: bash$/m);
+  assert.match(bridge, /^          set -euo pipefail$/m);
+  assert.doesNotMatch(bridge, /finalizeCompleteRelease|prepareDraftAssets|gh release|GITHUB_OUTPUT|contents: write/);
   for (const section of sections) {
     assert.match(section, /app-id: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_ID \}\}/);
     assert.match(section, /private-key: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY \}\}/);
