@@ -68,6 +68,16 @@ jobs:
           tag_commit="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
           test "$(git rev-parse HEAD)" = "${tag_commit}"
 
+      - name: Verify complete immutable GitHub Release before Registry publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RELEASE_SOURCE_SHA="$(git -C release-source rev-parse HEAD)"
+          export RELEASE_SOURCE_SHA
+          node publication-source/scripts/release-registry-immutable.js
+
       - name: Download and verify MCPB release assets
         run: |
           set -euo pipefail

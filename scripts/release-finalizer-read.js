@@ -24,7 +24,7 @@ function releaseIdentity(release, id, tag) {
   // Draft publishing must preserve the original title, notes and prerelease
   // state. Expose them when GitHub supplies them, even if malformed, so the
   // writer can reject an incomplete or conflicting draft without guessing.
-  for (const field of ['name', 'body', 'prerelease']) {
+  for (const field of ['name', 'body', 'prerelease', 'target_commitish']) {
     if (Object.hasOwn(release, field)) result[field] = release[field];
   }
   return result;
