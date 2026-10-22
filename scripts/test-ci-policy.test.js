@@ -370,7 +370,7 @@ test('verified bytes and privileged release gate stay in distinct fail-closed jo
   assert.match(finalizer, /^    needs: \[release, publish-mcpb, verify-complete\]\r?$/m);
   assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
   assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
-  assert.doesNotMatch(finalizer, /secrets\.|contents: write|id-token: write|finalizeCompleteRelease|prepareDraftAssets/);
+  assert.doesNotMatch(finalizer, /^      contents: write$|id-token: write|finalizeCompleteRelease|prepareDraftAssets/m);
   assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
   assert.match(finalizer, /^          exit 1\r?$/m);
   assert.match(workflow, /^  publish-registry:\r?\n    needs: finalize\r?$/m);
@@ -378,6 +378,44 @@ test('verified bytes and privileged release gate stay in distinct fail-closed jo
   const unsafe = finalizer.replace('          exit 1', '          exit 0');
   assert.doesNotMatch(unsafe, /^          exit 1\r?$/m);
   assert.throws(() => assert.match(unsafe, /^          exit 1\r?$/m));
+});
+
+test('protected finalizer can mint only two repository-scoped App tokens after byte verification', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'release.yml'), 'utf8');
+  const verifier = workflow.split(/^  verify-complete:\r?$/m)[1]
+    ?.split(/^  finalize:\r?$/m)[0];
+  const finalizer = workflow.split(/^  finalize:\r?$/m)[1]
+    ?.split(/^  publish-registry:\r?$/m)[0];
+  assert.ok(verifier && finalizer);
+  assert.doesNotMatch(verifier, /secrets\.|create-github-app-token/);
+  const verified = finalizer.indexOf('node scripts/release-finalizer-complete-stage.js');
+  const minted = finalizer.indexOf('      - name: Mint short-lived administration reader');
+  const second = finalizer.indexOf('      - name: Mint short-lived release writer token');
+  const stopped = finalizer.indexOf('      - name: Fail closed until single-writer draft finalizer');
+  assert.ok(verified >= 0 && minted > verified &&
+    second > minted && stopped > second, 'token issuance must follow independent staging');
+  const pin = 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1';
+  assert.equal(finalizer.split('uses: ' + pin).length - 1, 2);
+  assert.equal((finalizer.match(/uses: actions\/create-github-app-token@/g) || []).length, 2);
+  const sections = [finalizer.slice(minted, second), finalizer.slice(second, stopped)];
+  for (const section of sections) {
+    assert.match(section, /app-id: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_ID \}\}/);
+    assert.match(section, /private-key: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY \}\}/);
+    assert.match(section, /owner: \$\{\{ github\.repository_owner \}\}/);
+    assert.match(section, /^          repositories: scripthold$/m);
+    assert.doesNotMatch(section, /skip-token-revoke|\.\/release-finalizer-write|GH_TOKEN:|run:/);
+  }
+  assert.match(sections[0], /^          permission-administration: read$/m);
+  assert.doesNotMatch(sections[0], /permission-contents:/);
+  assert.match(sections[1], /^          permission-contents: write$/m);
+  assert.doesNotMatch(sections[1], /permission-administration:/);
+  assert.deepEqual((finalizer.match(/secrets\.[A-Za-z_][A-Za-z0-9_]*/g) || []).sort(),
+    ['secrets.SCRIPTHOLD_RELEASE_APP_ID', 'secrets.SCRIPTHOLD_RELEASE_APP_ID',
+      'secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY',
+      'secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY'].sort());
+  assert.match(finalizer, /^          exit 1$/m);
+  assert.doesNotMatch(finalizer, /finalizeCompleteRelease|prepareDraftAssets|id-token: write/);
 });
 
 test('protected finalizer independently verifies 22 downloaded originals on its runner', () => {
@@ -403,7 +441,8 @@ test('protected finalizer independently verifies 22 downloaded originals on its 
   for (const job of [verifier, finalizer]) {
     for (const pattern of required) assert.match(job, pattern);
     assert.match(job, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
-    assert.doesNotMatch(job, /contents: write|id-token: write|secrets\.|finalizeCompleteRelease/);
+    assert.doesNotMatch(job, /^      contents: write$|id-token: write|finalizeCompleteRelease/m);
+    if (job === verifier) assert.doesNotMatch(job, /secrets\./);
   }
   assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
   assert.ok(finalizer.indexOf('node scripts/release-finalizer-complete-stage.js') <
@@ -429,7 +468,7 @@ test('future tagged finalizer requires an approved release environment but canno
     assert.match(finalizer, /^    needs: \[release, publish-mcpb, verify-complete\]\r?$/m);
     assert.match(finalizer, /^    environment: scripthold-immutable-publish\r?$/m);
     assert.match(finalizer, /^    permissions:\r?\n      contents: read\r?\n      actions: read\r?$/m);
-    assert.doesNotMatch(finalizer, /contents: write|id-token: write|secrets\.|finalizeCompleteRelease|prepareDraftAssets/);
+    assert.doesNotMatch(finalizer, /^      contents: write$|id-token: write|finalizeCompleteRelease|prepareDraftAssets/m);
     assert.match(finalizer, /publication is disabled until the single-writer finalizer is qualified/);
     assert.match(finalizer, /^          exit 1\r?$/m);
   };

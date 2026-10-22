@@ -681,6 +681,29 @@ jobs:
           workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml" --jq .id)"
           export SOURCE_WORKFLOW_ID="$workflow_id"
           node scripts/release-finalizer-complete-stage.js
+      # Both installation tokens are minted only inside the approved environment,
+      # after this runner has reauthenticated all twenty-two original bytes.
+      # The ordinary GITHUB_TOKEN stays read-only; neither token is a writer permit.
+      - name: Mint short-lived administration reader
+        id: admin-reader-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.SCRIPTHOLD_RELEASE_APP_ID }}
+          private-key: ${{ secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: scripthold
+          permission-administration: read
+
+      - name: Mint short-lived release writer token
+        id: release-writer-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.SCRIPTHOLD_RELEASE_APP_ID }}
+          private-key: ${{ secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: scripthold
+          permission-contents: write
+
       - name: Fail closed until single-writer draft finalizer is implemented
         shell: bash
         run: |
