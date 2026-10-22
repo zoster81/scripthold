@@ -197,6 +197,8 @@ jobs:
           test "${actual_integrity}" = "${MCPB_NPM_INTEGRITY}"
 
       - name: Build deterministic MCPB release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node publication-source/scripts/prepare-mcpb-assets.js \
@@ -210,7 +212,7 @@ jobs:
           'use strict';
           const fs = require('node:fs');
           const path = require('node:path');
-          const { bindRawUploadJobOutputs } =
+          const { bindRawUploadJobOutputs, readRawNormalStaging } =
             require('./publication-source/scripts/release-staging-rest');
           const { verifyPreparedMcpbBinaryPayloads } =
             require('./publication-source/scripts/release-staging-producers');
@@ -226,7 +228,8 @@ jobs:
                 attempt: process.env.SOURCE_ATTEMPT,
               },
             });
-            await verifyPreparedMcpbBinaryPayloads(normal,
+            const checked = await readRawNormalStaging({ normal, token: process.env.GH_TOKEN });
+            await verifyPreparedMcpbBinaryPayloads(checked.producer,
               async ({ stageDirectory, binaryFile }) => fs.createReadStream(
                 path.join('mcpb-stage', stageDirectory, 'server', binaryFile), {
                   flags: fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
