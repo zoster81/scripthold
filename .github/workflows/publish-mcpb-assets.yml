@@ -70,6 +70,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           path: publication-source
 
       - name: Checkout immutable release tag
@@ -77,6 +78,7 @@ jobs:
         with:
           ref: refs/tags/${{ inputs.version }}
           fetch-depth: 0
+          persist-credentials: false
           path: release-source
 
       - name: Set up Node.js
@@ -88,6 +90,9 @@ jobs:
       - name: Verify checked-out release tag and metadata
         run: |
           set -euo pipefail
+          test "${VERSION_TAG}" = "${GITHUB_REF_NAME}"
+          test "$(git -C publication-source rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C release-source rev-parse HEAD)" = "${GITHUB_SHA}"
           cd release-source
           node scripts/verify-release-version.js "${VERSION_TAG}"
           tag_commit="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"

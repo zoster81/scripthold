@@ -326,6 +326,43 @@ test('future signed normal producer has an independently authenticated fifteen-f
   assert.doesNotMatch(consumer, /contents: write|id-token: write|attestations: write|gh release (?:upload|create|edit)/);
 });
 
+test('MCPB consumer pins both checkouts to the signed producer commit before tag code', () => {
+  const yaml = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'publish-mcpb-assets.yml'), 'utf8');
+  const trusted = yaml.indexOf('      - name: Checkout packaging workflow source');
+  const tagged = yaml.indexOf('      - name: Checkout immutable release tag');
+  const verified = yaml.indexOf('      - name: Verify checked-out release tag and metadata');
+  const downloaded = yaml.indexOf('      - name: Download signed original private normal artifacts');
+  assert.ok(trusted > 0 && tagged > trusted && verified > tagged &&
+    downloaded > verified);
+  for (const start of [trusted, tagged]) {
+    const section = yaml.slice(start, yaml.indexOf('      - name:', start + 10));
+    assert.ok(section.includes('persist-credentials: false'),
+      'no checkout may persist workflow credentials');
+  }
+  const lines = [
+    'test "${VERSION_TAG}" = "${GITHUB_REF_NAME}"',
+    'test "$(git -C publication-source rev-parse HEAD)" = "${GITHUB_SHA}"',
+    'test "$(git -C release-source rev-parse HEAD)" = "${GITHUB_SHA}"',
+  ];
+  const assertPinned = source => {
+    const block = source.slice(
+      source.indexOf('      - name: Verify checked-out release tag and metadata'),
+      source.indexOf('      - name: Download signed original private normal artifacts'));
+    const code = block.indexOf('node scripts/verify-release-version.js');
+    assert.ok(code > 0);
+    for (const line of lines) {
+      const check = block.indexOf(line);
+      assert.ok(check >= 0 && check < code,
+        'source check must precede tagged code: ' + line);
+    }
+  };
+  assertPinned(yaml);
+  for (const line of lines) {
+    assert.throws(() => assertPinned(yaml.replace(line, '')), /source check/);
+  }
+});
+
 test('future GitHub-only MCPB job consumes signed private originals and emits seven raw assets', () => {
   const root = path.join(__dirname, '..', '.github', 'workflows');
   const workflow = fs.readFileSync(path.join(root, 'release.yml'), 'utf8');
