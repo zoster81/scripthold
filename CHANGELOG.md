@@ -4,7 +4,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
-## 3.3.1 - 2026-10-23
+## 3.3.2 - 2026-10-23
 
 ### Security
 
@@ -14,11 +14,12 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Rebound prepared MCPB server binaries to authenticated GitHub producer artifact observations before comparing their bytes with the original digests, preserving fail-closed package input verification.
 - Kept CodeQL steps on one verified v4.38.3 action commit and grouped future Dependabot CodeQL action bumps to prevent incompatible workflow versions; updated Scorecard's upload-artifact action.
 - Refreshed the GitHub CI toolchain to match the newest qualified Go analyzer releases and Node.js 26.11.1, including a golangci-lint version compatible with Go 1.27.2.
 - Updated the Go system dependency `golang.org/x/sys` to v0.49.0.
 - Updated `golang.org/x/text` to v0.43.0 with its required dependency graph, and aligned all CI/publication `actions/setup-node` steps to the verified v7.1.0 commit with a consistency regression test.
-- Replaced competing post-publication GitHub Release asset writers with one protected, draft-first finalizer: authenticated original-byte transfer between release jobs, genuine Sigstore verification before GitHub-only MCPB packaging, a complete 22-asset draft check before immutable publication, and Registry handoff only after release verification. The first genuine tagged release under this workflow remains to be qualified.
+- Replaced competing post-publication GitHub Release asset writers with one protected, draft-first finalizer: authenticated original-byte transfer between release jobs, genuine Sigstore verification before GitHub-only MCPB packaging, a complete 22-asset draft check before immutable publication, and Registry handoff only after release verification. A genuine tagged attempt verified the signed original binaries and provenance; complete MCPB packaging, protected finalization and immutable publication remain to be qualified.
 
 ## 3.3.0 - 2026-09-28
 
