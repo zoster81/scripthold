@@ -1012,12 +1012,13 @@ function simulatedDraftCreation({ mode = 'success' } = {}) {
       result = { total_count: 1, jobs: [authority.testJobs.jobs[0]] };
     } else if (url === API + '/releases?per_page=30&page=1') {
       listReads++;
-      result = created ? [{
+      result = created && mode !== 'delayed-list' ? [{
         id: 123, tag_name: TAG, draft: true, immutable: false,
       }] : (mode === 'conflicting-list' ? [{
         id: 444, tag_name: TAG, draft: true, immutable: false,
       }] : []);
     } else if (url === API + '/releases/123') {
+      if (mode === 'unreadable-id') return new Response(null, { status: 404 });
       result = { id: 123, tag_name: TAG, draft: true, immutable: false,
         name: TAG, body: mode === 'tampered-remote-notes' ? 'Different text\n' : NOTES,
         prerelease: false };
@@ -1048,7 +1049,21 @@ test('creates one tagged unpublished draft only after authenticated absence chec
   });
   assert.deepEqual(result, { kind: 'created', releaseId: 123, tag: TAG });
   assert.equal(fake.writes, 1);
-  assert.ok(fake.listReads >= 3);
+  assert.equal(fake.listReads, 2, 'the two absence scans are independent of post-create ID verification');
+});
+
+test('new draft is confirmed by stable ID even when GitHub release list lags', async () => {
+  const fake = simulatedDraftCreation({ mode: 'delayed-list' });
+  const result = await createDraftRelease({
+    manifest: fake.manifest, publisherCommit: COMMIT,
+    token: 'test_token_never_used_on_network',
+    releaseNotesMetadata: notesMetadata(), fetchImpl: fake.fetchImpl,
+  });
+  assert.deepEqual(result, { kind: 'created', releaseId: 123, tag: TAG });
+  assert.equal(fake.writes, 1, 'the draft must be created only once');
+  assert.equal(fake.listReads, 2, 'two independent absence reads are still required');
+  assert.equal(fake.calls.filter(call => call.url === API + '/releases/123').length, 2,
+    'the draft must be observed independently by the returned numeric ID');
 });
 
 test('draft creation does not accept a changed API body or prerelease response', async () => {
@@ -1081,7 +1096,7 @@ test('draft creation rejects forged or free-form notes before any GitHub API cal
 });
 
 test('draft creation halts on inaccessible, conflicting, or uncertain responses', async () => {
-  for (const mode of ['bad-status', 'conflicting-list', 'conflict', 'lost']) {
+  for (const mode of ['bad-status', 'conflicting-list', 'conflict', 'lost', 'unreadable-id']) {
     const fake = simulatedDraftCreation({ mode });
     await assert.rejects(createDraftRelease({
       manifest: fake.manifest, publisherCommit: COMMIT,
