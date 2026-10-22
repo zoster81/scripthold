@@ -113,3 +113,22 @@ test('Registry OIDC is gated by a read-only exact immutable release check', () =
   assert.ok(slice.includes('node publication-source/scripts/release-registry-immutable.js'));
   assert.ok(!yaml.includes('contents: write'));
 });
+
+test('Registry authenticates the release before executing tag-owned scripts', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const yaml = fs.readFileSync(path.join(__dirname, '..',
+    '.github', 'workflows', 'publish-registry.yml'), 'utf8');
+  const trusted = yaml.indexOf('path: publication-source');
+  const source = yaml.indexOf('path: release-source');
+  const guard = yaml.indexOf('node publication-source/scripts/release-registry-immutable.js');
+  const version = yaml.indexOf('node scripts/verify-release-version.js');
+  const generate = yaml.indexOf('node release-source/scripts/generate-server-json.js');
+  const publish = yaml.indexOf('      - name: Publish to MCP Registry');
+  assert.ok(trusted >= 0 && source > trusted && guard > source &&
+    version > guard && generate > version && publish > generate,
+    'current workflow policy must authenticate before any tag-owned executable');
+  assert.ok(!yaml.includes('node release-source/scripts/release-registry-immutable.js'));
+  assert.ok(!yaml.includes('node publication-source/scripts/generate-server-json.js'));
+  assert.equal((yaml.match(/persist-credentials: false/g) || []).length, 2);
+});

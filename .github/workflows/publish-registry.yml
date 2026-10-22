@@ -41,10 +41,11 @@ jobs:
           esac
           df -hPT -- "${RUNNER_TEMP}"
           printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "${RUNNER_TEMP}" "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
-      - name: Checkout Registry workflow source
+      # Workflow-owned policy runs before any executable from an input tag.
+      - name: Checkout trusted Registry workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
           path: publication-source
 
       - name: Checkout immutable release tag
@@ -52,6 +53,7 @@ jobs:
         with:
           ref: refs/tags/${{ inputs.version }}
           fetch-depth: 0
+          persist-credentials: false
           path: release-source
 
       - name: Set up Node.js
@@ -59,14 +61,6 @@ jobs:
         with:
           node-version: '26.11.1'
           package-manager-cache: false
-
-      - name: Verify checked-out release tag and metadata
-        run: |
-          set -euo pipefail
-          cd release-source
-          node scripts/verify-release-version.js "${VERSION_TAG}"
-          tag_commit="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
-          test "$(git rev-parse HEAD)" = "${tag_commit}"
 
       - name: Verify complete immutable GitHub Release before Registry publication
         shell: bash
@@ -77,6 +71,14 @@ jobs:
           RELEASE_SOURCE_SHA="$(git -C release-source rev-parse HEAD)"
           export RELEASE_SOURCE_SHA
           node publication-source/scripts/release-registry-immutable.js
+
+      - name: Verify checked-out release tag and metadata
+        run: |
+          set -euo pipefail
+          cd release-source
+          node scripts/verify-release-version.js "${VERSION_TAG}"
+          tag_commit="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
+          test "$(git rev-parse HEAD)" = "${tag_commit}"
 
       - name: Download and verify MCPB release assets
         run: |
@@ -119,7 +121,7 @@ jobs:
       - name: Generate verified fork registry manifest
         run: |
           set -euo pipefail
-          node publication-source/scripts/generate-server-json.js \
+          node release-source/scripts/generate-server-json.js \
             "${VERSION_TAG}" \
             mcpb-assets/mcpb-checksums.txt \
             server.json \
