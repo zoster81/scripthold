@@ -363,6 +363,20 @@ test('MCPB consumer pins both checkouts to the signed producer commit before tag
   }
 });
 
+test('prepared MCPB binary verification uses authenticated producer observations', () => {
+  const yaml = fs.readFileSync(path.join(__dirname, '..', '.github',
+    'workflows', 'publish-mcpb-assets.yml'), 'utf8');
+  const start = yaml.indexOf('      - name: Build deterministic MCPB release assets');
+  const end = yaml.indexOf('      - name: Stage exactly seven verified original MCPB bytes', start);
+  assert.ok(start > 0 && end > start);
+  const block = yaml.slice(start, end);
+  assert.ok(block.includes('GH_TOKEN: ${{ github.token }}'));
+  assert.ok(block.includes('readRawNormalStaging'));
+  assert.ok(block.includes('await readRawNormalStaging({ normal, token: process.env.GH_TOKEN'));
+  assert.ok(block.includes('verifyPreparedMcpbBinaryPayloads(checked.producer,'));
+  assert.ok(!block.includes('verifyPreparedMcpbBinaryPayloads(normal,'));
+});
+
 test('future GitHub-only MCPB job consumes signed private originals and emits seven raw assets', () => {
   const root = path.join(__dirname, '..', '.github', 'workflows');
   const workflow = fs.readFileSync(path.join(root, 'release.yml'), 'utf8');
