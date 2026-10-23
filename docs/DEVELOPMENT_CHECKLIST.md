@@ -95,6 +95,17 @@ GitHub CI applies fail-closed evidence tiers to pull requests. Documentation-onl
 
 The complete exact-commit gate retains broad normal regression across Linux/Windows/macOS, broad race coverage on all three native runners, native binary smoke, six-target cross-builds, hardened container smoke, workflow validation, Gitleaks, GoReleaser configuration validation, static/vulnerability analysis, and canonical fuzz evidence. The `Release candidate` aggregator must fail when any evidence required by the selected tier is missing or unsuccessful.
 
+### Agent-facing MCP evaluation (when tool guidance or workflows change)
+
+Before tuning tool discovery, prompts, Source Intelligence, or MCP interoperation:
+
+- [ ] Freeze the exact catalog/commit and a **versioned, public-or-synthetic** case set. Include representative requests for: authorized file reading and search; ambiguous encodings/BOM; source navigation with proven and unsupported relationships; multi-document Markdown inspection; edit/patch/Markdown preview and explicit apply; source/target conflicts; backups and recovery; denied roots, links, and execution; oversized/bounded results; deferred tasks and cancellation.
+- [ ] Give every case an expected tool or valid sequence, success oracle, explicit forbidden operations, and a failure/abstention oracle. Distinguish **selecting** a tool from **correctly executing** it; never score unauthorized writes as success.
+- [ ] Measure catalog size in bytes, schema/name/annotation fidelity, and tokens only with a named tokenizer. For agent experiments fix and report client/model/configuration, cases, repetitions, variability, tool-selection correctness, unnecessary calls and observed failure recovery; don't treat model-driven outcomes as deterministic tests or production telemetry.
+- [ ] Use identical cases and controlled resources before/after; reuse existing Go benchmarks to capture cold/warm latency, allocations and output/memory bounds, separating normal work from denied/oversized cases. Evaluate platform-specific safety and concurrency separately.
+- [ ] Compare the smallest backward-compatible alternative first. Require no increase in unauthorized effects, no regression in encoding, path containment, approval-bound mutation, resource ceilings or transport parity. Only claim an improvement larger than observed run-to-run noise.
+- [ ] Run affected catalog, registration, prompts, documentation, and source-provider tests; escalate to cross-platform/race/full CI only at the risk tier defined above. Record explicitly skipped checks and why.
+
 ### Focused checks
 
 - [ ] affected package tests;
