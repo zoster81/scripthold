@@ -106,7 +106,10 @@ function loadSuite() {
 }
 
 function scoreTrace(suite, trace) {
-  fields(trace, ['schemaVersion', 'client', 'model', 'configuration', 'repetitions', 'trials']);
+  fields(trace, ['schemaVersion', 'catalogSHA256', 'suiteSHA256', 'client', 'model', 'configuration', 'repetitions', 'trials']);
+  if (trace.catalogSHA256 !== suite.catalogSHA256 || trace.suiteSHA256 !== suite.suiteSHA256) {
+    throw new Error('evaluation trace provenance mismatch');
+  }
   if (trace.schemaVersion !== 1 ||
       !boundedString(trace.client) || !boundedString(trace.model) ||
       !boundedString(trace.configuration) ||
@@ -172,12 +175,20 @@ function scoreTrace(suite, trace) {
 
 async function main() {
   if (process.argv.length > 3 ||
-      (process.argv.length === 3 && process.argv[2] !== '--cases')) {
-    throw new Error('usage: node scripts/agent-evaluation.js [--cases] < trace.json');
+      (process.argv.length === 3 && !['--cases', '--manifest'].includes(process.argv[2]))) {
+    throw new Error('usage: node scripts/agent-evaluation.js [--cases|--manifest] < trace.json');
   }
   const suite = loadSuite();
   if (process.argv[2] === '--cases') {
     process.stdout.write(JSON.stringify(suite.source, null, 2) + '\n');
+    return;
+  }
+  if (process.argv[2] === '--manifest') {
+    const { catalogSHA256, suiteSHA256, catalogSourceBytes, catalogToolCount, annotationCounts } = suite;
+    process.stdout.write(JSON.stringify({
+      schemaVersion: 1, catalogSHA256, suiteSHA256, catalogSourceBytes,
+      catalogToolCount, annotationCounts, caseCount: suite.cases.length,
+    }, null, 2) + '\n');
     return;
   }
   const chunks = [];

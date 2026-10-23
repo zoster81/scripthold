@@ -106,15 +106,24 @@ Before tuning tool discovery, prompts, Source Intelligence, or MCP interoperatio
 - [ ] Compare the smallest backward-compatible alternative first. Require no increase in unauthorized effects, no regression in encoding, path containment, approval-bound mutation, resource ceilings or transport parity. Only claim an improvement larger than observed run-to-run noise.
 - [ ] Run affected catalog, registration, prompts, documentation, and source-provider tests; escalate to cross-platform/race/full CI only at the risk tier defined above. Record explicitly skipped checks and why.
 
-**Offline routing baseline:** The versioned synthetic case set is in `scripts/agent-evaluation-cases.json` and is anchored to the live source catalog by `scripts/agent-evaluation.js`. The read-only scorer accepts **only JSON on stdin**: schemaVersion=1, client/model/configuration identifiers, repetitions (1–20), and exactly one trial for each case/repetition. Each trial names a caseId, repetition and ordered tool-name array. It rejects incomplete, duplicated, unknown-case and oversized inputs; it measures exact route selection, selected forbidden/unknown tools and additional calls relative to the shortest accepted route. These are selection metrics **only**, not authorization, execution, state, correctness, tokenizer use or safety proof. Actual approved-client traces and independent outcome oracles are still needed.
+**Offline routing baseline:** The versioned synthetic case set is in `scripts/agent-evaluation-cases.json` and is anchored to the live source catalog by `scripts/agent-evaluation.js`. The read-only scorer accepts **only JSON on stdin**: schemaVersion=1, exact catalogSHA256/suiteSHA256 from the frozen evaluation manifest, client/model/configuration identifiers, repetitions (1–20), and exactly one trial for each case/repetition. Each trial names a caseId, repetition and ordered tool-name array. It rejects incomplete, duplicated, unknown-case and oversized inputs; it measures exact route selection, selected forbidden/unknown tools and additional calls relative to the shortest accepted route. These are selection metrics **only**, not authorization, execution, state, correctness, tokenizer use or safety proof. Actual approved-client traces and independent outcome oracles are still needed.
 
 ```sh
 node --test scripts/agent-evaluation.test.js
+node scripts/agent-evaluation.js --manifest
 node scripts/agent-evaluation.js --cases
 node scripts/agent-evaluation.js < trace.json
 ```
 
-Report the emitted suite/catalog SHA-256 values and raw catalog source bytes with the client/model configuration; do not call catalog-byte size a full MCP `tools/list` payload or a token count. Invalid traces fail with a nonzero exit status. Follow the focused verification and CI-tier rules below when this script or its cases change.
+Capture the `--manifest` SHA-256 values before collecting a trace; the scorer rejects stale or missing hashes. Hash equality binds **declared trace inputs** to the current local case/catalog files, but cannot authenticate the submitting client or prove the client actually received those schemas. Report the hashes and raw catalog source bytes with the client/model configuration; measure the actual MCP `tools/list` payload separately with `TestRuntimeToolsMatchAuthoritativeCatalog`, and never call a byte measurement a token count. Invalid traces fail with a nonzero exit status. For reproducible native performance and real schema-size baselines, run the existing test seams with an appropriately qualified Go toolchain (using an isolated workspace-owned cache in restricted environments):
+
+```sh
+go test ./internal/sourceintelligence -run '^$' -bench '^BenchmarkSharedProjectResolver$' -benchmem -benchtime=400ms -count=3
+go test ./internal/sourceintelligence -run '^$' -bench '^BenchmarkSharedProject(IndexRefresh|QueryAndContext)$' -benchmem -benchtime=300ms -count=3
+go test ./filetoolsserver -run '^TestRuntimeToolsMatchAuthoritativeCatalog$' -count=1 -v
+```
+
+Record Go/compiler and host details, exact commit, all repeated `ns/op`, `B/op`, and `allocs/op` values, and the actual serialized `tools/list` catalog size; these are **not** model success rates or p50/p95 end-to-end latencies. Follow the focused verification and CI-tier rules below when this script or its cases change.
 
 
 ### Focused checks

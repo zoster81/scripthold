@@ -19,6 +19,8 @@ function traceFor(suite, repetitions = 2) {
   }
   return {
     schemaVersion: 1,
+    catalogSHA256: suite.catalogSHA256,
+    suiteSHA256: suite.suiteSHA256,
     client: 'offline-test-client',
     model: 'synthetic-test-model',
     configuration: 'fixed-offline-fixture',
@@ -76,6 +78,24 @@ test('unregistered tool proposals count as routing failures, not tool execution'
   assert.equal(result.executionVerified, false);
 });
 
+test('trace provenance must exactly match the frozen catalog and case suite', () => {
+  const suite = loadSuite();
+  const valid = traceFor(suite, 1);
+  const manifest = { catalogSHA256: suite.catalogSHA256, suiteSHA256: suite.suiteSHA256 };
+  assert.deepEqual({ catalogSHA256: valid.catalogSHA256, suiteSHA256: valid.suiteSHA256 }, manifest);
+  for (const corrupt of [
+    trace => { delete trace.catalogSHA256; },
+    trace => { delete trace.suiteSHA256; },
+    trace => { trace.catalogSHA256 = '0'.repeat(64); },
+    trace => { trace.suiteSHA256 = '0'.repeat(64); },
+    trace => { trace.suiteSHA256 = 'invalid'; },
+  ]) {
+    const sample = structuredClone(valid);
+    corrupt(sample);
+    assert.throws(() => scoreTrace(suite, sample), /fields|provenance/i);
+  }
+});
+
 test('malformed, incomplete, ambiguous or oversized trials fail closed', () => {
   const suite = loadSuite();
   const valid = traceFor(suite, 1);
@@ -105,6 +125,14 @@ test('CLI scores stdin without filesystem output and rejects bad input', () => {
   });
   assert.equal(good.status, 0, good.stderr);
   assert.equal(JSON.parse(good.stdout).exactRouteMatches, suite.cases.length);
+  const manifestResult = spawnSync(process.execPath, [binary, '--manifest'], {
+    encoding: 'utf8', timeout: 10000,
+  });
+  assert.equal(manifestResult.status, 0, manifestResult.stderr);
+  const manifest = JSON.parse(manifestResult.stdout);
+  assert.equal(manifest.catalogSHA256, suite.catalogSHA256);
+  assert.equal(manifest.suiteSHA256, suite.suiteSHA256);
+  assert.equal(manifest.catalogSourceBytes, suite.catalogSourceBytes);
   const cases = spawnSync(process.execPath, [binary, '--cases'], {
     encoding: 'utf8',
     timeout: 10000,
