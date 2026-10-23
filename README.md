@@ -1,6 +1,5 @@
 # Scripthold — Secure MCP Server for Local Workspaces
 
-[![AgentHub 已收录：Scripthold](https://myagenthub.cn/badge/io.github.zoster81/scripthold)](https://myagenthub.cn/p/io.github.zoster81/scripthold)
 <!-- mcp-name: io.github.zoster81/scripthold -->
 
 [![Test Suite](https://github.com/zoster81/scripthold/actions/workflows/test.yml/badge.svg?branch=main&event=push)](https://github.com/zoster81/scripthold/actions/workflows/test.yml?query=branch%3Amain)
@@ -11,6 +10,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/zoster81/scripthold?logo=go)](go.mod)
 [![License: GPL-3.0](https://img.shields.io/github/license/zoster81/scripthold)](LICENSE)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-Scripthold-blue)](https://registry.modelcontextprotocol.io/?search=io.github.zoster81%2Fscripthold)
+[![AgentHub 已收录：Scripthold](https://myagenthub.cn/badge/io.github.zoster81/scripthold)](https://myagenthub.cn/p/io.github.zoster81/scripthold)
 [![Glama](https://glama.ai/mcp/servers/zoster81/scripthold/badges/score.svg)](https://glama.ai/mcp/servers/zoster81/scripthold)
 
 **Code from the web. Work locally. Recover safely.**
