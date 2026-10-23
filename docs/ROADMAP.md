@@ -48,7 +48,7 @@ The next goal is to make existing MCP tools easier for agents to select and use 
 | P5 | Measured performance correction | P1 identifies a real bottleneck | Repeatable benchmarks, bounds and platform/race regression |
 | P6 | Release decision and qualification | A coherent verified product slice | Reviewed diff, promotion suite, exact-commit CI and publishing gate |
 
-**Immediate frontier: P0 → P1 only.** Keep P2–P5 as contingent candidates until P1 demonstrates value. Do not preemptively change public tools, allowed roots, execution authorization, packaging or release scripts; at most one release-scoped milestone may be active.
+**Current frontier: P1 baseline data collection.** P0 now has a versioned 22-case synthetic/public request suite, a read-only offline route scorer, and a catalog-bound source inventory (see the evaluation protocol in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md#agent-facing-mcp-evaluation-when-tool-guidance-or-workflows-change)). This is a prepared evaluation instrument, **not** a demonstrated improvement: no real model/tool traces, independent execution oracles, tokenizer measurements, or before/after performance results are yet recorded. Gather comparable real-client traces and existing Go benchmark results before selecting P2–P5. Do not preemptively change public tools, allowed roots, execution authorization, packaging, or release scripts; at most one release-scoped milestone may be active.
 
 ### Evaluation safeguards and reuse
 
