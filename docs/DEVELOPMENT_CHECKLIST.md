@@ -91,9 +91,42 @@ Use three practical local levels:
 
 Independent focused checks may run in parallel when they do not mutate shared inputs or compete for the same scarce resource. Prefer one Go invocation over several competing full-package invocations because the Go tool already parallelizes package work; avoid concurrent CPU-heavy full test/race/fuzz jobs that oversubscribe the machine or make timing-sensitive tests flaky.
 
+**Local long-running Go tests:** Default to `go test -timeout=30m` **per package** for qualification and for encoding/durability tests that perform many real filesystem synchronizations, instead of arbitrarily short ad-hoc limits. The private workspace validation runner supplies this flag automatically; selected short tests can use explicit lower limits. For a standalone 30-minute Go test launched as a durable task, reserve outer execution headroom (normally 1980 seconds) for termination/reporting, and inspect the terminal result before claiming success. This is not a change to CI job ceilings, server task execution defaults, or the independent investigation of stuck tests.
+
 GitHub CI applies fail-closed evidence tiers to pull requests. Documentation-only changes run repository policy, generated capability/documentation drift, local Markdown-link validation, release/script policy tests, and secret scanning. Go-only changes add the normal Linux regression suite, evidence-map-derived Windows/macOS platform tests and race-sensitive package tests, module verification, static/vulnerability analysis, and the canonical risk-based fuzz smoke. Changes to workflows, scripts, test architecture, build/release/configuration metadata, fixtures, or any unclassified path require full qualification. Pushes to `main`/`master`, manual runs, classifier bootstrap, and classification failures also require full qualification.
 
 The complete exact-commit gate retains broad normal regression across Linux/Windows/macOS, broad race coverage on all three native runners, native binary smoke, six-target cross-builds, hardened container smoke, workflow validation, Gitleaks, GoReleaser configuration validation, static/vulnerability analysis, and canonical fuzz evidence. The `Release candidate` aggregator must fail when any evidence required by the selected tier is missing or unsuccessful.
+
+### Agent-facing MCP evaluation (when tool guidance or workflows change)
+
+Before tuning tool discovery, prompts, Source Intelligence, or MCP interoperation:
+
+- [ ] Freeze the exact catalog/commit and a **versioned, public-or-synthetic** case set. Include representative requests for: authorized file reading and search; ambiguous encodings/BOM; source navigation with proven and unsupported relationships; multi-document Markdown inspection; edit/patch/Markdown preview and explicit apply; source/target conflicts; backups and recovery; denied roots, links, and execution; oversized/bounded results; deferred tasks and cancellation.
+- [ ] Give every case an expected tool or valid sequence, success oracle, explicit forbidden operations, and a failure/abstention oracle. Distinguish **selecting** a tool from **correctly executing** it; never score unauthorized writes as success.
+- [ ] Measure catalog size in bytes, schema/name/annotation fidelity, and tokens only with a named tokenizer. For agent experiments fix and report client/model/configuration, cases, repetitions, variability, tool-selection correctness, unnecessary calls and observed failure recovery; don't treat model-driven outcomes as deterministic tests or production telemetry.
+- [ ] Use identical cases and controlled resources before/after; reuse existing Go benchmarks to capture cold/warm latency, allocations and output/memory bounds, separating normal work from denied/oversized cases. Evaluate platform-specific safety and concurrency separately.
+- [ ] Compare the smallest backward-compatible alternative first. Require no increase in unauthorized effects, no regression in encoding, path containment, approval-bound mutation, resource ceilings or transport parity. Only claim an improvement larger than observed run-to-run noise.
+- [ ] Run affected catalog, registration, prompts, documentation, and source-provider tests; escalate to cross-platform/race/full CI only at the risk tier defined above. Record explicitly skipped checks and why.
+
+**Offline routing baseline:** The versioned synthetic case set is in `scripts/agent-evaluation-cases.json` and is anchored to the live source catalog by `scripts/agent-evaluation.js`. The read-only scorer accepts **only JSON on stdin**: schemaVersion=1, exact catalogSHA256/suiteSHA256 from the frozen evaluation manifest, client/model/configuration identifiers, repetitions (1–20), and exactly one trial for each case/repetition. Each trial names a caseId, repetition and ordered tool-name array. It rejects incomplete, duplicated, unknown-case and oversized inputs; it measures exact route selection, selected forbidden/unknown tools and additional calls relative to the shortest accepted route. These are selection metrics **only**, not authorization, execution, state, correctness, tokenizer use or safety proof. Actual approved-client traces and independent outcome oracles are still needed.
+
+```sh
+node --test scripts/agent-evaluation.test.js
+node scripts/agent-evaluation.js --manifest
+node scripts/agent-evaluation.js --cases
+node scripts/agent-evaluation.js < trace.json
+```
+
+Capture the `--manifest` SHA-256 values before collecting a trace; the scorer rejects stale or missing hashes. Hash equality binds **declared trace inputs** to the current local case/catalog files, but cannot authenticate the submitting client or prove the client actually received those schemas. Report the hashes and raw catalog source bytes with the client/model configuration; measure the actual MCP `tools/list` payload separately with `TestRuntimeToolsMatchAuthoritativeCatalog`, and never call a byte measurement a token count. Invalid traces fail with a nonzero exit status. For reproducible native performance and real schema-size baselines, run the existing test seams with an appropriately qualified Go toolchain (using an isolated workspace-owned cache in restricted environments):
+
+```sh
+go test ./internal/sourceintelligence -run '^$' -bench '^BenchmarkSharedProjectResolver$' -benchmem -benchtime=400ms -count=3
+go test ./internal/sourceintelligence -run '^$' -bench '^BenchmarkSharedProject(IndexRefresh|QueryAndContext)$' -benchmem -benchtime=300ms -count=3
+go test ./filetoolsserver -run '^TestRuntimeToolsMatchAuthoritativeCatalog$' -count=1 -v
+```
+
+Record Go/compiler and host details, exact commit, all repeated `ns/op`, `B/op`, and `allocs/op` values, and the actual serialized `tools/list` catalog size; these are **not** model success rates or p50/p95 end-to-end latencies. Follow the focused verification and CI-tier rules below when this script or its cases change.
+
 
 ### Focused checks
 

@@ -97,6 +97,8 @@ While long verification tasks run, use waiting time only for safe independent wo
 
 Start with the narrowest applicable tests, then expand according to the change's risk and promotion stage. During ordinary iteration, prefer affected packages and integration boundaries; do not run the full repository, full race, fuzz, or release-adjacent gates after every isolated change unless the change is cross-cutting or evidence shows broader risk. Reserve the expensive baseline for pre-push/promotion, release preparation, or explicitly broad changes.
 
+For **long-running local Go test qualification**, use **30 minutes per package** as the default (`go test -timeout=30m`), rather than an ad-hoc 2–5-minute limit that can truncate legitimate Windows filesystem-sync or encoding-matrix tests. The private reusable validation runner applies this default automatically; focused tests may deliberately use a shorter bound. If launched through a durable task, give the outer executor a bounded cleanup margin (normally 1980 seconds for a standalone 30-minute Go test) and persist/check its terminal status. This does not modify production execution limits, CI job timeouts, or the requirement to investigate genuine hangs and failures.
+
 ```bash
 go test ./path/to/affected/package -count=1
 go mod verify
