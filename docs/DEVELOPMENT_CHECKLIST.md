@@ -153,12 +153,12 @@ For pre-push/promotion or cross-cutting changes:
 - [ ] never create, pack, simulate, dry-run, checksum, or validate real `.mcpb` bundles locally, and never generate the final MCPB-backed Registry manifest locally;
 - [ ] no credentials, tokens, private keys, cookies, real tunnel identifiers, or workstation state added.
 
-### Immutable-release workflow qualification (before first publication)
+### Immutable-release workflow qualification
 
-Use this extra gate for release, MCPB, provenance or Registry publication changes and before the first genuine immutable release. [PUBLISHING.md](PUBLISHING.md#immutable-release-pipeline-prevention-requirements-first-publication-pending) defines the failure-prevention contract. Passing source CI does not qualify genuine tagged signing, packaging or public immutable publication.
+Use this extra gate whenever the release, MCPB, provenance or Registry publication chain changes. [PUBLISHING.md](PUBLISHING.md#immutable-release-pipeline-prevention-requirements) defines the active failure-prevention contract. Previous successful publication cannot qualify a changed workflow; require fresh, exact-revision evidence for any changed trust boundary.
 
 - [ ] Start from historical CI failure **classes**, not just green current tests: temporary-directory aliases, Windows short names, permission/link races, wrong MCPB subject types, mixed pinned Action versions, and incomplete/late publication.
-- [ ] Compare the unchanged current GoReleaser/MCPB/Registry output contract with the planned flow. Preserve real archive/binary paths, version metadata, original release notes, genuine 12-subject signed provenance, six authentic GitHub-only MCPB packages, checksum semantics, and stable consumer URLs.
+- [ ] Compare the current GoReleaser/MCPB/Registry output contract with any proposed flow change. Preserve real archive/binary paths, version metadata, original release notes, genuine 12-subject signed provenance, six authentic GitHub-only MCPB packages, checksum semantics, and stable consumer URLs.
 - [ ] Test signer and source identity independently of sidecar byte consistency: mutate both the Sigstore bundle and in-toto envelope together, recalculate their original asset sizes and digests, and require rejection for a wrong workflow path/ref, repository, builder, source commit, or subject. A mismatched companion alone does not prove those checks. Structural fixture validation never substitutes for genuine GitHub CLI cryptographic verification.
 - [ ] Keep producer-local filesystem paths out of cross-job manifests. Test Windows drive/UNC/8.3 aliases, macOS `/var` versus `/private/var`, `/tmp` and `/var/tmp`, symlink and hardlink escapes, case/Unicode collisions, path length and malicious separators. Do not treat all legitimate system-alias ancestors as attacks.
 - [ ] Use verified, owner-controlled, no-follow, exclusive staging and stable file identity before checking original bytes; exercise replacement/rename/permission/concurrent-writer failures and no-overwrite cleanup.
@@ -167,7 +167,7 @@ Use this extra gate for release, MCPB, provenance or Registry publication change
 - [ ] Exercise wrong/missing/duplicate IDs, stale attempts, mismatched digests, incomplete download, truncated or altered streams, and unexpected filenames even when the GitHub Action itself reports success.
 - [ ] Keep `internal/releasearchive` in the Go-only CI targeted **Windows/macOS platform** and **Linux race** selections: its rooted filesystem stages are OS-dependent and include concurrent directory allocation. Preserve full-tier promotion checks separately.
 - [ ] For authenticated ZIP verification, test non-progressing and invalid `ReaderAt` sources during both original digest hashing and ZIP payload reading; allow finite intermittent empty reads, retain CRC-32/SHA-256 validation, and do not claim interruption of a blocking read.
-- [ ] For future producer and staging-consumer JavaScript byte streams, reject 100 consecutive empty chunks while accepting intermittent empty chunks separated by real progress. This cannot interrupt a blocked asynchronous iterator; the hosting job still needs an execution timeout.
+- [ ] For producer and staging-consumer JavaScript byte streams, reject 100 consecutive empty chunks while accepting intermittent empty chunks separated by real progress. This cannot interrupt a blocked asynchronous iterator; the hosting job still needs an execution timeout.
 - [ ] Fuzz the bounded 16 KiB, 15-record raw-normal JSON decoder with malformed, duplicate, case-aliased and oversized inputs. Also test a reader returning repeated `(0, nil)` results, intermittent empty reads, and impossible byte counts; a byte-size limit alone does not bound non-progressing reads. Accepted **wire-format** objects must retain exact names, sizes and digests under ordinary JSON key-order normalization; never assume internal Go struct JSON field names match the strict incoming schema, and never treat successful decoding as GitHub source/asset authentication.
 - [ ] Give build and packaging jobs read-only publication authority, and only the finalizer the minimum write authority needed for an unpublished draft. Bind **workflow helper revision** as well as tagged source SHA; reject mutable-main versus tag code drift and independent post-publication repair writes.
 - [ ] Exercise draft state transitions: cancellation, partial upload, API timeout after success, duplicate/retried upload, conflicting existing asset, publish collision, and Registry failure after publication. Reject missing, forged, or changing draft title, original GoReleaser notes, and prerelease state both at creation and before every resumed upload; require canonical producer notes metadata before any provider call. Resume exact matches only; never overwrite an already-published asset.
@@ -213,17 +213,20 @@ Use this section only for an explicitly requested internal build.
 
 ## 10. Public release gate
 
-Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. The items below describe the **currently active** multi-job publishing flow; the future immutable-release migration has a separate, not-yet-active gate above. This checklist intentionally does not duplicate historical release evidence or GitHub-only MCPB packaging steps.
+Use [PUBLISHING.md](PUBLISHING.md) as the authoritative release procedure. The active pipeline is protected, draft-first, single-writer and GitHub-enforced immutable. This checklist describes the release gate; the qualification section above applies when the publication implementation changes.
 
 - [ ] release-scoped milestone complete;
 - [ ] exact clean commit and dated changelog entry verified;
 - [ ] complete **full-tier** push-event `Test Suite` (`.github/workflows/test.yml`) `Release candidate` gate passes on the exact pushed SHA; pull-request tier evidence is never publication authority;
 - [ ] OpenSSF Scorecard has a successful supported `push` run on the default `main` branch for that same exact SHA;
 - [ ] annotated tag resolves to that same commit;
-- [ ] normal GoReleaser publication succeeds;
-- [ ] signed Sigstore SLSA build provenance is generated and attached for the normal release assets;
-- [ ] GitHub-only MCPB and Registry workflows succeed;
-- [ ] normal published assets independently match `checksums.txt`;
+- [ ] GoReleaser produces the 13 authentic normal originals, without publishing an incomplete GitHub Release;
+- [ ] signed Sigstore SLSA provenance and its unchanged DSSE companion are authenticated for all 12 binary/archive subjects;
+- [ ] GitHub-only MCPB packaging produces six authentic packages and `mcpb-checksums.txt`;
+- [ ] unprivileged and protected jobs independently verify all 22 original artifacts by run, attempt, name, size and SHA-256;
+- [ ] protected environment approval and separate short-lived, least-privileged publication/administration tokens are verified;
+- [ ] one complete draft is published once, then independently read back as `draft: false`, `immutable: true` with all 22 assets;
+- [ ] only afterward, Registry OIDC publication succeeds and its six MCPB URLs and SHA-256 digests match GitHub;
 - [ ] tag, changelog, embedded version, and Registry version agree.
 
 Deployment, active rollback, restoration, private-launcher changes, and runtime restarts are separate operator actions and require their own authorization and verification.
