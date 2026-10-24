@@ -2,6 +2,12 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
+## 3.3.5 - 2026-10-24
+
+### Fixed
+
+- Increased the bounded GitHub release-list response allowance to handle larger repositories during protected release finalization. Individual release and other API responses retain their existing limits, and publication authentication and artifact verification remain unchanged.
+
 ## 3.3.4 - 2026-10-24
 
 ### Changed
