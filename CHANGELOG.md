@@ -2,9 +2,11 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
-## Unreleased
+## 3.3.4 - 2026-10-24
 
 ### Changed
+
+- Clarified all 43 MCP tool descriptions to make tool selection more direct, reducing their combined length by 582 characters (18.80%) without changing tool names, schemas, or behavior.
 
 - Made the documentation easier to navigate with a shorter README, a task-based index, a grouped tool reference, and a separate self-update guide. The tool reference now explains Markdown editing commands, while the Markdown Intelligence guide focuses on preserving source content. Release instructions describe the current process rather than past releases. These documentation changes do not affect tool behavior or release artifacts.
 - Removed unsupported Source Intelligence options so `source_query` accepts only implemented search modes, relationships, and evidence levels. Invalid requests are rejected before indexing. Removed unused capability settings and inactive Dockerfile/Make provider placeholders. All 100 active providers and existing read-only analysis features remain available.
