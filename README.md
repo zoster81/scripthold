@@ -19,6 +19,8 @@ Scripthold is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 
 AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
+**Start here:** [Quick start](#quick-start) · [Find a tool](TOOLS.md#find-the-right-tool) · [All documentation](docs/README.md) · [Security policy](SECURITY.md).
+
 ## What Scripthold provides
 
 The current public release is **Scripthold 3.3.3** with 43 tools and 3 guided prompts.
