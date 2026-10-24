@@ -3,7 +3,7 @@
     {
       "name": "read_text_file",
       "title": "Read Text File",
-      "description": "Read bounded text as UTF-8 with encoding/BOM detection and optional line numbers.",
+      "description": "Read a text file with encoding detection and optional line numbers.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -12,7 +12,7 @@
     {
       "name": "read_multiple_files",
       "title": "Read Multiple Files",
-      "description": "Read a bounded file batch with encoding/BOM detection and per-file errors.",
+      "description": "Read multiple text files with encoding detection and per-file errors.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -21,7 +21,7 @@
     {
       "name": "list_directory",
       "title": "List Directory",
-      "description": "List filtered directory entries with deterministic sorting.",
+      "description": "List files and directories with optional filtering and sorting.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -30,7 +30,7 @@
     {
       "name": "list_encodings",
       "title": "List Encodings",
-      "description": "List supported encodings and aliases.",
+      "description": "List supported text encodings and aliases.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -39,7 +39,7 @@
     {
       "name": "detect_encoding",
       "title": "Detect Encoding",
-      "description": "Detect encoding from BOM/content evidence and report confidence or ambiguity.",
+      "description": "Detect a file's text encoding and report confidence or ambiguity.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -48,7 +48,7 @@
     {
       "name": "grep_text_files",
       "title": "Grep Text Files",
-      "description": "Search decoded text by regex with bounded paging, filters, and context. Slow calls may hand off through Tasks or deferred_operation.",
+      "description": "Search text files using regex, with filters, context, and paginated results.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -57,7 +57,7 @@
     {
       "name": "list_allowed_directories",
       "title": "List Allowed Directories",
-      "description": "List accessible filesystem roots.",
+      "description": "List permitted filesystem roots.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -66,7 +66,7 @@
     {
       "name": "get_file_info",
       "title": "Get File Info",
-      "description": "Get file or directory metadata.",
+      "description": "Get metadata for a file or directory.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -75,7 +75,7 @@
     {
       "name": "tree",
       "title": "Tree (Compact)",
-      "description": "Return a bounded secure tree with filters and optional encoding labels. Slow calls may hand off through Tasks or deferred_operation.",
+      "description": "Show a directory tree with optional filters and encoding labels.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -84,7 +84,7 @@
     {
       "name": "search_files",
       "title": "Search Files",
-      "description": "Find paths recursively by glob with secure traversal, limits, and sorting. Slow calls may hand off through Tasks or deferred_operation.",
+      "description": "Find files and directories recursively using glob patterns.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -93,7 +93,7 @@
     {
       "name": "source_symbols",
       "title": "Navigate Source Symbols",
-      "description": "Navigate bounded source declarations with outline, digest, find, and fingerprint-bound show operations. Slow calls may hand off through Tasks or deferred_operation.",
+      "description": "Find, outline, and inspect source-code symbols and declarations.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -104,7 +104,7 @@
     {
       "name": "source_query",
       "title": "Source Query",
-      "description": "Run bounded source queries.",
+      "description": "Search source code and analyze relationships between symbols.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -113,7 +113,7 @@
     {
       "name": "markdown_read",
       "title": "Read Markdown Structure",
-      "description": "Inspect, query, resolve, validate, and generate bounded Markdown structure using Marksplice-backed semantics.",
+      "description": "Inspect, search, and validate Markdown structure and references.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -124,7 +124,7 @@
     {
       "name": "markdown_workspace",
       "title": "Inspect Markdown Workspace",
-      "description": "Inspect, query, validate, and preview managed-TOC repairs in bounded authorized Markdown workspaces using Marksplice semantics.",
+      "description": "Inspect Markdown workspaces and preview table-of-contents repairs.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -135,7 +135,7 @@
     {
       "name": "markdown_edit",
       "title": "Preview Markdown Edit",
-      "description": "Prepare reviewable, source-bound Markdown construction, structural, and inline changes without writing the target.",
+      "description": "Preview Markdown content and structure edits without changing the file.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -145,7 +145,7 @@
     {
       "name": "markdown_create",
       "title": "Preview Markdown Creation",
-      "description": "Preview a Marksplice Markdown file for no-replace creation.",
+      "description": "Preview creation of a new Markdown file without writing it.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -155,7 +155,7 @@
     {
       "name": "markdown_apply",
       "title": "Apply Markdown Change",
-      "description": "Apply one prepared Markdown change capability by preview ID.",
+      "description": "Apply a previously previewed Markdown change.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -165,7 +165,7 @@
     {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
-      "description": "Compute deterministic SHA-256 fingerprints for files or directory trees. Slow calls may hand off through Tasks or deferred_operation.",
+      "description": "Compute SHA-256 fingerprints of files or directory trees.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -174,7 +174,7 @@
     {
       "name": "verify_state",
       "title": "Verify State",
-      "description": "Run bounded JSON, text-format, git-diff, and fingerprint checks.",
+      "description": "Validate JSON, text formatting, Git diffs, and file fingerprints.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -184,7 +184,7 @@
     {
       "name": "backup_store",
       "title": "Review Backups",
-      "description": "Review backups or prepare restore/GC.",
+      "description": "Inspect backups and preview restore or garbage-collection operations.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -194,7 +194,7 @@
     {
       "name": "backup_restore_apply",
       "title": "Apply Restore",
-      "description": "Apply a prepared restore.",
+      "description": "Restore files from a prepared backup operation.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -204,7 +204,7 @@
     {
       "name": "backup_gc_apply",
       "title": "Apply Backup GC",
-      "description": "Apply prepared generation-bound backup GC.",
+      "description": "Apply a prepared backup garbage-collection operation.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -214,7 +214,7 @@
     {
       "name": "backup_delete",
       "title": "Delete Backup",
-      "description": "Explicitly delete one selected backup, including a pinned backup.",
+      "description": "Permanently delete a selected backup, including pinned backups.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -224,7 +224,7 @@
     {
       "name": "detect_line_endings",
       "title": "Detect Line Endings",
-      "description": "Detect LF, CRLF, mixed, or absent line endings.",
+      "description": "Detect a file's line endings (LF, CRLF, mixed, or none).",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -233,7 +233,7 @@
     {
       "name": "manage_bom",
       "title": "Review BOM",
-      "description": "Detect BOM or prepare add/strip.",
+      "description": "Inspect a file's BOM or preview adding or removing it.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -243,7 +243,7 @@
     {
       "name": "manage_bom_apply",
       "title": "Apply BOM",
-      "description": "Apply a prepared BOM change.",
+      "description": "Apply a previously prepared BOM change.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -253,7 +253,7 @@
     {
       "name": "change_line_endings",
       "title": "Change Line Endings",
-      "description": "Atomically convert line endings while preserving encoding, BOM, and other bytes.",
+      "description": "Convert line endings while preserving encoding, BOM, and other content.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -264,7 +264,7 @@
     {
       "name": "write_whole_file",
       "title": "Write Whole File",
-      "description": "Atomically replace the complete file contents with supplied text; omitted content is discarded, with encoding and BOM control.",
+      "description": "Replace an entire file with supplied text, discarding previous content.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -275,7 +275,7 @@
     {
       "name": "filesystem_package",
       "title": "Preview Filesystem Package",
-      "description": "Prepare a bounded read-only filesystem package for coordinated no-replace create, copy, move, and delete operations.",
+      "description": "Preview a batch of file creation, copying, moving, and deletion operations.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -285,7 +285,7 @@
     {
       "name": "edit_file",
       "title": "Preview Edit",
-      "description": "Prepare a fingerprint-bound file edit.",
+      "description": "Preview text edits to an existing file without applying them.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -295,7 +295,7 @@
     {
       "name": "edit_file_apply",
       "title": "Apply Edit",
-      "description": "Apply a prepared file edit.",
+      "description": "Apply a previously prepared file edit.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -305,7 +305,7 @@
     {
       "name": "patch_package",
       "title": "Review Patch",
-      "description": "Inspect/prepare/verify a fingerprint-bound patch.",
+      "description": "Inspect, preview, or verify patches for one or more files.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -315,7 +315,7 @@
     {
       "name": "patch_package_apply",
       "title": "Apply Patch",
-      "description": "Apply a prepared patch package.",
+      "description": "Apply a previously prepared multi-file patch.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -325,7 +325,7 @@
     {
       "name": "filesystem_package_apply",
       "title": "Apply Filesystem Package",
-      "description": "Apply a prepared one-shot filesystem package capability.",
+      "description": "Apply a prepared batch of filesystem operations once.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -335,7 +335,7 @@
     {
       "name": "convert_encoding",
       "title": "Preview Conversion",
-      "description": "Prepare exact conversion bytes for one file or batch.",
+      "description": "Preview text-encoding conversion for one or more files.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -345,7 +345,7 @@
     {
       "name": "convert_encoding_apply",
       "title": "Apply Conversion",
-      "description": "Apply a prepared encoding conversion.",
+      "description": "Apply a previously prepared text-encoding conversion.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -355,7 +355,7 @@
     {
       "name": "deferred_operation",
       "title": "Manage Deferred Operation",
-      "description": "Observe or cancel durable deferred work, or read retained oversized-result segments, by operation ID.",
+      "description": "Check or cancel deferred operations and retrieve large-result segments.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -366,7 +366,7 @@
     {
       "name": "task_run",
       "title": "Run Durable Task",
-      "description": "Queue a durable asynchronous shell or script task with idempotency, locks, and optional deadline.",
+      "description": "Start a persistent shell or script task with optional deadline and execution locks.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -376,7 +376,7 @@
     {
       "name": "task_list",
       "title": "List Durable Tasks",
-      "description": "List bounded task metadata with paging and filters; commands remain private.",
+      "description": "List tasks with filters and pagination, without exposing commands.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -386,7 +386,7 @@
     {
       "name": "task_get",
       "title": "Get Durable Task",
-      "description": "Get task state/history; workerOnline is scheduler liveness, independent of executor liveness.",
+      "description": "Get a task's current status and execution history.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -396,7 +396,7 @@
     {
       "name": "task_logs",
       "title": "Read Durable Task Logs",
-      "description": "Read bounded incremental task stdout/stderr with eviction-aware cursors.",
+      "description": "Read task stdout and stderr logs incrementally.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -406,7 +406,7 @@
     {
       "name": "task_cancel",
       "title": "Cancel Durable Task",
-      "description": "Durably and idempotently cancel a queued or running task tree.",
+      "description": "Cancel a queued or running task and its child tasks.",
       "annotations": {
         "readOnlyHint": false,
         "idempotentHint": true,
@@ -417,7 +417,7 @@
     {
       "name": "check_for_updates",
       "title": "Check for Updates",
-      "description": "Check for a newer Scripthold release; results are cached.",
+      "description": "Check for newer Scripthold releases using cached results.",
       "annotations": {
         "readOnlyHint": true
       }
