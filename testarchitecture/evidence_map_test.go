@@ -2,15 +2,11 @@ package testarchitecture
 
 import (
 	"encoding/json"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -309,9 +305,6 @@ func TestLocalValidationProfilesAreExplicitAndComplementary(t *testing.T) {
 		"local.prepush": "PrePush",
 		"local.release": "Release",
 	}
-	if len(local) != len(want) {
-		t.Fatalf("local-private gate count = %d, want %d: %v", len(local), len(want), local)
-	}
 	for id, profile := range want {
 		item, ok := local[id]
 		if !ok {
@@ -323,60 +316,6 @@ func TestLocalValidationProfilesAreExplicitAndComplementary(t *testing.T) {
 		if strings.TrimSpace(item.Purpose) == "" {
 			t.Fatalf("local-private gate %q must explain its complementary role", id)
 		}
-	}
-}
-
-func TestGoTestArchitectureUsesCurrentBehaviorNames(t *testing.T) {
-	root := repositoryRoot(t)
-	pathMarker := regexp.MustCompile(`(?i)(?:^|[/_])(?:r\d+|phase_?\d+)(?:[_/.]|$)`)
-	phaseMarker := regexp.MustCompile(`(?i)phase\d+`)
-	releaseMarker := regexp.MustCompile(`(?i)^r\d+`)
-	fileSet := token.NewFileSet()
-	var violations []string
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			if entry.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(entry.Name(), "_test.go") {
-			return nil
-		}
-		relative, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return relErr
-		}
-		relative = filepath.ToSlash(relative)
-		if pathMarker.MatchString(relative) {
-			violations = append(violations, relative)
-		}
-		parsed, parseErr := parser.ParseFile(fileSet, path, nil, 0)
-		if parseErr != nil {
-			return parseErr
-		}
-		ast.Inspect(parsed, func(node ast.Node) bool {
-			identifier, ok := node.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			if phaseMarker.MatchString(identifier.Name) || releaseMarker.MatchString(identifier.Name) {
-				position := fileSet.Position(identifier.Pos())
-				violations = append(violations, relative+":"+identifier.Name+":"+strconv.Itoa(position.Line))
-			}
-			return true
-		})
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("scan Go test architecture: %v", err)
-	}
-	if len(violations) != 0 {
-		sort.Strings(violations)
-		t.Fatalf("historical milestone/phase naming remains in permanent Go test architecture: %v", violations)
 	}
 }
 

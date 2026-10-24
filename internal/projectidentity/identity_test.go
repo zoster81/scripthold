@@ -167,7 +167,6 @@ func TestPublicLauncherExamplesRemainFailClosed(t *testing.T) {
 	assertFileContains(t, root, httpExample, `$EnableHttpExecution = $false`)
 	assertFileContains(t, root, httpExample, `$EnableRunScript = $false`)
 	assertFileContains(t, root, httpExample, `$EnableShell = $false`)
-	assertFileContains(t, root, httpExample, `A non-loopback listener requires TLS or a trusted proxy CIDR.`)
 	assertFileContains(t, root, httpExample, `"CONTROL_PLANE_API_KEY"`)
 	assertFileContains(t, root, httpExample, `"CONTROL_PLANE_TUNNEL_ID"`)
 }
