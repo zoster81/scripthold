@@ -152,13 +152,12 @@ func TestDefaultLanguageRegistryCompletedProvidersAndFutureShapes(t *testing.T) 
 		}
 	}
 	for _, id := range []string{"dockerfile", "make"} {
-		descriptor, ok := registry.Lookup(id)
-		if !ok {
-			t.Fatalf("registry cannot represent auxiliary metadata row %q", id)
+		if descriptor, ok := registry.Lookup(id); ok {
+			t.Fatalf("unimplemented metadata row %q is still registered: %+v", id, descriptor)
 		}
-		if descriptor.Capabilities.SourceAnalysis || descriptor.Analyzer != "" {
-			t.Fatalf("auxiliary metadata row %q was accidentally activated: %+v", id, descriptor)
-		}
+	}
+	if rows := registry.CapabilityRows(); len(rows) != 100 {
+		t.Fatalf("registered active provider count = %d, want 100", len(rows))
 	}
 
 	for alias, want := range map[string]string{

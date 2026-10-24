@@ -55,8 +55,8 @@ func RenderLanguageCapabilityMatrixMarkdown(registry *LanguageRegistry) string {
 	rows := registry.CapabilityRows()
 	var builder strings.Builder
 	builder.WriteString("# Source Intelligence Language Capability Matrix\n\n")
-	builder.WriteString("This file is a generated projection of the native source-intelligence registry. Do not infer production support from detection/routing alone: rows whose analyzer strategy is `unimplemented` are explicitly planned metadata only. The checked-in file is verified byte-for-byte against the registry by tests.\n\n")
-	builder.WriteString("Capability codes: `decl` declarations, `hier` hierarchy, `sig` signatures, `range` decoded-source ranges, `dep` imports/includes/dependencies, `inh` inheritance/implements structural relations, `call` syntactic calls, `scope-ref` scope-resolved references, `project-ref` project-resolved references, `project-def` project-resolved definitions, `impl` implementations, `override` overrides, `semantic` semantic relations, `index` incremental indexing. Missing codes mean the capability is not currently claimed.\n\n")
+	builder.WriteString("This file is a generated projection of the 100 active native source-intelligence providers. Detection/routing and analyzer capabilities are documented separately; the checked-in matrix is verified byte-for-byte against the registry by tests.\n\n")
+	builder.WriteString("Capability codes: `decl` declarations, `hier` hierarchy, `sig` signatures, `range` decoded-source ranges, `dep` imports/includes/dependencies, `inh` inheritance/implements structural relations, `project-ref` project-resolved references, `project-def` project-resolved definitions, `impl` implementations, `index` incremental indexing. Missing codes mean the capability is not currently claimed.\n\n")
 	builder.WriteString("| Canonical ID | Family | Detection evidence | Scanner/lexer profile | Composite | Capabilities | Encoding coverage | Analyzer | Known limitations |\n")
 	builder.WriteString("|---|---|---|---|---|---|---|---|---|\n")
 	for _, row := range rows {
@@ -98,9 +98,9 @@ func capabilityCodes(value LanguageCapabilities) string {
 		code    string
 	}{
 		{value.Declarations, "decl"}, {value.Hierarchy, "hier"}, {value.Signatures, "sig"}, {value.Ranges, "range"},
-		{value.Dependencies, "dep"}, {value.InheritanceRelations, "inh"}, {value.SyntacticCalls, "call"},
-		{value.ScopeResolvedReferences, "scope-ref"}, {value.ProjectResolvedReferences, "project-ref"}, {value.ProjectResolvedDefinitions, "project-def"},
-		{value.Implementations, "impl"}, {value.Overrides, "override"}, {value.SemanticRelations, "semantic"}, {value.IncrementalIndex, "index"},
+		{value.Dependencies, "dep"}, {value.InheritanceRelations, "inh"},
+		{value.ProjectResolvedReferences, "project-ref"}, {value.ProjectResolvedDefinitions, "project-def"},
+		{value.Implementations, "impl"}, {value.IncrementalIndex, "index"},
 	} {
 		if item.enabled {
 			codes = append(codes, item.code)
@@ -582,7 +582,7 @@ func validateLanguageCapabilityMetadata(descriptor LanguageDescriptor) error {
 		if !capabilities.Declarations || !capabilities.Ranges || descriptor.AnalyzerStrategy == "unimplemented" || descriptor.ScannerProfile == "unimplemented" {
 			return fmt.Errorf("language %s source analysis requires explicit declaration/range/provider capability metadata", descriptor.ID)
 		}
-	} else if capabilities.Declarations || capabilities.Hierarchy || capabilities.Signatures || capabilities.Ranges || capabilities.Dependencies || capabilities.InheritanceRelations || capabilities.SyntacticCalls || capabilities.ScopeResolvedReferences || capabilities.ProjectResolvedReferences || capabilities.ProjectResolvedDefinitions || capabilities.Implementations || capabilities.Overrides || capabilities.SemanticRelations || capabilities.IncrementalIndex {
+	} else if capabilities.Declarations || capabilities.Hierarchy || capabilities.Signatures || capabilities.Ranges || capabilities.Dependencies || capabilities.InheritanceRelations || capabilities.ProjectResolvedReferences || capabilities.ProjectResolvedDefinitions || capabilities.Implementations || capabilities.IncrementalIndex {
 		return fmt.Errorf("language %s advertises source capabilities without source analysis", descriptor.ID)
 	}
 	if capabilities.Composite && descriptor.CompositeBehavior == "none" {
@@ -608,7 +608,6 @@ func languageFamily(id string) string {
 		"sql": "data-infra-dsl", "plsql": "data-infra-dsl", "graphql": "data-infra-dsl", "terraform": "data-infra-dsl", "nix": "data-infra-dsl", "proto": "data-infra-dsl", "solidity": "data-infra-dsl", "apex": "data-infra-dsl", "al": "data-infra-dsl",
 		"html": "document-config", "xml": "document-config", "css": "document-config", "scss": "document-config", "sass": "document-config", "less": "document-config", "json": "document-config", "yaml": "document-config", "toml": "document-config", "openapi": "document-config", "ansible-yaml": "document-config",
 		"classic-asp": "composite-template", "aspnet-webforms": "composite-template", "razor": "composite-template", "blazor": "composite-template", "vue": "composite-template", "svelte": "composite-template", "astro": "composite-template", "php-html": "composite-template", "jsp": "composite-template", "jinja": "composite-template", "twig": "composite-template", "blade": "composite-template", "ejs": "composite-template",
-		"dockerfile": "build-config", "make": "build-config",
 	}
 	if family := families[id]; family != "" {
 		return family

@@ -492,7 +492,7 @@ protected void Page_Load(object sender, EventArgs e) { }
 	}
 }
 
-func TestBasicDialectsRemainCaseInsensitiveAndDoNotOverclaimSemanticRelations(t *testing.T) {
+func TestBasicDialectsRemainCaseInsensitive(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -501,15 +501,6 @@ func TestBasicDialectsRemainCaseInsensitiveAndDoNotOverclaimSemanticRelations(t 
 		descriptor, _ := registry.Resolve(language)
 		if !descriptor.Capabilities.CaseInsensitive {
 			t.Fatalf("%s must be case insensitive", language)
-		}
-		if descriptor.Capabilities.SemanticRelations {
-			t.Fatalf("%s overclaims semantic relations: %+v", language, descriptor.Capabilities)
-		}
-	}
-	for _, language := range []string{"fsharp", "cpp-cli", "jscript-net", "cil", "powershell", "classic-asp", "aspnet-webforms", "razor", "blazor", "xaml"} {
-		descriptor, _ := registry.Resolve(language)
-		if descriptor.Capabilities.SemanticRelations {
-			t.Fatalf("%s overclaims semantic relations: %+v", language, descriptor.Capabilities)
 		}
 	}
 }

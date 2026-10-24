@@ -382,20 +382,12 @@ func providerHasCapability(value LanguageCapabilities, code string) bool {
 		return value.Dependencies
 	case "inh":
 		return value.InheritanceRelations
-	case "call":
-		return value.SyntacticCalls
-	case "scope-ref":
-		return value.ScopeResolvedReferences
 	case "project-ref":
 		return value.ProjectResolvedReferences
 	case "project-def":
 		return value.ProjectResolvedDefinitions
 	case "impl":
 		return value.Implementations
-	case "override":
-		return value.Overrides
-	case "semantic":
-		return value.SemanticRelations
 	case "index":
 		return value.IncrementalIndex
 	default:

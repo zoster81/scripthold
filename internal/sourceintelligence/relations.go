@@ -10,17 +10,13 @@ const (
 	RelationDefinitions     RelationKind = "definitions"
 	RelationInheritance     RelationKind = "inheritance"
 	RelationImplementations RelationKind = "implementations"
-	RelationOverrides       RelationKind = "overrides"
-	RelationCallers         RelationKind = "callers"
-	RelationCallees         RelationKind = "callees"
 	RelationTrace           RelationKind = "trace"
 	RelationImpact          RelationKind = "impact"
 	RelationCycles          RelationKind = "cycles"
 )
 
 // ResolutionState is orthogonal to evidence strength. A structural fact can be
-// unresolved or ambiguous without pretending either state is a weaker evidence
-// level than textual/lexical/structural analysis.
+// unresolved or ambiguous; neither resolution state is a weaker evidence grade.
 type ResolutionState string
 
 const (
@@ -75,13 +71,11 @@ type RelationRecord struct {
 type ContextReason string
 
 const (
-	ContextTarget                 ContextReason = "target"
-	ContextEnclosing              ContextReason = "enclosing"
-	ContextDirectDependency       ContextReason = "direct-dependency"
-	ContextDirectRelatedBody      ContextReason = "direct-related-body"
-	ContextDirectRelatedSignature ContextReason = "direct-related-signature"
-	ContextReverseOrTypeRelation  ContextReason = "reverse-or-type-relation"
-	ContextDeeperRelation         ContextReason = "deeper-relation"
+	ContextTarget                ContextReason = "target"
+	ContextEnclosing             ContextReason = "enclosing"
+	ContextDirectDependency      ContextReason = "direct-dependency"
+	ContextReverseOrTypeRelation ContextReason = "reverse-or-type-relation"
+	ContextDeeperRelation        ContextReason = "deeper-relation"
 )
 
 // ContextRepresentation states whether source_context retained a verified body

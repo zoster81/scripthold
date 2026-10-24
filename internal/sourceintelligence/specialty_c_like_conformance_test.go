@@ -536,7 +536,7 @@ func TestALConditionalSymbolEqualityMatchesReflectDeepEqual(t *testing.T) {
 		{"visibility", func(value *NormalizedSymbol) { value.Visibility = VisibilityPrivate }},
 		{"modifiers", func(value *NormalizedSymbol) { value.Modifiers[0] = "other" }},
 		{"modifiers-nil", func(value *NormalizedSymbol) { value.Modifiers = nil }},
-		{"evidence", func(value *NormalizedSymbol) { value.Evidence = SymbolEvidenceLexical }},
+		{"evidence", func(value *NormalizedSymbol) { value.Evidence = SymbolEvidence("lexical") }},
 		{"analyzer", func(value *NormalizedSymbol) { value.Analyzer = "other" }},
 		{"declaration-offsets", func(value *NormalizedSymbol) { value.declarationOffsets.End++ }},
 		{"name-offsets", func(value *NormalizedSymbol) { value.nameOffsets.End++ }},
@@ -797,7 +797,7 @@ func TestSpecialtyCLikeCapabilityCeilings(t *testing.T) {
 	for _, language := range []string{"mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino"} {
 		descriptor, _ := registry.Lookup(language)
 		caps := descriptor.Capabilities
-		if caps.ScopeResolvedReferences || caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.Implementations || caps.Overrides || caps.SemanticRelations {
+		if caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.Implementations {
 			t.Fatalf("%s overclaims project/semantic capability: %+v", language, caps)
 		}
 	}

@@ -232,13 +232,9 @@ type LanguageCapabilities struct {
 	Ranges                     bool
 	Dependencies               bool
 	InheritanceRelations       bool
-	SyntacticCalls             bool
-	ScopeResolvedReferences    bool
 	ProjectResolvedReferences  bool
 	ProjectResolvedDefinitions bool
 	Implementations            bool
-	Overrides                  bool
-	SemanticRelations          bool
 	IncrementalIndex           bool
 }
 
@@ -844,8 +840,6 @@ func defaultLanguageDescriptors() []LanguageDescriptor {
 		twigLanguage,
 		bladeLanguage,
 		ejsLanguage,
-		{ID: "dockerfile", ExactBasenames: []string{"Dockerfile"}},
-		{ID: "make", ExactBasenames: []string{"Makefile", "GNUmakefile"}},
 		terraformLanguage,
 		verilogLanguage,
 		systemVerilogLanguage,

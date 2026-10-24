@@ -16,9 +16,6 @@ func TestCJVMCapabilityCeilings(t *testing.T) {
 		if (language == "cpp" || language == "java" || language == "kotlin") && !caps.InheritanceRelations {
 			t.Fatalf("%s must expose structural inheritance relations", language)
 		}
-		if caps.SemanticRelations {
-			t.Fatalf("%s overclaims semantic relations: %+v", language, caps)
-		}
 	}
 }
 

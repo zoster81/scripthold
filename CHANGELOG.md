@@ -4,6 +4,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+### Changed
+
+- Narrowed Source Intelligence to implemented `source_query` search modes, relation kinds, and analyzer-proven evidence grades; unsupported requests now fail validation before indexing. Removed unused capability flags, unused context reasons, and the two inactive Dockerfile/Make registry placeholders, retaining the 100 active providers and existing read-only analysis behavior.
+
 ## 3.3.3 - 2026-10-23
 
 ### Security

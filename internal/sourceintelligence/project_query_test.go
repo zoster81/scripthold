@@ -252,7 +252,7 @@ func TestProjectQueryDeterminismLimitsCancellationAndUnsupported(t *testing.T) {
 		t.Fatalf("node limit error = %v kind=%v", err, operation.KindOf(err))
 	}
 
-	if _, err := left.QueryRelations(context.Background(), RelationCallers, querySymbolSelector(second, projectSymbolID(t, second, "B")), ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindUnsupported {
+	if _, err := left.QueryRelations(context.Background(), RelationKind("callers"), querySymbolSelector(second, projectSymbolID(t, second, "B")), ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindInvalidInput {
 		t.Fatalf("callers error = %v kind=%v", err, operation.KindOf(err))
 	}
 }

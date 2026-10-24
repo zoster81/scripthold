@@ -17,9 +17,6 @@ func TestCapabilityMatrixPromotesOnlyVerifiedProjectSubset(t *testing.T) {
 		if !caps.ProjectResolvedReferences || !caps.ProjectResolvedDefinitions {
 			t.Fatalf("%s project query capabilities = %+v, want project-ref/project-def", language, caps)
 		}
-		if caps.SemanticRelations || caps.SyntacticCalls || caps.Overrides {
-			t.Fatalf("%s overclaims unproven project/semantic Phase 13 capabilities: %+v", language, caps)
-		}
 	}
 	java, _ := registry.Resolve("java")
 	if !java.Capabilities.Implementations {

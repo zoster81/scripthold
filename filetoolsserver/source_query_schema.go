@@ -3,7 +3,7 @@ package filetoolsserver
 import "github.com/modelcontextprotocol/go-sdk/mcp"
 
 var sourceQueryEvidenceValues = []string{
-	"textual", "lexical", "structural", "scope-resolved", "project-resolved", "semantic",
+	"structural", "scope-resolved", "project-resolved",
 }
 
 func sourceQueryCatalogTool() *mcp.Tool {
@@ -20,7 +20,7 @@ func sourceQueryCatalogTool() *mcp.Tool {
 			"operation":        map[string]any{"enum": []string{"search", "relations", "context"}},
 			"paths":            map[string]any{},
 			"query":            map[string]any{},
-			"mode":             map[string]any{"enum": []string{"textual", "lexical", "structural"}},
+			"mode":             map[string]any{"enum": []string{"structural"}},
 			"match":            map[string]any{"enum": []string{"exact", "prefix", "contains"}},
 			"relation":         map[string]any{"enum": sourceQueryRelationKinds()},
 			"subject":          map[string]any{"$ref": "#/$defs/s"},
@@ -81,6 +81,6 @@ func sourceQuerySelectorSchema() map[string]any {
 func sourceQueryRelationKinds() []string {
 	return []string{
 		"dependencies", "dependents", "references", "definitions", "inheritance", "implementations",
-		"overrides", "callers", "callees", "trace", "impact", "cycles",
+		"trace", "impact", "cycles",
 	}
 }

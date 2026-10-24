@@ -18,9 +18,6 @@ func (h *Handler) SourceQuery(ctx context.Context, _ *mcp.CallToolRequest, input
 	if result := validateSourceQueryOperation(operation, input, limits); result != nil {
 		return result, SourceQueryOutput{}, nil
 	}
-	if operation == "search" && input.Mode != "structural" {
-		return errorResultWithCode(ErrCodeUnsupported, "source_query textual and lexical modes are not implemented; use grep_text_files for decoded textual search"), SourceQueryOutput{}, nil
-	}
 	return h.executeSourceQuery(ctx, input, limits)
 }
 
@@ -83,8 +80,8 @@ func validateSourceSearchQuery(input SourceQueryInput, limits config.SourceConfi
 	if strings.TrimSpace(input.Query) == "" || utf8.RuneCountInString(input.Query) > 512 {
 		return errorResultWithCode(ErrCodeInvalidInput, "search query must contain 1 to 512 Unicode scalar values")
 	}
-	if input.Mode != "textual" && input.Mode != "lexical" && input.Mode != "structural" {
-		return errorResultWithCode(ErrCodeInvalidInput, "search mode must be textual, lexical, or structural")
+	if input.Mode != "structural" {
+		return errorResultWithCode(ErrCodeInvalidInput, "search mode must be structural")
 	}
 	if input.Match != "" && input.Match != "exact" && input.Match != "prefix" && input.Match != "contains" {
 		return errorResultWithCode(ErrCodeInvalidInput, "search match must be exact, prefix, or contains")
@@ -182,13 +179,13 @@ func validateSourceQuerySelectors(input SourceQueryInput) *mcp.CallToolResult {
 }
 
 func validateSourceEvidenceFilter(values []string) *mcp.CallToolResult {
-	if len(values) > 6 {
-		return errorResultWithCode(ErrCodeLimit, "evidence exceeds the six-item contract")
+	if len(values) > 3 {
+		return errorResultWithCode(ErrCodeLimit, "evidence exceeds the three-item contract")
 	}
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		switch value {
-		case "textual", "lexical", "structural", "scope-resolved", "project-resolved", "semantic":
+		case "structural", "scope-resolved", "project-resolved":
 		default:
 			return errorResultWithCode(ErrCodeInvalidInput, "unknown evidence value")
 		}
@@ -241,7 +238,7 @@ func validateSourceSelector(selector SourceSelectorInput) *mcp.CallToolResult {
 
 func isSourceRelationKind(value string) bool {
 	switch value {
-	case "dependencies", "dependents", "references", "definitions", "inheritance", "implementations", "overrides", "callers", "callees", "trace", "impact", "cycles":
+	case "dependencies", "dependents", "references", "definitions", "inheritance", "implementations", "trace", "impact", "cycles":
 		return true
 	default:
 		return false

@@ -5,19 +5,6 @@ import (
 	"testing"
 )
 
-func TestPHPRubySwiftPascalDoNotOverclaimSemanticRelations(t *testing.T) {
-	registry, err := DefaultLanguageRegistry()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, language := range []string{"php", "ruby", "swift", "pascal", "delphi"} {
-		descriptor, _ := registry.Resolve(language)
-		if descriptor.Capabilities.SemanticRelations {
-			t.Fatalf("%s overclaims semantic relations: %+v", language, descriptor.Capabilities)
-		}
-	}
-}
-
 func TestAmbiguousPascalAndIncDetectionRequiresContentEvidence(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

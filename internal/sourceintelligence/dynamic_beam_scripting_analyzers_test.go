@@ -379,7 +379,7 @@ func TestDynamicBEAMScriptingCapabilityCeilings(t *testing.T) {
 	for _, language := range []string{"perl", "lua", "luau", "elixir", "erlang", "gleam", "groovy", "shell", "bash", "tcl", "autohotkey"} {
 		descriptor, _ := registry.Lookup(language)
 		caps := descriptor.Capabilities
-		if caps.ScopeResolvedReferences || caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.Implementations || caps.Overrides || caps.SemanticRelations {
+		if caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.Implementations {
 			t.Fatalf("%s overclaims project/semantic capability: %+v", language, caps)
 		}
 	}

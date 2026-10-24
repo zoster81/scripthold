@@ -55,7 +55,7 @@ func TestValidateSourceQueryOperationPreservesValidationOrdering(t *testing.T) {
 			operation: "search",
 			input:     SourceQueryInput{Query: "x", Mode: "invalid", Relation: "cycles"},
 			code:      ErrCodeInvalidInput,
-			message:   "search mode must be textual, lexical, or structural",
+			message:   "search mode must be structural",
 		},
 		{
 			name:      "search match before closed union",
