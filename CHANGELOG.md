@@ -6,8 +6,9 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
-- Simplified the documentation with a task-based index, shorter README, grouped tool reference, and standalone self-update guide. Centralized public Markdown edit forms in `TOOLS.md`, reserved `MARKDOWN_INTELLIGENCE.md` for source-preservation guarantees, and separated version-neutral release procedures from historical evidence. Tool behavior and release artifacts are unchanged.
-- Narrowed Source Intelligence to implemented `source_query` search modes, relation kinds, and analyzer-proven evidence grades; unsupported requests now fail validation before indexing. Removed unused capability flags, unused context reasons, and the two inactive Dockerfile/Make registry placeholders, retaining the 100 active providers and existing read-only analysis behavior.
+- Made the documentation easier to navigate with a shorter README, a task-based index, a grouped tool reference, and a separate self-update guide. The tool reference now explains Markdown editing commands, while the Markdown Intelligence guide focuses on preserving source content. Release instructions describe the current process rather than past releases. These documentation changes do not affect tool behavior or release artifacts.
+- Removed unsupported Source Intelligence options so `source_query` accepts only implemented search modes, relationships, and evidence levels. Invalid requests are rejected before indexing. Removed unused capability settings and inactive Dockerfile/Make provider placeholders. All 100 active providers and existing read-only analysis features remain available.
+- Improved pre-merge checks for documentation changes so the full Source Intelligence test package runs before merging. Removed tests that required exact wording, fixed tool counts, or a fixed number of CI jobs. Publication and security checks remain in place, including checks that GitHub Actions use pinned references and release jobs run on approved runners.
 
 ## 3.3.3 - 2026-10-23
 
