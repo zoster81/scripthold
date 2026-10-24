@@ -713,7 +713,7 @@ The preview token is one-shot. Success, cancellation, conflict, write failure, o
 
 Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.
 
-Scripthold has **100 active Source Intelligence providers**. The generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix shows what each provider can actually analyze; its contents are checked against the native registry.
+The production surface contains 100 active approved target-catalog providers across 100 total registry rows. The generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix shows what each provider can actually analyze; its contents are checked against the native registry.
 
 - **How analysis works:** Go uses the standard-library AST. Other providers use bounded native scanners, structural recognizers, or offset-preserving adapters. Composite providers retain host-file coordinates and analyze only supported embedded regions.
 - **What coverage means:** Shared file extensions and language dialects may be ambiguous. Indexing is bounded and process-local; enabling a provider does not imply that every project or semantic relationship is supported. Ambiguous, partial, truncated, and unsupported results are reported rather than guessed.
