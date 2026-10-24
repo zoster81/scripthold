@@ -103,8 +103,8 @@ jobs:
       - name: Verify test architecture
         run: go test ./testarchitecture -count=1
 
-      - name: Verify generated capability documentation
-        run: go test ./internal/sourceintelligence -run '^TestCapabilityMatrixDocumentationMatchesRegistry$' -count=1
+      - name: Verify source intelligence and generated capability documentation
+        run: go test -timeout=30m -count=1 ./internal/sourceintelligence
 
       - name: Test evidence-tier, distribution-trust, and Markdown-link policy
         run: node --test scripts/check-markdown-links.test.js scripts/distribution-trust.test.js scripts/test-ci-policy.test.js

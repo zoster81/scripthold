@@ -231,6 +231,15 @@ test('targeted package selection is derived from the evidence map', () => {
   assert.ok(!windowsPlatform.includes('./internal/httptransport'));
 });
 
+test('docs policy runs the complete source-intelligence package', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'test.yml'), 'utf8');
+  const policyJob = workflow.split(/^  policy:\r?$/m)[1]?.split(/^  gitleaks:\r?$/m)[0];
+  assert.ok(policyJob, 'missing docs policy job');
+  const command = policyJob.match(/^ {8}run: (go test [^\r\n]*\.\/internal\/sourceintelligence[^\r\n]*)$/m)?.[1];
+  assert.ok(command, 'docs policy must test source-intelligence');
+  assert.doesNotMatch(command, /(?:^|\s)-run(?:=|\s)/, 'docs policy must not filter out package tests');
+});
+
 test('the policy job explicitly executes every Node regression test in scripts', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'test.yml'), 'utf8');
   const policyJob = workflow.split(/^  policy:\r?$/m)[1]?.split(/^  gitleaks:\r?$/m)[0];
