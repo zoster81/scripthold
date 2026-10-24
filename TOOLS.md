@@ -530,6 +530,8 @@ A request accepts **1–64 compatible operations** against one source snapshot. 
 
 #### Exact operation contracts
 
+##### Document constructors, tables and headings
+
 Sixty-one closed operation forms are available. Four targetless document-level constructors use `action: "create"` and no `targetId`: `front_matter` requires `format: "yaml" | "toml"`; `front_matter_field` requires non-empty `key` and `value`; `reference_definition` requires non-empty `label` and `destination` with optional non-empty `title`; and `footnote_definition` requires non-empty `label` and logical-LF `body`.
 
 Marksplice owns insertion position, canonical syntax, line endings, uniqueness, candidate reparsing, and failure on unsupported layouts; independently prepared constructors that contend for the same insertion point remain subject to normal `ComposeChanges` rejection. Whole front-matter removal uses targetless `action: "remove"`, `subject: "front_matter"`, and no operation-specific fields; Marksplice owns recognition of the leading envelope, its separator bytes, candidate reparsing, and surviving semantics. Table alignment uses `action: "set"`, `subject: "table"`, and a snapshot-bound table `targetId`.
@@ -538,17 +540,25 @@ Marksplice owns insertion position, canonical syntax, line endings, uniqueness, 
 
 Rename participates in the same final composed fragment-continuity proof as other edits, so a rename that would silently break or retarget an existing resolved local fragment fails closed unless the request explicitly retargets that relationship in the same composed result. Heading level change uses `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6.
 
-##### Tasks, inline formatting and fenced code
+##### Tasks and inline formatting
 
 Task checkbox state uses `action: "set"`, `subject: "task"`, the snapshot-bound task `targetId`, and required boolean `checked`; Marksplice changes only the checkbox state byte, and setting an already-satisfied task is a source-bound no-op that preserves authored marker style. Simple inline replacement uses `action: "replace"`, `subject: "code_span" | "emphasis" | "strong" | "strikethrough"`, the matching snapshot-bound `targetId`, and `text`; Marksplice replaces only the source-proven inline content, preserves the authored delimiters, and rejects unsupported source shapes or unsafe delimiter-conflicting replacements.
 
-##### Links, images and reference definitions
+##### Links and images
 
 Direct link replacement uses `action: "replace"`, an `inline_link` target with `part: "destination" | "label" | "title"`, an `image` target with `part: "destination" | "alt" | "title"`, or an `autolink` target without `part`, plus non-empty `text`. Existing-title replacement requires a title to exist and preserves its authored delimiters. Title insertion uses `action: "add"`, `subject: "inline_link" | "image"`, `part: "title"`, and non-empty `text`; it requires no current title and inserts canonical double-quoted title syntax.
 
-Title removal uses `action: "remove"` with the same subjects and `part: "title"`, accepts no `text`, requires an existing title, and removes only the owned title syntax while preserving separator whitespace. Marksplice owns all state and replacement validation and preserves unrelated source. Fenced-code body replacement uses `action: "replace"`, `subject: "fenced_code"`, `part: "body"`, a fenced-block `targetId`, and non-empty `text`; info mutation uses `action: "set"`, the same subject, `part: "info"`, and required `text`, where an empty string clears the info string.
+Title removal uses `action: "remove"` with the same subjects and `part: "title"`, accepts no `text`, requires an existing title, and removes only the owned title syntax while preserving separator whitespace. Marksplice owns all state and replacement validation and preserves unrelated source.
 
-`markdown_read inspect` returns `fencedBlocks` targets for every top-level fenced block, including empty bodies; when a normal `fenced_code` node target is also available, it is accepted for the same block. Marksplice preserves fence shape, trivia, and existing line endings, validates info strings, and rejects unsafe body replacements. Direct reference-definition mutation uses the snapshot-bound `reference_definition` target returned by `markdown_read`.
+##### Fenced code
+
+Fenced-code body replacement uses `action: "replace"`, `subject: "fenced_code"`, `part: "body"`, a fenced-block `targetId`, and non-empty `text`; info mutation uses `action: "set"`, the same subject, `part: "info"`, and required `text`, where an empty string clears the info string.
+
+`markdown_read inspect` returns `fencedBlocks` targets for every top-level fenced block, including empty bodies; when a normal `fenced_code` node target is also available, it is accepted for the same block. Marksplice preserves fence shape, trivia, and existing line endings, validates info strings, and rejects unsafe body replacements.
+
+##### Reference definitions and occurrences
+
+Direct reference-definition mutation uses the snapshot-bound `reference_definition` target returned by `markdown_read`.
 
 Rename uses `action: "rename"`, the definition `targetId`, and non-empty `text`; Marksplice atomically updates the definition label plus every parser-proven bound reference link/image, promotes collapsed and shortcut references to full form when needed to preserve visible labels, and rejects invalid or colliding normalized labels. Destination replacement uses `action: "replace"`, `part: "destination"`, and non-empty `text`. Existing-title replacement uses `action: "replace"`, `part: "title"`, and non-empty `text`, and requires a current title.
 
