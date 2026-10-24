@@ -517,7 +517,18 @@ After review, pass only the returned `previewId` to `markdown_apply`. Apply reau
 
 ### markdown_edit
 
-Use `markdown_edit` to **prepare and review** structural Markdown changes before anything is written. It can currently rename headings, change their level from `h1` to `h6`, set task checkboxes checked or unchecked, set one GFM table column alignment or atomically replace a table's complete alignment vector, replace simple inline content such as code spans, emphasis, strong emphasis, and strikethrough, replace direct inline-link destinations, labels, or existing titles, add or remove inline-link titles, replace inline-image destinations, alt text, or existing titles, add or remove inline-image titles, replace autolink values, replace YAML/TOML front-matter field values, rename or remove YAML/TOML front-matter fields, replace source-proven raw-HTML comment payloads and anchor id/name values, replace reviewed math-expression payloads while preserving their authored form, replace source-proven non-alert top-level blockquote content while preserving its authored container shape, set recognized GitHub alert kinds and replace alert bodies while preserving source-proven container shape, synchronize one explicitly managed TOC, remove source-proven top-level thematic breaks, remove complete source-proven top-level blockquotes including GitHub alerts, replace fenced-code bodies, set or clear fenced-block info strings, rename reference definitions and their bound occurrences, retarget one parser-proven reference occurrence, remove unused reference definitions, rename footnote definitions together with parser-bound references, replace footnote-definition bodies while preserving source-proven layout, remove footnote definitions while preserving external occurrence bytes, replace reference-definition destinations or existing titles, add or remove reference-definition titles, and insert a paragraph before or after an existing paragraph, replace or remove one paragraph, replace either the direct content or a complete subtree of a list item, remove a complete list-item subtree, insert a list-item sibling before or after an existing item or append a validated child subtree, move a complete list-item subtree before or after another compatible item, insert a sibling section before or after an existing section or append a direct child section, move a complete section subtree before or after another same-level section, replace either a section's direct body or its complete subtree, or remove an entire section subtree. A request may contain 1 to 64 compatible operations. Typical uses include cleaning up section names, reorganizing heading levels, adding guidance next to existing prose, adding a peer topic or a nested subsection, rewriting text while keeping links/emphasis/code markup, deleting an obsolete section together with its nested subsections, or reviewing several related documentation changes together.
+Use `markdown_edit` to **preview changes to an existing Markdown document** without writing it. First inspect the document with `markdown_read`, select the returned snapshot-bound `targetId`, and review the proposed result before sending its `previewId` to `markdown_apply`.
+
+Typical changes include:
+
+- **Document structure:** rename headings, change heading levels, edit paragraphs or list items, move sections or list subtrees, toggle tasks, and adjust table alignment.
+- **Text and references:** update inline formatting, links, images, autolinks, reference or footnote definitions, and individual parser-proven reference occurrences.
+- **Special content:** update front matter, fenced code, math, raw HTML comments/anchors, blockquotes or GitHub alerts; remove supported thematic breaks.
+- **Generated indexes:** synchronize one explicitly managed table of contents with the final combined document.
+
+A request accepts **1–64 compatible operations** against one source snapshot. Unsupported shapes, interfering changes, stale targets, and unsafe relationship changes are rejected. The operation-specific fields and restrictions follow; **this summary is not a substitute for those closed forms**.
+
+#### Exact operation contracts
 
 Sixty-one closed operation forms are available. Four targetless document-level constructors use `action: "create"` and no `targetId`: `front_matter` requires `format: "yaml" | "toml"`; `front_matter_field` requires non-empty `key` and `value`; `reference_definition` requires non-empty `label` and `destination` with optional non-empty `title`; and `footnote_definition` requires non-empty `label` and logical-LF `body`.
 
@@ -527,7 +538,11 @@ Marksplice owns insertion position, canonical syntax, line endings, uniqueness, 
 
 Rename participates in the same final composed fragment-continuity proof as other edits, so a rename that would silently break or retarget an existing resolved local fragment fails closed unless the request explicitly retargets that relationship in the same composed result. Heading level change uses `action: "set"`, `subject: "heading"`, the same kind of `targetId`, and `level` from 1 to 6.
 
+##### Tasks, inline formatting and fenced code
+
 Task checkbox state uses `action: "set"`, `subject: "task"`, the snapshot-bound task `targetId`, and required boolean `checked`; Marksplice changes only the checkbox state byte, and setting an already-satisfied task is a source-bound no-op that preserves authored marker style. Simple inline replacement uses `action: "replace"`, `subject: "code_span" | "emphasis" | "strong" | "strikethrough"`, the matching snapshot-bound `targetId`, and `text`; Marksplice replaces only the source-proven inline content, preserves the authored delimiters, and rejects unsupported source shapes or unsafe delimiter-conflicting replacements.
+
+##### Links, images and reference definitions
 
 Direct link replacement uses `action: "replace"`, an `inline_link` target with `part: "destination" | "label" | "title"`, an `image` target with `part: "destination" | "alt" | "title"`, or an `autolink` target without `part`, plus non-empty `text`. Existing-title replacement requires a title to exist and preserves its authored delimiters. Title insertion uses `action: "add"`, `subject: "inline_link" | "image"`, `part: "title"`, and non-empty `text`; it requires no current title and inserts canonical double-quoted title syntax.
 
@@ -543,6 +558,8 @@ Marksplice preserves authored destination/title wrappers and unrelated bytes and
 
 Scripthold resolves that target only to Marksplice's parser-proven source offset; Marksplice then proves the occurrence kind, resolves the requested uniquely normalized definition, preserves the visible label, promotes collapsed or shortcut syntax to full form when needed, validates the candidate, and owns no-op behavior. Relationship `sourceOffset` remains diagnostic metadata and is never accepted directly as edit authority.
 
+##### Footnotes and front matter
+
 Footnote-definition rename uses `action: "rename"`, `subject: "footnote_definition"`, the snapshot-bound definition `targetId`, and non-empty `text`; Marksplice atomically updates the definition label and every parser-proven bound footnote reference, keeps an identical authored label as a source-bound no-op, rejects an exact collision with another definition and labels containing `[` or `]`, and leaves non-bound textual occurrences unchanged.
 
 Footnote-definition body replacement uses `action: "replace"`, `subject: "footnote_definition"`, the snapshot-bound definition `targetId`, and non-empty `text`; LF in `text` represents logical body line breaks, while Marksplice preserves the definition's source-proven EOL and continuation indentation, keeps an identical logical body as a source-bound no-op, and rejects empty or CR-containing replacements, unsupported source layout, wrong target kinds, or stale source.
@@ -552,6 +569,8 @@ Footnote-definition removal uses `action: "remove"`, `subject: "footnote_definit
 Front-matter field replacement uses `action: "replace"`, `subject: "front_matter_field"`, the snapshot-bound field `targetId`, non-empty single-line `text`, and no `part`; YAML and TOML share the same Marksplice authority, which preserves the original envelope, line endings, quote/style syntax, comments, spacing, and unrelated source, while duplicate keys remain non-targetable and invalid replacements fail closed.
 
 Front-matter field rename uses `action: "rename"` with the same subject/target shape plus non-empty `text` for the new canonical key; Marksplice preserves the value wrapper and line trivia, treats an identical key as a source-bound no-op, and rejects invalid or colliding keys. Front-matter field removal uses `action: "remove"`, the same subject and snapshot-bound `targetId`, and no content fields; Marksplice removes the complete promoted field physical line plus its EOL while preserving and reparsing the remaining YAML/TOML envelope and Markdown body.
+
+##### HTML, math, blockquotes and alerts
 
 Raw-HTML replacement uses `action: "replace"`, `subject: "html_comment" | "html_anchor"`, the matching snapshot-bound target, non-empty single-line `text`, and no `part`; Marksplice replaces only the promoted comment payload or quoted anchor id/name value, preserves wrappers/attribute style and surrounding source, keeps identical values as source-bound no-ops, and rejects unsafe comment terminators, quote-breaking anchor values, multiline content, or wrong target kinds. Math-expression replacement uses `action: "replace"`, `subject: "math_expression"`, the matching snapshot-bound target, non-empty `text`, and no `part`.
 
@@ -566,6 +585,8 @@ Alert-body replacement uses `action: "replace"`, `subject: "alert"`, the same un
 Thematic-break removal uses `action: "remove"`, `subject: "thematic_break"`, and only the snapshot-bound `targetId`; Marksplice removes exactly the promoted top-level physical line and reparses the candidate, rejecting nested/wrong-kind targets or removals that would merge neighboring text into a different paragraph structure. Blockquote removal uses `action: "remove"`, `subject: "blockquote"`, and only the snapshot-bound top-level blockquote `targetId`; Marksplice removes the complete owned container including its physical line endings.
 
 Recognized GitHub alerts use the same underlying blockquote identity, so the same operation removes the alert container without a separate alert target namespace. This operation removes exactly the Marksplice-owned container, which can include CommonMark lazy-continuation lines that do not repeat a `>` marker; Scripthold does not infer blockquote ownership from line prefixes or add a competing Markdown rule.
+
+##### Paragraphs, lists and sections
 
 Paragraph insertion uses `action: "insert"`, `subject: "paragraph"`, an existing paragraph `targetId`, `position: "before" | "after"`, and `markdown` containing exactly one paragraph; the target is the structural anchor, so callers do not need to calculate line numbers or separators. Paragraph replacement uses `action: "replace"`, `subject: "paragraph"`, a paragraph `targetId`, and `markdown` containing exactly one paragraph.
 
@@ -583,6 +604,8 @@ Task items also have a list-item identity, so they can be removed, inserted besi
 
 Section movement uses `action: "move"`, `subject: "section"`, the source section `targetId`, a second section `anchorTargetId`, and `position: "before" | "after"`; source and anchor roots must be at the same heading level, the complete source subtree moves intact, and moving beside a same-level anchor under another parent may reparent that subtree. The separate `headingTargetId` is not interchangeable with the section `targetId`. Inline Markdown such as emphasis or links is allowed for paragraph insertion/replacement, while invalid paragraph or section fragments are rejected by Marksplice.
 
+#### Composition and safety limits
+
 The sixty-one forms do not accept each other's fields. `path` is required; `encoding` is optional; `backupPolicy` may be `required` or `pinned` and otherwise inherits the operator default.
 
 For local-fragment safety, Scripthold validates the final composed change through Marksplice `LocalFragmentContinuity`. Previously resolved surviving relationships must remain on the same semantic target or be explicitly retargeted by the edit; silent target changes and missing, ambiguous, invalid, or unknown outcomes fail closed with `invalid_structure`. This final-state proof allows unrelated and compensating multi-operation edits without introducing Scripthold fragment parsing, slug rules, or cross-snapshot node identity.
@@ -590,6 +613,8 @@ For local-fragment safety, Scripthold validates the final composed change throug
 Managed TOC synchronization uses `action: "sync"`, `subject: "toc"`, and only the snapshot-bound heading `targetId` already accepted by `markdown_read validate`. At most one `sync/toc` may appear in a preview and it may be combined with other operations. Marksplice `ComposeChangesAndSyncTOC` first proves the ordinary same-snapshot changes, then derives the managed TOC from their final candidate; direct managed-body edits or ambiguous/unprovable target correspondence fail closed. The successful result remains one source-bound preview with a one-shot `previewId` and diff. Preview does **not** write the target or create a persistent backup.
 
 Markdown semantic text is canonical UTF-8. The current mutation bridge also preserves authorized UTF-16 LE/BE and UTF-32 LE/BE compatibility files, with or without BOM, after proving that the decoded source round-trips to the exact original bytes; existing mixed line endings are preserved. Other encodings fail safely until unchanged-byte stability is proven.
+
+#### Workflow example
 
 **Typical workflow:** call `markdown_read` to obtain the exact semantic `targetId` required by the operation, call `markdown_edit` to review the combined result, then pass the returned `previewId` to `markdown_apply`. Fenced-block mutations should use the `targetId` from `inspect.fencedBlocks` when complete coverage is required, because empty fenced blocks intentionally have no generic `fenced_code` node target.
 
@@ -650,7 +675,11 @@ The preview token is one-shot. Success, cancellation, conflict, write failure, o
 
 Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.
 
-The production surface contains 100 active approved target-catalog providers across 100 total registry rows. Unimplemented auxiliary Dockerfile and Make entries are not part of this registry. The authoritative per-provider capability projection is [docs/LANGUAGE_CAPABILITIES.md](docs/LANGUAGE_CAPABILITIES.md); it is generated from the native registry and mechanically checked for drift. Go uses the standard-library AST; the remaining programming-language providers use bounded native scanners, structural recognizers, or offset-preserving adapters. Composite providers preserve host coordinates and delegate only explicitly supported embedded regions. Dialect and shared-extension ambiguity remains fail-closed unless independent evidence resolves it. Bounded process-local incremental indexing is available for active source-analysis providers, while project/semantic relationship claims remain capability-specific and are never inferred merely from provider activation. Unsupported, ambiguous, partial, or truncated coverage is reported explicitly rather than guessed. No external parser/compiler/LSP process, network lookup, persistent code index, or complete-source cache is used.
+Scripthold has **100 active Source Intelligence providers**. The generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix shows what each provider can actually analyze; its contents are checked against the native registry.
+
+- **How analysis works:** Go uses the standard-library AST. Other providers use bounded native scanners, structural recognizers, or offset-preserving adapters. Composite providers retain host-file coordinates and analyze only supported embedded regions.
+- **What coverage means:** Shared file extensions and language dialects may be ambiguous. Indexing is bounded and process-local; enabling a provider does not imply that every project or semantic relationship is supported. Ambiguous, partial, truncated, and unsupported results are reported rather than guessed.
+- **What is not required:** No external compiler, language server, network lookup, persistent code index, or complete-source cache.
 
 **Common navigation parameters:**
 - `paths` (required for `outline`, `digest`, `find`): one or more authorized files/directories; directory traversal reuses the secure `.gitignore`-aware walker.
@@ -714,7 +743,13 @@ Selectors are fingerprint-bound and use `kind: "path" | "symbol" | "position"`. 
 
 Relationship **resolution state is separate from evidence strength**. The frozen states are `resolved`, `ambiguous`, `unresolved`, and `external`. This prevents an ambiguous structural fact from being represented as though `ambiguous` were a weaker evidence level. Indexed results expose generation, deterministic index fingerprint, and staleness as `current` or retained historical `stale`; `not-indexed` remains part of the frozen vocabulary for compatibility with non-indexed/earlier paths.
 
-**`context`:** requires one to 32 fingerprint-bound `targets` and positive `budgetBytes`; optional `bodyPolicy` is `prefer` or `signatures-only`, with `maxItems` and `maxDepth` as additional bounds. The deterministic planner runs against a coherent project generation; embeddings and persistent storage remain absent. Explicit symbol/position targets are all-or-error under byte/item pressure; `prefer` retains a complete declaration body when it fits and otherwise degrades to the bounded declaration signature. Priority is `target`, `enclosing`, `direct-dependency`, `reverse-or-type-relation`, then `deeper-relation`; deeper relations are always signatures. Position selectors that hit resolved project references target their resolved definition candidates and preserve ambiguity rather than guessing. Before any text is returned—even when `stalePolicy=allow` selected retained metadata—the handler reopens the authorized current source, compares the authoritative fingerprint with the planned fingerprint, and slices only that verified decoded snapshot; source drift returns `CONFLICT`. `usedBytes` counts the actual UTF-8 bytes in returned decoded `ContextItem.text`, and coverage/truncation reports budget, item, depth, or representation degradation honestly. Context planning does not invent caller/callee relations from name matches.
+**`context`:** returns source excerpts and related declarations for verified targets, within a strict output budget.
+
+- **Inputs:** one to 32 fingerprint-bound `targets` and positive `budgetBytes`. Optional `bodyPolicy` is `prefer` or `signatures-only`; `maxItems` and `maxDepth` impose further limits.
+- **Selection:** planning uses one coherent project generation, prioritizing `target`, `enclosing`, `direct-dependency`, `reverse-or-type-relation`, then `deeper-relation`. Deeper relations have signatures only. Explicit symbol and position targets are all-or-error under byte/item pressure. With `prefer`, a complete declaration body is returned when it fits; otherwise the planner uses its bounded signature.
+- **Ambiguity:** a position at a resolved project reference selects its definition candidates without guessing between ambiguous matches. Planning does not invent caller/callee relations from names, and does not use embeddings or persistent storage.
+- **Freshness:** before returning any text, including with `stalePolicy=allow`, the handler reopens authorized current source and checks the authoritative fingerprint. Any difference from the planned snapshot returns `CONFLICT`.
+- **Accounting:** `usedBytes` is the actual UTF-8 length of returned `ContextItem.text`. Coverage and truncation distinguish item, depth, budget, and representation limits.
 
 These configurable ceilings are fail-closed: invalid, non-positive, overflowing, or above-hard-maximum environment values fall back only as defined by the current configuration policy. Client-provided limits can only lower the effective configured ceiling. Existing source input/file/byte/request/output limits continue to apply as well.
 
@@ -1234,7 +1269,12 @@ Returns newest-first bounded metadata with optional `statuses`, `kinds`, and `ta
 
 ### task_get
 
-Accepts `taskId` and returns the latest state, timestamps, terminal result, worker liveness, and the bounded immutable lifecycle history. States are `queued`, `starting`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, and `interrupted`. `workerOnline` reports only the scheduler worker heartbeat; it is independent of the per-task executor, so `false` during `starting` or `running` is not by itself a task failure. A terminal state plus `finishedAt` is authoritative; final-looking stdout/stderr can be visible before that transition and is not process-exit evidence. A supported shell whose runtime is unavailable remains a `TASK_START_FAILED` terminal result, but its bounded message preserves only an explicitly safe preparation/start cause; internal task-store paths and unclassified OS errors remain private. A direct process that exits non-zero reports `PROCESS_EXIT_NONZERO` with its exit code. If the direct process exits but inherited stdout/stderr handles held by descendants do not close before the bounded drain delay, the distinct terminal code is `PROCESS_OUTPUT_DRAIN_TIMEOUT`; when available, the direct process exit code is preserved instead of being replaced by a generic `PROCESS_WAIT_FAILED`.
+Accepts `taskId` and returns the current state, timestamps, terminal result, worker availability, and bounded lifecycle history.
+
+- **States:** `queued`, `starting`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, and `interrupted`. Only a terminal state with `finishedAt` establishes completion; output can appear before that state is recorded.
+- **Worker availability:** `workerOnline` describes the scheduler heartbeat, not an individual executor. A value of `false` while a task is `starting` or `running` does not prove failure.
+- **Start and exit failures:** if a supported shell is unavailable, the terminal code is `TASK_START_FAILED` with a bounded, safely classified cause; private task paths and unclassified OS errors are withheld. A direct process that exits nonzero reports `PROCESS_EXIT_NONZERO` and its exit code.
+- **Unclosed output streams:** if descendants keep stdout/stderr open after the direct process exits past the bounded drain delay, `PROCESS_OUTPUT_DRAIN_TIMEOUT` is reported. When available, the direct exit code is preserved rather than replaced with `PROCESS_WAIT_FAILED`.
 
 ### task_logs
 

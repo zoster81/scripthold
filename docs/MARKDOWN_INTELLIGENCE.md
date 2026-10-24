@@ -174,24 +174,21 @@ No Markdown tool accepts an arbitrary filesystem path returned by Marksplice. Pa
 
 ### Targeting
 
-A target is exactly one of:
+Most `markdown_edit` operations require an opaque `targetId` returned by `markdown_read` for the **same document snapshot**. Section and list-item movement also requires an `anchorTargetId` from that snapshot. If the document changes, obtain new targets before preparing another edit; stale identifiers are rejected.
 
-1. `targetId`: opaque snapshot-bound identity returned by `markdown_read`;
-2. a semantic selector whose uniqueness can be proven by Marksplice-backed structure and typed metadata;
-3. a structural path made from proven section/list/table relationships;
-4. a source offset only for Marksplice APIs whose public contract specifically identifies an occurrence by source offset, such as reference retargeting.
+A small set of document-level operations does not use a target: creating a front-matter envelope, front-matter field, reference definition, or footnote definition, and removing the entire recognized front-matter envelope. These forms are explicitly validated and do not accept `targetId`.
 
-Ambiguous selectors fail with candidates. R30 never selects the first duplicate implicitly.
+Scripthold derives target IDs from the source fingerprint and the target's public kind/range identity, not from serialized Marksplice `NodeID` values. Source offsets, line numbers, byte ranges, and occurrence counts are read-only diagnostic information, **not accepted edit selectors**. Even reference-occurrence retargeting requires a relationship `targetId`, not a caller-provided source offset.
 
-`targetId` is derived from the source snapshot fingerprint plus the target's public kind/range identity, not from a serialized Marksplice `NodeID`. It is therefore stable only for that exact source snapshot and cannot be used after the file changes.
-
-Line numbers, byte ranges, and occurrence counts are diagnostic output, not general mutation authority.
+For exact operation-specific fields, see the [`markdown_edit` reference](../TOOLS.md#markdown_edit).
 
 ### Edit request shape
 
 `markdown_edit` uses one document plus an ordered `operations` array. Every operation contains a closed `action`/`subject` combination and only the fields defined for that combination. Examples of action classes are `create`, `insert`, `add`, `replace`, `remove`, `move`, `rename`, `retarget`, `set`, and `sync`.
 
-The currently exposed edit forms are intentionally small and easy to distinguish: rename a heading with `text`, change a heading level with `level`, set one task checkbox with required boolean `checked`, set one table column alignment with `part: "column_alignment"` plus zero-based `column` and a closed alignment enum, atomically replace the complete table alignment vector with `part: "alignments"` plus one value per source-proven column, replace one source-proven code span, emphasis, strong-emphasis, or strikethrough span with `text`, insert one paragraph before or after an existing paragraph with `position` plus `markdown`, replace one paragraph with `markdown`, remove one paragraph using only its `targetId`, replace one list item's direct content with `markdown` while preserving its marker, indentation, and children, or replace its complete subtree with `part: "subtree"` plus one compatible subtree fragment, or remove its complete supported subtree using only a list-item `targetId`, or insert one compatible list-item subtree before, after, or as a child of a list-item target with `position` plus `markdown`, or move one complete supported list-item subtree before or after another list-item using `anchorTargetId` plus `position`, insert one section subtree before, after, or as a direct child of an existing section with `position` plus `markdown`, move one complete section subtree before or after another same-level section using `anchorTargetId` plus `position`, replace a section with `part: "body" | "subtree"` plus `markdown`, or remove a complete section subtree using the section `targetId` returned by `markdown_read`.
+The public edit vocabulary is intentionally closed: each operation combines an `action`, a `subject`, and only the fields allowed for that pairing. Users should choose an operation from the [`markdown_edit` reference](../TOOLS.md#markdown_edit), not infer fields from a generic text-editing model. The rules below explain how Marksplice proves structure preservation, document relationships, and source ownership; they do not define a second public schema.
+
+#### Structural edits: paragraphs, lists and sections
 
 For paragraph insertion the `targetId` identifies the existing paragraph anchor; callers do not calculate source offsets or separator bytes. For section insertion the `targetId` identifies the existing section anchor. `before` and `after` require the inserted root heading at the anchor section's level, while `child` appends a direct child subtree whose root is exactly one level deeper; `h6` parents therefore reject child insertion. `after` and `child` both operate after the relevant existing subtree rather than after only the heading or direct body.
 
@@ -205,11 +202,15 @@ List-item movement operates on complete supported subtrees, preserves authored n
 
 The task target is not interchangeable with the list-item target; list-item removal, insertion, and movement use the list-item identity, while task state changes use the task identity. Simple inline replacement uses the matching snapshot-bound `code_span`, `emphasis`, `strong`, or `strikethrough` target, changes only Marksplice's proven content range, preserves the authored delimiters, and fails closed for unsupported source shapes or unsafe replacement content. Direct link replacement uses the matching snapshot-bound `inline_link`, `image`, or `autolink` target.
 
+#### Inline content, links and fenced blocks
+
 Inline links accept `part: "destination" | "label" | "title"`, images accept `part: "destination" | "alt" | "title"`, and autolinks use no `part`; replacement requires non-empty `text`. Existing-title replacement requires a current title and preserves its authored delimiters. `add` with `part: "title"` requires an inline link or image with no current title plus non-empty `text` and inserts canonical double-quoted title syntax. `remove` with `part: "title"` requires an existing inline-link or image title, accepts no text, and removes only Marksplice-owned title syntax while preserving separator whitespace.
 
 Marksplice owns state/replacement validation and preserves authored wrappers and unrelated source. Fenced-code mutation uses the broader fenced-block identity returned by `markdown_read inspect.fencedBlocks`: `replace/fenced_code` with `part: "body"` requires non-empty `text`, while `set/fenced_code` with `part: "info"` requires `text` but permits the empty string to clear the info string. The broader target is necessary because Marksplice intentionally exposes empty fenced blocks through `FencedBlocks()` even when no legacy contiguous `FencedCode` node exists.
 
 For compatible non-empty blocks, Scripthold also accepts the generic `fenced_code` node target after proving that Marksplice resolves it to the same fenced block. Marksplice preserves fence shape, trivia, and line endings and remains the sole authority for body/info validation. Direct reference-definition mutation uses the existing snapshot-bound `reference_definition` target, whose typed read detail already exposes label, destination, and optional title.
+
+#### Definitions and document metadata
 
 Definition rename uses `rename` with non-empty `text` and no `part`; Marksplice atomically updates the definition label and every parser-proven bound reference link/image, promotes collapsed and shortcut occurrences to full form when necessary to preserve visible labels, keeps an identical authored label as a source-bound no-op, and rejects invalid or colliding normalized labels.
 
@@ -237,6 +238,8 @@ Front-matter key rename uses `rename/front_matter_field` with the same snapshot-
 
 Front-matter field removal uses `remove/front_matter_field` with only the snapshot-bound field `targetId`; Marksplice `PrepareRemoveFrontMatterField` removes the complete promoted field physical line plus its EOL, preserves the surrounding envelope/body bytes, reparses the candidate, and rejects wrong target kinds or stale source through the same source-bound lifecycle.
 
+#### HTML, math and Markdown containers
+
 Raw-HTML replacement uses `replace/html_comment` or `replace/html_anchor` with the matching snapshot-bound target, non-empty single-line `text`, and no `part`; Marksplice changes only the promoted comment payload or quoted anchor id/name value, preserves wrappers, attribute spelling/quote style, line endings, and unrelated source, treats identical content as a source-bound no-op, and rejects embedded comment terminators, quote-breaking anchor values, multiline content, wrong kinds, or stale source. Math-expression replacement uses `replace/math_expression` with the matching snapshot-bound target, non-empty `text`, and no `part`.
 
 Inline dollar, dollar-backtick, and block-dollar forms use normal `math_expression` node targets; exact-info fenced `math` blocks intentionally reuse the existing `fenced_block` target because Marksplice shares the same underlying identity instead of creating a duplicate structural node. Marksplice `PrepareReplaceMathExpression` preserves the exact delimiter/container form and owns style-specific replacement validation, including delimiter conflicts, multiline restrictions for dollar forms, fenced-math payload validation, wrong-kind rejection, identical-value no-ops, and stale-source binding.
@@ -250,6 +253,8 @@ Marksplice `PrepareReplaceAlertBody` preserves the recognized GitHub alert marke
 Thematic-break removal uses `remove/thematic_break` with only the snapshot-bound target; Marksplice removes exactly the promoted top-level physical line, preserves neighboring bytes, reparses and proves surviving structure, remains source-bound, and fails closed when the deletion would merge surrounding text into a different paragraph structure. Blockquote removal uses `remove/blockquote` with only the snapshot-bound top-level blockquote target.
 
 Marksplice `PrepareRemoveBlockquote` removes the complete source-owned container including owned line endings, while recognized GitHub alerts intentionally reuse the same underlying blockquote NodeID and therefore the same public target rather than introducing a second alert identity namespace. The contract is exact semantic-container removal: Marksplice ownership can include CommonMark lazy-continuation lines that do not repeat a `>` marker, so Scripthold must not infer container boundaries from line prefixes or add a competing Markdown rule.
+
+#### Composed edits and relationship safety
 
 Multiple inline edits in one request still pass through `ComposeChanges`; Marksplice may reject structurally interacting edits even when their byte ranges appear separate. Section insertion/replacement may contain nested subsections only when Marksplice proves a single valid subtree.
 

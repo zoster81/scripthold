@@ -6,7 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
-- Reorganized documentation around a task-based index and clearer tool groups, shortened the README and technical introductions, and added a dedicated guide for verified standalone self-update; no tool behavior or release artifacts changed.
+- Reorganized documentation around a task-based index and clearer tool groups, shortened the README and technical introductions, and added a dedicated guide for verified standalone self-update. Clarified the actual snapshot-bound Markdown edit targets, replaced a repeated operation inventory with task-oriented guidance, and grouped detailed operation contracts by topic; tool behavior and release artifacts are unchanged.
 - Narrowed Source Intelligence to implemented `source_query` search modes, relation kinds, and analyzer-proven evidence grades; unsupported requests now fail validation before indexing. Removed unused capability flags, unused context reasons, and the two inactive Dockerfile/Make registry placeholders, retaining the 100 active providers and existing read-only analysis behavior.
 
 ## 3.3.3 - 2026-10-23
