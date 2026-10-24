@@ -135,6 +135,18 @@ Within each Linux staging job, use fresh, private, single-owner destinations and
 
 ### Transfer complete typed inventories before publication
 
+Use the links below to inspect one release trust boundary at a time:
+
+- [Asset inventory and writer authority](#asset-inventory-and-writer-authority)
+- [Source identity and immutable publication](#source-identity-and-immutable-publication)
+- [Original-byte transfer and verification](#original-byte-transfer-and-verification)
+- [Optional Go producer staging](#optional-go-producer-staging)
+- [Active provenance and consumer checks](#active-provenance-and-consumer-checks)
+- [Finalizer observation and recovery](#finalizer-observation-and-recovery)
+- [Registry publication prerequisite](#registry-publication-prerequisite)
+
+#### Asset inventory and writer authority
+
 The active release flow separates the unprivileged normal-asset producer, the GitHub-only MCPB producer, and the narrowly privileged finalizer. Each stage has its own independently verified asset allowlist:
 
 - **15 normal files:** six raw binaries, six platform archives, `checksums.txt`, and two authentic provenance companions.
@@ -177,6 +189,8 @@ A lost response to the final publish request is **not** permission to publish ag
 
 The protected finalizer's `readVerifiedImmutablePublication` reader retrieves a release, its complete bounded asset list, and the release again through authenticated GitHub GET requests. It applies the same exact 22-file immutable-publication contract and rejects changed or incomplete observations. This is **postpublication read-only evidence**, not a replacement for original-byte verification, trusted producer/run provenance, the administrative immutability precondition, or a safe single-writer publication operation. The protected finalizer invokes these readers in the current tagged release workflow; readback remains a point-in-time observation.
 
+#### Source identity and immutable publication
+
 Pin the **publisher and packaging code revision** as well as the input asset commit. The merged reusable MCPB consumer rejects any mismatch between the requested version, the triggering release tag, both checked-out source commits and GitHub's tagged event commit **before executing tag-owned validation code or consuming signed files**. Both of its checkouts now disable persisted Git credentials. This source-qualified guard does not establish genuine signed-15 consumer or six-package hosted qualification. Registry manual dispatch independently authenticates the immutable release before running tag-owned code; its initial policy verifier intentionally remains workflow-owned. Reusable workflows and manual dispatch must not silently run mutable `main` scripts against a different tag without an explicit, verified code-identity contract. Serialize competing publication entrypoints for the same tag.
 
 The offline `validatePublicationAuthoritySnapshot` check binds the complete 22-file staging manifest to an annotated Git tag object, the exact current `main` commit, the checked-out publisher commit, successful exact-commit **main-push** Test Suite and Scorecard runs, and a completed `Release candidate` job from the selected Test Suite run **and attempt**. It accepts authenticated, repository-scoped API responses as inputs; it does **not** authenticate how those responses were fetched, lock concurrent publishers, or grant publication permission. The protected finalizer must fetch this evidence independently, recheck authoritative refs and draft assets immediately before each state-changing request, and fail closed if any evidence changes. GitHub REST job metadata (including `run_attempt`) is required; a projection that omits fields is not suitable as publication authority.
@@ -186,6 +200,8 @@ The read-only `readPublicationAuthority` helper now fetches those inputs itself 
 Every JSON response is size-limited; any result with an incomplete page, more than 100 items, extra `Link` pagination, an incongruent run/job, or mismatched source fails closed. The protected finalizer job retains a read-only `GITHUB_TOKEN` with **Actions: read** and **Contents: read**; an independently scoped, short-lived GitHub App token provides **Contents: write** only for draft/release mutations. Producer jobs have no release-write authority.
 
 The returned verdict is evidence from one series of network reads, **not a lock, a durable permit, a cryptographic proof of a protected tag, or permission to publish**. A publisher must bind its checkout to the exact commit, serialize tag operations and refresh this evidence immediately before each mutation; a changed source or competing publisher requires aborting, not proceeding on a cached result. The current draft-first workflow applies this fresh-evidence boundary to every attempted publication.
+
+#### Original-byte transfer and verification
 
 The offline `assembleRawReleaseStaging` producer-evidence adapter accepts two independently validated 15/7-file stage manifests and their explicit numeric run, producer attempt, repository and upload identities. It checks each original filename, size and SHA-256 against its producer manifest and the supplied GitHub Actions REST artifact observation, requires the exact common run/repository and consistent attempt within each stage, and returns only the canonical 22-file manifest plus the pinned raw-download ID plan. The producer records cannot contain host paths or extra authority fields. The caller must independently authenticate the REST fetches, verify the source workflow and producer job/attempt, open a private no-follow download destination, check all 22 downloaded byte streams, and reacquire publication authority before any later write. This adapter does **not** perform network I/O, acquire a concurrency lock, authorize uploads, or publish releases. The active tagged pipeline uses this evidence boundary before the private 22-file transfer.
 
@@ -229,9 +245,13 @@ The merged normal producer's pure `planOriginalGoReleaserPaths` selector chooses
 
 It rejects missing, duplicated, case-aliased and substituted output paths and returns only a local, untrusted-to-other-jobs source mapping. The checksums are checked against the exact 12 public subjects, but this pure selector does **not** open files, establish binary sizes, authenticate producer identity or signatures, or create staging files. A future trusted Linux producer must independently open and authorize each physical original, verify its exact size and bytes, and use the existing safe Go staging primitives before any attempt-scoped raw upload.
 
+#### Optional Go producer staging
+
 **Optional Go producer staging (not wired into release publication):** the `releasearchive` source-binding and rooted-copy helpers can verify and privately stage the 15 normal originals, including the genuine Sigstore bundle and signed JSONL kept outside GoReleaser's `dist` tree. The sidecar variant accepts independently trusted source roots and preserves exact signed bytes without rewriting or resigning them. Source and staging trees must remain disjoint where required, and a failed late copy leaves a **non-publishable partial stage** to clean up safely. See [the implementation](../internal/releasearchive/producer_handoff.go).
 
 These helpers do not authenticate the Sigstore signer, GitHub workflow/run/attempt, upload artifact IDs, or publisher authority. The active GoReleaser, provenance, MCPB, and Registry workflows do not invoke them; existing exact-run, original-byte, cryptographic, and publication gates remain mandatory.
+
+#### Active provenance and consumer checks
 
 The merged Linux MCPB consumer's `verifyStagedNormalAttestations` helper is used for a **separate, owner-private 15-file download stage with original filenames**, after raw transfer has restored the original names.
 
@@ -251,7 +271,9 @@ The job checks do **not** establish that a particular job uploaded each artifact
 
 These entrypoints do not mutate GitHub, are not used by active release workflows, and cannot authorize publishing or prove an atomic snapshot.
 
-The offline `planReleaseFinalizerStep` offers **non-executable proposals**, never authorization to mutate GitHub. It first verifies the same publication evidence, then distinguishes unknown/ambiguous release lookup (`inspect-absence` or halt), a verified draft with missing assets (one canonical `upload-candidate`), a complete draft (`publish-candidate`), and a fully checked immutable release (`complete`). After a lost publish response, only a freshly checked published immutable release is recognized as complete; an apparently unchanged draft must halt rather than blindly retry. Uncertain uploads may advance only if a fresh remote listing independently contains the exact asset. None of these proposals acquires a lock or prevents another writer: the protected workflow implements a same-tag concurrency boundary, authenticate all API responses, and refresh source, release and assets before **every** remote write.
+#### Finalizer observation and recovery
+
+The offline `planReleaseFinalizerStep` offers **non-executable proposals**, never authorization to mutate GitHub. It first verifies the same publication evidence, then distinguishes unknown/ambiguous release lookup (`inspect-absence` or halt), a verified draft with missing assets (one canonical `upload-candidate`), a complete draft (`publish-candidate`), and a fully checked immutable release (`complete`). After a lost publish response, only a freshly checked published immutable release is recognized as complete; an apparently unchanged draft must halt rather than blindly retry. Uncertain uploads may advance only if a fresh remote listing independently contains the exact asset. None of these proposals acquires a lock or prevents another writer. The protected workflow must enforce same-tag concurrency, authenticate API responses, and refresh the source, release, and asset inventory before **every** remote write.
 
 For that same-tag boundary, use the **same canonical tag-derived concurrency group across tag-triggered and manual finalizer entrypoints**; a group based on the workflow name or manual-dispatch branch can accidentally isolate competing writers. Set `cancel-in-progress: false` so an executing publisher is never interrupted. GitHub supports `concurrency.queue: max` (up to 100 pending runs), but the currently pinned `actionlint` v1.7.12 does **not** accept that key. Do not add it until a coordinated, pinned validator upgrade passes workflow and CI qualification. Without `queue: max`, GitHub replaces an older pending run when a newer one queues, even when `cancel-in-progress` is false; operators must not assume every retry executes or that dispatch order is preserved. Treat any canceled or superseded attempt as requiring a fresh authority/inventory check, not implicit publication success.
 
@@ -276,6 +298,8 @@ The read-only `discoverReleaseByTag` helper can now scan up to 20 numbered pages
 Finding no tag returns `not-found-unproven`, **not** proof that no draft exists: GitHub documents draft listing as available only to users with repository push access, and multi-page reads are not atomic. The finalizer must check effective authorization, serialize same-tag writers, and recheck source, list, release and asset state before every mutation. In particular, do not use the published-release-by-tag endpoint to infer draft absence.
 
 The protected finalizer invokes the required reader and recovery checks only inside the tagged Release job. Any uncertain-write recovery requires fresh evidence of the exact source, run/attempt, and remote draft state; a previous successful publication does not qualify it.
+
+#### Registry publication prerequisite
 
 **Registry read-only prerequisite:** the merged `publish-registry.yml` rejects either `workflow_call` or manual Registry publication unless GitHub exposes the exact tagged source commit as an already published immutable release. Before Registry OIDC, it uses the ordinary read-only workflow token to independently read the release by tag and stable ID, require an unpaginated complete set of all 22 original asset names and distinct numeric IDs, and check positive sizes, SHA-256 digest metadata and uploaded states.
 
