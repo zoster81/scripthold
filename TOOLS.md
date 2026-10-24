@@ -89,7 +89,12 @@ Read file contents through the shared incremental decoder with automatic encodin
 
 ### read_multiple_files
 
-Read multiple files through the same incremental encoding/BOM-aware pipeline used by `read_text_file`. `MCP_MAX_BATCH_FILES` limits input count and `MCP_MAX_OUTPUT_BYTES` bounds aggregate decoded output. The ordered coordinator preserves input order, using parallelism only when the aggregate worst-case output fits the budget. Individual file failures do not stop the operation, and cancellation still produces one stable result for every requested path. `errorCount` counts every failed item; each failed result retains its stable `errorCode` and optional `encodingErrorCode`. The compatibility `errors` summary keeps only a deterministic bounded prefix (at most 64 entries and subject to a fixed byte budget derived from the output limit); successful decoded content has priority over this duplicate summary, so retained error summaries also yield to the remaining aggregate output budget. `errorsTruncated` and `errorsOmitted` state explicitly when further summaries were omitted.
+Read several files in one request using the same incremental encoding and BOM-aware decoding as `read_text_file`. Results remain in input order, even when an individual file fails or the request is cancelled.
+
+- **Bounds and concurrency:** `MCP_MAX_BATCH_FILES` limits the number of inputs; `MCP_MAX_OUTPUT_BYTES` caps aggregate decoded output. Parallel reads are used only when their worst-case combined output fits that budget.
+- **Per-file errors:** failures do not prevent other files from being read. Every requested path receives a stable result; `errorCount` counts all failures, and failed entries include `errorCode` and, when relevant, `encodingErrorCode`.
+- **Bounded error summary:** the compatibility `errors` array retains at most 64 errors, subject to a separate byte budget derived from the output limit. Successfully decoded content takes priority over this duplicate summary.
+- **Honest truncation:** `errorsTruncated` and `errorsOmitted` reveal when error details were left out.
 
 **Parameters:**
 - `paths` (required): Array of file paths to read
@@ -138,7 +143,11 @@ Read multiple files through the same incremental encoding/BOM-aware pipeline use
 
 Replace the complete target file contents with the supplied UTF-8 `content`, using the selected target encoding through the shared document encoder. The explicit `write_whole_file` name is intentional: the historical `write_file` name could be mistaken for an incremental edit or append operation, while this tool discards any existing text not present in `content`. Use `edit_file` when only part of an existing document should change.
 
-The supplied line endings are written exactly as provided. Encoding failures and invalid BOM policies are rejected before filesystem mutation. The result is staged and synced before an atomic commit; existing targets are checked for concurrent changes, and new targets use a no-replace commit so a concurrently created file is not overwritten. The prepared result and final target are fingerprinted; an existing pre-state fingerprint is additionally retained when the target already fits the configured bounded file-read limit, while larger existing targets keep the historical metadata-only concurrency snapshot rather than forcing a new unbounded read. If replacement reports an error after a possible commit, the handler re-reads only bounded evidence and reports `state: unchanged|committed|unknown`, `changed`, `applied: false`, and `actualFingerprint` when available; a committed or unclassifiable post-error state returns `PARTIAL_COMMIT` rather than an empty or misleading result.
+The file is written with exactly the supplied line endings. Invalid encoding or BOM policy fails before mutation.
+
+- **Durable replacement:** replacement bytes are staged and synchronized before the final atomic commit. Existing targets are checked for concurrent changes; a newly created target uses a no-replace commit to prevent overwriting a file created in the meantime.
+- **Bounded comparison:** the prepared and final states have fingerprints. For a sufficiently small existing target, the prior content fingerprint is also retained; larger targets use the historical metadata-only concurrency snapshot instead of an unbounded read.
+- **Uncertain outcomes:** after a possible commit failure, the handler checks only bounded post-state evidence and reports `state: unchanged|committed|unknown`, `changed`, `applied: false`, and `actualFingerprint` when available. A committed or unclassifiable post-error state returns `PARTIAL_COMMIT` rather than claiming that nothing changed.
 
 **Parameters:**
 - `path` (required): Path to the file
@@ -213,7 +222,12 @@ The edit preview cache is bounded by `MCP_MAX_EDIT_PREVIEWS` (default `128`), `M
 
 Apply one previously prepared `edit_file` capability. The **complete input schema is only** `previewId`; path, edits, patch, encoding, `forceWritable`, backup policy, content, and all other overrides are rejected as unknown fields.
 
-The capability is consumed before revalidation, so success, conflict, cancellation, write failure, and replay are terminal. Apply revalidates authorization, path, stable file identity, approved pre-state fingerprint, and retained result fingerprint. For a changed edit with effective policy `required` or `pinned`, the exact approved pre-state is durably captured and verified before permission changes or target replacement, then the target is revalidated again. `pinned` marks that immutable backup protected from automatic per-target retention and ordinary GC. The exact retained bytes are committed through synced same-directory replacement and verified by final fingerprint. A no-op returns `applied: false`, creates no backup, and leaves metadata/bytes unchanged. A durable backup remains valid if a later target write fails; no automatic rollback is promised.
+Applying an `edit_file` preview is **one-shot**: the capability is consumed before validation, so success, conflict, cancellation, write failure, and replay are all terminal outcomes.
+
+- **Revalidation:** check current authorization, target path and stable file identity, the approved pre-state fingerprint, and the retained result fingerprint.
+- **Backup policy:** when a changed edit requires `required` or `pinned`, durably capture and verify the exact approved original **before** changing permissions or replacing the target, then revalidate again. A pinned immutable backup is excluded from automatic per-target retention and ordinary garbage collection.
+- **Commit:** persist the approved bytes through synchronized same-directory replacement, then verify the final fingerprint.
+- **No-op and failure:** a no-op returns `applied: false` without changing bytes/metadata or creating a backup. A backup remains valid if the later target write fails; **no automatic rollback is promised**.
 
 Apply reports actual target evidence rather than reusing the preview prediction: `state` is `unchanged`, `committed`, or `unknown`, and `actualFingerprint` records the observed post-state when classification succeeds. If an error occurs before mutation and the approved fingerprint remains present, `changed` is false. If replacement committed but a later durability/verification step fails, the response is `applied: false`, `state: committed`, `changed: true`, and `PARTIAL_COMMIT`. An unclassifiable post-error state also fails conservatively with `PARTIAL_COMMIT` rather than claiming that no change occurred.
 
@@ -488,7 +502,15 @@ Ordinary returned lists are deterministically cut at `limit` and set `truncated`
 
 Use `markdown_create` to **prepare and review a complete new Markdown document** at an authorized path that does not exist yet. Marksplice builds the semantic document; Scripthold binds the preview to the missing destination, its existing parent directory, the generated physical bytes, and the selected encoding/BOM policy. Previewing never creates the file.
 
-The request requires `path` and may contain `frontMatter`, an ordered `blocks` array, optional `encoding`, and `bom: "auto" | "always" | "never"`. Omitting `encoding` uses the configured new-file default. New Markdown uses Marksplice's canonical LF output. Typed construction supports YAML/TOML front matter; headings, paragraphs, thematic breaks, nested blockquotes and GitHub alerts; ordered/unordered lists and task lists; fenced code; reference definitions and single-line or reviewed canonical multiline footnote definitions, including deferred definitions; math blocks; GFM tables with alignments; and recursive inline text, code, emphasis/strong/strikethrough, links/images, autolinks, reference forms, footnote references, and math. `rawMarkdown` is available only on construction shapes for which Marksplice itself accepts and reparses the fragment.
+A `markdown_create` request requires `path`; it may also supply `frontMatter`, an ordered `blocks` array, `encoding`, and `bom: "auto" | "always" | "never"`. With no explicit encoding, the configured new-file default applies. Marksplice generates canonical LF Markdown for a new document.
+
+Supported typed construction includes:
+
+- **Document blocks:** YAML/TOML front matter, headings, paragraphs, thematic breaks, nested blockquotes and GitHub alerts, fenced code, math blocks, and GFM tables with alignment.
+- **Collections and definitions:** ordered/unordered and task lists; reference definitions; single-line or reviewed canonical multiline footnote definitions, including deferred definitions.
+- **Inline content:** recursive text, code, emphasis/strong/strikethrough, links/images, autolinks, reference forms, footnote references, and math.
+
+`rawMarkdown` is supported only where Marksplice itself accepts and reparses that construction fragment.
 
 A successful preview returns `previewId`, canonical Markdown, result fingerprint, encoding/BOM/EOL metadata, and physical size. The generated physical result is bounded by the normal file/output limits. The immediate parent must already exist as an authorized real directory, and the target must still be absent. Creation has no persistent backup because there is no approved pre-state.
 
@@ -936,7 +958,11 @@ Read and review the optional persistent backup store, or prepare restore/GC capa
 - `restorePreview`: requires `backupId`; authorizes only the immutable manifest's original target, verifies the source object, binds current missing/existing identity and fingerprint, and read-only preflights the mandatory safety backup for an existing target. It returns a 256-bit expiring `previewId`, fingerprints, object size, verification state, and optional bounded diff. No staging file, backup object, manifest, permission change, or target mutation is created.
 - `gcDryRun`: creates a deterministic generation-bound, 256-bit expiring GC capability from an authoritative read-only plan. Pinned manifests, active restore sources, and referenced objects remain protected; no record/object is moved or deleted.
 
-`MCP_BACKUP_DEFAULT_POLICY=disabled|required` controls the operator default for eligible approval-bound content mutations (`edit_file`, `markdown_edit`, `patch_package`, `manage_bom`, and `convert_encoding`). The default is `disabled`. A request may explicitly use `required` for normal persistent capture or the stronger `pinned` policy for a protected immutable backup; neither can weaken a configured `required`. No-op mutations create no persistent backup. `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` defaults to `64` and acts as a post-capture retention target rather than an admission barrier: once a newer unpinned backup is durable, the oldest eligible non-pinned version for that target is rotated as needed. Restore keeps its independent mandatory safety-backup rule for an existing target, and GC never captures public file content.
+`MCP_BACKUP_DEFAULT_POLICY=disabled|required` sets the default for approval-bound content mutations: `edit_file`, `markdown_edit`, `patch_package`, `manage_bom`, and `convert_encoding`. The default is `disabled`.
+
+- **Request override:** callers may request `required` to retain a persistent backup or `pinned` to protect an immutable backup from ordinary automatic deletion. They cannot weaken an operator-configured `required` policy. No-op mutations create no backup.
+- **Per-target retention:** `MCP_BACKUP_MAX_VERSIONS_PER_TARGET` defaults to `64`. This is a **post-capture retention target**, not a reason to reject a new backup: after a newer unpinned backup is durable, the oldest eligible unpinned version is rotated as needed.
+- **Separate contracts:** restore of an existing target still requires its own mandatory safety backup. Garbage collection does not capture public file content.
 
 Restore/GC capabilities use `MCP_BACKUP_PLAN_TTL_SECONDS`; each cache has fixed bounded entry/state limits. `MCP_MAX_OUTPUT_BYTES` bounds responses. Backup target paths appear only where current-root authorization permits them; GC candidate output remains path-free.
 
@@ -981,7 +1007,12 @@ Deletion is manifest-first and reference-safe. If the object is still referenced
 
 Search decoded text incrementally using one regex `pattern` or a `patterns` array combined with OR semantics. Automatic detection uses the conservative registry-aware trust policy; ambiguous non-empty input requires an explicit `encoding`, so callers can still search explicit-only or otherwise ambiguous files by naming their codec. Directory inputs use the `.gitignore`-aware secure walker. Content mode preserves deterministic traversal order and bounded context queues; path/count modes scan each selected file without letting an early high-match file hide later files. `offset + maxMatches` is bounded by `MCP_MAX_MATCHES`, and retained match output remains within `MCP_MAX_OUTPUT_BYTES`.
 
-Partial coverage is explicit in every output mode. `filesSearched` remains the deterministic count of candidate files selected for the request, `filesScanned` counts candidates processed without a per-file failure before the scan stopped, and `filesSkipped` counts encountered per-file failures. `coverageComplete` is false whenever any file was skipped or the scan stopped before all candidates were processed, including result truncation. `skippedFiles` retains a deterministic bounded prefix of per-file `path`, `error`, stable `errorCode`, and optional `encodingErrorCode`; at most 64 details are retained, a separate byte cap is derived from the output budget, and retained match/path/count results take priority when only residual output budget remains. `skippedFilesTruncated` and `skippedFilesOmitted` make additional failures explicit. Encoding/I/O skips preserve valid results from other files; cancellation and output-limit failures remain terminal.
+Every search mode reports its coverage, so a partial result cannot silently masquerade as complete.
+
+- **Counters:** `filesSearched` counts the deterministic candidate set. `filesScanned` counts candidates processed without an individual failure before stopping; `filesSkipped` counts encountered per-file failures.
+- **Completeness:** `coverageComplete` is false if a file was skipped or the scan stopped before all candidates were processed, including output truncation.
+- **Failure details:** `skippedFiles` retains a deterministic prefix of up to 64 entries with `path`, `error`, stable `errorCode`, and optional `encodingErrorCode`. Its separate byte cap derives from the overall output budget; match, path, and count results take priority over duplicate error details.
+- **Further omissions:** `skippedFilesTruncated` and `skippedFilesOmitted` reveal omitted failures. Encoding and I/O errors on one file do not discard other valid results, but cancellation and output-limit errors terminate the request.
 
 **Parameters:**
 - `pattern` (conditionally required): One regular expression
@@ -1039,7 +1070,13 @@ Partial coverage is explicit in every output mode. `filesSearched` remains the d
 
 ### detect_encoding
 
-Detect the encoding of a file with confidence percentage. Detection is based on BOMs and content, never on filename or extension. Unicode BOMs remain authoritative; BOMless Unicode candidates require strict structural evidence, and control-heavy syntactically valid UTF-8 is rejected as binary rather than trusted as text. Empty files return assumed UTF-8 with confidence 0 and `assumed: true`. Non-empty legacy input must pass an evidence floor, registry closure, strict decoding, decoded-text quality, and known-confusion checks; otherwise the tool returns `ambiguous: true` instead of a forced encoding. HZ-GB-2312, ISO-2022-JP, and ISO-2022-KR require verified stateful syntax plus detector agreement and non-ASCII decoded evidence. GB18030 four-byte syntax excludes GBK but does not guess between generic GB18030 and the exact GB18030:2022 revision. `sample`, `chunked`, and `full` share the same trust semantics, including state that crosses chunk boundaries.
+Detect a file's encoding and report its confidence. Scripthold uses **file bytes and decoded-text evidence**, never a filename or extension. Uncertain non-empty input is reported as `ambiguous: true` rather than assigned a guessed encoding.
+
+- **Unicode:** a BOM is authoritative. Without one, the Unicode candidate must have strong structural evidence. Even syntactically valid UTF-8 is rejected as binary if it contains too many control characters.
+- **Empty input:** returns assumed `utf-8` with confidence `0` and `assumed: true`.
+- **Legacy encodings:** a non-empty candidate must meet evidence thresholds, registry closure, strict decoding, decoded-text quality, and known-confusion checks.
+- **Stateful and similar encodings:** HZ-GB-2312, ISO-2022-JP, and ISO-2022-KR additionally require verified syntax, detector agreement, and non-ASCII decoded evidence. GB18030 four-byte sequences exclude GBK but do not distinguish the generic GB18030 name from the exact GB18030:2022 revision.
+- **Modes:** `sample`, `chunked`, and `full` use the same trust rules, including syntax state spanning chunk boundaries.
 
 **Parameters:**
 - `path` (required): Path to the file
@@ -1232,7 +1269,13 @@ Observe or cancel work represented by a high-entropy `operationId`, and retrieve
 
 Durable operation state lives in a separate owner-only store with bounded queue, concurrency, runtime, retention, terminal count, result bytes, and aggregate bytes. Current allowed roots are revalidated before recovered execution and before result retrieval. A pre-start stale operation may be relaunched after recovery; once the durable `started` marker exists, executor loss becomes `interrupted` and the invocation is never replayed automatically. `cancel` is meaningful only for durable operations; oversized-response handles are already complete and have no background execution to cancel.
 
-The global `MCP_CALL_MAX_SYNC_SECONDS` cooperative deadline still applies to every public tool, including tools that are not eligible for independent execution. When the durable deferred-operation store is configured, requests using protocol `2026-07-28` or later may opt into `io.modelcontextprotocol/tasks`; an eligible slow `tools/call` then exposes the same durable operation as a native task, observed through `tasks/get`, acknowledged through `tasks/update` when client input responses are supplied, and cooperatively cancelled through `tasks/cancel`. The current deferred engine never enters `input_required`, so `tasks/update` validates the known task and required `inputResponses` field, ignores non-outstanding response keys, and does not mutate execution state. `deferred_operation` remains the compatibility surface for legacy sessions and for oversized completed responses, which are not native tasks.
+The global `MCP_CALL_MAX_SYNC_SECONDS` cooperative deadline applies to **all public tools**, including tools that cannot run independently.
+
+When the durable deferred-operation store is configured, clients on protocol `2026-07-28` or later may opt into `io.modelcontextprotocol/tasks`. Eligible slow `tools/call` requests then expose their existing durable operation through the native task methods:
+
+- `tasks/get` observes progress and results; `tasks/cancel` requests cooperative cancellation.
+- `tasks/update` accepts client input responses for a known task, but the current deferred engine **never enters `input_required`**. It validates the required `inputResponses` field, ignores keys with no outstanding response request, and does not mutate execution state.
+- `deferred_operation` remains available for legacy sessions and for oversized **already completed** responses. Those oversized responses are not native tasks.
 
 ## Durable Task Execution
 
