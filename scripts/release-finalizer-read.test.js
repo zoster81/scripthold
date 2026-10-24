@@ -306,6 +306,32 @@ test('discovers a unique draft in a complete, bounded authenticated release list
   }
 });
 
+test('accepts a bounded large release-list page without weakening other response limits', async () => {
+  const entries = Array.from({ length: 15 }, (_, i) => ({
+    id: i + 5000, tag_name: 'v2.0.' + i, draft: false, immutable: true,
+    body: 'x'.repeat(40000),
+  }));
+  const fake = releaseListFetch({ pages: [entries] });
+  assert.deepEqual(await discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: fake.fetchImpl,
+  }), { kind: 'not-found-unproven', tag: TAG });
+
+  const oversized = releaseListFetch({ pages: [entries.map(entry => ({
+    ...entry, body: 'x'.repeat(150000),
+  }))] });
+  await assert.rejects(discoverReleaseByTag({
+    tag: TAG, token: TOKEN, fetchImpl: oversized.fetchImpl,
+  }), /byte bound|content length/);
+
+  const { release, assets } = fixture();
+  const largeRelease = client({ release, assets, errors: {
+    release1: response({ ...release, body: 'x'.repeat(600000) }),
+  } });
+  await assert.rejects(readReleaseObservation({
+    releaseId: RELEASE_ID, tag: TAG, token: TOKEN, fetchImpl: largeRelease.fetchImpl,
+  }), /byte bound|content length/);
+});
+
 test('does not convert an apparently absent release into creation permission', async () => {
   const fake = releaseListFetch({ pages: [[
     { id: 999, tag_name: 'v3.3.0', draft: false, immutable: false },

@@ -6,6 +6,7 @@ const { normalizeReleaseAssetPage } = require('./release-finalizer-plan');
 
 const API = 'https://api.github.com/repos/zoster81/scripthold/releases';
 const MAX_JSON_BYTES = 512 * 1024;
+const MAX_RELEASE_LIST_JSON_BYTES = 2 * 1024 * 1024;
 const API_VERSION = '2022-11-28';
 
 function requireCondition(condition, message) {
@@ -30,7 +31,7 @@ function releaseIdentity(release, id, tag) {
   return result;
 }
 
-async function readJsonResponse(response, url) {
+async function readJsonResponse(response, url, maxBytes = MAX_JSON_BYTES) {
   requireCondition(response && typeof response === 'object' &&
     response.status === 200 && response.redirected !== true &&
     (typeof response.url !== 'string' || response.url === '' || response.url === url),
@@ -42,7 +43,7 @@ async function readJsonResponse(response, url) {
   const contentLength = response.headers.get('content-length');
   if (contentLength !== null) {
     requireCondition(/^\d+$/.test(contentLength) &&
-      Number(contentLength) <= MAX_JSON_BYTES, 'GitHub JSON content length is invalid');
+      Number(contentLength) <= maxBytes, 'GitHub JSON content length is invalid');
   }
   requireCondition(response.body &&
     typeof response.body[Symbol.asyncIterator] === 'function',
@@ -52,7 +53,7 @@ async function readJsonResponse(response, url) {
   for await (const bytes of response.body) {
     requireCondition(bytes instanceof Uint8Array, 'nonbinary GitHub response');
     size += bytes.byteLength;
-    requireCondition(size <= MAX_JSON_BYTES, 'GitHub JSON exceeds byte bound');
+    requireCondition(size <= maxBytes, 'GitHub JSON exceeds byte bound');
     parts.push(Buffer.from(bytes));
   }
   requireCondition(size > 0, 'empty GitHub JSON response');
@@ -188,7 +189,7 @@ async function discoverReleaseByTag({ tag, token, fetchImpl = globalThis.fetch }
   for (let page = 1; page <= MAX_RELEASE_PAGES; page++) {
     const url = API + '?per_page=' + RELEASES_PER_PAGE + '&page=' + page;
     const result = await get(url);
-    const entries = await readJsonResponse(result, url);
+    const entries = await readJsonResponse(result, url, MAX_RELEASE_LIST_JSON_BYTES);
     requireCondition(Array.isArray(entries) && entries.length <= RELEASES_PER_PAGE,
       'invalid or oversized GitHub release list page');
     const statedLastPage = verifyReleaseListLinks(
