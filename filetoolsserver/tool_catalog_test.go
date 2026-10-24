@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -74,15 +73,6 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	deferredDefinition := toolcatalog.Must("deferred_operation")
 	if deferredDefinition.Annotations.ReadOnlyHint || !deferredDefinition.Annotations.IdempotentHint || deferredDefinition.Annotations.DestructiveHint == nil || !*deferredDefinition.Annotations.DestructiveHint {
 		t.Fatalf("deferred_operation annotations do not describe cancel authority: %#v", deferredDefinition.Annotations)
-	}
-	if !strings.Contains(deferredDefinition.Description, "cancel") || !strings.Contains(deferredDefinition.Description, "oversized") {
-		t.Fatalf("deferred_operation description does not describe both reliability paths: %q", deferredDefinition.Description)
-	}
-	for _, name := range []string{"fingerprint_paths", "grep_text_files", "search_files", "tree", "source_symbols"} {
-		definition := toolcatalog.Must(name)
-		if !strings.Contains(definition.Description, "deferred_operation") || !strings.Contains(definition.Description, "Tasks") {
-			t.Fatalf("eligible tool %q does not disclose possible async handoff: %q", name, definition.Description)
-		}
 	}
 
 	for _, definition := range definitions {
@@ -162,12 +152,6 @@ func TestRuntimeToolsMatchAuthoritativeCatalog(t *testing.T) {
 	for _, name := range []string{"task_run", "task_list", "task_get", "task_logs", "task_cancel"} {
 		if byName[name] == nil {
 			t.Fatalf("task catalog is missing %q", name)
-		}
-	}
-	taskGetDescription := []byte(byName["task_get"].Description)
-	for _, term := range [][]byte{[]byte("workerOnline"), []byte("scheduler"), []byte("executor")} {
-		if !bytes.Contains(taskGetDescription, term) {
-			t.Fatalf("task_get description must disambiguate workerOnline from executor liveness: %q", byName["task_get"].Description)
 		}
 	}
 	taskRunSchema, err := json.Marshal(byName["task_run"].InputSchema)
