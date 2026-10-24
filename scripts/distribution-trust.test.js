@@ -168,11 +168,13 @@ test('setup-node stays on one verified immutable release across CI and publicati
   assert.equal(new Set(steps.map(({ sha, version }) => `${sha}:${version}`)).size, 1);
 });
 
-test('CodeQL scans pull requests targeting maintained branches and every pushed commit', () => {
+test('CodeQL preserves protected pushes, tags, manual and scheduled scans without duplicate feature pushes', () => {
   const workflow = read('.github/workflows/codeql.yml');
   assert.match(workflow, /pull_request:\s*\n\s*branches:\s*\n\s*- main\s*\n\s*- master/m);
-  assert.match(workflow, /^\s{2}push:\s*$/m);
-  assert.doesNotMatch(workflow, /push:\s*\n\s*branches:/m);
+  assert.match(workflow, /^  push:\r?\n    branches:\r?\n      - main\r?\n      - master\r?\n    tags:\r?\n      - ['"]?\*\*['"]?\r?$/m);
+  assert.match(workflow, /^  workflow_dispatch:\s*$/m);
+  assert.match(workflow, /^  schedule:\s*$/m);
+  assert.doesNotMatch(workflow, /pull_request_target:/);
 });
 
 test('tagged producer keeps exact-commit Scorecard and authentic Sigstore evidence without publishing', () => {

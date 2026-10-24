@@ -496,7 +496,8 @@ test('protected finalizer can mint only two repository-scoped App tokens after b
   assert.match(bridge, /await finalizeCompleteRelease\(input\)/);
   assert.doesNotMatch(bridge, /gh release|GITHUB_OUTPUT|contents: write/);
   for (const section of sections) {
-    assert.match(section, /app-id: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_ID \}\}/);
+    assert.match(section, /client-id: \$\{\{ vars\.SCRIPTHOLD_RELEASE_APP_CLIENT_ID \}\}/);
+    assert.doesNotMatch(section, /app-id:/);
     assert.match(section, /private-key: \$\{\{ secrets\.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY \}\}/);
     assert.match(section, /owner: \$\{\{ github\.repository_owner \}\}/);
     assert.match(section, /^          repositories: scripthold$/m);
@@ -507,8 +508,7 @@ test('protected finalizer can mint only two repository-scoped App tokens after b
   assert.match(sections[1], /^          permission-contents: write$/m);
   assert.doesNotMatch(sections[1], /permission-administration:/);
   assert.deepEqual((finalizer.match(/secrets\.[A-Za-z_][A-Za-z0-9_]*/g) || []).sort(),
-    ['secrets.SCRIPTHOLD_RELEASE_APP_ID', 'secrets.SCRIPTHOLD_RELEASE_APP_ID',
-      'secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY',
+    ['secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY',
       'secrets.SCRIPTHOLD_RELEASE_APP_PRIVATE_KEY'].sort());
   assert.match(finalizer, /result\?\.kind !== 'immutable-publication'/);
   assert.doesNotMatch(finalizer, /id-token: write/);

@@ -116,7 +116,7 @@ jobs:
         run: node scripts/check-markdown-links.js
 
   gitleaks:
-    name: Gitleaks
+    name: Scan repository secrets (Gitleaks)
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
@@ -134,7 +134,7 @@ jobs:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
 
   verify-modules:
-    name: Verify modules
+    name: Verify Go module integrity
     needs: classify
     if: needs.classify.outputs.tier != 'docs'
     runs-on: ubuntu-26.04
