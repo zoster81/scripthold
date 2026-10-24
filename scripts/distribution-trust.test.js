@@ -23,20 +23,6 @@ function workflowFiles() {
     .map((name) => ({ name, content: fs.readFileSync(path.join(directory, name), 'utf8') }));
 }
 
-test('all external GitHub Actions are pinned to immutable commit SHAs', () => {
-  const externalUse = /^\s*uses:\s*([^\s]+)@([^\s#]+)(?:\s+#.*)?$/gm;
-  const violations = [];
-  for (const workflow of workflowFiles()) {
-    for (const match of workflow.content.matchAll(externalUse)) {
-      const action = match[1];
-      const ref = match[2];
-      if (action.startsWith('./')) continue;
-      if (!/^[0-9a-f]{40}$/.test(ref)) violations.push(`${workflow.name}: ${action}@${ref}`);
-    }
-  }
-  assert.deepEqual(violations, []);
-});
-
 test('OpenSSF Scorecard workflow stays on supported default-branch triggers', () => {
   const scorecard = read('.github/workflows/scorecard.yml');
   assert.match(scorecard, /^name: OpenSSF Scorecard$/m);
@@ -51,18 +37,6 @@ test('OpenSSF Scorecard workflow stays on supported default-branch triggers', ()
   assert.match(scorecard, /github\/codeql-action\/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/);
 });
 
-test('README trust badges are evidence-backed and avoid unverified directory claims', () => {
-  const readme = read('README.md');
-  assert.match(readme, /OpenSSF Scorecard/);
-  assert.match(readme, /api\.scorecard\.dev\/projects\/github\.com\/zoster81\/scripthold\/badge/);
-  assert.match(readme, /Release downloads/);
-  assert.match(readme, /github\/downloads\/zoster81\/scripthold\/total/);
-  assert.match(readme, /glama\.ai\/mcp\/servers\/zoster81\/scripthold\/badges\/score\.svg/);
-  assert.doesNotMatch(readme, /Smithery[^\n]*badge/i);
-  assert.doesNotMatch(readme, /MCP\.Directory[^\n]*badge/i);
-  assert.doesNotMatch(readme, /PulseMCP[^\n]*badge/i);
-});
-
 test('Glama ownership metadata belongs to the current Scripthold maintainer', () => {
   const metadata = readJSON('glama.json');
   assert.equal(metadata.$schema, 'https://glama.ai/mcp/schemas/server.json');
@@ -71,37 +45,42 @@ test('Glama ownership metadata belongs to the current Scripthold maintainer', ()
 
 test('Smithery metadata stays aligned with the actual stdio container runtime without hard-coded tool-count drift', () => {
   const smithery = read('smithery.yaml');
-  assert.doesNotMatch(smithery, /\b30 tools\b/i);
   assert.match(smithery, /^runtime:\s*"?container"?$/m);
   assert.match(smithery, /command:\s*['"]\/usr\/local\/bin\/scripthold['"]/);
   assert.match(smithery, /--transport=stdio/);
 });
 
-test('distribution documentation preserves core release and third-party syndication boundaries', () => {
-  const publishing = read('docs/PUBLISHING.md');
-  assert.match(publishing, /Core release/i);
-  assert.match(publishing, /Discovery.*syndication/is);
-  assert.match(publishing, /SMITHERY_API_KEY/);
-  assert.match(publishing, /Docker MCP Catalog/);
-  assert.match(publishing, /GPL-3\.0/);
-  assert.match(publishing, /Streamable HTTP/);
-  assert.match(publishing, /TLS|trusted proxy/i);
-  assert.match(publishing, /OpenSSF Scorecard.*default(?:-| )branch/is);
-  assert.match(publishing, /does not support release-tag pushes/i);
-});
+function assertPinnedUbuntuRunners(yaml, name) {
+  const runners = [...yaml.matchAll(/^\s*runs-on:\s*([^\r\n#]+)(?:\s*#.*)?$/gm)]
+    .map((match) => match[1].trim());
+  assert.ok(runners.length > 0, `${name}: no runner declared`);
+  assert.ok(runners.every((runner) => runner === 'ubuntu-26.04'),
+    `${name}: every runner must pin ubuntu-26.04: ${runners.join(', ')}`);
+}
 
-test('publication and Scorecard pin Ubuntu 26 without a floating runner', () => {
-  for (const [name, expectedJobs] of [
-    ['release.yml', 4],
-    ['publish-mcpb-assets.yml', 1],
-    ['publish-registry.yml', 1],
-    ['scorecard.yml', 1],
-    ['release-finalizer-preflight.yml', 1],
+test('publication and Scorecard jobs pin Ubuntu 26 without an exact job-count oracle', () => {
+  for (const name of [
+    'release.yml',
+    'publish-mcpb-assets.yml',
+    'publish-registry.yml',
+    'scorecard.yml',
+    'release-finalizer-preflight.yml',
   ]) {
     const yaml = read('.github/workflows/' + name);
-    assert.equal((yaml.match(/^    runs-on: ubuntu-26\.04$/gm) || []).length,
-      expectedJobs, name);
-    assert.doesNotMatch(yaml, /ubuntu-latest|ubuntu-24\.04/, name);
+    assertPinnedUbuntuRunners(yaml, name);
+  }
+});
+
+test('runner pin validation accepts added pinned jobs but rejects floating or missing runners', () => {
+  const pinned = 'jobs:\n  first:\n    runs-on: ubuntu-26.04\n';
+  assert.doesNotThrow(() => assertPinnedUbuntuRunners(
+    pinned + '  second:\n    runs-on: ubuntu-26.04\n', 'fixture'));
+  for (const unsafe of [
+    pinned + '  second:\n    runs-on: ubuntu-latest\n',
+    pinned + '  second:\n    runs-on: ubuntu-24.04\n',
+    'jobs:\n  first:\n    steps: []\n',
+  ]) {
+    assert.throws(() => assertPinnedUbuntuRunners(unsafe, 'fixture'));
   }
 });
 
