@@ -48,7 +48,13 @@ For the original error-code migration contract, see [Migration 2.0](docs/MIGRATI
 
 Use these tools to read, create, edit, copy, move, or remove files while keeping changes inside authorized workspace roots. Mutating tools are designed to detect common concurrent changes and avoid silently overwriting a destination that appeared after preparation.
 
-Under the hood, replacement data is staged in the destination directory and synchronized before commit. Existing-file snapshots detect practical concurrent modifications; initially missing destinations use no-replace commits. Recursive packages retain exact scope evidence, stable object and volume identity, package-wide staging, mandatory persistent backup before irreversible regular-file deletion, and native same-volume no-replace move. On Unix, containing directories are synced after namespace changes. On Windows, replacement first uses the write-through `MoveFileExW` path; after a retryable existing-file replacement failure and successful state revalidation, a DELETE-gated `FileRenameInfoEx` POSIX replacement may install the already-synced same-directory staged file. These protections reduce but do not eliminate every path-based TOCTOU window.
+Writes stage replacement bytes in the destination directory and synchronize them before commit. The exact safeguards depend on the operation and operating system:
+
+- **Concurrent changes:** existing-file snapshots detect practical conflicts; a missing destination uses a no-replace commit so an intervening creator is not overwritten.
+- **Recursive packages:** preserve exact operation scope, stable object/volume identity, package-wide staging, mandatory persistent backup before irreversible deletion of regular files, and native same-volume moves without replacement.
+- **Unix:** synchronize containing directories after namespace changes.
+- **Windows:** first use write-through `MoveFileExW`. After a retryable existing-file replacement failure **and a fresh state check**, a DELETE-gated `FileRenameInfoEx` POSIX replacement may install the already-synchronized staged file.
+- **Limit:** these measures reduce, but cannot eliminate, every path-based time-of-check/time-of-use (TOCTOU) race.
 
 ### read_text_file
 
@@ -1339,7 +1345,11 @@ Accepts `taskId` and an optional bounded `reason`. Cancelling queued work preven
 
 ## Supported Encodings
 
-Scripthold exposes **168 read/write encodings**. `list_encodings` is the authoritative runtime inventory for canonical names, compatibility aliases, and capability metadata. The implementation combines the applicable repository-pinned `golang.org/x/text v0.41.0` surface with checked-in deterministic pure-Go mappings/state machines derived and verified from pinned GNU libiconv evidence; ordinary builds and execution require no libiconv, GCC, or network access. Automatic detection remains intentionally narrower than explicit codec support. UTF-32 LE/BE use strict scalar validation, authoritative BOM handling, conservative BOMless detection, and 32-bit code-unit-aware line-ending conversion; generic `utf-32` is intentionally rejected because byte order would be ambiguous.
+Scripthold supports **168 read/write encodings**. Call `list_encodings` for the authoritative runtime inventory of canonical names, aliases, and capability metadata.
+
+- **Implementation:** repository-pinned `golang.org/x/text v0.41.0` plus checked-in, deterministic pure-Go mappings and state machines derived and verified against pinned GNU libiconv evidence. Normal builds and execution need no libiconv, GCC, or network access.
+- **Detection:** automatic encoding identification is deliberately more conservative than the set of codecs available when explicitly selected.
+- **UTF-32:** LE and BE enforce valid Unicode scalar values, authoritative BOMs, cautious BOMless detection, and 32-bit code-unit-aware line-ending conversion. Generic `utf-32` is rejected because its byte order is ambiguous.
 
 - **Unicode:** `utf-8`, `utf-16-le`, `utf-16-be`, `utf-32-le`, `utf-32-be`
 - **Existing IBM/DOS/EBCDIC (`x/text`):** `ibm037`, `ibm437`, `ibm850`, `ibm852`, `ibm855`, `ibm858`, `ibm860`, `ibm862`, `ibm863`, `ibm865`, `ibm866`, `ibm1047`, `ibm1140`
