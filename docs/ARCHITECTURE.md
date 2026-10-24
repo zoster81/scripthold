@@ -1,6 +1,8 @@
 # Scripthold Architecture
 
-This document describes the **current** architectural boundaries of Scripthold. It is intentionally not a milestone diary or verification log. Public schemas and exact tool behavior remain authoritative in [`TOOLS.md`](../TOOLS.md) and `internal/toolcatalog/catalog.json`.
+Read this guide to understand how Scripthold protects authorized workspaces, preserves text, checks changes before writing them, and keeps execution and backups separate from ordinary file access. It describes the **current** design, not a development history.
+
+For MCP tool inputs, results, and limits, use the [Tool Reference](../TOOLS.md). The authoritative tool catalog is `internal/toolcatalog/catalog.json`. For deployment-specific safeguards, see [HTTP Security](HTTP_SECURITY.md).
 
 ## Server and transports
 

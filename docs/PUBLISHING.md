@@ -1,6 +1,15 @@
 # Scripthold Publishing Procedure
 
-This document is the maintainer procedure for publishing semantic releases from `zoster81/scripthold`. Product scope belongs in [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md), milestone state in [ROADMAP.md](ROADMAP.md), and reusable engineering checks in [DEVELOPMENT_CHECKLIST.md](DEVELOPMENT_CHECKLIST.md).
+Use this procedure when preparing a public Scripthold release. It covers the required commit-level verification, protected GitHub publication, MCPB and Registry handoff, and post-publication checks. **Publishing a release does not update or restart an installed server.** The release must come from an exact clean commit that passes the full push-event qualification described below.
+
+For product scope, planned work, and ordinary development checks, see [Project Direction](PROJECT_DIRECTION.md), [Roadmap](ROADMAP.md), and the [Development Checklist](DEVELOPMENT_CHECKLIST.md).
+
+## Find the release step
+
+- **Before publishing:** [release ownership and required checks](#release-ownership-boundaries), [release flow](#release-flow).
+- **Validating artifacts and metadata:** [immutable pipeline rules](#immutable-release-pipeline-prevention-requirements), [Registry and release metadata](#registry-and-release-metadata), [validation toolchain](#validation-toolchain).
+- **After publishing:** [post-publication verification](#post-publication-verification) and the [release checklist](#release-verification-checklist).
+- **Repository governance:** [OpenSSF and branch protection](#repository-governance-and-openssf-best-practices).
 
 ## Release state sources
 

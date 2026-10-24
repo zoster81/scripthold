@@ -1,8 +1,6 @@
 # Scripthold Project Direction
 
-Scripthold is the independently versioned `zoster81/scripthold` fork of the original [`mcp-file-tools`](https://github.com/dimitar-grigorov/mcp-file-tools) project created by Dimitar Grigorov. It retains the GPL-3.0 lineage while maintaining its own module path, MCP identity, release pipeline, API, transport architecture, security model, and documentation.
-
-Scripthold is not a compatibility branch that routinely mirrors upstream source. Ideas and fixes may be evaluated in either direction, but every change is reviewed against the receiving project's current architecture.
+This guide explains what Scripthold is for, which workspace and transport boundaries it supports, and how it is maintained. For setup instructions and public tool behavior, start with the [README](../README.md) or [Tool Reference](../TOOLS.md).
 
 ## Product identity
 
@@ -48,6 +46,10 @@ Third-party indexes and trust directories are discovery surfaces rather than pro
 Scripthold remains GPL-3.0. Distribution catalogs whose current local-server policy excludes GPL are not targets for automated submission; distribution policy does not justify relicensing the project.
 
 ## Relationship to upstream
+
+Scripthold is the independently versioned `zoster81/scripthold` fork of the original [`mcp-file-tools`](https://github.com/dimitar-grigorov/mcp-file-tools) project by Dimitar Grigorov. It retains the GPL-3.0 lineage, but maintains its own module path, MCP identity, API, security model, transport architecture, releases, and documentation.
+
+It does not routinely mirror upstream source. Ideas and fixes are evaluated against the architecture and needs of each project.
 
 The original project remains an independent product. Scripthold may review upstream ideas, bug reports, tests, and security lessons, but does not promise source-level, schema, release, or deployment compatibility with later upstream versions.
 

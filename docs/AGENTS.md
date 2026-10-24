@@ -4,6 +4,8 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 
 ## Document responsibilities
 
+- [`README.md`](README.md): reader-first navigation index linking to the authoritative guides, without copying their detailed rules.
+- [`SELF_UPDATE.md`](SELF_UPDATE.md): current standalone update, status, and recovery workflow; keep the README summary short.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): current product architecture and security/durability boundaries. Keep it current; do not turn it into a milestone history.
 - [`PROJECT_DIRECTION.md`](PROJECT_DIRECTION.md): stable product identity, scope, transport model, and upstream relationship.
 - [`ROADMAP.md`](ROADMAP.md): current and future milestone state only.

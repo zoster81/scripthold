@@ -36,6 +36,8 @@ Scripthold originated from the [original `mcp-file-tools` project](https://githu
 
 ## Quick start
 
+Choose a published binary or build from source, then configure your MCP client to grant access only to the directories you intend to share. HTTP and container deployments have additional setup below.
+
 ### Use a published release
 
 Download the asset for your platform from the [latest release](https://github.com/zoster81/scripthold/releases/latest) and verify it against `checksums.txt`. Releases also attach a signed Sigstore build-provenance bundle for the normal GoReleaser assets.
@@ -71,15 +73,11 @@ Startup roots are authoritative. A roots-capable stdio client may supply dynamic
 
 ### Verified self-update
 
-A supported standalone binary can opt in to the verified self-update lifecycle with `scripthold update --adopt`. Before running it, stop every other Scripthold process using that binary and keep them stopped until the adoption command exits. Adoption verifies the current standalone installation and creates its local stable self-update state; it performs no network work, downloads no release, and does not replace the executable. MCPB-managed, linked/aliased, unsupported, dirty, or already-adopted installations fail closed.
+Supported standalone installations can opt in to self-update. Stop other Scripthold processes using the same binary before running `scripthold update --adopt`. Adoption prepares local state without downloading or replacing the executable.
 
-After adoption, run `scripthold update` to check the latest immutable release, verify the matching platform binary and release evidence, stage a candidate, and start the detached update helper. If no newer release exists, the command succeeds without changing the installation. A successful dispatch means the helper has started; use `scripthold update status` to observe completion before starting another update. If the command reports that the helper started but launcher cleanup failed, inspect status before retrying.
+After adoption, run `scripthold update` to verify and dispatch an available release. Use `scripthold update status` to confirm completion; only run `scripthold update recover` when status offers recovery. These actions have different safety and verification requirements.
 
-`scripthold update status` is read-only and does not start the MCP server. It reports adoption, observed update state, durable/current/candidate version evidence, release availability, and whether explicit recovery is available. If the installed binary cannot be assigned a verified semantic version, the remote comparison is suppressed rather than using stale evidence. `MCP_NO_UPDATE_CHECK=1` disables this status-time remote check, in which case the latest version is reported as unknown.
-
-When status reports that recovery is available, run `scripthold update recover` to dispatch the fixed verified recovery helper. Recovery performs no network work and derives authority from the durable transaction plus observed installation bytes. A successful dispatch means the recovery helper has started; use status to observe completion, and if launcher cleanup fails after dispatch, inspect status before retrying.
-
-The `update` word is reserved as a command namespace; use `-- update` if a literal authorized directory is named `update`.
+See the [Verified Self-update Guide](docs/SELF_UPDATE.md) for supported installations, exact commands, failure handling, and recovery rules.
 
 ### Streamable HTTP
 
@@ -146,27 +144,17 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Source Intelligence
 
-Source Intelligence is read-only. It does not execute project code and does not require external parser/compiler/LSP processes.
+Source Intelligence helps agents navigate source code without running it or requiring an external compiler, parser, or language server. Use `source_symbols` to find and inspect declarations; use `source_query` for structural search, supported project relationships, dependency graphs, and verified context.
 
-`source_symbols` provides bounded `outline`, `digest`, `find`, and fingerprint-bound `show`. `source_query` provides structural search, supported project relations, dependency graphs, and fingerprint-verified context. Unsupported or ambiguous relationships fail closed rather than being guessed.
+Unsupported or ambiguous relationships are rejected rather than guessed. Markdown files have their own [document tools](TOOLS.md#markdown_read). Check the generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix for available source providers and analysis coverage.
 
-Markdown is intentionally outside Source Intelligence. The dedicated Markdown tools understand document structure instead of treating a Markdown file as source code.
+## Markdown documents
 
-### Markdown and documentation workflows
+Markdown files use dedicated tools rather than Source Intelligence providers. Read a document with `markdown_read`, or inspect links and relationships across files with the read-only `markdown_workspace` tool.
 
-Use `markdown_read` when an agent needs to understand a Markdown document before changing it. It can inspect headings and sections, find structural elements, resolve local fragments and links, validate managed TOCs, and return exact authored source for a selected structure.
+To change a document, prepare a preview with `markdown_edit` (or `markdown_create` for a new file), review the proposed content, and pass only its `previewId` to `markdown_apply`. Unsafe, conflicting, or stale changes are rejected instead of being silently rewritten.
 
-Use `markdown_workspace` when the question spans several Markdown files. It can scan an authorized documentation tree or follow local Markdown relationships from explicit entry files, then inspect document inventory, query graph edges/backlinks/reachability, validate workspace problems, and report Marksplice-proven repair plans for explicitly managed TOCs. It is read-only and never repairs files directly.
-
-Use `markdown_create` to prepare a complete new Markdown document at an authorized path that does not yet exist. It builds typed front matter, blocks, inline content, lists, references, footnotes, math, and tables through Marksplice, returns the exact generated Markdown and physical-file metadata for review, and does not create the file until its one-shot preview is passed to `markdown_apply`.
-
-Use `markdown_edit` to prepare source-preserving changes without writing the file. It covers document structure such as headings, sections, paragraphs, list items, tasks, table alignment, and managed TOCs; inline and reference edits; front matter; fenced code; blockquotes and alerts; footnotes; math; raw HTML; and reviewed existing-document constructors. A preview can contain up to 64 compatible operations against one immutable snapshot. Marksplice validates the combined final state: local fragments must remain on the same semantic target or be explicitly retargeted, and a `sync/toc` operation can be combined with other edits so the TOC is regenerated from the final candidate. Conflicting, overlapping, or unsafe changes fail closed. See [Tool Reference](TOOLS.md#markdown_edit) for the exact closed operation forms.
-
-Use `markdown_apply` only after reviewing a `markdown_edit` or `markdown_create` preview. Its only input is the returned `previewId`. Existing-file edits revalidate the approved source and backup policy; new-file creation revalidates the missing destination and its parent identity and uses no-replace creation. Both paths report the actual final state. A typical workflow is therefore: **read the structure → prepare a preview → review it → apply it**.
-
-This is useful for tasks such as correcting section names, promoting or demoting headings, adding guidance next to an existing paragraph, rewriting or removing obsolete prose, deleting an obsolete section together with its subsections, validating local anchors before editing, or updating documentation while preserving the file's existing formatting and line endings. Markdown semantic text is canonical UTF-8; the mutation bridge also preserves UTF-16 LE/BE and UTF-32 LE/BE compatibility files after an exact source round-trip check, while other unproven encodings fail safely instead of being silently rewritten.
-
-The generated Source Intelligence provider/capability matrix is in [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md). Detailed Markdown schemas and examples are in [TOOLS.md](TOOLS.md#markdown_read).
+For examples and the exact operation forms, see the [Markdown tool reference](TOOLS.md#markdown_read). For Markdown semantics, supported encodings, and the Marksplice integration boundary, see [Markdown Intelligence](docs/MARKDOWN_INTELLIGENCE.md).
 
 ## Safety model
 
@@ -204,28 +192,13 @@ Most installations need only a small subset of environment variables:
 
 Detailed limits and subsystem-specific options are documented where they are used: [TOOLS.md](TOOLS.md), [Durable Tasks](docs/DURABLE_TASKS.md), and [HTTP Security](docs/HTTP_SECURITY.md).
 
-## Typical uses
-
-- Safely edit legacy source/configuration files without corrupting encoding or line endings.
-- Search mixed-encoding repositories with explicit partial-coverage evidence.
-- Navigate heterogeneous source trees without loading entire projects into the model.
-- Preview and approve exact single- or multi-file changes.
-- Keep persistent pre-state backups and restore selected versions.
-- Run long builds/tests without tying process lifetime to one MCP request.
-- Serve the same workspace toolset through local stdio, authenticated HTTP, containers, or a secure tunnel bridge.
-
 ## Documentation
 
-- [Tool Reference](TOOLS.md) — public MCP tools, schemas, examples, and limits.
-- [Markdown Intelligence](docs/MARKDOWN_INTELLIGENCE.md) — Markdown semantics, safety boundaries, and Marksplice capability mapping.
-- [Architecture](docs/ARCHITECTURE.md) — current product and security boundaries.
-- [HTTP Security](docs/HTTP_SECURITY.md) — HTTP deployment and threat model.
-- [Durable Tasks](docs/DURABLE_TASKS.md) — persistent task execution.
-- [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) — generated Source Intelligence matrix.
-- [Roadmap](docs/ROADMAP.md) — current and future work only.
-- [Migration 2.0](docs/MIGRATION_2.0.md) / [Migration 3.0](docs/MIGRATION_3.0.md) — intentional compatibility changes.
-- [Contributing](CONTRIBUTING.md) / [Publishing](docs/PUBLISHING.md) / [Security](SECURITY.md) — maintainer and contributor guidance.
-- [Changelog](CHANGELOG.md) — concise release and unreleased user-visible changes.
+Use the [Documentation Guide](docs/README.md) to find instructions by task, whether you are configuring a client, choosing a tool, securing a deployment, or contributing to the project.
+
+- **Using the server:** [Tool Reference](TOOLS.md), [HTTP Security](docs/HTTP_SECURITY.md), and [Durable Tasks](docs/DURABLE_TASKS.md).
+- **Understanding and changing the project:** [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), and [Roadmap](docs/ROADMAP.md).
+- **Release history:** [Changelog](CHANGELOG.md), with version-specific steps in the [migration guides](docs/README.md#use-scripthold).
 
 ## Development
 

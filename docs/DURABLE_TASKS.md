@@ -1,6 +1,10 @@
 # Durable task execution
 
-Scripthold's durable task subsystem replaces the historical request-bound `run_script` and `shell` tools with asynchronous execution that outlives an individual MCP request. A call to `task_run` validates and records work, then returns a `taskId`; it never waits for the command to finish. This prevents an MCP request timeout, tunnel TTL, stdio EOF, HTTP disconnect, or frontend restart from terminating an admitted long-running task.
+Use durable tasks for long-running local commands, such as builds or tests, that must continue after an MCP request ends. Submit work with `task_run`, then use `task_get` to check its state and `task_logs` to read output. The tool returns a `taskId` immediately; it does not wait for execution to finish.
+
+Once a task is durably admitted, an MCP timeout, disconnect, or frontend restart does not by itself stop its executor. Tasks support explicit cancellation and recovery rules. **Script and shell execution remain disabled by default** and require the relevant server authorization settings.
+
+This subsystem replaces the historical request-bound `run_script` and `shell` entry points. The sections below explain process ownership, limits, failure handling, and the exact execution contract.
 
 ## Process topology
 
