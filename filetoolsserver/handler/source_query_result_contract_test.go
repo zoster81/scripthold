@@ -59,7 +59,7 @@ func TestSourceQueryContextResultVocabulary(t *testing.T) {
 		Context: &SourceContextResult{
 			Items: []sourceintelligence.ContextItem{{
 				Entity:         sourceintelligence.RelationEntity{Path: "src/main.go"},
-				Reason:         sourceintelligence.ContextDirectRelatedSignature,
+				Reason:         sourceintelligence.ContextDirectDependency,
 				Representation: sourceintelligence.ContextSignature,
 				Priority:       4,
 				Text:           "func Run()",
@@ -81,8 +81,8 @@ func TestSourceQueryContextResultVocabulary(t *testing.T) {
 		t.Fatalf("decode source_query context output: %v", err)
 	}
 	item := decoded["context"].(map[string]any)["items"].([]any)[0].(map[string]any)
-	if got := item["reason"]; got != "direct-related-signature" {
-		t.Fatalf("context.reason = %#v, want direct-related-signature", got)
+	if got := item["reason"]; got != "direct-dependency" {
+		t.Fatalf("context.reason = %#v, want direct-dependency", got)
 	}
 	if got := item["representation"]; got != "signature" {
 		t.Fatalf("context.representation = %#v, want signature", got)

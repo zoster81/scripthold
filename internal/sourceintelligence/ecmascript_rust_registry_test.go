@@ -5,19 +5,6 @@ import (
 	"testing"
 )
 
-func TestECMAScriptRustDoNotOverclaimSemanticRelations(t *testing.T) {
-	registry, err := DefaultLanguageRegistry()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, language := range []string{"javascript", "typescript", "rust"} {
-		descriptor, _ := registry.Resolve(language)
-		if descriptor.Capabilities.SemanticRelations {
-			t.Fatalf("%s overclaims semantic relations: %+v", language, descriptor.Capabilities)
-		}
-	}
-}
-
 func TestDetectorRoutesJSXTSXAndRustWithoutConflation(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

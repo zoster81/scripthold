@@ -143,12 +143,15 @@ func TestSourceQueryGraphAndDeferredModes(t *testing.T) {
 	for _, input := range []SourceQueryInput{
 		{Operation: "search", Paths: []string{root}, Query: "Base", Mode: "textual"},
 		{Operation: "search", Paths: []string{root}, Query: "Base", Mode: "lexical"},
+		{Operation: "relations", Paths: []string{root}, Relation: "callers"},
+		{Operation: "relations", Paths: []string{root}, Relation: "callees"},
+		{Operation: "relations", Paths: []string{root}, Relation: "overrides"},
 	} {
 		deferredResult, _, deferredErr := h.SourceQuery(context.Background(), nil, input)
 		if deferredErr != nil {
 			t.Fatalf("deferred %s/%s transport error: %v", input.Operation, input.Mode, deferredErr)
 		}
-		if deferredResult == nil || !deferredResult.IsError || deferredResult.Meta[ErrorCodeMetaKey] != ErrCodeUnsupported {
+		if deferredResult == nil || !deferredResult.IsError || deferredResult.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
 			t.Fatalf("deferred %s/%s result = %+v", input.Operation, input.Mode, deferredResult)
 		}
 	}

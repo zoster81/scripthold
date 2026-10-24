@@ -18,21 +18,15 @@ import (
 type SymbolEvidence string
 
 const (
-	SymbolEvidenceTextual         SymbolEvidence = "textual"
-	SymbolEvidenceLexical         SymbolEvidence = "lexical"
 	SymbolEvidenceStructural      SymbolEvidence = "structural"
 	SymbolEvidenceScopeResolved   SymbolEvidence = "scope-resolved"
 	SymbolEvidenceProjectResolved SymbolEvidence = "project-resolved"
-	SymbolEvidenceSemantic        SymbolEvidence = "semantic"
 )
 
 var symbolEvidenceRank = map[SymbolEvidence]int{
-	SymbolEvidenceTextual:         1,
-	SymbolEvidenceLexical:         2,
 	SymbolEvidenceStructural:      3,
 	SymbolEvidenceScopeResolved:   4,
 	SymbolEvidenceProjectResolved: 5,
-	SymbolEvidenceSemantic:        6,
 }
 
 // SymbolKind is the normalized language-neutral declaration kind.

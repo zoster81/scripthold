@@ -192,8 +192,6 @@ func (model *ProjectModel) QueryRelations(ctx context.Context, kind RelationKind
 	filter := newProjectEvidenceFilter(evidence)
 
 	switch kind {
-	case RelationCallers, RelationCallees, RelationOverrides:
-		return ProjectRelationResult{}, operation.New(operation.KindUnsupported, fmt.Sprintf("%s relations are unavailable without analyzer-proven facts", kind))
 	case RelationCycles:
 		return model.queryDependencyCycles(ctx, filter, limits)
 	case RelationTrace:

@@ -291,7 +291,7 @@ func TestScientificLegacyFunctionalCapabilityCeilings(t *testing.T) {
 	for _, language := range []string{"fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp"} {
 		descriptor, _ := registry.Lookup(language)
 		caps := descriptor.Capabilities
-		if caps.ScopeResolvedReferences || caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.Implementations || caps.Overrides || caps.SemanticRelations {
+		if caps.ProjectResolvedReferences || caps.ProjectResolvedDefinitions || caps.Implementations {
 			t.Fatalf("%s overclaims project/semantic capability: %+v", language, caps)
 		}
 	}

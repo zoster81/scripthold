@@ -511,12 +511,12 @@ func TestSymbolBuilderEnforcesEvidenceAndBoundsWithoutDiscardingPartialResult(t 
 		t.Fatalf("partial result after symbol limit = %+v", partial)
 	}
 
-	semanticBuilder := NewSymbolBuilder(sourceDocumentForScanner(text), SymbolBuilderOptions{
+	overclaimBuilder := NewSymbolBuilder(sourceDocumentForScanner(text), SymbolBuilderOptions{
 		Language: "csharp", Analyzer: string(AnalyzerCSharp), MaxEvidence: SymbolEvidenceStructural,
 		Limits: SymbolBuilderLimits{MaxSymbols: 4, MaxSignatureBytes: 64, MaxDiagnostics: 2},
 	})
-	_, err = semanticBuilder.Add(SymbolSpec{
-		Kind: SymbolKindClass, NativeKind: "class", Name: "A", Evidence: SymbolEvidenceSemantic,
+	_, err = overclaimBuilder.Add(SymbolSpec{
+		Kind: SymbolKindClass, NativeKind: "class", Name: "A", Evidence: SymbolEvidenceProjectResolved,
 		Declaration: OffsetRange{0, strings.Index(text, "\n")}, NameRange: OffsetRange{nameA, nameA + 1},
 	})
 	if operation.KindOf(err) != operation.KindInvalidInput {

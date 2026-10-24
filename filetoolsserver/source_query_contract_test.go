@@ -25,7 +25,7 @@ const (
 	sourceQueryMaxContextItems = 4_096
 )
 
-var sourceQueryContractEvidenceValues = []string{"textual", "lexical", "structural", "scope-resolved", "project-resolved", "semantic"}
+var sourceQueryContractEvidenceValues = []string{"structural", "scope-resolved", "project-resolved"}
 
 func TestSourceQueryPublicContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -47,11 +47,11 @@ func TestSourceQueryPublicContract(t *testing.T) {
 	)
 	props := contractSchemaProperties(t, schema)
 	assertSourceQueryEnum(t, "source_query.operation", props["operation"], []string{"search", "relations", "context"})
-	assertSourceQueryEnum(t, "source_query.mode", props["mode"], []string{"textual", "lexical", "structural"})
+	assertSourceQueryEnum(t, "source_query.mode", props["mode"], []string{"structural"})
 	assertSourceQueryEnum(t, "source_query.match", props["match"], []string{"exact", "prefix", "contains"})
 	assertSourceQueryEnum(t, "source_query.relation", props["relation"], []string{
 		"dependencies", "dependents", "references", "definitions", "inheritance", "implementations",
-		"overrides", "callers", "callees", "trace", "impact", "cycles",
+		"trace", "impact", "cycles",
 	})
 	assertSourceQueryEnum(t, "source_query.bodyPolicy", props["bodyPolicy"], []string{"prefer", "signatures-only"})
 	assertSourceQueryEvidenceFilter(t, "source_query.evidence", props["evidence"])
@@ -191,8 +191,11 @@ func TestSourceQueryPublicContract(t *testing.T) {
 	for _, args := range []map[string]any{
 		{"operation": "search", "paths": []string{root}, "query": "Box", "mode": "textual"},
 		{"operation": "search", "paths": []string{root}, "query": "Box", "mode": "lexical"},
+		{"operation": "relations", "paths": []string{root}, "relation": "callers"},
+		{"operation": "relations", "paths": []string{root}, "relation": "callees"},
+		{"operation": "relations", "paths": []string{root}, "relation": "overrides"},
 	} {
-		assertSourceQueryCallErrorCode(t, ctx, session, args, handler.ErrCodeUnsupported)
+		assertSourceQueryRejected(t, ctx, session, "source_query", args)
 	}
 	assertSourceQueryCallErrorCode(t, ctx, session, map[string]any{
 		"operation": "search", "paths": []string{root}, "query": "Box", "mode": "structural",

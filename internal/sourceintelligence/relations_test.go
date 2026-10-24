@@ -8,11 +8,10 @@ import (
 func TestRelationContractVocabulary(t *testing.T) {
 	if got, want := []RelationKind{
 		RelationDependencies, RelationDependents, RelationReferences, RelationDefinitions,
-		RelationInheritance, RelationImplementations, RelationOverrides, RelationCallers,
-		RelationCallees, RelationTrace, RelationImpact, RelationCycles,
+		RelationInheritance, RelationImplementations, RelationTrace, RelationImpact, RelationCycles,
 	}, []RelationKind{
 		"dependencies", "dependents", "references", "definitions", "inheritance", "implementations",
-		"overrides", "callers", "callees", "trace", "impact", "cycles",
+		"trace", "impact", "cycles",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("relation vocabulary = %v, want %v", got, want)
 	}
@@ -32,8 +31,7 @@ func TestRelationContractVocabulary(t *testing.T) {
 
 func TestEvidenceStrengthRemainsSeparateFromResolution(t *testing.T) {
 	for _, evidence := range []SymbolEvidence{
-		SymbolEvidenceTextual, SymbolEvidenceLexical, SymbolEvidenceStructural,
-		SymbolEvidenceScopeResolved, SymbolEvidenceProjectResolved, SymbolEvidenceSemantic,
+		SymbolEvidenceStructural, SymbolEvidenceScopeResolved, SymbolEvidenceProjectResolved,
 	} {
 		if _, ok := symbolEvidenceRank[evidence]; !ok {
 			t.Fatalf("evidence %q is missing from the ordered R25 ladder", evidence)
@@ -48,11 +46,9 @@ func TestEvidenceStrengthRemainsSeparateFromResolution(t *testing.T) {
 
 func TestContextPriorityVocabulary(t *testing.T) {
 	if got, want := []ContextReason{
-		ContextTarget, ContextEnclosing, ContextDirectDependency, ContextDirectRelatedBody,
-		ContextDirectRelatedSignature, ContextReverseOrTypeRelation, ContextDeeperRelation,
+		ContextTarget, ContextEnclosing, ContextDirectDependency, ContextReverseOrTypeRelation, ContextDeeperRelation,
 	}, []ContextReason{
-		"target", "enclosing", "direct-dependency", "direct-related-body",
-		"direct-related-signature", "reverse-or-type-relation", "deeper-relation",
+		"target", "enclosing", "direct-dependency", "reverse-or-type-relation", "deeper-relation",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("context priority vocabulary = %v, want %v", got, want)
 	}
