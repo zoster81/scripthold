@@ -1,6 +1,8 @@
 # Scripthold Architecture
 
-This document describes the **current** architectural boundaries of Scripthold. It is intentionally not a milestone diary or verification log. Public schemas and exact tool behavior remain authoritative in [`TOOLS.md`](../TOOLS.md) and `internal/toolcatalog/catalog.json`.
+Read this guide to understand how Scripthold protects authorized workspaces, preserves text, checks changes before writing them, and keeps execution and backups separate from ordinary file access. It describes the **current** design, not a development history.
+
+For MCP tool inputs, results, and limits, use the [Tool Reference](../TOOLS.md). The authoritative tool catalog is `internal/toolcatalog/catalog.json`. For deployment-specific safeguards, see [HTTP Security](HTTP_SECURITY.md).
 
 ## Server and transports
 
@@ -111,7 +113,9 @@ Logging must degrade safely when an optional file sink fails; it must not change
 
 ## Verified self-update lifecycle and status
 
-The public self-update surface currently exposes explicit standalone adoption through `scripthold update --adopt`, verified update dispatch through `scripthold update`, explicit recovery through `scripthold update recover`, and read-only observation through `scripthold update status`. All four route before normal MCP server configuration. Adoption is local-only: it verifies the current standalone executable and persists the initial stable self-update state without network access, release download, executable replacement, or chaining into an update. Because processes started before first adoption cannot retroactively participate in `use.lock`, the operator must stop every other Scripthold process using that binary before adoption begins and keep them stopped until the adoption command exits. Unsupported/MCPB-managed, linked or aliased, dirty/non-Scripthold, and already-adopted installations fail closed.
+Standalone updating has four separate entry points: `scripthold update --adopt`, `scripthold update`, `scripthold update status`, and `scripthold update recover`. These commands run before normal MCP server configuration. For the operator-facing sequence, supported installations, and failure handling, use the [Verified Self-update Guide](SELF_UPDATE.md).
+
+First-time adoption verifies the standalone executable and establishes local state **without downloading or replacing the binary**. Processes started before adoption cannot participate in the new `use.lock`: the operator must stop all other processes using that binary until adoption completes. Unsupported, linked/aliased, dirty, and already-adopted installations are rejected.
 
 Bare `scripthold update` is available only for an adopted stable installation. The updater owns standalone inspection, shared process admission, durable-current version authority, owner-only executable-adjacent temporary staging, release and candidate verification, pending-state publication, and detached-helper dispatch. A no-newer-release result is a successful no-op. A dispatched result means the helper process has started, not that executable replacement has already completed; callers should use status to observe the resulting transaction before retrying or starting another update. CLI errors remain redacted and preserve whether dispatch already occurred.
 

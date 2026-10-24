@@ -4,7 +4,7 @@ Thank you for contributing to Scripthold, currently maintained in `zoster81/scri
 
 ## Before you start
 
-Read the root [`AGENTS.md`](AGENTS.md) and every scoped `AGENTS.md` that applies to the files you plan to change. Product identity and scope are defined in [`docs/PROJECT_DIRECTION.md`](docs/PROJECT_DIRECTION.md), current architecture in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), current/future milestone state in [`docs/ROADMAP.md`](docs/ROADMAP.md), and reusable verification in [`docs/DEVELOPMENT_CHECKLIST.md`](docs/DEVELOPMENT_CHECKLIST.md). Completed implementation history belongs in Git and user-visible release history in [`CHANGELOG.md`](CHANGELOG.md).
+Read the root [`AGENTS.md`](AGENTS.md) and every scoped `AGENTS.md` that applies to the files you plan to change. The [Documentation Guide](docs/README.md) points to product scope, architecture, roadmap, and release history; the [Development Checklist](docs/DEVELOPMENT_CHECKLIST.md) covers verification for substantial changes.
 
 Prerequisites:
 

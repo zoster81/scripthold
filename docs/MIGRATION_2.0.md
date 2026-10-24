@@ -1,6 +1,6 @@
 # Migration from 1.8 to 2.0
 
-This is a **historical migration snapshot** for the intentional public API and deployment changes from Scripthold 1.8 to `v2.0.0`. It describes the 2.0 boundary, not the current 2.2 surface. For current behavior use the root [README.md](../README.md), [TOOLS.md](../TOOLS.md), and subsystem documentation.
+This is a **historical migration snapshot** for the intentional public API and deployment changes from Scripthold 1.8 to `v2.0.0`. It describes the 2.0 boundary, not the current release. For current behavior use the root [README.md](../README.md), [Tool Reference](../TOOLS.md), and the [Documentation Guide](README.md).
 
 ## Breaking-change table
 

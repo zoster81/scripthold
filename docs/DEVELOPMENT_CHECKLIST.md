@@ -4,6 +4,10 @@ Use this checklist for non-trivial Scripthold changes. Current milestone state l
 
 Apply only the checks relevant to the change, but report skipped checks explicitly.
 
+## Find a check
+
+Use [requirements](#1-requirements-and-edge-cases) and [design review](#2-architecture-and-test-strategy) before editing; follow [implementation](#5-tdd-and-implementation) and [verification](#6-verification-ladder) while working; then use the [documentation](#7-documentation-and-metadata), [review](#8-commit-and-review-gate), and [release](#10-public-release-gate) gates only when relevant.
+
 ## 1. Requirements and edge cases
 
 - [ ] Restate the intended behavior and observable outcome.

@@ -4,6 +4,13 @@ Use this document when running Scripthold over Streamable HTTP, especially when 
 
 This is the authoritative security contract for native MCP Streamable HTTP in Scripthold. It preserves the same process-wide filesystem authorization used by stdio; HTTP does not create a separate per-client filesystem sandbox.
 
+## Find the right security guidance
+
+- **Choosing a deployment:** [supported profiles](#supported-deployment-profiles), [TLS and proxy handling](#tls-and-proxy-handling).
+- **Configuring and troubleshooting access:** [configuration](#configuration-contract), [authentication](#authentication), [Host protection](#host-and-dns-rebinding-protection), [Origin and CORS policy](#origin-browser-and-cors-policy).
+- **Operating the service safely:** [request admission](#request-admission-pipeline), [resource limits](#resource-limits-and-denial-of-service-behavior), [logging](#logging-and-observability).
+- **Reviewing security changes:** [required tests](#required-security-tests), [release blockers](#release-blocking-findings), [accepted risks](#accepted-risks).
+
 ## Scope
 
 The sections below define the trust model, secure defaults, configuration, request/session limits, logging rules, negative tests, and release blockers that keep Streamable HTTP within that security boundary.

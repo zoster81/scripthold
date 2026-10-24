@@ -34,6 +34,7 @@ All public documentation is user-facing first, even when it also serves as a tec
 - Contributor workflow: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Tool behavior, schemas, limits, and examples: [`TOOLS.md`](TOOLS.md)
 - Release procedure: [`docs/PUBLISHING.md`](docs/PUBLISHING.md)
+- Verified standalone update and recovery: [`docs/SELF_UPDATE.md`](docs/SELF_UPDATE.md)
 - Streamable HTTP security contract: [`docs/HTTP_SECURITY.md`](docs/HTTP_SECURITY.md)
 - Durable task execution contract: [`docs/DURABLE_TASKS.md`](docs/DURABLE_TASKS.md)
 - Source Intelligence capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
