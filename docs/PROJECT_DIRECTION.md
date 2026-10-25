@@ -22,7 +22,7 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-The current public release is Scripthold **3.3.5** with 43 tools, 3 guided prompts, 168 registered encodings, and 100 active source-intelligence providers. Version 3.3.6 is in preparation.
+The current public release is Scripthold **3.3.6** with 43 tools, 3 guided prompts, 168 registered encodings, and 100 active source-intelligence providers.
 
 Current behavior is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`TOOLS.md`](../TOOLS.md). Current/future work is in [`ROADMAP.md`](ROADMAP.md), and release changes are in [`CHANGELOG.md`](../CHANGELOG.md).
 

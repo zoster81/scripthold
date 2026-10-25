@@ -4,10 +4,10 @@ This file tracks **current and future work only**. Completed changes belong in [
 
 ## Current state
 
-- Current public release: **Scripthold 3.3.5**, published through the protected immutable GitHub release process.
+- Current public release: **Scripthold 3.3.6**, published through the protected immutable GitHub release process.
 - Current public capabilities: **43 tools**, **3 guided prompts**, **168 registered text encodings**, and **100 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- **3.3.6 is in preparation:** correct Windows standalone self-update helper dispatch and qualify native Windows, Linux, and macOS recovery behavior before release. The established transaction integrity, locking, recovery, and release security boundaries remain unchanged. Publication and private deployment are separate decisions.
+- No active release-scoped milestone is currently approved. Publication and private deployment remain separate actions; release 3.3.6 does not automatically upgrade existing installations.
 
 ## Planning rules
 
