@@ -13,7 +13,7 @@ import (
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
-func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput, limits config.SourceConfig) (*mcp.CallToolResult, SourceQueryOutput, error) {
+func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput, limits config.SourceConfig, verifiedCursor *sourceSearchCursorPayload) (*mcp.CallToolResult, SourceQueryOutput, error) {
 	maxFiles, result := resolvePositiveLimit(input.MaxFiles, limits.MaxFiles, "maxFiles")
 	if result != nil {
 		return result, SourceQueryOutput{}, nil
@@ -50,25 +50,22 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		if match == "" {
 			match = sourceintelligence.ProjectSearchExact
 		}
-		requestHash, fingerprintErr := sourceSearchRequestFingerprint(input, maxFiles, maxResults)
-		if fingerprintErr != nil {
-			return errorResultFromError(fingerprintErr), SourceQueryOutput{}, nil
-		}
+		var requestHash string
 		var after *sourceintelligence.ProjectSearchMatch
 		afterOccurrences := 0
-		if input.Cursor != "" {
-			payload, cursorErr := h.decodeSourceSearchCursor(input.Cursor)
-			if cursorErr != nil {
-				return errorResultFromError(cursorErr), SourceQueryOutput{}, nil
-			}
-			if payload.QueryHash != requestHash {
-				return errorResultWithCode(ErrCodeInvalidInput, "source search cursor does not match the requested search"), SourceQueryOutput{}, nil
-			}
-			if selection.Evidence.Staleness != sourceintelligence.IndexCurrent || payload.Generation != selection.Evidence.Generation || payload.Fingerprint != selection.Evidence.Fingerprint {
+		if verifiedCursor != nil {
+			if selection.Evidence.Staleness != sourceintelligence.IndexCurrent || verifiedCursor.Generation != selection.Evidence.Generation || verifiedCursor.Fingerprint != selection.Evidence.Fingerprint {
 				return errorResultWithCode(ErrCodeConflict, "source search cursor is stale"), SourceQueryOutput{}, nil
 			}
-			after = &payload.After
-			afterOccurrences = payload.Occurrences
+			requestHash = verifiedCursor.QueryHash
+			after = &verifiedCursor.After
+			afterOccurrences = verifiedCursor.Occurrences
+		} else {
+			var fingerprintErr error
+			requestHash, fingerprintErr = sourceSearchRequestFingerprint(input, maxFiles, maxResults)
+			if fingerprintErr != nil {
+				return errorResultFromError(fingerprintErr), SourceQueryOutput{}, nil
+			}
 		}
 		evidence := make([]sourceintelligence.SymbolEvidence, 0, len(input.Evidence))
 		for _, value := range input.Evidence {

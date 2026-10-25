@@ -17,6 +17,92 @@ import (
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
+func TestSourceSearchInvalidCursorDoesNotBuildIndex(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	base := SourceQueryInput{
+		Operation: "search", Paths: []string{root}, Query: "Item",
+		Mode: "structural", Match: "prefix", Language: "java",
+		Encoding: "utf-8", MaxResults: 1,
+	}
+	tests := []struct {
+		name  string
+		token func(*testing.T, *Handler) string
+		want  string
+	}{
+		{
+			name:  "malformed",
+			token: func(_ *testing.T, _ *Handler) string { return "!not-base64!" },
+			want:  ErrCodeInvalidInput,
+		},
+		{
+			name: "valid signature for other query",
+			token: func(t *testing.T, h *Handler) string {
+				t.Helper()
+				token, err := h.encodeSourceSearchCursor(sourceSearchCursorPayload{
+					Version: sourceSearchCursorVersion, ExpiresAt: time.Now().Add(time.Minute).Unix(),
+					QueryHash: strings.Repeat("a", 64), Generation: 1, Fingerprint: strings.Repeat("b", 64),
+					After: sourceintelligence.ProjectSearchMatch{Path: "any.java"}, Occurrences: 1,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return token
+			},
+			want: ErrCodeInvalidInput,
+		},
+		{
+			name: "expired",
+			token: func(t *testing.T, h *Handler) string {
+				t.Helper()
+				maxFiles, _ := resolvePositiveLimit(base.MaxFiles, h.sourceLimits().MaxFiles, "maxFiles")
+				maxResults, _ := resolvePositiveLimit(base.MaxResults, h.sourceLimits().MaxResults, "maxResults")
+				queryHash, err := sourceSearchRequestFingerprint(base, maxFiles, maxResults)
+				if err != nil {
+					t.Fatal(err)
+				}
+				token, err := h.encodeSourceSearchCursor(sourceSearchCursorPayload{
+					Version: sourceSearchCursorVersion, ExpiresAt: time.Now().Add(-time.Minute).Unix(),
+					QueryHash: queryHash, Generation: 1, Fingerprint: strings.Repeat("b", 64),
+					After: sourceintelligence.ProjectSearchMatch{Path: "any.java"}, Occurrences: 1,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return token
+			},
+			want: ErrCodeConflict,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := NewHandler([]string{root})
+			input := base
+			input.Cursor = test.token(t, h)
+			result, _, err := h.SourceQuery(context.Background(), nil, input)
+			if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != test.want {
+				t.Fatalf("cursor rejection: result=%+v err=%v want=%s", result, err, test.want)
+			}
+			if h.sourceIndex != nil {
+				t.Fatal("invalid cursor must be rejected before index initialization")
+			}
+		})
+	}
+	t.Run("authorization before cursor validation", func(t *testing.T) {
+		outside := canonicalHandlerTestDir(t)
+		h := NewHandler([]string{root})
+		input := base
+		input.Paths = []string{outside}
+		input.Cursor = "!not-base64!"
+		result, _, err := h.SourceQuery(context.Background(), nil, input)
+		if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeAccessDenied {
+			t.Fatalf("denied path must take priority: result=%+v err=%v", result, err)
+		}
+		if h.sourceIndex != nil {
+			t.Fatal("denied path must not initialize source index")
+		}
+	})
+}
+
 func TestSourceSearchCursorExpiryIsolationAndBounds(t *testing.T) {
 	h := NewHandler([]string{canonicalHandlerTestDir(t)})
 	payload := sourceSearchCursorPayload{

@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Repeated project context dependencies now reuse request-local immutable root-symbol lists rather than rebuilding symbol maps and arrays for every incoming edge. No public request changes or persistent indexes are introduced.
 - Structural source search now retains only the best `maxResults` matches in a bounded heap rather than collecting and sorting every match. Global match ordering and truncation semantics are preserved, with no new persistent index.
 - `source_query` structural search now supports optional `cursor` input and `search.nextCursor` output for bounded continuation. Tokens are authenticated, time-limited, and bound to search filters and the current indexed generation; old clients can omit cursors.
+- Invalid, expired, or cross-query source search cursors now fail before source-file collection and index refresh, after preserving allowed-path authorization. Valid cursors still revalidate the current index generation before returning results.
 
 ## 4.0.0 - 2026-10-25
 

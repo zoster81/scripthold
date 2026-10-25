@@ -18,7 +18,31 @@ func (h *Handler) SourceQuery(ctx context.Context, _ *mcp.CallToolRequest, input
 	if result := validateSourceQueryOperation(operation, input, limits); result != nil {
 		return result, SourceQueryOutput{}, nil
 	}
-	return h.executeSourceQuery(ctx, input, limits)
+	var verifiedCursor *sourceSearchCursorPayload
+	if operation == "search" && input.Cursor != "" {
+		// Preserve the authorization boundary before examining the cursor.
+		for _, path := range input.Paths {
+			validated := h.ValidatePath(path)
+			if !validated.Ok() {
+				return validated.Result, SourceQueryOutput{}, nil
+			}
+		}
+		payload, err := h.decodeSourceSearchCursor(input.Cursor)
+		if err != nil {
+			return errorResultFromError(err), SourceQueryOutput{}, nil
+		}
+		maxFiles, _ := resolvePositiveLimit(input.MaxFiles, limits.MaxFiles, "maxFiles")
+		maxResults, _ := resolvePositiveLimit(input.MaxResults, limits.MaxResults, "maxResults")
+		requestHash, err := sourceSearchRequestFingerprint(input, maxFiles, maxResults)
+		if err != nil {
+			return errorResultFromError(err), SourceQueryOutput{}, nil
+		}
+		if payload.QueryHash != requestHash {
+			return errorResultWithCode(ErrCodeInvalidInput, "source search cursor does not match the requested search"), SourceQueryOutput{}, nil
+		}
+		verifiedCursor = &payload
+	}
+	return h.executeSourceQuery(ctx, input, limits, verifiedCursor)
 }
 
 func validateSourceQueryCommon(input SourceQueryInput, limits config.SourceConfig) *mcp.CallToolResult {
