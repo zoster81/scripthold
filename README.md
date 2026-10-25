@@ -130,7 +130,7 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Tool groups
 
-[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below describes the upcoming 4.0 catalog (36 tools). Version 3.3.6 remains the current public release with its older apply tools.
+[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below describes the published 4.0.0 catalog (36 tools). Clients upgrading from 3.3.6 must migrate the eight former apply commands to `confirm_verified_operation`.
 
 | Area | Main tools |
 |---|---|
