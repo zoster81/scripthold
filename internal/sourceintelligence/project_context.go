@@ -56,6 +56,7 @@ type projectContextPlanner struct {
 	options ProjectContextOptions
 	plan    ProjectContextPlan
 	seen    map[string]struct{}
+	roots   map[string][]projectSymbolRecord
 }
 
 // PlanContext builds a deterministic, budget-aware project context plan from
@@ -298,7 +299,7 @@ func (planner *projectContextPlanner) addDirectDependencies(ctx context.Context,
 				return operation.Wrap(operation.KindCancelled, "plan_project_context", dependency.Source.Path, err)
 			}
 			for _, target := range dependency.Targets {
-				for _, record := range planner.model.contextRootSymbols(projectPathKey(target.Path)) {
+				for _, record := range planner.contextRootSymbols(projectPathKey(target.Path)) {
 					if err := planner.add(record, ContextDirectDependency, 3, dependency.Evidence, dependency.Resolution, false); err != nil {
 						return err
 					}
@@ -372,7 +373,7 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 	}
 	for _, pathKey := range pathTargets {
 		for _, dependency := range planner.model.dependentsByTarget[pathKey] {
-			for _, record := range planner.model.contextRootSymbols(projectPathKey(dependency.Source.Path)) {
+			for _, record := range planner.contextRootSymbols(projectPathKey(dependency.Source.Path)) {
 				if err := planner.add(record, ContextReverseOrTypeRelation, 6, dependency.Evidence, dependency.Resolution, false); err != nil {
 					return err
 				}
@@ -442,7 +443,7 @@ func (planner *projectContextPlanner) addDeeperDependencies(ctx context.Context,
 			visited[edge.pathKey] = struct{}{}
 			depth := current.depth + 1
 			if depth >= 2 {
-				for _, record := range planner.model.contextRootSymbols(edge.pathKey) {
+				for _, record := range planner.contextRootSymbols(edge.pathKey) {
 					if err := planner.addWithPolicy(record, ContextDeeperRelation, 7, edge.evidence, edge.resolution, false, ProjectContextSignaturesOnly); err != nil {
 						return err
 					}
@@ -485,6 +486,20 @@ func weakerContextResolution(left, right ResolutionState) ResolutionState {
 		return left
 	}
 	return ResolutionAmbiguous
+}
+
+// contextRootSymbols reuses immutable normalized records across repeated edges
+// within one plan without growing the retained project-generation index.
+func (planner *projectContextPlanner) contextRootSymbols(pathKey string) []projectSymbolRecord {
+	if records, ok := planner.roots[pathKey]; ok {
+		return records
+	}
+	records := planner.model.contextRootSymbols(pathKey)
+	if planner.roots == nil {
+		planner.roots = make(map[string][]projectSymbolRecord)
+	}
+	planner.roots[pathKey] = records
+	return records
 }
 
 func (model *ProjectModel) contextRootSymbols(pathKey string) []projectSymbolRecord {

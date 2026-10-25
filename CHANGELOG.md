@@ -9,6 +9,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Source Intelligence structural search now includes analyzer-proven declaration `name`, `kind`, and `qualifiedName` when available, reducing the need for separate symbol lookups. Non-declaration matches retain their existing shape without invented identity; requests, source freshness checks, and search limits are unchanged.
 - Source query responses now distinguish omitted files, incomplete selected-file analysis, and truncated search/relationship/context output with explicit coverage booleans, while retaining the existing aggregate flags.
 - Source context planning now avoids broad reverse-dependency declarations for symbol and position selectors while retaining verified type relationships and explicit file-level context; outgoing type references are grouped with bounded request-local indexes rather than repeatedly scanning the full relation array.
+- Repeated project context dependencies now reuse request-local immutable root-symbol lists rather than rebuilding symbol maps and arrays for every incoming edge. No public request changes or persistent indexes are introduced.
 
 ## 4.0.0 - 2026-10-25
 
