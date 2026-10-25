@@ -53,11 +53,14 @@ type SourceQueryInput struct {
 }
 
 type SourceQueryCoverage struct {
-	FilesConsidered  int  `json:"filesConsidered"`
-	FilesParsed      int  `json:"filesParsed"`
-	FilesSkipped     int  `json:"filesSkipped"`
-	CoverageComplete bool `json:"coverageComplete"`
-	Truncated        bool `json:"truncated,omitempty"`
+	FilesConsidered        int  `json:"filesConsidered"`
+	FilesParsed            int  `json:"filesParsed"`
+	FilesSkipped           int  `json:"filesSkipped"`
+	FileSelectionTruncated bool `json:"fileSelectionTruncated"`
+	AnalysisComplete       bool `json:"analysisComplete"`
+	ResultsTruncated       bool `json:"resultsTruncated"`
+	CoverageComplete       bool `json:"coverageComplete"`
+	Truncated              bool `json:"truncated,omitempty"`
 }
 
 type SourceSearchMatch struct {

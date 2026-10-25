@@ -158,11 +158,13 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, errorResultFromError(refreshErr)
 	}
 	coverage := SourceQueryCoverage{
-		FilesConsidered:  selection.Coverage.FilesConsidered,
-		FilesParsed:      selection.Coverage.FilesParsed,
-		FilesSkipped:     selection.Coverage.FilesSkipped,
-		CoverageComplete: selection.Coverage.CoverageComplete,
-		Truncated:        selection.Coverage.Truncated,
+		FilesConsidered:        selection.Coverage.FilesConsidered,
+		FilesParsed:            selection.Coverage.FilesParsed,
+		FilesSkipped:           selection.Coverage.FilesSkipped,
+		FileSelectionTruncated: selection.Coverage.Truncated,
+		AnalysisComplete:       selection.Coverage.AnalysisComplete,
+		CoverageComplete:       selection.Coverage.CoverageComplete,
+		Truncated:              selection.Coverage.Truncated,
 	}
 	return selection, coverage, registry, nil
 }

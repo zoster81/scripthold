@@ -69,7 +69,7 @@ func TestSourceQueryContextBodySignatureBudgetAndStale(t *testing.T) {
 	if item := signatureOutput.Context.Items[0]; item.Representation != sourceintelligence.ContextSignature || strings.Contains(item.Text, "return value + 1") {
 		t.Fatalf("signature-only item = %+v", item)
 	}
-	if !signatureOutput.Coverage.Truncated || signatureOutput.Coverage.CoverageComplete {
+	if !signatureOutput.Coverage.Truncated || !signatureOutput.Coverage.ResultsTruncated || !signatureOutput.Coverage.AnalysisComplete || signatureOutput.Coverage.FileSelectionTruncated || signatureOutput.Coverage.CoverageComplete {
 		t.Fatalf("signature-only coverage = %+v", signatureOutput.Coverage)
 	}
 

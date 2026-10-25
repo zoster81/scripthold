@@ -167,6 +167,7 @@ type ProjectIndexCoverage struct {
 	FilesConsidered  int
 	FilesParsed      int
 	FilesSkipped     int
+	AnalysisComplete bool
 	CoverageComplete bool
 	Truncated        bool
 }
@@ -594,20 +595,21 @@ func projectIndexGenerationCoverage(files map[string]*indexedProjectFile, unavai
 	coverage := ProjectIndexCoverage{
 		FilesConsidered:  len(files) + len(unavailable),
 		FilesSkipped:     len(unavailable),
-		CoverageComplete: len(unavailable) == 0 && !truncated,
+		AnalysisComplete: len(unavailable) == 0,
 		Truncated:        truncated,
 	}
 	for _, file := range files {
 		if file == nil || file.facts == nil {
 			coverage.FilesSkipped++
-			coverage.CoverageComplete = false
+			coverage.AnalysisComplete = false
 			continue
 		}
 		coverage.FilesParsed++
 		if !file.facts.Analysis.Analysis.CoverageComplete {
-			coverage.CoverageComplete = false
+			coverage.AnalysisComplete = false
 		}
 	}
+	coverage.CoverageComplete = coverage.AnalysisComplete && !truncated
 	return coverage
 }
 

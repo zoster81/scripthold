@@ -814,7 +814,13 @@ These configurable ceilings are fail-closed: invalid, non-positive, overflowing,
 | `MaxIndexProjects` / `MCP_SOURCE_MAX_INDEX_PROJECTS` | 4 | 16 |
 | `MaxIndexGenerations` / `MCP_SOURCE_MAX_INDEX_GENERATIONS` | 2 | 4 |
 
-Query results retain the `unicode-scalar-1-based-half-open` source-coordinate contract where ranges are returned, explicit generation-bound coverage/truncation, evidence/resolution state, and coherent index generation/fingerprint/staleness. The process-local index reuses only path/content/analyzer-configuration-identical parsed facts, conservatively rebuilds project relationship metadata for each changed generation, bounds retained scopes/generations, and never stores complete source bodies. File-content or probe-to-analysis drift fails closed; `context` still reopens and fingerprint-verifies current source before returning text. No persistent index, source mutation, external parser/compiler/LSP process, or network activity is introduced.
+Query results retain the `unicode-scalar-1-based-half-open` source-coordinate contract where ranges are returned, generation-bound coverage/truncation, evidence/resolution state, and coherent index generation/fingerprint/staleness.
+
+**Understanding incomplete results:** The `coverage` object separates `fileSelectionTruncated` (eligible files omitted by `maxFiles`), `analysisComplete` (every selected file was parsed and analyzed completely), and `resultsTruncated` (search/relationship/context limits or context representation degradation). All three are always emitted as booleans. `filesConsidered` counts selected files, not omitted candidates. When file selection or analysis is incomplete, a search with no matches does not prove absence.
+
+The existing `truncated` remains true when either file selection or results are truncated. `coverageComplete` is true only when selected-file analysis is complete and neither truncation occurred.
+
+The process-local index reuses only path/content/analyzer-configuration-identical parsed facts, conservatively rebuilds project relationship metadata for each changed generation, bounds retained scopes/generations, and never stores complete source bodies. File-content or probe-to-analysis drift fails closed; `context` still reopens and fingerprint-verifies current source before returning text. No persistent index, source mutation, external parser/compiler/LSP process, or network activity is introduced.
 
 ## Workspace state
 

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,8 +35,74 @@ func TestSourceQuerySkipsStableDecodeFailureWithoutFalseConflict(t *testing.T) {
 	if output.Coverage.FilesConsidered != 2 || output.Coverage.FilesParsed != 1 || output.Coverage.FilesSkipped != 1 || output.Coverage.CoverageComplete {
 		t.Fatalf("coverage = %+v", output.Coverage)
 	}
+	encodedCoverage, marshalErr := json.Marshal(output.Coverage)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	var observed map[string]any
+	if err := json.Unmarshal(encodedCoverage, &observed); err != nil {
+		t.Fatal(err)
+	}
+	if observed["analysisComplete"] != false || observed["fileSelectionTruncated"] != false || observed["resultsTruncated"] != false {
+		t.Fatalf("skipped file must be an incomplete analysis, not truncation: %s", encodedCoverage)
+	}
 	if output.Search == nil || len(output.Search.Matches) != 1 || output.Search.Matches[0].Path != validPath {
 		t.Fatalf("search = %+v", output.Search)
+	}
+}
+
+func TestSourceQueryCoverageExplainsIndependentLimits(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	for _, name := range []string{"ItemA", "ItemB"} {
+		if err := os.WriteFile(filepath.Join(root, name+".java"), []byte("package demo; public class "+name+" {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := NewHandler([]string{root})
+	tests := []struct {
+		name, query                                                string
+		maxFiles, maxResults, expectedMatches                      int
+		fileSelectionTruncated, resultsTruncated, coverageComplete bool
+	}{
+		{name: "file limit", query: "ItemA", maxFiles: 1, maxResults: 8, expectedMatches: 1, fileSelectionTruncated: true},
+		{name: "miss in excluded file", query: "ItemB", maxFiles: 1, maxResults: 8, fileSelectionTruncated: true},
+		{name: "complete search", query: "ItemA", maxFiles: 2, maxResults: 8, expectedMatches: 1, coverageComplete: true},
+		{name: "result limit", query: "Item", maxFiles: 2, maxResults: 1, expectedMatches: 1, resultsTruncated: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, output, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Paths: []string{root}, Query: tt.query, Match: "contains", Mode: "structural",
+				Language: "java", Encoding: "utf-8", MaxFiles: tt.maxFiles, MaxResults: tt.maxResults,
+			})
+			if err != nil || (result != nil && result.IsError) {
+				t.Fatalf("query result=%+v output=%+v err=%v", result, output, err)
+			}
+			if output.Search == nil || len(output.Search.Matches) != tt.expectedMatches {
+				t.Fatalf("matches=%+v, want count %d", output.Search, tt.expectedMatches)
+			}
+			data, err := json.Marshal(output.Coverage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var coverage map[string]any
+			if err := json.Unmarshal(data, &coverage); err != nil {
+				t.Fatal(err)
+			}
+			for name, expected := range map[string]bool{
+				"fileSelectionTruncated": tt.fileSelectionTruncated,
+				"analysisComplete":       true,
+				"resultsTruncated":       tt.resultsTruncated,
+				"coverageComplete":       tt.coverageComplete,
+			} {
+				if got, ok := coverage[name].(bool); !ok || got != expected {
+					t.Fatalf("%s: coverage.%s = %v, want %v; coverage=%s", tt.name, name, coverage[name], expected, data)
+				}
+			}
+			if output.Coverage.Truncated != (tt.fileSelectionTruncated || tt.resultsTruncated) {
+				t.Fatalf("legacy truncated not preserved: %+v", output.Coverage)
+			}
+		})
 	}
 }
 

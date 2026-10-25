@@ -140,6 +140,17 @@ func TestSourceQueryGraphAndDeferredModes(t *testing.T) {
 		t.Fatalf("cycles result=%+v output=%+v err=%v", cyclesResult, cyclesOutput, cyclesErr)
 	}
 
+	limitedCyclesResult, limitedCycles, limitedCyclesErr := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "relations", Paths: []string{root}, Relation: "cycles", Language: "typescript",
+		MaxResults: 1, MaxNodes: 16, MaxEdges: 32,
+	})
+	if limitedCyclesErr != nil || (limitedCyclesResult != nil && limitedCyclesResult.IsError) || limitedCycles.Relations == nil || len(limitedCycles.Relations.Relations) != 1 {
+		t.Fatalf("limited cycles result=%+v output=%+v err=%v", limitedCyclesResult, limitedCycles, limitedCyclesErr)
+	}
+	if !limitedCycles.Coverage.ResultsTruncated || !limitedCycles.Coverage.Truncated || limitedCycles.Coverage.FileSelectionTruncated || !limitedCycles.Coverage.AnalysisComplete || limitedCycles.Coverage.CoverageComplete {
+		t.Fatalf("result limit must not be confused with index coverage: %+v", limitedCycles.Coverage)
+	}
+
 	for _, input := range []SourceQueryInput{
 		{Operation: "search", Paths: []string{root}, Query: "Base", Mode: "textual"},
 		{Operation: "search", Paths: []string{root}, Query: "Base", Mode: "lexical"},

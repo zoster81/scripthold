@@ -70,6 +70,7 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		output.Search = &SourceSearchResult{Matches: matches}
 		if search.Truncated {
 			output.Coverage.Truncated = true
+			output.Coverage.ResultsTruncated = true
 			output.Coverage.CoverageComplete = false
 		}
 	case "relations":
@@ -117,6 +118,7 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		output.Relations = &SourceRelationsResult{Relation: sourceintelligence.RelationKind(input.Relation), Relations: queried.Records}
 		if queried.Truncated {
 			output.Coverage.Truncated = true
+			output.Coverage.ResultsTruncated = true
 			output.Coverage.CoverageComplete = false
 		}
 	case "context":
@@ -157,6 +159,7 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		output.Context = &SourceContextResult{Items: items, UsedBytes: usedBytes, BudgetBytes: budgetBytes}
 		if plan.Truncated {
 			output.Coverage.Truncated = true
+			output.Coverage.ResultsTruncated = true
 			output.Coverage.CoverageComplete = false
 		}
 	default:
