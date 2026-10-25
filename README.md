@@ -23,7 +23,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 ## What Scripthold provides
 
-The current public release is **Scripthold 3.3.3** with 43 tools and 3 guided prompts.
+The current public release is **Scripthold 3.3.5** with 43 tools and 3 guided prompts. Version 3.3.6 is in preparation.
 
 - **168 registered text encodings** with content-based detection, UTF-32 LE/BE support, and conservative ambiguity handling.
 - **100 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
@@ -130,7 +130,7 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Tool groups
 
-[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below reflects the Scripthold 3.3.3 public catalog.
+[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below reflects the current public tool catalog.
 
 | Area | Main tools |
 |---|---|
