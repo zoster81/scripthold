@@ -70,6 +70,7 @@ type markdownPreview struct {
 
 type markdownPreviewStore struct {
 	mu         sync.Mutex
+	ownerIndex *confirmationOwnerIndex
 	entries    map[string]*markdownPreview
 	order      *list.List
 	maxEntries int
@@ -143,6 +144,11 @@ func (store *markdownPreviewStore) put(candidate *markdownPreview) (*markdownPre
 	if err != nil {
 		return nil, err
 	}
+	if store.ownerIndex != nil {
+		if err := store.ownerIndex.reserve(id, "markdown"); err != nil {
+			return nil, err
+		}
+	}
 	preview := &markdownPreview{
 		id:              id,
 		createdAt:       now,
@@ -174,6 +180,9 @@ func (store *markdownPreviewStore) claim(id string) (*markdownPreview, error) {
 		return nil, operation.New(operation.KindConflict, "markdown preview is unavailable, expired, evicted, or already consumed")
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "markdown")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil
@@ -212,6 +221,9 @@ func (store *markdownPreviewStore) removeLocked(id string) {
 		return
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "markdown")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil

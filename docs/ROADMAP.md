@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 3.3.6**, published through the protected immutable GitHub release process.
 - Current public capabilities: **43 tools**, **3 guided prompts**, **168 registered text encodings**, and **100 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- The next approved development milestone is **4.0: unified confirmation of prepared operations**. This is a planned breaking MCP tool-catalog change, not a shipped capability. See [4.0 implementation plan](#40-unified-confirmation-milestone) below. Publication and private deployment remain separate actions; release 3.3.6 does not automatically upgrade existing installations.
+- The next approved development milestone is **4.0: unified confirmation of prepared operations**. The 4.0 development tree now contains the breaking 36-tool catalog and unified dispatcher; this remains unshipped pending full qualification. See [4.0 implementation plan](#40-unified-confirmation-milestone) below. Publication and private deployment remain separate actions; release 3.3.6 does not automatically upgrade existing installations.
 
 ## Planning rules
 
@@ -24,15 +24,29 @@ The active publication flow is a protected, draft-first, single-writer pipeline.
 
 ## 4.0 unified confirmation milestone
 
-**Approved goal, not implemented:** simplify the public MCP tool catalog by replacing the eight preview-backed apply tools with one `confirm_verified_operation` tool. Keep every preview tool, prepared payload, existing apply engine, and its safety boundary intact. The goal is an easier-to-use API even if external safety-screening behavior does not change. The term *verified* means the server prepared and checked a proposed operation; it does **not** mean the action is already applied or automatically authorized.
+**Implemented in the unreleased development tree; cross-platform and release qualification outstanding:** simplify the public MCP tool catalog by replacing the eight preview-backed apply tools with one `confirm_verified_operation` tool. Keep every preview tool, prepared payload, existing apply engine, and its safety boundary intact. The goal is an easier-to-use API even if external safety-screening behavior does not change. The term *verified* means the server prepared and checked a proposed operation; it does **not** mean the action is already applied or automatically authorized.
 
 ### Proposed public contract
 
 - Tool: `confirm_verified_operation` with required `previewId` (the existing 64-character identifier) and optional short `note`. The note is untrusted descriptive text: bound its length, do not use it for authorization, routing, parameters, audit decisions, privileged instructions, or mutation logic. Do not promise that an external platform will accept a request based on the note.
 - Preserve truthful tool annotations: `readOnlyHint: false`, `destructiveHint: true`, and `openWorldHint: false`; a prepared operation can still alter or remove data.
-- Replace the public tools `edit_file_apply`, `patch_package_apply`, `filesystem_package_apply`, `markdown_apply`, `convert_encoding_apply`, `manage_bom_apply`, `backup_restore_apply`, and `backup_gc_apply`. Retain their internal engines and original checks. This changes the public tool count from 43 to an expected 36 if no other catalog entries change; verify the generated catalog instead of hardcoding the count elsewhere.
+- Replace the public tools `edit_file_apply`, `patch_package_apply`, `filesystem_package_apply`, `markdown_apply`, `convert_encoding_apply`, `manage_bom_apply`, `backup_restore_apply`, and `backup_gc_apply`. Retain their internal engines and original checks. This changes the development tool catalog from 43 to 36 entries. Version 3.3.6 remains the currently shipped 43-tool release.
 - Return the original operation-specific structured result and stable errors, adding the operation kind without changing its meaning. No success claim after an uncertain commit; retain honest `PARTIAL_COMMIT` and observed-state reporting.
 - Direct mutations without a preview, including whole-file replacement, line-ending changes, and explicit backup deletion, are **not** in scope.
+
+### Implementation contract and concurrency invariants
+
+The unified confirmation remains a mutating operation. Its input is a closed object: required `previewId` (exactly 64 lowercase hexadecimal characters) and optional `note` (at most 256 UTF-8 bytes). The note is descriptive only: it must not affect ownership lookup, authorization, the prepared operation, error classification, logging of sensitive content, or the mutation outcome. Reject unknown fields, empty IDs, malformed IDs, and oversized notes before routing.
+
+A successful confirmation preserves the original operation-specific structured fields and MCP error/result semantics and adds a stable `operationKind` discriminator. Preserve existing operation-specific failure payloads, including partially committed and unknown states; never convert an uncertain state into success or retry a consumed capability. Missing, expired, evicted, consumed, or previous-process identifiers yield a conflict; malformed identifiers yield invalid input. Normal permission, cancellation, limit, stale-target, and filesystem failures remain the owning engine's responsibility.
+
+One process-local routing index records only `previewId -> operation owner`, not prepared payloads or a separate approval status. **Admission and removal must be coordinated with each owning store under a documented lock order**: a preview cannot be published without its routing reservation, and rejected reservations cannot leave reachable orphan previews. A cross-store ID collision must reject or regenerate the new candidate, never replace an existing owner. The index is bounded by the aggregate live preview capacity; expiry, eviction, explicit discard, consumption, and process restart must not allow unbounded retention or revival. Routing releases its own lock before invoking the authoritative engine claim; the engine, not the index, decides whether the preview is still valid. Keep the Markdown subkind and the BOM/encoding subkind in their existing stores.
+
+The security review must compare (1) coordinated registration/removal using existing stores, (2) store probing, and (3) duplicated payload migration. Probing is not acceptable if it can claim from the wrong store or create timing-dependent errors; payload migration is not acceptable if it replaces existing authority or duplicates retained data. Verify admission rollback, deterministic lock order, cross-store forced collisions, eviction/expiry cleanup, concurrent double confirmation, and realistic worst-case capacity before implementing the public change.
+
+### Client migration boundary
+
+In 4.0, clients must rediscover the MCP catalog and replace calls to all eight former `*_apply` tool names with `confirm_verified_operation({ "previewId": "<preview token>" })`. Every preview producer and its approval evidence remain unchanged. The new optional note is never necessary to confirm an operation. Do not expose public aliases for removed tools; old clients invoking a removed name receive the normal MCP unknown-tool response, because an unregistered tool cannot reliably provide its own custom migration message. The old-to-new mapping and discovery requirements are documented in [MIGRATION_4.0.md](MIGRATION_4.0.md); do not rewrite historical 2.0/3.0 guidance. Update the three guided prompts, tool descriptions, contract tests and generated catalog projections alongside the actual 4.0 tool registration. Rollback is a release/runtime choice: reverting to a 3.x binary restores its old tool catalog, but outstanding process-local preview identifiers cannot survive a restart in either direction.
 
 ### Execution sequence and mandatory gates
 

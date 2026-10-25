@@ -81,6 +81,7 @@ type restorePreview struct {
 
 type restorePreviewStore struct {
 	mu         sync.Mutex
+	ownerIndex *confirmationOwnerIndex
 	entries    map[string]*restorePreview
 	order      *list.List
 	maxEntries int
@@ -129,6 +130,11 @@ func (store *restorePreviewStore) put(prepared preparedRestore) (*restorePreview
 	if err != nil {
 		return nil, err
 	}
+	if store.ownerIndex != nil {
+		if err := store.ownerIndex.reserve(id, "backup_restore"); err != nil {
+			return nil, err
+		}
+	}
 	preview := &restorePreview{
 		id:            id,
 		createdAt:     now,
@@ -157,6 +163,9 @@ func (store *restorePreviewStore) claim(id string) (*restorePreview, error) {
 		return nil, operation.New(operation.KindConflict, "restore preview is unavailable, expired, or already consumed")
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "backup_restore")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil
@@ -205,6 +214,9 @@ func (store *restorePreviewStore) removeLocked(id string) {
 		return
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "backup_restore")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 	}

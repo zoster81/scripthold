@@ -38,6 +38,7 @@ type patchPackagePreview struct {
 
 type patchPackagePreviewStore struct {
 	mu         sync.Mutex
+	ownerIndex *confirmationOwnerIndex
 	entries    map[string]*patchPackagePreview
 	order      *list.List
 	maxEntries int
@@ -87,6 +88,11 @@ func (store *patchPackagePreviewStore) put(prepared preparedPatchPackage) (*patc
 	if err != nil {
 		return nil, err
 	}
+	if store.ownerIndex != nil {
+		if err := store.ownerIndex.reserve(id, "patch_package"); err != nil {
+			return nil, err
+		}
+	}
 	preview := &patchPackagePreview{
 		id:            id,
 		createdAt:     now,
@@ -115,6 +121,9 @@ func (store *patchPackagePreviewStore) claim(id string) (*patchPackagePreview, e
 		return nil, operation.New(operation.KindConflict, "patch package preview is unavailable, expired, or already consumed")
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "patch_package")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil
@@ -167,6 +176,9 @@ func (store *patchPackagePreviewStore) removeLocked(id string) {
 		return
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "patch_package")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 	}

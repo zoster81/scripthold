@@ -153,16 +153,6 @@
       }
     },
     {
-      "name": "markdown_apply",
-      "title": "Apply Markdown Change",
-      "description": "Apply a previously previewed Markdown change.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "fingerprint_paths",
       "title": "Fingerprint Paths",
       "description": "Compute SHA-256 fingerprints of files or directory trees.",
@@ -192,19 +182,9 @@
       }
     },
     {
-      "name": "backup_restore_apply",
-      "title": "Apply Restore",
-      "description": "Restore files from a prepared backup operation.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "backup_gc_apply",
-      "title": "Apply Backup GC",
-      "description": "Apply a prepared backup garbage-collection operation.",
+      "name": "confirm_verified_operation",
+      "title": "Confirm Verified Operation",
+      "description": "Confirm a prepared file, patch, filesystem package, Markdown, encoding, BOM, restore, or garbage-collection operation using only its one-shot previewId and an optional descriptive note.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -237,16 +217,6 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "manage_bom_apply",
-      "title": "Apply BOM",
-      "description": "Apply a previously prepared BOM change.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
         "openWorldHint": false
       }
     },
@@ -293,16 +263,6 @@
       }
     },
     {
-      "name": "edit_file_apply",
-      "title": "Apply Edit",
-      "description": "Apply a previously prepared file edit.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "patch_package",
       "title": "Review Patch",
       "description": "Inspect, preview, or verify patches for one or more files.",
@@ -313,42 +273,12 @@
       }
     },
     {
-      "name": "patch_package_apply",
-      "title": "Apply Patch",
-      "description": "Apply a previously prepared multi-file patch.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "filesystem_package_apply",
-      "title": "Apply Filesystem Package",
-      "description": "Apply a prepared batch of filesystem operations once.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "convert_encoding",
       "title": "Preview Conversion",
       "description": "Preview text-encoding conversion for one or more files.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "convert_encoding_apply",
-      "title": "Apply Conversion",
-      "description": "Apply a previously prepared text-encoding conversion.",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
         "openWorldHint": false
       }
     },

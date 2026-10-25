@@ -1,5 +1,11 @@
 # Scripthold Repository Agent Guide
 
+## Toolchain discovery before availability claims
+
+Before reporting that a compiler, race detector, vulnerability scanner, linter or release tool is unavailable, read the private operator checkpoint and inspect the qualified workspace toolchain. A connector task may start with a minimal PATH: `Get-Command` failing in that shell is **not** proof the tool is missing. The operator workspace provides an activation script under its `tools` directory, with a qualified manifest and digest validation. Dot-source that script **inside the same PowerShell task** that runs diagnostics; verify the activation output and relevant tool versions before tests. Never use the private launcher, unverified downloads or system-global installations as substitutes. Do not persist private absolute paths, credentials, hashes or machine-specific identifiers in tracked documentation. If activation fails, report its exact safe failure category and stop rather than silently falling back.
+
+
+
 ## Scope and precedence
 
 This file applies to the entire repository. A nested `AGENTS.md` may add stricter or more specific instructions for files below its directory, but it must not relax repository-wide safety rules, invariants, or source-of-truth boundaries. Read this file, then every applicable scoped guide before editing.

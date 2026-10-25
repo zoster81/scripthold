@@ -37,17 +37,17 @@ func TestPublicFilesystemPackageContract(t *testing.T) {
 		t.Fatalf("filesystem_package is advertised destructive: %#v", preview.Annotations)
 	}
 
-	apply := byName["filesystem_package_apply"]
+	apply := byName["confirm_verified_operation"]
 	if apply == nil {
-		t.Fatal("filesystem_package_apply is missing")
+		t.Fatal("confirm_verified_operation is missing")
 	}
 	if apply.Annotations == nil || apply.Annotations.ReadOnlyHint {
-		t.Fatalf("filesystem_package_apply is incorrectly read-only: %#v", apply.Annotations)
+		t.Fatalf("confirm_verified_operation is incorrectly read-only: %#v", apply.Annotations)
 	}
 	if apply.Annotations.DestructiveHint == nil || !*apply.Annotations.DestructiveHint {
-		t.Fatalf("filesystem_package_apply is not advertised destructive: %#v", apply.Annotations)
+		t.Fatalf("confirm_verified_operation is not advertised destructive: %#v", apply.Annotations)
 	}
-	assertPreviewIDOnlySchema(t, apply)
+	assertConfirmationSchema(t, apply)
 
 	for _, removed := range []string{"create_directory", "copy_file", "move_file", "delete_file"} {
 		if byName[removed] != nil {
@@ -112,7 +112,7 @@ func TestFilesystemPackageRoundTripThroughMCP(t *testing.T) {
 	}
 
 	forbidden, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "filesystem_package_apply",
+		Name:      "confirm_verified_operation",
 		Arguments: map[string]any{"previewId": preview.PreviewID, "path": target},
 	})
 	if err != nil || !forbidden.IsError {
@@ -123,7 +123,7 @@ func TestFilesystemPackageRoundTripThroughMCP(t *testing.T) {
 	}
 
 	applied, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "filesystem_package_apply",
+		Name:      "confirm_verified_operation",
 		Arguments: map[string]any{"previewId": preview.PreviewID},
 	})
 	if err != nil || applied.IsError {
@@ -143,7 +143,7 @@ func TestFilesystemPackageRoundTripThroughMCP(t *testing.T) {
 	}
 
 	replay, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "filesystem_package_apply",
+		Name:      "confirm_verified_operation",
 		Arguments: map[string]any{"previewId": preview.PreviewID},
 	})
 	if err != nil || !replay.IsError {

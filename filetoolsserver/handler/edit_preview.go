@@ -47,6 +47,7 @@ type editPreview struct {
 
 type editPreviewStore struct {
 	mu         sync.Mutex
+	ownerIndex *confirmationOwnerIndex
 	entries    map[string]*editPreview
 	order      *list.List
 	maxEntries int
@@ -103,6 +104,11 @@ func (store *editPreviewStore) put(plan preparedEditPlan) (*editPreview, error) 
 	if err != nil {
 		return nil, err
 	}
+	if store.ownerIndex != nil {
+		if err := store.ownerIndex.reserve(id, "edit_file"); err != nil {
+			return nil, err
+		}
+	}
 	preview := &editPreview{
 		id:            id,
 		createdAt:     now,
@@ -132,6 +138,9 @@ func (store *editPreviewStore) claim(id string) (*editPreview, error) {
 		return nil, operation.New(operation.KindConflict, "edit preview is unavailable, expired, or already consumed")
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "edit_file")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil
@@ -184,6 +193,9 @@ func (store *editPreviewStore) removeLocked(id string) {
 		return
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "edit_file")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 	}

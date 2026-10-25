@@ -389,16 +389,3 @@ func markdownEditCatalogTool() *mcp.Tool {
 	}
 	return tool
 }
-
-func markdownApplyCatalogTool() *mcp.Tool {
-	tool := catalogTool("markdown_apply")
-	tool.InputSchema = map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"required":             []string{"previewId"},
-		"properties": map[string]any{
-			"previewId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
-		},
-	}
-	return tool
-}

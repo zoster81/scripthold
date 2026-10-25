@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,22 +40,19 @@ func TestPublicMutationBoundaries(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{
-		"edit_file_apply",
-		"patch_package_apply",
-		"backup_restore_apply",
-		"backup_gc_apply",
-		"manage_bom_apply",
-		"convert_encoding_apply",
+	confirmation := byName["confirm_verified_operation"]
+	if confirmation == nil || confirmation.Annotations == nil || confirmation.Annotations.ReadOnlyHint ||
+		confirmation.Annotations.DestructiveHint == nil || !*confirmation.Annotations.DestructiveHint {
+		t.Fatalf("v4 confirmation must be a destructive tool: %#v", confirmation)
+	}
+	assertConfirmationSchema(t, confirmation)
+	for _, removed := range []string{
+		"edit_file_apply", "markdown_apply", "patch_package_apply", "filesystem_package_apply",
+		"backup_restore_apply", "backup_gc_apply", "manage_bom_apply", "convert_encoding_apply",
 	} {
-		tool := byName[name]
-		if tool == nil {
-			t.Fatalf("R23 apply tool %q is missing", name)
+		if byName[removed] != nil {
+			t.Fatalf("legacy apply tool %q must not be registered", removed)
 		}
-		if tool.Annotations == nil || tool.Annotations.ReadOnlyHint {
-			t.Fatalf("R23 apply tool %q is incorrectly read-only: %#v", name, tool.Annotations)
-		}
-		assertPreviewIDOnlySchema(t, tool)
 	}
 
 	deleteTool := byName["backup_delete"]
@@ -63,6 +61,26 @@ func TestPublicMutationBoundaries(t *testing.T) {
 		t.Fatalf("backup_delete is not advertised as an explicit destructive mutation: %#v", deleteTool)
 	}
 	assertBackupIDOnlySchema(t, deleteTool)
+}
+
+func assertConfirmationSchema(t *testing.T, tool *mcp.Tool) {
+	t.Helper()
+	data, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		Required             []string                   `json:"required"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.Properties) != 2 || schema.Properties["previewId"] == nil || schema.Properties["note"] == nil ||
+		len(schema.Required) != 1 || schema.Required[0] != "previewId" || schema.AdditionalProperties {
+		t.Fatalf("unexpected confirmation schema: %s", data)
+	}
 }
 
 func TestReadOnlyToolNamesRejectLegacyMutationForms(t *testing.T) {
@@ -143,7 +161,7 @@ func TestEditPreviewThroughMCPIsSideEffectFreeAndApplyIsPreviewIDOnly(t *testing
 	}
 
 	forbidden, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "edit_file_apply",
+		Name:      "confirm_verified_operation",
 		Arguments: map[string]any{"previewId": preview.PreviewID, "path": path},
 	})
 	if err != nil || !forbidden.IsError {
@@ -153,9 +171,20 @@ func TestEditPreviewThroughMCPIsSideEffectFreeAndApplyIsPreviewIDOnly(t *testing
 		t.Fatalf("rejected apply mutated file=%q err=%v", data, readErr)
 	}
 
+	oversizedNote, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "confirm_verified_operation",
+		Arguments: map[string]any{"previewId": preview.PreviewID, "note": strings.Repeat("x", 257)},
+	})
+	if err != nil || !oversizedNote.IsError {
+		t.Fatalf("oversized note result=%#v err=%v", oversizedNote, err)
+	}
+	if data, readErr := os.ReadFile(path); readErr != nil || string(data) != "alpha\n" {
+		t.Fatalf("invalid note mutated file=%q err=%v", data, readErr)
+	}
+
 	applied, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "edit_file_apply",
-		Arguments: map[string]any{"previewId": preview.PreviewID},
+		Name:      "confirm_verified_operation",
+		Arguments: map[string]any{"previewId": preview.PreviewID, "note": "Approved"},
 	})
 	if err != nil || applied.IsError {
 		t.Fatalf("edit apply result=%#v err=%v", applied, err)
@@ -164,7 +193,7 @@ func TestEditPreviewThroughMCPIsSideEffectFreeAndApplyIsPreviewIDOnly(t *testing
 		t.Fatalf("apply bytes=%q err=%v", data, readErr)
 	}
 	replay, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "edit_file_apply",
+		Name:      "confirm_verified_operation",
 		Arguments: map[string]any{"previewId": preview.PreviewID},
 	})
 	if err != nil || !replay.IsError {
@@ -190,26 +219,5 @@ func assertBackupIDOnlySchema(t *testing.T, tool *mcp.Tool) {
 	}
 	if len(schema.Required) != 1 || schema.Required[0] != "backupId" {
 		t.Fatalf("%s required fields = %v, want [backupId]", tool.Name, schema.Required)
-	}
-}
-
-func assertPreviewIDOnlySchema(t *testing.T, tool *mcp.Tool) {
-	t.Helper()
-	data, err := json.Marshal(tool.InputSchema)
-	if err != nil {
-		t.Fatalf("marshal %s input schema: %v", tool.Name, err)
-	}
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-		Required   []string                   `json:"required"`
-	}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatalf("decode %s input schema: %v", tool.Name, err)
-	}
-	if len(schema.Properties) != 1 || schema.Properties["previewId"] == nil {
-		t.Fatalf("%s input properties = %v, want previewId only", tool.Name, schema.Properties)
-	}
-	if len(schema.Required) != 1 || schema.Required[0] != "previewId" {
-		t.Fatalf("%s required fields = %v, want [previewId]", tool.Name, schema.Required)
 	}
 }

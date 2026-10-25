@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/backupstore"
@@ -107,6 +108,62 @@ func TestBackupStoreGCDryRunOutputLimitLeavesNoCapability(t *testing.T) {
 	}
 	if limited.gcPreviews.len() != 0 || fixture.store.Index().ManifestCount != 3 {
 		t.Fatalf("limited dry run retained authority or changed store")
+	}
+}
+
+func TestUnifiedGCPartialErrorPreservesEvidenceThroughMCP(t *testing.T) {
+	fixture := newBackupGCHandlerFixture(t)
+	h := NewHandler([]string{fixture.publicRoot}, WithBackupStore(&gcApplyErrorStore{Store: fixture.store}))
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	server := mcp.NewServer(&mcp.Implementation{Name: "gc-confirm-error-test", Version: "test"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "backup_store"}, Wrap(nil, "backup_store", h.HandleBackupStoreRead))
+	mcp.AddTool(server, &mcp.Tool{Name: "confirm_verified_operation"}, Wrap(nil, "confirm_verified_operation", h.HandleConfirmVerifiedOperation))
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "gc-confirm-client", Version: "test"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientSession.Close()
+	previewResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "backup_store", Arguments: map[string]any{"action": BackupStoreActionGCDryRun},
+	})
+	if err != nil || previewResult.IsError {
+		t.Fatalf("preview %+v err=%v", previewResult, err)
+	}
+	var preview BackupStoreOutput
+	decodeRestoreMCPOutput(t, previewResult.StructuredContent, &preview)
+	if preview.GC == nil || len(preview.GC.PreviewID) != 64 {
+		t.Fatalf("preview=%+v", preview)
+	}
+	result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "confirm_verified_operation", Arguments: map[string]any{"previewId": preview.GC.PreviewID},
+	})
+	if err != nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeIO {
+		t.Fatalf("partial result=%+v err=%v", result, err)
+	}
+	var output struct {
+		OperationKind string               `json:"operationKind"`
+		GC            *BackupStoreGCOutput `json:"gc"`
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.OperationKind != "backup_gc" || output.GC == nil ||
+		output.GC.State != BackupStoreGCStatePartial || !output.GC.Applied ||
+		output.GC.ManifestsRemoved != 1 || output.GC.ObjectsRemoved != 1 ||
+		output.GC.TrashEntriesRemaining != 1 {
+		t.Fatalf("partial evidence not preserved: %+v", output)
 	}
 }
 

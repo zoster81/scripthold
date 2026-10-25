@@ -85,6 +85,18 @@ func NewEngine(planner *Planner, limits Limits, capture BackupCaptureFunc) (*Eng
 	}, nil
 }
 
+// SetPreviewRouting attaches process-local ownership bookkeeping at startup.
+// Call only before serving requests. The owning preview store remains authoritative.
+func (engine *Engine) SetPreviewRouting(reserve func(string) error, forget func(string)) {
+	if engine == nil || engine.previews == nil {
+		return
+	}
+	engine.previews.mu.Lock()
+	defer engine.previews.mu.Unlock()
+	engine.previews.reserveOwner = reserve
+	engine.previews.forgetOwner = forget
+}
+
 // Preview prepares and stores a process-local one-shot package capability.
 func (engine *Engine) Preview(ctx context.Context, manifest Manifest) (PreviewOutput, error) {
 	if engine == nil || engine.planner == nil {

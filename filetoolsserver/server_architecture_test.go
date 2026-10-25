@@ -231,7 +231,7 @@ func TestBuildServerWiresAndProtectsConfiguredBackupStore(t *testing.T) {
 		t.Fatalf("edit preview output=%+v", previewOutput)
 	}
 	editApply, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "edit_file_apply",
+		Name:      "confirm_verified_operation",
 		Arguments: map[string]any{"previewId": previewOutput.PreviewID},
 	})
 	if err != nil || editApply.IsError {
@@ -276,7 +276,7 @@ func TestBuildServerWiresAndProtectsConfiguredBackupStore(t *testing.T) {
 		t.Fatalf("restore preview output=%+v", restorePrepared)
 	}
 	restoreApply, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "backup_restore_apply",
+		Name:      "confirm_verified_operation",
 		Arguments: map[string]any{"previewId": restorePrepared.Restore.PreviewID},
 	})
 	if err != nil || restoreApply.IsError {
