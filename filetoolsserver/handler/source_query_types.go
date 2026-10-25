@@ -30,6 +30,7 @@ type SourceQueryInput struct {
 	Query            string                   `json:"query,omitempty"`
 	Mode             string                   `json:"mode,omitempty"`
 	Match            string                   `json:"match,omitempty"`
+	Cursor           string                   `json:"cursor,omitempty"`
 	Relation         string                   `json:"relation,omitempty"`
 	Subject          *SourceSelectorInput     `json:"subject,omitempty"`
 	Target           *SourceSelectorInput     `json:"target,omitempty"`
@@ -76,7 +77,8 @@ type SourceSearchMatch struct {
 }
 
 type SourceSearchResult struct {
-	Matches []SourceSearchMatch `json:"matches,omitempty"`
+	Matches    []SourceSearchMatch `json:"matches,omitempty"`
+	NextCursor string              `json:"nextCursor,omitempty"`
 }
 
 type SourceRelationsResult struct {

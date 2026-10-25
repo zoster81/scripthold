@@ -10,7 +10,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Source query responses now distinguish omitted files, incomplete selected-file analysis, and truncated search/relationship/context output with explicit coverage booleans, while retaining the existing aggregate flags.
 - Source context planning now avoids broad reverse-dependency declarations for symbol and position selectors while retaining verified type relationships and explicit file-level context; outgoing type references are grouped with bounded request-local indexes rather than repeatedly scanning the full relation array.
 - Repeated project context dependencies now reuse request-local immutable root-symbol lists rather than rebuilding symbol maps and arrays for every incoming edge. No public request changes or persistent indexes are introduced.
-- Structural source search now retains only the best `maxResults` matches in a bounded heap rather than collecting and sorting every match. Global match ordering and truncation semantics are preserved, with no new request fields or persistent index.
+- Structural source search now retains only the best `maxResults` matches in a bounded heap rather than collecting and sorting every match. Global match ordering and truncation semantics are preserved, with no new persistent index.
+- `source_query` structural search now supports optional `cursor` input and `search.nextCursor` output for bounded continuation. Tokens are authenticated, time-limited, and bound to search filters and the current indexed generation; old clients can omit cursors.
 
 ## 4.0.0 - 2026-10-25
 

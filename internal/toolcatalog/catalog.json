@@ -104,7 +104,7 @@
     {
       "name": "source_query",
       "title": "Source Query",
-      "description": "Search source code and analyze relationships between symbols.",
+      "description": "Search source code with bounded cursor pagination and analyze relationships between symbols.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false

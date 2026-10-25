@@ -33,6 +33,9 @@ func validateSourceQueryCommon(input SourceQueryInput, limits config.SourceConfi
 			return errorResultWithCode(ErrCodeInvalidInput, "paths must not contain empty values")
 		}
 	}
+	if len(input.Cursor) > sourceSearchCursorMaxBytes {
+		return errorResultWithCode(ErrCodeLimit, "source search cursor exceeds the maximum encoded size")
+	}
 	if _, result := resolvePositiveLimit(input.MaxFiles, limits.MaxFiles, "maxFiles"); result != nil {
 		return result
 	}
@@ -99,7 +102,7 @@ func validateSourceRelationsQuery(input SourceQueryInput, limits config.SourceCo
 	if !isSourceRelationKind(input.Relation) {
 		return errorResultWithCode(ErrCodeInvalidInput, "relations requires a supported relation kind")
 	}
-	if input.Query != "" || input.Mode != "" || input.Match != "" || len(input.Kinds) > 0 || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxItems != 0 {
+	if input.Query != "" || input.Mode != "" || input.Match != "" || input.Cursor != "" || len(input.Kinds) > 0 || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxItems != 0 {
 		return errorResultWithCode(ErrCodeInvalidInput, "relations received fields that are legal only for search or context")
 	}
 	for _, pair := range []struct {
@@ -144,7 +147,7 @@ func validateSourceContextQuery(input SourceQueryInput, limits config.SourceConf
 	if input.BodyPolicy != "" && input.BodyPolicy != "prefer" && input.BodyPolicy != "signatures-only" {
 		return errorResultWithCode(ErrCodeInvalidInput, "context bodyPolicy must be prefer or signatures-only")
 	}
-	if input.Query != "" || input.Mode != "" || input.Match != "" || input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Kinds) > 0 || len(input.Evidence) > 0 || input.MaxResults != 0 || input.MaxNodes != 0 || input.MaxEdges != 0 {
+	if input.Query != "" || input.Mode != "" || input.Match != "" || input.Cursor != "" || input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Kinds) > 0 || len(input.Evidence) > 0 || input.MaxResults != 0 || input.MaxNodes != 0 || input.MaxEdges != 0 {
 		return errorResultWithCode(ErrCodeInvalidInput, "context received fields that are legal only for search or relations")
 	}
 	for _, pair := range []struct {

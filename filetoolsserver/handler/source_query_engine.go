@@ -50,12 +50,33 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		if match == "" {
 			match = sourceintelligence.ProjectSearchExact
 		}
+		requestHash, fingerprintErr := sourceSearchRequestFingerprint(input, maxFiles, maxResults)
+		if fingerprintErr != nil {
+			return errorResultFromError(fingerprintErr), SourceQueryOutput{}, nil
+		}
+		var after *sourceintelligence.ProjectSearchMatch
+		afterOccurrences := 0
+		if input.Cursor != "" {
+			payload, cursorErr := h.decodeSourceSearchCursor(input.Cursor)
+			if cursorErr != nil {
+				return errorResultFromError(cursorErr), SourceQueryOutput{}, nil
+			}
+			if payload.QueryHash != requestHash {
+				return errorResultWithCode(ErrCodeInvalidInput, "source search cursor does not match the requested search"), SourceQueryOutput{}, nil
+			}
+			if selection.Evidence.Staleness != sourceintelligence.IndexCurrent || payload.Generation != selection.Evidence.Generation || payload.Fingerprint != selection.Evidence.Fingerprint {
+				return errorResultWithCode(ErrCodeConflict, "source search cursor is stale"), SourceQueryOutput{}, nil
+			}
+			after = &payload.After
+			afterOccurrences = payload.Occurrences
+		}
 		evidence := make([]sourceintelligence.SymbolEvidence, 0, len(input.Evidence))
 		for _, value := range input.Evidence {
 			evidence = append(evidence, sourceintelligence.SymbolEvidence(value))
 		}
 		search, searchErr := model.StructuralSearch(requestCtx, sourceintelligence.ProjectSearchOptions{
 			Query: input.Query, Match: match, Kinds: input.Kinds, Evidence: evidence, MaxResults: maxResults,
+			After: after, AfterOccurrences: afterOccurrences,
 		})
 		if searchErr != nil {
 			return errorResultFromError(searchErr), SourceQueryOutput{}, nil
@@ -68,6 +89,18 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 			})
 		}
 		output.Search = &SourceSearchResult{Matches: matches}
+		if search.Truncated && selection.Evidence.Staleness == sourceintelligence.IndexCurrent && len(search.Matches) != 0 {
+			last := search.Matches[len(search.Matches)-1]
+			nextCursor, cursorErr := h.encodeSourceSearchCursor(sourceSearchCursorPayload{
+				Version: sourceSearchCursorVersion, ExpiresAt: time.Now().Add(sourceSearchCursorTTL).Unix(),
+				QueryHash: requestHash, Generation: selection.Evidence.Generation, Fingerprint: selection.Evidence.Fingerprint,
+				After: last, Occurrences: search.LastOccurrences,
+			})
+			if cursorErr != nil {
+				return errorResultFromError(cursorErr), SourceQueryOutput{}, nil
+			}
+			output.Search.NextCursor = nextCursor
+		}
 		if search.Truncated {
 			output.Coverage.Truncated = true
 			output.Coverage.ResultsTruncated = true
