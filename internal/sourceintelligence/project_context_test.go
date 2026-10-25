@@ -8,6 +8,69 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+func TestProjectContextSymbolTargetExcludesUnrelatedDependentDeclarations(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "context", "reverse")
+	basePath := filepath.Join(root, "base.ts")
+	clientPath := filepath.Join(root, "client.ts")
+	base := projectResolverFacts(t, TypeScriptAnalyzer{}, basePath, "export class Base {}\n")
+	client := projectResolverFacts(t, TypeScriptAnalyzer{}, clientPath, "import { Base } from \"./base\";\nexport class Derived extends Base {}\nexport class Unrelated {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{client, base}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseID := projectSymbolID(t, base, "Base")
+	derivedID := projectSymbolID(t, client, "Derived")
+	unrelatedID := projectSymbolID(t, client, "Unrelated")
+	options := ProjectContextOptions{BudgetBytes: 8192, MaxItems: 20, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+	symbolPlan, err := model.PlanContext(context.Background(), []ProjectSelector{querySymbolSelector(base, baseID)}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsContextSymbol(symbolPlan.Candidates, derivedID) {
+		t.Fatalf("symbol context omitted proven subtype: %+v", symbolPlan.Candidates)
+	}
+	if containsContextSymbol(symbolPlan.Candidates, unrelatedID) {
+		t.Fatalf("symbol context included unrelated dependent declaration: %+v", symbolPlan.Candidates)
+	}
+	baseRef := projectReferenceByTarget(t, model.References(), clientPath, "Base")
+	positionPlan, err := model.PlanContext(context.Background(), []ProjectSelector{{
+		Kind: ProjectSelectorPosition, Path: clientPath, Position: &baseRef.Range.Start, SourceFingerprint: client.SourceFingerprint,
+	}}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsContextSymbol(positionPlan.Candidates, baseID) || containsContextSymbol(positionPlan.Candidates, unrelatedID) {
+		t.Fatalf("position context should target the resolved symbol, not unrelated dependents: %+v", positionPlan.Candidates)
+	}
+	pathPlan, err := model.PlanContext(context.Background(), []ProjectSelector{queryPathSelector(base)}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsContextSymbol(pathPlan.Candidates, unrelatedID) {
+		t.Fatalf("explicit file context lost broad dependent declarations: %+v", pathPlan.Candidates)
+	}
+	mixedPlan, err := model.PlanContext(context.Background(), []ProjectSelector{querySymbolSelector(base, baseID), queryPathSelector(base)}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsContextSymbol(mixedPlan.Candidates, unrelatedID) {
+		t.Fatalf("mixed context lost explicit path scope: %+v", mixedPlan.Candidates)
+	}
+}
+
+func containsContextSymbol(values []ProjectContextCandidate, symbolID string) bool {
+	for _, value := range values {
+		if value.Entity.SymbolID == symbolID {
+			return true
+		}
+	}
+	return false
+}
+
 func TestProjectContextPrioritiesAndBudgetDegradation(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
