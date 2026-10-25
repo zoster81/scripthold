@@ -117,25 +117,34 @@ func TestSourceQueryRealCorpusPagesMatchCompleteSearch(t *testing.T) {
 		len(full.Search.Matches), pageCount, fullBytes, firstBytes, totalBytes, fullTime, totalLatency)
 }
 
-// A task oracle establishes the verifiable declaration evidence for a later
-// paired LLM A/B trial. It does not simulate an agent or count LLM tool calls.
-// Activate it with the corpus root and SCRIPTHOLD_REAL_CORPUS_TASK.
-func TestSourceQueryRealCorpusTaskOracle(t *testing.T) {
+// Real-source tasks are fixed probes for later paired client trials, not
+// simulated LLM behavior or evidence of reduced tool calls.
+type realSourceTaskSpec struct {
+	language, query, file, kind string
+}
+
+var realSourceTaskSpecs = map[string]realSourceTaskSpec{
+	"go-router":        {language: "go", query: "NewRouter", file: "chi.go", kind: "function"},
+	"python-api-key":   {language: "python", query: "APIKeyBase", file: "api_key.py", kind: "class"},
+	"csharp-validator": {language: "csharp", query: "ConfigurationValidator", file: "ConfigurationValidator.cs", kind: "class"},
+}
+
+func realSourceTask(tb testing.TB) (string, realSourceTaskSpec) {
+	tb.Helper()
 	task := os.Getenv("SCRIPTHOLD_REAL_CORPUS_TASK")
 	if task == "" {
-		t.Skip("set SCRIPTHOLD_REAL_CORPUS_TASK and SCRIPTHOLD_REAL_CORPUS_DIR to opt in")
+		tb.Skip("set SCRIPTHOLD_REAL_CORPUS_TASK and SCRIPTHOLD_REAL_CORPUS_DIR to opt in")
 	}
-	cases := map[string]struct {
-		language, query, file, kind string
-	}{
-		"go-router":        {language: "go", query: "NewRouter", file: "chi.go", kind: "function"},
-		"python-api-key":   {language: "python", query: "APIKeyBase", file: "api_key.py", kind: "class"},
-		"csharp-validator": {language: "csharp", query: "ConfigurationValidator", file: "ConfigurationValidator.cs", kind: "class"},
-	}
-	want, ok := cases[task]
+	want, ok := realSourceTaskSpecs[task]
 	if !ok {
-		t.Fatalf("unsupported task oracle %q", task)
+		tb.Fatalf("unsupported task oracle %q", task)
 	}
+	return task, want
+}
+
+// This single-file oracle checks known evidence without testing file discovery.
+func TestSourceQueryRealCorpusTaskOracle(t *testing.T) {
+	task, want := realSourceTask(t)
 	input := realSourceCorpusInput(t)
 	root := input.Paths[0]
 	// The oracle checks known source evidence, not the agent's ability to discover
@@ -170,6 +179,43 @@ func TestSourceQueryRealCorpusTaskOracle(t *testing.T) {
 		len(output.Search.Matches), output.Coverage.FilesParsed,
 		sourceCorpusOutputBytes(t, output), duration)
 	t.Logf("fileSelectionTruncated=%t analysisComplete=%t", output.Coverage.FileSelectionTruncated, output.Coverage.AnalysisComplete)
+}
+
+// This probe tests whether a client can locate the known declaration when the
+// selected project contains multiple files, rather than naming the file first.
+// Require complete file selection; analyzer coverage is reported separately.
+func TestSourceQueryRealCorpusTaskDiscovery(t *testing.T) {
+	task, want := realSourceTask(t)
+	input := realSourceCorpusInput(t)
+	input.Query = want.query
+	input.Match = "exact"
+	input.Language = want.language
+	input.MaxFiles = 256
+	input.MaxResults = 128
+	output, elapsed := runRealSourceCorpusSearch(t, NewHandler(input.Paths), input)
+	if output.Coverage.FileSelectionTruncated || output.Coverage.FilesParsed <= 1 ||
+		output.Coverage.FilesSkipped != 0 {
+		t.Fatalf("%s: multi-file scope has incomplete file selection: %+v", task, output.Coverage)
+	}
+	if output.Coverage.ResultsTruncated {
+		t.Fatalf("%s: declaration search exhausted the result budget", task)
+	}
+	target := filepath.Clean(filepath.Join(input.Paths[0], want.file))
+	var matching []SourceSearchMatch
+	for _, match := range output.Search.Matches {
+		if filepath.Clean(match.Path) == target && match.Name == want.query &&
+			string(match.Kind) == want.kind && match.SymbolID != "" &&
+			match.SourceFingerprint != "" && match.Range.Start.Line > 0 {
+			matching = append(matching, match)
+		}
+	}
+	if len(matching) != 1 {
+		t.Fatalf("%s: expected one identified declaration at %s; got %d of %d matches (coverage=%+v)",
+			task, target, len(matching), len(output.Search.Matches), output.Coverage)
+	}
+	t.Logf("task=%s filesConsidered=%d filesParsed=%d analysisComplete=%t matches=%d bytes=%d duration=%s",
+		task, output.Coverage.FilesConsidered, output.Coverage.FilesParsed,
+		output.Coverage.AnalysisComplete, len(output.Search.Matches), sourceCorpusOutputBytes(t, output), elapsed)
 }
 
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
