@@ -2,7 +2,7 @@
 
 This reference explains what each Scripthold tool does, when to use it, its main inputs, and the important safety or limit behavior. Start with the short purpose and examples in each section; use the detailed rules when you need exact API behavior or troubleshooting information.
 
-The current public release, Scripthold `3.3.6`, exposes 43 tools and 3 guided prompts. This reference also describes the unreleased 4.0 development catalog (36 tools), which replaces eight approval/apply commands with `confirm_verified_operation`; consult the [4.0 migration guide](docs/MIGRATION_4.0.md) before using these development-only instructions with a published 3.3.6 installation. Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
+The current public release, Scripthold `4.0.0`, exposes 36 tools and 3 guided prompts. Version 4.0 replaces eight approval/apply commands with `confirm_verified_operation`; clients upgrading from 3.x must follow the [4.0 migration guide](docs/MIGRATION_4.0.md). Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
 
 ## Find the right tool
 

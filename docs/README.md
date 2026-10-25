@@ -14,7 +14,7 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | Configure tasks that outlive an MCP request | [Durable Tasks](DURABLE_TASKS.md) |
 | Run the server over HTTP or through a trusted proxy | [HTTP Security](HTTP_SECURITY.md) |
 | Understand how filesystem permissions, encodings, backups, and mutations work | [Architecture](ARCHITECTURE.md) |
-| Update a client or integration from an older release | [Migration from 1.8 to 2.0](MIGRATION_2.0.md), [Migration to 3.0](MIGRATION_3.0.md), or [Migration to 4.0](MIGRATION_4.0.md) (unreleased) |
+| Update a client or integration from an older release | [Migration from 1.8 to 2.0](MIGRATION_2.0.md), [Migration to 3.0](MIGRATION_3.0.md), or [Migration to 4.0](MIGRATION_4.0.md) |
 | See what changed between releases | [Changelog](../CHANGELOG.md) |
 
 ## Build, secure, and maintain Scripthold

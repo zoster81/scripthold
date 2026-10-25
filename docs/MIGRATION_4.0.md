@@ -2,7 +2,7 @@
 
 Scripthold 4.0 consolidates approval of prepared filesystem operations into one MCP tool. This guide explains how existing 3.x clients switch to the new command without changing the way previews are prepared or reviewed.
 
-**Status:** Implemented in the unreleased 4.0 development tree; Scripthold 3.3.6 remains the current published version. Clients connected to 3.3.6 must continue using its original apply tools until they explicitly upgrade.
+**Status:** Released in Scripthold 4.0.0. Existing 3.x installations retain their original apply commands until explicitly upgraded; refresh tool discovery and migrate clients after installing 4.0.0.
 
 ## Change for callers
 
