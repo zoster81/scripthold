@@ -10,6 +10,48 @@ import (
 	"testing"
 )
 
+func BenchmarkProjectSearchTopK(b *testing.B) {
+	const total = 20_000
+	matches := make([]ProjectSearchMatch, 0, total)
+	for i := 0; i < total; i++ {
+		index := (i * 7919) % total
+		matches = append(matches, ProjectSearchMatch{
+			Path: "source-" + strconv.Itoa(index%173),
+			Range: Range{
+				Start: Position{Line: index/173 + 1, Column: 1},
+				End:   Position{Line: index/173 + 1, Column: 4},
+			},
+			SymbolID: strconv.Itoa(index),
+		})
+	}
+	for _, maximum := range []int{8, 128} {
+		b.Run("full-sort/"+strconv.Itoa(maximum), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				result := finalizeProjectSearch(append([]ProjectSearchMatch(nil), matches...), maximum)
+				if !result.Truncated || len(result.Matches) != maximum {
+					b.Fatal("unexpected full sort result")
+				}
+			}
+		})
+		b.Run("top-k/"+strconv.Itoa(maximum), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				collector := newProjectSearchTopK(maximum)
+				for _, match := range matches {
+					collector.append(match)
+				}
+				result := collector.result()
+				if !result.Truncated || len(result.Matches) != maximum {
+					b.Fatal("unexpected bounded result")
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkProjectContextRepeatedImports(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

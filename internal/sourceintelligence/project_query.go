@@ -1,6 +1,7 @@
 package sourceintelligence
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"sort"
@@ -135,10 +136,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 		return ok
 	}
 
-	matches := make([]ProjectSearchMatch, 0, minInt(options.MaxResults+1, 256))
-	appendMatch := func(value ProjectSearchMatch) {
-		matches = append(matches, value)
-	}
+	collector := newProjectSearchTopK(options.MaxResults)
 	for _, pathKey := range model.fileOrder {
 		if err := ctx.Err(); err != nil {
 			return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", model.files[pathKey].facts.Path, err)
@@ -152,7 +150,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 			if !acceptEvidence(record.symbol.Evidence) || (!projectSearchTextMatches(record.symbol.Name, query, matchMode) && !projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode)) {
 				continue
 			}
-			appendMatch(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
+			collector.append(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
 		}
 		if len(kindFilter) != 0 {
 			continue
@@ -161,7 +159,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 			if !acceptEvidence(dependency.Evidence) || (!projectSearchTextMatches(dependency.Dependency.Value, query, matchMode) && !projectSearchTextMatches(dependency.Dependency.Alias, query, matchMode)) {
 				continue
 			}
-			appendMatch(ProjectSearchMatch{Path: dependency.Source.Path, Language: dependency.Source.Language, Range: dependency.Dependency.Range, SourceFingerprint: dependency.Source.SourceFingerprint, Evidence: dependency.Evidence})
+			collector.append(ProjectSearchMatch{Path: dependency.Source.Path, Language: dependency.Source.Language, Range: dependency.Dependency.Range, SourceFingerprint: dependency.Source.SourceFingerprint, Evidence: dependency.Evidence})
 		}
 	}
 	if len(kindFilter) == 0 {
@@ -172,10 +170,10 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 			if !acceptEvidence(reference.Evidence) || (!projectSearchTextMatches(reference.TargetSpelling, query, matchMode) && !projectSearchTextMatches(reference.StructuralKind, query, matchMode)) {
 				continue
 			}
-			appendMatch(ProjectSearchMatch{Path: reference.Source.Path, Language: reference.Source.Language, Range: reference.Range, SourceFingerprint: reference.Source.SourceFingerprint, Evidence: reference.Evidence})
+			collector.append(ProjectSearchMatch{Path: reference.Source.Path, Language: reference.Source.Language, Range: reference.Range, SourceFingerprint: reference.Source.SourceFingerprint, Evidence: reference.Evidence})
 		}
 	}
-	return finalizeProjectSearch(matches, options.MaxResults), nil
+	return collector.result(), nil
 }
 
 // QueryRelations executes one bounded project relationship query.
@@ -749,21 +747,75 @@ func finalizeProjectSearch(matches []ProjectSearchMatch, maximum int) ProjectSea
 
 func sortProjectSearchMatches(values []ProjectSearchMatch) {
 	sort.Slice(values, func(i, j int) bool {
-		left, right := values[i], values[j]
-		if left.Path != right.Path {
-			return left.Path < right.Path
-		}
-		if comparePosition(left.Range.Start, right.Range.Start) != 0 {
-			return comparePosition(left.Range.Start, right.Range.Start) < 0
-		}
-		if comparePosition(left.Range.End, right.Range.End) != 0 {
-			return comparePosition(left.Range.End, right.Range.End) < 0
-		}
-		if left.SymbolID != right.SymbolID {
-			return left.SymbolID < right.SymbolID
-		}
-		return left.Evidence < right.Evidence
+		return projectSearchMatchLess(values[i], values[j])
 	})
+}
+
+func projectSearchMatchLess(left, right ProjectSearchMatch) bool {
+	if left.Path != right.Path {
+		return left.Path < right.Path
+	}
+	if comparePosition(left.Range.Start, right.Range.Start) != 0 {
+		return comparePosition(left.Range.Start, right.Range.Start) < 0
+	}
+	if comparePosition(left.Range.End, right.Range.End) != 0 {
+		return comparePosition(left.Range.End, right.Range.End) < 0
+	}
+	if left.SymbolID != right.SymbolID {
+		return left.SymbolID < right.SymbolID
+	}
+	return left.Evidence < right.Evidence
+}
+
+// projectSearchWorstHeap retains the latest worst match at the root.
+// It shares the exact ordering used to sort final MCP search results.
+type projectSearchWorstHeap []ProjectSearchMatch
+
+func (values projectSearchWorstHeap) Len() int { return len(values) }
+func (values projectSearchWorstHeap) Less(i, j int) bool {
+	return projectSearchMatchLess(values[j], values[i])
+}
+func (values projectSearchWorstHeap) Swap(i, j int) { values[i], values[j] = values[j], values[i] }
+func (values *projectSearchWorstHeap) Push(value any) {
+	*values = append(*values, value.(ProjectSearchMatch))
+}
+func (values *projectSearchWorstHeap) Pop() any {
+	last := len(*values) - 1
+	value := (*values)[last]
+	*values = (*values)[:last]
+	return value
+}
+
+type projectSearchTopK struct {
+	matches   projectSearchWorstHeap
+	maximum   int
+	truncated bool
+}
+
+func newProjectSearchTopK(maximum int) *projectSearchTopK {
+	return &projectSearchTopK{
+		matches: make(projectSearchWorstHeap, 0, minInt(maximum, 256)),
+		maximum: maximum,
+	}
+}
+
+func (collector *projectSearchTopK) append(value ProjectSearchMatch) {
+	if len(collector.matches) < collector.maximum {
+		collector.matches = append(collector.matches, value)
+		// Repair only the new leaf; avoid boxing retained matches in heap.Push.
+		heap.Fix(&collector.matches, len(collector.matches)-1)
+		return
+	}
+	collector.truncated = true
+	if projectSearchMatchLess(value, collector.matches[0]) {
+		collector.matches[0] = value
+		heap.Fix(&collector.matches, 0)
+	}
+}
+
+func (collector *projectSearchTopK) result() ProjectSearchResult {
+	sortProjectSearchMatches(collector.matches)
+	return ProjectSearchResult{Matches: collector.matches, Truncated: collector.truncated}
 }
 
 func minInt(left, right int) int {

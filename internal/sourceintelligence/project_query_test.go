@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -184,6 +185,38 @@ func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("relation search = %+v", relations)
+	}
+}
+
+func TestProjectSearchTopKMatchesGlobalSortWithBoundedStorage(t *testing.T) {
+	matches := make([]ProjectSearchMatch, 0, 4_096)
+	for i := 0; i < 4_096; i++ {
+		index := (i * 7919) % 4_096
+		matches = append(matches, ProjectSearchMatch{
+			Path: fmt.Sprintf("source-%03d.ts", index%113),
+			Range: Range{
+				Start: Position{Line: index/113 + 1, Column: 2},
+				End:   Position{Line: index/113 + 1, Column: 6},
+			},
+			SymbolID: fmt.Sprintf("s-%04d", index),
+			Evidence: SymbolEvidenceStructural,
+		})
+	}
+	for _, maximum := range []int{1, 2, 7, 64, 4_096, 4_097} {
+		t.Run(fmt.Sprint(maximum), func(t *testing.T) {
+			collector := newProjectSearchTopK(maximum)
+			for _, match := range matches {
+				collector.append(match)
+				if len(collector.matches) > maximum {
+					t.Fatalf("collector retained %d matches with limit %d", len(collector.matches), maximum)
+				}
+			}
+			got := collector.result()
+			want := finalizeProjectSearch(append([]ProjectSearchMatch(nil), matches...), maximum)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("top-K diverged from global ordering at limit %d: got=%+v want=%+v", maximum, got, want)
+			}
+		})
 	}
 }
 
