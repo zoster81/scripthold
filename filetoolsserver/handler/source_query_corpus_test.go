@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -216,6 +217,63 @@ func TestSourceQueryRealCorpusTaskDiscovery(t *testing.T) {
 	t.Logf("task=%s filesConsidered=%d filesParsed=%d analysisComplete=%t matches=%d bytes=%d duration=%s",
 		task, output.Coverage.FilesConsidered, output.Coverage.FilesParsed,
 		output.Coverage.AnalysisComplete, len(output.Search.Matches), sourceCorpusOutputBytes(t, output), elapsed)
+}
+
+// This opt-in probe measures a real two-call search/context path without an LLM.
+func TestSourceQueryRealCorpusTaskSearchContextWorkflow(t *testing.T) {
+	task, want := realSourceTask(t)
+	input := realSourceCorpusInput(t)
+	input.Query, input.Match, input.Language, input.Encoding = want.query, "exact", want.language, ""
+	input.MaxFiles, input.MaxResults = 256, 128
+	h := NewHandler(input.Paths)
+	search, searchTime := runRealSourceCorpusSearch(t, h, input)
+	var target *SourceSearchMatch
+	for i := range search.Search.Matches {
+		match := &search.Search.Matches[i]
+		if match.Name == want.query && string(match.Kind) == want.kind &&
+			filepath.Base(match.Path) == want.file && match.SymbolID != "" {
+			target = match
+			break
+		}
+	}
+	if target == nil {
+		t.Fatalf("%s: search did not identify the expected declaration", task)
+	}
+	request := SourceQueryInput{
+		Operation: "context", Paths: input.Paths, Language: want.language,
+		Targets: []SourceSelectorInput{{
+			Kind: "symbol", Path: target.Path, SymbolID: target.SymbolID,
+			SourceFingerprint: target.SourceFingerprint,
+		}},
+		BudgetBytes: 18000, MaxItems: 8, BodyPolicy: "prefer",
+	}
+	started := time.Now()
+	result, output, err := h.SourceQuery(context.Background(), nil, request)
+	contextTime := time.Since(started)
+	if err != nil || (result != nil && result.IsError) || output.Context == nil {
+		t.Fatalf("%s: source context failed: result=%+v err=%v", task, result, err)
+	}
+	if len(output.Context.Items) == 0 {
+		t.Fatalf("%s: source context returned no items", task)
+	}
+	item := output.Context.Items[0]
+	if item.Entity.SymbolID != target.SymbolID || string(item.Representation) != "body" {
+		t.Fatalf("%s: first context item is not the verified target body", task)
+	}
+	expected := map[string][]string{
+		"go-router":        {"return NewMux()"},
+		"python-api-key":   {"HTTP_401_UNAUTHORIZED", "WWW-Authenticate", "if self.auto_error", "return None"},
+		"csharp-validator": {"DuplicateTypeMapConfigurationException", "GetUnmappedPropertyNames()", "PassesCtorValidation"},
+	}
+	for _, fact := range expected[task] {
+		if !strings.Contains(item.Text, fact) {
+			t.Fatalf("%s: target context lacks verified fact %q", task, fact)
+		}
+	}
+	searchBytes, contextBytes := sourceCorpusOutputBytes(t, search), sourceCorpusOutputBytes(t, output)
+	t.Logf("task=%s calls=2 searchBytes=%d contextBytes=%d totalBytes=%d contextItems=%d targetBodyBytes=%d searchDuration=%s contextDuration=%s",
+		task, searchBytes, contextBytes, searchBytes+contextBytes,
+		len(output.Context.Items), len(item.Text), searchTime, contextTime)
 }
 
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
