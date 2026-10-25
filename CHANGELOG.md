@@ -2,6 +2,12 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
+## Unreleased
+
+### Fixed
+
+- Corrected Windows standalone self-update helper dispatch by staging the verified helper as a `.exe` file. Update and explicit recovery retain the existing transaction, integrity, and locking requirements. Linux and macOS continue to use their native executable naming.
+
 ## 3.3.5 - 2026-10-24
 
 ### Fixed
