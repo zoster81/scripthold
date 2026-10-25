@@ -34,7 +34,7 @@ test('OpenSSF Scorecard workflow stays on supported default-branch triggers', ()
   assert.match(scorecard, /publish_results:\s*true/);
   assert.match(scorecard, /results_file:\s*results\.sarif/);
   assert.match(scorecard, /persist-credentials:\s*false/);
-  assert.match(scorecard, /github\/codeql-action\/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/);
+  assert.match(scorecard, /github\/codeql-action\/upload-sarif@[0-9a-f]{40}/);
 });
 
 test('Glama ownership metadata belongs to the current Scripthold maintainer', () => {

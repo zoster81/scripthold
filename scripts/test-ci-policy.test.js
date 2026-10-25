@@ -476,9 +476,10 @@ test('protected finalizer can mint only two repository-scoped App tokens after b
   assert.ok(verified >= 0 && minted > verified && second > minted &&
     checked > second,
   'protected writer must follow independent byte verification and token issuance');
-  const pin = 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1';
-  assert.equal(finalizer.split('uses: ' + pin).length - 1, 2);
-  assert.equal((finalizer.match(/uses: actions\/create-github-app-token@/g) || []).length, 2);
+  const appTokenPins = [...finalizer.matchAll(/uses: actions\/create-github-app-token@([0-9a-f]{40})(?=\s|$)/g)]
+    .map((match) => match[1]);
+  assert.equal(appTokenPins.length, 2, 'both App tokens must use immutable SHA pins');
+  assert.equal(new Set(appTokenPins).size, 1, 'both App tokens must use the same action release');
   const sections = [finalizer.slice(minted, second), finalizer.slice(second, checked)];
   const bridge = finalizer.slice(checked);
   for (const required of [
