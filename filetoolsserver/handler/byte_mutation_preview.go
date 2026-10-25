@@ -57,6 +57,7 @@ type byteMutationPreview struct {
 
 type byteMutationPreviewStore struct {
 	mu         sync.Mutex
+	ownerIndex *confirmationOwnerIndex
 	entries    map[string]*byteMutationPreview
 	order      *list.List
 	maxEntries int
@@ -111,6 +112,12 @@ func (store *byteMutationPreviewStore) put(prepared preparedByteMutation) (*byte
 		prepared.close()
 		return nil, err
 	}
+	if store.ownerIndex != nil {
+		if err := store.ownerIndex.reserve(id, prepared.kind); err != nil {
+			prepared.close()
+			return nil, err
+		}
+	}
 	preview := &byteMutationPreview{
 		id:            id,
 		createdAt:     now,
@@ -142,6 +149,9 @@ func (store *byteMutationPreviewStore) claim(id, expectedKind string) (*byteMuta
 		return nil, operation.New(operation.KindConflict, "previewId belongs to a different mutation capability")
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, preview.prepared.kind)
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil
@@ -185,6 +195,9 @@ func (store *byteMutationPreviewStore) removeLocked(id string) {
 		return
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, preview.prepared.kind)
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 	}

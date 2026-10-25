@@ -116,6 +116,7 @@ type Handler struct {
 	taskStore                  TaskStore
 	deferredOperations         *deferredoperation.Store
 	responseContinuations      *responsecontinuation.Store
+	confirmOwners              *confirmationOwnerIndex
 	editPreviews               *editPreviewStore
 	markdownPreviews           *markdownPreviewStore
 	restorePreviews            *restorePreviewStore
@@ -343,6 +344,28 @@ func NewHandler(allowedDirs []string, opts ...Option) *Handler {
 	h.verifyGitExecutable = findVerificationGit
 	h.verifyGitRun = h.runVerificationGit
 	h.filesystemPackageEngine, h.filesystemPackageInitErr = h.newFilesystemPackageEngine()
+
+	h.confirmOwners = newConfirmationOwnerIndex(confirmationOwnerCapacity(
+		h.editPreviews.maxEntries,
+		h.markdownPreviews.maxEntries,
+		h.patchPackagePreviews.maxEntries,
+		h.restorePreviews.maxEntries,
+		h.gcPreviews.maxEntries,
+		h.byteMutationPreviews.maxEntries,
+		h.filesystemPackageLimits().MaxPreviews,
+	))
+	h.editPreviews.ownerIndex = h.confirmOwners
+	h.markdownPreviews.ownerIndex = h.confirmOwners
+	h.patchPackagePreviews.ownerIndex = h.confirmOwners
+	h.restorePreviews.ownerIndex = h.confirmOwners
+	h.gcPreviews.ownerIndex = h.confirmOwners
+	h.byteMutationPreviews.ownerIndex = h.confirmOwners
+	if h.filesystemPackageEngine != nil {
+		h.filesystemPackageEngine.SetPreviewRouting(
+			func(id string) error { return h.confirmOwners.reserve(id, "filesystem_package") },
+			func(id string) { h.confirmOwners.forget(id, "filesystem_package") },
+		)
+	}
 
 	return h
 }

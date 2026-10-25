@@ -31,6 +31,7 @@ type gcPreview struct {
 
 type gcPreviewStore struct {
 	mu         sync.Mutex
+	ownerIndex *confirmationOwnerIndex
 	entries    map[string]*gcPreview
 	order      *list.List
 	maxEntries int
@@ -80,6 +81,11 @@ func (store *gcPreviewStore) put(plan backupstore.GCPlan) (*gcPreview, error) {
 	if err != nil {
 		return nil, err
 	}
+	if store.ownerIndex != nil {
+		if err := store.ownerIndex.reserve(id, "backup_gc"); err != nil {
+			return nil, err
+		}
+	}
 	preview := &gcPreview{
 		id:            id,
 		createdAt:     now,
@@ -108,6 +114,9 @@ func (store *gcPreviewStore) claim(id string) (*gcPreview, error) {
 		return nil, operation.New(operation.KindConflict, "backup GC preview is unavailable, expired, or already consumed")
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "backup_gc")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil
@@ -156,6 +165,9 @@ func (store *gcPreviewStore) removeLocked(id string) {
 		return
 	}
 	delete(store.entries, id)
+	if store.ownerIndex != nil {
+		store.ownerIndex.forget(id, "backup_gc")
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 	}

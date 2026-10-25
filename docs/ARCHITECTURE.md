@@ -52,7 +52,7 @@ Potentially destructive workflows separate **preparation** from **application**.
 - Single-file edit previews and patch packages share the same ordered prepared-target model and core safety checks; multi-file apply remains deterministic and reports partial state rather than claiming cross-file atomicity.
 - Post-commit failures are classified from bounded observed state. Scripthold does not report a predicted preview state as fact after an uncertain commit boundary.
 
-`edit_file`/`edit_file_apply`, patch packages, encoding/BOM previews, restore/GC previews, and filesystem packages follow this model where applicable.
+In the unreleased 4.0 development tree, `confirm_verified_operation` routes a reviewed `previewId` to its original one-shot store for edits, patch packages, filesystem packages, Markdown changes, encoding/BOM changes, restores and GC. The index tracks ownership only; each existing engine retains revalidation, backups, atomic claims and partial-state reporting. The published 3.3.6 version still exposes its eight individual apply commands.
 
 ## Persistent backup store
 

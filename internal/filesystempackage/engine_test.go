@@ -16,6 +16,46 @@ import (
 	"github.com/zoster81/scripthold/internal/security"
 )
 
+func TestFilesystemPreviewRoutingCallbacks(t *testing.T) {
+	store := newFilesystemPackagePreviewStore(1, 1024, time.Minute)
+	owners := map[string]bool{}
+	store.reserveOwner = func(id string) error {
+		if owners[id] {
+			return operation.New(operation.KindConflict, "duplicate preview")
+		}
+		owners[id] = true
+		return nil
+	}
+	store.forgetOwner = func(id string) { delete(owners, id) }
+	first, err := store.put(PreparedPackage{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owners[first.id] {
+		t.Fatal("new preview not registered")
+	}
+	second, err := store.put(PreparedPackage{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owners[first.id] || !owners[second.id] {
+		t.Fatal("eviction did not update routing")
+	}
+	if _, err := store.claim(second.id); err != nil {
+		t.Fatal(err)
+	}
+	if owners[second.id] {
+		t.Fatal("claim did not clear routing")
+	}
+	store.reserveOwner = func(string) error { return operation.New(operation.KindConflict, "forced collision") }
+	if _, err := store.put(PreparedPackage{}); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("collision err = %v", err)
+	}
+	if len(store.entries) != 0 {
+		t.Fatal("orphan retained on reservation failure")
+	}
+}
+
 func TestEnginePreviewIsReadOnlyAndApplyCommitsAllSevenOperations(t *testing.T) {
 	root := t.TempDir()
 	copySource := filepath.Join(root, "copy-source.txt")

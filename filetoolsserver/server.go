@@ -22,7 +22,7 @@ const serverInstructions = `Scripthold provides secure, encoding-aware filesyste
 
 Use these tools when encoding, BOM, line endings, bounded traversal, source intelligence, atomic mutation, backups, or persistent task execution matter. Filesystem access is limited to startup roots. Encoding detection uses BOM/content evidence, never filenames; ambiguous input requires an explicit encoding. Use source_symbols for bounded read-only outline, digest, find, and fingerprint-bound show. source_query provides bounded read-only structural search, supported project relations, and fingerprint-verified task context; textual/lexical search remains available through grep_text_files, while bounded process-local index generations bind related queries consistently. Mutations revalidate paths and preserve encoding/BOM/line endings where documented.
 
-For long work use task_run, then task_get/task_logs/task_list; tasks survive MCP reconnects and support cancellation. Oversized MCP results are retained and returned as a compact handle; retrieve their bounded segments with deferred_operation. Use preview/apply workflows for sensitive edits, patch packages, restores, and GC. Tool errors expose stable error codes.
+For long work use task_run, then task_get/task_logs/task_list; tasks survive MCP reconnects and support cancellation. Oversized MCP results are retained and returned as a compact handle; retrieve their bounded segments with deferred_operation. Review each prepared preview before using confirm_verified_operation with its one-shot previewId for edits, patch packages, filesystem packages, Markdown changes, encoding/BOM changes, restores, and GC. Never resubmit mutation parameters during confirmation. Tool errors expose stable error codes.
 
 Call check_for_updates once at session start and report available updates.`
 
@@ -50,6 +50,22 @@ func emptyInputCatalogTool(name string) *mcp.Tool {
 		"type":                 "object",
 		"properties":           map[string]any{},
 		"additionalProperties": false,
+	}
+	return tool
+}
+
+// confirmVerifiedOperationCatalogTool exposes only the approved capability token
+// and optional descriptive note; no operation arguments can be changed on apply.
+func confirmVerifiedOperationCatalogTool() *mcp.Tool {
+	tool := catalogTool("confirm_verified_operation")
+	tool.InputSchema = map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"previewId"},
+		"properties": map[string]any{
+			"previewId": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+			"note":      map[string]any{"type": "string", "maxLength": 256, "description": "Optional descriptive note. Must be no more than 256 UTF-8 bytes and cannot change the approved operation."},
+		},
 	}
 	return tool
 }
@@ -254,16 +270,9 @@ func BuildServer(options ServerOptions) *mcp.Server {
 
 	addTool(server, toolPolicy, catalogTool("convert_encoding"), handler.Wrap(logger, "convert_encoding", h.HandleConvertEncodingPreview))
 
-	// Approval-bound apply tools accept only previewId.
-	addTool(server, toolPolicy, catalogTool("edit_file_apply"), handler.Wrap(logger, "edit_file_apply", h.HandleEditFileApply))
-	addTool(server, toolPolicy, markdownApplyCatalogTool(), handler.Wrap(logger, "markdown_apply", h.HandleMarkdownApply))
-	addTool(server, toolPolicy, catalogTool("patch_package_apply"), handler.Wrap(logger, "patch_package_apply", h.HandlePatchPackageApply))
-	addTool(server, toolPolicy, catalogTool("backup_restore_apply"), handler.Wrap(logger, "backup_restore_apply", h.HandleBackupRestoreApply))
-	addTool(server, toolPolicy, catalogTool("backup_gc_apply"), handler.Wrap(logger, "backup_gc_apply", h.HandleBackupGCApply))
+	// One confirmation command dispatches to the original authoritative preview stores.
+	addTool(server, toolPolicy, confirmVerifiedOperationCatalogTool(), handler.Wrap(logger, "confirm_verified_operation", h.HandleConfirmVerifiedOperation))
 	addTool(server, toolPolicy, catalogTool("backup_delete"), handler.Wrap(logger, "backup_delete", h.HandleBackupDelete))
-	addTool(server, toolPolicy, catalogTool("manage_bom_apply"), handler.Wrap(logger, "manage_bom_apply", h.HandleManageBOMApply))
-	addTool(server, toolPolicy, catalogTool("convert_encoding_apply"), handler.Wrap(logger, "convert_encoding_apply", h.HandleConvertEncodingApply))
-	addTool(server, toolPolicy, catalogTool("filesystem_package_apply"), handler.Wrap(logger, "filesystem_package_apply", h.HandleFilesystemPackageApply))
 
 	addTool(server, toolPolicy, catalogTool("deferred_operation"), handler.Wrap(logger, "deferred_operation", h.HandleDeferredOperation))
 

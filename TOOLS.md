@@ -2,7 +2,7 @@
 
 This reference explains what each Scripthold tool does, when to use it, its main inputs, and the important safety or limit behavior. Start with the short purpose and examples in each section; use the detailed rules when you need exact API behavior or troubleshooting information.
 
-The current public release, Scripthold `3.3.6`, exposes 43 tools and 3 guided prompts. The source tree may document additional unreleased tools below. Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
+The current public release, Scripthold `3.3.6`, exposes 43 tools and 3 guided prompts. This reference also describes the unreleased 4.0 development catalog (36 tools), which replaces eight approval/apply commands with `confirm_verified_operation`; consult the [4.0 migration guide](docs/MIGRATION_4.0.md) before using these development-only instructions with a published 3.3.6 installation. Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
 
 ## Find the right tool
 
@@ -196,7 +196,7 @@ The file is written with exactly the supplied line endings. Invalid encoding or 
 
 ### edit_file
 
-Prepare one exact edit of an existing text file **without persistent mutation**. `edit_file` accepts only `action: "preview"`; mutation is performed separately by `edit_file_apply` using the returned `previewId`. Supply either `edits` or one strict single-file unified `patch`, never both.
+Prepare one exact edit of an existing text file **without persistent mutation**. `edit_file` accepts only `action: "preview"`; mutation is performed separately by `confirm_verified_operation` using the returned `previewId`. Supply either `edits` or one strict single-file unified `patch`, never both.
 
 The preview uses the existing encoding/BOM/line-ending-aware edit pipeline, retains the exact prepared bytes plus stable file identity in a bounded process-local cache, and returns a 256-bit `previewId`, diff, target/result fingerprints, encoding metadata, effective backup policy, creation/expiry timestamps, and `changed`. Preparation performs no target write, permission change, persistent backup capture, adjacent temp creation, or `.bak` creation.
 
@@ -224,9 +224,21 @@ The edit preview cache is bounded by `MCP_MAX_EDIT_PREVIEWS` (default `128`), `M
 }
 ```
 
-### edit_file_apply
+### confirm_verified_operation
 
-Apply one previously prepared `edit_file` capability. The **complete input schema is only** `previewId`; path, edits, patch, encoding, `forceWritable`, backup policy, content, and all other overrides are rejected as unknown fields.
+Confirm a previously reviewed file edit, patch package, filesystem package, Markdown edit/create/repair, encoding conversion, BOM change, backup restore, or backup garbage-collection operation. **One command replaces the eight former preview-backed apply tools in Scripthold 4.0.** All preview commands remain available.
+
+Pass the exact `previewId` returned by the preview, optionally adding a descriptive `note` (maximum 256 UTF-8 bytes). No paths, content, backup policy, manifest, or other mutation arguments can be supplied. The note does not change authorization, dispatch or the operation.
+
+```json
+{"previewId":"<64-character-lowercase-hex-preview-id>","note":"Approved after reviewing the preview"}
+```
+
+Scripthold determines the owning operation internally and executes it through the original one-shot store and mutation engine, preserving existing revalidation, backups, durable writes, cleanup and error reporting. A successful structured response retains the original operation-specific fields and adds `operationKind`. Expired, evicted, consumed, and previous-process identifiers cannot be reused; a replay returns a conflict. Partial or uncertain commits are reported as such, never silently retried.
+
+#### Applying an edit preview
+
+Apply one previously prepared `edit_file` capability. The only required input is `previewId` (optional `note` is allowed); path, edits, patch, encoding, `forceWritable`, backup policy, content, and all other overrides are rejected as unknown fields.
 
 Applying an `edit_file` preview is **one-shot**: the capability is consumed before validation, so success, conflict, cancellation, write failure, and replay are all terminal outcomes.
 
@@ -244,7 +256,7 @@ Apply reports actual target evidence rather than reusing the preview prediction:
 ```
 ### patch_package
 
-Review or prepare a strict versioned package of coordinated edits to existing regular files **without persistent mutation**. `patch_package` accepts only `inspect`, `dryRun`, and `verify`; package application is performed separately by `patch_package_apply`.
+Review or prepare a strict versioned package of coordinated edits to existing regular files **without persistent mutation**. `patch_package` accepts only `inspect`, `dryRun`, and `verify`; package application is performed separately by `confirm_verified_operation`.
 
 The input and every nested manifest object reject unknown JSON fields. `formatVersion` must be `patch-package-v1`, `fingerprintAlgorithm` must be `sha256`, and `fingerprintMode` must be `content-v1`. Targets must resolve to distinct authorized filesystem objects; duplicate spellings, symlink/junction aliases, hard links, creation, deletion, movement, and `/dev/null` patches are rejected.
 
@@ -276,9 +288,9 @@ Package capability bounds remain `MCP_MAX_PATCH_PACKAGE_BYTES`, `MCP_MAX_PATCH_P
 }
 ```
 
-### patch_package_apply
+#### Applying a patch package preview
 
-Apply one prepared patch-package capability. The complete input is only `previewId`; manifest, paths, patches, content, encoding, permissions, and backup overrides are rejected.
+Apply one prepared patch-package capability. The only required input is `previewId` (optional `note` is allowed); manifest, paths, patches, content, encoding, permissions, and backup overrides are rejected.
 
 Apply atomically consumes the capability, revalidates every target identity/fingerprint, then—when the effective policy is `required` or `pinned`—durably captures and verifies all changed pre-states **before any target-adjacent staging is created**. `pinned` marks each new immutable backup protected from automatic per-target retention and ordinary GC. Every target is revalidated after backup capture; only then are changed result bytes staged and manifest-order commits allowed to begin. No-op targets receive no backup and no write.
 
@@ -413,9 +425,9 @@ A successful preview returns a 256-bit process-local `previewId`, creation/expir
 
 Dedicated bounds are `MCP_MAX_FILESYSTEM_PACKAGE_OPERATIONS`, `MCP_MAX_FILESYSTEM_PACKAGE_BYTES`, `MCP_MAX_FILESYSTEM_RECURSIVE_ENTRIES`, `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, `MCP_MAX_FILESYSTEM_STAGING_BYTES`, `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEWS`, `MCP_MAX_FILESYSTEM_PACKAGE_PREVIEW_BYTES`, and `MCP_FILESYSTEM_PACKAGE_PREVIEW_TTL_SECONDS`. Global `MCP_MAX_FILE_BYTES`, `MCP_MAX_FINGERPRINT_ENTRY_DETAILS`, and `MCP_MAX_OUTPUT_BYTES` also apply. Path strings have a fixed v1 structural bound of 32768 UTF-8 bytes.
 
-### filesystem_package_apply
+#### Applying a filesystem package preview
 
-Apply one prepared `filesystem_package` capability. The **complete input schema is only** `previewId`; the manifest and every operation field are rejected if resubmitted at apply time.
+Apply one prepared `filesystem_package` capability. The only required input is `previewId` (optional `note` is allowed); the manifest and every operation field are rejected if resubmitted at apply time.
 
 Apply consumes the capability before revalidation. It then revalidates authorization, canonical path evidence, source/object/parent identities, missing destinations, exact recursive scopes, fingerprints, and same-volume move evidence. Required destructive pre-states are captured as one persistent backup batch and verified before any target mutation, followed by another complete revalidation. All feasible `createFile`, `copyFile`, and `copyDirectory` content is staged and synced before the first target commit, then the package is revalidated again.
 
@@ -489,7 +501,7 @@ Optional `maxDocuments`, `maxRelationships`, `maxBytes`, and `maxDepth` can only
 - `inspect` returns the deterministic document inventory and total document count.
 - `query` accepts `edges`, `outgoing`, `backlinks`, `reachable`, or `related`. All except `edges` require a caller-visible workspace document key. Results expose document keys and Marksplice relationship facts; Marksplice `NodeID` values are never public workspace identities.
 - `validate` accepts optional `roots` for orphan analysis and optional `managedTocs` entries of `{document, fragment}`. Each managed fragment must resolve uniquely to a heading through Marksplice. Validation returns ordinary workspace diagnostics plus stale/unrecognized generated-index diagnostics; when Marksplice proves one or more managed TOCs stale, `totalRepairs` and bounded `repairDocuments` project its conservative repair plan without exposing `ChangeSet` internals.
-- `repairPreview` requires non-empty `managedTocs`, uses the same Marksplice validation authority, and may accept `backupPolicy: "required" | "pinned"`. If there are no repairs it returns no token. If the complete repair plan exceeds `limit` or the full review response exceeds the output budget, it fails without leaving a preview. A successful `repairPreview` returns one expiring `previewId` plus every target's document/path, source/result fingerprints, encoding/BOM/EOL facts, diff, and changed state; it never writes a file. Pass only that `previewId` to `markdown_apply`, whose `workspace` result reports per-document committed/unchanged/unknown state, backup IDs, counts, and any partial commit without automatic rollback.
+- `repairPreview` requires non-empty `managedTocs`, uses the same Marksplice validation authority, and may accept `backupPolicy: "required" | "pinned"`. If there are no repairs it returns no token. If the complete repair plan exceeds `limit` or the full review response exceeds the output budget, it fails without leaving a preview. A successful `repairPreview` returns one expiring `previewId` plus every target's document/path, source/result fingerprints, encoding/BOM/EOL facts, diff, and changed state; it never writes a file. Pass only that `previewId` to `confirm_verified_operation`, whose `workspace` result reports per-document committed/unchanged/unknown state, backup IDs, counts, and any partial commit without automatic rollback.
 
 Ordinary returned lists are deterministically cut at `limit` and set `truncated` when more results exist; an approvable `repairPreview` is never truncated. `workspace_budget_exceeded` reports Marksplice workspace budget exhaustion; invalid graph/workspace input fails closed with `invalid_workspace`. `markdown_workspace` never writes files directly: only `repairPreview` creates bounded process-local apply state, while `inspect`, `query`, and `validate` remain pure read-only observations.
 
@@ -520,7 +532,7 @@ Supported typed construction includes:
 
 A successful preview returns `previewId`, canonical Markdown, result fingerprint, encoding/BOM/EOL metadata, and physical size. The generated physical result is bounded by the normal file/output limits. The immediate parent must already exist as an authorized real directory, and the target must still be absent. Creation has no persistent backup because there is no approved pre-state.
 
-After review, pass only the returned `previewId` to `markdown_apply`. Apply reauthorizes the same destination, verifies that the parent is still the same directory and the target is still missing, then uses the filesystem no-replace primitive. If another actor creates the destination first, Scripthold reports a conflict and does not overwrite it.
+After review, pass only the returned `previewId` to `confirm_verified_operation`. Apply reauthorizes the same destination, verifies that the parent is still the same directory and the target is still missing, then uses the filesystem no-replace primitive. If another actor creates the destination first, Scripthold reports a conflict and does not overwrite it.
 
 ```json
 {
@@ -545,7 +557,7 @@ After review, pass only the returned `previewId` to `markdown_apply`. Apply reau
 
 ### markdown_edit
 
-Use `markdown_edit` to **preview changes to an existing Markdown document** without writing it. First inspect the document with `markdown_read`, select the returned snapshot-bound `targetId`, and review the proposed result before sending its `previewId` to `markdown_apply`.
+Use `markdown_edit` to **preview changes to an existing Markdown document** without writing it. First inspect the document with `markdown_read`, select the returned snapshot-bound `targetId`, and review the proposed result before sending its `previewId` to `confirm_verified_operation`.
 
 Typical changes include:
 
@@ -654,7 +666,7 @@ Markdown semantic text is canonical UTF-8. The current mutation bridge also pres
 
 #### Workflow example
 
-**Typical workflow:** call `markdown_read` to obtain the exact semantic `targetId` required by the operation, call `markdown_edit` to review the combined result, then pass the returned `previewId` to `markdown_apply`. Fenced-block mutations should use the `targetId` from `inspect.fencedBlocks` when complete coverage is required, because empty fenced blocks intentionally have no generic `fenced_code` node target.
+**Typical workflow:** call `markdown_read` to obtain the exact semantic `targetId` required by the operation, call `markdown_edit` to review the combined result, then pass the returned `previewId` to `confirm_verified_operation`. Fenced-block mutations should use the `targetId` from `inspect.fencedBlocks` when complete coverage is required, because empty fenced blocks intentionally have no generic `fenced_code` node target.
 
 ```json
 {
@@ -695,9 +707,9 @@ Markdown semantic text is canonical UTF-8. The current mutation bridge also pres
 }
 ```
 
-### markdown_apply
+#### Applying Markdown previews
 
-Use `markdown_apply` after a `markdown_edit` or `markdown_create` preview has been reviewed and approved. Its **only input is `previewId`**: callers cannot change the target, Markdown content, encoding, or backup policy during apply. This keeps the applied result identical to the reviewed preview.
+Use `confirm_verified_operation` after a `markdown_edit` or `markdown_create` preview has been reviewed and approved. The only required input is `previewId` (with optional `note`): callers cannot change the target, Markdown content, encoding, or backup policy during apply. This keeps the applied result identical to the reviewed preview.
 
 For an edit preview, Scripthold checks that the target is still authorized, is still the same file, and still contains the exact approved source; it rechecks encoding/BOM facts and required backup policy before replacement. For a create preview, it verifies the same authorized path, unchanged parent-directory identity, target absence, and prepared result bytes before a no-replace creation. Creation has no persistent backup because no prior file existed.
 
@@ -980,9 +992,9 @@ Restore/GC capabilities use `MCP_BACKUP_PLAN_TTL_SECONDS`; each cache has fixed 
 {"action":"compare","backupId":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 ```
 
-### backup_restore_apply
+#### Applying a backup restore preview
 
-Apply one `restorePreview` capability. The complete input is only `previewId` and every apply attempt consumes it before revalidation. Apply revalidates current authorization, immutable source manifest/object identity and digest, target identity/fingerprint or missing state, and prepared result bytes.
+Apply one `restorePreview` capability. The only required input is `previewId` (optional `note` is allowed) and every apply attempt consumes it before revalidation. Apply revalidates current authorization, immutable source manifest/object identity and digest, target identity/fingerprint or missing state, and prepared result bytes.
 
 For an existing target, the mandatory `sourceOperation=restore` safety backup is durably captured and verified **before target-adjacent restore staging is created**; the target is revalidated again after capture. A missing target receives no safety backup and is installed with no-replace semantics. Final bytes are fingerprint-verified. Errors preserve `safetyBackupId` and bounded actual-state evidence; there is no automatic transactional rollback promise.
 
@@ -990,9 +1002,9 @@ For an existing target, the mandatory `sourceOperation=restore` safety backup is
 {"previewId":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}
 ```
 
-### backup_gc_apply
+#### Applying a backup GC preview
 
-Apply one `gcDryRun` capability. The complete input is only `previewId`; the token is consumed before revalidation. The store reconstructs the plan at the original policy timestamp and rejects any generation, pin, manifest, object, active-restore, reservation, or reference-count drift before deletion. Selected manifests are moved to typed trash before verified now-unreferenced objects. The derived index is refreshed after durable partial outcomes; trash cleanup is best effort and reported. GC never selects pinned backups, never mutates public targets, and does not claim secure deletion or automatic rollback.
+Apply one `gcDryRun` capability. The only required input is `previewId` (optional `note` is allowed); the token is consumed before revalidation. The store reconstructs the plan at the original policy timestamp and rejects any generation, pin, manifest, object, active-restore, reservation, or reference-count drift before deletion. Selected manifests are moved to typed trash before verified now-unreferenced objects. The derived index is refreshed after durable partial outcomes; trash cleanup is best effort and reported. GC never selects pinned backups, never mutates public targets, and does not claim secure deletion or automatic rollback.
 
 ```json
 {"previewId":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}
@@ -1110,7 +1122,7 @@ Detect a file's encoding and report its confidence. Scripthold uses **file bytes
 
 ### convert_encoding
 
-Prepare exact encoding-conversion bytes for one file or a bounded batch **without persistent mutation**. `convert_encoding` requires `dryRun: true`; application is performed separately by `convert_encoding_apply` using the returned capability. Every target must be fully representable and prepared successfully before a capability is returned.
+Prepare exact encoding-conversion bytes for one file or a bounded batch **without persistent mutation**. `convert_encoding` requires `dryRun: true`; application is performed separately by `confirm_verified_operation` using the returned capability. Every target must be fully representable and prepared successfully before a capability is returned.
 
 **Parameters:**
 - `path` or `paths` (exactly one form): one file or a bounded ordered batch
@@ -1137,9 +1149,9 @@ A changed preview with effective persistent policy `required` or `pinned` perfor
 }
 ```
 
-### convert_encoding_apply
+#### Applying an encoding conversion preview
 
-Apply one prepared conversion capability. The complete input is only `previewId`. Apply consumes it first, revalidates all target identities/fingerprints and retained result fingerprints, and—when required—durably captures/verifies every changed persistent pre-state before the first file write. Targets are revalidated after backup capture.
+Apply one prepared conversion capability. The only required input is `previewId` (optional `note` is allowed). Apply consumes it first, revalidates all target identities/fingerprints and retained result fingerprints, and—when required—durably captures/verifies every changed persistent pre-state before the first file write. Targets are revalidated after backup capture.
 
 Each changed file is then replaced with the exact retained bytes; `backup: true` creates/replaces that target's adjacent `.bak` through the existing transactional single-file backup path. A logical no-op creates neither persistent nor adjacent backup and performs no write. Every committed target is fingerprint-verified.
 
@@ -1211,7 +1223,7 @@ Stream line-ending conversion to LF or CRLF while preserving the original encodi
 
 ### manage_bom
 
-Detect BOM state or prepare an exact BOM mutation **without persistent mutation**. Mutating add/strip operations return a preview capability and are applied separately by `manage_bom_apply`.
+Detect BOM state or prepare an exact BOM mutation **without persistent mutation**. Mutating add/strip operations return a preview capability and are applied separately by `confirm_verified_operation`.
 
 **Actions:**
 - `detect`: requires `path` and performs a bounded prefix read only.
@@ -1224,9 +1236,9 @@ Detect BOM state or prepare an exact BOM mutation **without persistent mutation*
 {"path":"/project/file.php","action":"stripPreview"}
 ```
 
-### manage_bom_apply
+#### Applying a BOM preview
 
-Apply one prepared BOM capability. The complete input is only `previewId`. The token is kind-bound and consumed before revalidation; stale identity, same-content path replacement, target fingerprint drift, expiry, replay, or a token from another mutation class returns `CONFLICT`.
+Apply one prepared BOM capability. The only required input is `previewId` (optional `note` is allowed). The token is kind-bound and consumed before revalidation; stale identity, same-content path replacement, target fingerprint drift, expiry, replay, or a token from another mutation class returns `CONFLICT`.
 
 For a changed result with effective policy `required` or `pinned`, the exact approved pre-state is durably captured and verified before replacement and the target is revalidated again. A `pinned` pre-state is protected from automatic per-target retention and ordinary GC. The exact retained bytes are then atomically replaced and final fingerprint is verified. A no-op reports `applied: false`, creates no backup, and performs no write. No automatic rollback is promised after a durable backup if a later write fails.
 

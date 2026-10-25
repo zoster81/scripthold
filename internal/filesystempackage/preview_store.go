@@ -26,15 +26,17 @@ type filesystemPackagePreview struct {
 }
 
 type filesystemPackagePreviewStore struct {
-	mu         sync.Mutex
-	entries    map[string]*filesystemPackagePreview
-	order      *list.List
-	maxEntries int
-	maxBytes   int64
-	ttl        time.Duration
-	totalBytes int64
-	now        func() time.Time
-	random     io.Reader
+	mu           sync.Mutex
+	reserveOwner func(string) error
+	forgetOwner  func(string)
+	entries      map[string]*filesystemPackagePreview
+	order        *list.List
+	maxEntries   int
+	maxBytes     int64
+	ttl          time.Duration
+	totalBytes   int64
+	now          func() time.Time
+	random       io.Reader
 }
 
 func newFilesystemPackagePreviewStore(maxEntries int, maxBytes int64, ttl time.Duration) *filesystemPackagePreviewStore {
@@ -70,6 +72,11 @@ func (store *filesystemPackagePreviewStore) put(prepared PreparedPackage) (*file
 	id, err := store.newIDLocked()
 	if err != nil {
 		return nil, err
+	}
+	if store.reserveOwner != nil {
+		if err := store.reserveOwner(id); err != nil {
+			return nil, err
+		}
 	}
 	preview := &filesystemPackagePreview{
 		id: id, createdAt: now, expiresAt: now.Add(store.ttl), prepared: prepared, retainedBytes: retained,
@@ -120,6 +127,9 @@ func (store *filesystemPackagePreviewStore) removeLocked(id string) {
 		return
 	}
 	delete(store.entries, id)
+	if store.forgetOwner != nil {
+		store.forgetOwner(id)
+	}
 	if preview.element != nil {
 		store.order.Remove(preview.element)
 		preview.element = nil

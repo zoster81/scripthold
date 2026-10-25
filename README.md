@@ -130,17 +130,18 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Tool groups
 
-[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below reflects the current public tool catalog.
+[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below describes the upcoming 4.0 catalog (36 tools). Version 3.3.6 remains the current public release with its older apply tools.
 
 | Area | Main tools |
 |---|---|
-| Text/files | [`read_text_file`](TOOLS.md#read_text_file), [`read_multiple_files`](TOOLS.md#read_multiple_files), [`write_whole_file`](TOOLS.md#write_whole_file), [`edit_file`](TOOLS.md#edit_file), [`edit_file_apply`](TOOLS.md#edit_file_apply), [`grep_text_files`](TOOLS.md#grep_text_files) |
-| Multi-file changes | [`patch_package`](TOOLS.md#patch_package), [`patch_package_apply`](TOOLS.md#patch_package_apply), [`filesystem_package`](TOOLS.md#filesystem_package), [`filesystem_package_apply`](TOOLS.md#filesystem_package_apply) |
+| Text/files | [`read_text_file`](TOOLS.md#read_text_file), [`read_multiple_files`](TOOLS.md#read_multiple_files), [`write_whole_file`](TOOLS.md#write_whole_file), [`edit_file`](TOOLS.md#edit_file), [`grep_text_files`](TOOLS.md#grep_text_files) |
+| Confirmation | [`confirm_verified_operation`](TOOLS.md#confirm_verified_operation) — one-shot approval of any prepared operation |
+| Multi-file changes | [`patch_package`](TOOLS.md#patch_package), [`filesystem_package`](TOOLS.md#filesystem_package) |
 | Directory/state | [`list_directory`](TOOLS.md#list_directory), [`tree`](TOOLS.md#tree), [`search_files`](TOOLS.md#search_files), [`get_file_info`](TOOLS.md#get_file_info), [`fingerprint_paths`](TOOLS.md#fingerprint_paths), [`verify_state`](TOOLS.md#verify_state) |
-| Encoding | [`detect_encoding`](TOOLS.md#detect_encoding), [`convert_encoding`](TOOLS.md#convert_encoding), [`convert_encoding_apply`](TOOLS.md#convert_encoding_apply), [`detect_line_endings`](TOOLS.md#detect_line_endings), [`change_line_endings`](TOOLS.md#change_line_endings), [`manage_bom`](TOOLS.md#manage_bom), [`manage_bom_apply`](TOOLS.md#manage_bom_apply), [`list_encodings`](TOOLS.md#list_encodings) |
-| Backups | [`backup_store`](TOOLS.md#backup_store), [`backup_restore_apply`](TOOLS.md#backup_restore_apply), [`backup_gc_apply`](TOOLS.md#backup_gc_apply), [`backup_delete`](TOOLS.md#backup_delete) |
+| Encoding | [`detect_encoding`](TOOLS.md#detect_encoding), [`convert_encoding`](TOOLS.md#convert_encoding), [`detect_line_endings`](TOOLS.md#detect_line_endings), [`change_line_endings`](TOOLS.md#change_line_endings), [`manage_bom`](TOOLS.md#manage_bom), [`list_encodings`](TOOLS.md#list_encodings) |
+| Backups | [`backup_store`](TOOLS.md#backup_store), [`backup_delete`](TOOLS.md#backup_delete) |
 | Source Intelligence | [`source_symbols`](TOOLS.md#source_symbols), [`source_query`](TOOLS.md#source_query) |
-| Markdown intelligence | [`markdown_read`](TOOLS.md#markdown_read), [`markdown_workspace`](TOOLS.md#markdown_workspace), [`markdown_create`](TOOLS.md#markdown_create), [`markdown_edit`](TOOLS.md#markdown_edit), [`markdown_apply`](TOOLS.md#markdown_apply) |
+| Markdown intelligence | [`markdown_read`](TOOLS.md#markdown_read), [`markdown_workspace`](TOOLS.md#markdown_workspace), [`markdown_create`](TOOLS.md#markdown_create), [`markdown_edit`](TOOLS.md#markdown_edit) |
 | Durable work | [`task_run`](TOOLS.md#task_run), [`task_list`](TOOLS.md#task_list), [`task_get`](TOOLS.md#task_get), [`task_logs`](TOOLS.md#task_logs), [`task_cancel`](TOOLS.md#task_cancel), [`deferred_operation`](TOOLS.md#deferred_operation) |
 | Service | [`list_allowed_directories`](TOOLS.md#list_allowed_directories), [`check_for_updates`](TOOLS.md#check_for_updates) |
 
@@ -154,7 +155,7 @@ Unsupported or ambiguous relationships are rejected rather than guessed. Markdow
 
 Markdown files use dedicated tools rather than Source Intelligence providers. Read a document with `markdown_read`, or inspect links and relationships across files with the read-only `markdown_workspace` tool.
 
-To change a document, prepare a preview with `markdown_edit` (or `markdown_create` for a new file), review the proposed content, and pass only its `previewId` to `markdown_apply`. Unsafe, conflicting, or stale changes are rejected instead of being silently rewritten.
+To change a document, prepare a preview with `markdown_edit` (or `markdown_create` for a new file), review the proposed content, and pass its `previewId` to `confirm_verified_operation`. Unsafe, conflicting, or stale changes are rejected instead of being silently rewritten.
 
 For examples and the exact operation forms, see the [Markdown tool reference](TOOLS.md#markdown_read). For Markdown semantics, supported encodings, and the Marksplice integration boundary, see [Markdown Intelligence](docs/MARKDOWN_INTELLIGENCE.md).
 

@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-Scripthold can inspect Markdown structure and make controlled, source-preserving edits. The five MCP tools support a read–preview–apply workflow:
+Scripthold can inspect Markdown structure and make controlled, source-preserving edits. The four Markdown-specific MCP tools and the shared 4.0 confirmation tool support a read–preview–apply workflow (3.3.6 still uses `markdown_apply`):
 
 | Task | Tool |
 |---|---|
@@ -10,7 +10,7 @@ Scripthold can inspect Markdown structure and make controlled, source-preserving
 | Inspect relationships and validation findings across documents | `markdown_workspace` |
 | Prepare a new structured document without writing it yet | `markdown_create` |
 | Preview changes to an existing document | `markdown_edit` |
-| Apply an approved preview using only its `previewId` | `markdown_apply` |
+| Confirm an approved preview using its `previewId` | `confirm_verified_operation` (4.0) |
 
 Markdown semantics come from [Marksplice v1.2.0](https://github.com/zoster81/marksplice), not from an independent Scripthold parser or a text-replacement fallback. Marksplice handles CommonMark/GFM parsing, structural targets, change planning, document links, graph semantics, and conservative validation. Scripthold controls authorized file access, encoding and BOM handling, resource limits, preview approval, backups, durable writes, cancellation, and conflict checks.
 
@@ -36,7 +36,7 @@ Unsupported operations fail safely rather than being emulated with regular expre
 2. Marksplice receives one immutable BOM-free UTF-8 byte snapshot containing the source's exact decoded line endings.
 3. Marksplice failures are fail-closed. Scripthold never retries a rejected operation through regexes, generic text replacement, or hand-written Markdown rules.
 4. Existing-document mutations are prepared by Marksplice `ChangeSet` values and are revalidated against the exact approved snapshot before physical mutation.
-5. `markdown_apply` accepts only `previewId`. Mutation parameters cannot be supplied or changed at apply time.
+5. `confirm_verified_operation` accepts only `previewId`. Mutation parameters cannot be supplied or changed at apply time.
 6. Unrelated authored source and line endings must remain unchanged. If Scripthold cannot prove that the encoding path can reproduce the untouched physical representation safely, mutation is rejected rather than silently re-encoding the document.
 7. Canonical Markdown generation is an explicit export/generation path and is never substituted for source-preserving editing.
 8. Marksplice `NodeID` values are snapshot-local implementation identities. They are never exposed as durable public identities.
@@ -108,7 +108,7 @@ Existing-document operation mapping:
 
 ### `markdown_create`
 
-`markdown_create` prepares a complete new document through the reviewed Marksplice `DocumentBuilder` API and returns a one-shot preview consumed by `markdown_apply`. It requires an authorized missing destination whose immediate parent already exists as a real authorized directory. Scripthold captures the parent identity and missing-target snapshot, generates and encodes the exact result bytes, and performs no write during preview.
+`markdown_create` prepares a complete new document through the reviewed Marksplice `DocumentBuilder` API and returns a one-shot preview consumed by `confirm_verified_operation`. It requires an authorized missing destination whose immediate parent already exists as a real authorized directory. Scripthold captures the parent identity and missing-target snapshot, generates and encodes the exact result bytes, and performs no write during preview.
 
 The public construction model exposes:
 
@@ -128,7 +128,7 @@ Typed construction is the default. An advanced `rawMarkdown` construction fragme
 
 ### `markdown_workspace`
 
-`markdown_workspace` is registered as a read-only multi-document surface with `inspect`, `query`, `validate`, and `repairPreview`. Discovery is explicit through Marksplice `workspacefs.Scan` or `workspacefs.Follow`, and every returned collection is caller-bounded. `validate` may designate managed TOCs by workspace document key plus uniquely resolved heading fragment and project Marksplice's conservative repair plan. `repairPreview` binds that same plan to complete per-target physical evidence and an expiring one-shot capability; it still performs no persistent mutation. Only `markdown_apply` may consume the capability and write the prepared multi-file result.
+`markdown_workspace` is registered as a read-only multi-document surface with `inspect`, `query`, `validate`, and `repairPreview`. Discovery is explicit through Marksplice `workspacefs.Scan` or `workspacefs.Follow`, and every returned collection is caller-bounded. `validate` may designate managed TOCs by workspace document key plus uniquely resolved heading fragment and project Marksplice's conservative repair plan. `repairPreview` binds that same plan to complete per-target physical evidence and an expiring one-shot capability; it still performs no persistent mutation. Only `confirm_verified_operation` may consume the capability and write the prepared multi-file result.
 
 Workspace cardinality has dedicated Scripthold policy rather than borrowing batch, match, or Source Intelligence limits. The server defaults are 1,000 documents and 25,000 relationships; operators may raise them only up to hard ceilings of 10,000 documents and 250,000 relationships through `MCP_MARKDOWN_WORKSPACE_MAX_DOCUMENTS` and `MCP_MARKDOWN_WORKSPACE_MAX_RELATIONSHIPS`. Request-level `maxDocuments` and `maxRelationships` may only narrow the configured ceilings. Per-document bytes remain bounded by `MCP_MAX_FILE_BYTES`, aggregate decoded workspace bytes by `MCP_MAX_FILESYSTEM_AGGREGATE_BYTES`, traversal depth by `MCP_MAX_FILESYSTEM_RECURSIVE_DEPTH`, and serialized output by `MCP_MAX_OUTPUT_BYTES`.
 
@@ -146,9 +146,9 @@ Workspace cardinality has dedicated Scripthold policy rather than borrowing batc
 | `BuildKnowledgeIndex` | Deferred; not exposed by the initial read-only workspace registration |
 | Knowledge aliases/tags/references/related/reachable queries | Deferred; not exposed by the initial read-only workspace registration |
 
-R30 does not invent repair heuristics. Workspace repair planning is limited to repairs produced by Marksplice's conservative repair plan, currently explicitly managed TOC synchronization. The caller names each managed TOC by document key and fragment; Scripthold accepts it only when Marksplice resolves that fragment uniquely to a heading. `repairPreview` must expose every affected target and rejects rather than truncates an approvable plan; zero repairs return no token. `markdown_workspace` never writes files directly: the returned capability is consumed only by `markdown_apply`, which revalidates all targets and reports committed/unchanged/unknown state without automatic rollback.
+R30 does not invent repair heuristics. Workspace repair planning is limited to repairs produced by Marksplice's conservative repair plan, currently explicitly managed TOC synchronization. The caller names each managed TOC by document key and fragment; Scripthold accepts it only when Marksplice resolves that fragment uniquely to a heading. `repairPreview` must expose every affected target and rejects rather than truncates an approvable plan; zero repairs return no token. `markdown_workspace` never writes files directly: the returned capability is consumed only by `confirm_verified_operation`, which revalidates all targets and reports committed/unchanged/unknown state without automatic rollback.
 
-### `markdown_apply`
+### `confirm_verified_operation`
 
 Input schema is intentionally closed:
 

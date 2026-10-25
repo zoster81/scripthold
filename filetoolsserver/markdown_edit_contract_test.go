@@ -537,19 +537,23 @@ func markdownEditAssertTargetRef(t *testing.T, value any) {
 	}
 }
 
-func TestMarkdownApplyCatalogSchemaAcceptsOnlyPreviewID(t *testing.T) {
-	tool := markdownApplyCatalogTool()
+func TestConfirmationCatalogSchemaIsClosed(t *testing.T) {
+	tool := confirmVerifiedOperationCatalogTool()
 	schema := markdownReadSchemaMap(t, tool.InputSchema)
 	if schema["type"] != "object" || schema["additionalProperties"] != false {
-		t.Fatalf("markdown_apply schema = %#v, want strict object", schema)
+		t.Fatalf("confirmation schema = %#v, want strict object", schema)
 	}
-	markdownReadAssertStringSet(t, "markdown_apply required", schema["required"], []string{"previewId"})
+	markdownReadAssertStringSet(t, "confirmation required", schema["required"], []string{"previewId"})
 	properties := markdownReadSchemaMap(t, schema["properties"])
-	if len(properties) != 1 {
-		t.Fatalf("markdown_apply properties = %#v, want only previewId", properties)
+	if len(properties) != 2 {
+		t.Fatalf("confirmation properties = %#v, want previewId and note", properties)
 	}
 	previewID := markdownReadSchemaMap(t, properties["previewId"])
 	if previewID["type"] != "string" || previewID["pattern"] != "^[0-9a-f]{64}$" {
 		t.Fatalf("previewId schema = %#v", previewID)
+	}
+	note := markdownReadSchemaMap(t, properties["note"])
+	if note["type"] != "string" || note["maxLength"] != 256 {
+		t.Fatalf("note schema = %#v", note)
 	}
 }
