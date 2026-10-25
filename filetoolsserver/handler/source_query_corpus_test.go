@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -114,6 +115,61 @@ func TestSourceQueryRealCorpusPagesMatchCompleteSearch(t *testing.T) {
 		full.Coverage.FileSelectionTruncated, full.Coverage.AnalysisComplete)
 	t.Logf("real corpus: matches=%d pages=%d fullBytes=%d firstPageBytes=%d allPageBytes=%d fullLatency=%s allPagesLatency=%s",
 		len(full.Search.Matches), pageCount, fullBytes, firstBytes, totalBytes, fullTime, totalLatency)
+}
+
+// A task oracle establishes the verifiable declaration evidence for a later
+// paired LLM A/B trial. It does not simulate an agent or count LLM tool calls.
+// Activate it with the corpus root and SCRIPTHOLD_REAL_CORPUS_TASK.
+func TestSourceQueryRealCorpusTaskOracle(t *testing.T) {
+	task := os.Getenv("SCRIPTHOLD_REAL_CORPUS_TASK")
+	if task == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CORPUS_TASK and SCRIPTHOLD_REAL_CORPUS_DIR to opt in")
+	}
+	cases := map[string]struct {
+		language, query, file, kind string
+	}{
+		"go-router":        {language: "go", query: "NewRouter", file: "chi.go", kind: "function"},
+		"python-api-key":   {language: "python", query: "APIKeyBase", file: "api_key.py", kind: "class"},
+		"csharp-validator": {language: "csharp", query: "ConfigurationValidator", file: "ConfigurationValidator.cs", kind: "class"},
+	}
+	want, ok := cases[task]
+	if !ok {
+		t.Fatalf("unsupported task oracle %q", task)
+	}
+	input := realSourceCorpusInput(t)
+	root := input.Paths[0]
+	// The oracle checks known source evidence, not the agent's ability to discover
+	// this file within a larger truncated project search.
+	input.Paths = []string{filepath.Join(root, want.file)}
+	input.Language = want.language
+	input.Query = want.query
+	input.Match = "exact"
+	input.MaxResults = 128
+	h := NewHandler([]string{root})
+	output, duration := runRealSourceCorpusSearch(t, h, input)
+	if output.Coverage.FilesConsidered != 1 || output.Coverage.FilesSkipped != 0 ||
+		output.Coverage.FilesParsed != 1 || output.Coverage.FileSelectionTruncated {
+		t.Fatalf("selected-file analysis incomplete: %+v", output.Coverage)
+	}
+	var declarations []SourceSearchMatch
+	for _, match := range output.Search.Matches {
+		if match.Name == want.query && filepath.Base(match.Path) == want.file &&
+			match.SymbolID != "" && string(match.Kind) == want.kind && match.SourceFingerprint != "" {
+			declarations = append(declarations, match)
+		}
+	}
+	if len(declarations) != 1 {
+		t.Fatalf("%s: wanted one identified declaration in %s, got %d from %d matches (coverage=%+v)",
+			task, want.file, len(declarations), len(output.Search.Matches), output.Coverage)
+	}
+	if declarations[0].Range.Start.Line <= 0 {
+		t.Fatalf("task declaration has invalid source location: %+v", declarations[0])
+	}
+	t.Logf("task=%s declaration=%s kind=%s range=%+v matches=%d files=%d bytes=%d duration=%s",
+		task, want.query, declarations[0].Kind, declarations[0].Range,
+		len(output.Search.Matches), output.Coverage.FilesParsed,
+		sourceCorpusOutputBytes(t, output), duration)
+	t.Logf("fileSelectionTruncated=%t analysisComplete=%t", output.Coverage.FileSelectionTruncated, output.Coverage.AnalysisComplete)
 }
 
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
