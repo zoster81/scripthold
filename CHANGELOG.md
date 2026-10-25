@@ -2,6 +2,15 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
+## 4.0.0 - 2026-10-25
+
+### Changed
+
+- Consolidated eight approval-bound mutation apply tools into `confirm_verified_operation(previewId, note?)`. Preview commands and identifiers remain unchanged; one-shot application still uses each operation's original validation, backup, and partial-state safeguards. The public MCP catalog changes from 43 to 36 tools.
+- Added `operationKind` to confirmation results and an optional descriptive `note` limited to 256 UTF-8 bytes. Confirmation accepts no mutation overrides, and invalid requests do not consume prepared previews.
+- Removed the eight prior public apply tool names without aliases. Clients must refresh tool discovery and migrate according to [Migration to 4.0](docs/MIGRATION_4.0.md). Outstanding process-local previews cannot survive a server restart.
+- Updated the immutable SHA-pinned CodeQL and GitHub App Token actions, and improved CI policy checks to accept qualified action upgrades while preserving pinning, shared versions, and protected publication ordering.
+
 ## 3.3.6 - 2026-10-25
 
 ### Fixed
