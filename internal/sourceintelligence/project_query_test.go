@@ -155,9 +155,14 @@ func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	}
 	foundSymbol := false
 	for _, match := range symbols.Matches {
-		if match.SymbolID != "" {
+		if match.SymbolID == "" {
+			if match.Name != "" || match.Kind != "" || match.QualifiedName != "" {
+				t.Fatalf("non-symbol search match claims symbol identity: %+v", match)
+			}
+			continue
+		}
+		if match.Name == "Store" && match.Kind == SymbolKindTrait && match.QualifiedName != "" {
 			foundSymbol = true
-			break
 		}
 	}
 	if !foundSymbol {
@@ -171,6 +176,9 @@ func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	found := false
 	for _, match := range relations.Matches {
 		if match.Path == itemPath && match.SymbolID == "" && match.Evidence == SymbolEvidenceProjectResolved {
+			if match.Name != "" || match.Kind != "" || match.QualifiedName != "" {
+				t.Fatalf("resolved relation search claims declaration identity: %+v", match)
+			}
 			found = true
 		}
 	}

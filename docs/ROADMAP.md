@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 4.0.0**, published through the protected immutable GitHub release process.
 - Current public capabilities: **36 tools**, **3 guided prompts**, **168 registered text encodings**, and **100 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- The 4.0 unified confirmation milestone is completed and publicly released. See the [changelog](../CHANGELOG.md#400---2026-10-25) and [migration guide](MIGRATION_4.0.md). No new release-scoped milestone is currently approved. Publication and private deployment remain separate; installing or updating a running server requires its own controlled action.
+- The 4.0 unified confirmation milestone is completed and publicly released. See the [changelog](../CHANGELOG.md#400---2026-10-25) and [migration guide](MIGRATION_4.0.md). The Source Intelligence efficiency milestone below is approved but unreleased. Publication and private deployment remain separate; installing or updating a running server requires its own controlled action.
 
 ## Planning rules
 
@@ -17,6 +17,19 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Keep public MCP concepts compact and difficult to misuse.
 - Require an exact clean commit and the release procedure in [`PUBLISHING.md`](PUBLISHING.md) for public release authority.
 - Do not accumulate implementation diaries or per-phase evidence in this file.
+
+## Active milestone — Source Intelligence for LLM Efficiency
+
+**Goal:** help LLM clients answer real code questions accurately with fewer MCP calls and less irrelevant response data, without weakening security, source freshness, or coverage reporting.
+
+1. Establish a reproducible multilingual baseline on existing read-only real-world corpora. Track task correctness, MCP calls, response bytes, coverage, latency, and allocations; do not execute third-party code.
+2. Make declaration search matches self-identifying (`name`, `kind`, `qualifiedName`), keeping non-symbol matches free of invented identity, and explicitly distinguish file coverage, analyzer coverage, and result truncation.
+3. Improve the relevance and size of returned context; evaluate a direct bounded search-to-context workflow only when it reduces verified client round trips.
+4. Evaluate safe cursor-based continuation with stable ordering, bound generation and query, expiry, stale/tampered cursor rejection, and bounded temporary memory. Keep independent result and file-selection limits.
+5. Extend reference semantics selectively by language, with explicit evidence and ambiguity states; never infer unproven callers or callees.
+6. Qualify each increment with focused TDD, regressions, relevant security and platform checks, and paired LLM task comparisons. Aim for a 30% reduction in median calls without correctness loss; this is a target, not a measured achievement.
+
+Avoid new public tools, breaking requests, persistent indexing, and external language servers without a separate evidence-backed decision.
 
 ## Release engineering
 

@@ -63,8 +63,8 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		matches := make([]SourceSearchMatch, 0, len(search.Matches))
 		for _, match := range search.Matches {
 			matches = append(matches, SourceSearchMatch{
-				Path: match.Path, Language: match.Language, Range: match.Range, SymbolID: match.SymbolID,
-				SourceFingerprint: match.SourceFingerprint, Evidence: match.Evidence,
+				Path: match.Path, Language: match.Language, Name: match.Name, Kind: match.Kind, QualifiedName: match.QualifiedName,
+				Range: match.Range, SymbolID: match.SymbolID, SourceFingerprint: match.SourceFingerprint, Evidence: match.Evidence,
 			})
 		}
 		output.Search = &SourceSearchResult{Matches: matches}

@@ -2,6 +2,12 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
+## Unreleased
+
+### Changed
+
+- Source Intelligence structural search now includes analyzer-proven declaration `name`, `kind`, and `qualifiedName` when available, reducing the need for separate symbol lookups. Non-declaration matches retain their existing shape without invented identity; requests, source freshness checks, and search limits are unchanged.
+
 ## 4.0.0 - 2026-10-25
 
 ### Changed

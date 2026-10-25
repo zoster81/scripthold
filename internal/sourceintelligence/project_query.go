@@ -62,6 +62,9 @@ type ProjectSearchOptions struct {
 type ProjectSearchMatch struct {
 	Path              string
 	Language          string
+	Name              string
+	Kind              SymbolKind
+	QualifiedName     string
 	Range             Range
 	SymbolID          string
 	SourceFingerprint string
@@ -149,7 +152,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 			if !acceptEvidence(record.symbol.Evidence) || (!projectSearchTextMatches(record.symbol.Name, query, matchMode) && !projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode)) {
 				continue
 			}
-			appendMatch(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
+			appendMatch(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
 		}
 		if len(kindFilter) != 0 {
 			continue

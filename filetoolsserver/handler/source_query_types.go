@@ -63,6 +63,9 @@ type SourceQueryCoverage struct {
 type SourceSearchMatch struct {
 	Path              string                            `json:"path"`
 	Language          string                            `json:"language,omitempty"`
+	Name              string                            `json:"name,omitempty"`
+	Kind              sourceintelligence.SymbolKind     `json:"kind,omitempty"`
+	QualifiedName     string                            `json:"qualifiedName,omitempty"`
 	Range             sourceintelligence.Range          `json:"range"`
 	SymbolID          string                            `json:"symbolId,omitempty"`
 	SourceFingerprint string                            `json:"sourceFingerprint"`
