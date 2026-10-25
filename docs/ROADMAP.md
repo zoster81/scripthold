@@ -29,7 +29,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 5. Extend reference semantics selectively by language, with explicit evidence and ambiguity states; never infer unproven callers or callees.
 6. Qualify each increment with focused TDD, regressions, relevant security and platform checks, and paired LLM task comparisons. Aim for a 30% reduction in median calls without correctness loss; this is a target, not a measured achievement.
 
-**Current implementation:** declaration-identifying search, independent coverage-reason flags, targeted reverse-dependency context relevance, request-local reuse of context symbol lists, and bounded Top-K structural search selection are implemented on the unreleased development branch. Real-task LLM comparisons, broader context relevance, cursor-based continuation, and semantic expansion remain to be qualified.
+**Current implementation:** declaration-identifying search, independent coverage-reason flags, targeted reverse-dependency context relevance, request-local reuse of context symbol lists, and bounded Top-K structural search selection are implemented on the unreleased development branch. The internal search engine also supports bounded keyset continuation across equal-order matches; no public cursor is exposed yet. Signed, expiring, query-bound cursor integration, real-task LLM comparisons, broader context relevance, and semantic expansion remain to be qualified.
 
 Avoid new public tools, breaking requests, persistent indexing, and external language servers without a separate evidence-backed decision.
 
