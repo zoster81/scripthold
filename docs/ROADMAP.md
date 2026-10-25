@@ -7,7 +7,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Current public release: **Scripthold 3.3.6**, published through the protected immutable GitHub release process.
 - Current public capabilities: **43 tools**, **3 guided prompts**, **168 registered text encodings**, and **100 active source-intelligence providers**.
 - Completed work is summarized in [`CHANGELOG.md`](../CHANGELOG.md) and implemented history remains in Git.
-- The next approved development milestone is **4.0: unified confirmation of prepared operations**. The 4.0 development tree now contains the breaking 36-tool catalog and unified dispatcher; this remains unshipped pending full qualification. See [4.0 implementation plan](#40-unified-confirmation-milestone) below. Publication and private deployment remain separate actions; release 3.3.6 does not automatically upgrade existing installations.
+- The next approved development milestone is **4.0: unified confirmation of prepared operations**. The 4.0 development tree now contains the breaking 36-tool catalog and unified dispatcher; this remains unshipped, with full native and release-candidate qualification complete and publication pending. See [4.0 implementation plan](#40-unified-confirmation-milestone) below. Publication and private deployment remain separate actions; release 3.3.6 does not automatically upgrade existing installations.
 
 ## Planning rules
 
@@ -24,7 +24,7 @@ The active publication flow is a protected, draft-first, single-writer pipeline.
 
 ## 4.0 unified confirmation milestone
 
-**Implemented in the unreleased development tree; cross-platform and release qualification outstanding:** simplify the public MCP tool catalog by replacing the eight preview-backed apply tools with one `confirm_verified_operation` tool. Keep every preview tool, prepared payload, existing apply engine, and its safety boundary intact. The goal is an easier-to-use API even if external safety-screening behavior does not change. The term *verified* means the server prepared and checked a proposed operation; it does **not** mean the action is already applied or automatically authorized.
+**Implemented and qualified on the merged main branch; public release pending:** simplify the public MCP tool catalog by replacing the eight preview-backed apply tools with one `confirm_verified_operation` tool. Keep every preview tool, prepared payload, existing apply engine, and its safety boundary intact. The goal is an easier-to-use API even if external safety-screening behavior does not change. The term *verified* means the server prepared and checked a proposed operation; it does **not** mean the action is already applied or automatically authorized.
 
 ### Proposed public contract
 
