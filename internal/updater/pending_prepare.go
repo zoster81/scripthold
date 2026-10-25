@@ -16,7 +16,7 @@ import (
 const (
 	knownGoodArtifactName = "known-good"
 	candidateArtifactName = "candidate"
-	helperArtifactName    = "helper"
+	helperArtifactName    = platformHelperArtifactName
 )
 
 type pendingPreparationDeps struct {

@@ -3,6 +3,7 @@ package updater
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -132,4 +133,33 @@ func TestLaunchDetachedHelperStartFailureKeepsAdmission(t *testing.T) {
 		t.Fatalf("control lock remained held after start failure: %v", err)
 	}
 	_ = control.Close()
+}
+
+func TestDetachedHelperStartsRealCopiedExecutable(t *testing.T) {
+	source, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(t.TempDir(), helperArtifactName)
+	wantExt := ""
+	if runtime.GOOS == "windows" {
+		wantExt = ".exe"
+	}
+	if filepath.Ext(helper) != wantExt {
+		t.Fatalf("helper extension = %q, want %q", filepath.Ext(helper), wantExt)
+	}
+	if err := os.WriteFile(helper, bytes, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	release, err := startDetachedSelfUpdateHelper(helper, []string{"-test.run=^$"}, minimalSelfUpdateHelperEnvironment(os.Environ()))
+	if err != nil {
+		t.Fatalf("Windows could not launch the verified helper copy: %v", err)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
 }
