@@ -660,6 +660,76 @@ func TestSourceSymbolsRealCorpusCSharpAtlasToShow(t *testing.T) {
 		atlas.FilesConsidered, atlas.SymbolCount, len(fullBytes), len(atlasBytes), len(treeBytes), len(showBytes))
 }
 
+// Locate overloaded methods in an unfamiliar C# project and show their exact
+// bodies. This exercises declaration identity, not semantic caller discovery.
+func TestSourceSymbolsRealCorpusCSharpIgnoreOverloads(t *testing.T) {
+	task, _ := realSourceTask(t)
+	if task != "csharp-validator" {
+		t.Skip("overload comparison uses AutoMapper's C# configuration corpus")
+	}
+	input := realSourceCorpusInput(t)
+	h := NewHandler(input.Paths)
+	result, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "find", Paths: input.Paths, Query: "Ignore", Match: "exact",
+		FileDetails: "relevant", Language: "csharp", Includes: []string{"*.cs"},
+		MaxFiles: 64, MaxSymbols: 40,
+	})
+	if err != nil || result != nil || !found.CoverageComplete || !found.Ambiguous || len(found.Files) >= found.FilesConsidered {
+		t.Fatalf("C# scoped overload search failed: result=%+v err=%v output=%+v", result, err, found)
+	}
+	var candidates []string
+	var selectedFile *SourceSymbolsFile
+	for _, symbol := range found.Symbols {
+		if filepath.Base(symbol.Path) == "MemberConfigurationExpression.cs" &&
+			symbol.QualifiedName == "AutoMapper.Configuration.MemberConfigurationExpression.Ignore" {
+			candidates = append(candidates, symbol.ID)
+		}
+	}
+	for i := range found.Files {
+		if filepath.Base(found.Files[i].Path) == "MemberConfigurationExpression.cs" {
+			selectedFile = &found.Files[i]
+		}
+	}
+	if len(candidates) != 2 || selectedFile == nil || candidates[0] == candidates[1] {
+		t.Fatalf("expected two distinct overload IDs: candidates=%+v", candidates)
+	}
+	var defaultBody, configurableBody string
+	totalShowBytes := 0
+	for _, symbol := range candidates {
+		result, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "show", Path: selectedFile.Path, SymbolID: symbol,
+			SourceFingerprint: selectedFile.SourceFingerprint,
+			Language:          selectedFile.Language, Encoding: selectedFile.Encoding,
+			MaxBytes: 4096,
+		})
+		if err != nil || result != nil || shown.Show == nil || shown.Show.SymbolID != symbol {
+			t.Fatalf("verified overload body unavailable: result=%+v err=%v", result, err)
+		}
+		serialized, marshalErr := json.Marshal(shown)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		totalShowBytes += len(serialized)
+		if strings.Contains(shown.Show.Text, "Ignore(ignorePaths: true)") {
+			defaultBody = shown.Show.Text
+		}
+		if strings.Contains(shown.Show.Text, "if (ignorePaths && pm.TypeMap.PathMaps.Count > 0)") {
+			configurableBody = shown.Show.Text
+		}
+	}
+	if defaultBody == "" || configurableBody == "" ||
+		!strings.Contains(configurableBody, "pm.Ignored = true") ||
+		!strings.Contains(configurableBody, "pm.TypeMap.IgnorePaths(DestinationMember)") {
+		t.Fatalf("overload behavior not distinguished: default=%q configurable=%q", defaultBody, configurableBody)
+	}
+	findJSON, marshalErr := json.Marshal(found)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	t.Logf("files=%d matches=%d detailFiles=%d findBytes=%d showBytes=%d",
+		found.FilesConsidered, found.SymbolCount, len(found.Files), len(findJSON), totalShowBytes)
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)
