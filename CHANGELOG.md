@@ -6,7 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 This release improves read-only source navigation and response size, without changing filesystem mutation or authorization behavior. Structural navigation can now return a compact project map, an outline tree, and an authenticated continuation cursor so clients can inspect specific declarations instead of transferring entire files. The relative usefulness of these workflows versus grep and targeted reads remains task-dependent; unbiased ChatGPT client-choice measurements are scheduled after updating the connector.
 
-**Compatibility:** `source_symbols` with `operation: "outline"` now defaults to `presentation: "tree"` and returns `outlineFiles` instead of historical top-level `files` and `symbols`. Existing clients that consume those fields must pass `presentation: "detailed"`. This default-response change is intentional even though the chosen release number is 4.0.1; other operations and read-only authorization boundaries remain unchanged.
+**MCP catalog refresh:** After updating to 4.0.1, reconnect or refresh tool discovery so LLM clients receive the current tool descriptions and response schema. `source_symbols` with `operation: "outline"` defaults to `presentation: "tree"` (`outlineFiles`). The optional `presentation: "detailed"` continues to expose the earlier top-level `files` and `symbols` layout when explicitly requested. No separate migration is needed for agents using the refreshed catalog. Other operations and read-only authorization boundaries remain unchanged.
 
 ### Added
 
@@ -21,7 +21,7 @@ This release improves read-only source navigation and response size, without cha
 ### Changed
 
 - Clarified the `source_symbols` tool description with explicit operation-specific inputs and grep/read alternatives. This does not change accepted requests, validation, or runtime behavior.
-- `source_symbols outline` now returns a compact hierarchical `tree` view by default. Clients expecting the previous top-level `files` and `symbols` must explicitly pass `presentation: "detailed"`; `presentation: "compact"` remains available for a flat list. This is an intentional response-shape compatibility change on the unreleased branch.
+- `source_symbols outline` now returns a compact hierarchical `tree` view by default. Refreshed MCP tool discovery exposes the current response shape to LLM clients; `presentation: "detailed"` is an optional full-layout view, and `presentation: "compact"` remains available for a flat list.
 - Source Intelligence structural search now includes analyzer-proven declaration `name`, `kind`, and `qualifiedName` when available, reducing the need for separate symbol lookups. Non-declaration matches retain their existing shape without invented identity; requests, source freshness checks, and search limits are unchanged.
 - Source query responses now distinguish omitted files, incomplete selected-file analysis, and truncated search/relationship/context output with explicit coverage booleans, while retaining the existing aggregate flags.
 - Source context planning now avoids broad reverse-dependency declarations for symbol and position selectors while retaining verified type relationships and explicit file-level context; outgoing type references are grouped with bounded request-local indexes rather than repeatedly scanning the full relation array.
