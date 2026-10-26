@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -114,6 +115,54 @@ func (h *Handler) sourceLimits() config.SourceConfig {
 	return limits
 }
 
+// sourcePathMaxHeap keeps the lexicographically last retained path at the root.
+type sourcePathMaxHeap []string
+
+func (values sourcePathMaxHeap) Len() int           { return len(values) }
+func (values sourcePathMaxHeap) Less(i, j int) bool { return values[i] > values[j] }
+func (values sourcePathMaxHeap) Swap(i, j int)      { values[i], values[j] = values[j], values[i] }
+func (values *sourcePathMaxHeap) Push(value any)    { *values = append(*values, value.(string)) }
+func (values *sourcePathMaxHeap) Pop() any {
+	last := len(*values) - 1
+	value := (*values)[last]
+	*values = (*values)[:last]
+	return value
+}
+
+// collectBoundedSourceFiles traverses the full authorized scope for honest
+// truncation evidence without retaining all matching paths in memory.
+func (h *Handler) collectBoundedSourceFiles(ctx context.Context, paths, includes, excludes []string, respectGitignore bool, maximum int) ([]string, bool, error) {
+	if maximum <= 0 {
+		return nil, false, operation.New(operation.KindInvalidInput, "source file selection limit must be positive")
+	}
+	selected := make(sourcePathMaxHeap, 0, min(maximum, 256))
+	retained := make(map[string]struct{}, min(maximum, 256))
+	truncated := false
+	err := h.visitIncludedFiles(ctx, paths, includes, excludes, respectGitignore, func(path string) {
+		if _, exists := retained[path]; exists {
+			return
+		}
+		if len(selected) < maximum {
+			heap.Push(&selected, path)
+			retained[path] = struct{}{}
+			return
+		}
+		truncated = true
+		if path >= selected[0] {
+			return
+		}
+		delete(retained, selected[0])
+		selected[0] = path
+		retained[path] = struct{}{}
+		heap.Fix(&selected, 0)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	sort.Strings(selected)
+	return []string(selected), truncated, nil
+}
+
 func (h *Handler) collectSourceSymbolFiles(
 	ctx context.Context,
 	input SourceSymbolsInput,
@@ -131,16 +180,9 @@ func (h *Handler) collectSourceSymbolFiles(
 		}
 		validatedRoots = append(validatedRoots, validated.Path)
 	}
-	files, collectErr := h.collectFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore))
+	files, selectionTruncated, collectErr := h.collectBoundedSourceFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore), maxFiles)
 	if collectErr != nil {
 		return nil, false, errorResultFromError(collectErr)
-	}
-	sort.Strings(files)
-	files = deduplicateSortedPaths(files)
-	selectionTruncated := false
-	if len(files) > maxFiles {
-		files = files[:maxFiles]
-		selectionTruncated = true
 	}
 	var aggregateBytes int64
 	for _, path := range files {
@@ -378,21 +420,6 @@ func enforceSourceOutputBudget(output SourceSymbolsOutput, maximum int64) error 
 		return operation.Wrap(operation.KindLimit, "source_symbols", "", fmt.Errorf("source output size %d exceeds limit %d", len(encoded), maximum))
 	}
 	return nil
-}
-
-func deduplicateSortedPaths(paths []string) []string {
-	if len(paths) < 2 {
-		return paths
-	}
-	write := 1
-	for read := 1; read < len(paths); read++ {
-		if paths[read] == paths[write-1] {
-			continue
-		}
-		paths[write] = paths[read]
-		write++
-	}
-	return paths[:write]
 }
 
 func minPositiveInt(left, right int) int {

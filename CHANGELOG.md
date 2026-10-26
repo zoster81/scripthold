@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- `source_query` and `source_symbols` now retain at most `maxFiles` selected file paths during directory traversal rather than collecting every matching path first. Selection remains lexicographically deterministic, filters and path authorization are unchanged, and omitted-file coverage remains explicit.
 - A filtered `source_symbols outline` now applies `maxSymbols` to matching declarations after bounded analysis, instead of losing matches behind earlier declarations of other kinds. Full-analysis and result-truncation coverage remain explicit.
 
 ### Changed

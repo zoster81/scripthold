@@ -533,3 +533,34 @@ func TestSourceSymbolsLimitsCancellationAndDeniedRoot(t *testing.T) {
 		t.Fatalf("denied root result = %+v", denied)
 	}
 }
+
+func TestSourceFileSelectionKeepsLexicographicPrefixWithoutRetainingAllPaths(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"z.go", "a.go", "middle.go", "nested/b.go", "nested/a.go", "note.txt"} {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(name)), []byte("package demo\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := NewHandler([]string{root})
+	paths := []string{filepath.Join(root, "z.go"), filepath.Join(root, "nested"), root, filepath.Join(root, "a.go")}
+	want := []string{
+		filepath.Join(root, "a.go"), filepath.Join(root, "middle.go"),
+		filepath.Join(root, "nested", "a.go"), filepath.Join(root, "nested", "b.go"), filepath.Join(root, "z.go"),
+	}
+	for limit := 1; limit <= len(want)+1; limit++ {
+		selected, truncated, err := h.collectBoundedSourceFiles(context.Background(), paths, []string{"*.go"}, nil, false, limit)
+		if err != nil {
+			t.Fatalf("limit %d: %v", limit, err)
+		}
+		expectedCount := len(want)
+		if limit < expectedCount {
+			expectedCount = limit
+		}
+		if !reflect.DeepEqual(selected, want[:expectedCount]) || truncated != (len(want) > limit) {
+			t.Fatalf("limit %d: selected=%v truncated=%t; want=%v truncated=%t", limit, selected, truncated, want[:expectedCount], len(want) > limit)
+		}
+	}
+}

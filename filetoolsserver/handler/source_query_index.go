@@ -35,16 +35,9 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		}
 		validatedRoots = append(validatedRoots, validated.Path)
 	}
-	files, err := h.collectFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore))
+	files, selectionTruncated, err := h.collectBoundedSourceFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore), maxFiles)
 	if err != nil {
 		return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, errorResultFromError(err)
-	}
-	sort.Strings(files)
-	files = deduplicateSortedPaths(files)
-	selectionTruncated := false
-	if len(files) > maxFiles {
-		files = files[:maxFiles]
-		selectionTruncated = true
 	}
 	var aggregateBytes int64
 	for _, path := range files {
