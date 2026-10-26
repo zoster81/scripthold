@@ -78,8 +78,18 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 	includeSignatures := input.IncludeSignatures && operationName != "digest"
 	perFileSymbols := maxSymbols
-	if operationName == "digest" || operationName == "find" {
+	if operationName == "digest" || operationName == "find" || (operationName == "outline" && len(input.Kinds) > 0) {
 		perFileSymbols = limits.MaxSymbols
+	}
+	// A kind-filtered outline may inspect more symbols than it returns.
+	// Retain only matching declarations plus one truncation sentinel per file,
+	// avoiding a large result slice for each selected source file.
+	var outlineKinds map[string]struct{}
+	if operationName == "outline" && len(input.Kinds) > 0 {
+		outlineKinds = make(map[string]struct{}, len(input.Kinds))
+		for _, kind := range input.Kinds {
+			outlineKinds[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
+		}
 	}
 	analyses := make([]sourceFileAnalysis, 0, len(files))
 	stats := concurrency.ProcessOrdered(requestCtx, files, concurrency.Options{MaxWorkers: limits.MaxConcurrency},
@@ -87,6 +97,19 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 			return h.analyzeSourceFile(workCtx, registry, path, input.Language, input.Encoding, includeSignatures, perFileSymbols, limits)
 		},
 		func(_ int, analysis sourceFileAnalysis) bool {
+			if outlineKinds != nil && analysis.file.Status == "parsed" {
+				symbols := analysis.analysis.Analysis.Symbols
+				retained := make([]sourceintelligence.NormalizedSymbol, 0, min(len(symbols), maxSymbols))
+				for _, symbol := range symbols {
+					if _, ok := outlineKinds[strings.ToLower(string(symbol.Kind))]; ok {
+						retained = append(retained, symbol)
+						if len(retained) > maxSymbols {
+							break
+						}
+					}
+				}
+				analysis.analysis.Analysis.Symbols = retained
+			}
 			analyses = append(analyses, analysis)
 			return true
 		},

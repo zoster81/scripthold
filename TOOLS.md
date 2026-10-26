@@ -735,7 +735,7 @@ Scripthold has **100 active Source Intelligence providers**. The generated [Lang
 - `paths` (required for `outline`, `digest`, `find`): one or more authorized files/directories; directory traversal reuses the secure `.gitignore`-aware walker.
 - `language` / `encoding` (optional): explicit routing/decoding evidence; otherwise conservative detection applies.
 - `includes` / `excludes`, `respectGitignore`, `maxFiles`: bounded traversal filters.
-- `kinds` (optional for `outline`/`find`): normalized symbol-kind filter without hiding unsupported file coverage.
+- `kinds` (optional for `outline`/`find`): normalized symbol-kind filter without hiding unsupported file coverage. With a filtered `outline`, `maxSymbols` limits the **matching declarations returned**, not the unfiltered declarations encountered earlier. The analyzer can inspect additional symbols up to its configured safety ceiling; `coverageComplete: false` still signals incomplete analysis or a truncated result.
 - `includeSignatures` (optional for `outline`/`find`): retain bounded declaration signatures.
 - `presentation` (optional for `outline` only): `tree` (default) nests children under their declarations; `compact` provides flat, minimal per-file declarations; `detailed` explicitly requests the historical full JSON response. Both concise modes use `outlineFiles` instead of full `files`/`symbols`. Each file retains its path, encoding, source fingerprint, coverage and errors; each symbol retains a full `symbolId`, kind, qualified name and starting line/column for navigation. Signatures remain opt-in. A filtered or otherwise missing ancestor is represented with `parentId` instead of being invented.
 - `fileDetails` (optional for `find` only): `all` (default) preserves the existing per-file results; `relevant` returns per-file details only for matching declarations and files with failed or incomplete analysis. This only changes response detail, not what is scanned or the symbol matches.
@@ -762,7 +762,7 @@ Dedicated limits use the `MCP_SOURCE_MAX_*` family: input paths, files, aggregat
 }
 ```
 
-For an efficient structural overview, request `{"operation":"outline","paths":["/project/src/main.go"]}` (defaults to `tree`). **Compatibility:** clients expecting the previous top-level `files` and `symbols` must add `"presentation":"detailed"` to their outline requests. The `outlineFiles[].symbols[].symbolId` and corresponding `outlineFiles[].sourceFingerprint` may be used with `show`. In `detailed`, the symbol field remains `id`.
+When starting with unfamiliar code, first scope `paths` to a relevant directory and inspect `digest` or a bounded `outline` tree; then read or `show` only declarations needed to understand behavior. Use `grep_text_files` for arbitrary text and cross-cutting behavior that structural relations do not cover. For an efficient structural overview, request `{"operation":"outline","paths":["/project/src/main.go"]}` (defaults to `tree`). **Compatibility:** clients expecting the previous top-level `files` and `symbols` must add `"presentation":"detailed"` to their outline requests. The `outlineFiles[].symbols[].symbolId` and corresponding `outlineFiles[].sourceFingerprint` may be used with `show`. In `detailed`, the symbol field remains `id`.
 
 A typical follow-up uses the returned per-file `sourceFingerprint`, symbol `id` (or compact/tree `symbolId`), language, and encoding:
 

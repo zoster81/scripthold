@@ -396,6 +396,41 @@ func TestSourceSymbolsRealCorpusOutlinePresentations(t *testing.T) {
 	}
 }
 
+// Filtered outlines must budget returned matches, not earlier unrelated declarations.
+func TestSourceSymbolsRealCorpusFilteredOutlineLimit(t *testing.T) {
+	task, want := realSourceTask(t)
+	input := realSourceCorpusInput(t)
+	path := filepath.Join(input.Paths[0], want.file)
+	h := NewHandler(input.Paths)
+	call := func(limit int) SourceSymbolsOutput {
+		t.Helper()
+		result, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "outline", Paths: []string{path}, Language: want.language,
+			Kinds: []string{want.kind}, MaxFiles: 1, MaxSymbols: limit,
+		})
+		if err != nil || result != nil {
+			t.Fatalf("%s: filtered outline limit=%d failed: result=%+v err=%v", task, limit, result, err)
+		}
+		return out
+	}
+	full, first := call(128), call(1)
+	if full.SymbolCount < 1 || len(full.OutlineFiles) != 1 || !full.CoverageComplete ||
+		first.SymbolCount != 1 || len(first.OutlineFiles) != 1 ||
+		!first.OutlineFiles[0].CoverageComplete ||
+		first.OutlineFiles[0].SourceFingerprint != full.OutlineFiles[0].SourceFingerprint {
+		t.Fatalf("%s: filtered output or analyzer coverage differs: full=%+v first=%+v", task, full, first)
+	}
+	if len(full.OutlineFiles[0].Symbols) < 1 || len(first.OutlineFiles[0].Symbols) != 1 ||
+		first.OutlineFiles[0].Symbols[0].SymbolID != full.OutlineFiles[0].Symbols[0].SymbolID {
+		t.Fatalf("%s: first requested kind does not match full outline", task)
+	}
+	if full.SymbolCount > 1 && (!first.Truncated || first.CoverageComplete) {
+		t.Fatalf("%s: incomplete filtered result must be marked truncated", task)
+	}
+	t.Logf("task=%s kind=%s totalMatching=%d retained=%d fullCoverage=%t firstTruncated=%t",
+		task, want.kind, full.SymbolCount, first.SymbolCount, first.OutlineFiles[0].CoverageComplete, first.Truncated)
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)

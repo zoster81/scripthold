@@ -4,6 +4,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+### Fixed
+
+- A filtered `source_symbols outline` now applies `maxSymbols` to matching declarations after bounded analysis, instead of losing matches behind earlier declarations of other kinds. Full-analysis and result-truncation coverage remain explicit.
+
 ### Changed
 
 - `source_symbols outline` now returns a compact hierarchical `tree` view by default. Clients expecting the previous top-level `files` and `symbols` must explicitly pass `presentation: "detailed"`; `presentation: "compact"` remains available for a flat list. This is an intentional response-shape compatibility change on the unreleased branch.

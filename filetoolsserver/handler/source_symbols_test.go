@@ -152,6 +152,42 @@ func TestSourceSymbolsOutlinePresentations(t *testing.T) {
 		t.Fatalf("invalid view: %+v %v", result, err)
 	}
 }
+func TestSourceSymbolsOutlineKindsLimitAfterAnalysis(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	source := "package sample\ntype Box struct { First int; Second int; Third int }\nfunc (b *Box) One() {}\nfunc (b *Box) Two() {}\n"
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	call := func(limit int) SourceSymbolsOutput {
+		t.Helper()
+		result, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "outline", Presentation: "tree", Paths: []string{path}, Language: "go",
+			Kinds: []string{"method"}, MaxFiles: 1, MaxSymbols: limit,
+		})
+		if err != nil || result != nil {
+			t.Fatalf("outline filtered limit %d: result=%+v err=%v", limit, result, err)
+		}
+		return out
+	}
+	both := call(2)
+	if both.SymbolCount != 2 || !both.CoverageComplete || both.Truncated ||
+		len(both.OutlineFiles) != 1 || !both.OutlineFiles[0].CoverageComplete ||
+		len(both.OutlineFiles[0].Symbols) != 2 {
+		t.Fatalf("matching symbols must not be lost behind unmatched declarations: %+v", both)
+	}
+	if both.OutlineFiles[0].Symbols[0].Name != "One" ||
+		both.OutlineFiles[0].Symbols[1].Name != "Two" {
+		t.Fatalf("unexpected filtered ordering: %+v", both.OutlineFiles[0].Symbols)
+	}
+	first := call(1)
+	if first.SymbolCount != 1 || !first.Truncated || first.CoverageComplete ||
+		len(first.OutlineFiles) != 1 || !first.OutlineFiles[0].CoverageComplete {
+		t.Fatalf("matching output truncation must not be confused with analyzer coverage: %+v", first)
+	}
+}
+
 func TestSourceSymbolsDirectoryOrderingFiltersDigestAndUnsupportedCoverage(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
