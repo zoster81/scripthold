@@ -104,7 +104,7 @@
     {
       "name": "source_query",
       "title": "Source Query",
-      "description": "Search source code with bounded cursor pagination and analyze relationships between symbols.",
+      "description": "Find source declarations with cursor paging, inspect indexed relations, or retrieve verified context. Empty references/impact do not prove no callers; use grep to check usages.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false

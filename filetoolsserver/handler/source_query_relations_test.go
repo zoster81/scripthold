@@ -47,6 +47,44 @@ func TestSourceQueryStructuralSearchAndCoverage(t *testing.T) {
 	}
 }
 
+func TestSourceQueryEmptyReferencesDoNotProveNoCallers(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "Widget.cs")
+	writeSourceQueryFixture(t, path, "class Widget { void Pippo() {} void Caller() { Pippo(); } }\n")
+	h := NewHandler([]string{root})
+	result, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "csharp", MaxFiles: 1,
+	})
+	if err != nil || result != nil || !outline.CoverageComplete {
+		t.Fatalf("outline result=%+v err=%v coverage=%+v", result, err, outline)
+	}
+	var targetID string
+	for _, symbol := range outline.Symbols {
+		if symbol.Name == "Pippo" {
+			targetID = symbol.ID
+			break
+		}
+	}
+	if targetID == "" {
+		t.Fatal("target method declaration not found")
+	}
+	result, queried, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "relations", Relation: "references", Paths: []string{root}, Language: "csharp",
+		Subject: &SourceSelectorInput{
+			Kind: "symbol", Path: path, SymbolID: targetID,
+			SourceFingerprint: outline.Files[0].SourceFingerprint,
+		},
+		MaxFiles: 2, MaxResults: 8,
+	})
+	if err != nil || result != nil || queried.Relations == nil || !queried.Coverage.CoverageComplete {
+		t.Fatalf("reference query failed: result=%+v output=%+v err=%v", result, queried, err)
+	}
+	if queried.Relations.EvidenceScope != "indexed-relations-only" {
+		t.Fatalf("empty reference results must disclose non-exhaustive semantics: %+v", queried.Relations)
+	}
+	// A structurally complete file scan cannot establish complete semantic call coverage.
+}
+
 func TestSourceQueryProjectRelationsAndStaleSelector(t *testing.T) {
 	root := canonicalHandlerTestDir(t)
 	basePath := filepath.Join(root, "base.ts")

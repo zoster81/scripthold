@@ -82,8 +82,9 @@ type SourceSearchResult struct {
 }
 
 type SourceRelationsResult struct {
-	Relation  sourceintelligence.RelationKind     `json:"relation"`
-	Relations []sourceintelligence.RelationRecord `json:"relations,omitempty"`
+	Relation      sourceintelligence.RelationKind     `json:"relation"`
+	EvidenceScope string                              `json:"evidenceScope"`
+	Relations     []sourceintelligence.RelationRecord `json:"relations,omitempty"`
 }
 
 type SourceContextResult struct {

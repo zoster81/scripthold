@@ -145,7 +145,10 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		if queryErr != nil {
 			return errorResultFromError(queryErr), SourceQueryOutput{}, nil
 		}
-		output.Relations = &SourceRelationsResult{Relation: sourceintelligence.RelationKind(input.Relation), Relations: queried.Records}
+		output.Relations = &SourceRelationsResult{
+			Relation: sourceintelligence.RelationKind(input.Relation), EvidenceScope: "indexed-relations-only",
+			Relations: queried.Records,
+		}
 		if queried.Truncated {
 			output.Coverage.Truncated = true
 			output.Coverage.ResultsTruncated = true

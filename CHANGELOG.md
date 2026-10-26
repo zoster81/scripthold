@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
+- `source_query relations` now explicitly labels results `evidenceScope: "indexed-relations-only"`. Complete file scanning does not imply complete semantic caller/reference coverage; an empty result must not be interpreted as proof of no usages.
 - Optional `source_symbols digest` `presentation: "compact"` provides a bounded multi-file project overview with declaration counts, limited top-level public entry-point names, source provenance and explicit coverage. Existing digest responses remain unchanged by default; full import and relation details remain available in the historical form.
 
 ### Fixed
