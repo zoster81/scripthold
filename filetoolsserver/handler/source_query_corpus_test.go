@@ -576,6 +576,90 @@ func TestSourceSymbolsRealCorpusProjectCompactDigest(t *testing.T) {
 	t.Logf("files=%d symbols=%d detailedBytes=%d compactBytes=%d", compact.FilesConsidered, compact.SymbolCount, len(fullJSON), len(compactJSON))
 }
 
+// Explore a second real multi-file corpus without executing third-party code.
+// A file atlas locates the implementation, its tree locates the exact method,
+// and show retrieves only that declaration with a verified fingerprint.
+func TestSourceSymbolsRealCorpusCSharpAtlasToShow(t *testing.T) {
+	task, _ := realSourceTask(t)
+	if task != "csharp-validator" {
+		t.Skip("C# project overview requires the AutoMapper configuration corpus")
+	}
+	input := realSourceCorpusInput(t)
+	h := NewHandler(input.Paths)
+	request := SourceSymbolsInput{
+		Operation: "digest", Paths: input.Paths, Language: "csharp",
+		Includes: []string{"*.cs"}, MaxFiles: 64,
+	}
+	result, full, err := h.SourceSymbols(context.Background(), nil, request)
+	if err != nil || result != nil || !full.CoverageComplete || full.FilesConsidered < 20 {
+		t.Fatalf("full C# digest failed: %+v err=%v", result, err)
+	}
+	request.Presentation = "compact"
+	result, atlas, err := h.SourceSymbols(context.Background(), nil, request)
+	if err != nil || result != nil || !atlas.CoverageComplete ||
+		atlas.SymbolCount != full.SymbolCount || atlas.FilesConsidered != full.FilesConsidered ||
+		len(atlas.OverviewFiles) != len(full.Files) {
+		t.Fatalf("compact C# digest changed coverage or counts: %+v err=%v", result, err)
+	}
+	var selectedFile string
+	for i, f := range atlas.OverviewFiles {
+		if f.Path != full.Files[i].Path || f.SourceFingerprint != full.Files[i].SourceFingerprint ||
+			!f.CoverageComplete || !reflect.DeepEqual(f.DeclarationCounts, full.Digests[i].DeclarationCounts) {
+			t.Fatalf("C# atlas file %d changed evidence or ordering", i)
+		}
+		if filepath.Base(f.Path) == "TypeMapConfiguration.cs" {
+			for _, entry := range f.EntryPoints {
+				if entry.Name == "TypeMapConfiguration" && entry.Kind == "class" {
+					selectedFile = f.Path
+				}
+			}
+		}
+	}
+	if selectedFile == "" {
+		t.Fatal("C# atlas did not reveal TypeMapConfiguration")
+	}
+	result, tree, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Paths: []string{selectedFile}, Language: "csharp",
+		MaxSymbols: 200, MaxFiles: 1,
+	})
+	if err != nil || result != nil || !tree.CoverageComplete || len(tree.OutlineFiles) != 1 {
+		t.Fatalf("C# file outline failed: %+v err=%v", result, err)
+	}
+	var method *SourceOutlineNode
+	var visit func([]*SourceOutlineNode)
+	visit = func(nodes []*SourceOutlineNode) {
+		for _, node := range nodes {
+			if node.QualifiedName == "AutoMapper.Configuration.TypeMapConfiguration.Configure" {
+				method = node
+			}
+			visit(node.Children)
+		}
+	}
+	visit(tree.OutlineFiles[0].Symbols)
+	if method == nil || method.SymbolID == "" {
+		t.Fatal("C# tree did not identify exact Configure method")
+	}
+	file := tree.OutlineFiles[0]
+	result, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "show", Path: file.Path, SymbolID: method.SymbolID,
+		SourceFingerprint: file.SourceFingerprint, Language: file.Language,
+		Encoding: file.Encoding, MaxBytes: 8192,
+	})
+	if err != nil || result != nil || shown.Show == nil ||
+		!strings.Contains(shown.Show.Text, "memberConfig.Configure(typeMap)") {
+		t.Fatalf("C# show lost member configuration behavior: %+v err=%v", result, err)
+	}
+	fullBytes, _ := json.Marshal(full)
+	atlasBytes, _ := json.Marshal(atlas)
+	treeBytes, _ := json.Marshal(tree)
+	showBytes, _ := json.Marshal(shown)
+	if len(atlasBytes) >= len(fullBytes) {
+		t.Fatalf("C# atlas is not smaller: compact=%d full=%d", len(atlasBytes), len(fullBytes))
+	}
+	t.Logf("files=%d symbols=%d fullDigestBytes=%d atlasBytes=%d treeBytes=%d showBytes=%d",
+		atlas.FilesConsidered, atlas.SymbolCount, len(fullBytes), len(atlasBytes), len(treeBytes), len(showBytes))
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)
