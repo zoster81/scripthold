@@ -21,7 +21,7 @@ func BenchmarkSourceSymbolsOperations(b *testing.B) {
 	}
 	h := NewHandler([]string{root})
 	ctx := context.Background()
-	_, seed, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Paths: []string{path}, Language: "go", Encoding: "utf-8"})
+	_, seed, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "go", Encoding: "utf-8"})
 	if err != nil || len(seed.Symbols) == 0 {
 		b.Fatalf("seed outline failed: %v %+v", err, seed)
 	}
@@ -30,7 +30,7 @@ func BenchmarkSourceSymbolsOperations(b *testing.B) {
 		name  string
 		input SourceSymbolsInput
 	}{
-		{name: "outline", input: SourceSymbolsInput{Operation: "outline", Paths: []string{path}, Language: "go", Encoding: "utf-8", MaxSymbols: 1000}},
+		{name: "outline", input: SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "go", Encoding: "utf-8", MaxSymbols: 1000}},
 		{name: "digest", input: SourceSymbolsInput{Operation: "digest", Paths: []string{path}, Language: "go", Encoding: "utf-8"}},
 		{name: "find", input: SourceSymbolsInput{Operation: "find", Paths: []string{path}, Language: "go", Encoding: "utf-8", Query: "F199", Match: "exact", MaxSymbols: 16}},
 		{name: "show", input: showInput},

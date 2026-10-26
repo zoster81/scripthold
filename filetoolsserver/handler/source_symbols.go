@@ -96,9 +96,13 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
-	if operationName == "outline" && input.Presentation != "" && input.Presentation != "detailed" {
-		output.OutlineFiles = presentSourceOutline(output.Files, output.Symbols, input.Presentation)
-		output.Presentation = input.Presentation
+	if operationName == "outline" && input.Presentation != "detailed" {
+		presentation := input.Presentation
+		if presentation == "" {
+			presentation = "tree"
+		}
+		output.OutlineFiles = presentSourceOutline(output.Files, output.Symbols, presentation)
+		output.Presentation = presentation
 		output.Files = nil
 		output.Symbols = nil
 	}

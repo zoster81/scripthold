@@ -737,11 +737,11 @@ Scripthold has **100 active Source Intelligence providers**. The generated [Lang
 - `includes` / `excludes`, `respectGitignore`, `maxFiles`: bounded traversal filters.
 - `kinds` (optional for `outline`/`find`): normalized symbol-kind filter without hiding unsupported file coverage.
 - `includeSignatures` (optional for `outline`/`find`): retain bounded declaration signatures.
-- `presentation` (optional for `outline` only): `detailed` (default) preserves the existing response; `compact` provides flat, minimal per-file declarations; `tree` nests children under their declarations. Both concise modes use `outlineFiles` instead of full `files`/`symbols`. Each file retains its path, encoding, source fingerprint, coverage and errors; each symbol retains a full `symbolId`, kind, qualified name and starting line/column for navigation. Signatures remain opt-in. A filtered or otherwise missing ancestor is represented with `parentId` instead of being invented.
+- `presentation` (optional for `outline` only): `tree` (default) nests children under their declarations; `compact` provides flat, minimal per-file declarations; `detailed` explicitly requests the historical full JSON response. Both concise modes use `outlineFiles` instead of full `files`/`symbols`. Each file retains its path, encoding, source fingerprint, coverage and errors; each symbol retains a full `symbolId`, kind, qualified name and starting line/column for navigation. Signatures remain opt-in. A filtered or otherwise missing ancestor is represented with `parentId` instead of being invented.
 - `fileDetails` (optional for `find` only): `all` (default) preserves the existing per-file results; `relevant` returns per-file details only for matching declarations and files with failed or incomplete analysis. This only changes response detail, not what is scanned or the symbol matches.
 
 **Operations:**
-- `outline`: by default returns deterministic path/source-ordered normalized declarations and full per-file detection/fingerprint/coverage evidence. With `presentation: "compact"` or `"tree"`, returns an abbreviated file-grouped list or containment hierarchy, not a call graph. Aggregate coverage and truncation describe the same scanned files regardless of presentation.
+- `outline`: by default returns a compact parent-child hierarchy in `outlineFiles`, not a call graph. `presentation: "compact"` returns an abbreviated flat list in `outlineFiles`; `presentation: "detailed"` returns the historical path/source-ordered `files` and `symbols` with full detection/fingerprint/coverage evidence. Aggregate coverage and truncation describe the same scanned files regardless of presentation.
 - `digest`: returns compact declaration counts plus structural dependencies, relations, and composite regions; it does not return source bodies.
 - `find`: requires `query`; `match` is `exact`, `prefix`, or `qualified`. Multiple retained matches set `ambiguous: true` rather than inventing a unique target. With `fileDetails: "relevant"`, `files` is a subset of the scanned files; `filesConsidered`, `filesParsed`, `filesSkipped`, `coverageComplete`, and `truncated` still describe the full scan. A missing symbol is not proof of absence if coverage is incomplete.
 - `show`: requires one `path`, `symbolId`, `sourceFingerprint`, `language`, and `encoding`. The file is re-read and re-analyzed; a stale fingerprint returns `CONFLICT`. `maxBytes` bounds the selected declaration text.
@@ -762,7 +762,7 @@ Dedicated limits use the `MCP_SOURCE_MAX_*` family: input paths, files, aggregat
 }
 ```
 
-For an efficient structural overview, request `{"operation":"outline","paths":["/project/src/main.go"],"presentation":"tree"}`. The `outlineFiles[].symbols[].symbolId` and corresponding `outlineFiles[].sourceFingerprint` may be used with `show`. In `detailed`, the symbol field remains `id`.
+For an efficient structural overview, request `{"operation":"outline","paths":["/project/src/main.go"]}` (defaults to `tree`). **Compatibility:** clients expecting the previous top-level `files` and `symbols` must add `"presentation":"detailed"` to their outline requests. The `outlineFiles[].symbols[].symbolId` and corresponding `outlineFiles[].sourceFingerprint` may be used with `show`. In `detailed`, the symbol field remains `id`.
 
 A typical follow-up uses the returned per-file `sourceFingerprint`, symbol `id` (or compact/tree `symbolId`), language, and encoding:
 

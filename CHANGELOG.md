@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- `source_symbols outline` now returns a compact hierarchical `tree` view by default. Clients expecting the previous top-level `files` and `symbols` must explicitly pass `presentation: "detailed"`; `presentation: "compact"` remains available for a flat list. This is an intentional response-shape compatibility change on the unreleased branch.
 - Source Intelligence structural search now includes analyzer-proven declaration `name`, `kind`, and `qualifiedName` when available, reducing the need for separate symbol lookups. Non-declaration matches retain their existing shape without invented identity; requests, source freshness checks, and search limits are unchanged.
 - Source query responses now distinguish omitted files, incomplete selected-file analysis, and truncated search/relationship/context output with explicit coverage booleans, while retaining the existing aggregate flags.
 - Source context planning now avoids broad reverse-dependency declarations for symbol and position selectors while retaining verified type relationships and explicit file-level context; outgoing type references are grouped with bounded request-local indexes rather than repeatedly scanning the full relation array.

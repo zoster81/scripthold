@@ -32,7 +32,7 @@ func TestConnectorWorkflowAcrossHeterogeneousProject(t *testing.T) {
 	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "r27-phase17-heterogeneous-workflow")
 
 	outlineResult := callSourceSymbolsContract(t, ctx, session, map[string]any{
-		"operation": "outline", "paths": []string{root}, "encoding": "utf-8", "includeSignatures": true,
+		"operation": "outline", "presentation": "detailed", "paths": []string{root}, "encoding": "utf-8", "includeSignatures": true,
 		"maxFiles": 16, "maxSymbols": 256,
 	})
 	outline := contractStructuredMap(t, outlineResult)

@@ -23,7 +23,7 @@ func TestSourceSymbolsOutlineFindShowAndStaleFingerprint(t *testing.T) {
 	h := NewHandler([]string{root})
 	ctx := context.Background()
 	_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
-		Operation: "outline", Paths: []string{path}, Language: "go", Encoding: "utf-8", IncludeSignatures: true,
+		Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "go", Encoding: "utf-8", IncludeSignatures: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -102,9 +102,13 @@ func TestSourceSymbolsOutlinePresentations(t *testing.T) {
 		}
 		return out
 	}
-	legacy, detailed := call("", nil), call("detailed", nil)
-	if !reflect.DeepEqual(legacy, detailed) || len(legacy.Symbols) == 0 {
-		t.Fatal("legacy output changed")
+	defaultTree, explicitTree := call("", nil), call("tree", nil)
+	if !reflect.DeepEqual(defaultTree, explicitTree) || len(defaultTree.OutlineFiles) != 1 || len(defaultTree.Symbols) != 0 {
+		t.Fatal("omitted presentation must return the tree view")
+	}
+	legacy := call("detailed", nil)
+	if len(legacy.Symbols) == 0 || len(legacy.Files) != 1 || len(legacy.OutlineFiles) != 0 {
+		t.Fatal("explicit detailed must retain the legacy output contract")
 	}
 	for _, view := range []string{"compact", "tree"} {
 		out := call(view, nil)
@@ -162,11 +166,11 @@ func TestSourceSymbolsDirectoryOrderingFiltersDigestAndUnsupportedCoverage(t *te
 	}
 	h := NewHandler([]string{root})
 	ctx := context.Background()
-	_, first, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Paths: []string{root}, IncludeSignatures: false})
+	_, first, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{root}, IncludeSignatures: false})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, second, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Paths: []string{root}, IncludeSignatures: false})
+	_, second, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{root}, IncludeSignatures: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +184,7 @@ func TestSourceSymbolsDirectoryOrderingFiltersDigestAndUnsupportedCoverage(t *te
 		t.Fatalf("unsupported coverage = %+v", first)
 	}
 
-	_, filtered, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Paths: []string{root}, Includes: []string{"*.go"}, Kinds: []string{"function"}})
+	_, filtered, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{root}, Includes: []string{"*.go"}, Kinds: []string{"function"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +215,7 @@ func TestSourceSymbolsConcurrencyDoesNotChangeDeterministicOutput(t *testing.T) 
 	serialConfig.Source.MaxConcurrency = 1
 	parallelConfig := *base
 	parallelConfig.Source.MaxConcurrency = 4
-	input := SourceSymbolsInput{Operation: "outline", Paths: []string{root}, Encoding: "utf-8"}
+	input := SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{root}, Encoding: "utf-8"}
 	_, serial, err := NewHandler([]string{root}, WithConfig(&serialConfig)).SourceSymbols(context.Background(), nil, input)
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +357,7 @@ func TestSourceSymbolsValidationOrderAndMessages(t *testing.T) {
 		},
 		{
 			name:    "max files precedes max symbols",
-			input:   SourceSymbolsInput{Operation: "outline", Paths: []string{"unused"}, MaxFiles: -1, MaxSymbols: -1},
+			input:   SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{"unused"}, MaxFiles: -1, MaxSymbols: -1},
 			code:    ErrCodeInvalidInput,
 			message: "maxFiles must be positive",
 		},
@@ -377,7 +381,7 @@ func TestSourceSymbolsValidationOrderAndMessages(t *testing.T) {
 		},
 		{
 			name:    "kinds limit",
-			input:   SourceSymbolsInput{Operation: "outline", Paths: []string{"unused"}, Kinds: tooManyKinds},
+			input:   SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{"unused"}, Kinds: tooManyKinds},
 			code:    ErrCodeLimit,
 			message: "kinds exceeds the 32-item limit",
 		},
@@ -413,7 +417,7 @@ func TestSourceSymbolsLimitsCancellationAndDeniedRoot(t *testing.T) {
 	cfg.Source.MaxAggregateBytes = 16
 	h := NewHandler([]string{root}, WithConfig(cfg))
 
-	limitResult, _, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{Operation: "outline", Paths: []string{path}, Language: "go", Encoding: "utf-8"})
+	limitResult, _, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "go", Encoding: "utf-8"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +427,7 @@ func TestSourceSymbolsLimitsCancellationAndDeniedRoot(t *testing.T) {
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	cancelResult, _, err := NewHandler([]string{root}).SourceSymbols(cancelled, nil, SourceSymbolsInput{Operation: "outline", Paths: []string{path}, Language: "go", Encoding: "utf-8"})
+	cancelResult, _, err := NewHandler([]string{root}).SourceSymbols(cancelled, nil, SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "go", Encoding: "utf-8"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +439,7 @@ func TestSourceSymbolsLimitsCancellationAndDeniedRoot(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("package outside\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	denied, _, err := NewHandler([]string{root}).SourceSymbols(context.Background(), nil, SourceSymbolsInput{Operation: "outline", Paths: []string{outside}, Language: "go"})
+	denied, _, err := NewHandler([]string{root}).SourceSymbols(context.Background(), nil, SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{outside}, Language: "go"})
 	if err != nil {
 		t.Fatal(err)
 	}

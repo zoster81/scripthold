@@ -22,7 +22,7 @@ func TestSourceSymbolsRoutesJavaScriptTypeScriptAndRust(t *testing.T) {
 
 	h := NewHandler([]string{root})
 	toolErr, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
-		Operation: "outline", Paths: []string{root}, Encoding: "utf-8", IncludeSignatures: true,
+		Operation: "outline", Presentation: "detailed", Paths: []string{root}, Encoding: "utf-8", IncludeSignatures: true,
 	})
 	if err != nil || toolErr != nil {
 		t.Fatalf("outline err=%v toolErr=%+v", err, toolErr)

@@ -121,8 +121,20 @@ func TestSourceSymbolsNavigationOutputContract(t *testing.T) {
 	session := connectTestClient(t, ctx, server, "r25-source-symbols-output")
 	_ = sourceSymbolsToolContract(t, ctx, session)
 
+	defaultResult := callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "outline", "paths": []string{path}, "language": "go",
+	})
+	defaultOutline := contractStructuredMap(t, defaultResult)
+	if defaultOutline["presentation"] != "tree" || defaultOutline["symbols"] != nil || defaultOutline["files"] != nil {
+		t.Fatalf("omitted presentation must return tree output: %#v", defaultOutline)
+	}
+	defaultFiles := contractObjectSlice(t, defaultOutline["outlineFiles"])
+	if len(defaultFiles) != 1 || len(contractObjectSlice(t, defaultFiles[0]["symbols"])) == 0 {
+		t.Fatalf("default tree has no declarations: %#v", defaultFiles)
+	}
 	outlineResult := callSourceSymbolsContract(t, ctx, session, map[string]any{
 		"operation":         "outline",
+		"presentation":      "detailed",
 		"paths":             []string{path},
 		"language":          "go",
 		"includeSignatures": true,

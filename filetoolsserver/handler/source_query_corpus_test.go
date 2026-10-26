@@ -350,7 +350,11 @@ func TestSourceSymbolsRealCorpusOutlinePresentations(t *testing.T) {
 		}
 		return out
 	}
-	detailed := read("")
+	defaultTree := read("")
+	if !reflect.DeepEqual(defaultTree, read("tree")) {
+		t.Fatalf("%s: omitted outline presentation differs from tree", task)
+	}
+	detailed := read("detailed")
 	if len(detailed.Files) != 1 || !detailed.CoverageComplete || detailed.SymbolCount == 0 {
 		t.Fatalf("%s: unexpected detailed coverage", task)
 	}

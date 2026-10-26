@@ -123,7 +123,7 @@ func TestExecuteDeferredOperationPreservesEligibleReadOnlyResults(t *testing.T) 
 
 	t.Run("source_symbols", func(t *testing.T) {
 		output := assertDeferredExecutionEquivalent(t, root, "source_symbols", cfg,
-			handler.SourceSymbolsInput{Operation: "outline", Paths: []string{goPath}, Language: "go", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16}, h.SourceSymbols)
+			handler.SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{goPath}, Language: "go", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16}, h.SourceSymbols)
 		if output.FilesParsed != 1 || output.SymbolCount == 0 {
 			t.Fatalf("unexpected source_symbols output: %+v", output)
 		}
@@ -167,7 +167,7 @@ func TestDeferredResultMatchesPublicMCPWireShape(t *testing.T) {
 		wantError bool
 	}{
 		{name: "fingerprint success", tool: "fingerprint_paths", input: handler.FingerprintPathsInput{Paths: []string{textPath}}, wantError: false},
-		{name: "source symbols success", tool: "source_symbols", input: handler.SourceSymbolsInput{Operation: "outline", Paths: []string{goPath}, Language: "go", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16}, wantError: false},
+		{name: "source symbols success", tool: "source_symbols", input: handler.SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{goPath}, Language: "go", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16}, wantError: false},
 		{name: "grep tool error", tool: "grep_text_files", input: handler.GrepInput{Pattern: "[", Paths: []string{textPath}, MaxMatches: 8}, wantError: true},
 	}
 	for _, test := range cases {
