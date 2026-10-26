@@ -2,7 +2,11 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
-## Unreleased
+## 4.0.1 - 2026-10-26
+
+This release improves read-only source navigation and response size, without changing filesystem mutation or authorization behavior. Structural navigation can now return a compact project map, an outline tree, and an authenticated continuation cursor so clients can inspect specific declarations instead of transferring entire files. The relative usefulness of these workflows versus grep and targeted reads remains task-dependent; unbiased ChatGPT client-choice measurements are scheduled after updating the connector.
+
+**Compatibility:** `source_symbols` with `operation: "outline"` now defaults to `presentation: "tree"` and returns `outlineFiles` instead of historical top-level `files` and `symbols`. Existing clients that consume those fields must pass `presentation: "detailed"`. This default-response change is intentional even though the chosen release number is 4.0.1; other operations and read-only authorization boundaries remain unchanged.
 
 ### Added
 
