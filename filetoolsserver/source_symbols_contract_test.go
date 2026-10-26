@@ -51,9 +51,9 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 		[]string{"operation", "paths"},
 		[]string{"operation", "paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "presentation", "maxSymbols", "maxFiles"},
 	)
-	assertSourceSymbolsOperationSchema(t, branches, "digest",
+	digestBranch := assertSourceSymbolsOperationSchema(t, branches, "digest",
 		[]string{"operation", "paths"},
-		[]string{"operation", "paths", "language", "encoding", "includes", "excludes", "respectGitignore", "maxFiles"},
+		[]string{"operation", "paths", "language", "encoding", "includes", "excludes", "respectGitignore", "presentation", "maxFiles"},
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "find",
 		[]string{"operation", "paths", "query"},
@@ -77,6 +77,9 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	}
 	if got := contractStringSlice(t, contractSchemaMap(t, properties["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact", "tree"}) {
 		t.Fatalf("outline.presentation enum = %v", got)
+	}
+	if got := contractStringSlice(t, contractSchemaMap(t, contractSchemaProperties(t, digestBranch)["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact"}) {
+		t.Fatalf("digest.presentation enum = %v", got)
 	}
 	assertSourceSymbolsIntegerBound(t, "find.query.maxLength", properties["query"], "maxLength", 512)
 	if got := contractStringSlice(t, contractSchemaMap(t, properties["fileDetails"])["enum"]); !reflect.DeepEqual(got, []string{"all", "relevant"}) {

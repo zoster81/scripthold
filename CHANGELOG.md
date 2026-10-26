@@ -4,6 +4,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+### Added
+
+- Optional `source_symbols digest` `presentation: "compact"` provides a bounded multi-file project overview with declaration counts, limited top-level public entry-point names, source provenance and explicit coverage. Existing digest responses remain unchanged by default; full import and relation details remain available in the historical form.
+
 ### Fixed
 
 - A filtered `source_symbols outline` now applies `maxSymbols` to matching declarations after bounded analysis, instead of losing matches behind earlier declarations of other kinds. Full-analysis and result-truncation coverage remain explicit.

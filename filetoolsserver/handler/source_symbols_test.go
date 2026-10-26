@@ -83,6 +83,56 @@ func TestSourceSymbolsOutlineFindShowAndStaleFingerprint(t *testing.T) {
 	}
 }
 
+func TestSourceSymbolsDigestCompactOverview(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	code := "package sample\ntype Router struct{}\nfunc NewRouter() *Router { return &Router{} }\nfunc (r *Router) ServeHTTP() {}\n"
+	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	call := func(presentation string) SourceSymbolsOutput {
+		t.Helper()
+		result, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "digest", Paths: []string{path}, Language: "go", Presentation: presentation,
+		})
+		if err != nil || result != nil {
+			t.Fatalf("digest %q: result=%+v err=%v", presentation, result, err)
+		}
+		return out
+	}
+	legacy, detailed := call(""), call("detailed")
+	if !reflect.DeepEqual(legacy, detailed) || len(legacy.Digests) != 1 || len(legacy.Files) != 1 {
+		t.Fatal("digest without presentation must preserve previous output")
+	}
+	compact := call("compact")
+	if compact.Presentation != "compact" || len(compact.Files) != 0 || len(compact.Digests) != 0 ||
+		len(compact.OverviewFiles) != 1 || compact.SymbolCount != legacy.SymbolCount ||
+		compact.CoverageComplete != legacy.CoverageComplete || compact.FilesParsed != legacy.FilesParsed {
+		t.Fatalf("compact digest lost coverage or changed shape: %+v", compact)
+	}
+	file := compact.OverviewFiles[0]
+	if file.Path != path || file.SourceFingerprint != legacy.Files[0].SourceFingerprint ||
+		file.Encoding != "utf-8" || len(file.DeclarationCounts) == 0 {
+		t.Fatalf("compact digest lost file evidence: %+v", file)
+	}
+	found := false
+	for _, entry := range file.EntryPoints {
+		if entry.Name == "NewRouter" && entry.Kind == "function" && entry.Line > 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing useful entry point: %+v", file.EntryPoints)
+	}
+	result, _, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "digest", Paths: []string{path}, Presentation: "tree",
+	})
+	if err != nil || result == nil || !result.IsError || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+		t.Fatalf("invalid digest presentation accepted: result=%+v err=%v", result, err)
+	}
+}
+
 func TestSourceSymbolsOutlinePresentations(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")

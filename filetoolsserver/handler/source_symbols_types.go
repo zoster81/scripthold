@@ -95,6 +95,29 @@ type SourceOutlineFile struct {
 	Symbols           []*SourceOutlineNode `json:"symbols,omitempty"`
 }
 
+// SourceOverviewEntry identifies a leading public declaration; it is not a complete symbol inventory.
+type SourceOverviewEntry struct {
+	Name string                        `json:"name"`
+	Kind sourceintelligence.SymbolKind `json:"kind"`
+	Line int                           `json:"line"`
+}
+
+// SourceOverviewFile is the file-level map used to select a smaller outline scope.
+type SourceOverviewFile struct {
+	Path                 string                   `json:"path"`
+	Status               string                   `json:"status"`
+	Language             string                   `json:"language,omitempty"`
+	Encoding             string                   `json:"encoding,omitempty"`
+	SourceFingerprint    string                   `json:"sourceFingerprint,omitempty"`
+	SourceBytes          int64                    `json:"sourceBytes,omitempty"`
+	CoverageComplete     bool                     `json:"coverageComplete"`
+	Error                string                   `json:"error,omitempty"`
+	ErrorCode            string                   `json:"errorCode,omitempty"`
+	DeclarationCounts    []SourceDeclarationCount `json:"declarationCounts,omitempty"`
+	EntryPoints          []SourceOverviewEntry    `json:"entryPoints,omitempty"`
+	EntryPointsTruncated bool                     `json:"entryPointsTruncated,omitempty"`
+}
+
 type SourceSymbolsOutput struct {
 	Operation        string                                `json:"operation"`
 	CoordinateSystem string                                `json:"coordinateSystem"`
@@ -103,6 +126,7 @@ type SourceSymbolsOutput struct {
 	Presentation     string                                `json:"presentation,omitempty"`
 	OutlineFiles     []SourceOutlineFile                   `json:"outlineFiles,omitempty"`
 	Digests          []SourceDigest                        `json:"digests,omitempty"`
+	OverviewFiles    []SourceOverviewFile                  `json:"overviewFiles,omitempty"`
 	Show             *SourceShow                           `json:"show,omitempty"`
 	FilesConsidered  int                                   `json:"filesConsidered"`
 	FilesParsed      int                                   `json:"filesParsed"`

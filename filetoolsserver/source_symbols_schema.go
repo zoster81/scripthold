@@ -17,7 +17,7 @@ func sourceSymbolsCatalogTool() *mcp.Tool {
 		"properties":           sourceSymbolsProperties(),
 		"oneOf": []any{
 			sourceSymbolsBranchSchema("outline", []string{"operation", "paths"}, []string{"paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "presentation", "maxSymbols", "maxFiles"}),
-			sourceSymbolsBranchSchema("digest", []string{"operation", "paths"}, []string{"paths", "language", "encoding", "includes", "excludes", "respectGitignore", "maxFiles"}),
+			sourceSymbolsBranchSchema("digest", []string{"operation", "paths"}, []string{"paths", "language", "encoding", "includes", "excludes", "respectGitignore", "presentation", "maxFiles"}),
 			sourceSymbolsBranchSchema("find", []string{"operation", "paths", "query"}, []string{"paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "maxSymbols", "maxFiles"}),
 			sourceSymbolsBranchSchema("show", []string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"}, []string{"path", "symbolId", "sourceFingerprint", "language", "encoding", "maxBytes"}),
 		},
@@ -57,6 +57,9 @@ func sourceSymbolsBranchSchema(operation string, required, legal []string) map[s
 	properties["operation"] = map[string]any{"const": operation}
 	for _, name := range legal {
 		properties[name] = map[string]any{}
+	}
+	if operation == "digest" {
+		properties["presentation"] = map[string]any{"enum": []string{"detailed", "compact"}}
 	}
 	return map[string]any{
 		"type":                 "object",

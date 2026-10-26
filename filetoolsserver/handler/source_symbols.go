@@ -52,6 +52,9 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 			return errorResultWithCode(ErrCodeInvalidInput, "match must be exact, prefix, or qualified"), SourceSymbolsOutput{}, nil
 		}
 	}
+	if operationName == "digest" && input.Presentation != "" && input.Presentation != "detailed" && input.Presentation != "compact" {
+		return errorResultWithCode(ErrCodeInvalidInput, "digest presentation must be detailed or compact"), SourceSymbolsOutput{}, nil
+	}
 	if operationName == "outline" && input.Presentation != "" && input.Presentation != "detailed" &&
 		input.Presentation != "compact" && input.Presentation != "tree" {
 		return errorResultWithCode(ErrCodeInvalidInput, "presentation must be detailed, compact, or tree"), SourceSymbolsOutput{}, nil
@@ -119,6 +122,12 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
+	if operationName == "digest" && input.Presentation == "compact" {
+		output.OverviewFiles = presentSourceDigestOverview(analyses, output.Digests)
+		output.Presentation = "compact"
+		output.Files = nil
+		output.Digests = nil
+	}
 	if operationName == "outline" && input.Presentation != "detailed" {
 		presentation := input.Presentation
 		if presentation == "" {

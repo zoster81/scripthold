@@ -268,6 +268,58 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 	return out
 }
 
+// presentSourceDigestOverview builds a small file atlas from the already analyzed
+// declarations. Digest entries follow parsed file order, so no path index is needed.
+func presentSourceDigestOverview(analyses []sourceFileAnalysis, digests []SourceDigest) []SourceOverviewFile {
+	const maxEntryPoints = 5
+	out := make([]SourceOverviewFile, 0, len(analyses))
+	digestIndex := 0
+	for _, current := range analyses {
+		file := current.file
+		entry := SourceOverviewFile{
+			Path: file.Path, Status: file.Status, Language: file.Language,
+			Encoding: file.Encoding, SourceFingerprint: file.SourceFingerprint,
+			SourceBytes: file.SourceBytes, CoverageComplete: file.CoverageComplete,
+			Error: file.Error, ErrorCode: file.ErrorCode,
+		}
+		if file.Status == "parsed" {
+			entry.DeclarationCounts = digests[digestIndex].DeclarationCounts
+			digestIndex++
+			// Top-level declarations may be children of a synthetic package/module node.
+			rootContainers := make(map[string]struct{})
+			for _, symbol := range current.analysis.Analysis.Symbols {
+				if symbol.ParentID == "" && (symbol.Kind == "package" || symbol.Kind == "module" || symbol.Kind == "namespace") {
+					rootContainers[symbol.ID] = struct{}{}
+				}
+			}
+			for _, symbol := range current.analysis.Analysis.Symbols {
+				if string(symbol.Visibility) != "public" {
+					continue
+				}
+				if symbol.ParentID != "" {
+					if _, ok := rootContainers[symbol.ParentID]; !ok {
+						continue
+					}
+				}
+				switch string(symbol.Kind) {
+				case "function", "class", "struct", "interface", "type", "alias", "enum", "trait":
+				default:
+					continue
+				}
+				if len(entry.EntryPoints) == maxEntryPoints {
+					entry.EntryPointsTruncated = true
+					break
+				}
+				entry.EntryPoints = append(entry.EntryPoints, SourceOverviewEntry{
+					Name: symbol.Name, Kind: symbol.Kind, Line: symbol.DeclarationRange.Start.Line,
+				})
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 func resolvePositiveLimit(requested, maximum int, name string) (int, *mcp.CallToolResult) {
 	if maximum <= 0 {
 		return 0, errorResultWithCode(ErrCodeInternal, name+" server limit is invalid")

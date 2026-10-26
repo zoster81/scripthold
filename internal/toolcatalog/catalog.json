@@ -93,7 +93,7 @@
     {
       "name": "source_symbols",
       "title": "Navigate Source Symbols",
-      "description": "Find source declarations or outline file structure (tree by default, compact/detailed optional); use grep for arbitrary text.",
+      "description": "Map project files with compact digest, navigate declaration trees, or find/show exact symbols; use grep for arbitrary text.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,

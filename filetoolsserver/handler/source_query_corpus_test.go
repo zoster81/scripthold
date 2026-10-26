@@ -509,6 +509,73 @@ func TestSourceSymbolsRealCorpusProjectTreeShow(t *testing.T) {
 		tree.FilesConsidered, tree.SymbolCount, len(treeJSON), len(detailedJSON), len(showJSON), treeDuration)
 }
 
+// The compact digest is a bounded entry map, not a replacement for full
+// dependency evidence. Use the real source root without executing its code.
+func TestSourceSymbolsRealCorpusProjectCompactDigest(t *testing.T) {
+	task, _ := realSourceTask(t)
+	if task != "go-router" {
+		t.Skip("the multi-file project overview uses the Go Chi corpus")
+	}
+	input := realSourceCorpusInput(t)
+	h := NewHandler(input.Paths)
+	request := SourceSymbolsInput{
+		Operation: "digest", Paths: input.Paths, Language: "go",
+		Includes: []string{"*.go"},
+		Excludes: []string{"**/_examples/**", "**/*_test.go", "**/testdata/**"},
+		MaxFiles: 128,
+	}
+	result, detailed, err := h.SourceSymbols(context.Background(), nil, request)
+	if err != nil || result != nil || !detailed.CoverageComplete {
+		t.Fatalf("detailed project digest failed: %+v %v", result, err)
+	}
+	request.Presentation = "compact"
+	result, compact, err := h.SourceSymbols(context.Background(), nil, request)
+	if err != nil || result != nil || compact.SymbolCount != detailed.SymbolCount ||
+		compact.FilesConsidered != detailed.FilesConsidered || compact.FilesParsed != detailed.FilesParsed ||
+		compact.FilesSkipped != detailed.FilesSkipped || compact.CoverageComplete != detailed.CoverageComplete ||
+		len(compact.OverviewFiles) != len(detailed.Files) || len(compact.Digests) != 0 || len(compact.Files) != 0 {
+		t.Fatalf("compact project digest lost evidence: %+v %v", result, err)
+	}
+	foundEntryPoint := false
+	digestIndex := 0
+	for i, file := range compact.OverviewFiles {
+		if file.Path != detailed.Files[i].Path || file.Status != detailed.Files[i].Status ||
+			file.CoverageComplete != detailed.Files[i].CoverageComplete ||
+			file.SourceFingerprint != detailed.Files[i].SourceFingerprint {
+			t.Fatalf("file %d lost identity or coverage", i)
+		}
+		if file.Status == "parsed" {
+			if !reflect.DeepEqual(file.DeclarationCounts, detailed.Digests[digestIndex].DeclarationCounts) {
+				t.Fatalf("file %d lost declaration counts", i)
+			}
+			digestIndex++
+		}
+		if len(file.EntryPoints) > 5 {
+			t.Fatalf("file %d exceeded entry point limit", i)
+		}
+		for _, entry := range file.EntryPoints {
+			if entry.Name == "NewRouter" && filepath.Base(file.Path) == "chi.go" {
+				foundEntryPoint = true
+			}
+		}
+	}
+	if !foundEntryPoint {
+		t.Fatal("project overview did not identify Chi's public router constructor")
+	}
+	fullJSON, err := json.Marshal(detailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactJSON, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compactJSON)*2 >= len(fullJSON) {
+		t.Fatalf("project overview insufficiently compact: compact=%d detailed=%d", len(compactJSON), len(fullJSON))
+	}
+	t.Logf("files=%d symbols=%d detailedBytes=%d compactBytes=%d", compact.FilesConsidered, compact.SymbolCount, len(fullJSON), len(compactJSON))
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)
