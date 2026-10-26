@@ -49,15 +49,15 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 
 	assertSourceSymbolsOperationSchema(t, branches, "outline",
 		[]string{"operation", "paths"},
-		[]string{"operation", "paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "maxSymbols", "maxFiles"},
+		[]string{"operation", "paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "presentation", "maxSymbols", "maxFiles"},
 	)
-	assertSourceSymbolsOperationSchema(t, branches, "digest",
+	digestBranch := assertSourceSymbolsOperationSchema(t, branches, "digest",
 		[]string{"operation", "paths"},
-		[]string{"operation", "paths", "language", "encoding", "includes", "excludes", "respectGitignore", "maxFiles"},
+		[]string{"operation", "paths", "language", "encoding", "includes", "excludes", "respectGitignore", "presentation", "maxFiles"},
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "find",
 		[]string{"operation", "paths", "query"},
-		[]string{"operation", "paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "maxSymbols", "maxFiles"},
+		[]string{"operation", "paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "maxSymbols", "maxFiles"},
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "show",
 		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"},
@@ -75,7 +75,16 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	if got := contractStringSlice(t, contractSchemaMap(t, properties["match"])["enum"]); !reflect.DeepEqual(got, []string{"exact", "prefix", "qualified"}) {
 		t.Fatalf("find.match enum = %v", got)
 	}
+	if got := contractStringSlice(t, contractSchemaMap(t, properties["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact", "tree"}) {
+		t.Fatalf("outline.presentation enum = %v", got)
+	}
+	if got := contractStringSlice(t, contractSchemaMap(t, contractSchemaProperties(t, digestBranch)["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact"}) {
+		t.Fatalf("digest.presentation enum = %v", got)
+	}
 	assertSourceSymbolsIntegerBound(t, "find.query.maxLength", properties["query"], "maxLength", 512)
+	if got := contractStringSlice(t, contractSchemaMap(t, properties["fileDetails"])["enum"]); !reflect.DeepEqual(got, []string{"all", "relevant"}) {
+		t.Fatalf("find.fileDetails enum = %v", got)
+	}
 
 	assertSourceSymbolsIntegerBound(t, "show.maxBytes.maximum", properties["maxBytes"], "maximum", sourceSymbolsContractMaxShowBytes)
 	for _, field := range []string{"symbolId", "sourceFingerprint"} {
@@ -115,8 +124,20 @@ func TestSourceSymbolsNavigationOutputContract(t *testing.T) {
 	session := connectTestClient(t, ctx, server, "r25-source-symbols-output")
 	_ = sourceSymbolsToolContract(t, ctx, session)
 
+	defaultResult := callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "outline", "paths": []string{path}, "language": "go",
+	})
+	defaultOutline := contractStructuredMap(t, defaultResult)
+	if defaultOutline["presentation"] != "tree" || defaultOutline["symbols"] != nil || defaultOutline["files"] != nil {
+		t.Fatalf("omitted presentation must return tree output: %#v", defaultOutline)
+	}
+	defaultFiles := contractObjectSlice(t, defaultOutline["outlineFiles"])
+	if len(defaultFiles) != 1 || len(contractObjectSlice(t, defaultFiles[0]["symbols"])) == 0 {
+		t.Fatalf("default tree has no declarations: %#v", defaultFiles)
+	}
 	outlineResult := callSourceSymbolsContract(t, ctx, session, map[string]any{
 		"operation":         "outline",
+		"presentation":      "detailed",
 		"paths":             []string{path},
 		"language":          "go",
 		"includeSignatures": true,

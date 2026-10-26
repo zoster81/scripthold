@@ -39,6 +39,9 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		}
 	}
 	if operationName == "find" {
+		if input.FileDetails != "" && input.FileDetails != "all" && input.FileDetails != "relevant" {
+			return errorResultWithCode(ErrCodeInvalidInput, "fileDetails must be all or relevant"), SourceSymbolsOutput{}, nil
+		}
 		if strings.TrimSpace(input.Query) == "" || utf8.RuneCountInString(input.Query) > 512 {
 			return errorResultWithCode(ErrCodeInvalidInput, "query must be a non-empty string up to 512 Unicode scalar values"), SourceSymbolsOutput{}, nil
 		}
@@ -48,6 +51,13 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		if input.Match != "exact" && input.Match != "prefix" && input.Match != "qualified" {
 			return errorResultWithCode(ErrCodeInvalidInput, "match must be exact, prefix, or qualified"), SourceSymbolsOutput{}, nil
 		}
+	}
+	if operationName == "digest" && input.Presentation != "" && input.Presentation != "detailed" && input.Presentation != "compact" {
+		return errorResultWithCode(ErrCodeInvalidInput, "digest presentation must be detailed or compact"), SourceSymbolsOutput{}, nil
+	}
+	if operationName == "outline" && input.Presentation != "" && input.Presentation != "detailed" &&
+		input.Presentation != "compact" && input.Presentation != "tree" {
+		return errorResultWithCode(ErrCodeInvalidInput, "presentation must be detailed, compact, or tree"), SourceSymbolsOutput{}, nil
 	}
 	if len(input.Kinds) > 32 {
 		return errorResultWithCode(ErrCodeLimit, "kinds exceeds the 32-item limit"), SourceSymbolsOutput{}, nil
@@ -71,8 +81,18 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 	includeSignatures := input.IncludeSignatures && operationName != "digest"
 	perFileSymbols := maxSymbols
-	if operationName == "digest" || operationName == "find" {
+	if operationName == "digest" || operationName == "find" || (operationName == "outline" && len(input.Kinds) > 0) {
 		perFileSymbols = limits.MaxSymbols
+	}
+	// A kind-filtered outline may inspect more symbols than it returns.
+	// Retain only matching declarations plus one truncation sentinel per file,
+	// avoiding a large result slice for each selected source file.
+	var outlineKinds map[string]struct{}
+	if operationName == "outline" && len(input.Kinds) > 0 {
+		outlineKinds = make(map[string]struct{}, len(input.Kinds))
+		for _, kind := range input.Kinds {
+			outlineKinds[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
+		}
 	}
 	analyses := make([]sourceFileAnalysis, 0, len(files))
 	stats := concurrency.ProcessOrdered(requestCtx, files, concurrency.Options{MaxWorkers: limits.MaxConcurrency},
@@ -80,6 +100,19 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 			return h.analyzeSourceFile(workCtx, registry, path, input.Language, input.Encoding, includeSignatures, perFileSymbols, limits)
 		},
 		func(_ int, analysis sourceFileAnalysis) bool {
+			if outlineKinds != nil && analysis.file.Status == "parsed" {
+				symbols := analysis.analysis.Analysis.Symbols
+				retained := make([]sourceintelligence.NormalizedSymbol, 0, min(len(symbols), maxSymbols))
+				for _, symbol := range symbols {
+					if _, ok := outlineKinds[strings.ToLower(string(symbol.Kind))]; ok {
+						retained = append(retained, symbol)
+						if len(retained) > maxSymbols {
+							break
+						}
+					}
+				}
+				analysis.analysis.Analysis.Symbols = retained
+			}
 			analyses = append(analyses, analysis)
 			return true
 		},
@@ -89,6 +122,22 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
+	if operationName == "digest" && input.Presentation == "compact" {
+		output.OverviewFiles = presentSourceDigestOverview(analyses, output.Digests)
+		output.Presentation = "compact"
+		output.Files = nil
+		output.Digests = nil
+	}
+	if operationName == "outline" && input.Presentation != "detailed" {
+		presentation := input.Presentation
+		if presentation == "" {
+			presentation = "tree"
+		}
+		output.OutlineFiles = presentSourceOutline(output.Files, output.Symbols, presentation)
+		output.Presentation = presentation
+		output.Files = nil
+		output.Symbols = nil
+	}
 	if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
 		return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
 	}

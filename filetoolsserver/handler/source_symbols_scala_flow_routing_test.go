@@ -31,7 +31,7 @@ export class FlowBox extends Base { run(value: ID): ID { return value; } }
 
 	h := NewHandler([]string{root})
 	toolErr, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
-		Operation: "outline", Paths: []string{root}, Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 128,
+		Operation: "outline", Presentation: "detailed", Paths: []string{root}, Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 128,
 	})
 	if err != nil || toolErr != nil {
 		t.Fatalf("Phase 16 outline err=%v toolErr=%+v", err, toolErr)

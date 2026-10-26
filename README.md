@@ -23,7 +23,7 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 ## What Scripthold provides
 
-The current public release is **Scripthold 4.0.0** with 36 tools and 3 guided prompts. Clients upgrading from 3.x should follow the [4.0 migration guide](docs/MIGRATION_4.0.md) for the unified confirmation tool.
+Scripthold 4.x provides 36 tools and 3 guided prompts; see [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) for the latest published version. Clients upgrading from 3.x should follow the [4.0 migration guide](docs/MIGRATION_4.0.md) for the unified confirmation tool. In 4.0.1, the `source_symbols outline` response defaults to a compact tree; pass `presentation: "detailed"` to retain the earlier `files` and `symbols` fields.
 
 - **168 registered text encodings** with content-based detection, UTF-32 LE/BE support, and conservative ambiguity handling.
 - **100 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
@@ -130,7 +130,7 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Tool groups
 
-[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below describes the published 4.0.0 catalog (36 tools). Clients upgrading from 3.3.6 must migrate the eight former apply commands to `confirm_verified_operation`.
+[`TOOLS.md`](TOOLS.md) is the detailed public reference for schemas, parameters, examples, limits, and error behavior. The table below describes the 4.x catalog (36 tools). Clients upgrading from 3.3.6 must migrate the eight former apply commands to `confirm_verified_operation`.
 
 | Area | Main tools |
 |---|---|
@@ -147,7 +147,7 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Source Intelligence
 
-Source Intelligence helps agents navigate source code without running it or requiring an external compiler, parser, or language server. Use `source_symbols` to find and inspect declarations; use `source_query` for structural search, supported project relationships, dependency graphs, and verified context.
+Source Intelligence helps agents navigate source code without running it or requiring an external compiler, parser, or language server. Use `source_symbols` to map project files with `digest` `presentation: "compact"`, browse a tree-structured file outline by default (or request `presentation: "detailed"` for the previous outline JSON structure), and inspect a selected symbol; use `source_query` for structural search, supported project relationships, dependency graphs, and verified context. Use `grep_text_files` when looking for arbitrary text or code behavior that is not represented by structural symbols.
 
 Unsupported or ambiguous relationships are rejected rather than guessed. Markdown files have their own [document tools](TOOLS.md#markdown_read). Check the generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix for available source providers and analysis coverage.
 

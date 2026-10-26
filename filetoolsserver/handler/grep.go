@@ -199,13 +199,22 @@ func compilePatterns(patterns []string, caseSensitive *bool) (*regexp.Regexp, er
 func (h *Handler) collectFiles(ctx context.Context, paths, includes, excludes []string, respectGitignore bool) ([]string, error) {
 	var files []string
 	seen := make(map[string]bool)
+	err := h.visitIncludedFiles(ctx, paths, includes, excludes, respectGitignore, func(path string) {
+		if !seen[path] {
+			seen[path] = true
+			files = append(files, path)
+		}
+	})
+	return files, err
+}
+
+// visitIncludedFiles shares the same authorized traversal with callers that
+// retain all files or only a bounded lexicographic selection.
+func (h *Handler) visitIncludedFiles(ctx context.Context, paths, includes, excludes []string, respectGitignore bool, visit func(string)) error {
 	allowedDirs := h.ResolvedAllowedDirs()
 	for _, path := range paths {
-		// Check for cancellation between paths
-		select {
-		case <-ctx.Done():
-			return files, ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		v := h.ValidatePath(path)
 		if !v.Ok() {
@@ -224,27 +233,22 @@ func (h *Handler) collectFiles(ctx context.Context, paths, includes, excludes []
 					return nil
 				},
 			}, func(entry filesystem.Entry) (filesystem.WalkAction, error) {
-				if entry.DirEntry.IsDir() {
-					return filesystem.WalkContinue, nil
-				}
-				if shouldIncludeFile(entry.Path, includes, excludes) && !seen[entry.ResolvedPath] {
-					seen[entry.ResolvedPath] = true
-					files = append(files, entry.ResolvedPath)
+				if !entry.DirEntry.IsDir() && shouldIncludeFile(entry.Path, includes, excludes) {
+					visit(entry.ResolvedPath)
 				}
 				return filesystem.WalkContinue, nil
 			})
 			if err != nil {
 				if ctx.Err() != nil {
-					return files, ctx.Err()
+					return ctx.Err()
 				}
-				return files, err
+				return err
 			}
-		} else if shouldIncludeFile(v.Path, includes, excludes) && !seen[v.Path] {
-			seen[v.Path] = true
-			files = append(files, v.Path)
+		} else if shouldIncludeFile(v.Path, includes, excludes) {
+			visit(v.Path)
 		}
 	}
-	return files, nil
+	return nil
 }
 
 // shouldIncludeFile checks if a file matches include/exclude patterns.

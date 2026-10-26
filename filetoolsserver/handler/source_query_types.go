@@ -30,6 +30,7 @@ type SourceQueryInput struct {
 	Query            string                   `json:"query,omitempty"`
 	Mode             string                   `json:"mode,omitempty"`
 	Match            string                   `json:"match,omitempty"`
+	Cursor           string                   `json:"cursor,omitempty"`
 	Relation         string                   `json:"relation,omitempty"`
 	Subject          *SourceSelectorInput     `json:"subject,omitempty"`
 	Target           *SourceSelectorInput     `json:"target,omitempty"`
@@ -53,16 +54,22 @@ type SourceQueryInput struct {
 }
 
 type SourceQueryCoverage struct {
-	FilesConsidered  int  `json:"filesConsidered"`
-	FilesParsed      int  `json:"filesParsed"`
-	FilesSkipped     int  `json:"filesSkipped"`
-	CoverageComplete bool `json:"coverageComplete"`
-	Truncated        bool `json:"truncated,omitempty"`
+	FilesConsidered        int  `json:"filesConsidered"`
+	FilesParsed            int  `json:"filesParsed"`
+	FilesSkipped           int  `json:"filesSkipped"`
+	FileSelectionTruncated bool `json:"fileSelectionTruncated"`
+	AnalysisComplete       bool `json:"analysisComplete"`
+	ResultsTruncated       bool `json:"resultsTruncated"`
+	CoverageComplete       bool `json:"coverageComplete"`
+	Truncated              bool `json:"truncated,omitempty"`
 }
 
 type SourceSearchMatch struct {
 	Path              string                            `json:"path"`
 	Language          string                            `json:"language,omitempty"`
+	Name              string                            `json:"name,omitempty"`
+	Kind              sourceintelligence.SymbolKind     `json:"kind,omitempty"`
+	QualifiedName     string                            `json:"qualifiedName,omitempty"`
 	Range             sourceintelligence.Range          `json:"range"`
 	SymbolID          string                            `json:"symbolId,omitempty"`
 	SourceFingerprint string                            `json:"sourceFingerprint"`
@@ -70,12 +77,14 @@ type SourceSearchMatch struct {
 }
 
 type SourceSearchResult struct {
-	Matches []SourceSearchMatch `json:"matches,omitempty"`
+	Matches    []SourceSearchMatch `json:"matches,omitempty"`
+	NextCursor string              `json:"nextCursor,omitempty"`
 }
 
 type SourceRelationsResult struct {
-	Relation  sourceintelligence.RelationKind     `json:"relation"`
-	Relations []sourceintelligence.RelationRecord `json:"relations,omitempty"`
+	Relation      sourceintelligence.RelationKind     `json:"relation"`
+	EvidenceScope string                              `json:"evidenceScope"`
+	Relations     []sourceintelligence.RelationRecord `json:"relations,omitempty"`
 }
 
 type SourceContextResult struct {

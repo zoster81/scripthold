@@ -31,7 +31,7 @@ func TestSourceSymbolsRoutesScientificLegacyAndFunctionalLanguages(t *testing.T)
 
 	h := NewHandler([]string{filepath.Dir(root)})
 	toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
-		Operation: "outline", Paths: []string{root}, Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 512,
+		Operation: "outline", Presentation: "detailed", Paths: []string{root}, Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 512,
 	})
 	if err != nil || toolErr != nil {
 		t.Fatalf("Phase 9 outline err=%v toolErr=%+v", err, toolErr)

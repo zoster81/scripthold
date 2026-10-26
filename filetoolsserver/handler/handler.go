@@ -135,6 +135,9 @@ type Handler struct {
 	sourceIndexOnce            sync.Once
 	sourceIndex                *sourceintelligence.ProjectIndexManager
 	sourceIndexInitErr         error
+	sourceCursorOnce           sync.Once
+	sourceCursorSecret         [32]byte
+	sourceCursorInitErr        error
 	mu                         sync.RWMutex
 }
 

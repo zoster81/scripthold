@@ -2,9 +2,104 @@ package sourceintelligence
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func BenchmarkProjectSearchTopK(b *testing.B) {
+	const total = 20_000
+	matches := make([]ProjectSearchMatch, 0, total)
+	for i := 0; i < total; i++ {
+		index := (i * 7919) % total
+		matches = append(matches, ProjectSearchMatch{
+			Path: "source-" + strconv.Itoa(index%173),
+			Range: Range{
+				Start: Position{Line: index/173 + 1, Column: 1},
+				End:   Position{Line: index/173 + 1, Column: 4},
+			},
+			SymbolID: strconv.Itoa(index),
+		})
+	}
+	for _, maximum := range []int{8, 128} {
+		b.Run("full-sort/"+strconv.Itoa(maximum), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				result := finalizeProjectSearch(append([]ProjectSearchMatch(nil), matches...), maximum)
+				if !result.Truncated || len(result.Matches) != maximum {
+					b.Fatal("unexpected full sort result")
+				}
+			}
+		})
+		b.Run("top-k/"+strconv.Itoa(maximum), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				collector := newProjectSearchTopK(maximum)
+				for _, match := range matches {
+					collector.append(match)
+				}
+				result := collector.result()
+				if !result.Truncated || len(result.Matches) != maximum {
+					b.Fatal("unexpected bounded result")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkProjectContextRepeatedImports(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	makeFacts := func(path, text string) ProjectFileFacts {
+		document := sourceDocumentForScanner(text)
+		document.Path = path
+		sum := sha256.Sum256([]byte(text))
+		document.SourceFingerprint = hex.EncodeToString(sum[:])
+		result, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 512))
+		if err != nil || !result.Analysis.CoverageComplete {
+			b.Fatalf("analyze %s: %v; diagnostics=%+v", path, err, result.Analysis.Diagnostics)
+		}
+		return ProjectFileFacts{Path: path, Language: "typescript", SourceFingerprint: document.SourceFingerprint, Analysis: result}
+	}
+	var shared, client strings.Builder
+	for i := 0; i < 128; i++ {
+		shared.WriteString("export class Item")
+		shared.WriteString(strconv.Itoa(i))
+		shared.WriteString(" {}\n")
+	}
+	for i := 0; i < 48; i++ {
+		client.WriteString("import { Item")
+		client.WriteString(strconv.Itoa(i))
+		client.WriteString(" } from \"./shared\";\n")
+	}
+	client.WriteString("export class Client {}\n")
+	sharedFacts := makeFacts(filepath.Join("project", "bench", "shared.ts"), shared.String())
+	clientFacts := makeFacts(filepath.Join("project", "bench", "client.ts"), client.String())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{sharedFacts, clientFacts}, projectResolverLimitsForTest())
+	if err != nil {
+		b.Fatal(err)
+	}
+	target := queryPathSelector(clientFacts)
+	options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 256, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		plan, err := model.PlanContext(context.Background(), []ProjectSelector{target}, options)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(plan.Candidates) < 100 {
+			b.Fatalf("expected broad dependency context; got %d symbols", len(plan.Candidates))
+		}
+	}
+}
 
 func BenchmarkCanaryAnalyzers(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()

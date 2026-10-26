@@ -2,6 +2,34 @@
 
 This changelog records user-visible Scripthold changes. Detailed implementation history remains available in Git.
 
+## 4.0.1 - 2026-10-26
+
+This release improves read-only source navigation and response size, without changing filesystem mutation or authorization behavior. Structural navigation can now return a compact project map, an outline tree, and an authenticated continuation cursor so clients can inspect specific declarations instead of transferring entire files. The relative usefulness of these workflows versus grep and targeted reads remains task-dependent; unbiased ChatGPT client-choice measurements are scheduled after updating the connector.
+
+**Compatibility:** `source_symbols` with `operation: "outline"` now defaults to `presentation: "tree"` and returns `outlineFiles` instead of historical top-level `files` and `symbols`. Existing clients that consume those fields must pass `presentation: "detailed"`. This default-response change is intentional even though the chosen release number is 4.0.1; other operations and read-only authorization boundaries remain unchanged.
+
+### Added
+
+- `source_query relations` now explicitly labels results `evidenceScope: "indexed-relations-only"`. Complete file scanning does not imply complete semantic caller/reference coverage; an empty result must not be interpreted as proof of no usages.
+- Optional `source_symbols digest` `presentation: "compact"` provides a bounded multi-file project overview with declaration counts, limited top-level public entry-point names, source provenance and explicit coverage. Existing digest responses remain unchanged by default; full import and relation details remain available in the historical form.
+
+### Fixed
+
+- `source_query` and `source_symbols` now retain at most `maxFiles` selected file paths during directory traversal rather than collecting every matching path first. Selection remains lexicographically deterministic, filters and path authorization are unchanged, and omitted-file coverage remains explicit.
+- A filtered `source_symbols outline` now applies `maxSymbols` to matching declarations after bounded analysis, instead of losing matches behind earlier declarations of other kinds. Full-analysis and result-truncation coverage remain explicit.
+
+### Changed
+
+- Clarified the `source_symbols` tool description with explicit operation-specific inputs and grep/read alternatives. This does not change accepted requests, validation, or runtime behavior.
+- `source_symbols outline` now returns a compact hierarchical `tree` view by default. Clients expecting the previous top-level `files` and `symbols` must explicitly pass `presentation: "detailed"`; `presentation: "compact"` remains available for a flat list. This is an intentional response-shape compatibility change on the unreleased branch.
+- Source Intelligence structural search now includes analyzer-proven declaration `name`, `kind`, and `qualifiedName` when available, reducing the need for separate symbol lookups. Non-declaration matches retain their existing shape without invented identity; requests, source freshness checks, and search limits are unchanged.
+- Source query responses now distinguish omitted files, incomplete selected-file analysis, and truncated search/relationship/context output with explicit coverage booleans, while retaining the existing aggregate flags.
+- Source context planning now avoids broad reverse-dependency declarations for symbol and position selectors while retaining verified type relationships and explicit file-level context; outgoing type references are grouped with bounded request-local indexes rather than repeatedly scanning the full relation array.
+- Repeated project context dependencies now reuse request-local immutable root-symbol lists rather than rebuilding symbol maps and arrays for every incoming edge. No public request changes or persistent indexes are introduced.
+- Structural source search now retains only the best `maxResults` matches in a bounded heap rather than collecting and sorting every match. Global match ordering and truncation semantics are preserved, with no new persistent index.
+- `source_query` structural search now supports optional `cursor` input and `search.nextCursor` output for bounded continuation. Tokens are authenticated, time-limited, and bound to search filters and the current indexed generation; old clients can omit cursors.
+- Invalid, expired, or cross-query source search cursors now fail before source-file collection and index refresh, after preserving allowed-path authorization. Valid cursors still revalidate the current index generation before returning results.
+
 ## 4.0.0 - 2026-10-25
 
 ### Changed

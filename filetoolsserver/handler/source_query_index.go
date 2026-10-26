@@ -35,16 +35,9 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		}
 		validatedRoots = append(validatedRoots, validated.Path)
 	}
-	files, err := h.collectFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore))
+	files, selectionTruncated, err := h.collectBoundedSourceFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore), maxFiles)
 	if err != nil {
 		return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, errorResultFromError(err)
-	}
-	sort.Strings(files)
-	files = deduplicateSortedPaths(files)
-	selectionTruncated := false
-	if len(files) > maxFiles {
-		files = files[:maxFiles]
-		selectionTruncated = true
 	}
 	var aggregateBytes int64
 	for _, path := range files {
@@ -158,11 +151,13 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, errorResultFromError(refreshErr)
 	}
 	coverage := SourceQueryCoverage{
-		FilesConsidered:  selection.Coverage.FilesConsidered,
-		FilesParsed:      selection.Coverage.FilesParsed,
-		FilesSkipped:     selection.Coverage.FilesSkipped,
-		CoverageComplete: selection.Coverage.CoverageComplete,
-		Truncated:        selection.Coverage.Truncated,
+		FilesConsidered:        selection.Coverage.FilesConsidered,
+		FilesParsed:            selection.Coverage.FilesParsed,
+		FilesSkipped:           selection.Coverage.FilesSkipped,
+		FileSelectionTruncated: selection.Coverage.Truncated,
+		AnalysisComplete:       selection.Coverage.AnalysisComplete,
+		CoverageComplete:       selection.Coverage.CoverageComplete,
+		Truncated:              selection.Coverage.Truncated,
 	}
 	return selection, coverage, registry, nil
 }

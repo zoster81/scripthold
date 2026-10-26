@@ -56,6 +56,7 @@ type projectContextPlanner struct {
 	options ProjectContextOptions
 	plan    ProjectContextPlan
 	seen    map[string]struct{}
+	roots   map[string][]projectSymbolRecord
 }
 
 // PlanContext builds a deterministic, budget-aware project context plan from
@@ -85,6 +86,7 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 	}
 
 	seeds := make([]projectContextSeed, 0, len(targets))
+	pathTargets := make([]string, 0, len(targets))
 	for _, selector := range targets {
 		if err := ctx.Err(); err != nil {
 			return ProjectContextPlan{}, operation.Wrap(operation.KindCancelled, "plan_project_context", selector.Path, err)
@@ -94,11 +96,16 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 			return ProjectContextPlan{}, err
 		}
 		seeds = append(seeds, resolved...)
+		if selector.Kind == ProjectSelectorPath {
+			pathTargets = append(pathTargets, projectPathKey(selector.Path))
+		}
 	}
 	if len(seeds) == 0 {
 		return ProjectContextPlan{}, nil
 	}
 	sortContextSeeds(seeds)
+	sort.Strings(pathTargets)
+	pathTargets = deduplicateStrings(pathTargets)
 
 	planner := projectContextPlanner{
 		model: model, options: options,
@@ -116,7 +123,7 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 	if err := planner.addDirectDependencies(ctx, seeds); err != nil {
 		return ProjectContextPlan{}, err
 	}
-	if err := planner.addReverseAndTypeRelations(ctx, seeds); err != nil {
+	if err := planner.addReverseAndTypeRelations(ctx, seeds, pathTargets); err != nil {
 		return ProjectContextPlan{}, err
 	}
 	if err := planner.addDeeperDependencies(ctx, seeds); err != nil {
@@ -292,7 +299,7 @@ func (planner *projectContextPlanner) addDirectDependencies(ctx context.Context,
 				return operation.Wrap(operation.KindCancelled, "plan_project_context", dependency.Source.Path, err)
 			}
 			for _, target := range dependency.Targets {
-				for _, record := range planner.model.contextRootSymbols(projectPathKey(target.Path)) {
+				for _, record := range planner.contextRootSymbols(projectPathKey(target.Path)) {
 					if err := planner.add(record, ContextDirectDependency, 3, dependency.Evidence, dependency.Resolution, false); err != nil {
 						return err
 					}
@@ -303,7 +310,7 @@ func (planner *projectContextPlanner) addDirectDependencies(ctx context.Context,
 	return nil
 }
 
-func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Context, seeds []projectContextSeed) error {
+func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Context, seeds []projectContextSeed, pathTargets []string) error {
 	records := make([]projectSymbolRecord, 0, len(seeds)*2)
 	for _, seed := range seeds {
 		records = append(records, seed.record)
@@ -319,12 +326,28 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 	}
 	sortProjectSymbolRecords(records)
 
+	// Group only relevant outgoing type relations by source ID. Indexes refer
+	// to immutable model records, avoiding copied relations and repeated scans.
+	outgoing := make(map[string][]int, len(records))
+	for _, record := range records {
+		outgoing[record.symbol.ID] = nil
+	}
+	for index, reference := range planner.model.references {
+		if !isInheritanceStructuralKind(reference.StructuralKind) && !isImplementationStructuralKind(reference.StructuralKind) {
+			continue
+		}
+		if _, wanted := outgoing[reference.Source.SymbolID]; wanted {
+			outgoing[reference.Source.SymbolID] = append(outgoing[reference.Source.SymbolID], index)
+		}
+	}
+
 	for _, record := range records {
 		if err := ctx.Err(); err != nil {
 			return operation.Wrap(operation.KindCancelled, "plan_project_context", record.entity.Path, err)
 		}
-		for _, reference := range planner.model.references {
-			if reference.Source.SymbolID != record.symbol.ID || (!isInheritanceStructuralKind(reference.StructuralKind) && !isImplementationStructuralKind(reference.StructuralKind)) {
+		for _, index := range outgoing[record.symbol.ID] {
+			reference := planner.model.references[index]
+			if projectPathKey(reference.Source.Path) != record.pathKey {
 				continue
 			}
 			for _, target := range reference.Targets {
@@ -348,9 +371,9 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 			}
 		}
 	}
-	for _, pathKey := range contextSeedPathKeys(seeds) {
+	for _, pathKey := range pathTargets {
 		for _, dependency := range planner.model.dependentsByTarget[pathKey] {
-			for _, record := range planner.model.contextRootSymbols(projectPathKey(dependency.Source.Path)) {
+			for _, record := range planner.contextRootSymbols(projectPathKey(dependency.Source.Path)) {
 				if err := planner.add(record, ContextReverseOrTypeRelation, 6, dependency.Evidence, dependency.Resolution, false); err != nil {
 					return err
 				}
@@ -420,7 +443,7 @@ func (planner *projectContextPlanner) addDeeperDependencies(ctx context.Context,
 			visited[edge.pathKey] = struct{}{}
 			depth := current.depth + 1
 			if depth >= 2 {
-				for _, record := range planner.model.contextRootSymbols(edge.pathKey) {
+				for _, record := range planner.contextRootSymbols(edge.pathKey) {
 					if err := planner.addWithPolicy(record, ContextDeeperRelation, 7, edge.evidence, edge.resolution, false, ProjectContextSignaturesOnly); err != nil {
 						return err
 					}
@@ -463,6 +486,20 @@ func weakerContextResolution(left, right ResolutionState) ResolutionState {
 		return left
 	}
 	return ResolutionAmbiguous
+}
+
+// contextRootSymbols reuses immutable normalized records across repeated edges
+// within one plan without growing the retained project-generation index.
+func (planner *projectContextPlanner) contextRootSymbols(pathKey string) []projectSymbolRecord {
+	if records, ok := planner.roots[pathKey]; ok {
+		return records
+	}
+	records := planner.model.contextRootSymbols(pathKey)
+	if planner.roots == nil {
+		planner.roots = make(map[string][]projectSymbolRecord)
+	}
+	planner.roots[pathKey] = records
+	return records
 }
 
 func (model *ProjectModel) contextRootSymbols(pathKey string) []projectSymbolRecord {

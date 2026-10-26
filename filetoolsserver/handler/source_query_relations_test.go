@@ -47,6 +47,44 @@ func TestSourceQueryStructuralSearchAndCoverage(t *testing.T) {
 	}
 }
 
+func TestSourceQueryEmptyReferencesDoNotProveNoCallers(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "Widget.cs")
+	writeSourceQueryFixture(t, path, "class Widget { void Pippo() {} void Caller() { Pippo(); } }\n")
+	h := NewHandler([]string{root})
+	result, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "csharp", MaxFiles: 1,
+	})
+	if err != nil || result != nil || !outline.CoverageComplete {
+		t.Fatalf("outline result=%+v err=%v coverage=%+v", result, err, outline)
+	}
+	var targetID string
+	for _, symbol := range outline.Symbols {
+		if symbol.Name == "Pippo" {
+			targetID = symbol.ID
+			break
+		}
+	}
+	if targetID == "" {
+		t.Fatal("target method declaration not found")
+	}
+	result, queried, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "relations", Relation: "references", Paths: []string{root}, Language: "csharp",
+		Subject: &SourceSelectorInput{
+			Kind: "symbol", Path: path, SymbolID: targetID,
+			SourceFingerprint: outline.Files[0].SourceFingerprint,
+		},
+		MaxFiles: 2, MaxResults: 8,
+	})
+	if err != nil || result != nil || queried.Relations == nil || !queried.Coverage.CoverageComplete {
+		t.Fatalf("reference query failed: result=%+v output=%+v err=%v", result, queried, err)
+	}
+	if queried.Relations.EvidenceScope != "indexed-relations-only" {
+		t.Fatalf("empty reference results must disclose non-exhaustive semantics: %+v", queried.Relations)
+	}
+	// A structurally complete file scan cannot establish complete semantic call coverage.
+}
+
 func TestSourceQueryProjectRelationsAndStaleSelector(t *testing.T) {
 	root := canonicalHandlerTestDir(t)
 	basePath := filepath.Join(root, "base.ts")
@@ -138,6 +176,17 @@ func TestSourceQueryGraphAndDeferredModes(t *testing.T) {
 	})
 	if cyclesErr != nil || (cyclesResult != nil && cyclesResult.IsError) || cyclesOutput.Relations == nil || len(cyclesOutput.Relations.Relations) != 3 {
 		t.Fatalf("cycles result=%+v output=%+v err=%v", cyclesResult, cyclesOutput, cyclesErr)
+	}
+
+	limitedCyclesResult, limitedCycles, limitedCyclesErr := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "relations", Paths: []string{root}, Relation: "cycles", Language: "typescript",
+		MaxResults: 1, MaxNodes: 16, MaxEdges: 32,
+	})
+	if limitedCyclesErr != nil || (limitedCyclesResult != nil && limitedCyclesResult.IsError) || limitedCycles.Relations == nil || len(limitedCycles.Relations.Relations) != 1 {
+		t.Fatalf("limited cycles result=%+v output=%+v err=%v", limitedCyclesResult, limitedCycles, limitedCyclesErr)
+	}
+	if !limitedCycles.Coverage.ResultsTruncated || !limitedCycles.Coverage.Truncated || limitedCycles.Coverage.FileSelectionTruncated || !limitedCycles.Coverage.AnalysisComplete || limitedCycles.Coverage.CoverageComplete {
+		t.Fatalf("result limit must not be confused with index coverage: %+v", limitedCycles.Coverage)
 	}
 
 	for _, input := range []SourceQueryInput{

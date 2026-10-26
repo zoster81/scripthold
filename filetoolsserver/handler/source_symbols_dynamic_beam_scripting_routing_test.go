@@ -32,7 +32,7 @@ func TestSourceSymbolsRoutesDynamicBEAMAndScriptingLanguages(t *testing.T) {
 
 	h := NewHandler([]string{filepath.Dir(autoRoot)})
 	toolErr, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
-		Operation: "outline", Paths: []string{autoRoot}, Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 512,
+		Operation: "outline", Presentation: "detailed", Paths: []string{autoRoot}, Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 512,
 	})
 	if err != nil || toolErr != nil {
 		t.Fatalf("auto outline err=%v toolErr=%+v", err, toolErr)
@@ -79,7 +79,7 @@ func TestSourceSymbolsRoutesDynamicBEAMAndScriptingLanguages(t *testing.T) {
 		t.Fatal(err)
 	}
 	toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
-		Operation: "outline", Paths: []string{path}, Language: "shell", Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 64,
+		Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "shell", Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 64,
 	})
 	if err != nil || toolErr != nil {
 		t.Fatalf("explicit shell err=%v toolErr=%+v", err, toolErr)

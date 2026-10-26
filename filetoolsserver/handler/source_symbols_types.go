@@ -20,6 +20,8 @@ type SourceSymbolsInput struct {
 	Excludes          []string `json:"excludes,omitempty"`
 	RespectGitignore  *bool    `json:"respectGitignore,omitempty"`
 	IncludeSignatures bool     `json:"includeSignatures,omitempty"`
+	FileDetails       string   `json:"fileDetails,omitempty"`
+	Presentation      string   `json:"presentation,omitempty"`
 	MaxSymbols        int      `json:"maxSymbols,omitempty"`
 	MaxFiles          int      `json:"maxFiles,omitempty"`
 	SymbolID          string   `json:"symbolId,omitempty"`
@@ -69,12 +71,62 @@ type SourceShow struct {
 	Text              string                   `json:"text"`
 }
 
+type SourceOutlineNode struct {
+	SymbolID      string                        `json:"symbolId"`
+	Name          string                        `json:"name"`
+	Kind          sourceintelligence.SymbolKind `json:"kind"`
+	QualifiedName string                        `json:"qualifiedName,omitempty"`
+	Line          int                           `json:"line"`
+	Column        int                           `json:"column"`
+	Signature     string                        `json:"signature,omitempty"`
+	ParentID      string                        `json:"parentId,omitempty"`
+	Children      []*SourceOutlineNode          `json:"children,omitempty"`
+}
+
+type SourceOutlineFile struct {
+	Path              string               `json:"path"`
+	Status            string               `json:"status"`
+	Encoding          string               `json:"encoding,omitempty"`
+	Language          string               `json:"language,omitempty"`
+	SourceFingerprint string               `json:"sourceFingerprint,omitempty"`
+	CoverageComplete  bool                 `json:"coverageComplete"`
+	Error             string               `json:"error,omitempty"`
+	ErrorCode         string               `json:"errorCode,omitempty"`
+	Symbols           []*SourceOutlineNode `json:"symbols,omitempty"`
+}
+
+// SourceOverviewEntry identifies a leading public declaration; it is not a complete symbol inventory.
+type SourceOverviewEntry struct {
+	Name string                        `json:"name"`
+	Kind sourceintelligence.SymbolKind `json:"kind"`
+	Line int                           `json:"line"`
+}
+
+// SourceOverviewFile is the file-level map used to select a smaller outline scope.
+type SourceOverviewFile struct {
+	Path                 string                   `json:"path"`
+	Status               string                   `json:"status"`
+	Language             string                   `json:"language,omitempty"`
+	Encoding             string                   `json:"encoding,omitempty"`
+	SourceFingerprint    string                   `json:"sourceFingerprint,omitempty"`
+	SourceBytes          int64                    `json:"sourceBytes,omitempty"`
+	CoverageComplete     bool                     `json:"coverageComplete"`
+	Error                string                   `json:"error,omitempty"`
+	ErrorCode            string                   `json:"errorCode,omitempty"`
+	DeclarationCounts    []SourceDeclarationCount `json:"declarationCounts,omitempty"`
+	EntryPoints          []SourceOverviewEntry    `json:"entryPoints,omitempty"`
+	EntryPointsTruncated bool                     `json:"entryPointsTruncated,omitempty"`
+}
+
 type SourceSymbolsOutput struct {
 	Operation        string                                `json:"operation"`
 	CoordinateSystem string                                `json:"coordinateSystem"`
 	Files            []SourceSymbolsFile                   `json:"files,omitempty"`
 	Symbols          []sourceintelligence.NormalizedSymbol `json:"symbols,omitempty"`
+	Presentation     string                                `json:"presentation,omitempty"`
+	OutlineFiles     []SourceOutlineFile                   `json:"outlineFiles,omitempty"`
 	Digests          []SourceDigest                        `json:"digests,omitempty"`
+	OverviewFiles    []SourceOverviewFile                  `json:"overviewFiles,omitempty"`
 	Show             *SourceShow                           `json:"show,omitempty"`
 	FilesConsidered  int                                   `json:"filesConsidered"`
 	FilesParsed      int                                   `json:"filesParsed"`

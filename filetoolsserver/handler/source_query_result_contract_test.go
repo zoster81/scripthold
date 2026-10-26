@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
@@ -48,6 +51,36 @@ func TestSourceQueryStructuredResultContract(t *testing.T) {
 	}
 	if got := relation["resolution"]; got != "ambiguous" {
 		t.Fatalf("relation.resolution = %#v, want ambiguous", got)
+	}
+}
+
+func TestSourceQuerySearchIdentifiesDeclarationsWithoutAdditionalLookup(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "Service.java")
+	if err := os.WriteFile(path, []byte("package demo; public class Service { public void run() {} }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	result, output, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "search", Paths: []string{path}, Query: "Service", Mode: "structural",
+		Match: "exact", Language: "java", Encoding: "utf-8", MaxResults: 8,
+	})
+	if err != nil || (result != nil && result.IsError) || output.Search == nil || len(output.Search.Matches) != 1 {
+		t.Fatalf("source query result=%+v output=%+v err=%v", result, output, err)
+	}
+	encoded, err := json.Marshal(output.Search.Matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var match map[string]any
+	if err := json.Unmarshal(encoded, &match); err != nil {
+		t.Fatal(err)
+	}
+	if match["name"] != "Service" || match["kind"] != "class" {
+		t.Fatalf("declaration identity missing in search output: %v", match)
+	}
+	if name, ok := match["qualifiedName"].(string); !ok || name == "" {
+		t.Fatalf("declaration qualified name missing in search output: %v", match)
 	}
 }
 

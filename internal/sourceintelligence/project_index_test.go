@@ -11,6 +11,27 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+func TestProjectIndexCoverageSeparatesAnalyzerAndFileSelection(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := indexFacts(t, registry, filepath.Join("project", "x.ts"), "typescript", "export class X {}\n")
+	if !facts.Analysis.Analysis.CoverageComplete {
+		t.Fatal("test source analysis is incomplete")
+	}
+	files := map[string]*indexedProjectFile{"x": {facts: &facts}}
+	limited := projectIndexGenerationCoverage(files, nil, true)
+	if !limited.AnalysisComplete || limited.CoverageComplete || !limited.Truncated {
+		t.Fatalf("file selection limit was confused with analyzer failure: %+v", limited)
+	}
+	facts.Analysis.Analysis.CoverageComplete = false
+	partial := projectIndexGenerationCoverage(files, nil, false)
+	if partial.AnalysisComplete || partial.CoverageComplete || partial.Truncated || partial.FilesSkipped != 0 {
+		t.Fatalf("incomplete analyzer was confused with selection truncation: %+v", partial)
+	}
+}
+
 func TestProjectIndexAnalysisFingerprintIncludesFactAffectingLimits(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

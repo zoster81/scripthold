@@ -18,7 +18,31 @@ func (h *Handler) SourceQuery(ctx context.Context, _ *mcp.CallToolRequest, input
 	if result := validateSourceQueryOperation(operation, input, limits); result != nil {
 		return result, SourceQueryOutput{}, nil
 	}
-	return h.executeSourceQuery(ctx, input, limits)
+	var verifiedCursor *sourceSearchCursorPayload
+	if operation == "search" && input.Cursor != "" {
+		// Preserve the authorization boundary before examining the cursor.
+		for _, path := range input.Paths {
+			validated := h.ValidatePath(path)
+			if !validated.Ok() {
+				return validated.Result, SourceQueryOutput{}, nil
+			}
+		}
+		payload, err := h.decodeSourceSearchCursor(input.Cursor)
+		if err != nil {
+			return errorResultFromError(err), SourceQueryOutput{}, nil
+		}
+		maxFiles, _ := resolvePositiveLimit(input.MaxFiles, limits.MaxFiles, "maxFiles")
+		maxResults, _ := resolvePositiveLimit(input.MaxResults, limits.MaxResults, "maxResults")
+		requestHash, err := sourceSearchRequestFingerprint(input, maxFiles, maxResults)
+		if err != nil {
+			return errorResultFromError(err), SourceQueryOutput{}, nil
+		}
+		if payload.QueryHash != requestHash {
+			return errorResultWithCode(ErrCodeInvalidInput, "source search cursor does not match the requested search"), SourceQueryOutput{}, nil
+		}
+		verifiedCursor = &payload
+	}
+	return h.executeSourceQuery(ctx, input, limits, verifiedCursor)
 }
 
 func validateSourceQueryCommon(input SourceQueryInput, limits config.SourceConfig) *mcp.CallToolResult {
@@ -32,6 +56,9 @@ func validateSourceQueryCommon(input SourceQueryInput, limits config.SourceConfi
 		if strings.TrimSpace(path) == "" {
 			return errorResultWithCode(ErrCodeInvalidInput, "paths must not contain empty values")
 		}
+	}
+	if len(input.Cursor) > sourceSearchCursorMaxBytes {
+		return errorResultWithCode(ErrCodeLimit, "source search cursor exceeds the maximum encoded size")
 	}
 	if _, result := resolvePositiveLimit(input.MaxFiles, limits.MaxFiles, "maxFiles"); result != nil {
 		return result
@@ -99,7 +126,7 @@ func validateSourceRelationsQuery(input SourceQueryInput, limits config.SourceCo
 	if !isSourceRelationKind(input.Relation) {
 		return errorResultWithCode(ErrCodeInvalidInput, "relations requires a supported relation kind")
 	}
-	if input.Query != "" || input.Mode != "" || input.Match != "" || len(input.Kinds) > 0 || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxItems != 0 {
+	if input.Query != "" || input.Mode != "" || input.Match != "" || input.Cursor != "" || len(input.Kinds) > 0 || len(input.Targets) > 0 || input.BudgetBytes != 0 || input.BodyPolicy != "" || input.MaxItems != 0 {
 		return errorResultWithCode(ErrCodeInvalidInput, "relations received fields that are legal only for search or context")
 	}
 	for _, pair := range []struct {
@@ -144,7 +171,7 @@ func validateSourceContextQuery(input SourceQueryInput, limits config.SourceConf
 	if input.BodyPolicy != "" && input.BodyPolicy != "prefer" && input.BodyPolicy != "signatures-only" {
 		return errorResultWithCode(ErrCodeInvalidInput, "context bodyPolicy must be prefer or signatures-only")
 	}
-	if input.Query != "" || input.Mode != "" || input.Match != "" || input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Kinds) > 0 || len(input.Evidence) > 0 || input.MaxResults != 0 || input.MaxNodes != 0 || input.MaxEdges != 0 {
+	if input.Query != "" || input.Mode != "" || input.Match != "" || input.Cursor != "" || input.Relation != "" || input.Subject != nil || input.Target != nil || len(input.Kinds) > 0 || len(input.Evidence) > 0 || input.MaxResults != 0 || input.MaxNodes != 0 || input.MaxEdges != 0 {
 		return errorResultWithCode(ErrCodeInvalidInput, "context received fields that are legal only for search or relations")
 	}
 	for _, pair := range []struct {

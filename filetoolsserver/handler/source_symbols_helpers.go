@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -114,6 +115,54 @@ func (h *Handler) sourceLimits() config.SourceConfig {
 	return limits
 }
 
+// sourcePathMaxHeap keeps the lexicographically last retained path at the root.
+type sourcePathMaxHeap []string
+
+func (values sourcePathMaxHeap) Len() int           { return len(values) }
+func (values sourcePathMaxHeap) Less(i, j int) bool { return values[i] > values[j] }
+func (values sourcePathMaxHeap) Swap(i, j int)      { values[i], values[j] = values[j], values[i] }
+func (values *sourcePathMaxHeap) Push(value any)    { *values = append(*values, value.(string)) }
+func (values *sourcePathMaxHeap) Pop() any {
+	last := len(*values) - 1
+	value := (*values)[last]
+	*values = (*values)[:last]
+	return value
+}
+
+// collectBoundedSourceFiles traverses the full authorized scope for honest
+// truncation evidence without retaining all matching paths in memory.
+func (h *Handler) collectBoundedSourceFiles(ctx context.Context, paths, includes, excludes []string, respectGitignore bool, maximum int) ([]string, bool, error) {
+	if maximum <= 0 {
+		return nil, false, operation.New(operation.KindInvalidInput, "source file selection limit must be positive")
+	}
+	selected := make(sourcePathMaxHeap, 0, min(maximum, 256))
+	retained := make(map[string]struct{}, min(maximum, 256))
+	truncated := false
+	err := h.visitIncludedFiles(ctx, paths, includes, excludes, respectGitignore, func(path string) {
+		if _, exists := retained[path]; exists {
+			return
+		}
+		if len(selected) < maximum {
+			heap.Push(&selected, path)
+			retained[path] = struct{}{}
+			return
+		}
+		truncated = true
+		if path >= selected[0] {
+			return
+		}
+		delete(retained, selected[0])
+		selected[0] = path
+		retained[path] = struct{}{}
+		heap.Fix(&selected, 0)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	sort.Strings(selected)
+	return []string(selected), truncated, nil
+}
+
 func (h *Handler) collectSourceSymbolFiles(
 	ctx context.Context,
 	input SourceSymbolsInput,
@@ -131,16 +180,9 @@ func (h *Handler) collectSourceSymbolFiles(
 		}
 		validatedRoots = append(validatedRoots, validated.Path)
 	}
-	files, collectErr := h.collectFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore))
+	files, selectionTruncated, collectErr := h.collectBoundedSourceFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore), maxFiles)
 	if collectErr != nil {
 		return nil, false, errorResultFromError(collectErr)
-	}
-	sort.Strings(files)
-	files = deduplicateSortedPaths(files)
-	selectionTruncated := false
-	if len(files) > maxFiles {
-		files = files[:maxFiles]
-		selectionTruncated = true
 	}
 	var aggregateBytes int64
 	for _, path := range files {
@@ -173,8 +215,10 @@ func buildSourceSymbolsOutput(
 		kindFilter[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
 	}
 	for _, current := range analyses {
-		output.Files = append(output.Files, current.file)
+		keepFile := operationName != "find" || input.FileDetails != "relevant" || !current.file.CoverageComplete
+		beforeSymbols := len(output.Symbols)
 		if current.file.Status != "parsed" {
+			output.Files = append(output.Files, current.file)
 			output.FilesSkipped++
 			output.CoverageComplete = false
 			continue
@@ -204,6 +248,9 @@ func buildSourceSymbolsOutput(
 				output.Symbols = append(output.Symbols, symbol)
 			}
 		}
+		if keepFile || len(output.Symbols) != beforeSymbols {
+			output.Files = append(output.Files, current.file)
+		}
 	}
 	output.SymbolCount = len(output.Symbols)
 	if operationName == "find" && len(output.Symbols) > 1 {
@@ -215,6 +262,104 @@ func buildSourceSymbolsOutput(
 		}
 	}
 	return output
+}
+
+// presentSourceOutline reuses the analyzer output rather than re-parsing source.
+// A tree nests only earlier parents: this avoids cycles, while filtered/missing
+// or out-of-order ancestors remain visible through their parentId.
+func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligence.NormalizedSymbol, presentation string) []SourceOutlineFile {
+	out := make([]SourceOutlineFile, len(files))
+	byPath := make(map[string]int, len(files))
+	for i, file := range files {
+		byPath[file.Path] = i
+		out[i] = SourceOutlineFile{
+			Path: file.Path, Status: file.Status, Encoding: file.Encoding,
+			Language: file.Language, SourceFingerprint: file.SourceFingerprint,
+			CoverageComplete: file.CoverageComplete, Error: file.Error, ErrorCode: file.ErrorCode,
+		}
+	}
+	type ancestor struct {
+		node *SourceOutlineNode
+		path string
+	}
+	seen := make(map[string]ancestor, len(symbols))
+	for _, symbol := range symbols {
+		index, ok := byPath[symbol.Path]
+		if !ok {
+			continue
+		}
+		node := &SourceOutlineNode{
+			SymbolID: symbol.ID, Name: symbol.Name, Kind: symbol.Kind,
+			QualifiedName: symbol.QualifiedName,
+			Line:          symbol.DeclarationRange.Start.Line, Column: symbol.DeclarationRange.Start.Column,
+			Signature: symbol.Signature,
+		}
+		if presentation == "tree" && symbol.ParentID != "" {
+			if parent, ok := seen[symbol.ParentID]; ok && parent.path == symbol.Path {
+				parent.node.Children = append(parent.node.Children, node)
+			} else {
+				node.ParentID = symbol.ParentID
+				out[index].Symbols = append(out[index].Symbols, node)
+			}
+		} else {
+			node.ParentID = symbol.ParentID
+			out[index].Symbols = append(out[index].Symbols, node)
+		}
+		seen[symbol.ID] = ancestor{node: node, path: symbol.Path}
+	}
+	return out
+}
+
+// presentSourceDigestOverview builds a small file atlas from the already analyzed
+// declarations. Digest entries follow parsed file order, so no path index is needed.
+func presentSourceDigestOverview(analyses []sourceFileAnalysis, digests []SourceDigest) []SourceOverviewFile {
+	const maxEntryPoints = 5
+	out := make([]SourceOverviewFile, 0, len(analyses))
+	digestIndex := 0
+	for _, current := range analyses {
+		file := current.file
+		entry := SourceOverviewFile{
+			Path: file.Path, Status: file.Status, Language: file.Language,
+			Encoding: file.Encoding, SourceFingerprint: file.SourceFingerprint,
+			SourceBytes: file.SourceBytes, CoverageComplete: file.CoverageComplete,
+			Error: file.Error, ErrorCode: file.ErrorCode,
+		}
+		if file.Status == "parsed" {
+			entry.DeclarationCounts = digests[digestIndex].DeclarationCounts
+			digestIndex++
+			// Top-level declarations may be children of a synthetic package/module node.
+			rootContainers := make(map[string]struct{})
+			for _, symbol := range current.analysis.Analysis.Symbols {
+				if symbol.ParentID == "" && (symbol.Kind == "package" || symbol.Kind == "module" || symbol.Kind == "namespace") {
+					rootContainers[symbol.ID] = struct{}{}
+				}
+			}
+			for _, symbol := range current.analysis.Analysis.Symbols {
+				if string(symbol.Visibility) != "public" {
+					continue
+				}
+				if symbol.ParentID != "" {
+					if _, ok := rootContainers[symbol.ParentID]; !ok {
+						continue
+					}
+				}
+				switch string(symbol.Kind) {
+				case "function", "class", "struct", "interface", "type", "alias", "enum", "trait":
+				default:
+					continue
+				}
+				if len(entry.EntryPoints) == maxEntryPoints {
+					entry.EntryPointsTruncated = true
+					break
+				}
+				entry.EntryPoints = append(entry.EntryPoints, SourceOverviewEntry{
+					Name: symbol.Name, Kind: symbol.Kind, Line: symbol.DeclarationRange.Start.Line,
+				})
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func resolvePositiveLimit(requested, maximum int, name string) (int, *mcp.CallToolResult) {
@@ -275,21 +420,6 @@ func enforceSourceOutputBudget(output SourceSymbolsOutput, maximum int64) error 
 		return operation.Wrap(operation.KindLimit, "source_symbols", "", fmt.Errorf("source output size %d exceeds limit %d", len(encoded), maximum))
 	}
 	return nil
-}
-
-func deduplicateSortedPaths(paths []string) []string {
-	if len(paths) < 2 {
-		return paths
-	}
-	write := 1
-	for read := 1; read < len(paths); read++ {
-		if paths[read] == paths[write-1] {
-			continue
-		}
-		paths[write] = paths[read]
-		write++
-	}
-	return paths[:write]
 }
 
 func minPositiveInt(left, right int) int {

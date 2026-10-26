@@ -20,7 +20,7 @@ func TestSourceQueryContextBodySignatureBudgetAndStale(t *testing.T) {
 	h := NewHandler([]string{root})
 
 	toolErr, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
-		Operation: "outline", Paths: []string{path}, Language: "java", Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 64,
+		Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "java", Encoding: "utf-8", IncludeSignatures: true, MaxSymbols: 64,
 	})
 	if err != nil || toolErr != nil || len(outline.Files) != 1 {
 		t.Fatalf("outline result=%+v output=%+v err=%v", toolErr, outline, err)
@@ -69,7 +69,7 @@ func TestSourceQueryContextBodySignatureBudgetAndStale(t *testing.T) {
 	if item := signatureOutput.Context.Items[0]; item.Representation != sourceintelligence.ContextSignature || strings.Contains(item.Text, "return value + 1") {
 		t.Fatalf("signature-only item = %+v", item)
 	}
-	if !signatureOutput.Coverage.Truncated || signatureOutput.Coverage.CoverageComplete {
+	if !signatureOutput.Coverage.Truncated || !signatureOutput.Coverage.ResultsTruncated || !signatureOutput.Coverage.AnalysisComplete || signatureOutput.Coverage.FileSelectionTruncated || signatureOutput.Coverage.CoverageComplete {
 		t.Fatalf("signature-only coverage = %+v", signatureOutput.Coverage)
 	}
 

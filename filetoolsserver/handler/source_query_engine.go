@@ -13,7 +13,7 @@ import (
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
-func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput, limits config.SourceConfig) (*mcp.CallToolResult, SourceQueryOutput, error) {
+func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput, limits config.SourceConfig, verifiedCursor *sourceSearchCursorPayload) (*mcp.CallToolResult, SourceQueryOutput, error) {
 	maxFiles, result := resolvePositiveLimit(input.MaxFiles, limits.MaxFiles, "maxFiles")
 	if result != nil {
 		return result, SourceQueryOutput{}, nil
@@ -50,12 +50,30 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		if match == "" {
 			match = sourceintelligence.ProjectSearchExact
 		}
+		var requestHash string
+		var after *sourceintelligence.ProjectSearchMatch
+		afterOccurrences := 0
+		if verifiedCursor != nil {
+			if selection.Evidence.Staleness != sourceintelligence.IndexCurrent || verifiedCursor.Generation != selection.Evidence.Generation || verifiedCursor.Fingerprint != selection.Evidence.Fingerprint {
+				return errorResultWithCode(ErrCodeConflict, "source search cursor is stale"), SourceQueryOutput{}, nil
+			}
+			requestHash = verifiedCursor.QueryHash
+			after = &verifiedCursor.After
+			afterOccurrences = verifiedCursor.Occurrences
+		} else {
+			var fingerprintErr error
+			requestHash, fingerprintErr = sourceSearchRequestFingerprint(input, maxFiles, maxResults)
+			if fingerprintErr != nil {
+				return errorResultFromError(fingerprintErr), SourceQueryOutput{}, nil
+			}
+		}
 		evidence := make([]sourceintelligence.SymbolEvidence, 0, len(input.Evidence))
 		for _, value := range input.Evidence {
 			evidence = append(evidence, sourceintelligence.SymbolEvidence(value))
 		}
 		search, searchErr := model.StructuralSearch(requestCtx, sourceintelligence.ProjectSearchOptions{
 			Query: input.Query, Match: match, Kinds: input.Kinds, Evidence: evidence, MaxResults: maxResults,
+			After: after, AfterOccurrences: afterOccurrences,
 		})
 		if searchErr != nil {
 			return errorResultFromError(searchErr), SourceQueryOutput{}, nil
@@ -63,13 +81,26 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		matches := make([]SourceSearchMatch, 0, len(search.Matches))
 		for _, match := range search.Matches {
 			matches = append(matches, SourceSearchMatch{
-				Path: match.Path, Language: match.Language, Range: match.Range, SymbolID: match.SymbolID,
-				SourceFingerprint: match.SourceFingerprint, Evidence: match.Evidence,
+				Path: match.Path, Language: match.Language, Name: match.Name, Kind: match.Kind, QualifiedName: match.QualifiedName,
+				Range: match.Range, SymbolID: match.SymbolID, SourceFingerprint: match.SourceFingerprint, Evidence: match.Evidence,
 			})
 		}
 		output.Search = &SourceSearchResult{Matches: matches}
+		if search.Truncated && selection.Evidence.Staleness == sourceintelligence.IndexCurrent && len(search.Matches) != 0 {
+			last := search.Matches[len(search.Matches)-1]
+			nextCursor, cursorErr := h.encodeSourceSearchCursor(sourceSearchCursorPayload{
+				Version: sourceSearchCursorVersion, ExpiresAt: time.Now().Add(sourceSearchCursorTTL).Unix(),
+				QueryHash: requestHash, Generation: selection.Evidence.Generation, Fingerprint: selection.Evidence.Fingerprint,
+				After: last, Occurrences: search.LastOccurrences,
+			})
+			if cursorErr != nil {
+				return errorResultFromError(cursorErr), SourceQueryOutput{}, nil
+			}
+			output.Search.NextCursor = nextCursor
+		}
 		if search.Truncated {
 			output.Coverage.Truncated = true
+			output.Coverage.ResultsTruncated = true
 			output.Coverage.CoverageComplete = false
 		}
 	case "relations":
@@ -114,9 +145,13 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		if queryErr != nil {
 			return errorResultFromError(queryErr), SourceQueryOutput{}, nil
 		}
-		output.Relations = &SourceRelationsResult{Relation: sourceintelligence.RelationKind(input.Relation), Relations: queried.Records}
+		output.Relations = &SourceRelationsResult{
+			Relation: sourceintelligence.RelationKind(input.Relation), EvidenceScope: "indexed-relations-only",
+			Relations: queried.Records,
+		}
 		if queried.Truncated {
 			output.Coverage.Truncated = true
+			output.Coverage.ResultsTruncated = true
 			output.Coverage.CoverageComplete = false
 		}
 	case "context":
@@ -157,6 +192,7 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 		output.Context = &SourceContextResult{Items: items, UsedBytes: usedBytes, BudgetBytes: budgetBytes}
 		if plan.Truncated {
 			output.Coverage.Truncated = true
+			output.Coverage.ResultsTruncated = true
 			output.Coverage.CoverageComplete = false
 		}
 	default:

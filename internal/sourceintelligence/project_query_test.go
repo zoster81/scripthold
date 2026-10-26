@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -155,9 +156,14 @@ func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	}
 	foundSymbol := false
 	for _, match := range symbols.Matches {
-		if match.SymbolID != "" {
+		if match.SymbolID == "" {
+			if match.Name != "" || match.Kind != "" || match.QualifiedName != "" {
+				t.Fatalf("non-symbol search match claims symbol identity: %+v", match)
+			}
+			continue
+		}
+		if match.Name == "Store" && match.Kind == SymbolKindTrait && match.QualifiedName != "" {
 			foundSymbol = true
-			break
 		}
 	}
 	if !foundSymbol {
@@ -171,11 +177,168 @@ func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	found := false
 	for _, match := range relations.Matches {
 		if match.Path == itemPath && match.SymbolID == "" && match.Evidence == SymbolEvidenceProjectResolved {
+			if match.Name != "" || match.Kind != "" || match.QualifiedName != "" {
+				t.Fatalf("resolved relation search claims declaration identity: %+v", match)
+			}
 			found = true
 		}
 	}
 	if !found {
 		t.Fatalf("relation search = %+v", relations)
+	}
+}
+
+func TestProjectSearchTopKMatchesGlobalSortWithBoundedStorage(t *testing.T) {
+	matches := make([]ProjectSearchMatch, 0, 4_096)
+	for i := 0; i < 4_096; i++ {
+		index := (i * 7919) % 4_096
+		matches = append(matches, ProjectSearchMatch{
+			Path: fmt.Sprintf("source-%03d.ts", index%113),
+			Range: Range{
+				Start: Position{Line: index/113 + 1, Column: 2},
+				End:   Position{Line: index/113 + 1, Column: 6},
+			},
+			SymbolID: fmt.Sprintf("s-%04d", index),
+			Evidence: SymbolEvidenceStructural,
+		})
+	}
+	for _, maximum := range []int{1, 2, 7, 64, 4_096, 4_097} {
+		t.Run(fmt.Sprint(maximum), func(t *testing.T) {
+			collector := newProjectSearchTopK(maximum)
+			for _, match := range matches {
+				collector.append(match)
+				if len(collector.matches) > maximum {
+					t.Fatalf("collector retained %d matches with limit %d", len(collector.matches), maximum)
+				}
+			}
+			got := collector.result()
+			want := finalizeProjectSearch(append([]ProjectSearchMatch(nil), matches...), maximum)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("top-K diverged from global ordering at limit %d: got=%+v want=%+v", maximum, got, want)
+			}
+		})
+	}
+}
+
+func TestProjectSearchContinuesWithoutSkippingEqualKeys(t *testing.T) {
+	items := []ProjectSearchMatch{
+		{Path: "z.ts", Name: "Z"},
+		{Path: "a.ts", Name: "A"},
+		{Path: "m.ts", Name: "M"},
+		{Path: "m.ts", Name: "M"},
+		{Path: "m.ts", Name: "M"},
+		{Path: "m.ts", Name: "M"},
+		{Path: "m.ts", Name: "Z"},
+		{Path: "m.ts", Name: "A"},
+		{Path: "zz.ts", Name: "Last"},
+	}
+	want := finalizeProjectSearch(append([]ProjectSearchMatch(nil), items...), len(items))
+	for _, pageSize := range []int{1, 2, 3, 5} {
+		var got []ProjectSearchMatch
+		var after *ProjectSearchMatch
+		afterOccurrences := 0
+		for page := 0; page < 16; page++ {
+			collector := newProjectSearchTopK(pageSize)
+			collector.after = after
+			collector.afterOccurrences = afterOccurrences
+			for _, match := range items {
+				collector.append(match)
+				if len(collector.matches) > pageSize {
+					t.Fatalf("page %d retained too many results", page)
+				}
+			}
+			result := collector.result()
+			got = append(got, result.Matches...)
+			if !result.Truncated {
+				break
+			}
+			if len(result.Matches) == 0 || result.LastOccurrences <= 0 {
+				t.Fatalf("cursor did not advance: %+v", result)
+			}
+			last := result.Matches[len(result.Matches)-1]
+			after = &last
+			afterOccurrences = result.LastOccurrences
+		}
+		if !reflect.DeepEqual(got, want.Matches) {
+			t.Fatalf("page size %d changed global order: got=%+v want=%+v", pageSize, got, want.Matches)
+		}
+	}
+}
+
+func TestProjectStructuralSearchRejectsInvalidContinuation(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "pages", "only.ts"), "export class Item {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := ProjectSearchMatch{Path: "missing.ts", Name: "Item"}
+	for _, testCase := range []struct {
+		name  string
+		after *ProjectSearchMatch
+		count int
+		want  operation.Kind
+	}{
+		{name: "count without anchor", count: 1, want: operation.KindInvalidInput},
+		{name: "anchor without count", after: &missing, want: operation.KindInvalidInput},
+		{name: "missing anchor", after: &missing, count: 1, want: operation.KindConflict},
+		{name: "impossible repeated match", after: &ProjectSearchMatch{Path: facts.Path, Name: "Item"}, count: 99, want: operation.KindConflict},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+				Query: "Item", Match: ProjectSearchExact, MaxResults: 2,
+				After: testCase.after, AfterOccurrences: testCase.count,
+			})
+			if operation.KindOf(err) != testCase.want {
+				t.Fatalf("continuation error=%v kind=%v want=%v", err, operation.KindOf(err), testCase.want)
+			}
+		})
+	}
+}
+
+func TestProjectStructuralSearchPageMatchesUnpagedResults(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "query", "pages")
+	one := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "one.ts"), "export class Base {}\nexport class Other extends Base {}\n")
+	two := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "two.ts"), "import { Base } from \"./one\";\nexport class Child extends Base {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{two, one}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{Query: "Base", Match: ProjectSearchExact, MaxResults: 32})
+	if err != nil || len(want.Matches) < 3 {
+		t.Fatalf("unpaged search: %+v err=%v", want, err)
+	}
+	var combined []ProjectSearchMatch
+	var after *ProjectSearchMatch
+	afterOccurrences := 0
+	for page := 0; page < 20; page++ {
+		result, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+			Query: "Base", Match: ProjectSearchExact, MaxResults: 2,
+			After: after, AfterOccurrences: afterOccurrences,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		combined = append(combined, result.Matches...)
+		if !result.Truncated {
+			break
+		}
+		if len(result.Matches) == 0 || result.LastOccurrences <= 0 {
+			t.Fatalf("page did not advance: %+v", result)
+		}
+		last := result.Matches[len(result.Matches)-1]
+		after = &last
+		afterOccurrences = result.LastOccurrences
+	}
+	if !reflect.DeepEqual(combined, want.Matches) {
+		t.Fatalf("paged search diverges: got=%+v want=%+v", combined, want.Matches)
 	}
 }
 

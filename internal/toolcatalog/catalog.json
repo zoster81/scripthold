@@ -93,7 +93,7 @@
     {
       "name": "source_symbols",
       "title": "Navigate Source Symbols",
-      "description": "Find, outline, and inspect source-code symbols and declarations.",
+      "description": "Read-only source declarations: operation=digest with paths,presentation=compact maps a project; operation=outline with paths shows declaration trees; operation=find with paths,query,fileDetails=relevant finds named symbols; operation=show with path,symbolId,sourceFingerprint,language,encoding reads a verified body. Use grep_text_files/read_text_file for arbitrary text and usages; honor incomplete coverage.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,
@@ -104,7 +104,7 @@
     {
       "name": "source_query",
       "title": "Source Query",
-      "description": "Search source code and analyze relationships between symbols.",
+      "description": "Find source declarations with cursor paging, inspect indexed relations, or retrieve verified context. Empty references/impact do not prove no callers; use grep to check usages.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false

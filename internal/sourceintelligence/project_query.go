@@ -1,6 +1,7 @@
 package sourceintelligence
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"sort"
@@ -51,17 +52,22 @@ const (
 
 // ProjectSearchOptions configures structural search over normalized facts.
 type ProjectSearchOptions struct {
-	Query      string
-	Match      ProjectSearchMatchMode
-	Kinds      []string
-	Evidence   []SymbolEvidence
-	MaxResults int
+	Query            string
+	Match            ProjectSearchMatchMode
+	Kinds            []string
+	Evidence         []SymbolEvidence
+	MaxResults       int
+	After            *ProjectSearchMatch
+	AfterOccurrences int
 }
 
 // ProjectSearchMatch is one normalized symbol/dependency/reference occurrence.
 type ProjectSearchMatch struct {
 	Path              string
 	Language          string
+	Name              string
+	Kind              SymbolKind
+	QualifiedName     string
 	Range             Range
 	SymbolID          string
 	SourceFingerprint string
@@ -70,8 +76,9 @@ type ProjectSearchMatch struct {
 
 // ProjectSearchResult is a deterministic bounded structural-search result.
 type ProjectSearchResult struct {
-	Matches   []ProjectSearchMatch
-	Truncated bool
+	Matches         []ProjectSearchMatch
+	Truncated       bool
+	LastOccurrences int
 }
 
 // ProjectRelationResult is a deterministic bounded relationship result.
@@ -106,6 +113,9 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 	if options.MaxResults <= 0 {
 		return ProjectSearchResult{}, operation.New(operation.KindInvalidInput, "structural search result limit must be positive")
 	}
+	if (options.After == nil && options.AfterOccurrences != 0) || (options.After != nil && options.AfterOccurrences <= 0) {
+		return ProjectSearchResult{}, operation.New(operation.KindInvalidInput, "structural search continuation requires a positive anchor occurrence count")
+	}
 	matchMode := options.Match
 	if matchMode == "" {
 		matchMode = ProjectSearchExact
@@ -132,10 +142,9 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 		return ok
 	}
 
-	matches := make([]ProjectSearchMatch, 0, minInt(options.MaxResults+1, 256))
-	appendMatch := func(value ProjectSearchMatch) {
-		matches = append(matches, value)
-	}
+	collector := newProjectSearchTopK(options.MaxResults)
+	collector.after = options.After
+	collector.afterOccurrences = options.AfterOccurrences
 	for _, pathKey := range model.fileOrder {
 		if err := ctx.Err(); err != nil {
 			return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", model.files[pathKey].facts.Path, err)
@@ -149,7 +158,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 			if !acceptEvidence(record.symbol.Evidence) || (!projectSearchTextMatches(record.symbol.Name, query, matchMode) && !projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode)) {
 				continue
 			}
-			appendMatch(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
+			collector.append(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
 		}
 		if len(kindFilter) != 0 {
 			continue
@@ -158,7 +167,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 			if !acceptEvidence(dependency.Evidence) || (!projectSearchTextMatches(dependency.Dependency.Value, query, matchMode) && !projectSearchTextMatches(dependency.Dependency.Alias, query, matchMode)) {
 				continue
 			}
-			appendMatch(ProjectSearchMatch{Path: dependency.Source.Path, Language: dependency.Source.Language, Range: dependency.Dependency.Range, SourceFingerprint: dependency.Source.SourceFingerprint, Evidence: dependency.Evidence})
+			collector.append(ProjectSearchMatch{Path: dependency.Source.Path, Language: dependency.Source.Language, Range: dependency.Dependency.Range, SourceFingerprint: dependency.Source.SourceFingerprint, Evidence: dependency.Evidence})
 		}
 	}
 	if len(kindFilter) == 0 {
@@ -169,10 +178,13 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 			if !acceptEvidence(reference.Evidence) || (!projectSearchTextMatches(reference.TargetSpelling, query, matchMode) && !projectSearchTextMatches(reference.StructuralKind, query, matchMode)) {
 				continue
 			}
-			appendMatch(ProjectSearchMatch{Path: reference.Source.Path, Language: reference.Source.Language, Range: reference.Range, SourceFingerprint: reference.Source.SourceFingerprint, Evidence: reference.Evidence})
+			collector.append(ProjectSearchMatch{Path: reference.Source.Path, Language: reference.Source.Language, Range: reference.Range, SourceFingerprint: reference.Source.SourceFingerprint, Evidence: reference.Evidence})
 		}
 	}
-	return finalizeProjectSearch(matches, options.MaxResults), nil
+	if options.After != nil && collector.seenAfter < options.AfterOccurrences {
+		return ProjectSearchResult{}, operation.New(operation.KindConflict, "structural search continuation no longer identifies its anchor")
+	}
+	return collector.result(), nil
 }
 
 // QueryRelations executes one bounded project relationship query.
@@ -739,28 +751,140 @@ func projectSearchTextMatches(value, query string, mode ProjectSearchMatchMode) 
 func finalizeProjectSearch(matches []ProjectSearchMatch, maximum int) ProjectSearchResult {
 	sortProjectSearchMatches(matches)
 	if len(matches) <= maximum {
-		return ProjectSearchResult{Matches: matches}
+		return ProjectSearchResult{Matches: matches, LastOccurrences: lastProjectSearchOccurrences(matches)}
 	}
-	return ProjectSearchResult{Matches: append([]ProjectSearchMatch(nil), matches[:maximum]...), Truncated: true}
+	matches = append([]ProjectSearchMatch(nil), matches[:maximum]...)
+	return ProjectSearchResult{Matches: matches, Truncated: true, LastOccurrences: lastProjectSearchOccurrences(matches)}
 }
 
 func sortProjectSearchMatches(values []ProjectSearchMatch) {
 	sort.Slice(values, func(i, j int) bool {
-		left, right := values[i], values[j]
-		if left.Path != right.Path {
-			return left.Path < right.Path
-		}
-		if comparePosition(left.Range.Start, right.Range.Start) != 0 {
-			return comparePosition(left.Range.Start, right.Range.Start) < 0
-		}
-		if comparePosition(left.Range.End, right.Range.End) != 0 {
-			return comparePosition(left.Range.End, right.Range.End) < 0
-		}
-		if left.SymbolID != right.SymbolID {
-			return left.SymbolID < right.SymbolID
-		}
-		return left.Evidence < right.Evidence
+		return projectSearchMatchLess(values[i], values[j])
 	})
+}
+
+func projectSearchMatchLess(left, right ProjectSearchMatch) bool {
+	if left.Path != right.Path {
+		return left.Path < right.Path
+	}
+	if comparePosition(left.Range.Start, right.Range.Start) != 0 {
+		return comparePosition(left.Range.Start, right.Range.Start) < 0
+	}
+	if comparePosition(left.Range.End, right.Range.End) != 0 {
+		return comparePosition(left.Range.End, right.Range.End) < 0
+	}
+	if left.SymbolID != right.SymbolID {
+		return left.SymbolID < right.SymbolID
+	}
+	if left.Evidence != right.Evidence {
+		return left.Evidence < right.Evidence
+	}
+	// Preserve the established path/range/symbol/evidence precedence while
+	// making distinguishable search matches deterministic across page sizes.
+	if left.Language != right.Language {
+		return left.Language < right.Language
+	}
+	if left.Name != right.Name {
+		return left.Name < right.Name
+	}
+	if left.Kind != right.Kind {
+		return left.Kind < right.Kind
+	}
+	if left.QualifiedName != right.QualifiedName {
+		return left.QualifiedName < right.QualifiedName
+	}
+	return left.SourceFingerprint < right.SourceFingerprint
+}
+
+// projectSearchWorstHeap retains the latest worst match at the root.
+// It shares the exact ordering used to sort final MCP search results.
+type projectSearchWorstHeap []ProjectSearchMatch
+
+func (values projectSearchWorstHeap) Len() int { return len(values) }
+func (values projectSearchWorstHeap) Less(i, j int) bool {
+	return projectSearchMatchLess(values[j], values[i])
+}
+func (values projectSearchWorstHeap) Swap(i, j int) { values[i], values[j] = values[j], values[i] }
+func (values *projectSearchWorstHeap) Push(value any) {
+	*values = append(*values, value.(ProjectSearchMatch))
+}
+func (values *projectSearchWorstHeap) Pop() any {
+	last := len(*values) - 1
+	value := (*values)[last]
+	*values = (*values)[:last]
+	return value
+}
+
+type projectSearchTopK struct {
+	matches          projectSearchWorstHeap
+	maximum          int
+	truncated        bool
+	after            *ProjectSearchMatch
+	afterOccurrences int
+	seenAfter        int
+}
+
+func newProjectSearchTopK(maximum int) *projectSearchTopK {
+	return &projectSearchTopK{
+		matches: make(projectSearchWorstHeap, 0, minInt(maximum, 256)),
+		maximum: maximum,
+	}
+}
+
+func (collector *projectSearchTopK) append(value ProjectSearchMatch) {
+	if collector.after != nil {
+		if projectSearchMatchLess(value, *collector.after) {
+			return
+		}
+		if !projectSearchMatchLess(*collector.after, value) {
+			collector.seenAfter++
+			if collector.seenAfter <= collector.afterOccurrences {
+				return
+			}
+		}
+	}
+	if len(collector.matches) < collector.maximum {
+		collector.matches = append(collector.matches, value)
+		// Repair only the new leaf; avoid boxing retained matches in heap.Push.
+		heap.Fix(&collector.matches, len(collector.matches)-1)
+		return
+	}
+	collector.truncated = true
+	if projectSearchMatchLess(value, collector.matches[0]) {
+		collector.matches[0] = value
+		heap.Fix(&collector.matches, 0)
+	}
+}
+
+func (collector *projectSearchTopK) result() ProjectSearchResult {
+	sortProjectSearchMatches(collector.matches)
+	result := ProjectSearchResult{
+		Matches: collector.matches, Truncated: collector.truncated,
+		LastOccurrences: lastProjectSearchOccurrences(collector.matches),
+	}
+	if len(result.Matches) > 0 && collector.after != nil {
+		last := result.Matches[len(result.Matches)-1]
+		if !projectSearchMatchLess(last, *collector.after) && !projectSearchMatchLess(*collector.after, last) {
+			result.LastOccurrences += collector.afterOccurrences
+		}
+	}
+	return result
+}
+
+func lastProjectSearchOccurrences(matches []ProjectSearchMatch) int {
+	if len(matches) == 0 {
+		return 0
+	}
+	last := matches[len(matches)-1]
+	count := 0
+	for i := len(matches) - 1; i >= 0; i-- {
+		match := matches[i]
+		if projectSearchMatchLess(match, last) || projectSearchMatchLess(last, match) {
+			break
+		}
+		count++
+	}
+	return count
 }
 
 func minInt(left, right int) int {
