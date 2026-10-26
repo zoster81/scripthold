@@ -201,7 +201,13 @@ func TestSourceQuerySearchCursorPagesAndRejectsMismatches(t *testing.T) {
 	}{
 		{name: "changed query", edit: func(in *SourceQueryInput) { in.Query = "Beta" }, code: ErrCodeInvalidInput},
 		{name: "changed result limit", edit: func(in *SourceQueryInput) { in.MaxResults = 2 }, code: ErrCodeInvalidInput},
-		{name: "forged token", edit: func(in *SourceQueryInput) { in.Cursor = in.Cursor[:len(in.Cursor)-1] + "A" }, code: ErrCodeInvalidInput},
+		{name: "forged token", edit: func(in *SourceQueryInput) {
+			last := "A"
+			if strings.HasSuffix(in.Cursor, last) {
+				last = "B"
+			}
+			in.Cursor = in.Cursor[:len(in.Cursor)-1] + last
+		}, code: ErrCodeInvalidInput},
 		{name: "unsupported operation", edit: func(in *SourceQueryInput) { in.Operation = "relations" }, code: ErrCodeInvalidInput},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

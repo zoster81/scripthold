@@ -84,7 +84,7 @@ func TestSourceSymbolsOutlineFindShowAndStaleFingerprint(t *testing.T) {
 }
 
 func TestSourceSymbolsDigestCompactOverview(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "sample.go")
 	code := "package sample\ntype Router struct{}\nfunc NewRouter() *Router { return &Router{} }\nfunc (r *Router) ServeHTTP() {}\n"
 	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
@@ -134,7 +134,7 @@ func TestSourceSymbolsDigestCompactOverview(t *testing.T) {
 }
 
 func TestSourceSymbolsOutlinePresentations(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "sample.go")
 	code := "package sample\ntype Box struct { Value int }\nfunc (b *Box) Get() int { return b.Value }\n"
 	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
