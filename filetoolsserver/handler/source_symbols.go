@@ -39,6 +39,9 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		}
 	}
 	if operationName == "find" {
+		if input.FileDetails != "" && input.FileDetails != "all" && input.FileDetails != "relevant" {
+			return errorResultWithCode(ErrCodeInvalidInput, "fileDetails must be all or relevant"), SourceSymbolsOutput{}, nil
+		}
 		if strings.TrimSpace(input.Query) == "" || utf8.RuneCountInString(input.Query) > 512 {
 			return errorResultWithCode(ErrCodeInvalidInput, "query must be a non-empty string up to 512 Unicode scalar values"), SourceSymbolsOutput{}, nil
 		}

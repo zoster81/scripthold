@@ -737,11 +737,12 @@ Scripthold has **100 active Source Intelligence providers**. The generated [Lang
 - `includes` / `excludes`, `respectGitignore`, `maxFiles`: bounded traversal filters.
 - `kinds` (optional for `outline`/`find`): normalized symbol-kind filter without hiding unsupported file coverage.
 - `includeSignatures` (optional for `outline`/`find`): retain bounded declaration signatures.
+- `fileDetails` (optional for `find` only): `all` (default) preserves the existing per-file results; `relevant` returns per-file details only for matching declarations and files with failed or incomplete analysis. This only changes response detail, not what is scanned or the symbol matches.
 
 **Operations:**
 - `outline`: returns deterministic path/source-ordered normalized declarations and per-file detection/fingerprint/coverage evidence.
 - `digest`: returns compact declaration counts plus structural dependencies, relations, and composite regions; it does not return source bodies.
-- `find`: requires `query`; `match` is `exact`, `prefix`, or `qualified`. Multiple retained matches set `ambiguous: true` rather than inventing a unique target.
+- `find`: requires `query`; `match` is `exact`, `prefix`, or `qualified`. Multiple retained matches set `ambiguous: true` rather than inventing a unique target. With `fileDetails: "relevant"`, `files` is a subset of the scanned files; `filesConsidered`, `filesParsed`, `filesSkipped`, `coverageComplete`, and `truncated` still describe the full scan. A missing symbol is not proof of absence if coverage is incomplete.
 - `show`: requires one `path`, `symbolId`, `sourceFingerprint`, `language`, and `encoding`. The file is re-read and re-analyzed; a stale fingerprint returns `CONFLICT`. `maxBytes` bounds the selected declaration text.
 
 Public source coordinates use 1-based Unicode-scalar, half-open ranges (`unicode-scalar-1-based-half-open`) independent of the original file encoding. Symbol IDs and source fingerprints are deterministic lowercase SHA-256 values. Per-file analysis failures are independent; aggregate `coverageComplete` becomes false for skipped, unsupported, ambiguous, partial, or truncated coverage.
@@ -755,6 +756,7 @@ Dedicated limits use the `MCP_SOURCE_MAX_*` family: input paths, files, aggregat
   "query": "Work",
   "match": "exact",
   "includeSignatures": true,
+  "fileDetails": "relevant",
   "maxSymbols": 50
 }
 ```

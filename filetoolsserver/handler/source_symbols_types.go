@@ -20,6 +20,7 @@ type SourceSymbolsInput struct {
 	Excludes          []string `json:"excludes,omitempty"`
 	RespectGitignore  *bool    `json:"respectGitignore,omitempty"`
 	IncludeSignatures bool     `json:"includeSignatures,omitempty"`
+	FileDetails       string   `json:"fileDetails,omitempty"`
 	MaxSymbols        int      `json:"maxSymbols,omitempty"`
 	MaxFiles          int      `json:"maxFiles,omitempty"`
 	SymbolID          string   `json:"symbolId,omitempty"`

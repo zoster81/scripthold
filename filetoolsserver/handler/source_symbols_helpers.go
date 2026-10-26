@@ -173,8 +173,10 @@ func buildSourceSymbolsOutput(
 		kindFilter[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
 	}
 	for _, current := range analyses {
-		output.Files = append(output.Files, current.file)
+		keepFile := operationName != "find" || input.FileDetails != "relevant" || !current.file.CoverageComplete
+		beforeSymbols := len(output.Symbols)
 		if current.file.Status != "parsed" {
+			output.Files = append(output.Files, current.file)
 			output.FilesSkipped++
 			output.CoverageComplete = false
 			continue
@@ -203,6 +205,9 @@ func buildSourceSymbolsOutput(
 				}
 				output.Symbols = append(output.Symbols, symbol)
 			}
+		}
+		if keepFile || len(output.Symbols) != beforeSymbols {
+			output.Files = append(output.Files, current.file)
 		}
 	}
 	output.SymbolCount = len(output.Symbols)

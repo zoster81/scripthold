@@ -276,6 +276,63 @@ func TestSourceQueryRealCorpusTaskSearchContextWorkflow(t *testing.T) {
 		len(output.Context.Items), len(item.Text), searchTime, contextTime)
 }
 
+// Compare opt-in file-evidence size on read-only third-party source trees.
+func TestSourceSymbolsRealCorpusRelevantFileDetails(t *testing.T) {
+	task, want := realSourceTask(t)
+	corpus := realSourceCorpusInput(t)
+	h := NewHandler(corpus.Paths)
+	request := SourceSymbolsInput{
+		Operation: "find", Paths: corpus.Paths, Query: want.query,
+		Match: "exact", Language: want.language, MaxFiles: 256, MaxSymbols: 128,
+	}
+	toolErr, full, err := h.SourceSymbols(context.Background(), nil, request)
+	if err != nil || toolErr != nil {
+		t.Fatalf("%s: full source symbols failed: result=%+v err=%v", task, toolErr, err)
+	}
+	request.FileDetails = "relevant"
+	toolErr, compact, err := h.SourceSymbols(context.Background(), nil, request)
+	if err != nil || toolErr != nil {
+		t.Fatalf("%s: compact source symbols failed: result=%+v err=%v", task, toolErr, err)
+	}
+	if !reflect.DeepEqual(full.Symbols, compact.Symbols) ||
+		full.FilesConsidered != compact.FilesConsidered || full.FilesParsed != compact.FilesParsed ||
+		full.FilesSkipped != compact.FilesSkipped || full.CoverageComplete != compact.CoverageComplete ||
+		full.Truncated != compact.Truncated || full.Ambiguous != compact.Ambiguous {
+		t.Fatalf("%s: relevant file detail changed symbols or coverage", task)
+	}
+	needed := make(map[string]bool)
+	var targetFound bool
+	for _, symbol := range full.Symbols {
+		needed[symbol.Path] = true
+		if symbol.Name == want.query && string(symbol.Kind) == want.kind && filepath.Base(symbol.Path) == want.file {
+			targetFound = true
+		}
+	}
+	for _, file := range full.Files {
+		if file.Status != "parsed" || !file.CoverageComplete {
+			needed[file.Path] = true
+		}
+	}
+	if !targetFound || len(needed) != len(compact.Files) {
+		t.Fatalf("%s: missing oracle or relevant file evidence: matches=%d files=%d expected=%d", task, len(full.Symbols), len(compact.Files), len(needed))
+	}
+	for _, file := range compact.Files {
+		if !needed[file.Path] {
+			t.Fatalf("%s: unexpected irrelevant file record", task)
+		}
+	}
+	fullJSON, err := json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactJSON, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("task=%s fullBytes=%d relevantBytes=%d fullFiles=%d relevantFiles=%d matches=%d coverageComplete=%t",
+		task, len(fullJSON), len(compactJSON), len(full.Files), len(compact.Files), len(full.Symbols), compact.CoverageComplete)
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)

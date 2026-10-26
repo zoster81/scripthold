@@ -183,6 +183,53 @@ func TestSourceSymbolsFindResultLimitDoesNotTruncateAnalysis(t *testing.T) {
 	}
 }
 
+func TestSourceSymbolsFindRelevantFileDetails(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 8; i++ {
+		name := fmt.Sprintf("file-%02d.go", i)
+		symbol := fmt.Sprintf("Other%02d", i)
+		if i == 4 {
+			symbol = "Wanted"
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte("package sample\nfunc "+symbol+"() {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "extra.txt"), []byte("unrecognized"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	input := SourceSymbolsInput{Operation: "find", Paths: []string{root}, Query: "Wanted", Match: "exact", MaxSymbols: 2}
+	toolErr, full, err := h.SourceSymbols(context.Background(), nil, input)
+	if err != nil || toolErr != nil || len(full.Files) != 9 {
+		t.Fatalf("full find: %+v %+v %v", toolErr, full, err)
+	}
+	input.FileDetails = "relevant"
+	toolErr, compact, err := h.SourceSymbols(context.Background(), nil, input)
+	if err != nil || toolErr != nil {
+		t.Fatalf("compact find: %+v %v", toolErr, err)
+	}
+	if len(compact.Files) != 2 || filepath.Base(compact.Files[0].Path) != "extra.txt" ||
+		filepath.Base(compact.Files[1].Path) != "file-04.go" {
+		t.Fatalf("compact file evidence: %+v", compact.Files)
+	}
+	if !reflect.DeepEqual(compact.Symbols, full.Symbols) || compact.FilesConsidered != full.FilesConsidered ||
+		compact.FilesParsed != full.FilesParsed || compact.FilesSkipped != full.FilesSkipped ||
+		compact.CoverageComplete != full.CoverageComplete || compact.Truncated != full.Truncated {
+		t.Fatalf("compact changed result or coverage: %+v vs %+v", compact, full)
+	}
+	input.Query = "Missing"
+	_, missing, err := h.SourceSymbols(context.Background(), nil, input)
+	if err != nil || len(missing.Files) != 1 || missing.Files[0].Status == "parsed" {
+		t.Fatalf("missing must retain unsupported file evidence: %+v %v", missing, err)
+	}
+	input.FileDetails = "unknown"
+	toolErr, _, err = h.SourceSymbols(context.Background(), nil, input)
+	if err != nil || toolErr == nil || !toolErr.IsError || toolErr.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+		t.Fatalf("unknown file detail: %+v %v", toolErr, err)
+	}
+}
+
 func TestSourceSymbolsFindQueryLimitCountsUnicodeScalars(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")

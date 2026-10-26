@@ -18,7 +18,7 @@ func sourceSymbolsCatalogTool() *mcp.Tool {
 		"oneOf": []any{
 			sourceSymbolsBranchSchema("outline", []string{"operation", "paths"}, []string{"paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "maxSymbols", "maxFiles"}),
 			sourceSymbolsBranchSchema("digest", []string{"operation", "paths"}, []string{"paths", "language", "encoding", "includes", "excludes", "respectGitignore", "maxFiles"}),
-			sourceSymbolsBranchSchema("find", []string{"operation", "paths", "query"}, []string{"paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "maxSymbols", "maxFiles"}),
+			sourceSymbolsBranchSchema("find", []string{"operation", "paths", "query"}, []string{"paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "maxSymbols", "maxFiles"}),
 			sourceSymbolsBranchSchema("show", []string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"}, []string{"path", "symbolId", "sourceFingerprint", "language", "encoding", "maxBytes"}),
 		},
 	}
@@ -42,6 +42,7 @@ func sourceSymbolsProperties() map[string]any {
 		"excludes":          sourceSymbolsPatternsSchema(),
 		"respectGitignore":  map[string]any{"type": "boolean"},
 		"includeSignatures": map[string]any{"type": "boolean"},
+		"fileDetails":       map[string]any{"type": "string", "enum": []string{"all", "relevant"}},
 		"maxSymbols":        sourceSymbolsBoundedIntegerSchema(sourceSymbolsMaxSymbols),
 		"maxFiles":          sourceSymbolsBoundedIntegerSchema(sourceSymbolsMaxFiles),
 		"symbolId":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
