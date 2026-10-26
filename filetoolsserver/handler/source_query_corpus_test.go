@@ -333,6 +333,65 @@ func TestSourceSymbolsRealCorpusRelevantFileDetails(t *testing.T) {
 		task, len(fullJSON), len(compactJSON), len(full.Files), len(compact.Files), len(full.Symbols), compact.CoverageComplete)
 }
 
+// This opt-in comparison uses unchanged third-party source files and identical analyzer settings.
+func TestSourceSymbolsRealCorpusOutlinePresentations(t *testing.T) {
+	task, want := realSourceTask(t)
+	corpus := realSourceCorpusInput(t)
+	path := filepath.Join(corpus.Paths[0], want.file)
+	h := NewHandler(corpus.Paths)
+	read := func(presentation string) SourceSymbolsOutput {
+		t.Helper()
+		result, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "outline", Paths: []string{path}, Language: want.language,
+			IncludeSignatures: true, Presentation: presentation,
+		})
+		if err != nil || result != nil {
+			t.Fatalf("%s: %s returned %+v err=%v", task, presentation, result, err)
+		}
+		return out
+	}
+	detailed := read("")
+	if len(detailed.Files) != 1 || !detailed.CoverageComplete || detailed.SymbolCount == 0 {
+		t.Fatalf("%s: unexpected detailed coverage", task)
+	}
+	fullJSON, err := json.Marshal(detailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, presentation := range []string{"compact", "tree"} {
+		out := read(presentation)
+		if out.SymbolCount != detailed.SymbolCount ||
+			out.FilesConsidered != detailed.FilesConsidered || out.FilesParsed != detailed.FilesParsed ||
+			out.FilesSkipped != detailed.FilesSkipped || out.CoverageComplete != detailed.CoverageComplete ||
+			len(out.OutlineFiles) != 1 || out.OutlineFiles[0].SourceFingerprint != detailed.Files[0].SourceFingerprint {
+			t.Fatalf("%s: %s lost coverage or file identity", task, presentation)
+		}
+		var walk func([]*SourceOutlineNode)
+		ids := make(map[string]bool)
+		walk = func(nodes []*SourceOutlineNode) {
+			for _, node := range nodes {
+				if ids[node.SymbolID] {
+					t.Fatalf("%s: duplicated symbol %s", task, node.Name)
+				}
+				ids[node.SymbolID] = true
+				walk(node.Children)
+			}
+		}
+		walk(out.OutlineFiles[0].Symbols)
+		if len(ids) != detailed.SymbolCount {
+			t.Fatalf("%s: %s retained %d/%d declarations", task, presentation, len(ids), detailed.SymbolCount)
+		}
+		payload, err := json.Marshal(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(payload) >= len(fullJSON) {
+			t.Fatalf("%s: %s did not reduce response bytes: %d >= %d", task, presentation, len(payload), len(fullJSON))
+		}
+		t.Logf("task=%s presentation=%s detailedBytes=%d presentedBytes=%d symbols=%d", task, presentation, len(fullJSON), len(payload), out.SymbolCount)
+	}
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)

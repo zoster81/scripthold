@@ -93,7 +93,7 @@
     {
       "name": "source_symbols",
       "title": "Navigate Source Symbols",
-      "description": "Find and inspect source-code declarations by name; use grep for arbitrary text. Find supports concise file evidence.",
+      "description": "Navigate source declarations by name or outline file structure as compact list/tree; use grep for arbitrary text.",
       "annotations": {
         "readOnlyHint": true,
         "idempotentHint": true,

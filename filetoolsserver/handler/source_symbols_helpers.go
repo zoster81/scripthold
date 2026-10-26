@@ -222,6 +222,52 @@ func buildSourceSymbolsOutput(
 	return output
 }
 
+// presentSourceOutline reuses the analyzer output rather than re-parsing source.
+// A tree nests only earlier parents: this avoids cycles, while filtered/missing
+// or out-of-order ancestors remain visible through their parentId.
+func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligence.NormalizedSymbol, presentation string) []SourceOutlineFile {
+	out := make([]SourceOutlineFile, len(files))
+	byPath := make(map[string]int, len(files))
+	for i, file := range files {
+		byPath[file.Path] = i
+		out[i] = SourceOutlineFile{
+			Path: file.Path, Status: file.Status, Encoding: file.Encoding,
+			Language: file.Language, SourceFingerprint: file.SourceFingerprint,
+			CoverageComplete: file.CoverageComplete, Error: file.Error, ErrorCode: file.ErrorCode,
+		}
+	}
+	type ancestor struct {
+		node *SourceOutlineNode
+		path string
+	}
+	seen := make(map[string]ancestor, len(symbols))
+	for _, symbol := range symbols {
+		index, ok := byPath[symbol.Path]
+		if !ok {
+			continue
+		}
+		node := &SourceOutlineNode{
+			SymbolID: symbol.ID, Name: symbol.Name, Kind: symbol.Kind,
+			QualifiedName: symbol.QualifiedName,
+			Line:          symbol.DeclarationRange.Start.Line, Column: symbol.DeclarationRange.Start.Column,
+			Signature: symbol.Signature,
+		}
+		if presentation == "tree" && symbol.ParentID != "" {
+			if parent, ok := seen[symbol.ParentID]; ok && parent.path == symbol.Path {
+				parent.node.Children = append(parent.node.Children, node)
+			} else {
+				node.ParentID = symbol.ParentID
+				out[index].Symbols = append(out[index].Symbols, node)
+			}
+		} else {
+			node.ParentID = symbol.ParentID
+			out[index].Symbols = append(out[index].Symbols, node)
+		}
+		seen[symbol.ID] = ancestor{node: node, path: symbol.Path}
+	}
+	return out
+}
+
 func resolvePositiveLimit(requested, maximum int, name string) (int, *mcp.CallToolResult) {
 	if maximum <= 0 {
 		return 0, errorResultWithCode(ErrCodeInternal, name+" server limit is invalid")

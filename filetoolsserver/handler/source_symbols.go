@@ -52,6 +52,10 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 			return errorResultWithCode(ErrCodeInvalidInput, "match must be exact, prefix, or qualified"), SourceSymbolsOutput{}, nil
 		}
 	}
+	if operationName == "outline" && input.Presentation != "" && input.Presentation != "detailed" &&
+		input.Presentation != "compact" && input.Presentation != "tree" {
+		return errorResultWithCode(ErrCodeInvalidInput, "presentation must be detailed, compact, or tree"), SourceSymbolsOutput{}, nil
+	}
 	if len(input.Kinds) > 32 {
 		return errorResultWithCode(ErrCodeLimit, "kinds exceeds the 32-item limit"), SourceSymbolsOutput{}, nil
 	}
@@ -92,6 +96,12 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
+	if operationName == "outline" && input.Presentation != "" && input.Presentation != "detailed" {
+		output.OutlineFiles = presentSourceOutline(output.Files, output.Symbols, input.Presentation)
+		output.Presentation = input.Presentation
+		output.Files = nil
+		output.Symbols = nil
+	}
 	if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
 		return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
 	}

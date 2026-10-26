@@ -83,6 +83,71 @@ func TestSourceSymbolsOutlineFindShowAndStaleFingerprint(t *testing.T) {
 	}
 }
 
+func TestSourceSymbolsOutlinePresentations(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	code := "package sample\ntype Box struct { Value int }\nfunc (b *Box) Get() int { return b.Value }\n"
+	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	call := func(view string, kinds []string) SourceSymbolsOutput {
+		t.Helper()
+		result, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "outline", Paths: []string{path}, Language: "go",
+			Presentation: view, Kinds: kinds, IncludeSignatures: true,
+		})
+		if result != nil || err != nil {
+			t.Fatalf("outline %q: %+v %v", view, result, err)
+		}
+		return out
+	}
+	legacy, detailed := call("", nil), call("detailed", nil)
+	if !reflect.DeepEqual(legacy, detailed) || len(legacy.Symbols) == 0 {
+		t.Fatal("legacy output changed")
+	}
+	for _, view := range []string{"compact", "tree"} {
+		out := call(view, nil)
+		if out.SymbolCount != legacy.SymbolCount || out.CoverageComplete != legacy.CoverageComplete ||
+			len(out.Symbols) != 0 || len(out.Files) != 0 || len(out.OutlineFiles) != 1 {
+			t.Fatalf("%s changed counts or output shape: %+v", view, out)
+		}
+		file := out.OutlineFiles[0]
+		if file.Path != path || file.SourceFingerprint != legacy.Files[0].SourceFingerprint ||
+			file.Encoding != "utf-8" {
+			t.Fatalf("%s missing file identity: %+v", view, file)
+		}
+		seen := make(map[string]bool)
+		var walk func([]*SourceOutlineNode)
+		walk = func(nodes []*SourceOutlineNode) {
+			for _, n := range nodes {
+				if n.SymbolID == "" || seen[n.SymbolID] || n.Line <= 0 {
+					t.Fatalf("%s duplicate or invalid node: %+v", view, n)
+				}
+				seen[n.SymbolID] = true
+				if n.Name == "Get" && n.Signature == "" {
+					t.Fatalf("%s method signature missing", view)
+				}
+				walk(n.Children)
+			}
+		}
+		walk(file.Symbols)
+		if len(seen) != legacy.SymbolCount {
+			t.Fatalf("%s retained %d/%d symbols", view, len(seen), legacy.SymbolCount)
+		}
+	}
+	filtered := call("tree", []string{"method"})
+	if len(filtered.OutlineFiles) != 1 || len(filtered.OutlineFiles[0].Symbols) != 1 ||
+		filtered.OutlineFiles[0].Symbols[0].ParentID == "" {
+		t.Fatalf("lost filtered ancestor: %+v", filtered.OutlineFiles)
+	}
+	result, _, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Paths: []string{path}, Presentation: "unsupported",
+	})
+	if result == nil || !result.IsError || err != nil || result.Meta[ErrorCodeMetaKey] != ErrCodeInvalidInput {
+		t.Fatalf("invalid view: %+v %v", result, err)
+	}
+}
 func TestSourceSymbolsDirectoryOrderingFiltersDigestAndUnsupportedCoverage(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
