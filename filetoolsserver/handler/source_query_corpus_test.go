@@ -431,6 +431,84 @@ func TestSourceSymbolsRealCorpusFilteredOutlineLimit(t *testing.T) {
 		task, want.kind, full.SymbolCount, first.SymbolCount, first.OutlineFiles[0].CoverageComplete, first.Truncated)
 }
 
+// Compare a multi-file tree with the legacy outline and navigate to one
+// verified declaration without reading unrelated source bodies.
+func TestSourceSymbolsRealCorpusProjectTreeShow(t *testing.T) {
+	task, _ := realSourceTask(t)
+	if task != "go-router" {
+		t.Skip("the multi-file routing example uses the Go Chi corpus")
+	}
+	input := realSourceCorpusInput(t)
+	h := NewHandler(input.Paths)
+	request := SourceSymbolsInput{
+		Operation: "outline", Paths: input.Paths, Language: "go",
+		Includes: []string{"*.go"},
+		Excludes: []string{"**/_examples/**", "**/*_test.go", "**/testdata/**"},
+		MaxFiles: 128,
+	}
+	started := time.Now()
+	result, tree, err := h.SourceSymbols(context.Background(), nil, request)
+	treeDuration := time.Since(started)
+	if err != nil || result != nil || !tree.CoverageComplete || len(tree.OutlineFiles) < 10 {
+		t.Fatalf("project tree unavailable: result=%+v err=%v coverage=%t files=%d",
+			result, err, tree.CoverageComplete, len(tree.OutlineFiles))
+	}
+	request.Presentation = "detailed"
+	result, detailed, err := h.SourceSymbols(context.Background(), nil, request)
+	if err != nil || result != nil || !detailed.CoverageComplete ||
+		detailed.FilesConsidered != tree.FilesConsidered || detailed.SymbolCount != tree.SymbolCount {
+		t.Fatalf("project detail/tree coverage mismatch: result=%+v err=%v", result, err)
+	}
+	detailedJSON, err := json.Marshal(detailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeJSON, err := json.Marshal(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(treeJSON) >= len(detailedJSON) {
+		t.Fatalf("project tree did not reduce output: tree=%d detailed=%d", len(treeJSON), len(detailedJSON))
+	}
+
+	var selected *SourceOutlineNode
+	var selectedFile *SourceOutlineFile
+	var walk func([]*SourceOutlineNode)
+	walk = func(nodes []*SourceOutlineNode) {
+		for _, node := range nodes {
+			if node.QualifiedName == "chi.node.FindRoute" {
+				selected = node
+			}
+			walk(node.Children)
+		}
+	}
+	for i := range tree.OutlineFiles {
+		file := &tree.OutlineFiles[i]
+		if filepath.Base(file.Path) == "tree.go" {
+			selectedFile = file
+			walk(file.Symbols)
+		}
+	}
+	if selected == nil || selectedFile == nil || selected.SymbolID == "" {
+		t.Fatal("route lookup declaration missing from project tree")
+	}
+	result, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "show", Path: selectedFile.Path, SymbolID: selected.SymbolID,
+		SourceFingerprint: selectedFile.SourceFingerprint,
+		Language:          selectedFile.Language, Encoding: selectedFile.Encoding, MaxBytes: 8192,
+	})
+	if err != nil || result != nil || shown.Show == nil ||
+		!strings.Contains(shown.Show.Text, "rctx.URLParams") {
+		t.Fatalf("tree-to-show did not return the verified route parameter function: result=%+v err=%v", result, err)
+	}
+	showJSON, err := json.Marshal(shown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("productionFiles=%d symbols=%d treeBytes=%d detailedBytes=%d showBytes=%d treeDuration=%s",
+		tree.FilesConsidered, tree.SymbolCount, len(treeJSON), len(detailedJSON), len(showJSON), treeDuration)
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)
