@@ -132,12 +132,17 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 		nameStart, nameEnd := -1, -1
 		nativeKind := "function"
 		if functionIndex >= 0 {
-			nameStart = nextIdentifierOrKeywordToken(line.Tokens, functionIndex+1, len(line.Tokens))
-			if nameStart >= 0 {
+			candidate := nextStructuralToken(line.Tokens, functionIndex+1, len(line.Tokens))
+			if candidate < len(line.Tokens) && (line.Tokens[candidate].Kind == TokenIdentifier || line.Tokens[candidate].Kind == TokenKeyword) {
+				nameStart = candidate
 				nameEnd = nameStart + 1
 				for nameEnd+1 < len(line.Tokens) && (line.Tokens[nameEnd].Text == "." || line.Tokens[nameEnd].Text == ":") && (line.Tokens[nameEnd+1].Kind == TokenIdentifier || line.Tokens[nameEnd+1].Kind == TokenKeyword) {
 					nameEnd += 2
 				}
+			} else {
+				// A punctuation gap is not a declaration name; do not invent a symbol.
+				state.builder.MarkIncomplete()
+				_ = state.builder.AddDiagnostic(DiagnosticSpec{Code: language + "-invalid-function-name", Message: language + " function declaration has no valid name", Severity: DiagnosticWarning, AffectsCoverage: true})
 			}
 		} else if start, end, ok := luaAssignedFunctionName(line.Tokens); ok {
 			nameStart, nameEnd = start, end

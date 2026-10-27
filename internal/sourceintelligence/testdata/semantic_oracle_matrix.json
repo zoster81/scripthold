@@ -1311,6 +1311,81 @@
         "Demo.Worker.Run"
       ],
       "coverageComplete": false
+    },
+    {
+      "id": "lua-nested-function-assignments",
+      "language": "lua",
+      "path": "nested.lua",
+      "source": "a = {}\na.b = {}\na.b.c = function()\n  print \"hello\"\nend\na.b.c()\n-- function Ghost() end\nfunction Real()\nend\n",
+      "present": [
+        {
+          "qualifiedName": "a.b.c",
+          "kind": "function",
+          "line": 3,
+          "nativeKind": "function-assignment"
+        },
+        {
+          "qualifiedName": "Real",
+          "kind": "function",
+          "line": 8
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "print",
+        "a.b"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "lua-equality-malformed-declaration",
+      "language": "lua",
+      "path": "invalid.lua",
+      "source": "function Valid()\nend\nif type(v) == \"function\" then\n  print(v)\nend\nfunction == IGNOREME1\n",
+      "present": [
+        {
+          "qualifiedName": "Valid",
+          "kind": "function",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "IGNOREME1",
+        "print",
+        "type"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "ruby-super-string-class-methods",
+      "language": "ruby",
+      "path": "class.rb",
+      "source": "class A\n  def a()\n    super(\" do \")\n  end\n  def b()\n  end\nend\n# class Ghost\n",
+      "present": [
+        {
+          "qualifiedName": "A",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "A.a",
+          "kind": "method",
+          "line": 2,
+          "parent": "A"
+        },
+        {
+          "qualifiedName": "A.b",
+          "kind": "method",
+          "line": 5,
+          "parent": "A"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "super",
+        "A.super"
+      ],
+      "coverageComplete": true
     }
   ]
 }

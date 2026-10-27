@@ -116,6 +116,19 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"ada-ctags-altivec", "SCRIPTHOLD_REAL_ADA_ALTIVEC", "ada", []want{
 			{"Altivec", SymbolKindFunction, 14},
 		}, []string{"Altivec.To_Vector", "Altivec.View_A"}},
+		{"lua-ctags-nested-table", "SCRIPTHOLD_REAL_LUA_A", "lua", []want{
+			{"a.b.c", SymbolKindFunction, 3}, {"ax.by.cz", SymbolKindFunction, 10},
+		}, []string{"a.b", "ax.by", "print"}},
+		{"lua-kde-highlight", "SCRIPTHOLD_REAL_LUA_B", "lua", []want{
+			{"obj:foo", SymbolKindFunction, 172}, {"obj.bar", SymbolKindFunction, 176},
+		}, []string{"string.gfind", "string.gmatch", "xyz"}},
+		{"ruby-ctags-method-body", "SCRIPTHOLD_REAL_RUBY_A", "ruby", []want{
+			{"A", SymbolKindClass, 1}, {"A.a", SymbolKindMethod, 2}, {"A.b", SymbolKindMethod, 5},
+		}, []string{"super", "A.super", "do"}},
+		{"ruby-kde-class", "SCRIPTHOLD_REAL_RUBY_B", "ruby", []want{
+			{"Periods", SymbolKindClass, 150}, {"Periods.each", SymbolKindMethod, 151},
+			{"ClientManager", SymbolKindClass, 205}, {"ClientManager.ClientManager", SymbolKindConstructor, 208},
+		}, []string{"dumpDebugInfo", "Periods.Classical", "ClientManager.DBClient"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
