@@ -1546,6 +1546,55 @@ func maskHostComments(text string) string {
 	return maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
 }
 
+// Computed Razor ids are runtime expressions, not stable HTML entity names.
+// Mask only their attributes and preserve every source byte offset.
+func maskRazorComputedIDAttributes(source string) string {
+	var masked []byte
+	for _, tag := range markupTag.FindAllStringSubmatchIndex(source, -1) {
+		raw := source[tag[0]:tag[1]]
+		for _, pattern := range []*regexp.Regexp{markupDoubleID, markupSingleID, markupBareID} {
+			match := pattern.FindStringSubmatchIndex(raw)
+			if len(match) < 4 || match[2] < 0 || !razorIDContainsExpression(raw[match[2]:match[3]]) {
+				continue
+			}
+			if masked == nil {
+				masked = []byte(source)
+			}
+			for index := tag[0] + match[0]; index < tag[0]+match[1]; index++ {
+				if masked[index] != '\n' && masked[index] != '\r' {
+					masked[index] = ' '
+				}
+			}
+			break
+		}
+	}
+	if masked == nil {
+		return source
+	}
+	return string(masked)
+}
+
+func razorIDContainsExpression(value string) bool {
+	for index := 0; index+1 < len(value); index++ {
+		if value[index] != '@' {
+			continue
+		}
+		if value[index+1] == '@' {
+			index++ // Razor literal escaping is not an expression.
+			continue
+		}
+		if index > 0 && isASCIIIdentifierByte(value[index-1]) {
+			continue // Preserve ordinary email-like literal ids.
+		}
+		next := value[index+1]
+		if next == '(' || next == '{' || next == '_' ||
+			next >= 'A' && next <= 'Z' || next >= 'a' && next <= 'z' {
+			return true
+		}
+	}
+	return false
+}
+
 func analyzeClientWebRegions(ctx context.Context, document *SourceDocument, options AnalyzeOptions, hostLanguage string, analyzer AnalyzerID, excluded []OffsetRange) (AnalyzerResult, error) {
 	probe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}, {"@*", "*@"}})
 	var err error
@@ -1569,6 +1618,9 @@ func analyzeClientWebRegions(ctx context.Context, document *SourceDocument, opti
 	hostMasked, err := maskCompositeRanges(document.Text, hostMasks)
 	if err != nil {
 		return AnalyzerResult{}, err
+	}
+	if hostLanguage == "razor" || hostLanguage == "blazor" {
+		hostMasked = maskRazorComputedIDAttributes(hostMasked)
 	}
 	result, err := analyzeMaskedEmbeddedRegion(ctx, document, hostMasked, options, hostLanguage, analyzer, "client-host", "html")
 	if err != nil {
