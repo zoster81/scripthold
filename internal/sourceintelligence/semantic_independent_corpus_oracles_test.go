@@ -152,8 +152,16 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"Author.name", SymbolKindKey, 6}, {"outputs.home", SymbolKindKey, 10},
 			{"params", SymbolKindSection, 12}, {"params.social", SymbolKindSection, 28},
 			{"params.social.name", SymbolKindKey, 29},
+			{"params.social.'key2'", SymbolKindKey, 36},
+			{"params.social.'quoted \"value\"'", SymbolKindKey, 37},
 			{"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies", SymbolKindSection, 40},
-		}, []string{"params . social", "params . social.name", "phantom"}},
+			{"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.fruit.name", SymbolKindKey, 47},
+			{"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.fruit.color", SymbolKindKey, 48},
+			{"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.fruit.flavor", SymbolKindKey, 49},
+			{"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.site.\"google.com\"", SymbolKindKey, 50},
+		}, []string{"params . social", "params . social.name", "phantom",
+			"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.fruit. color",
+			"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.site.google.com"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

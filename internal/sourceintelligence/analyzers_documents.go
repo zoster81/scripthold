@@ -520,7 +520,6 @@ func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 var (
 	tomlSection    = regexp.MustCompile(`^\[([^\[\]]+)\]$`)
 	tomlArrayTable = regexp.MustCompile(`^\[\[([^\[\]]+)\]\]$`)
-	tomlKey        = regexp.MustCompile(`^([A-Za-z0-9_.-]+)[ \t]*=`)
 )
 
 // tomlSectionSegments normalizes spaces around separators, but retains quoted
@@ -592,6 +591,34 @@ func tomlSectionSegments(raw string) ([]tomlSectionSegment, bool) {
 			return nil, false
 		}
 	}
+}
+
+// tomlAssignmentKey finds the assignment separator outside quoted key segments.
+// Preserve the quoted spelling so literal dots cannot alias path separators.
+func tomlAssignmentKey(text string) ([]tomlSectionSegment, int, bool) {
+	quote := byte(0)
+	for index := 0; index < len(text); index++ {
+		c := text[index]
+		if quote != 0 {
+			if quote == '"' && c == '\\' && index+1 < len(text) {
+				index++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '"' || c == '\'' {
+			quote = c
+			continue
+		}
+		if c == '=' {
+			parts, ok := tomlSectionSegments(text[:index])
+			return parts, index, ok
+		}
+	}
+	return nil, -1, false
 }
 
 func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -671,17 +698,26 @@ func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			// Keys beneath an invalid table cannot be assigned a trustworthy parent.
 			continue
 		}
-		if match := tomlKey.FindStringSubmatchIndex(trimmed); match != nil {
-			name := trimmed[match[2]:match[3]]
+		parts, equals, valid := tomlAssignmentKey(trimmed)
+		if equals >= 0 && !valid {
+			addDocumentDataHardwareDiagnostic(builder, "toml-malformed-key", "TOML assignment has an invalid key", line.start, line.end)
+			continue
+		}
+		if valid {
+			names := make([]string, len(parts))
+			for index, part := range parts {
+				names[index] = part.name
+			}
+			name := strings.Join(names, ".")
 			trimStart := line.start + strings.Index(line.text, trimmed)
-			addDocumentDataHardwareSymbol(builder, SymbolKindKey, "key", name, current, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + match[2], End: trimStart + match[3]})
-			if equals := strings.IndexByte(trimmed, '='); equals >= 0 {
-				value := strings.TrimSpace(trimmed[equals+1:])
-				if strings.HasPrefix(value, "[") {
-					multilineArrayDepth = tomlBracketDelta(value)
-					if multilineArrayDepth < 0 {
-						multilineArrayDepth = 0
-					}
+			addDocumentDataHardwareSymbol(builder, SymbolKindKey, "key", name, current,
+				OffsetRange{Start: trimStart, End: line.end},
+				OffsetRange{Start: trimStart + parts[0].start, End: trimStart + parts[len(parts)-1].end})
+			value := strings.TrimSpace(trimmed[equals+1:])
+			if strings.HasPrefix(value, "[") {
+				multilineArrayDepth = tomlBracketDelta(value)
+				if multilineArrayDepth < 0 {
+					multilineArrayDepth = 0
 				}
 			}
 		}

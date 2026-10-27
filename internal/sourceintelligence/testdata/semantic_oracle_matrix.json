@@ -1670,6 +1670,83 @@
         "ghost"
       ],
       "coverageComplete": false
+    },
+    {
+      "id": "toml-quoted-and-spaced-keys",
+      "language": "toml",
+      "path": "keys.toml",
+      "source": "[settings]\n'quoted.key' = \"one\"\n\"key=sign\" = \"two\"\nfruit. color = \"yellow\"\nfruit.name = \"banana\"\nsite.\"google.com\" = true\n# 'ghost' = 1\n",
+      "present": [
+        {
+          "qualifiedName": "settings",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "settings.'quoted.key'",
+          "kind": "key",
+          "line": 2,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.\"key=sign\"",
+          "kind": "key",
+          "line": 3,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.fruit.color",
+          "kind": "key",
+          "line": 4,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.fruit.name",
+          "kind": "key",
+          "line": 5,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.site.\"google.com\"",
+          "kind": "key",
+          "line": 6,
+          "parent": "settings"
+        }
+      ],
+      "forbidden": [
+        "settings.quoted.key",
+        "settings.key=sign",
+        "settings.fruit. color",
+        "settings.site.google.com",
+        "settings.'ghost'"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "toml-invalid-assignment-keeps-siblings",
+      "language": "toml",
+      "path": "invalid-keys.toml",
+      "source": "[settings]\nfoo = 1\nbad key = 2\nbar = 3\n",
+      "present": [
+        {
+          "qualifiedName": "settings.foo",
+          "kind": "key",
+          "line": 2,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.bar",
+          "kind": "key",
+          "line": 4,
+          "parent": "settings"
+        }
+      ],
+      "forbidden": [
+        "settings.bad",
+        "settings.bad key",
+        "settings.key"
+      ],
+      "coverageComplete": false
     }
   ]
 }
