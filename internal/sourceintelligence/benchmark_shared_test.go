@@ -891,6 +891,31 @@ func BenchmarkSharedConditionalSelections(b *testing.B) {
 	}
 }
 
+// BenchmarkRepeatedStructuralDependencyInsertion measures the per-statement
+// deduplication path separately from a single batch merge.
+func BenchmarkRepeatedStructuralDependencyInsertion(b *testing.B) {
+	document := testSourceDocument("benchmark/dependencies.go", "dependencies")
+	for _, count := range []int{16, 128, 512} {
+		b.Run(fmt.Sprintf("unique_%d", count), func(b *testing.B) {
+			values := make([]string, count)
+			for index := range values {
+				values[index] = fmt.Sprintf("module/%04d", index)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				dependencies := make([]StructuralDependency, 0, count)
+				for _, value := range values {
+					addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, 0, 1)
+				}
+				if len(dependencies) != count {
+					b.Fatalf("unexpected dependencies: got %d, want %d", len(dependencies), count)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedDependencyMerge(b *testing.B) {
 	const dependencyCount = 512
 	base := make([]StructuralDependency, 0, dependencyCount)
