@@ -117,6 +117,10 @@ var (
 	phpContentMarker           = regexp.MustCompile(`(?i)<\?php\b`)
 	phpEchoContentMarker       = regexp.MustCompile(`(?i)<\?=`)
 	phpHTMLHostMarkupMarker    = regexp.MustCompile(`(?is)<(?:!doctype\s+html\b|html\b|head\b|body\b|main\b|div\b|section\b|article\b|nav\b|form\b|table\b|ul\b|ol\b|li\b|p\b|h[1-6]\b|span\b|template\b|script\b|style\b|link\b|meta\b)[^>]*>`)
+	vueRootBlockMarker         = regexp.MustCompile(`(?im)^[ \t]*<(?:script[ \t]+setup\b|template\b)`)
+	htmlDocumentRootMarker     = regexp.MustCompile(`(?im)^[ \t]*(?:<!doctype[ \t]+html\b|<html\b)`)
+	protoPackageMarker         = regexp.MustCompile(`(?m)^[ \t]*package[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]*;`)
+	protoTopLevelTypeMarker    = regexp.MustCompile(`(?m)^[ \t]*(?:message|enum|service)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\{`)
 	rubyContentMarker          = regexp.MustCompile(`(?m)^\s*(?:module|class|def|require(?:_relative)?)\b`)
 	swiftContentMarker         = regexp.MustCompile(`(?m)^[ \t]*(?:import[ \t]+(?:(?:class|struct|enum|protocol|func|var|let|typealias)[ \t]+)?[A-Za-z_]|(?:(?:public|private|fileprivate|internal|open|final)[ \t]+)*(?:protocol|extension)[ \t]+[A-Za-z_]|func[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:<[^\r\n>]*>[ \t]*)?\(|init[!?]?[ \t]*\(|deinit\b|(?:associatedtype|typealias)[ \t]+[A-Za-z_]|(?:let|var)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:)`)
 	delphiContentMarker        = regexp.MustCompile(`(?im)\b(?:class|record)\s+helper\s+for\b`)
@@ -714,6 +718,27 @@ func addCompositePathContentEvidence(registry *LanguageRegistry, collector *dete
 		if strings.Contains(probe, "<%") && strings.Contains(probe, "%>") {
 			if languageID, exists := registry.lookupLanguageID("ejs"); exists {
 				collector.add(languageID, EvidenceContentMarker, "ejs-delimiter", priorityDistinctiveContent)
+			}
+		}
+	case strings.HasSuffix(lowerBase, ".vue"):
+		probe := maskHostComments(text)
+		if vueRootBlockMarker.MatchString(probe) {
+			if languageID, exists := registry.lookupLanguageID("vue"); exists {
+				collector.add(languageID, EvidenceContentMarker, "vue-root-block", priorityContent)
+			}
+		}
+	case strings.HasSuffix(lowerBase, ".html"), strings.HasSuffix(lowerBase, ".htm"):
+		probe := maskHostComments(text)
+		if htmlDocumentRootMarker.MatchString(probe) {
+			if languageID, exists := registry.lookupLanguageID("html"); exists {
+				collector.add(languageID, EvidenceContentMarker, "html-document-root", priorityContent)
+			}
+		}
+	case strings.HasSuffix(lowerBase, ".proto"):
+		probe := maskSourceComments(text, []string{"//"}, "/*", "*/")
+		if protoPackageMarker.MatchString(probe) && protoTopLevelTypeMarker.MatchString(probe) {
+			if languageID, exists := registry.lookupLanguageID("proto"); exists {
+				collector.add(languageID, EvidenceContentMarker, "proto-package-and-type", priorityContent)
 			}
 		}
 	}

@@ -550,7 +550,7 @@ func detectionEvidenceForDescriptor(descriptor LanguageDescriptor) []EvidenceKin
 	// Modelines can name every registered canonical ID/alias.
 	values = append(values, EvidenceDirective)
 	switch descriptor.ID {
-	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp", "graphql", "proto", "terraform", "vhdl", "verilog", "systemverilog", "plsql", "openapi", "ansible-yaml", "php-html", "scala", "flow":
+	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp", "graphql", "proto", "terraform", "vhdl", "verilog", "systemverilog", "plsql", "openapi", "ansible-yaml", "php-html", "vue", "html", "scala", "flow":
 		values = append(values, EvidenceContentMarker)
 	}
 	values = append(values, EvidenceProjectHint)
