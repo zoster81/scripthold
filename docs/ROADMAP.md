@@ -24,6 +24,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 
 **Remaining work after 4.0.1:**
 
+- **Semantic reliability gate (priority before further optimization):** independently review real-code declarations for every active source provider across multiple projects and relevant dialects. Assert both expected and forbidden symbols, kinds, parents, positions, encoding/line-ending behavior, malformed-input bounds, and honest incomplete-coverage evidence. Maintain a portable positive/negative oracle matrix under `internal/sourceintelligence/testdata/` and opt-in real-corpus checks. Report how many providers actually have independent checks; neither 100 active providers nor `CoverageComplete=true` proves complete semantic accuracy. Do not claim all-language reliability while gaps remain.
 - Run independent ChatGPT-as-client navigation tasks over authorized Go, Python and C# corpora; compare spontaneous `source_*` choice, correctness, calls, bytes, relevant evidence, latency, allocations and coverage against grep/read baselines. The earlier 30% median call-reduction goal remains unproven.
 - Compare compact project `digest` → bounded `outline` tree → verified `show` workflows with direct text search and selected reads; preserve cases where grep/read performs better.
 - Reassess project-scale context relevance, traversal cost and bounded memory only where empirical results reveal concrete shortcomings.
