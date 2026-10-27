@@ -388,6 +388,7 @@ type braceLanguagePolicy struct {
 	explicitFuncs        map[string]string
 	maskText             func(string) (string, bool)
 	caseInsensitive      bool
+	supportsAnnotations  bool
 }
 
 func (DartAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -395,7 +396,7 @@ func (DartAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		language: "dart", analyzer: AnalyzerDart, profile: DartScannerProfile(),
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "enum": SymbolKindEnum, "mixin": SymbolKindTrait, "extension": SymbolKindType},
 		typeNative: map[string]string{"class": "class", "enum": "enum", "mixin": "mixin", "extension": "extension"},
-		modifiers:  setOf("abstract", "base", "final", "interface", "sealed"), importKeywords: setOf("import", "export", "part"),
+		modifiers:  setOf("abstract", "base", "final", "interface", "sealed"), importKeywords: setOf("import", "export", "part"), supportsAnnotations: true,
 	})
 }
 func (DAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -605,7 +606,7 @@ func (ApexAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		language: "apex", analyzer: AnalyzerApex, profile: ApexScannerProfile(), caseInsensitive: true,
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "interface": SymbolKindInterface, "enum": SymbolKindEnum},
 		typeNative: map[string]string{"class": "class", "interface": "interface", "enum": "enum"},
-		modifiers:  setOf("abstract", "global", "private", "protected", "public", "virtual", "with", "without", "sharing"), explicitFuncs: map[string]string{"trigger": "trigger"},
+		modifiers:  setOf("abstract", "global", "private", "protected", "public", "virtual", "with", "without", "sharing"), explicitFuncs: map[string]string{"trigger": "trigger"}, supportsAnnotations: true,
 	})
 }
 
@@ -796,6 +797,10 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i++
 			continue
 		}
+		if p.policy.supportsAnnotations && p.tokens[i].Text == "@" {
+			i = p.skipBraceAnnotation(i, end)
+			continue
+		}
 		if keyword, ok := p.typeKeyword(i, end); ok {
 			i = p.parseType(i, keyword, end, parent, members, owner)
 			continue
@@ -804,12 +809,33 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i = p.parseExplicit(i, end, parent, members, owner, native)
 			continue
 		}
-		if next, ok := p.parseCStyle(i, end, parent, members, owner); ok {
+		if next, consumed := p.parseCStyle(i, end, parent, members, owner); consumed {
 			i = next
 			continue
 		}
 		i++
 	}
+}
+
+// skipBraceAnnotation consumes metadata without mistaking its arguments for a
+// callable declaration. The following declaration remains available to parseScope.
+func (p *braceLanguageParser) skipBraceAnnotation(start, end int) int {
+	name := nextStructuralToken(p.tokens, start+1, end)
+	if name >= end || p.tokens[name].Kind != TokenIdentifier {
+		p.builder.MarkIncomplete()
+		return start + 1
+	}
+	next := name + 1
+	for next+1 < end && p.tokens[next].Text == "." && p.tokens[next+1].Kind == TokenIdentifier {
+		next += 2
+	}
+	if next < end && p.tokens[next].Text == "(" {
+		if close := p.pairs[next]; close > next && close < end {
+			return close + 1
+		}
+		p.builder.MarkIncomplete()
+	}
+	return next
 }
 
 func (p *braceLanguageParser) typeKeyword(start, end int) (int, bool) {
@@ -1049,6 +1075,8 @@ func (p *braceLanguageParser) parseExplicit(start, end int, parent *SymbolParent
 	return next
 }
 
+// parseCStyle reports whether it consumed a statement; consumption does not
+// imply that a declaration was emitted. Unknown blocks remain traversable.
 func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
 	depth := p.tokens[start].Nesting
 	terminator := -1
@@ -1069,13 +1097,20 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 		return start + 1, false
 	}
 	paren := -1
+	assignment := false
 	for i := start; i < terminator; i++ {
+		if p.tokens[i].Text == "=" && p.tokens[i].Nesting == depth {
+			assignment = true
+		}
 		if p.tokens[i].Text == "(" && p.tokens[i].Nesting == depth+1 {
 			paren = i
 			break
 		}
 	}
 	if paren >= 0 {
+		if assignment && p.policy.language == "apex" {
+			return p.parseVariable(start, terminator, parent, members)
+		}
 		nameIndex := previousIdentifierToken(p.tokens, paren-1, start)
 		name := ""
 		kind := SymbolKindFunction
@@ -1141,7 +1176,7 @@ func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *Symbol
 	}
 	first := p.lower(p.tokens[start].Text)
 	if first == "module" || first == "import" || first == "export" || first == "part" || first == "pragma" || first == "using" || first == "return" {
-		return semicolon + 1, false
+		return semicolon + 1, true
 	}
 	limit := semicolon
 	for i := start; i < semicolon; i++ {

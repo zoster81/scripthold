@@ -259,7 +259,11 @@ func (p *fsharpParser) addLet(line LogicalLine) {
 	if idx < 0 {
 		return
 	}
-	p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "let", Name: line.Tokens[idx].Text, Parent: p.namespace, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.Tokens[idx].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+	kind := SymbolKindFunction
+	if idx+1 < len(line.Tokens) && (line.Tokens[idx+1].Text == ":" || line.Tokens[idx+1].Text == "=") {
+		kind = SymbolKindVariable
+	}
+	p.add(SymbolSpec{Kind: kind, NativeKind: "let", Name: line.Tokens[idx].Text, Parent: p.namespace, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 }
 func (p *fsharpParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	s, err := p.builder.Add(spec)

@@ -1392,6 +1392,11 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 	if _, functionPointer := parser.functionPointerDeclarator(start, terminator); !functionPointer {
 		paren := parser.firstFunctionParen(start, terminator, depth)
 		if paren >= 0 {
+			if parser.cpp && parser.tokens[terminator].Text == ";" {
+				if close := parser.pairs[paren]; close > paren+1 && (parser.tokens[paren+1].Kind == TokenNumber || parser.tokens[paren+1].Kind == TokenString) {
+					return parser.parseVariable(start, terminator, parent, members)
+				}
+			}
 			if next, ok := parser.parseFunction(start, paren, terminator, end, parent, members, owner); ok {
 				return next, true
 			}
