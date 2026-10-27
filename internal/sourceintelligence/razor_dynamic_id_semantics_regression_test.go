@@ -83,3 +83,32 @@ func TestBlazorRealComputedIDOracles(t *testing.T) {
 		})
 	}
 }
+
+// TestRazorRealInlineComputedIDOracle exercises an independent source file;
+// its path is injected by the operator and never stored in repository fixtures.
+func TestRazorRealInlineComputedIDOracle(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_RAZOR_NOPCOMMERCE_CONFIGURE")
+	if path == "" {
+		t.Skip("set the independent Razor corpus fixture path")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := (RazorAnalyzer{}).Analyze(context.Background(), testSourceDocument(path, string(data)), testAnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{
+		"savecustomerrolesrequirement@(Model.RequirementId)",
+		"pnl-save-requirement-result@(Model.RequirementId)",
+	} {
+		if symbol, exists := got[name]; exists {
+			t.Errorf("runtime Razor ID emitted as a static declaration: %+v", symbol)
+		}
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Errorf("previously supported Razor file became incomplete: %+v", result.Analysis)
+	}
+}

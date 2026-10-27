@@ -1,0 +1,635 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
+  "cases": [
+    {
+      "id": "cpp-using-directive",
+      "language": "cpp",
+      "path": "namespaces.cpp",
+      "source": "using namespace System;\nusing namespace System::Reflection;\nusing facebook::react;\nusing Alias = int;\nnamespace Demo { class Service {}; }\nint count;\n",
+      "present": [
+        {
+          "qualifiedName": "Alias",
+          "kind": "alias",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Demo.Service",
+          "kind": "class",
+          "line": 5,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "count",
+          "kind": "variable",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "System",
+        "Reflection",
+        "react"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-cli-using-directive-bom",
+      "language": "cpp-cli",
+      "path": "assembly.cpp",
+      "source": "﻿#include \"stdafx.h\"\nusing namespace System;\nusing namespace System::Reflection;\npublic ref class Service {};\n",
+      "present": [
+        {
+          "qualifiedName": "Service",
+          "kind": "class",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "System",
+        "Reflection"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cil-quoted-assembly",
+      "language": "cil",
+      "path": "quoted.il",
+      "source": ".assembly extern mscorlib\n{\n}\n.assembly 'ConvTest'\n{\n}\n.module ConvTest.exe\n",
+      "present": [
+        {
+          "qualifiedName": "ConvTest",
+          "kind": "module",
+          "line": 4,
+          "nativeKind": "assembly"
+        }
+      ],
+      "forbidden": [
+        "'"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "razor-computed-id",
+      "language": "razor",
+      "path": "component.cshtml",
+      "source": "<main id=\"fixed\"></main>\n<div id=\"@Id\"></div>\n<button id=\"section-@Id\"></button>\n<aside id=\"help@example.com\"></aside>\n",
+      "present": [
+        {
+          "qualifiedName": "fixed",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "help@example.com",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "@Id",
+        "section-@Id"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "blazor-computed-id",
+      "language": "blazor",
+      "path": "component.razor",
+      "source": "<main id=\"fixed\"></main>\n<Widget Id=\"@(Model.Selected)\" />\n<div id=\"@Id\"></div>\n",
+      "present": [
+        {
+          "qualifiedName": "fixed",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "@(Model.Selected)",
+        "@Id"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "html-literal-at-id",
+      "language": "html",
+      "path": "page.html",
+      "source": "<main id=\"@Id\"></main>\n<div id=\"literal\"></div>\n",
+      "present": [
+        {
+          "qualifiedName": "@Id",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "literal",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Id"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "dart-annotation",
+      "language": "dart",
+      "path": "example.dart",
+      "source": "@pragma(\"vm:entry-point\")\nfinal class ProbeType {\n  int value = 1;\n}\nclass Other {}\n",
+      "present": [
+        {
+          "qualifiedName": "ProbeType",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "ProbeType.value",
+          "kind": "field",
+          "line": 3,
+          "parent": "ProbeType"
+        },
+        {
+          "qualifiedName": "Other",
+          "kind": "class",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "pragma"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "apex-annotated-field",
+      "language": "apex",
+      "path": "Example.cls",
+      "source": "public class Probe {\n  private static Set<String> cache = new Set<String>();\n  public static Boolean ready() { return true; }\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Probe",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Probe.cache",
+          "kind": "field",
+          "line": 2,
+          "parent": "Probe"
+        },
+        {
+          "qualifiedName": "Probe.ready",
+          "kind": "method",
+          "line": 3,
+          "parent": "Probe"
+        }
+      ],
+      "forbidden": [
+        "Probe.String"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "d-module-import",
+      "language": "d",
+      "path": "example.d",
+      "source": "module test.simple;\nimport std.stdio;\nstruct Data {}\n",
+      "present": [
+        {
+          "qualifiedName": "test.simple.Data",
+          "kind": "struct",
+          "line": 3,
+          "parent": "test.simple"
+        }
+      ],
+      "forbidden": [
+        "test.simple.simple",
+        "test.simple.stdio"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "solidity-pragma",
+      "language": "solidity",
+      "path": "DataTypes.sol",
+      "source": "pragma solidity ^0.8.0;\nlibrary DataTypes {}\n",
+      "present": [
+        {
+          "qualifiedName": "DataTypes",
+          "kind": "module",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "solidity"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "haskell-local-bindings",
+      "language": "haskell",
+      "path": "Demo.hs",
+      "source": "module Demo where\nrun n = do\n  let doubled x = x + x\n      answer = doubled n\n  pure answer\ntop x = inner x\n  where\n    inner y = y + 1\noutside = 42\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.run",
+          "kind": "function",
+          "line": 2,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.top",
+          "kind": "function",
+          "line": 6,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.outside",
+          "kind": "variable",
+          "line": 9,
+          "parent": "Demo"
+        }
+      ],
+      "forbidden": [
+        "Demo.let",
+        "Demo.doubled",
+        "Demo.answer",
+        "Demo.inner"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cobol-quoted-program",
+      "language": "cobol",
+      "path": "hello.cbl",
+      "source": "IDENTIFICATION DIVISION.\nPROGRAM-ID. 'HELLO'.\nENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\nPROCEDURE DIVISION.\nMAIN SECTION.\n",
+      "present": [
+        {
+          "qualifiedName": "HELLO",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "HELLO.CONFIGURATION",
+          "kind": "section",
+          "line": 4,
+          "parent": "HELLO"
+        },
+        {
+          "qualifiedName": "HELLO.MAIN",
+          "kind": "function",
+          "line": 8,
+          "parent": "HELLO"
+        }
+      ],
+      "forbidden": [
+        "HELLO.CONFIGURATION.MAIN"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vhdl-architecture-component",
+      "language": "vhdl",
+      "path": "core.vhd",
+      "source": "library ieee;\nuse ieee.std_logic_1164.all;\nentity Core is\nend entity;\narchitecture rtl of Core is\n  signal state : std_logic;\n  -- component Fake\n  component ADC\n    port (clk : in std_logic);\n  end component;\nbegin\n  ADC_i : ADC port map (clk => state);\nend architecture;\n",
+      "present": [
+        {
+          "qualifiedName": "Core",
+          "kind": "entity",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Core.rtl",
+          "kind": "implementation",
+          "line": 5,
+          "parent": "Core"
+        },
+        {
+          "qualifiedName": "Core.rtl.ADC",
+          "kind": "type",
+          "line": 8,
+          "parent": "Core.rtl",
+          "nativeKind": "component"
+        }
+      ],
+      "forbidden": [
+        "Core.rtl.Fake",
+        "Core.rtl.ADC_i"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-typed-binding",
+      "language": "fsharp",
+      "path": "Probe.fs",
+      "source": "module Probe\nlet value : int =\n    7\nlet square x =\n    x * x\n",
+      "present": [
+        {
+          "qualifiedName": "Probe",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Probe.value",
+          "kind": "variable",
+          "line": 2,
+          "parent": "Probe"
+        },
+        {
+          "qualifiedName": "Probe.square",
+          "kind": "function",
+          "line": 4,
+          "parent": "Probe"
+        }
+      ],
+      "forbidden": [
+        "Probe.int"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "python-comment-ghost",
+      "language": "python",
+      "path": "module.py",
+      "source": "# def ghost(): pass\n\ndef real(value):\n    return value\n",
+      "present": [
+        {
+          "qualifiedName": "real",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "jsp-xml-declaration",
+      "language": "jsp",
+      "path": "declarations.jsp",
+      "source": "<jsp:declaration>\n  String greeting(Locale locale) { return locale.toString(); }\n</jsp:declaration>\n<main id=\"hero\"></main>\n<!-- <jsp:declaration>class Ghost {}</jsp:declaration> -->\n",
+      "present": [
+        {
+          "qualifiedName": "greeting",
+          "kind": "method",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "razor-inline-computed-id",
+      "language": "razor",
+      "path": "inline.cshtml",
+      "source": "<button id=\"savecustomerrolesrequirement@(Model.RequirementId)\"></button>\n<div id=\"fixed\"></div>\n",
+      "present": [
+        {
+          "qualifiedName": "fixed",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "savecustomerrolesrequirement@(Model.RequirementId)"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "go-ast-comment",
+      "language": "go",
+      "path": "sample.go",
+      "source": "package sample\n// func Ghost() {}\ntype Widget struct { Value int }\nfunc Run() {}\n",
+      "present": [
+        {
+          "qualifiedName": "sample",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "sample.Widget",
+          "kind": "struct",
+          "line": 3
+        },
+        {
+          "qualifiedName": "sample.Widget.Value",
+          "kind": "field",
+          "line": 3
+        },
+        {
+          "qualifiedName": "sample.Run",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "sample.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "javascript-opaque-comment",
+      "language": "javascript",
+      "path": "app.js",
+      "source": "// function Phantom() {}\nfunction real(value) { return value; }\nconst text = \"function Ghost() {}\";\n",
+      "present": [
+        {
+          "qualifiedName": "real",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "typescript-interface",
+      "language": "typescript",
+      "path": "app.ts",
+      "source": "export interface Item { id: string; }\nexport type State = 'active' | 'closed';\nconst value = \"class Ghost {}\";\n",
+      "present": [
+        {
+          "qualifiedName": "Item",
+          "kind": "interface",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Item.id",
+          "kind": "property",
+          "line": 1
+        },
+        {
+          "qualifiedName": "State",
+          "kind": "alias",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "java-string-fake",
+      "language": "java",
+      "path": "Box.java",
+      "source": "package demo.core;\nclass Box {\n  int value;\n  String fake = \"class Ghost {}\";\n  void run() {}\n}\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.Box",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.Box.value",
+          "kind": "field",
+          "line": 3
+        },
+        {
+          "qualifiedName": "demo.core.Box.run",
+          "kind": "method",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "demo.core.Box.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "kotlin-string-fake",
+      "language": "kotlin",
+      "path": "Box.kt",
+      "source": "package demo.core\nclass Box(val value: Int) {\n  fun run(): Int = value\n  val fake = \"class Ghost {}\"\n}\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.Box",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.Box.value",
+          "kind": "property",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.Box.run",
+          "kind": "method",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "demo.core.Box.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sql-comment-ghost",
+      "language": "sql",
+      "path": "schema.sql",
+      "source": "CREATE SCHEMA IF NOT EXISTS `lemans24` DEFAULT CHARACTER SET utf8mb4;\nCREATE TABLE IF NOT EXISTS `lemans24`.`drivers` (`id` INT PRIMARY KEY);\n-- CREATE TABLE Ghost (id INT);\n",
+      "present": [
+        {
+          "qualifiedName": "lemans24",
+          "kind": "schema",
+          "line": 1
+        },
+        {
+          "qualifiedName": "lemans24.drivers",
+          "kind": "type",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "xml-comment-ghost",
+      "language": "xml",
+      "path": "sample.xml",
+      "source": "<catalog>\n  <item id=\"real\"/>\n  <!-- <item id=\"ghost\"/> -->\n</catalog>\n",
+      "present": [
+        {
+          "qualifiedName": "real",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "csharp-comment-ghost",
+      "language": "csharp",
+      "path": "Service.cs",
+      "source": "namespace Demo {\n  class Service {\n    // void Ghost() {}\n    public void Run() {}\n  }\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.Service",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Demo.Service.Run",
+          "kind": "method",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Demo.Service.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "scss-comment-ghost",
+      "language": "scss",
+      "path": "variables.scss",
+      "source": "$primary: #ffffff;\n// $ghost: #000000;\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    }
+  ]
+}

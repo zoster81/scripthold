@@ -1583,12 +1583,14 @@ func razorIDContainsExpression(value string) bool {
 			index++ // Razor literal escaping is not an expression.
 			continue
 		}
+		next := value[index+1]
+		if next == '(' || next == '{' {
+			return true // Explicit Razor expressions can follow literal text.
+		}
 		if index > 0 && isASCIIIdentifierByte(value[index-1]) {
 			continue // Preserve ordinary email-like literal ids.
 		}
-		next := value[index+1]
-		if next == '(' || next == '{' || next == '_' ||
-			next >= 'A' && next <= 'Z' || next >= 'a' && next <= 'z' {
+		if next == '_' || next >= 'A' && next <= 'Z' || next >= 'a' && next <= 'z' {
 			return true
 		}
 	}
