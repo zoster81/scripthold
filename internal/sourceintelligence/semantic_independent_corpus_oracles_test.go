@@ -107,6 +107,15 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"proc1", SymbolKindFunction, 2}, {"proc2", SymbolKindFunction, 8},
 			{"proc3", SymbolKindFunction, 10}, {"proc4", SymbolKindFunction, 15},
 		}, []string{"regexp"}},
+		{"tcl-sample-even-odd", "SCRIPTHOLD_REAL_TCL_B", "tcl", []want{
+			{"usage", SymbolKindFunction, 1},
+		}, []string{"lindex", "regexp", "expr"}},
+		{"ada-ctags-block-scope", "SCRIPTHOLD_REAL_ADA_BLOCK", "ada", []want{
+			{"Input", SymbolKindPackage, 1}, {"Input.F", SymbolKindFunction, 2}, {"Input.G", SymbolKindFunction, 23},
+		}, []string{"Input.F.G", "Input.F.P", "Input.G.D"}},
+		{"ada-ctags-altivec", "SCRIPTHOLD_REAL_ADA_ALTIVEC", "ada", []want{
+			{"Altivec", SymbolKindFunction, 14},
+		}, []string{"Altivec.To_Vector", "Altivec.View_A"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

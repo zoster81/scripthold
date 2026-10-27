@@ -1139,6 +1139,13 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	applyStructuralScanDiagnostics(builder, scan, "ada")
 	dependencies := []StructuralDependency{}
 	var scopes []structuralAnalyzerScope
+	// Keep unnamed statement blocks distinct from Ada declaration scopes.
+	type adaLexicalFrame struct {
+		begun  bool
+		blocks int
+		opaque bool
+	}
+	var lexical []adaLexicalFrame
 	for lineIndex := range lines {
 		line := lines[lineIndex]
 		if len(line.Tokens) == 0 {
@@ -1162,15 +1169,58 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			}
 			continue
 		}
+		if first == "task" || first == "protected" {
+			for _, token := range line.Tokens[1:] {
+				if strings.EqualFold(token.Text, "is") {
+					builder.MarkIncomplete()
+					if len(lexical) > 0 {
+						lexical[len(lexical)-1].opaque = true
+					}
+					break
+				}
+			}
+		}
 		if first == "end" {
 			if len(scopes) > 0 && len(line.Tokens) > 1 {
 				closing := line.Tokens[1].Text
+				frame := &lexical[len(lexical)-1]
+				if closing == ";" {
+					if frame.opaque {
+						// Do not guess which unsupported task/protected body this ends.
+						continue
+					}
+					if frame.blocks > 0 {
+						frame.blocks--
+					} else {
+						scopes = scopes[:len(scopes)-1]
+						lexical = lexical[:len(lexical)-1]
+					}
+					continue
+				}
 				if name, _, _, ok := adaSelectedName(line.Tokens, 1); ok {
 					closing = name
 				}
 				current := scopes[len(scopes)-1]
 				if strings.EqualFold(closing, "package") || strings.EqualFold(closing, current.parent.QualifiedName) || strings.EqualFold(closing, qualifiedNameTail(current.parent.QualifiedName)) {
+					if frame.blocks > 0 {
+						builder.MarkIncomplete()
+					}
 					scopes = scopes[:len(scopes)-1]
+					lexical = lexical[:len(lexical)-1]
+				}
+			}
+			continue
+		}
+		if first == "begin" {
+			if len(lexical) > 0 {
+				frame := &lexical[len(lexical)-1]
+				if frame.opaque {
+					continue
+				}
+				if frame.begun {
+					frame.blocks++
+				} else {
+					frame.begun = true
 				}
 			}
 			continue
@@ -1189,6 +1239,7 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			if added && adaPackageOpensScope(line.Tokens, nameEnd-1, adaNextTokens(lines, lineIndex+1)) {
 				scopes = append(scopes, structuralAnalyzerScope{label: "package", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+				lexical = append(lexical, adaLexicalFrame{})
 			}
 			continue
 		}
@@ -1207,6 +1258,7 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 				if added && adaSubprogramOpensScope(line.Tokens, nameIndex, adaNextTokens(lines, lineIndex+1)) {
 					scopes = append(scopes, structuralAnalyzerScope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+					lexical = append(lexical, adaLexicalFrame{})
 				}
 			}
 		}

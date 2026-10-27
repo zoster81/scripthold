@@ -1245,6 +1245,72 @@
         "regexp"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "ada-anonymous-end-scope",
+      "language": "ada",
+      "path": "demo.adb",
+      "source": "package body Demo is\n  procedure Outer is\n    procedure Inner is\n    begin\n      null;\n    end;\n    procedure After is\n    begin\n      null;\n    end After;\n  begin\n    declare\n      Local : Integer := 1;\n    begin\n      null;\n    end;\n  end Outer;\n  procedure Sibling is\n  begin\n    null;\n  end Sibling;\nend Demo;\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.Outer",
+          "kind": "function",
+          "line": 2,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.Outer.Inner",
+          "kind": "function",
+          "line": 3,
+          "parent": "Demo.Outer"
+        },
+        {
+          "qualifiedName": "Demo.Outer.After",
+          "kind": "function",
+          "line": 7,
+          "parent": "Demo.Outer"
+        },
+        {
+          "qualifiedName": "Demo.Sibling",
+          "kind": "function",
+          "line": 18,
+          "parent": "Demo"
+        }
+      ],
+      "forbidden": [
+        "Demo.Outer.Inner.After",
+        "Demo.Outer.Sibling"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ada-unmodeled-task-body-closer",
+      "language": "ada",
+      "path": "task-body.adb",
+      "source": "package body Demo is\n  task body Worker is\n  begin\n    null;\n  end;\n  procedure Run is\n  begin\n    null;\n  end Run;\nend Demo;\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.Run",
+          "kind": "function",
+          "line": 6,
+          "parent": "Demo"
+        }
+      ],
+      "forbidden": [
+        "Run",
+        "Demo.Worker.Run"
+      ],
+      "coverageComplete": false
     }
   ]
 }
