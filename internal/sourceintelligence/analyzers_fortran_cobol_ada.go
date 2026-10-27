@@ -866,6 +866,7 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		return AnalyzerResult{}, err
 	}
 	var program *SymbolParent
+	division := ""
 	dependencies := []StructuralDependency{}
 	continuedQuote := byte(0)
 	continuedRange := OffsetRange{}
@@ -913,6 +914,8 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		}
 		upper := strings.ToUpper(code)
 		switch {
+		case strings.HasSuffix(upper, " DIVISION."):
+			division = strings.TrimSpace(strings.TrimSuffix(upper, " DIVISION."))
 		case strings.HasPrefix(upper, "PROGRAM-ID."):
 			name := cobolWordAfter(code, "PROGRAM-ID.")
 			if name == "" {
@@ -931,7 +934,11 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 				continue
 			}
 			nameRange := findEqualFoldRange(document.Text, line.Code, name)
-			addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "section", Name: name, Parent: program,
+			kind := SymbolKindFunction
+			if division != "" && division != "PROCEDURE" {
+				kind = SymbolKindSection
+			}
+			addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "section", Name: name, Parent: program,
 				Declaration: line.Code, NameRange: nameRange, Signature: &line.Code, Evidence: SymbolEvidenceStructural})
 		}
 		if index := strings.Index(upper, "COPY "); index >= 0 {
@@ -1078,7 +1085,15 @@ func cobolWordAfter(text, prefix string) string {
 	if len(text) < len(prefix) {
 		return ""
 	}
-	return cobolLeadingWord(strings.TrimSpace(text[len(prefix):]))
+	name := strings.TrimSpace(text[len(prefix):])
+	if len(name) > 2 && (name[0] == '\'' || name[0] == '"') {
+		end := strings.IndexByte(name[1:], name[0])
+		if end <= 0 || end+2 < len(name) && name[end+2] == name[0] {
+			return ""
+		}
+		return name[1 : end+1]
+	}
+	return cobolLeadingWord(name)
 }
 
 func cobolLeadingWord(text string) string {
