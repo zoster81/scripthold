@@ -139,6 +139,14 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"User", SymbolKindClass, 168}, {"User.User", SymbolKindConstructor, 173},
 			{"MyClass", SymbolKindClass, 180},
 		}, []string{"DateTime", "DateTime.get", "some_js_var", "JSFake"}},
+		{"rust-ctags-circle", "SCRIPTHOLD_REAL_RUST_A", "rust", []want{
+			{"main", SymbolKindFunction, 4}, {"Circle.x", SymbolKindField, 8},
+			{"Circle.radius", SymbolKindField, 10}, {"Circle.area", SymbolKindMethod, 14},
+		}, []string{"println", "Circle.println", "Ghost"}},
+		{"rust-sample-even-odd", "SCRIPTHOLD_REAL_RUST_B", "rust", []want{
+			{"usage", SymbolKindFunction, 8}, {"parse_int", SymbolKindFunction, 13},
+			{"main", SymbolKindFunction, 17},
+		}, []string{"println", "FromStr", "parse"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

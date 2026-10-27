@@ -1465,6 +1465,80 @@
         "class"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "php-leading-host-text-before-script",
+      "language": "php",
+      "path": "leading-text.php",
+      "source": "Welcome to the page\n<script type=\"text/typescript\">\nclass BrowserOnly { view() {} }\n</script>\n<?php\nclass Real {}\n?>\n",
+      "present": [
+        {
+          "qualifiedName": "Real",
+          "kind": "class",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "BrowserOnly",
+        "BrowserOnly.view",
+        "view"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-untagged-snippet-markup-string",
+      "language": "php",
+      "path": "untagged.php",
+      "source": "function before() {}\n$markup = \"<script>class Fake {}</script><?php class Phantom {} ?>\";\nfunction after() {}\n",
+      "present": [
+        {
+          "qualifiedName": "before",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Fake",
+        "Phantom",
+        "script"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "rust-struct-inherent-impl",
+      "language": "rust",
+      "path": "circle.rs",
+      "source": "fn main() { println!(\"hi\"); }\nstruct Circle {\n  radius: f64,\n}\nimpl Circle {\n  fn area(&self) -> f64 { self.radius }\n}\n// fn Ghost() {}\n",
+      "present": [
+        {
+          "qualifiedName": "main",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Circle.radius",
+          "kind": "field",
+          "line": 3,
+          "parent": "Circle"
+        },
+        {
+          "qualifiedName": "Circle.area",
+          "kind": "method",
+          "line": 6,
+          "parent": "Circle"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "println",
+        "Circle.println"
+      ],
+      "coverageComplete": true
     }
   ]
 }

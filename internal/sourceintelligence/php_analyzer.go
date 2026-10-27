@@ -28,22 +28,30 @@ func analyzePHPSource(ctx context.Context, document *SourceDocument, options Ana
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_php_source", document.Path, err)
 	}
 	projection := document.Text
-	if segmentHost && strings.HasPrefix(strings.TrimLeft(projection, " \t\r\n\ufeff"), "<") && strings.Contains(projection, "<?") {
-		// Explicit tag/markup files may embed host scripts between PHP regions.
-		// Untagged code snippets can contain literal PHP tag strings.
-		// Retain original byte offsets and avoid treating host declarations as PHP.
-		regions, _, err := phpRegionsWithPattern(ctx, maskHostComments(projection), phpSourceOpenPattern)
-		if err != nil {
-			return AnalyzerResult{}, err
-		}
-		if len(regions) > 0 {
-			keep := make([]OffsetRange, 0, len(regions))
-			for _, region := range regions {
-				keep = append(keep, region.content)
-			}
-			projection, err = MaskOutsideRanges(document.Text, keep)
+	if segmentHost && strings.Contains(projection, "<?") {
+		startsWithMarkup := strings.HasPrefix(strings.TrimLeft(projection, " \t\r\n\ufeff"), "<")
+		if !startsWithMarkup {
+			var err error
+			startsWithMarkup, err = phpHasHostMarkupBeforeOpening(ctx, document)
 			if err != nil {
 				return AnalyzerResult{}, err
+			}
+		}
+		if startsWithMarkup {
+			// Retain original offsets and exclude host-side declarations.
+			regions, _, err := phpRegionsWithPattern(ctx, maskHostComments(projection), phpSourceOpenPattern)
+			if err != nil {
+				return AnalyzerResult{}, err
+			}
+			if len(regions) > 0 {
+				keep := make([]OffsetRange, 0, len(regions))
+				for _, region := range regions {
+					keep = append(keep, region.content)
+				}
+				projection, err = MaskOutsideRanges(document.Text, keep)
+				if err != nil {
+					return AnalyzerResult{}, err
+				}
 			}
 		}
 	}
@@ -86,6 +94,56 @@ func analyzePHPSource(ctx context.Context, document *SourceDocument, options Ana
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_php_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
+}
+
+// phpHasHostMarkupBeforeOpening distinguishes leading HTML from PHP snippets
+// containing literal tag text. The PHP lexer keeps quoted text and comments
+// opaque, so only an actual markup tag before the first PHP opener qualifies.
+func phpHasHostMarkupBeforeOpening(ctx context.Context, document *SourceDocument) (bool, error) {
+	opening := phpSourceOpenPattern.FindStringIndex(document.Text)
+	if opening == nil || !strings.Contains(document.Text[:opening[0]], "<") {
+		return false, nil
+	}
+	prefix, _, err := maskPHPHeredocs(ctx, document.Text[:opening[0]])
+	if err != nil {
+		return false, err
+	}
+	clone := *document
+	clone.Text = prefix
+	clone.lineStarts = buildLineStarts(prefix)
+	scan, err := ScanSource(ctx, &clone, PHPScannerProfile(), ScannerLimits{
+		MaxTokens: scannerTokenBudget(prefix), MaxTokenBytes: 1024 * 1024, MaxNesting: 2048,
+	})
+	if err != nil {
+		return false, err
+	}
+	if !scan.Complete {
+		return false, nil
+	}
+	for index := 0; index+1 < len(scan.Tokens); index++ {
+		if scan.Tokens[index].Text != "<" {
+			continue
+		}
+		name := index + 1
+		if scan.Tokens[name].Text == "/" {
+			name++
+		}
+		if name >= len(scan.Tokens) {
+			continue
+		}
+		switch strings.ToLower(scan.Tokens[name].Text) {
+		case "html", "head", "body", "script", "style", "div", "span", "main", "section", "p", "h1", "h2", "h3", "template":
+			for close := name + 1; close < len(scan.Tokens) && scan.Tokens[close].StartOffset-scan.Tokens[index].StartOffset < 1024; close++ {
+				if scan.Tokens[close].Text == ">" {
+					return true, nil
+				}
+				if scan.Tokens[close].Kind == TokenNewline {
+					break
+				}
+			}
+		}
+	}
+	return false, nil
 }
 
 type phpParser struct {
