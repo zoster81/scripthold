@@ -24,6 +24,7 @@ var (
 	vhdlEntity       = regexp.MustCompile(`(?im)^[ \t]*entity[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
 	vhdlArchitecture = regexp.MustCompile(`(?im)^[ \t]*architecture[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+of[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
 	vhdlSignal       = regexp.MustCompile(`(?im)^[ \t]*signal[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:`)
+	vhdlComponent    = regexp.MustCompile(`(?im)^[ \t]*component[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	vhdlUse          = regexp.MustCompile(`(?im)^[ \t]*use[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
 )
 
@@ -76,6 +77,22 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 		archParent := &symbol
 		bodyEnd := end
+		for _, component := range vhdlComponent.FindAllStringSubmatchIndex(source[match[1]:bodyEnd], -1) {
+			if err := ctx.Err(); err != nil {
+				return AnalyzerResult{}, err
+			}
+			componentStart := match[1] + component[0]
+			nameStart := match[1] + component[2]
+			nameEnd := match[1] + component[3]
+			name := document.Text[nameStart:nameEnd]
+			componentEnd := vhdlEnd(source, match[1]+component[1], "component", name)
+			if componentEnd < 0 || componentEnd > bodyEnd {
+				addDocumentDataHardwareDiagnostic(builder, "vhdl-unclosed-component", "VHDL component declaration is not structurally closed", componentStart, nameEnd)
+				continue
+			}
+			addDocumentDataHardwareSymbol(builder, SymbolKindType, "component", name, archParent,
+				OffsetRange{Start: componentStart, End: componentEnd}, OffsetRange{Start: nameStart, End: nameEnd})
+		}
 		for _, signal := range vhdlSignal.FindAllStringSubmatchIndex(source[match[1]:bodyEnd], -1) {
 			value := document.Text[match[1]+signal[2] : match[1]+signal[3]]
 			addDocumentDataHardwareSymbol(builder, SymbolKindSignal, "signal", value, archParent,
