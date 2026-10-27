@@ -229,7 +229,8 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	for _, line := range sourceTextLines(document.Text) {
+	lines := sourceTextLines(document.Text)
+	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
@@ -245,15 +246,56 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			}
 			continue
 		}
+		if trimmed == "@function" || strings.HasPrefix(trimmed, "@function ") || strings.HasPrefix(trimmed, "@function\t") {
+			rest := strings.TrimSpace(trimmed[len("@function"):])
+			paren := strings.IndexByte(rest, '(')
+			name := ""
+			if paren > 0 && strings.IndexByte(rest[paren+1:], ')') >= 0 {
+				name = strings.TrimSpace(rest[:paren])
+			}
+			if !sassBareElementName(name) {
+				addDocumentDataHardwareDiagnostic(builder, "sass-malformed-function", "Sass function declaration has no valid name or parameter list", line.start, line.end)
+				continue
+			}
+			nameStart := line.start + strings.Index(line.text, name)
+			addDocumentDataHardwareSymbol(builder, SymbolKindFunction, "function", name, nil, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
+			continue
+		}
 		if strings.Contains(trimmed, ": ") || strings.HasPrefix(trimmed, "@") {
 			continue
 		}
-		if strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "&") {
+		isSelector := strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "&")
+		if !isSelector && sassBareElementName(trimmed) {
+			indent := len(line.text) - len(strings.TrimLeft(line.text, " \t"))
+			for next := index + 1; next < len(lines); next++ {
+				if strings.TrimSpace(stripLineComment(lines[next].text, "//")) == "" {
+					continue
+				}
+				childIndent := len(lines[next].text) - len(strings.TrimLeft(lines[next].text, " \t"))
+				isSelector = childIndent > indent
+				break
+			}
+		}
+		if isSelector {
 			nameStart := line.start + strings.Index(line.text, trimmed)
 			addDocumentDataHardwareSymbol(builder, SymbolKindSelector, "selector", trimmed, nil, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(trimmed)})
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+func sassBareElementName(name string) bool {
+	for index := 0; index < len(name); index++ {
+		char := name[index]
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' {
+			continue
+		}
+		if index > 0 && (char >= '0' && char <= '9' || char == '-' || char == '_') {
+			continue
+		}
+		return false
+	}
+	return len(name) > 0
 }
 
 func (JSONAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {

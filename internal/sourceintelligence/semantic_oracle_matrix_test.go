@@ -109,7 +109,7 @@ func TestSemanticOracleMatrix(t *testing.T) {
 				seenExpected[expected.QualifiedName] = true
 				matches := symbols[expected.QualifiedName]
 				if len(matches) != 1 {
-					t.Errorf("expected exactly one declaration %q (%s), got %d: %v", expected.QualifiedName, expected.Kind, len(matches), matches)
+					t.Errorf("expected exactly one declaration %q (%s), got %d: %v; actual names=%v", expected.QualifiedName, expected.Kind, len(matches), matches, sortedSymbolQualifiedNames(analysis.Analysis.Symbols))
 					continue
 				}
 				symbol := matches[0]

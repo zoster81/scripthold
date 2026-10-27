@@ -630,6 +630,325 @@
         "ghost"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "graphql-hasura-input",
+      "language": "graphql",
+      "path": "actions.graphql",
+      "source": "type Mutation {\n  actionName(arg1: SampleInput!): SampleOutput\n}\ninput SampleInput {\n  username: String!\n}\n# type Ghost { phantom: Boolean }\n",
+      "present": [
+        {
+          "qualifiedName": "Mutation",
+          "kind": "type",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Mutation.actionName",
+          "kind": "field",
+          "line": 2
+        },
+        {
+          "qualifiedName": "SampleInput",
+          "kind": "type",
+          "line": 4
+        },
+        {
+          "qualifiedName": "SampleInput.username",
+          "kind": "field",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Ghost.phantom"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "proto-addressbook-field",
+      "language": "proto",
+      "path": "addressbook.proto",
+      "source": "package tutorial;\nmessage Person {\n  required string name = 1;\n  optional int32 id = 2;\n}\n// message Ghost { optional string fake = 1; }\n",
+      "present": [
+        {
+          "qualifiedName": "tutorial",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "tutorial.Person",
+          "kind": "type",
+          "line": 2
+        },
+        {
+          "qualifiedName": "tutorial.Person.name",
+          "kind": "field",
+          "line": 3
+        },
+        {
+          "qualifiedName": "tutorial.Person.id",
+          "kind": "field",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "tutorial.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "less-antdesign-selector",
+      "language": "less",
+      "path": "global.less",
+      "source": "@import 'dumi/theme-default/slots/SearchBar/index.less';\n.demo-logo {\n  width: 120px;\n}\n// .ghost { display:none; }\n",
+      "present": [
+        {
+          "qualifiedName": ".demo-logo",
+          "kind": "selector",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        ".ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sass-variable-selector",
+      "language": "sass",
+      "path": "style.sass",
+      "source": "$primary: #fc5a7d\n$secondary: #7d6dfb\n// $ghost: #000\nbody\n  margin: 0\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "secondary",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "body",
+          "kind": "selector",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "luau-local-function",
+      "language": "luau",
+      "path": "classes.luau",
+      "source": "--!nocheck\nlocal function expectpass(s, f)\n    f()\nend\n-- local function ghost() end\n",
+      "present": [
+        {
+          "qualifiedName": "expectpass",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "arduino-eeprom-setup",
+      "language": "arduino",
+      "path": "eeprom_get.ino",
+      "source": "#include <EEPROM.h>\nvoid setup() {\n  Serial.begin(9600);\n}\n// void fake() {}\n",
+      "present": [
+        {
+          "qualifiedName": "setup",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "fake"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vue-header-script-setup",
+      "language": "vue",
+      "path": "Header.vue",
+      "source": "<script setup lang=\"ts\">\nconst props = defineProps<{ store: string }>()\n</script>\n<template><main id=\"hero\"></main></template>\n<!-- <div id=\"ghost\"></div> -->\n",
+      "present": [
+        {
+          "qualifiedName": "props",
+          "kind": "constant",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ejs-index-entity",
+      "language": "ejs",
+      "path": "index.ejs",
+      "source": "<main id=\"greeting\"></main>\n<% function render() { return 'hello'; } %>\n<!-- <div id=\"ghost\"></div> -->\n",
+      "present": [
+        {
+          "qualifiedName": "greeting",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "render",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "twig-craftcms-message",
+      "language": "twig",
+      "path": "400.twig",
+      "source": "{% extends \"_layouts/message\" %}\n{% block message %}\n <h2>{{ title }}</h2>\n{% endblock %}\n{# {% block ghost %}{% endblock %} #}\n",
+      "present": [
+        {
+          "qualifiedName": "message",
+          "kind": "section",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "r-highlight-square",
+      "language": "r",
+      "path": "highlight.R",
+      "source": "## Functions\nSquare <- function(x) {\n  return(x^2)\n}\n# Ghost <- function() 42\n",
+      "present": [
+        {
+          "qualifiedName": "Square",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "objective-c-implementation",
+      "language": "objective-c",
+      "path": "Foo.m",
+      "source": "#import \"Foo.h\"\n@implementation Foo\n@end\n// @implementation Ghost\n",
+      "present": [
+        {
+          "qualifiedName": "Foo@implementation",
+          "kind": "implementation",
+          "line": 2,
+          "nativeKind": "@implementation"
+        }
+      ],
+      "forbidden": [
+        "Ghost@implementation"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "al-sales-codeunit",
+      "language": "al",
+      "path": "SalesDataMgmt.al",
+      "source": "// SalesDataMgmt.al declaration\ncodeunit 50200 \"SalesDataMgmt\"\n{\n  procedure GetSalesJSON(): Text\n  begin\n    exit('{}');\n  end;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "SalesDataMgmt",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "SalesDataMgmt.GetSalesJSON",
+          "kind": "method",
+          "line": 4,
+          "parent": "SalesDataMgmt"
+        }
+      ],
+      "forbidden": [
+        "FakeSalesDataMgmt"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sass-function-rem",
+      "language": "sass",
+      "path": "functions.sass",
+      "source": "$browser-context: 16\n@function rem($pixels, $context: $browser-context)\n  @if unitless($pixels)\n    $pixels: $pixels * 1px\n  @return $pixels / $context * 1rem\n// @function Ghost() should not produce a symbol\n",
+      "present": [
+        {
+          "qualifiedName": "browser-context",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "rem",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "unitless"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sass-malformed-function",
+      "language": "sass",
+      "path": "invalid.sass",
+      "source": "$primary: #fc5a7d\n@function invalid\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "invalid"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "sass-unclosed-function-parameters",
+      "language": "sass",
+      "path": "unclosed.sass",
+      "source": "$primary: red\n@function incomplete($value\n  @return $value\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "incomplete"
+      ],
+      "coverageComplete": false
     }
   ]
 }
