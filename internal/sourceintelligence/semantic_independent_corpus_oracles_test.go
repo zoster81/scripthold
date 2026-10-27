@@ -129,6 +129,16 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"Periods", SymbolKindClass, 150}, {"Periods.each", SymbolKindMethod, 151},
 			{"ClientManager", SymbolKindClass, 205}, {"ClientManager.ClientManager", SymbolKindConstructor, 208},
 		}, []string{"dumpDebugInfo", "Periods.Classical", "ClientManager.DBClient"}},
+		{"php-ctags-classes", "SCRIPTHOLD_REAL_PHP_A", "php", []want{
+			{"Foo", SymbolKindClass, 16}, {"Foo.Foo", SymbolKindConstructor, 17},
+			{"Foo.method1", SymbolKindMethod, 21}, {"Bar", SymbolKindClass, 30},
+			{"Bar.Bar", SymbolKindConstructor, 31}, {"Bar.method1", SymbolKindMethod, 35},
+		}, []string{"Bar.method2", "functions", "classes"}},
+		{"php-kde-mixed", "SCRIPTHOLD_REAL_PHP_B", "php", []want{
+			{"test", SymbolKindFunction, 9}, {"gen_three_nulls", SymbolKindFunction, 141},
+			{"User", SymbolKindClass, 168}, {"User.User", SymbolKindConstructor, 173},
+			{"MyClass", SymbolKindClass, 180},
+		}, []string{"DateTime", "DateTime.get", "some_js_var", "JSFake"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

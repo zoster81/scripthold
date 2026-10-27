@@ -1386,6 +1386,85 @@
         "A.super"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "php-host-script-isolation",
+      "language": "php",
+      "path": "mixed.php",
+      "source": "<html>\n<script type=\"text/typescript\">\nclass DateTime { get() { return 1; } }\n</script>\n<?php\nclass User {\n    public function __construct() {}\n}\n?>\n<div class=\"Ghost\">Hello</div>\n<?php\nfunction after(): void {}\n?>\n</html>\n",
+      "present": [
+        {
+          "qualifiedName": "User",
+          "kind": "class",
+          "line": 6
+        },
+        {
+          "qualifiedName": "User.User",
+          "kind": "constructor",
+          "line": 7,
+          "parent": "User"
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 12
+        }
+      ],
+      "forbidden": [
+        "DateTime",
+        "get",
+        "Ghost",
+        "DateTime.get"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-short-tags-isolate-host",
+      "language": "php",
+      "path": "short.php",
+      "source": "<?\nfunction shortFn() {}\n?>\n<script>class JSFake {}</script>\n<?php function after() {} ?>\n",
+      "present": [
+        {
+          "qualifiedName": "shortFn",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "JSFake",
+        "script",
+        "class"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-code-only-quoted-open-tag",
+      "language": "php",
+      "path": "snippet.php",
+      "source": "function before() {}\n$example = \"<?php class Phantom {} ?>\";\nfunction after() {}\n",
+      "present": [
+        {
+          "qualifiedName": "before",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Phantom.after",
+        "class"
+      ],
+      "coverageComplete": true
     }
   ]
 }

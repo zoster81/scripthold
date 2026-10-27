@@ -83,6 +83,7 @@ var (
 	typeAttributePattern          = regexp.MustCompile(`(?i)\btype\s*=\s*["']([^"']+)["']`)
 	phpBlockPattern               = regexp.MustCompile(`(?is)<\?(?:php|=)?(.*?)\?>`)
 	phpOpenPattern                = regexp.MustCompile(`(?is)<\?(?:php\b|=)`)
+	phpSourceOpenPattern          = regexp.MustCompile(`(?is)<\?(?:php\b|=|[ \t\r\n])`)
 	jspBlockPattern               = regexp.MustCompile(`(?is)<%[!@=]?(.*?)%>`)
 	jspXMLDeclarationPattern      = regexp.MustCompile(`(?s)<jsp:declaration\s*>(.*?)</jsp:declaration\s*>`)
 	jspXMLExecutablePattern       = regexp.MustCompile(`(?s)<jsp:(?:scriptlet|expression)\b[^>]*>(.*?)</jsp:(?:scriptlet|expression)\s*>`)
@@ -130,6 +131,10 @@ func (PHPHTMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 }
 
 func phpRegions(ctx context.Context, probe string) ([]compositeEmbeddedRegion, bool, error) {
+	return phpRegionsWithPattern(ctx, probe, phpOpenPattern)
+}
+
+func phpRegionsWithPattern(ctx context.Context, probe string, openingPattern *regexp.Regexp) ([]compositeEmbeddedRegion, bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -138,7 +143,7 @@ func phpRegions(ctx context.Context, probe string) ([]compositeEmbeddedRegion, b
 		if err := ctx.Err(); err != nil {
 			return nil, false, operation.Wrap(operation.KindCancelled, "segment_php_html_source", "", err)
 		}
-		opening := phpOpenPattern.FindStringIndex(probe[search:])
+		opening := openingPattern.FindStringIndex(probe[search:])
 		if opening == nil {
 			break
 		}
@@ -955,7 +960,14 @@ func analyzeMaskedEmbeddedRegion(ctx context.Context, host *SourceDocument, mask
 	clone := *host
 	clone.Text = masked
 	clone.lineStarts = lineStartsForDerivedText(host, masked)
-	source, err := delegate.Analyze(ctx, &clone, options)
+	var source AnalyzerResult
+	if embeddedLanguage == "php" {
+		// The composite caller has already isolated PHP bytes; re-segmenting
+		// would mistake literal tag text in embedded strings for new PHP code.
+		source, err = analyzePHPSource(ctx, &clone, options, false)
+	} else {
+		source, err = delegate.Analyze(ctx, &clone, options)
+	}
 	if err != nil {
 		return AnalyzerResult{}, err
 	}

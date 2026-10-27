@@ -14,6 +14,10 @@ type PHPAnalyzer struct{}
 func (PHPAnalyzer) ID() AnalyzerID   { return AnalyzerPHP }
 func (PHPAnalyzer) Language() string { return "php" }
 func (PHPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
+	return analyzePHPSource(ctx, document, options, true)
+}
+
+func analyzePHPSource(ctx context.Context, document *SourceDocument, options AnalyzeOptions, segmentHost bool) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -23,7 +27,27 @@ func (PHPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_php_source", document.Path, err)
 	}
-	masked, heredocDiagnostics, err := maskPHPHeredocs(ctx, document.Text)
+	projection := document.Text
+	if segmentHost && strings.HasPrefix(strings.TrimLeft(projection, " \t\r\n\ufeff"), "<") && strings.Contains(projection, "<?") {
+		// Explicit tag/markup files may embed host scripts between PHP regions.
+		// Untagged code snippets can contain literal PHP tag strings.
+		// Retain original byte offsets and avoid treating host declarations as PHP.
+		regions, _, err := phpRegionsWithPattern(ctx, maskHostComments(projection), phpSourceOpenPattern)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+		if len(regions) > 0 {
+			keep := make([]OffsetRange, 0, len(regions))
+			for _, region := range regions {
+				keep = append(keep, region.content)
+			}
+			projection, err = MaskOutsideRanges(document.Text, keep)
+			if err != nil {
+				return AnalyzerResult{}, err
+			}
+		}
+	}
+	masked, heredocDiagnostics, err := maskPHPHeredocs(ctx, projection)
 	if err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_php_source", document.Path, err)
 	}
