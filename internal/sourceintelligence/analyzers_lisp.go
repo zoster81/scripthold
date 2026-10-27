@@ -329,10 +329,7 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
 	}
-	nameIndex := nextLispAtomToken(tokens, form+1, close)
-	if head == "ns" {
-		nameIndex = clojureNamespaceNameToken(tokens, pairs, form+1, close)
-	}
+	nameIndex := clojureDeclarationNameToken(tokens, pairs, form+1, close)
 	if nameIndex < 0 {
 		return
 	}
@@ -373,9 +370,9 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 	}
 }
 
-// Clojure namespace metadata precedes the actual namespace name. Treat the
-// metadata map as a single reader form, not as a structural declaration name.
-func clojureNamespaceNameToken(tokens []Token, pairs map[int]int, start, close int) int {
+// Metadata preceding a Clojure namespace or definition name belongs to the
+// reader form, not to the declared symbol.
+func clojureDeclarationNameToken(tokens []Token, pairs map[int]int, start, close int) int {
 	cursor := start
 	for cursor < close {
 		if tokens[cursor].Kind == TokenNewline {

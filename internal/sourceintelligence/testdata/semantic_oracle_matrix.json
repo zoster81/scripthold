@@ -1166,6 +1166,85 @@
         "Documented namespace"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "clojure-definition-metadata",
+      "language": "clojure",
+      "path": "metadata-defn.clj",
+      "source": "(defn my-fn [])\n\n(defn ^:private my-private-fn [])\n\n(defn ^{:foo :bar} my-public-fn [])\n\n(defn my-hinted-fn ^MyReturnType [])\n\n(defn ^:private my-private-hinted-fn ^MyReturnType [])\n\n(defn ^:private so-many-hints ^MyReturnType\n  [^MyArgType x])\n",
+      "present": [
+        {
+          "qualifiedName": "my-fn",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "my-private-fn",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "my-public-fn",
+          "kind": "function",
+          "line": 5
+        },
+        {
+          "qualifiedName": "my-hinted-fn",
+          "kind": "function",
+          "line": 7
+        },
+        {
+          "qualifiedName": "my-private-hinted-fn",
+          "kind": "function",
+          "line": 9
+        },
+        {
+          "qualifiedName": "so-many-hints",
+          "kind": "function",
+          "line": 11
+        }
+      ],
+      "forbidden": [
+        "private",
+        "foo",
+        "bar",
+        "MyReturnType",
+        "MyArgType"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "tcl-commented-procedures",
+      "language": "tcl",
+      "path": "procedures.tcl",
+      "source": "# proc ghost {} {}\nproc proc1 {} {\n  if {[regexp {[0-9]$} \"\"]} {\n    echo \"matched\"\n  }\n}\n\nproc proc2 {} {}\n\nproc proc3 {} {\n    set abc \"hello\"\n    puts ${abc}\n}\n\nproc proc4 {} {}\n\nproc3\n",
+      "present": [
+        {
+          "qualifiedName": "proc1",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "proc2",
+          "kind": "function",
+          "line": 8
+        },
+        {
+          "qualifiedName": "proc3",
+          "kind": "function",
+          "line": 10
+        },
+        {
+          "qualifiedName": "proc4",
+          "kind": "function",
+          "line": 15
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "regexp"
+      ],
+      "coverageComplete": true
     }
   ]
 }

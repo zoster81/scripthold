@@ -98,6 +98,15 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"clojure-highlight", "SCRIPTHOLD_REAL_CLOJURE_B", "clojure", []want{
 			{"highlighting", SymbolKindNamespace, 2}, {"highlighting.something-else", SymbolKindFunction, 6}, {"highlighting.bar", SymbolKindFunction, 21},
 		}, []string{"highlighting.Ghost"}},
+		{"clojure-ctags-metadata", "SCRIPTHOLD_REAL_CLOJURE_META", "clojure", []want{
+			{"my-fn", SymbolKindFunction, 1}, {"my-private-fn", SymbolKindFunction, 3},
+			{"my-public-fn", SymbolKindFunction, 5}, {"my-hinted-fn", SymbolKindFunction, 7},
+			{"my-private-hinted-fn", SymbolKindFunction, 9}, {"so-many-hints", SymbolKindFunction, 11},
+		}, []string{"private", "foo", "MyReturnType"}},
+		{"tcl-ctags-regex", "SCRIPTHOLD_REAL_TCL_A", "tcl", []want{
+			{"proc1", SymbolKindFunction, 2}, {"proc2", SymbolKindFunction, 8},
+			{"proc3", SymbolKindFunction, 10}, {"proc4", SymbolKindFunction, 15},
+		}, []string{"regexp"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
