@@ -65,7 +65,8 @@ func analyzeCFamily(ctx context.Context, document *SourceDocument, options Analy
 		}
 		lexicalText = masked
 	}
-	variantBaseText := maskCFamilyDirectiveBlockComments(document.Text, lexicalText)
+	lexicalText = maskCFamilyInitialBOM(lexicalText)
+	variantBaseText := maskCFamilyInitialBOM(maskCFamilyDirectiveBlockComments(document.Text, lexicalText))
 	planText := maskCFamilyDirectiveBlockComments(lexicalText, lexicalText)
 	planDocument := document
 	if planText != document.Text {
@@ -153,7 +154,7 @@ func analyzeCFamilySingle(ctx context.Context, document *SourceDocument, options
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
-	scanText := maskCFamilyDirectiveBlockComments(lexicalText, lexicalText)
+	scanText := maskCFamilyInitialBOM(maskCFamilyDirectiveBlockComments(lexicalText, lexicalText))
 	projectedText, projectionErr := maskCFamilyStructuralMacroEffects(ctx, document, scanText, profile, maxNesting)
 	if projectionErr != nil {
 		return AnalyzerResult{}, projectionErr
@@ -207,6 +208,15 @@ func analyzeCFamilySingle(ctx context.Context, document *SourceDocument, options
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_c_family_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.takeResult(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
+}
+
+// A UTF-8 BOM is not a C/C++ token. Replace its bytes, rather than removing
+// them, so source ranges remain aligned with the original document.
+func maskCFamilyInitialBOM(text string) string {
+	if strings.HasPrefix(text, "\ufeff") {
+		return "   " + text[len("\ufeff"):]
+	}
+	return text
 }
 
 func maskCFamilyDirectiveBlockComments(text, lexicalText string) string {
@@ -1345,7 +1355,9 @@ func (parser *cFamilyParser) parseUsingAlias(start, end int, parent *SymbolParen
 	}
 	nameIndex := nextIdentifierToken(parser.tokens, start+1, semicolon)
 	if nameIndex < 0 || !parser.hasToken(nameIndex+1, semicolon, "=") {
-		return semicolon + 1, false
+		// A using-directive or using-declaration imports a name; it does
+		// not introduce a variable. Consume it instead of rescanning tokens.
+		return semicolon + 1, true
 	}
 	_, added := parser.add(SymbolSpec{
 		Kind: SymbolKindAlias, NativeKind: "using-alias", Name: parser.tokens[nameIndex].Text, Parent: parent,

@@ -274,14 +274,35 @@ func (p *cilParser) assembly(line LogicalLine) {
 		return
 	}
 	tok := line.Tokens[idx]
+	name := tok.Text
+	nameEnd := tok.EndOffset
+	if name == "'" {
+		closing := -1
+		for i := idx + 1; i < len(line.Tokens); i++ {
+			if line.Tokens[i].Text == "'" && (i == idx+1 || line.Tokens[i-1].Text != "\\") {
+				closing = i
+				break
+			}
+		}
+		if closing < 0 {
+			p.builder.MarkIncomplete()
+			return
+		}
+		nameEnd = line.Tokens[closing].EndOffset
+		name = p.document.Text[tok.EndOffset:line.Tokens[closing].StartOffset]
+		if name == "" {
+			p.builder.MarkIncomplete()
+			return
+		}
+	}
 	if extern {
-		r, err := p.document.RangeFromUTF8Offsets(tok.StartOffset, tok.EndOffset)
+		r, err := p.document.RangeFromUTF8Offsets(tok.StartOffset, nameEnd)
 		if err == nil {
-			p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: tok.Text, Range: r, Evidence: SymbolEvidenceStructural})
+			p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: name, Range: r, Evidence: SymbolEvidenceStructural})
 		}
 		return
 	}
-	s, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "assembly", Name: tok.Text, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
+	s, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "assembly", Name: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: nameEnd}, Evidence: SymbolEvidenceStructural})
 	if ok {
 		v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
 		p.module = &v
