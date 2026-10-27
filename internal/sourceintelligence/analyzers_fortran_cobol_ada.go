@@ -1203,13 +1203,40 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if first == "procedure" || first == "function" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
+				symbol, added := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				if added && adaSubprogramOpensScope(line.Tokens, nameIndex, adaNextTokens(lines, lineIndex+1)) {
+					scopes = append(scopes, structuralAnalyzerScope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+				}
 			}
 		}
 	}
 	markUnclosedStructuralScopes(builder, "ada", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// Only subprogram bodies open a lexical declaration scope. Signatures and
+// expression functions have no matching named end, so must not retain a scope.
+func adaSubprogramOpensScope(tokens []Token, nameIndex int, nextTokens []Token) bool {
+	end := logicalLineTokenEnd(tokens)
+	for index := nameIndex + 1; index < end; index++ {
+		if !strings.EqualFold(tokens[index].Text, "is") {
+			continue
+		}
+		if index+1 < end {
+			switch strings.ToLower(tokens[index+1].Text) {
+			case "(", "new", "abstract", "separate", "null":
+				return false
+			}
+		} else if len(nextTokens) > 0 {
+			switch strings.ToLower(nextTokens[0].Text) {
+			case "(", "new", "abstract", "separate", "null":
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func maskAdaCharacterLiterals(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {

@@ -56,6 +56,48 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"r-analysis", "SCRIPTHOLD_REAL_R_B", "r", []want{
 			{"gtable_select", SymbolKindFunction, 9}, {"gtable_stack", SymbolKindFunction, 17},
 		}, []string{"library"}},
+		{"pascal-lsp", "SCRIPTHOLD_REAL_PASCAL_A", "pascal", []want{
+			{"LSP.Base", SymbolKindModule, 21}, {"LSP.Base.TLSPContextCustomJSONRPCHandler", SymbolKindClass, 49},
+		}, []string{"LSP.Base.TGhost"}},
+		{"pascal-brook", "SCRIPTHOLD_REAL_PASCAL_B", "pascal", []want{
+			{"BrookFCLCGIBroker", SymbolKindModule, 16}, {"BrookFCLCGIBroker.TBrookApplication", SymbolKindClass, 32},
+		}, []string{"BrookFCLCGIBroker.TGhost"}},
+		{"powershell-class", "SCRIPTHOLD_REAL_POWERSHELL_A", "powershell", []want{
+			{"Foo", SymbolKindClass, 13}, {"Foo.Method", SymbolKindMethod, 16}, {"GetBar", SymbolKindFunction, 22},
+		}, []string{"Foo.LocalVar1"}},
+		{"powershell-history", "SCRIPTHOLD_REAL_POWERSHELL_B", "powershell", []want{
+			{"Save-HistoryAll", SymbolKindFunction, 1}, {"Save-HistoryIncremental", SymbolKindFunction, 9}, {"Search-History", SymbolKindFunction, 44},
+		}, []string{"Save-History"}},
+		{"perl-package", "SCRIPTHOLD_REAL_PERL_A", "perl", []want{
+			{"Test::One", SymbolKindModule, 8}, {"Test::One::Two", SymbolKindModule, 10}, {"Test", SymbolKindModule, 12},
+		}, []string{"Test.PodGhost"}},
+		{"perl-ack", "SCRIPTHOLD_REAL_PERL_B", "perl", []want{
+			{"App::Ack", SymbolKindModule, 1},
+		}, []string{"App::Ack.Ghost"}},
+		{"mql5-oscillator", "SCRIPTHOLD_REAL_MQL5_A", "mql5", []want{
+			{"ENUM_AOS_BI", SymbolKindEnum, 17}, {"AosPeriod", SymbolKindVariable, 24},
+		}, []string{"Indicator"}},
+		{"mql5-argus", "SCRIPTHOLD_REAL_MQL5_B", "mql5", []want{
+			{"ADX_Period", SymbolKindVariable, 23}, {"OnInit", SymbolKindFunction, 48},
+		}, []string{"ADX Regime"}},
+		{"vb6-modcode", "SCRIPTHOLD_REAL_VB6_A", "vb6", []want{
+			{"modCode", SymbolKindModule, 1}, {"modCode.progname", SymbolKindConstant, 6}, {"modCode.currentState", SymbolKindEnum, 10},
+		}, []string{"modCode.VB_Name"}},
+		{"vb6-module", "SCRIPTHOLD_REAL_VB6_B", "vb6", []want{
+			{"Module1", SymbolKindModule, 1}, {"Module1.SC_CLOSE", SymbolKindConstant, 4},
+		}, []string{"Module1.VB_Name"}},
+		{"ada-expression", "SCRIPTHOLD_REAL_ADA_A", "ada", []want{
+			{"Test", SymbolKindFunction, 3}, {"Test.Tagged_Procedure", SymbolKindFunction, 7}, {"Test.Tagged_Procedure.Boolean_As_String", SymbolKindFunction, 8},
+		}, []string{"Test.Tagged_Procedure.dummy0", "Test.Tagged_Procedure.dummy1"}},
+		{"ada-kde", "SCRIPTHOLD_REAL_ADA_B", "ada", []want{
+			{"LAL_DDA", SymbolKindFunction, 5}, {"LAL_DDA.App_Setup", SymbolKindFunction, 57},
+		}, []string{"LAL_DDA.Fake"}},
+		{"clojure-for", "SCRIPTHOLD_REAL_CLOJURE_A", "clojure", []want{
+			{"prime?", SymbolKindFunction, 1},
+		}, []string{"for"}},
+		{"clojure-highlight", "SCRIPTHOLD_REAL_CLOJURE_B", "clojure", []want{
+			{"highlighting", SymbolKindNamespace, 2}, {"highlighting.something-else", SymbolKindFunction, 6}, {"highlighting.bar", SymbolKindFunction, 21},
+		}, []string{"highlighting.Ghost"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

@@ -949,6 +949,223 @@
         "incomplete"
       ],
       "coverageComplete": false
+    },
+    {
+      "id": "pascal-brook-class",
+      "language": "pascal",
+      "path": "brook.pas",
+      "source": "unit BrookFCLCGIBroker;\ninterface\ntype\n  TBrookApplication = class(TObject)\n  private\n    FApp: TObject;\n  public\n    procedure Run;\n  end;\n// TGhost = class(TObject)\nimplementation\nend.\n",
+      "present": [
+        {
+          "qualifiedName": "BrookFCLCGIBroker",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "BrookFCLCGIBroker.TBrookApplication",
+          "kind": "class",
+          "line": 4
+        },
+        {
+          "qualifiedName": "BrookFCLCGIBroker.TBrookApplication.FApp",
+          "kind": "field",
+          "line": 6,
+          "parent": "BrookFCLCGIBroker.TBrookApplication"
+        }
+      ],
+      "forbidden": [
+        "TGhost",
+        "TBrookApplication.TGhost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "powershell-class-function",
+      "language": "powershell",
+      "path": "class.ps1",
+      "source": "class Foo {\n    $Property1\n    Method($Arg1) {\n        $LocalVar1 = 100\n    }\n}\nfunction GetBar {\n    $LocalVar2 = 200\n}\n# function Ghost {}\n",
+      "present": [
+        {
+          "qualifiedName": "Foo",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Foo.Method",
+          "kind": "method",
+          "line": 3
+        },
+        {
+          "qualifiedName": "GetBar",
+          "kind": "function",
+          "line": 7
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Foo.LocalVar1",
+        "GetBar.LocalVar2"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "perl-package-pod-comment",
+      "language": "perl",
+      "path": "Package.pm",
+      "source": "package Test::One;\nuse strict;\n# sub Ghost { }\nsub real { return 1; }\n=head1 COMMENTS\nsub PodGhost { }\n=cut\n",
+      "present": [
+        {
+          "qualifiedName": "Test::One",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Test::One.real",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Test::One.Ghost",
+        "Test::One.PodGhost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "mql5-input-group",
+      "language": "mql5",
+      "path": "EA.mq5",
+      "source": "#include <Trade/Trade.mqh>\ninput group \"Indicator Parameters\"\ninput int AosPeriod = 50;\ninput bool RequireRisingADX = true;\n// input int Ghost = 1;\nvoid OnTick() {}\n",
+      "present": [
+        {
+          "qualifiedName": "AosPeriod",
+          "kind": "variable",
+          "line": 3
+        },
+        {
+          "qualifiedName": "RequireRisingADX",
+          "kind": "variable",
+          "line": 4
+        },
+        {
+          "qualifiedName": "OnTick",
+          "kind": "function",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "Indicator",
+        "Ghost",
+        "Parameters"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vb6-module-metadata",
+      "language": "vb6",
+      "path": "Module1.bas",
+      "source": "Attribute VB_Name = \"Module1\"\nOption Explicit\nPrivate Const SC_CLOSE As Long = &HF060&\nPublic Function GetMenuItemInfo() As Boolean\nEnd Function\n' Public Sub Ghost()\n",
+      "present": [
+        {
+          "qualifiedName": "Module1",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Module1.SC_CLOSE",
+          "kind": "constant",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Module1.GetMenuItemInfo",
+          "kind": "method",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Module1.VB_Name",
+        "Module1.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ada-string-ghost",
+      "language": "ada",
+      "path": "test.adb",
+      "source": "with Ada.Text_IO;\nprocedure Test is\n  procedure Tagged_Procedure is\n    function Boolean_As_String return String is\n      (case True is when True => \"; function dummy0 return String is (\", when False => \"False\");\n  begin\n    null;\n  end Tagged_Procedure;\nbegin\n  null;\nend Test;\n",
+      "present": [
+        {
+          "qualifiedName": "Test",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Test.Tagged_Procedure",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Test.Tagged_Procedure.Boolean_As_String",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "dummy0",
+        "Test.Tagged_Procedure.dummy0"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "clojure-quoted-comment",
+      "language": "clojure",
+      "path": "for.clj",
+      "source": "(ns demo.core)\n(defn prime? [n] (not-any? zero? (range 2 n)))\n;; (defn Ghost [] nil)\n'(defn Quoted [] nil)\n(def value 42)\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.prime?",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.value",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "demo.core.Ghost",
+        "demo.core.Quoted"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "clojure-metadata-namespace",
+      "language": "clojure",
+      "path": "metadata.clj",
+      "source": "(ns ^{:doc \"Documented namespace\" :author \"team\"} demo.core)\n(defn run [] 1)\n;; (defn Ghost [] nil)\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.run",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "demo.core.Ghost",
+        "Documented namespace"
+      ],
+      "coverageComplete": true
     }
   ]
 }

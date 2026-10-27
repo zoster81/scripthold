@@ -77,7 +77,7 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 		case "common-lisp":
 			parseCommonLispForm(document, builder, scan.Tokens, form, close, head, &currentParent, packages, &dependencies)
 		case "clojure":
-			parseClojureForm(document, builder, scan.Tokens, form, close, head, &currentParent, &dependencies)
+			parseClojureForm(document, builder, scan.Tokens, pairs, form, close, head, &currentParent, &dependencies)
 		case "emacs-lisp":
 			parseEmacsLispForm(document, builder, scan.Tokens, form, close, head, currentParent, &dependencies)
 		}
@@ -324,12 +324,15 @@ func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, token
 	}
 }
 
-func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, dependencies *[]StructuralDependency) {
+func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, pairs map[int]int, form, close int, head string, currentParent **SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
 		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
 	}
 	nameIndex := nextLispAtomToken(tokens, form+1, close)
+	if head == "ns" {
+		nameIndex = clojureNamespaceNameToken(tokens, pairs, form+1, close)
+	}
 	if nameIndex < 0 {
 		return
 	}
@@ -368,6 +371,39 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 		*currentParent = &value
 		addClojureNamespaceDependencies(document, tokens, form+1, close, dependencies)
 	}
+}
+
+// Clojure namespace metadata precedes the actual namespace name. Treat the
+// metadata map as a single reader form, not as a structural declaration name.
+func clojureNamespaceNameToken(tokens []Token, pairs map[int]int, start, close int) int {
+	cursor := start
+	for cursor < close {
+		if tokens[cursor].Kind == TokenNewline {
+			cursor++
+			continue
+		}
+		if tokens[cursor].Text != "^" {
+			return nextLispAtomToken(tokens, cursor, close)
+		}
+		cursor++
+		for cursor < close && tokens[cursor].Kind == TokenNewline {
+			cursor++
+		}
+		if cursor >= close {
+			return -1
+		}
+		switch tokens[cursor].Text {
+		case "{", "[", "(":
+			end, ok := pairs[cursor]
+			if !ok || end >= close {
+				return -1
+			}
+			cursor = end + 1
+		default:
+			cursor++
+		}
+	}
+	return -1
 }
 
 func parseEmacsLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, parent *SymbolParent, dependencies *[]StructuralDependency) {
