@@ -1081,11 +1081,31 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	dependencies := []StructuralDependency{}
 	var module *SymbolParent
 	seenFunctions := make(map[string]struct{})
+	// Module-level bindings share one layout column. Class and instance members
+	// use a deeper column and are handled separately below.
+	moduleIndent := -1
+	for _, line := range lines {
+		if len(line.Tokens) == 0 || !haskellDeclarationCandidate(line) {
+			continue
+		}
+		indent := haskellLineIndent(scanDocument.Text, line.StartOffset)
+		if indent >= 0 && (moduleIndent < 0 || indent < moduleIndent) {
+			moduleIndent = indent
+		}
+	}
+	memberOwnerIndent, memberIndent := -1, -1
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		indent := haskellLineIndent(scanDocument.Text, line.StartOffset)
+		if memberOwnerIndent >= 0 && indent <= memberOwnerIndent {
+			memberOwnerIndent, memberIndent = -1, -1
+		}
+		if (first == "class" || first == "instance") && indent == moduleIndent {
+			memberOwnerIndent, memberIndent = indent, -1
+		}
 		if first == "module" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
@@ -1104,6 +1124,19 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 				addStructuralDependency(document, &dependencies, StructuralDependencyImport, line.Tokens[nameIndex].Text, line.Tokens[nameIndex].StartOffset, line.Tokens[nameIndex].EndOffset)
 			}
 			continue
+		}
+		if indent < 0 || first == "let" || first == "where" || first == "instance" || !haskellDeclarationCandidate(line) {
+			continue
+		}
+		if indent != moduleIndent {
+			if memberOwnerIndent < 0 || indent <= memberOwnerIndent {
+				continue
+			}
+			if memberIndent < 0 {
+				memberIndent = indent
+			} else if indent != memberIndent {
+				continue
+			}
 		}
 		if first == "data" || first == "newtype" || first == "type" || first == "class" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
@@ -1145,6 +1178,39 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func haskellDeclarationCandidate(line LogicalLine) bool {
+	first := strings.ToLower(line.Tokens[0].Text)
+	switch first {
+	case "let", "where", "do", "of", "in", "module", "import":
+		return false
+	case "data", "newtype", "type", "class", "instance":
+		return true
+	}
+	return line.Tokens[0].Kind == TokenIdentifier &&
+		(hasDoubleColon(line.Tokens, 1) || tokenIndexEqualFold(line.Tokens, "=", 1) > 0)
+}
+
+// haskellLineIndent returns a layout column without allocating per-line text.
+// Lines starting after non-whitespace source are not standalone declarations.
+func haskellLineIndent(text string, offset int) int {
+	if offset < 0 || offset > len(text) {
+		return -1
+	}
+	start := strings.LastIndexAny(text[:offset], "\r\n") + 1
+	column := 0
+	for i := start; i < offset; i++ {
+		switch text[i] {
+		case ' ':
+			column++
+		case '\t':
+			column = (column/8 + 1) * 8
+		default:
+			return -1
+		}
+	}
+	return column
 }
 
 func maskHaskellQuasiQuotes(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
