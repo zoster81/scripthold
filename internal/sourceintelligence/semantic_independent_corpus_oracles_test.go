@@ -162,6 +162,20 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"params . social", "params . social.name", "phantom",
 			"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.fruit. color",
 			"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies.site.google.com"}},
+		{"yaml-kde-highlighting", "SCRIPTHOLD_REAL_YAML_A", "yaml", []want{
+			{"key", SymbolKindKey, 5}, {"boolean", SymbolKindKey, 9},
+			{"null_value", SymbolKindKey, 10}, {"single quotes", SymbolKindKey, 11},
+			{"double quotes", SymbolKindKey, 12}, {"decimal", SymbolKindKey, 14},
+			{"foo", SymbolKindKey, 42},
+		}, []string{"comment", "string", "O'Brien", "syntax", "phantom"}},
+		{"yaml-ctags-openapi", "SCRIPTHOLD_REAL_YAML_B", "yaml", []want{
+			{"openapi", SymbolKindKey, 1}, {"info", SymbolKindKey, 2},
+			{"info.title", SymbolKindKey, 3}, {"info.version", SymbolKindKey, 5},
+			{"paths", SymbolKindKey, 11}, {"paths./sample/path", SymbolKindKey, 12},
+			{"paths./sample/path.get", SymbolKindKey, 13},
+			{"paths./sample/path.get.summary", SymbolKindKey, 14},
+			{"components.schemas.NullableField", SymbolKindKey, 26},
+		}, []string{"servers.url", "servers.description", "tags.name", "fake"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

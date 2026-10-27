@@ -464,11 +464,86 @@ func jsonValueEnd(text string, index int) int {
 	return end
 }
 
-var yamlKey = regexp.MustCompile(`^([A-Za-z0-9_.-]+)[ \t]*:(?:[ \t]*(.*))?$`)
-
 type yamlScope struct {
 	indent int
 	parent SymbolParent
+}
+
+// yamlMappingEntry recognizes simple block-style keys without mistaking a
+// quoted colon (or a colon without separating whitespace) for an assignment.
+func yamlMappingEntry(text string) (name string, nameEnd int, value string, ok bool) {
+	quote := byte(0)
+	if len(text) > 0 && (text[0] == '"' || text[0] == '\'') {
+		quote = text[0]
+	}
+	for index := 0; index < len(text); index++ {
+		if quote != 0 {
+			if index == 0 {
+				continue
+			}
+			if quote == '"' && text[index] == '\\' && index+1 < len(text) {
+				index++
+				continue
+			}
+			if text[index] == quote {
+				if quote == '\'' && index+1 < len(text) && text[index+1] == '\'' {
+					index++
+					continue
+				}
+				quote = 0
+			}
+			continue
+		}
+		if text[index] != ':' || (index+1 < len(text) && text[index+1] != ' ' && text[index+1] != '\t') {
+			continue
+		}
+		raw := strings.TrimRight(text[:index], " \t")
+		if raw == "" || strings.ContainsAny(raw[:1], "?[{!&*") {
+			return "", 0, "", false
+		}
+		name = raw
+		if raw[0] == '"' || raw[0] == '\'' {
+			if len(raw) < 2 || raw[len(raw)-1] != raw[0] {
+				return "", 0, "", false
+			}
+			name = raw[1 : len(raw)-1]
+			if raw[0] == '"' {
+				// Escaped YAML keys need a full scalar decoder; do not guess names.
+				if strings.Contains(name, "\\") {
+					return "", 0, "", false
+				}
+			} else {
+				name = strings.ReplaceAll(name, "''", "'")
+			}
+		}
+		return name, len(raw), strings.TrimSpace(text[index+1:]), true
+	}
+	return "", 0, "", false
+}
+
+// yamlBlockScalarValue handles literal/folded blocks preceded by optional YAML
+// tags or anchors without classifying arbitrary trailing text as a block marker.
+func yamlBlockScalarValue(value string) bool {
+	parts := strings.Fields(value)
+	if len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts[:len(parts)-1] {
+		if !strings.HasPrefix(part, "!") && !strings.HasPrefix(part, "&") {
+			return false
+		}
+	}
+	indicator := parts[len(parts)-1]
+	if indicator[0] != '|' && indicator[0] != '>' {
+		return false
+	}
+	for index := 1; index < len(indicator); index++ {
+		c := indicator[index]
+		if c != '+' && c != '-' && (c < '1' || c > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -477,41 +552,63 @@ func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		return AnalyzerResult{}, err
 	}
 	var scopes []yamlScope
+	blockScalarIndent := -1
+	skipSequenceIndent := -1
 	for _, line := range sourceTextLines(document.Text) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		trimmed := strings.TrimSpace(stripLineComment(line.text, "#"))
+		if blockScalarIndent >= 0 {
+			if trimmed == "" || line.indent > blockScalarIndent {
+				continue
+			}
+			blockScalarIndent = -1
+		}
+		if skipSequenceIndent >= 0 {
+			if trimmed == "" || line.indent > skipSequenceIndent {
+				continue
+			}
+			skipSequenceIndent = -1
 		}
 		leading := line.text[:len(line.text)-len(strings.TrimLeft(line.text, " \t"))]
 		if strings.Contains(leading, "\t") {
 			addDocumentDataHardwareDiagnostic(builder, "yaml-tab-indentation", "YAML indentation contains a tab and cannot be proven structurally", line.start, line.end)
 			continue
 		}
-		trimmed := strings.TrimSpace(stripLineComment(line.text, "#"))
-		if trimmed == "" || strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "---") {
+		if trimmed == "" || trimmed == "---" || trimmed == "..." {
 			continue
 		}
 		for len(scopes) > 0 && line.indent <= scopes[len(scopes)-1].indent {
 			scopes = scopes[:len(scopes)-1]
 		}
-		match := yamlKey.FindStringSubmatchIndex(trimmed)
-		if match == nil {
+		if trimmed == "-" || strings.HasPrefix(trimmed, "- ") {
+			addDocumentDataHardwareDiagnostic(builder, "yaml-unmodeled-sequence", "YAML sequence mapping relationships are not modeled", line.start, line.end)
+			skipSequenceIndent = line.indent
 			continue
 		}
-		name := trimmed[match[2]:match[3]]
+		if strings.HasPrefix(trimmed, "? ") || strings.HasPrefix(trimmed, ": ") || trimmed == "?" || trimmed == ":" {
+			addDocumentDataHardwareDiagnostic(builder, "yaml-unmodeled-complex-key", "YAML complex mapping keys are not modeled", line.start, line.end)
+			continue
+		}
+		name, nameEnd, value, valid := yamlMappingEntry(trimmed)
+		if !valid {
+			addDocumentDataHardwareDiagnostic(builder, "yaml-unmodeled-mapping", "YAML mapping key cannot be identified reliably", line.start, line.end)
+			continue
+		}
 		var parent *SymbolParent
 		if len(scopes) > 0 {
 			v := scopes[len(scopes)-1].parent
 			parent = &v
 		}
 		trimStart := line.start + strings.Index(line.text, trimmed)
-		nameStart := trimStart + match[2]
-		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindKey, "key", name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
-		value := ""
-		if match[4] >= 0 {
-			value = strings.TrimSpace(trimmed[match[4]:match[5]])
-		}
+		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindKey, "key", name, parent,
+			OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart, End: trimStart + nameEnd})
 		if ok && value == "" {
 			scopes = append(scopes, yamlScope{indent: line.indent, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+		}
+		if ok && yamlBlockScalarValue(value) {
+			blockScalarIndent = line.indent
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil

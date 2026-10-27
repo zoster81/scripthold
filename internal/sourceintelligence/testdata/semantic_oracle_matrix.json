@@ -1747,6 +1747,162 @@
         "settings.key"
       ],
       "coverageComplete": false
+    },
+    {
+      "id": "yaml-plain-spaced-and-quoted-mapping",
+      "language": "yaml",
+      "path": "mapping.yaml",
+      "source": "root:\n  another key: value\n  \"a:b key\": \"x:y\"\n  'single # key': ok\n  child:\n    leaf: true\n# ghost: false\n",
+      "present": [
+        {
+          "qualifiedName": "root",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "root.another key",
+          "kind": "key",
+          "line": 2,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.a:b key",
+          "kind": "key",
+          "line": 3,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.single # key",
+          "kind": "key",
+          "line": 4,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.child",
+          "kind": "key",
+          "line": 5,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.child.leaf",
+          "kind": "key",
+          "line": 6,
+          "parent": "root.child"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "root.ghost",
+        "root.a",
+        "root.child.another key"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "yaml-block-scalar-text-not-declarations",
+      "language": "yaml",
+      "path": "literal.yaml",
+      "source": "description: |-\n  fake: not a mapping\n  nested:\n    ghost: true\nactive:\n  name: ok\nnote: >+\n  other: no\nlast: yes\n",
+      "present": [
+        {
+          "qualifiedName": "description",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "active",
+          "kind": "key",
+          "line": 5
+        },
+        {
+          "qualifiedName": "active.name",
+          "kind": "key",
+          "line": 6,
+          "parent": "active"
+        },
+        {
+          "qualifiedName": "note",
+          "kind": "key",
+          "line": 7
+        },
+        {
+          "qualifiedName": "last",
+          "kind": "key",
+          "line": 9
+        }
+      ],
+      "forbidden": [
+        "description.fake",
+        "description.nested",
+        "nested.ghost",
+        "fake",
+        "other"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "yaml-unmodeled-complex-key-honest-coverage",
+      "language": "yaml",
+      "path": "complex.yaml",
+      "source": "root:\n  safe: yes\n? [one, two]\n: complex value\nnext: good\n",
+      "present": [
+        {
+          "qualifiedName": "root",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "root.safe",
+          "kind": "key",
+          "line": 2,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "next",
+          "kind": "key",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "root.one",
+        "one",
+        "two",
+        "complex value"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "yaml-tagged-block-scalar-suppress-ghost",
+      "language": "yaml",
+      "path": "tagged.yaml",
+      "source": "root:\n  tagged: !!str |-\n    ghost: literal text\n    nested:\n      fake: string\n  after: true\n",
+      "present": [
+        {
+          "qualifiedName": "root",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "root.tagged",
+          "kind": "key",
+          "line": 2,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.after",
+          "kind": "key",
+          "line": 6,
+          "parent": "root"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "root.ghost",
+        "root.tagged.ghost",
+        "nested.fake",
+        "fake"
+      ],
+      "coverageComplete": true
     }
   ]
 }
