@@ -40,6 +40,12 @@ var kotlinModifiers = map[string]struct{}{
 }
 
 func analyzeJVMFamily(ctx context.Context, document *SourceDocument, options AnalyzeOptions, kotlin bool) (AnalyzerResult, error) {
+	return analyzeJVMFamilyScope(ctx, document, options, kotlin, false)
+}
+
+// analyzeJVMFamilyScope also permits JSP declaration fragments to reuse the
+// Java member grammar without changing Java/Kotlin compilation-unit behavior.
+func analyzeJVMFamilyScope(ctx context.Context, document *SourceDocument, options AnalyzeOptions, kotlin, members bool) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -82,7 +88,7 @@ func analyzeJVMFamily(ctx context.Context, document *SourceDocument, options Ana
 	parser := &jvmParser{
 		ctx: ctx, document: document, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil), builder: builder, kotlin: kotlin,
 	}
-	parser.parseScope(0, len(scan.Tokens), nil, false, "")
+	parser.parseScope(0, len(scan.Tokens), nil, members, "")
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_jvm_source", document.Path, err)
 	}

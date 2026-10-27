@@ -84,6 +84,9 @@ var (
 	phpBlockPattern               = regexp.MustCompile(`(?is)<\?(?:php|=)?(.*?)\?>`)
 	phpOpenPattern                = regexp.MustCompile(`(?is)<\?(?:php\b|=)`)
 	jspBlockPattern               = regexp.MustCompile(`(?is)<%[!@=]?(.*?)%>`)
+	jspXMLDeclarationPattern      = regexp.MustCompile(`(?s)<jsp:declaration\s*>(.*?)</jsp:declaration\s*>`)
+	jspXMLExecutablePattern       = regexp.MustCompile(`(?s)<jsp:(?:scriptlet|expression)\b[^>]*>(.*?)</jsp:(?:scriptlet|expression)\s*>`)
+	jspXMLCodeOpenPattern         = regexp.MustCompile(`(?i)<jsp:(?:declaration|scriptlet|expression)\b`)
 	ejsBlockPattern               = regexp.MustCompile(`(?is)<%[-_=#]?(.*?)[-_]?%>`)
 	percentOpenPattern            = regexp.MustCompile(`(?is)<%`)
 	bladeSectionPattern           = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*\)`)
@@ -371,8 +374,22 @@ func analyzePHPHTMLHost(ctx context.Context, document *SourceDocument, options A
 
 func (JSPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	probe := maskHostComments(document.Text)
-	regions := regexEmbeddedRegions(probe, jspBlockPattern, "jsp-java", "java")
-	complete := embeddedOpeningsCovered(probe, regions, percentOpenPattern)
+	classicRegions := regexEmbeddedRegions(probe, jspBlockPattern, "jsp-java", "java")
+	complete := embeddedOpeningsCovered(probe, classicRegions, percentOpenPattern)
+	outsideClassic, maskErr := maskCompositeRanges(probe, embeddedRegionFullRanges(classicRegions))
+	if maskErr != nil {
+		return AnalyzerResult{}, maskErr
+	}
+	// A declaration-looking tag inside XML executable code or CDATA is text,
+	// not an independent JSP declaration.
+	xmlProbe := maskDelimitedSourceRegions(outsideClassic, [][2]string{{"<![CDATA[", "]]>"}})
+	executable := regexEmbeddedRegions(xmlProbe, jspXMLExecutablePattern, "", "")
+	xmlProbe, maskErr = maskCompositeRanges(xmlProbe, embeddedRegionFullRanges(executable))
+	if maskErr != nil {
+		return AnalyzerResult{}, maskErr
+	}
+	regions := append(classicRegions, jspXMLDeclarationRegions(xmlProbe, outsideClassic)...)
+	sort.Slice(regions, func(i, j int) bool { return regions[i].full.Start < regions[j].full.Start })
 	result, err := analyzeJSPHost(ctx, document, options, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
@@ -381,7 +398,34 @@ func (JSPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if !complete {
 		markCompositePartial(&result.Analysis, options.Limits, false, "jsp-unterminated-region", "JSP region is not terminated")
 	}
+	if jspXMLCodeOpenPattern.MatchString(probe) {
+		hostOnly, maskErr := maskCompositeRanges(probe, embeddedRegionFullRanges(regions))
+		if maskErr != nil {
+			return AnalyzerResult{}, maskErr
+		}
+		if jspXMLCodeOpenPattern.MatchString(hostOnly) {
+			markCompositePartial(&result.Analysis, options.Limits, false, "jsp-xml-code-unsupported", "JSP XML code elements are not structurally analyzed")
+		}
+	}
 	return result, nil
+}
+
+// XML declarations contain Java members. CDATA and entity-escaped Java need
+// a separate coordinate-preserving decoding policy, so leave them unsupported.
+func jspXMLDeclarationRegions(probe, original string) []compositeEmbeddedRegion {
+	if !jspXMLCodeOpenPattern.MatchString(probe) {
+		return nil
+	}
+	candidates := regexEmbeddedRegions(probe, jspXMLDeclarationPattern, "jsp-xml-declaration", "java")
+	regions := candidates[:0]
+	for _, region := range candidates {
+		content := original[region.content.Start:region.content.End]
+		if strings.Contains(content, "<![CDATA[") || strings.Contains(content, "&") {
+			continue
+		}
+		regions = append(regions, region)
+	}
+	return regions
 }
 
 func analyzeJSPHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion) (AnalyzerResult, error) {
@@ -409,6 +453,7 @@ func analyzeJSPHost(ctx context.Context, document *SourceDocument, options Analy
 	mergeCompositeAnalyzerResult(&result, host, options.Limits)
 
 	javaRanges := make([]OffsetRange, 0, len(regions))
+	xmlDeclarationRanges := make([]OffsetRange, 0, len(regions))
 	for index, region := range regions {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_jsp_source", document.Path, err)
@@ -419,7 +464,9 @@ func analyzeJSPHost(ctx context.Context, document *SourceDocument, options Analy
 			return AnalyzerResult{}, rangeErr
 		}
 		result.Regions = append(result.Regions, SourceRegion{ID: regionID, Kind: region.kind, Language: region.language, Range: rangeValue, Evidence: SymbolEvidenceStructural, Supported: true})
-		if jspJavaRegion(document.Text, region) {
+		if region.kind == "jsp-xml-declaration" {
+			xmlDeclarationRanges = append(xmlDeclarationRanges, region.content)
+		} else if jspJavaRegion(document.Text, region) {
 			javaRanges = append(javaRanges, region.content)
 		}
 	}
@@ -435,6 +482,25 @@ func analyzeJSPHost(ctx context.Context, document *SourceDocument, options Analy
 		}
 		assignEmbeddedRegionIDs(embedded.Analysis.Symbols, regions)
 		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
+	}
+	if len(xmlDeclarationRanges) > 0 {
+		maskedJava, maskErr := MaskOutsideRanges(document.Text, xmlDeclarationRanges)
+		if maskErr != nil {
+			return AnalyzerResult{}, maskErr
+		}
+		clone := *document
+		clone.Text = maskedJava
+		clone.lineStarts = lineStartsForDerivedText(document, maskedJava)
+		members, analyzeErr := analyzeJVMFamilyScope(ctx, &clone, options, false, true)
+		if analyzeErr != nil {
+			return AnalyzerResult{}, analyzeErr
+		}
+		analysis, reprojectErr := reprojectAnalyzerSymbols(ctx, document, members, options, "java", AnalyzerJSP, "", 0, nil)
+		if reprojectErr != nil {
+			return AnalyzerResult{}, reprojectErr
+		}
+		assignEmbeddedRegionIDs(analysis.Symbols, regions)
+		mergeCompositeAnalyzerResult(&result, AnalyzerResult{Analysis: analysis, Dependencies: members.Dependencies, Relations: members.Relations}, options.Limits)
 	}
 	if regionsTruncated {
 		markCompositePartial(&result.Analysis, options.Limits, true, "jsp-region-limit", "composite region retention limit reached")
