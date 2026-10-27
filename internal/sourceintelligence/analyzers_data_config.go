@@ -107,7 +107,7 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			parents[strings.ToLower(candidate.fullName)] = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 		}
 	}
-	var dependencies []StructuralDependency
+	var dependencies structuralDependencyAccumulator
 	for _, match := range sqlReference.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -116,9 +116,9 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if !ok {
 			continue
 		}
-		addStructuralDependency(document, &dependencies, StructuralDependencyReference, fullName, match[2], match[3])
+		dependencies.add(document, StructuralDependencyReference, fullName, match[2], match[3])
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
 func sqlDeclarations(document *SourceDocument, source string) []sqlDeclarationCandidate {
@@ -334,7 +334,7 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	dependencies := []StructuralDependency{}
+	dependencies := structuralDependencyAccumulator{items: []StructuralDependency{}}
 	source := maskSourceComments(document.Text, []string{"#", "//"}, "/*", "*/")
 	source = maskSourceHeredocs(source)
 	candidates := make([]hclBlockCandidate, 0)
@@ -430,14 +430,14 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 			bodyStart := candidate.open + 1
 			if sourceMatch := hclSource.FindStringSubmatchIndex(source[bodyStart:candidate.close]); sourceMatch != nil {
 				value := document.Text[bodyStart+sourceMatch[2] : bodyStart+sourceMatch[3]]
-				addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
+				dependencies.add(document, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
 			}
 		}
 		if added {
 			scopes = append(scopes, hclScope{close: candidate.close, parent: &symbol})
 		}
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
 var nixBinding = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_'-]*)[ \t]*=`)
@@ -489,7 +489,7 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	dependencies := []StructuralDependency{}
+	dependencies := structuralDependencyAccumulator{items: []StructuralDependency{}}
 	source := maskSourceComments(document.Text, []string{"//"}, "/*", "*/")
 	var packageParent *SymbolParent
 	if match := protoPackage.FindStringSubmatchIndex(source); match != nil {
@@ -501,7 +501,7 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	for _, match := range protoImport.FindAllStringSubmatchIndex(source, -1) {
 		value := document.Text[match[2]:match[3]]
-		addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, match[2], match[3])
+		dependencies.add(document, StructuralDependencyImport, value, match[2], match[3])
 	}
 	for _, match := range protoBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
@@ -540,7 +540,7 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 		}
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
 func matchingBraceOffset(text string, open int) int {

@@ -32,12 +32,12 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	dependencies := []StructuralDependency{}
+	dependencies := structuralDependencyAccumulator{items: []StructuralDependency{}}
 	entities := map[string]SymbolParent{}
 	source := maskSourceComments(document.Text, []string{"--"}, "", "")
 	for _, use := range vhdlUse.FindAllStringSubmatchIndex(source, -1) {
 		value := document.Text[use[2]:use[3]]
-		addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, use[2], use[3])
+		dependencies.add(document, StructuralDependencyImport, value, use[2], use[3])
 	}
 	for _, match := range vhdlEntity.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
@@ -83,7 +83,7 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 				OffsetRange{Start: match[1] + signal[2], End: match[1] + signal[3]})
 		}
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
 func vhdlEnd(text string, start int, kind, name string) int {
