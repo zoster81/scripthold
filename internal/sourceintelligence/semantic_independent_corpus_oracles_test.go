@@ -147,6 +147,13 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"usage", SymbolKindFunction, 8}, {"parse_int", SymbolKindFunction, 13},
 			{"main", SymbolKindFunction, 17},
 		}, []string{"println", "FromStr", "parse"}},
+		{"toml-kde-highlighting", "SCRIPTHOLD_REAL_TOML_A", "toml", []want{
+			{"baseURL", SymbolKindKey, 2}, {"Author", SymbolKindSection, 5},
+			{"Author.name", SymbolKindKey, 6}, {"outputs.home", SymbolKindKey, 10},
+			{"params", SymbolKindSection, 12}, {"params.social", SymbolKindSection, 28},
+			{"params.social.name", SymbolKindKey, 29},
+			{"target.'cfg(all(windows, target_env=\"msvc\"))'.build-dependencies", SymbolKindSection, 40},
+		}, []string{"params . social", "params . social.name", "phantom"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

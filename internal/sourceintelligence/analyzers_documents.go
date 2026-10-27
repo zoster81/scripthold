@@ -523,6 +523,77 @@ var (
 	tomlKey        = regexp.MustCompile(`^([A-Za-z0-9_.-]+)[ \t]*=`)
 )
 
+// tomlSectionSegments normalizes spaces around separators, but retains quoted
+// key spelling so a quoted dot cannot alias a structural path separator.
+type tomlSectionSegment struct {
+	name       string
+	start, end int
+}
+
+func tomlSectionSegments(raw string) ([]tomlSectionSegment, bool) {
+	segments := make([]tomlSectionSegment, 0, 3)
+	at := 0
+	for {
+		for at < len(raw) && (raw[at] == ' ' || raw[at] == '\t') {
+			at++
+		}
+		if at == len(raw) {
+			return segments, len(segments) > 0
+		}
+		start := at
+		if raw[at] == '"' || raw[at] == '\'' {
+			quote := raw[at]
+			at++
+			closed := false
+			for at < len(raw) {
+				if quote == '"' && raw[at] == '\\' {
+					at += 2
+					continue
+				}
+				if raw[at] == quote {
+					at++
+					closed = true
+					break
+				}
+				at++
+			}
+			if !closed || at > len(raw) {
+				return nil, false
+			}
+		} else {
+			for at < len(raw) {
+				c := raw[at]
+				if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+					(c >= '0' && c <= '9') || c == '_' || c == '-' {
+					at++
+					continue
+				}
+				break
+			}
+			if at == start {
+				return nil, false
+			}
+		}
+		segments = append(segments, tomlSectionSegment{name: raw[start:at], start: start, end: at})
+		for at < len(raw) && (raw[at] == ' ' || raw[at] == '\t') {
+			at++
+		}
+		if at == len(raw) {
+			return segments, true
+		}
+		if raw[at] != '.' {
+			return nil, false
+		}
+		at++
+		for at < len(raw) && (raw[at] == ' ' || raw[at] == '\t') {
+			at++
+		}
+		if at == len(raw) {
+			return nil, false
+		}
+	}
+}
+
 func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "toml", AnalyzerTOML)
 	if err != nil {
@@ -531,20 +602,36 @@ func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	sections := map[string]SymbolParent{}
 	var current *SymbolParent
 	multilineArrayDepth := 0
+	invalidSection := false
 	addSection := func(line sourceTextLine, trimmed string, match []int, nativeKind string) {
-		full := strings.TrimSpace(trimmed[match[2]:match[3]])
+		raw := trimmed[match[2]:match[3]]
+		parts, valid := tomlSectionSegments(raw)
+		if !valid {
+			addDocumentDataHardwareDiagnostic(builder, "toml-malformed-section", "TOML section path is malformed", line.start, line.end)
+			invalidSection = true
+			current = nil
+			return
+		}
+		invalidSection = false
+		names := make([]string, len(parts))
+		for index, part := range parts {
+			names[index] = part.name
+		}
+		full := strings.Join(names, ".")
 		name := full
 		var parent *SymbolParent
-		if dot := strings.LastIndex(full, "."); dot >= 0 {
-			if p, ok := sections[full[:dot]]; ok {
+		trimStart := line.start + strings.Index(line.text, trimmed)
+		nameStart := trimStart + match[2] + parts[0].start
+		nameEnd := trimStart + match[2] + parts[len(parts)-1].end
+		if len(parts) > 1 {
+			if p, ok := sections[strings.Join(names[:len(names)-1], ".")]; ok {
 				v := p
 				parent = &v
-				name = full[dot+1:]
+				name = parts[len(parts)-1].name
+				nameStart = trimStart + match[2] + parts[len(parts)-1].start
 			}
 		}
-		trimStart := line.start + strings.Index(line.text, trimmed)
-		nameOffset := strings.LastIndex(trimmed, name)
-		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindSection, nativeKind, name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
+		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindSection, nativeKind, name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: nameStart, End: nameEnd})
 		if ok {
 			value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 			sections[full] = value
@@ -576,6 +663,12 @@ func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 		if strings.HasPrefix(trimmed, "[") {
 			addDocumentDataHardwareDiagnostic(builder, "toml-malformed-section", "TOML section header is malformed", line.start, line.end)
+			invalidSection = true
+			current = nil
+			continue
+		}
+		if invalidSection {
+			// Keys beneath an invalid table cannot be assigned a trustworthy parent.
 			continue
 		}
 		if match := tomlKey.FindStringSubmatchIndex(trimmed); match != nil {

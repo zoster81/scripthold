@@ -1539,6 +1539,137 @@
         "Circle.println"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "toml-spaced-dotted-array-table",
+      "language": "toml",
+      "path": "settings.toml",
+      "source": "# a sample config\n[ params ]\n  commit = true\n[[ params . social ]]\n  name = \"GitHub\"\n  icon = \"fab fa-github\"\n# [[ phantom . wrong ]]\n",
+      "present": [
+        {
+          "qualifiedName": "params",
+          "kind": "section",
+          "line": 2
+        },
+        {
+          "qualifiedName": "params.commit",
+          "kind": "key",
+          "line": 3,
+          "parent": "params"
+        },
+        {
+          "qualifiedName": "params.social",
+          "kind": "section",
+          "line": 4,
+          "parent": "params",
+          "nativeKind": "array-table"
+        },
+        {
+          "qualifiedName": "params.social.name",
+          "kind": "key",
+          "line": 5,
+          "parent": "params.social"
+        }
+      ],
+      "forbidden": [
+        "params . social",
+        "phantom",
+        "params.social.wrong"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "toml-quoted-dotted-path",
+      "language": "toml",
+      "path": "quoted.toml",
+      "source": "[target]\n[target.\"ci.windows\"]\nrunner = \"stable\"\n# [target.fake]\n",
+      "present": [
+        {
+          "qualifiedName": "target",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "target.\"ci.windows\"",
+          "kind": "section",
+          "line": 2,
+          "parent": "target"
+        },
+        {
+          "qualifiedName": "target.\"ci.windows\".runner",
+          "kind": "key",
+          "line": 3,
+          "parent": "target.\"ci.windows\""
+        }
+      ],
+      "forbidden": [
+        "target.ci.windows",
+        "target.fake",
+        "runner"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "toml-malformed-section-isolation",
+      "language": "toml",
+      "path": "broken.toml",
+      "source": "[known]\nvalue = 1\n[broken..section]\ninvalid = 2\n[after]\nvalid = true\n",
+      "present": [
+        {
+          "qualifiedName": "known",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "known.value",
+          "kind": "key",
+          "line": 2,
+          "parent": "known"
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "section",
+          "line": 5
+        },
+        {
+          "qualifiedName": "after.valid",
+          "kind": "key",
+          "line": 6,
+          "parent": "after"
+        }
+      ],
+      "forbidden": [
+        "broken..section",
+        "invalid",
+        "after.invalid"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "toml-trailing-dot-whitespace-invalid",
+      "language": "toml",
+      "path": "trailing.toml",
+      "source": "[before]\nok = 1\n[bogus.   ]\nghost = 2\n[after]\nok = 2\n",
+      "present": [
+        {
+          "qualifiedName": "before.ok",
+          "kind": "key",
+          "line": 2,
+          "parent": "before"
+        },
+        {
+          "qualifiedName": "after.ok",
+          "kind": "key",
+          "line": 6,
+          "parent": "after"
+        }
+      ],
+      "forbidden": [
+        "bogus",
+        "bogus.ghost",
+        "ghost"
+      ],
+      "coverageComplete": false
     }
   ]
 }
