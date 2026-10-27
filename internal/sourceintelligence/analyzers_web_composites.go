@@ -517,6 +517,34 @@ func jspJavaRegion(text string, region compositeEmbeddedRegion) bool {
 }
 
 func assignEmbeddedRegionIDs(symbols []NormalizedSymbol, regions []compositeEmbeddedRegion) {
+	if len(symbols) == 0 || len(regions) == 0 {
+		return
+	}
+	// Embedded regions are normally sorted and disjoint. Validate once before
+	// using binary search so irregular inputs retain first-match precedence.
+	disjoint := regions[0].content.Start <= regions[0].content.End
+	for index := 1; index < len(regions) && disjoint; index++ {
+		previous := regions[index-1].content
+		current := regions[index].content
+		disjoint = previous.End <= current.Start && current.Start <= current.End
+	}
+	if !disjoint {
+		assignEmbeddedRegionIDsLinear(symbols, regions)
+		return
+	}
+	for index := range symbols {
+		offset := symbols[index].declarationOffsets.Start
+		regionIndex := sort.Search(len(regions), func(i int) bool {
+			return regions[i].content.End > offset
+		})
+		if regionIndex >= len(regions) || offset < regions[regionIndex].content.Start {
+			continue
+		}
+		symbols[index].RegionID = fmt.Sprintf("%s-%d", regions[regionIndex].kind, regionIndex+1)
+	}
+}
+
+func assignEmbeddedRegionIDsLinear(symbols []NormalizedSymbol, regions []compositeEmbeddedRegion) {
 	for index := range symbols {
 		offset := symbols[index].declarationOffsets.Start
 		for regionIndex, region := range regions {
