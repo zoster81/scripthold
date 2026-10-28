@@ -270,6 +270,19 @@
       "coverageComplete": true
     },
     {
+      "id": "autohotkey-control-conditions-are-not-functions",
+      "language": "autohotkey",
+      "path": "conditions.ahk",
+      "source": "class Worker {\n static Run() { return 1 }\n}\nif WinExist(\"x\") {\n}\nwhile Running() {\n}\nfor item in Items() {\n}\nTop() { return 2 }\n",
+      "present": [
+        {"qualifiedName": "Worker", "kind": "class", "line": 1},
+        {"qualifiedName": "Worker.Run", "kind": "method", "line": 2, "parent": "Worker"},
+        {"qualifiedName": "Top", "kind": "function", "line": 10}
+      ],
+      "forbidden": ["WinExist", "Running", "Items", "Ghost"],
+      "coverageComplete": true
+    },
+    {
       "id": "blade-section-and-embedded-php",
       "language": "blade",
       "path": "card.blade.php",

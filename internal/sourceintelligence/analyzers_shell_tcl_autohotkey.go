@@ -212,6 +212,26 @@ type autoHotkeyParser struct {
 	pairs  map[int]int
 }
 
+func autoHotkeyFunctionCanStart(tokens []Token, index int, method bool) bool {
+	for modifiers := 0; index > 0; {
+		index--
+		previous := tokens[index]
+		if previous.Kind == TokenNewline || (method && previous.Text == "{") {
+			return true
+		}
+		if !method || modifiers >= 3 {
+			return false
+		}
+		switch strings.ToLower(previous.Text) {
+		case "static", "public", "private", "protected":
+			modifiers++
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolParent) {
 	for i := start; i < end && !p.state.stopped; {
 		i = nextStructuralToken(p.tokens, i, end)
@@ -265,7 +285,7 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 			i = close + 1
 			continue
 		}
-		if p.tokens[i].Kind == TokenIdentifier {
+		if p.tokens[i].Kind == TokenIdentifier && autoHotkeyFunctionCanStart(p.tokens, i, parent != nil) {
 			paren := nextStructuralToken(p.tokens, i+1, end)
 			if paren < end && p.tokens[paren].Text == "(" {
 				closeParen := p.pairs[paren]

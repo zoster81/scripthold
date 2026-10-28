@@ -21,6 +21,24 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		present             []want
 		forbidden           []string
 	}{
+		{"autohotkey-windowspy-v2", "SCRIPTHOLD_REAL_AHK_WINDOWSPY", "autohotkey", []want{
+			{"WinSpyGui", SymbolKindFunction, 16}, {"WinSpySize", SymbolKindFunction, 60},
+			{"WinSpyClose", SymbolKindFunction, 74}, {"Update", SymbolKindFunction, 78},
+			{"TryUpdate", SymbolKindFunction, 82}, {"WinGetTextFast", SymbolKindFunction, 191},
+			{"UpdateText", SymbolKindFunction, 217}, {"textMangle", SymbolKindFunction, 228},
+			{"suspend_timer", SymbolKindFunction, 239},
+		}, []string{"TraySetIcon", "Gui", "WinGetPos", "SetTimer", "oGui", "Ghost"}},
+		{"autohotkey-mouse-move-v2", "SCRIPTHOLD_REAL_AHK_MOUSE", "autohotkey", []want{
+			{"move_5px", SymbolKindFunction, 6},
+		}, []string{"MouseGetPos", "MouseMove", "Sleep", "SetTimer", "Ghost"}},
+		{"autohotkey-calendar-v2-beta", "SCRIPTHOLD_REAL_AHK_CALENDAR", "autohotkey", []want{
+			{"DestroyCalendar", SymbolKindFunction, 27}, {"CreateCalendar", SymbolKindFunction, 39},
+			{"GetTitle", SymbolKindFunction, 56}, {"UpdateTitle", SymbolKindFunction, 67},
+		}, []string{"Calendar", "FormatTime", "Gui", "SetTimer", "Ghost"}},
+		{"autohotkey-ahk2exe-v1-directives-only", "SCRIPTHOLD_REAL_AHK_AHK2EXE", "autohotkey", nil,
+			[]string{"Ahk2Exe64", "b", "Ahk2Exe", "Ghost"}},
+		{"autohotkey-uia-v2-calls-only", "SCRIPTHOLD_REAL_AHK_UIA", "autohotkey", nil,
+			[]string{"UIA", "Run", "WinWaitActive", "ControlGetHwnd", "editEl", "Ghost"}},
 		{"blade-bagisto-template-id", "SCRIPTHOLD_REAL_BLADE_BAGISTO", "blade", []want{{"v-two-factor-setup-template", SymbolKindEntity, 10}}, []string{"admin.account.update", "scripts", "v-two-factor-setup", "route", "Ghost"}},
 		{"blade-framework-error-sections", "SCRIPTHOLD_REAL_BLADE_FRAMEWORK", "blade", []want{{"title", SymbolKindSection, 3}, {"code", SymbolKindSection, 4}, {"message", SymbolKindSection, 5}}, []string{"minimal", "Unauthorized", "__", "Ghost"}},
 		{"blade-laravel-svg-mask-ids", "SCRIPTHOLD_REAL_BLADE_LARAVEL", "blade", []want{{"path-1-mask", SymbolKindEntity, 155}, {"path-2-mask", SymbolKindEntity, 167}, {"path-3-mask", SymbolKindEntity, 179}}, []string{"tailwindcss", "font-sans", "maskUnits", "Ghost"}},
@@ -413,6 +431,10 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				if symbols := seen[name]; len(symbols) > 0 {
 					t.Errorf("expression, comment, or local reference emitted as declaration %q: %+v", name, symbols)
 				}
+			}
+			if strings.HasPrefix(tc.name, "autohotkey-") && len(result.Analysis.Symbols) != len(tc.present) {
+				t.Errorf("AutoHotkey original-source declaration inventory differs: got %d symbols, want %d; declarations=%v",
+					len(result.Analysis.Symbols), len(tc.present), seen)
 			}
 			if tc.name == "plsql-oxar" {
 				// This source has a declaration header above the configured signature-text cap.
