@@ -1584,6 +1584,35 @@
       "coverageComplete": true
     },
     {
+      "id": "cpp-member-before-lock-statement",
+      "language": "cpp",
+      "path": "app_metrics.h",
+      "source": "class AppMetrics {\npublic:\n  void operator=(AppMetrics const&) = delete;\n  void increment_count(const std::string& identifier, uint64_t count) {\n    std::unique_lock lock(mutex);\n    (*current_counts)[identifier] += count;\n  }\n  void increment_duration(const std::string& identifier, uint64_t duration) {\n    std::unique_lock lock(mutex);\n  }\n};\n",
+      "present": [
+        {
+          "qualifiedName": "AppMetrics",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "AppMetrics.increment_count",
+          "kind": "method",
+          "line": 4
+        },
+        {
+          "qualifiedName": "AppMetrics.increment_duration",
+          "kind": "method",
+          "line": 8
+        }
+      ],
+      "forbidden": [
+        "AppMetrics.lock",
+        "AppMetrics.mutex",
+        "AppMetrics.identifier"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "cpp-using-directive",
       "language": "cpp",
       "path": "namespaces.cpp",

@@ -1092,6 +1092,11 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 		if next, ok := parser.parseFunctionOrVariable(index, end, parent, members, owner); ok {
 			index = next
 			continue
+		} else if parser.cpp && next > index+1 && next <= end && parser.tokens[next-1].Text == ";" {
+			// An unsupported complete declaration (such as a deleted operator)
+			// must not be reinterpreted from its interior as a new declaration.
+			index = next
+			continue
 		}
 		index++
 	}

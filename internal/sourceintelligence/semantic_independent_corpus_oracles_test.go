@@ -591,6 +591,30 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"ejs-upload-form", "SCRIPTHOLD_REAL_EJS_UPLOAD", "ejs", []want{
 			{"file", SymbolKindEntity, 24},
 		}, []string{"uploadForm", "document.getElementById", "files", "Ghost"}},
+		{"cpp-btop-logger", "SCRIPTHOLD_REAL_CPP_BTOP", "cpp", []want{
+			{"Logger", SymbolKindNamespace, 15},
+			{"Logger.Level", SymbolKindEnum, 16},
+			{"Logger.detail", SymbolKindNamespace, 26},
+			{"Logger.detail.log_write", SymbolKindFunction, 29},
+		}, []string{"fmt", "Level.ERROR", "log_levels.string", "Ghost"}},
+		{"cpp-typesense-metrics", "SCRIPTHOLD_REAL_CPP_TYPESENSE", "cpp", []want{
+			{"AppMetrics", SymbolKindClass, 14},
+			{"AppMetrics.get_instance", SymbolKindMethod, 61},
+			{"AppMetrics.increment_count", SymbolKindMethod, 69},
+		}, []string{"spp", "Config", "current_counts.identifier", "Ghost"}},
+		{"cpp-xiaozhi-state", "SCRIPTHOLD_REAL_CPP_XIAOZHI", "cpp", []want{
+			{"DeviceState", SymbolKindEnum, 4},
+		}, []string{"DeviceStateUnknown", "_DEVICE_STATE_H_", "Ghost"}},
+		{"cpp-trafficmonitor-plugin", "SCRIPTHOLD_REAL_CPP_TRAFFIC", "cpp", []want{
+			{"CPluginSystemDate", SymbolKindClass, 4},
+			{"CPluginSystemDate.CPluginSystemDate", SymbolKindConstructor, 7},
+			{"CPluginSystemDate.GetItemName", SymbolKindMethod, 10},
+			{"CPluginSystemDate.GetItemId", SymbolKindMethod, 11},
+		}, []string{"IPluginItem", "wchar_t", "Ghost"}},
+		{"cpp-trojan-main", "SCRIPTHOLD_REAL_CPP_TROJAN", "cpp", []want{
+			{"signal_async_wait", SymbolKindFunction, 39},
+			{"main", SymbolKindFunction, 64},
+		}, []string{"Service", "sig.async_wait", "config_file", "po", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -1076,10 +1100,13 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
-		"matlab-lewos-app":       {"LeWoS_RS.RunSegmentationButtonPushed": "LeWoS_RS", "LeWoS_RS.ShowButtonPushed": "LeWoS_RS"},
-		"matlab-platemo-problem": {"CitySegMOP1.Setting": "CitySegMOP1"},
-		"matlab-spatialmomentum": {"SpatialMomentum.new": "SpatialMomentum"},
-		"mql4-dingmaotu-text":    {"Text.setPrice": "Text", "Text.setDatetime": "Text"},
+		"cpp-btop-logger":           {"Logger.Level": "Logger", "Logger.detail": "Logger", "Logger.detail.log_write": "Logger.detail"},
+		"cpp-typesense-metrics":     {"AppMetrics.get_instance": "AppMetrics", "AppMetrics.increment_count": "AppMetrics"},
+		"cpp-trafficmonitor-plugin": {"CPluginSystemDate.GetItemName": "CPluginSystemDate", "CPluginSystemDate.GetItemId": "CPluginSystemDate"},
+		"matlab-lewos-app":          {"LeWoS_RS.RunSegmentationButtonPushed": "LeWoS_RS", "LeWoS_RS.ShowButtonPushed": "LeWoS_RS"},
+		"matlab-platemo-problem":    {"CitySegMOP1.Setting": "CitySegMOP1"},
+		"matlab-spatialmomentum":    {"SpatialMomentum.new": "SpatialMomentum"},
+		"mql4-dingmaotu-text":       {"Text.setPrice": "Text", "Text.setDatetime": "Text"},
 		"kotlin-moshi-indexed-parameters": {
 			"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.put":     "com.squareup.moshi.kotlin.reflect.IndexedParameterMap",
 			"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.entries": "com.squareup.moshi.kotlin.reflect.IndexedParameterMap",
