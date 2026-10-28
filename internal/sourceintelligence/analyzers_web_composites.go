@@ -342,7 +342,7 @@ func analyzePHPHTMLHost(ctx context.Context, document *SourceDocument, options A
 		return AnalyzerResult{}, err
 	}
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
-	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskedHost, options, "php-html", AnalyzerPHPHTML, "host-html", "html")
+	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskPHPComputedIDAttributes(maskedHost, regions), options, "php-html", AnalyzerPHPHTML, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -376,6 +376,40 @@ func analyzePHPHTMLHost(ctx context.Context, document *SourceDocument, options A
 		markCompositePartial(&result.Analysis, options.Limits, true, "php-html-region-limit", "PHP region retention limit reached")
 	}
 	return result, nil
+}
+
+// A PHP expression inside an HTML id is not a statically addressable entity.
+// Mask the whole attribute before HTML analysis without moving source offsets.
+func maskPHPComputedIDAttributes(host string, regions []compositeEmbeddedRegion) string {
+	if len(regions) == 0 {
+		return host
+	}
+	var masked []byte
+	regionIndex := 0
+	for _, tag := range markupTag.FindAllStringIndex(host, -1) {
+		raw := host[tag[0]:tag[1]]
+		for _, pattern := range []*regexp.Regexp{markupDoubleID, markupSingleID, markupBareID} {
+			match := pattern.FindStringSubmatchIndex(raw)
+			if len(match) < 4 {
+				continue
+			}
+			start, end := tag[0]+match[2], tag[0]+match[3]
+			for regionIndex < len(regions) && regions[regionIndex].full.End <= start {
+				regionIndex++
+			}
+			if regionIndex < len(regions) && regions[regionIndex].full.Start < end {
+				if masked == nil {
+					masked = []byte(host)
+				}
+				maskByteRangePreservingLines(masked, tag[0]+match[0], tag[0]+match[1])
+			}
+			break
+		}
+	}
+	if masked == nil {
+		return host
+	}
+	return string(masked)
 }
 
 func (JSPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {

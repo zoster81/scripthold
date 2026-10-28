@@ -694,6 +694,23 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"php-html-wordpress-404", "SCRIPTHOLD_REAL_PHPHTML_WORDPRESS", "php-html", []want{
+			{"primary", SymbolKindEntity, 12},
+			{"content", SymbolKindEntity, 13},
+			{"post-0", SymbolKindEntity, 15},
+		}, []string{"WP_Widget_Recent_Posts", "get_search_form", "the_widget", "Ghost"}},
+		{"php-html-joomla-category", "SCRIPTHOLD_REAL_PHPHTML_JOOMLA", "php-html", []want{},
+			[]string{"LayoutHelper", "subtemplatename", "joomla.content.category_default", "Ghost"}},
+		{"php-html-storefront-content", "SCRIPTHOLD_REAL_PHPHTML_STOREFRONT", "php-html", []want{},
+			[]string{"post-<?php the_ID(); ?>", "post-", "storefront_page", "Ghost"}},
+		{"php-html-lexilla-comments", "SCRIPTHOLD_REAL_PHPHTML_LEXILLA", "php-html", []want{},
+			[]string{"foo", "comment", "Ghost"}},
+		{"php-html-chroma-sample", "SCRIPTHOLD_REAL_PHPHTML_CHROMA", "php-html", []want{},
+			[]string{"modx", "docs", "doc", "Some value", "Ghost"}},
+		{"php-html-highlightjs-echo", "SCRIPTHOLD_REAL_PHPHTML_HIGHLIGHTJS", "php-html", []want{},
+			[]string{"Hello, world!", "echo", "Ghost"}},
+		{"php-html-pygments-incomplete", "SCRIPTHOLD_REAL_PHPHTML_PYGMENTS", "php-html", []want{},
+			[]string{"php", "Ghost"}},
 		{"cil-asmresolver-forwarders", "SCRIPTHOLD_REAL_CIL_ASMRESOLVER", "cil", []want{
 			{"ForwarderLibrary", SymbolKindModule, 1},
 			{"ForwarderLibrary.IMyModel", SymbolKindClass, 7},
@@ -1400,7 +1417,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-")) &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-")) &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}

@@ -552,6 +552,18 @@
       "coverageComplete": true
     },
     {
+      "id": "php-html-dynamic-id-embedded-region",
+      "language": "php-html",
+      "path": "dynamic-page.php",
+      "source": "<section id=\"stable\"></section>\n<article id=\"post-<?php the_ID(); ?>\" class=\"item\"></article>\n<aside id='topic-<?php echo $slug; ?>'></aside>\n<main id=\"footer\"></main>\n",
+      "present": [
+        {"qualifiedName": "stable", "kind": "entity", "line": 1},
+        {"qualifiedName": "footer", "kind": "entity", "line": 4}
+      ],
+      "forbidden": ["post-", "topic-", "post-<?php the_ID(); ?>", "topic-<?php echo $slug; ?>"],
+      "coverageComplete": true
+    },
+    {
       "id": "php-html-embedded-function-vs-markup",
       "language": "php-html",
       "path": "view.php",
