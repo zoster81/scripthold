@@ -598,7 +598,7 @@ func (SolidityAnalyzer) Analyze(ctx context.Context, document *SourceDocument, o
 		language: "solidity", analyzer: AnalyzerSolidity, profile: SolidityScannerProfile(),
 		typeKinds:  map[string]SymbolKind{"contract": SymbolKindClass, "interface": SymbolKindInterface, "library": SymbolKindModule, "struct": SymbolKindStruct, "enum": SymbolKindEnum},
 		typeNative: map[string]string{"contract": "contract", "interface": "interface", "library": "library", "struct": "struct", "enum": "enum"},
-		modifiers:  setOf("abstract"), importKeywords: setOf("import"), explicitFuncs: map[string]string{"function": "function", "constructor": "constructor", "modifier": "modifier", "fallback": "fallback", "receive": "receive", "event": "event"},
+		modifiers:  setOf("abstract"), importKeywords: setOf("import"), explicitFuncs: map[string]string{"function": "function", "constructor": "constructor", "modifier": "modifier", "fallback": "fallback", "receive": "receive", "event": "event", "error": "error"},
 	})
 }
 func (ApexAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -796,6 +796,17 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 		if p.tokens[i].Kind == TokenDirective {
 			i++
 			continue
+		}
+		// Solidity imports may contain named-brace lists. Consume the entire
+		// directive before parsing declarations, or its braces can hide the
+		// following contract and orphan all of that contract's members.
+		if p.policy.language == "solidity" && p.tokens[i].Text == "import" {
+			if terminator := p.findSameDepth(i+1, end, ";", p.tokens[i].Nesting); terminator >= 0 {
+				i = terminator + 1
+				continue
+			}
+			p.builder.MarkIncomplete()
+			return
 		}
 		if p.policy.supportsAnnotations && p.tokens[i].Text == "@" {
 			i = p.skipBraceAnnotation(i, end)
@@ -1010,6 +1021,10 @@ func (p *braceLanguageParser) parseExplicit(start, end int, parent *SymbolParent
 	case "event":
 		kind = SymbolKindEvent
 		nameIndex = nextIdentifierToken(p.tokens, start+1, end)
+	case "error":
+		// Solidity custom errors define a named revert type, not a callable method.
+		kind = SymbolKindType
+		nameIndex = nextIdentifierToken(p.tokens, start+1, end)
 	case "trigger":
 		kind = SymbolKindFunction
 		nameIndex = nextIdentifierToken(p.tokens, start+1, end)
@@ -1162,12 +1177,53 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 		}
 	}
 	if p.tokens[terminator].Text == "{" {
+		if p.policy.language == "apex" && members {
+			if next, ok := p.parseApexAutoProperty(start, terminator, parent); ok {
+				return next, true
+			}
+		}
 		if close := p.pairs[terminator]; close > terminator {
 			return close + 1, false
 		}
 		return terminator + 1, false
 	}
 	return p.parseVariable(start, terminator, parent, members)
+}
+
+// parseApexAutoProperty recognizes only property bodies consisting of
+// semicolon-terminated get/set accessors. Arbitrary accessor implementations
+// are not assumed to be simple fields or converted into phantom declarations.
+func (p *braceLanguageParser) parseApexAutoProperty(start, open int, parent *SymbolParent) (int, bool) {
+	close := p.pairs[open]
+	if close <= open || parent == nil {
+		return 0, false
+	}
+	nameIndex := previousIdentifierToken(p.tokens, open-1, start)
+	if nameIndex <= start {
+		return 0, false
+	}
+	accessors := 0
+	for i := nextStructuralToken(p.tokens, open+1, close); i < close; {
+		if !p.eq(p.tokens[i].Text, "get") && !p.eq(p.tokens[i].Text, "set") {
+			return 0, false
+		}
+		semi := nextStructuralToken(p.tokens, i+1, close)
+		if semi >= close || p.tokens[semi].Text != ";" {
+			return 0, false
+		}
+		accessors++
+		i = nextStructuralToken(p.tokens, semi+1, close)
+	}
+	if accessors == 0 {
+		return 0, false
+	}
+	mods := p.collectModifiers(start, nameIndex)
+	p.add(SymbolSpec{Kind: SymbolKindProperty, NativeKind: "property",
+		Name: p.tokens[nameIndex].Text, Parent: parent,
+		Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[close].EndOffset},
+		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
+		Visibility:  braceLanguageVisibility(mods), Modifiers: mods, Evidence: SymbolEvidenceStructural})
+	return close + 1, true
 }
 
 func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *SymbolParent, members bool) (int, bool) {

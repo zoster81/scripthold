@@ -1789,6 +1789,83 @@
       "coverageComplete": true
     },
     {
+        "id": "solidity-named-import-preserves-contract-ownership",
+        "language": "solidity",
+        "path": "Guard.sol",
+        "source": "pragma solidity ^0.8.0;\nimport {Context} from \"./Context.sol\";\nabstract contract Guard is Context {\n    error Denied(address caller);\n    address private owner;\n    function check() public returns (bool) { return true; }\n}\n",
+        "present": [
+          {
+            "qualifiedName": "Guard",
+            "kind": "class",
+            "line": 3
+          },
+          {
+            "qualifiedName": "Guard.Denied",
+            "kind": "type",
+            "line": 4,
+            "parent": "Guard"
+          },
+          {
+            "qualifiedName": "Guard.owner",
+            "kind": "field",
+            "line": 5,
+            "parent": "Guard"
+          },
+          {
+            "qualifiedName": "Guard.check",
+            "kind": "method",
+            "line": 6,
+            "parent": "Guard"
+          }
+        ],
+        "forbidden": [
+          "Context",
+          "Guard.Context",
+          "owner",
+          "check",
+          "Guard.Ghost"
+        ],
+        "coverageComplete": true
+    },
+    {
+        "id": "apex-automatic-properties-are-properties-not-getter-symbols",
+        "language": "apex",
+        "path": "Paged.cls",
+        "source": "public with sharing class Paged {\n    @AuraEnabled\n    public Integer size { get; set; }\n    public String title { get; set; }\n    public void reset() {}\n}\n",
+        "present": [
+          {
+            "qualifiedName": "Paged",
+            "kind": "class",
+            "line": 1
+          },
+          {
+            "qualifiedName": "Paged.size",
+            "kind": "property",
+            "line": 3,
+            "parent": "Paged"
+          },
+          {
+            "qualifiedName": "Paged.title",
+            "kind": "property",
+            "line": 4,
+            "parent": "Paged"
+          },
+          {
+            "qualifiedName": "Paged.reset",
+            "kind": "method",
+            "line": 5,
+            "parent": "Paged"
+          }
+        ],
+        "forbidden": [
+          "Paged.get",
+          "Paged.set",
+          "Paged.AuraEnabled",
+          "Paged.Ghost"
+        ],
+        "coverageComplete": true
+    },
+    {
       "id": "solidity-pragma",
       "language": "solidity",
       "path": "DataTypes.sol",
