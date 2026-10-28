@@ -660,7 +660,7 @@ func (p *alParser) parseScope(start, end int, parent *SymbolParent, members bool
 			return
 		}
 		lower := strings.ToLower(p.tokens[semantic].Text)
-		if kind, ok := objects[lower]; ok {
+		if kind, ok := objects[lower]; ok && !members {
 			i = p.object(i, semantic, end, parent, kind)
 			continue
 		}

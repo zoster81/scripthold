@@ -3,6 +3,38 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "al-codeunit-typed-variable-does-not-hide-later-local-method",
+      "language": "al",
+      "path": "Engine.Codeunit.al",
+      "source": "codeunit 50100 Engine\n{\n    procedure First()\n    var\n        Telemetry: Codeunit \"Trace\";\n    begin\n        Telemetry.Record();\n    end;\n\n    local procedure Second()\n    begin\n    end;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Engine",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Engine.First",
+          "kind": "method",
+          "line": 3,
+          "parent": "Engine"
+        },
+        {
+          "qualifiedName": "Engine.Second",
+          "kind": "method",
+          "line": 10,
+          "parent": "Engine"
+        }
+      ],
+      "forbidden": [
+        "Engine.Telemetry",
+        "Engine.Record",
+        "Trace",
+        "Engine.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "delphi-library-declaration-vs-comment",
       "language": "delphi",
       "path": "Apache.dpr",
