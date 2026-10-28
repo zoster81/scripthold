@@ -108,6 +108,73 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"Serilog", SymbolKindNamespace, 1}, {"Serilog.LoggerExtensions", SymbolKindClass, 6},
 			{"Serilog.LoggerExtensions.ForContext", SymbolKindMethod, 20},
 		}, []string{"Serilog.Guard.AgainstNull", "Serilog.LoggerExtensions.Ghost", "Serilog.LogEventLevel"}},
+		{"go-gorilla-mux-routes", "SCRIPTHOLD_REAL_GO_GORILLA", "go", []want{
+			{"mux_test", SymbolKindPackage, 1},
+			{"mux_test.ExampleRoute_HeadersRegexp", SymbolKindFunction, 13},
+			{"mux_test.ExampleRoute_HeadersRegexp_exactMatch", SymbolKindFunction, 35},
+		}, []string{"mux_test.NewRouter", "mux_test.RouteMatch", "mux_test.Header.Set", "mux_test.Ghost"}},
+		{"go-testify-assertion-order", "SCRIPTHOLD_REAL_GO_TESTIFY", "go", []want{
+			{"assert", SymbolKindPackage, 1}, {"assert.isOrdered", SymbolKindFunction, 9},
+			{"assert.IsIncreasing", SymbolKindFunction, 52},
+			{"assert.IsNonIncreasing", SymbolKindFunction, 64},
+			{"assert.IsDecreasing", SymbolKindFunction, 76},
+			{"assert.IsNonDecreasing", SymbolKindFunction, 88},
+		}, []string{"assert.reflect.TypeOf", "assert.Fail", "assert.containsValue", "assert.Ghost"}},
+		{"go-participle-api-interfaces", "SCRIPTHOLD_REAL_GO_PARTICIPLE", "go", []want{
+			{"participle", SymbolKindPackage, 1}, {"participle.Capture", SymbolKindInterface, 8},
+			{"participle.Capture.Capture", SymbolKindMethod, 9},
+			{"participle.Parseable", SymbolKindInterface, 13},
+			{"participle.Parseable.Parse", SymbolKindMethod, 18},
+		}, []string{"participle.lexer.PeekingLexer", "participle.NextMatch", "participle.Ghost"}},
+		{"python-requests-exceptions", "SCRIPTHOLD_REAL_PY_REQUESTS", "python", []want{
+			{"RequestException", SymbolKindClass, 20},
+			{"RequestException.__init__", SymbolKindMethod, 28},
+			{"InvalidJSONError", SymbolKindClass, 38},
+			{"JSONDecodeError", SymbolKindClass, 42},
+			{"JSONDecodeError.__init__", SymbolKindMethod, 45},
+			{"JSONDecodeError.__reduce__", SymbolKindMethod, 55},
+			{"ConnectTimeout", SymbolKindClass, 91},
+			{"RequestsDependencyWarning", SymbolKindClass, 161},
+		}, []string{"BaseHTTPError", "PreparedRequest", "CompatJSONDecodeError", "kwargs.pop", "Ghost"}},
+		{"python-pytest-multipython", "SCRIPTHOLD_REAL_PY_PYTEST", "python", []want{
+			{"python1", SymbolKindFunction, 16}, {"python2", SymbolKindFunction, 22},
+			{"Python", SymbolKindClass, 27}, {"Python.__init__", SymbolKindMethod, 28},
+			{"Python.dumps", SymbolKindMethod, 34},
+			{"Python.load_and_is_true", SymbolKindMethod, 48},
+			{"test_basic_objects", SymbolKindFunction, 67},
+		}, []string{"shutil", "subprocess.run", "textwrap.dedent", "Python.Ghost", "pickle"}},
+		{"python-rich-attrs-example", "SCRIPTHOLD_REAL_PY_RICH", "python", []want{
+			{"Point3D", SymbolKindClass, 11}, {"Triangle", SymbolKindClass, 18},
+			{"Model", SymbolKindClass, 25},
+		}, []string{"attr.Factory", "attr.define", "Console", "List", "Ghost"}},
+		{"csharp-automapper-features", "SCRIPTHOLD_REAL_CS_AUTOMAPPER", "csharp", []want{
+			{"AutoMapper.Features", SymbolKindNamespace, 1},
+			{"AutoMapper.Features.IGlobalFeature", SymbolKindInterface, 3},
+			{"AutoMapper.Features.IGlobalFeature.Configure", SymbolKindMethod, 5},
+			{"AutoMapper.Features.IMappingFeature", SymbolKindInterface, 7},
+			{"AutoMapper.Features.IMappingFeature.Reverse", SymbolKindMethod, 10},
+			{"AutoMapper.Features.IRuntimeFeature", SymbolKindInterface, 12},
+			{"AutoMapper.Features.Features", SymbolKindClass, 16},
+			{"AutoMapper.Features.Features.Get", SymbolKindMethod, 25},
+			{"AutoMapper.Features.Features.Set", SymbolKindMethod, 34},
+			{"AutoMapper.Features.FeatureExtensions", SymbolKindClass, 55},
+			{"AutoMapper.Features.FeatureExtensions.SetFeature", SymbolKindMethod, 57},
+		}, []string{"AutoMapper.Features.Ghost", "AutoMapper.Features.Features.TFeatureToFind", "AutoMapper.Features.MapperConfiguration", "AutoMapper.Features.Internal"}},
+		{"csharp-humanizer-byte-size", "SCRIPTHOLD_REAL_CS_HUMANIZER", "csharp", []want{
+			{"Benchmarks", SymbolKindNamespace, 1},
+			{"Benchmarks.ByteSizeBenchmarks", SymbolKindClass, 6},
+			{"Benchmarks.ByteSizeBenchmarks.ByteSizeToStringDefault", SymbolKindMethod, 12},
+			{"Benchmarks.ByteSizeBenchmarks.ByteSizeToStringCulture", SymbolKindMethod, 16},
+			{"Benchmarks.ByteSizeBenchmarks.ByteSizeToStringFormat", SymbolKindMethod, 20},
+			{"Benchmarks.ByteSizeBenchmarks.ByteSizeToFullWords", SymbolKindMethod, 24},
+		}, []string{"Benchmarks.MemoryDiagnoser", "Benchmarks.ByteSize.FromMegabytes", "Benchmarks.ByteSizeBenchmarks.Ghost"}},
+		{"csharp-vs-validation-event-extensions", "SCRIPTHOLD_REAL_CS_VS_VALIDATION", "csharp", []want{
+			{"Microsoft", SymbolKindNamespace, 6},
+			{"Microsoft.EventHandlerExtensions", SymbolKindClass, 11},
+			{"Microsoft.EventHandlerExtensions.Raise", SymbolKindMethod, 19},
+			{"Microsoft.EventHandlerExtensions.Raise", SymbolKindMethod, 33},
+			{"Microsoft.EventHandlerExtensions.Raise", SymbolKindMethod, 48},
+		}, []string{"Microsoft.Requires.NotNull", "Microsoft.EventHandlerExtensions.DynamicInvoke", "Microsoft.EventHandlerExtensions.Ghost"}},
 		{"autohotkey-windowspy-v2", "SCRIPTHOLD_REAL_AHK_WINDOWSPY", "autohotkey", []want{
 			{"WinSpyGui", SymbolKindFunction, 16}, {"WinSpySize", SymbolKindFunction, 60},
 			{"WinSpyClose", SymbolKindFunction, 74}, {"Update", SymbolKindFunction, 78},
@@ -462,6 +529,19 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Decorators and attributes belong to the declaration, while the identifier
 	// itself starts on a later line; assert both coordinates independently.
 	decoratedNameLines := map[string]map[string]int{
+		"python-pytest-multipython": {
+			"python1": 17, "python2": 23, "test_basic_objects": 68,
+		},
+		"python-rich-attrs-example": {
+			"Point3D": 12, "Triangle": 19, "Model": 26,
+		},
+		"csharp-humanizer-byte-size": {
+			"Benchmarks.ByteSizeBenchmarks":                         7,
+			"Benchmarks.ByteSizeBenchmarks.ByteSizeToStringDefault": 13,
+			"Benchmarks.ByteSizeBenchmarks.ByteSizeToStringCulture": 17,
+			"Benchmarks.ByteSizeBenchmarks.ByteSizeToStringFormat":  21,
+			"Benchmarks.ByteSizeBenchmarks.ByteSizeToFullWords":     25,
+		},
 		"python-click-colors":            {"cli": 25},
 		"python-fastapi-response-models": {"read_item": 19},
 		"python-flask-auth": {
@@ -478,6 +558,32 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			"Dapper.Tests.Performance.BelgradeBenchmarks":                10,
 			"Dapper.Tests.Performance.BelgradeBenchmarks.Setup":          15,
 			"Dapper.Tests.Performance.BelgradeBenchmarks.FirstOrDefault": 22,
+		},
+	}
+	// Parent relations on independently inspected originals must agree with the
+	// qualified identity, not just a matching text span.
+	independentParents := map[string]map[string]string{
+		"go-participle-api-interfaces": {
+			"participle.Capture.Capture": "participle.Capture",
+			"participle.Parseable.Parse": "participle.Parseable",
+		},
+		"python-requests-exceptions": {
+			"RequestException.__init__":  "RequestException",
+			"JSONDecodeError.__reduce__": "JSONDecodeError",
+		},
+		"python-pytest-multipython": {
+			"Python.dumps": "Python", "Python.load_and_is_true": "Python",
+		},
+		"csharp-automapper-features": {
+			"AutoMapper.Features.IGlobalFeature.Configure":     "AutoMapper.Features.IGlobalFeature",
+			"AutoMapper.Features.Features.Get":                 "AutoMapper.Features.Features",
+			"AutoMapper.Features.FeatureExtensions.SetFeature": "AutoMapper.Features.FeatureExtensions",
+		},
+		"csharp-humanizer-byte-size": {
+			"Benchmarks.ByteSizeBenchmarks.ByteSizeToStringDefault": "Benchmarks.ByteSizeBenchmarks",
+		},
+		"csharp-vs-validation-event-extensions": {
+			"Microsoft.EventHandlerExtensions.Raise": "Microsoft.EventHandlerExtensions",
 		},
 	}
 	registry, err := DefaultLanguageRegistry()
@@ -531,6 +637,11 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 							t.Errorf("name position for %q: got %d, want %d", expected.name,
 								symbol.NameRange.Start.Line, wantLine)
 						}
+						if wantParent, ok := independentParents[tc.name][expected.name]; ok &&
+							symbol.ParentQualifiedName != wantParent {
+							t.Errorf("parent for %q: got %q, want %q", expected.name,
+								symbol.ParentQualifiedName, wantParent)
+						}
 						matched = true
 						break
 					}
@@ -543,6 +654,13 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			for _, name := range tc.forbidden {
 				if symbols := seen[name]; len(symbols) > 0 {
 					t.Errorf("expression, comment, or local reference emitted as declaration %q: %+v", name, symbols)
+				}
+			}
+			if strings.HasPrefix(tc.name, "go-") || strings.HasPrefix(tc.name, "python-") ||
+				strings.HasPrefix(tc.name, "csharp-") {
+				if !result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0 {
+					t.Errorf("valid independent source unexpectedly incomplete: complete=%v diagnostics=%+v",
+						result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
 				}
 			}
 			if strings.HasPrefix(tc.name, "autohotkey-") && len(result.Analysis.Symbols) != len(tc.present) {
