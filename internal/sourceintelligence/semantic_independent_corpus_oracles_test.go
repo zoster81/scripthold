@@ -558,6 +558,39 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"ExitSignal", SymbolKindFunction, 69},
 			{"OnTick", SymbolKindFunction, 73},
 		}, []string{"iBands", "NrOfDigits", "PipAdjust", "Ghost"}},
+		{"twig-core-markdown-apply", "SCRIPTHOLD_REAL_TWIG_CORE", "twig", []want{}, []string{"markdown_to_html", "apply", "Hello", "Ghost"}},
+		{"twig-craftcms-error", "SCRIPTHOLD_REAL_TWIG_CRAFTCMS", "twig", []want{
+			{"message", SymbolKindSection, 4},
+		}, []string{"title", "extends", "message.title", "app", "Ghost"}},
+		{"twig-drupal-announcements", "SCRIPTHOLD_REAL_TWIG_DRUPAL", "twig", []want{}, []string{"count", "featured", "standard", "attach_library", "announcements", "Ghost"}},
+		{"twig-easyadmin-actionmenu", "SCRIPTHOLD_REAL_TWIG_EASYADMIN", "twig", []want{}, []string{"content", "Overlay", "ActionList", "dropdown", "Ghost"}},
+		{"twig-profiler-ajax", "SCRIPTHOLD_REAL_TWIG_PROFILER", "twig", []want{
+			{"toolbar", SymbolKindSection, 3},
+		}, []string{"icon", "text", "sf-toolbar-value", "sf-toolbar-header", "Ghost"}},
+		{"twig-shopware-invitation", "SCRIPTHOLD_REAL_TWIG_SHOPWARE", "twig", []want{}, []string{"Invitation", "Inter", "path", "fill", "Ghost"}},
+		{"twig-symfony-delete-form", "SCRIPTHOLD_REAL_TWIG_SYMFONY", "twig", []want{
+			{"delete-form", SymbolKindEntity, 2},
+		}, []string{"admin_post_delete", "post.id", "twig:ux:icon", "Ghost"}},
+		{"ejs-core-client-example", "SCRIPTHOLD_REAL_EJS_CORE", "ejs", []want{
+			{"greeting", SymbolKindEntity, 7},
+		}, []string{"helloTemplateFn", "messageTemplateFn", "includeFn", "compiledEjsTemplates", "Ghost"}},
+		{"ejs-ecommerce-add-product", "SCRIPTHOLD_REAL_EJS_ECOMMERCE", "ejs", []want{
+			{"newProductForm", SymbolKindEntity, 123},
+			{"productID", SymbolKindEntity, 131},
+			{"productName", SymbolKindEntity, 136},
+		}, []string{"locals.product", "product.productName", "form-control", "Ghost"}},
+		{"ejs-express-generator", "SCRIPTHOLD_REAL_EJS_EXPRESS", "ejs", []want{}, []string{"app", "createError", "modules", "localModules", "Ghost"}},
+		{"ejs-postgresql-login", "SCRIPTHOLD_REAL_EJS_POSTGRES", "ejs", []want{
+			{"email", SymbolKindEntity, 15},
+			{"password", SymbolKindEntity, 19},
+		}, []string{"UserLoginCtrl", "_csrf", "loginForm", "Ghost"}},
+		{"ejs-typeorm-404", "SCRIPTHOLD_REAL_EJS_TYPEORM", "ejs", []want{}, []string{"head.ejs", "navigation.ejs", "end.ejs", "Page Not Found", "Ghost"}},
+		{"ejs-todo-task", "SCRIPTHOLD_REAL_EJS_TODO", "ejs", []want{
+			{"top", SymbolKindEntity, 24},
+		}, []string{"newtask", "task", "complete", "check", "Ghost"}},
+		{"ejs-upload-form", "SCRIPTHOLD_REAL_EJS_UPLOAD", "ejs", []want{
+			{"file", SymbolKindEntity, 24},
+		}, []string{"uploadForm", "document.getElementById", "files", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -1043,6 +1076,10 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"matlab-lewos-app":       {"LeWoS_RS.RunSegmentationButtonPushed": "LeWoS_RS", "LeWoS_RS.ShowButtonPushed": "LeWoS_RS"},
+		"matlab-platemo-problem": {"CitySegMOP1.Setting": "CitySegMOP1"},
+		"matlab-spatialmomentum": {"SpatialMomentum.new": "SpatialMomentum"},
+		"mql4-dingmaotu-text":    {"Text.setPrice": "Text", "Text.setDatetime": "Text"},
 		"kotlin-moshi-indexed-parameters": {
 			"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.put":     "com.squareup.moshi.kotlin.reflect.IndexedParameterMap",
 			"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.entries": "com.squareup.moshi.kotlin.reflect.IndexedParameterMap",
@@ -1189,7 +1226,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			// Declaration-free templates and API callback-only examples must not
 			// turn expressions or schema property names into symbol definitions.
 			if len(tc.present) == 0 &&
-				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-") || tc.name == "openapi-oai-callback-example") &&
+				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-") || strings.HasPrefix(tc.name, "twig-") || strings.HasPrefix(tc.name, "ejs-") || tc.name == "openapi-oai-callback-example") &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
