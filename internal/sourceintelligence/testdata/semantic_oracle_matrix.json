@@ -1904,6 +1904,50 @@
       "coverageComplete": true
     },
     {
+      "id": "fsharp-qualified-module-and-nonowning-module-alias",
+      "language": "fsharp",
+      "path": "Main.fs",
+      "source": "module Vendor.Tools.Main\nmodule Alias = Other.Tools\nlet inline compute x =\n    let localOnly = x\n    localOnly\n",
+      "present": [
+        {"qualifiedName": "Vendor.Tools.Main", "kind": "module", "line": 1},
+        {"qualifiedName": "Vendor.Tools.Main.Alias", "kind": "module", "line": 2, "parent": "Vendor.Tools.Main"},
+        {"qualifiedName": "Vendor.Tools.Main.compute", "kind": "function", "line": 3, "parent": "Vendor.Tools.Main"}
+      ],
+      "forbidden": ["Vendor", "Vendor.Tools.Main.Alias.compute", "Vendor.Tools.Main.inline", "Vendor.Tools.Main.localOnly", "Vendor.Tools.Main.Alias.localOnly"],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-type-access-modifier-is-not-type-name",
+      "language": "fsharp",
+      "path": "Internal.fs",
+      "source": "namespace Example\ntype internal Counter() =\n    member this.Increment() = 1\ntype private Box() =\n    member this.Read() = 2\n",
+      "present": [
+        {"qualifiedName": "Example", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Example.Counter", "kind": "type", "line": 2, "parent": "Example"},
+        {"qualifiedName": "Example.Counter.Increment", "kind": "method", "line": 3, "parent": "Example.Counter"},
+        {"qualifiedName": "Example.Box", "kind": "type", "line": 4, "parent": "Example"},
+        {"qualifiedName": "Example.Box.Read", "kind": "method", "line": 5, "parent": "Example.Box"}
+      ],
+      "forbidden": ["Example.internal", "Example.private", "Example.internal.Increment", "Example.private.Read"],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-scoped-module-local-binding-and-override",
+      "language": "fsharp",
+      "path": "Scoped.fs",
+      "source": "namespace Sample\ntype First = string\nmodule Helpers =\n    let convert value =\n        let localOnly = value\n        localOnly\ntype Second() =\n    override this.ToString() = \"ok\"\n",
+      "present": [
+        {"qualifiedName": "Sample", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Sample.First", "kind": "type", "line": 2, "parent": "Sample"},
+        {"qualifiedName": "Sample.Helpers", "kind": "module", "line": 3, "parent": "Sample"},
+        {"qualifiedName": "Sample.Helpers.convert", "kind": "function", "line": 4, "parent": "Sample.Helpers"},
+        {"qualifiedName": "Sample.Second", "kind": "type", "line": 7, "parent": "Sample"},
+        {"qualifiedName": "Sample.Second.ToString", "kind": "method", "line": 8, "parent": "Sample.Second"}
+      ],
+      "forbidden": ["Sample.Helpers.Second", "Sample.Helpers.localOnly", "Sample.localOnly", "Sample.Helpers.First", "Sample.Helpers.ToString"],
+      "coverageComplete": true
+    },
+    {
       "id": "fsharp-typed-binding",
       "language": "fsharp",
       "path": "Probe.fs",

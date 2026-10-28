@@ -122,16 +122,25 @@ func (FSharpAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	return AnalyzerResult{Analysis: state.builder.Result(), Dependencies: p.dependencies, Relations: p.relations}, nil
 }
 
+type fsharpModuleScope struct {
+	parent   *SymbolParent
+	indent   int
+	indented bool
+}
+
 type fsharpParser struct {
-	ctx          context.Context
-	document     *SourceDocument
-	builder      *SymbolBuilder
-	namespace    *SymbolParent
-	currentType  *SymbolParent
-	typeIndent   int
-	dependencies []StructuralDependency
-	relations    []StructuralRelation
-	stopped      bool
+	ctx           context.Context
+	document      *SourceDocument
+	builder       *SymbolBuilder
+	namespace     *SymbolParent
+	moduleScopes  []fsharpModuleScope
+	bindingIndent int
+	inBinding     bool
+	currentType   *SymbolParent
+	typeIndent    int
+	dependencies  []StructuralDependency
+	relations     []StructuralRelation
+	stopped       bool
 }
 
 func (p *fsharpParser) parse(lines []LogicalLine) {
@@ -141,15 +150,28 @@ func (p *fsharpParser) parse(lines []LogicalLine) {
 		}
 		t := line.Tokens
 		first := strings.ToLower(t[0].Text)
+		for len(p.moduleScopes) > 0 {
+			scope := p.moduleScopes[len(p.moduleScopes)-1]
+			if !scope.indented || line.Indent > scope.indent {
+				break
+			}
+			p.namespace = scope.parent
+			p.moduleScopes = p.moduleScopes[:len(p.moduleScopes)-1]
+		}
+		if p.inBinding && line.Indent <= p.bindingIndent {
+			p.inBinding = false
+		}
 		if p.currentType != nil && line.Indent <= p.typeIndent && (first == "type" || first == "let" || first == "module" || first == "namespace") {
 			p.currentType = nil
 		}
 		switch first {
 		case "namespace", "module":
+			p.inBinding = false
 			p.addContainer(line, first)
 		case "open":
 			p.addDependency(line)
 		case "type":
+			p.inBinding = false
 			p.addType(line)
 		case "abstract":
 			if p.currentType != nil {
@@ -164,26 +186,68 @@ func (p *fsharpParser) parse(lines []LogicalLine) {
 				p.addRelation(line, first)
 			}
 		case "let":
-			if p.currentType == nil {
+			if p.currentType == nil && !p.inBinding {
 				p.addLet(line)
+				p.bindingIndent = line.Indent
+				p.inBinding = true
 			}
 		}
 	}
 }
 func (p *fsharpParser) addContainer(line LogicalLine, kind string) {
-	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
+	tokens := line.Tokens
+	idx := nextIdentifierToken(tokens, 1, len(tokens))
+	for idx >= 0 && (strings.EqualFold(tokens[idx].Text, "internal") ||
+		strings.EqualFold(tokens[idx].Text, "private") ||
+		strings.EqualFold(tokens[idx].Text, "public") ||
+		strings.EqualFold(tokens[idx].Text, "rec")) {
+		idx = nextIdentifierToken(tokens, idx+1, len(tokens))
+	}
 	if idx < 0 {
 		return
 	}
+	end := idx
+	for end+2 < len(tokens) && tokens[end+1].Text == "." && tokens[end+2].Kind == TokenIdentifier {
+		end += 2
+	}
+	name := tokenRangeText(tokens, idx, end+1)
 	sk := SymbolKindNamespace
 	if kind == "module" {
 		sk = SymbolKindModule
 	}
-	s, ok := p.add(SymbolSpec{Kind: sk, NativeKind: kind, Name: line.Tokens[idx].Text, Parent: nil, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.Tokens[idx].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-	if ok {
-		v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
-		p.namespace = &v
+	var parent *SymbolParent
+	if kind == "module" {
+		parent = p.namespace
 	}
+	s, ok := p.add(SymbolSpec{Kind: sk, NativeKind: kind, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tokens[idx].StartOffset, End: tokens[end].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+	if !ok {
+		return
+	}
+	v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
+	if kind == "namespace" {
+		p.moduleScopes = nil
+		p.namespace = &v
+		return
+	}
+	// A module abbreviation (module Alias = Other.Module) declares an alias,
+	// but does not make subsequent declarations children of that alias.
+	alias := end+2 < len(tokens) && tokens[end+1].Text == "="
+	if alias {
+		for _, token := range tokens[end+2:] {
+			if token.Kind != TokenIdentifier && token.Text != "." {
+				alias = false
+				break
+			}
+		}
+	}
+	if alias {
+		return
+	}
+	p.moduleScopes = append(p.moduleScopes, fsharpModuleScope{
+		parent: p.namespace, indent: line.Indent,
+		indented: tokens[len(tokens)-1].Text == "=",
+	})
+	p.namespace = &v
 }
 func (p *fsharpParser) addDependency(line LogicalLine) {
 	if len(line.Tokens) < 2 {
@@ -201,6 +265,12 @@ func (p *fsharpParser) addDependency(line LogicalLine) {
 }
 func (p *fsharpParser) addType(line LogicalLine) {
 	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
+	for idx >= 0 && (strings.EqualFold(line.Tokens[idx].Text, "internal") ||
+		strings.EqualFold(line.Tokens[idx].Text, "private") ||
+		strings.EqualFold(line.Tokens[idx].Text, "public") ||
+		strings.EqualFold(line.Tokens[idx].Text, "rec")) {
+		idx = nextIdentifierToken(line.Tokens, idx+1, len(line.Tokens))
+	}
 	if idx < 0 {
 		return
 	}
@@ -215,7 +285,7 @@ func (p *fsharpParser) addType(line LogicalLine) {
 func (p *fsharpParser) addMember(line LogicalLine, native string) {
 	memberAt := -1
 	for i, t := range line.Tokens {
-		if strings.EqualFold(t.Text, "member") {
+		if strings.EqualFold(t.Text, "member") || (native == "override" && i == 0 && strings.EqualFold(t.Text, "override")) {
 			memberAt = i
 			break
 		}
@@ -256,6 +326,14 @@ func (p *fsharpParser) addRelation(line LogicalLine, kind string) {
 }
 func (p *fsharpParser) addLet(line LogicalLine) {
 	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
+	for idx >= 0 && (strings.EqualFold(line.Tokens[idx].Text, "inline") ||
+		strings.EqualFold(line.Tokens[idx].Text, "rec") ||
+		strings.EqualFold(line.Tokens[idx].Text, "mutable") ||
+		strings.EqualFold(line.Tokens[idx].Text, "private") ||
+		strings.EqualFold(line.Tokens[idx].Text, "internal") ||
+		strings.EqualFold(line.Tokens[idx].Text, "public")) {
+		idx = nextIdentifierToken(line.Tokens, idx+1, len(line.Tokens))
+	}
 	if idx < 0 {
 		return
 	}
