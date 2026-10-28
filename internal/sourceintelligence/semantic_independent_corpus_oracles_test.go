@@ -20,6 +20,51 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		present             []want
 		forbidden           []string
 	}{
+		{"ocaml-stdlib-option", "SCRIPTHOLD_REAL_OCAML_A", "ocaml", []want{
+			{"none", SymbolKindVariable, 18}, {"some", SymbolKindFunction, 19},
+			{"Syntax", SymbolKindModule, 64},
+		}, []string{"Option.Ghost", "None"}},
+		{"ocaml-exercism-connect", "SCRIPTHOLD_REAL_OCAML_B", "ocaml", []want{
+			{"eq_cell", SymbolKindFunction, 6}, {"IntTuple", SymbolKindModule, 11},
+			{"to_matrix", SymbolKindFunction, 28},
+		}, []string{"Phantom", "IntTuple.Ghost"}},
+		{"erlang-recon-docsite", "SCRIPTHOLD_REAL_ERLANG_A", "erlang", []want{
+			{"docsite", SymbolKindModule, 9}, {"docsite.main", SymbolKindFunction, 15},
+			{"docsite.content", SymbolKindFunction, 39}, {"docsite.write", SymbolKindFunction, 109},
+		}, []string{"docsite.rebar3", "docsite.filename"}},
+		{"erlang-yaws-negotiation", "SCRIPTHOLD_REAL_ERLANG_B", "erlang", []want{
+			{"yaws_content_negotiation", SymbolKindModule, 1},
+			{"yaws_content_negotiation.compute_rsva", SymbolKindFunction, 9},
+			{"yaws_content_negotiation.get_other_header", SymbolKindFunction, 30},
+		}, []string{"yaws_content_negotiation.ghost", "yaws_content_negotiation.Headers"}},
+		{"octave-polynomial-double", "SCRIPTHOLD_REAL_OCTAVE_A", "octave", []want{
+			{"double", SymbolKindFunction, 1},
+		}, []string{"poly", "p"}},
+		{"qbasic-qb64pe-acalc", "SCRIPTHOLD_REAL_QBASIC_A", "qbasic", []want{
+			{"DrawCursor", SymbolKindFunction, 2}, {"DrawCursor", SymbolKindFunction, 52},
+			{"DrawInner", SymbolKindFunction, 69}, {"DrawOuter", SymbolKindFunction, 124},
+			{"OldX", SymbolKindVariable, 7}, {"OldY", SymbolKindVariable, 7},
+		}, []string{"SIN", "LOG", "OldAngle.Ghost"}},
+		{"systemverilog-yosys-example", "SCRIPTHOLD_REAL_SYSTEMVERILOG_A", "systemverilog", []want{
+			{"top", SymbolKindModule, 1},
+		}, []string{"assume", "assert", "top.initial"}},
+		{"systemverilog-pygments-flipflop", "SCRIPTHOLD_REAL_SYSTEMVERILOG_B", "systemverilog", []want{
+			{"toplevel", SymbolKindModule, 1}, {"toplevel.flop1", SymbolKindSignal, 5},
+			{"toplevel.flop2", SymbolKindSignal, 6},
+		}, []string{"toplevel.reset", "posedge"}},
+		{"nim-stdlib-atomic", "SCRIPTHOLD_REAL_NIM_A", "nim", []want{
+			{"AtomicWithGeneric", SymbolKindClass, 4}, {"AtomicWithGeneric.value", SymbolKindField, 5},
+			{"initAtomicWithGeneric", SymbolKindFunction, 7},
+		}, []string{"atomics", "result"}},
+		{"nim-exercism-hello", "SCRIPTHOLD_REAL_NIM_B", "nim", []want{
+			{"hello", SymbolKindFunction, 1},
+		}, []string{"World", "string"}},
+		{"julia-stdlib-buffer", "SCRIPTHOLD_REAL_JULIA_A", "julia", []want{
+			{"Buffer", SymbolKindStruct, 4}, {"read_to_buffer", SymbolKindFunction, 29},
+		}, []string{"UInt8", "Buffer.Ghost"}},
+		{"julia-exercism-tree", "SCRIPTHOLD_REAL_JULIA_B", "julia", []want{
+			{"BinarySearchTree", SymbolKindStruct, 1}, {"traverse", SymbolKindFunction, 44},
+		}, []string{"nothing", "vector"}},
 		{"css-sphinx-design-overrides", "SCRIPTHOLD_REAL_CSS_A", "css", []want{
 			{".sd-card-header", SymbolKindSelector, 2},
 		}, []string{"font-size", "Audiowide"}},
@@ -264,17 +309,26 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertAnalyzerResultCoordinates(t, result)
-			seen := symbolsByQualifiedName(result.Analysis.Symbols)
+			seen := make(map[string][]NormalizedSymbol, len(result.Analysis.Symbols))
+			for _, symbol := range result.Analysis.Symbols {
+				seen[symbol.QualifiedName] = append(seen[symbol.QualifiedName], symbol)
+			}
 			for _, expected := range tc.present {
-				symbol, ok := seen[expected.name]
-				if !ok || symbol.Kind != expected.kind || symbol.DeclarationRange.Start.Line != expected.line {
-					t.Errorf("expected %q kind=%q line=%d, found=%v got=%q line=%d", expected.name, expected.kind,
-						expected.line, ok, symbol.Kind, symbol.DeclarationRange.Start.Line)
+				matched := false
+				for _, symbol := range seen[expected.name] {
+					if symbol.Kind == expected.kind && symbol.DeclarationRange.Start.Line == expected.line {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					t.Errorf("expected declaration %q kind=%q line=%d, found=%+v", expected.name, expected.kind,
+						expected.line, seen[expected.name])
 				}
 			}
 			for _, name := range tc.forbidden {
-				if symbol, ok := seen[name]; ok {
-					t.Errorf("expression, comment, or local reference emitted as declaration %q: %+v", name, symbol)
+				if symbols := seen[name]; len(symbols) > 0 {
+					t.Errorf("expression, comment, or local reference emitted as declaration %q: %+v", name, symbols)
 				}
 			}
 			if result.Analysis.Truncated {

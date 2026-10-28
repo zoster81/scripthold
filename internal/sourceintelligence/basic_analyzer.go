@@ -441,7 +441,11 @@ func (p *basicParser) parseVariableDeclaration(line basicLine, semantic int, fir
 	if first == "dim" && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "shared") {
 		nameIndex++
 	}
-	p.addNamed(line, nameIndex, kind, "variable", parent)
+	if nameIndex < len(line.tokens) {
+		for _, part := range splitCommaTokenRangeAt(line.tokens, nameIndex, len(line.tokens), line.tokens[nameIndex].Nesting) {
+			p.addNamed(line, part[0], kind, "variable", parent)
+		}
+	}
 	return true
 }
 

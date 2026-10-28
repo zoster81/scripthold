@@ -502,7 +502,14 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, err := state.scan(options, ErlangScannerProfile(), maskErlangCharacterLiterals(document.Text))
+	source := maskErlangCharacterLiterals(document.Text)
+	if strings.HasPrefix(source, "#!") {
+		lineEnd, _ := physicalLineBounds(source, 0)
+		masked := []byte(source)
+		maskRangePreservingLines(masked, 0, lineEnd)
+		source = string(masked)
+	}
+	scan, err := state.scan(options, ErlangScannerProfile(), source)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}

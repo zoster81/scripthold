@@ -3,6 +3,346 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "erlang-escript-shebang-preserves-declarations",
+      "language": "erlang",
+      "path": "script.erl",
+      "source": "#!/usr/bin/env escript\n%% standalone Erlang program\n-module(docsite).\nmain() -> ok.\n",
+      "present": [
+        {
+          "qualifiedName": "docsite",
+          "kind": "module",
+          "line": 3
+        },
+        {
+          "qualifiedName": "docsite.main",
+          "kind": "function",
+          "line": 4,
+          "parent": "docsite"
+        }
+      ],
+      "forbidden": [
+        "escript",
+        "docsite.ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ocaml-structure-binding-vs-comment",
+      "language": "ocaml",
+      "path": "syntax.ml",
+      "source": "(* let phantom = 1 *)\nmodule Tools = struct\n  let amount = 4\n  let double x = x + x\nend\n",
+      "present": [
+        {
+          "qualifiedName": "Tools",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Tools.amount",
+          "kind": "variable",
+          "line": 3,
+          "parent": "Tools"
+        },
+        {
+          "qualifiedName": "Tools.double",
+          "kind": "function",
+          "line": 4,
+          "parent": "Tools"
+        }
+      ],
+      "forbidden": [
+        "phantom",
+        "Tools.phantom",
+        "Tools.x"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "erlang-module-functions-vs-expression",
+      "language": "erlang",
+      "path": "docsite.erl",
+      "source": "%% -module(ghost).\n-module(docsite).\n-export([main/0]).\nmain() -> helper().\nhelper() -> ok.\n",
+      "present": [
+        {
+          "qualifiedName": "docsite",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "docsite.main",
+          "kind": "function",
+          "line": 4,
+          "parent": "docsite"
+        },
+        {
+          "qualifiedName": "docsite.helper",
+          "kind": "function",
+          "line": 5,
+          "parent": "docsite"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "docsite.ok",
+        "docsite.export"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "octave-function-vs-comment-and-call",
+      "language": "octave",
+      "path": "double.m",
+      "source": "# function ghost(x)\nfunction a = double (p)\n  a = p.poly;\nendfunction\n",
+      "present": [
+        {
+          "qualifiedName": "double",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "poly",
+        "a"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "qbasic-comma-variable-declarations-and-array-bounds",
+      "language": "qbasic",
+      "path": "variables.bas",
+      "source": "DIM SHARED OldAngle, OldX, OldY, OldDelta\nDIM H(10 TO 99, 4), HH(6 TO 90, 4)\nPRINT \"DIM Ghost\"\n",
+      "present": [
+        {
+          "qualifiedName": "OldAngle",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "OldX",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "OldY",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "OldDelta",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "H",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "HH",
+          "kind": "variable",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "TO",
+        "PRINT"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vba-multiple-typed-declarators",
+      "language": "vba",
+      "path": "Dual.bas",
+      "source": "Attribute VB_Name = \"Dual\"\nDim LeftItem As Integer, RightItem As Long\n' Dim Ghost As String\n",
+      "present": [
+        {
+          "qualifiedName": "Dual",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Dual.LeftItem",
+          "kind": "variable",
+          "line": 2,
+          "parent": "Dual"
+        },
+        {
+          "qualifiedName": "Dual.RightItem",
+          "kind": "variable",
+          "line": 2,
+          "parent": "Dual"
+        }
+      ],
+      "forbidden": [
+        "Dual.Ghost",
+        "Dual.Integer",
+        "Dual.Long"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "qbasic-declares-and-implemented-subs",
+      "language": "qbasic",
+      "path": "clock.bas",
+      "source": "REM SUB Ghost()\nDECLARE SUB StartTick ()\nSUB DrawClock()\nEND SUB\nDIM SHARED ClockCount\nPRINT \"SUB Fake()\"\n",
+      "present": [
+        {
+          "qualifiedName": "StartTick",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "DrawClock",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "ClockCount",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Fake",
+        "PRINT"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vba-module-constant-and-method",
+      "language": "vba",
+      "path": "Module1.bas",
+      "source": "Attribute VB_Name = \"Module1\"\nPrivate Const MaxItems = 8\nPublic Sub Refresh()\n  Debug.Print \"Sub Ghost()\"\nEnd Sub\n",
+      "present": [
+        {
+          "qualifiedName": "Module1",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Module1.MaxItems",
+          "kind": "constant",
+          "line": 2,
+          "parent": "Module1"
+        },
+        {
+          "qualifiedName": "Module1.Refresh",
+          "kind": "method",
+          "line": 3,
+          "parent": "Module1"
+        }
+      ],
+      "forbidden": [
+        "Module1.Ghost",
+        "Module1.Debug",
+        "VB_Name"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "systemverilog-logic-signal-vs-expression",
+      "language": "systemverilog",
+      "path": "cpu.sv",
+      "source": "// module ghost(); endmodule\nmodule cpu();\n  logic ready;\n  assign ready = 1'b1;\nendmodule\n",
+      "present": [
+        {
+          "qualifiedName": "cpu",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "cpu.ready",
+          "kind": "signal",
+          "line": 3,
+          "parent": "cpu"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "cpu.assign"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "systemverilog-broken-module-does-not-claim-complete",
+      "language": "systemverilog",
+      "path": "partial.sv",
+      "source": "module good;\n  logic valid;\nendmodule\nmodule broken;\n  logic missing;\n",
+      "present": [
+        {
+          "qualifiedName": "good",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "good.valid",
+          "kind": "signal",
+          "line": 2,
+          "parent": "good"
+        }
+      ],
+      "forbidden": [
+        "broken",
+        "broken.missing"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "nim-exported-object-and-procedure",
+      "language": "nim",
+      "path": "packet.nim",
+      "source": "# proc ghost() = discard\ntype\n  Packet* = object\n    id*: int\nproc makePacket*(): Packet =\n  discard\n",
+      "present": [
+        {
+          "qualifiedName": "Packet",
+          "kind": "class",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Packet.id",
+          "kind": "field",
+          "line": 4,
+          "parent": "Packet"
+        },
+        {
+          "qualifiedName": "makePacket",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "discard"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "julia-struct-and-function-vs-comment",
+      "language": "julia",
+      "path": "buffer.jl",
+      "source": "# struct Phantom end\nmutable struct Buffer\n  data::Int\nend\nfunction consume(x)\n  return x\nend\n",
+      "present": [
+        {
+          "qualifiedName": "Buffer",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "consume",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "css-selectors-vs-properties-and-comments",
       "language": "css",
       "path": "styles.css",
