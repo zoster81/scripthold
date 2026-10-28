@@ -513,6 +513,51 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"updatePet", SymbolKindOperation, 45},
 			{"Pet", SymbolKindType, 758},
 		}, []string{"pet", "/pet", "tags", "requestBody", "Ghost"}},
+		{"matlab-lewos-app", "SCRIPTHOLD_REAL_MATLAB_LEWOS", "matlab", []want{
+			{"LeWoS_RS", SymbolKindClass, 1},
+			{"LeWoS_RS.RunSegmentationButtonPushed", SymbolKindMethod, 36},
+			{"LeWoS_RS.ShowButtonPushed", SymbolKindMethod, 55},
+		}, []string{"matlab.apps.AppBase", "RunSegmentationButton", "LeWoSUIFigure", "ProgressMonitorLabel", "Ghost"}},
+		{"matlab-nasa-enum", "SCRIPTHOLD_REAL_MATLAB_NASA", "matlab", []want{
+			{"SensorsEnum", SymbolKindClass, 1},
+		}, []string{"Simulink.IntEnumType", "None", "ZOH", "Ghost"}},
+		{"matlab-platemo-problem", "SCRIPTHOLD_REAL_MATLAB_PLATEMO", "matlab", []want{
+			{"CitySegMOP1", SymbolKindClass, 1},
+			{"CitySegMOP1.Setting", SymbolKindMethod, 13},
+		}, []string{"EvoXBenchProblem", "config", "config.args", "Ghost"}},
+		{"matlab-robotics-enum", "SCRIPTHOLD_REAL_MATLAB_ROBOTICS", "matlab", []want{
+			{"UIReadSubCodes", SymbolKindClass, 7},
+		}, []string{"GetVbatt", "GetLbatt", "uint8", "Ghost"}},
+		{"matlab-spatialmomentum", "SCRIPTHOLD_REAL_MATLAB_SPATIAL", "matlab", []want{
+			{"SpatialMomentum", SymbolKindClass, 68},
+			{"SpatialMomentum.new", SymbolKindMethod, 70},
+		}, []string{"SpatialF6", "SpatialVec6", "SpatialForce", "Ghost"}},
+		{"mql4-dingmaotu-text", "SCRIPTHOLD_REAL_MQL4_DINGMAOTU", "mql4", []want{
+			{"Text", SymbolKindClass, 11},
+			{"Text.setPrice", SymbolKindMethod, 14},
+			{"Text.setDatetime", SymbolKindMethod, 15},
+		}, []string{"FreeFormElement", "OBJPROP_TIME", "Panel", "Ghost"}},
+		{"mql4-execution-skeleton", "SCRIPTHOLD_REAL_MQL4_FRAMEWORK", "mql4", []want{
+			{"EAUniqueID", SymbolKindVariable, 14},
+			{"allowedSlippage", SymbolKindVariable, 17},
+			{"init", SymbolKindFunction, 40},
+			{"start", SymbolKindFunction, 53},
+			{"deinit", SymbolKindFunction, 67},
+		}, []string{"TradeLogger", "criterion", "initTradeLogger", "Ghost"}},
+		{"mql4-harry-adx", "SCRIPTHOLD_REAL_MQL4_ADX", "mql4", []want{
+			{"ADXPeriod", SymbolKindVariable, 14},
+			{"ExtBuffer1", SymbolKindVariable, 17},
+			{"init", SymbolKindFunction, 22},
+			{"start", SymbolKindFunction, 42},
+		}, []string{"SetIndexBuffer", "iADX", "ADX0", "Ghost"}},
+		{"mql4-hung96-bollinger", "SCRIPTHOLD_REAL_MQL4_BB", "mql4", []want{
+			{"Risk_Pct", SymbolKindVariable, 16},
+			{"MAGIC", SymbolKindVariable, 17},
+			{"MODE_PRICE_STATUS", SymbolKindEnum, 29},
+			{"OnInit", SymbolKindFunction, 47},
+			{"ExitSignal", SymbolKindFunction, 69},
+			{"OnTick", SymbolKindFunction, 73},
+		}, []string{"iBands", "NrOfDigits", "PipAdjust", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -1089,9 +1134,22 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			if !ok {
 				t.Fatal("provider not active")
 			}
-			// The source loader supplies decoded text without a physical UTF-8 BOM.
+			// Most checked-in samples are UTF-8; this original MQL4 file has
+			// an authoritative UTF-16LE BOM and must use the real source loader.
 			text := strings.TrimPrefix(string(data), "\uFEFF")
-			result, err := analyzer.Analyze(context.Background(), testSourceDocument(filepath.Base(path), text), testAnalyzeOptions(true, 2048))
+			analyzedDocument := testSourceDocument(filepath.Base(path), text)
+			if tc.name == "mql4-harry-adx" {
+				if len(data) < 2 || data[0] != 0xff || data[1] != 0xfe {
+					t.Fatal("original MQL4 source must retain its UTF-16LE BOM")
+				}
+				analyzedDocument, err = OpenSourceDocument(context.Background(), path, OpenDocumentOptions{
+					RequestedEncoding: "utf-16le", MaxFileBytes: 4 * 1024 * 1024, MaxDecodedCharacters: 1_000_000,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, err := analyzer.Analyze(context.Background(), analyzedDocument, testAnalyzeOptions(true, 2048))
 			if err != nil {
 				t.Fatal(err)
 			}
