@@ -496,6 +496,23 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{".ui.breadcrumb:last-child", SymbolKindSelector, 34},
 			{".ui.breadcrumb .divider", SymbolKindSelector, 43},
 		}, []string{"display", "verticalMargin", "dividerOpacity", "@import", "Ghost"}},
+		{"openapi-connexion-auth-example", "SCRIPTHOLD_REAL_OAPI_CONNEXION", "openapi", []want{
+			{"app.get_secret", SymbolKindOperation, 11},
+		}, []string{"secret", "api_key", "securitySchemes", "X-Auth", "app.apikey_auth", "Ghost"}},
+		{"openapi-oai-callback-example", "SCRIPTHOLD_REAL_OAPI_OAI", "openapi", []want{}, []string{"callbackUrl", "subscriptionId", "onData", "timestamp", "userData", "post", "Ghost"}},
+		{"openapi-typescript-pets-example", "SCRIPTHOLD_REAL_OAPI_TYPESCRIPT", "openapi", []want{
+			{"getTest", SymbolKindOperation, 27},
+			{"listPets", SymbolKindOperation, 44},
+			{"listPetsModel", SymbolKindOperation, 65},
+			{"Pets", SymbolKindType, 244},
+		}, []string{"/pets/items", "/pets", "limit", "response", "Ghost"}},
+		{"openapi-redocly-health-example", "SCRIPTHOLD_REAL_OAPI_REDOCLY", "openapi", []want{
+			{"Health", SymbolKindOperation, 10},
+		}, []string{"status", "pass", "warn", "fail", "200", "400", "Ghost"}},
+		{"openapi-swagger-petstore-example", "SCRIPTHOLD_REAL_OAPI_SWAGGER", "openapi", []want{
+			{"updatePet", SymbolKindOperation, 45},
+			{"Pet", SymbolKindType, 758},
+		}, []string{"pet", "/pet", "tags", "requestBody", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -1111,12 +1128,12 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					t.Errorf("expression, comment, or local reference emitted as declaration %q: %+v", name, symbols)
 				}
 			}
-			// A template without a declaration-bearing region must not turn
-			// markup, expressions, or loop variables into symbol definitions.
+			// Declaration-free templates and API callback-only examples must not
+			// turn expressions or schema property names into symbol definitions.
 			if len(tc.present) == 0 &&
-				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-")) &&
+				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-") || tc.name == "openapi-oai-callback-example") &&
 				len(result.Analysis.Symbols) != 0 {
-				t.Errorf("declaration-free template produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
 			if strings.HasPrefix(tc.name, "go-") || strings.HasPrefix(tc.name, "python-") ||
 				strings.HasPrefix(tc.name, "csharp-") {
