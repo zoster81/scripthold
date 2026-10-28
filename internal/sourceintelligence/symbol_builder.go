@@ -789,6 +789,18 @@ func sortNormalizedSymbols(symbols []NormalizedSymbol) {
 		if left.declarationOffsets.End > right.declarationOffsets.End {
 			return 1
 		}
+		if left.nameOffsets.Start < right.nameOffsets.Start {
+			return -1
+		}
+		if left.nameOffsets.Start > right.nameOffsets.Start {
+			return 1
+		}
+		if left.nameOffsets.End < right.nameOffsets.End {
+			return -1
+		}
+		if left.nameOffsets.End > right.nameOffsets.End {
+			return 1
+		}
 		return strings.Compare(left.ID, right.ID)
 	})
 }

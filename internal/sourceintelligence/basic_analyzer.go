@@ -448,6 +448,18 @@ func (p *basicParser) parseVariableDeclaration(line basicLine, semantic int, fir
 	if first == "dim" && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "shared") {
 		nameIndex++
 	}
+	if p.policy.freeBasic && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "as") {
+		nameIndex++
+		if nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "const") {
+			nameIndex++
+		}
+		if nameIndex < len(line.tokens) {
+			nameIndex++ // FreeBasic permits the type before the declared names.
+		}
+		for nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "ptr") {
+			nameIndex++
+		}
+	}
 	if nameIndex < len(line.tokens) {
 		for _, part := range splitCommaTokenRangeAt(line.tokens, nameIndex, len(line.tokens), line.tokens[nameIndex].Nesting) {
 			p.addNamed(line, part[0], kind, "variable", parent)

@@ -3,6 +3,53 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "freebasic-typed-first-shared-dim-variables",
+      "language": "freebasic",
+      "path": "typed-first.bas",
+      "source": "dim shared as integer ConfigCount\nDim Shared As Single Ptr Weights\ndim shared Named As Integer\nDim As Integer Left, Right(2, 3)\ndim as const byte ptr Buffer\n' Dim Shared As Integer Phantom\n",
+      "present": [
+        {
+          "qualifiedName": "ConfigCount",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Weights",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Named",
+          "kind": "variable",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Left",
+          "kind": "variable",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Right",
+          "kind": "variable",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Buffer",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Integer",
+        "Single",
+        "Ptr",
+        "As",
+        "Phantom",
+        "ConfigCount.Phantom"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "al-codeunit-typed-variable-does-not-hide-later-local-method",
       "language": "al",
       "path": "Engine.Codeunit.al",
