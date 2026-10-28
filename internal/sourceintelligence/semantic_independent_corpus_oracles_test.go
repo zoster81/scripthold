@@ -20,6 +20,44 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		present             []want
 		forbidden           []string
 	}{
+		{"c-curl-altsvc", "SCRIPTHOLD_REAL_C_A", "c", []want{
+			{"main", SymbolKindFunction, 32},
+		}, []string{"curl_easy_init", "curl_easy_setopt", "curl_global_cleanup"}},
+		{"groovy-benchmark-ackermann", "SCRIPTHOLD_REAL_GROOVY_A", "groovy", []want{
+			{"A", SymbolKindFunction, 8},
+		}, []string{"println", "args", "Ghost"}},
+		{"groovy-exercism-hello", "SCRIPTHOLD_REAL_GROOVY_B", "groovy", []want{
+			{"HelloWorld", SymbolKindClass, 1}, {"HelloWorld.hello", SymbolKindMethod, 3},
+		}, []string{"HelloWorld.World", "String"}},
+		{"gleam-echo-original", "SCRIPTHOLD_REAL_GLEAM_A", "gleam", []want{
+			{"main", SymbolKindFunction, 4},
+		}, []string{"echo", "Gleam", "ghost"}},
+		{"common-lisp-clog-demo", "SCRIPTHOLD_REAL_COMMONLISP_A", "common-lisp", []want{
+			{"clog-demo-1", SymbolKindPackage, 1},
+			{"clog-demo-1.display-width", SymbolKindConstant, 11},
+			{"clog-demo-1.new-food", SymbolKindFunction, 20},
+		}, []string{"create-div", "defpackage", "clog-demo-1.ghost"}},
+		{"vbscript-reactos-wscript", "SCRIPTHOLD_REAL_VBSCRIPT_A", "vbscript", []want{
+			{"winetest", SymbolKindVariable, 21}, {"ok", SymbolKindFunction, 24},
+		}, []string{"CreateObject", "winetest.ok", "reportSuccess"}},
+		{"fortran-stdlib-meshgrid", "SCRIPTHOLD_REAL_FORTRAN_A", "fortran", []want{
+			{"example_meshgrid", SymbolKindModule, 1},
+			{"example_meshgrid.print_2d_array", SymbolKindFunction, 29},
+		}, []string{"meshgrid", "linspace", "example_meshgrid.print"}},
+		{"emacs-mal-core", "SCRIPTHOLD_REAL_EMACS_A", "emacs-lisp", []want{
+			{"mal-boolean", SymbolKindFunction, 4}, {"mal-=", SymbolKindFunction, 6},
+			{"mal-map-=", SymbolKindFunction, 29}, {"mal-conj", SymbolKindFunction, 44},
+			{"elisp-to-mal", SymbolKindFunction, 55},
+		}, []string{"seq", "mal-true", "mal/types", "mal.Ghost"}},
+		{"flow-project-ambient-declaration", "SCRIPTHOLD_REAL_FLOW_A", "flow", []want{
+			{"ccc", SymbolKindConstant, 3},
+		}, []string{"Array", "string", "haste_pkg"}},
+		{"zig-stdlib-wasm-object", "SCRIPTHOLD_REAL_ZIG_A", "zig", []want{
+			{"Object", SymbolKindConstant, 1},
+			{"RelativeSlice", SymbolKindStruct, 53}, {"RelativeSlice.off", SymbolKindField, 54},
+			{"RelativeSlice.len", SymbolKindField, 55},
+			{"SegmentInfo", SymbolKindStruct, 58},
+		}, []string{"Wasm.Ghost", "std.Ghost", "pub", "SegmentInfo.Ghost"}},
 		{"ocaml-stdlib-option", "SCRIPTHOLD_REAL_OCAML_A", "ocaml", []want{
 			{"none", SymbolKindVariable, 18}, {"some", SymbolKindFunction, 19},
 			{"Syntax", SymbolKindModule, 64},

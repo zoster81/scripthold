@@ -3,6 +3,360 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "fortran-program-and-contained-subroutine",
+      "language": "fortran",
+      "path": "example.f90",
+      "source": "! program ghost\nprogram example\ncontains\n  subroutine print_grid()\n  end subroutine\nend program example\n",
+      "present": [
+        {
+          "qualifiedName": "example",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "example.print_grid",
+          "kind": "function",
+          "line": 4,
+          "parent": "example"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "contains",
+        "print"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "jinja-macro-and-block-vs-interpolation",
+      "language": "jinja",
+      "path": "layout.j2",
+      "source": "{# {% macro ghost() %} #}\n{% macro greet(name) %}\n{{ name }}\n{% endmacro %}\n{% block page %}{{ data }}{% endblock %}\n",
+      "present": [
+        {
+          "qualifiedName": "greet",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "page",
+          "kind": "section",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "name",
+        "data"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-basic-numbered-subroutine",
+      "language": "classic-basic",
+      "path": "driver.bas",
+      "source": "10 REM SUB Ghost()\n20 SUB Runner()\n30 PRINT \"SUB Fake()\"\n40 END SUB\n",
+      "present": [
+        {
+          "qualifiedName": "Runner",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Fake",
+        "PRINT"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "purebasic-module-and-procedure",
+      "language": "purebasic",
+      "path": "tools.pb",
+      "source": "; Procedure Ghost()\nModule Tools\n  Procedure Run()\n  EndProcedure\nEndModule\n",
+      "present": [
+        {
+          "qualifiedName": "Tools",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Tools.Run",
+          "kind": "function",
+          "line": 3,
+          "parent": "Tools"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "EndProcedure",
+        "Tools.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vbscript-class-method",
+      "language": "vbscript",
+      "path": "worker.vbs",
+      "source": "' Class Ghost\nClass Worker\n Public Sub Start()\n End Sub\nEnd Class\n",
+      "present": [
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Worker.Start",
+          "kind": "method",
+          "line": 3,
+          "parent": "Worker"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Worker.Ghost",
+        "Public"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "common-lisp-functions-and-constants",
+      "language": "common-lisp",
+      "path": "utility.lisp",
+      "source": "; (defun ghost () nil)\n(defun square (x) (* x x))\n(defconstant max-count 3)\n",
+      "present": [
+        {
+          "qualifiedName": "square",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "max-count",
+          "kind": "constant",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "x",
+        "defun"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "gleam-type-function-and-constant",
+      "language": "gleam",
+      "path": "status.gleam",
+      "source": "// pub fn ghost() { 0 }\npub type Status {\n Ready\n}\npub fn echo(x: Int) -> Int { x }\npub const answer = 42\n",
+      "present": [
+        {
+          "qualifiedName": "Status",
+          "kind": "type",
+          "line": 2
+        },
+        {
+          "qualifiedName": "echo",
+          "kind": "function",
+          "line": 5
+        },
+        {
+          "qualifiedName": "answer",
+          "kind": "constant",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "x",
+        "pub"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "groovy-class-and-method",
+      "language": "groovy",
+      "path": "Worker.groovy",
+      "source": "// class Ghost {}\nclass Worker {\n def run() { return 3 }\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Worker.run",
+          "kind": "method",
+          "line": 3,
+          "parent": "Worker"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "return",
+        "Worker.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "c-struct-and-function",
+      "language": "c",
+      "path": "geometry.c",
+      "source": "// int ghost(void) { return 0; }\nstruct Point { int x; };\nint compute(int x) { return x + 1; }\n",
+      "present": [
+        {
+          "qualifiedName": "Point",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "compute",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "return",
+        "x"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "emacs-lisp-functions-and-constants-vs-comment",
+      "language": "emacs-lisp",
+      "path": "core.el",
+      "source": ";; (defun ghost () t)\n(defun mal-boolean (value)\n  (if value t nil))\n(defconst core-ns '((a . 1)))\n",
+      "present": [
+        {
+          "qualifiedName": "mal-boolean",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "core-ns",
+          "kind": "constant",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "value",
+        "if"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "flow-typed-export-and-declaration",
+      "language": "flow",
+      "path": "types.js.flow",
+      "source": "// @flow\n// export type Ghost = string;\nexport type User = { id: string };\ndeclare export const ccc: Array<string>;\n",
+      "present": [
+        {
+          "qualifiedName": "User",
+          "kind": "alias",
+          "line": 3
+        },
+        {
+          "qualifiedName": "ccc",
+          "kind": "constant",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "string",
+        "Array"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "freebasic-type-and-function",
+      "language": "freebasic",
+      "path": "engine.bas",
+      "source": "' Type Ghost\nType Particle\n x As Integer\nEnd Type\nFunction Area(ByVal r As Integer) As Integer\n Return r * r\nEnd Function\n",
+      "present": [
+        {
+          "qualifiedName": "Particle",
+          "kind": "type",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Particle.x",
+          "kind": "field",
+          "line": 3,
+          "parent": "Particle"
+        },
+        {
+          "qualifiedName": "Area",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "ByVal",
+        "Return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "matlab-function-and-nested-logic",
+      "language": "matlab",
+      "path": "normalize.m",
+      "source": "% function ghost(x)\nfunction out = normalize(x)\n if x > 0\n  out = x;\n else\n  out = 0;\n end\nend\n",
+      "present": [
+        {
+          "qualifiedName": "normalize",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "out",
+        "if"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "zig-struct-and-nested-function",
+      "language": "zig",
+      "path": "geometry.zig",
+      "source": "// const Ghost = struct {};\npub const Point = struct {\n x: i32,\n y: i32,\n pub fn area(self: Point) i32 { return self.x * self.y; }\n};\n",
+      "present": [
+        {
+          "qualifiedName": "Point",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Point.x",
+          "kind": "field",
+          "line": 3,
+          "parent": "Point"
+        },
+        {
+          "qualifiedName": "Point.y",
+          "kind": "field",
+          "line": 4,
+          "parent": "Point"
+        },
+        {
+          "qualifiedName": "Point.area",
+          "kind": "method",
+          "line": 5,
+          "parent": "Point"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Point.self",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "erlang-escript-shebang-preserves-declarations",
       "language": "erlang",
       "path": "script.erl",
