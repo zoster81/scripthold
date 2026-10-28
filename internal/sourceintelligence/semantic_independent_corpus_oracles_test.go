@@ -694,6 +694,43 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"vba-commonlib-arrayutils", "SCRIPTHOLD_REAL_VBA_COMMONLIB", "vba", []want{
+			{"VBALib_ArrayUtils", SymbolKindModule, 1},
+			{"VBALib_ArrayUtils.NORMALIZE_LBOUND", SymbolKindConstant, 11},
+			{"VBALib_ArrayUtils.NormalizeArray", SymbolKindMethod, 17},
+			{"VBALib_ArrayUtils.CopyMemory", SymbolKindFunction, 8},
+			{"VBALib_ArrayUtils.ArrayLen", SymbolKindMethod, 118},
+		}, []string{"VBALib_ArrayUtils.IsEmpty", "VBALib_ArrayUtils.UBound", "VBALib_ArrayUtils.Ghost"}},
+		{"vba-macrolibrary-main", "SCRIPTHOLD_REAL_VBA_MACROLIB", "vba", []want{
+			{"ModuleX", SymbolKindModule, 1},
+			{"ModuleX.WorksheetExists", SymbolKindMethod, 10},
+			{"ModuleX.CopyRowAboveAndInsert", SymbolKindMethod, 16},
+			{"ModuleX.ProperX", SymbolKindMethod, 31},
+			{"ModuleX.Email_part", SymbolKindMethod, 37},
+		}, []string{"ModuleX.Evaluate", "ModuleX.ActiveSheet", "ModuleX.Ghost"}},
+		{"vba-modernjson-common", "SCRIPTHOLD_REAL_VBA_MODERNJSON", "vba", []want{
+			{"Json_Common", SymbolKindModule, 1},
+			{"Json_Common.JSON_TAG_OBJECT", SymbolKindConstant, 26},
+			{"Json_Common.JsonTextBuilder", SymbolKindType, 33},
+			{"Json_Common.JsonStringIndex", SymbolKindType, 51},
+			{"Json_Common.JsonSB_Init", SymbolKindMethod, 64},
+		}, []string{"Json_Common.Ghost", "Json_Common.Space", "Json_Common.Len"}},
+		{"vba-productivity-convert", "SCRIPTHOLD_REAL_VBA_PRODUCTIVITY", "vba", []want{
+			{"ConvertTextToNumber", SymbolKindModule, 1},
+			{"ConvertTextToNumber.run", SymbolKindMethod, 3},
+			{"ConvertTextToNumber.run_WithDecimals", SymbolKindMethod, 11},
+			{"ConvertTextToNumber.ConvertTextToNumber", SymbolKindMethod, 20},
+			{"ConvertTextToNumber.convertTextToNumber_CountDecimals", SymbolKindMethod, 43},
+		}, []string{"ConvertTextToNumber.Selection", "ConvertTextToNumber.WorksheetFunction", "ConvertTextToNumber.Ghost"}},
+		{"vba-xlframe-ezarray", "SCRIPTHOLD_REAL_VBA_XLFRAME", "vba", []want{
+			{"EZArray.Resize", SymbolKindMethod, 13},
+			{"EZArray.NumRows", SymbolKindMethod, 54},
+		}, []string{"EZArray.WorksheetFunction", "EZArray.UBound", "EZArray.Ghost"}},
+		{"vba-xplus-math", "SCRIPTHOLD_REAL_VBA_XPLUS", "vba", []want{
+			{"xpMath", SymbolKindModule, 1},
+			{"xpMath.INTERPOLATE_NUMBER", SymbolKindMethod, 7},
+			{"xpMath.INTERPOLATE_PERCENT", SymbolKindMethod, 29},
+		}, []string{"xpMath.startingNumber", "xpMath.endingNumber", "xpMath.Ghost"}},
 		{"php-html-wordpress-404", "SCRIPTHOLD_REAL_PHPHTML_WORDPRESS", "php-html", []want{
 			{"primary", SymbolKindEntity, 12},
 			{"content", SymbolKindEntity, 13},
@@ -1258,6 +1295,10 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"vba-commonlib-arrayutils":  {"VBALib_ArrayUtils.NormalizeArray": "VBALib_ArrayUtils", "VBALib_ArrayUtils.CopyMemory": "VBALib_ArrayUtils"},
+		"vba-modernjson-common":     {"Json_Common.JsonTextBuilder": "Json_Common", "Json_Common.JsonSB_Init": "Json_Common"},
+		"vba-xlframe-ezarray":       {"EZArray.Resize": "EZArray", "EZArray.NumRows": "EZArray"},
+		"vba-xplus-math":            {"xpMath.INTERPOLATE_NUMBER": "xpMath", "xpMath.INTERPOLATE_PERCENT": "xpMath"},
 		"cil-cecil-hello":           {"Hello.Foo.Bar": "Hello.Foo", "Hello.Foo.Baz": "Hello.Foo"},
 		"cil-ilspy-bitnot":          {"ConvTest.Program.Main": "ConvTest.Program", "ConvTest.Enums.EUInt16.__value": "ConvTest.Enums.EUInt16"},
 		"cpp-btop-logger":           {"Logger.Level": "Logger", "Logger.detail": "Logger", "Logger.detail.log_write": "Logger.detail"},
