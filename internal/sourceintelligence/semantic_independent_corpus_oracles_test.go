@@ -671,6 +671,30 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"resetVariables", SymbolKindFunction, 13},
 			{"Read_Sensors", SymbolKindFunction, 19},
 		}, []string{"ads.setGain", "secondsElapsed", "ADC_BitReso", "Ghost"}},
+		{"luau-dekkonot-sha512", "SCRIPTHOLD_REAL_LUAU_DEKKONOT", "luau", []want{
+			{"lil_sig0", SymbolKindFunction, 51},
+			{"lil_sig1", SymbolKindFunction, 73},
+			{"big_sig0", SymbolKindFunction, 94},
+		}, []string{"bit32.bxor", "bit32.rshift", "BLOCK_FRONT", "Ghost"}},
+		{"luau-evercyan-remotes", "SCRIPTHOLD_REAL_LUAU_EVERCYAN", "luau", []want{
+			{"ServerRequestBlob", SymbolKindType, 42},
+			{"ServerInvRequestBlob", SymbolKindType, 46},
+			{"ClientRequestBlob", SymbolKindType, 50},
+			{"Remote", SymbolKindType, 58},
+			{"ConvertToUnion", SymbolKindFunction, 74},
+			{"ProcessHasProperTypes", SymbolKindFunction, 85},
+		}, []string{"Remote.FireServer", "HttpService.GetService", "ReferenceParams", "Ghost"}},
+		{"luau-rbxutil-util", "SCRIPTHOLD_REAL_LUAU_RBXUTIL", "luau", []want{
+			{"AnyTable", SymbolKindType, 7},
+			{"Util.DeepFreeze", SymbolKindFunction, 14},
+			{"Util.DeepCopy", SymbolKindFunction, 25},
+			{"Util.Extend", SymbolKindFunction, 37},
+		}, []string{"Util.None", "table.freeze", "table.clone", "Ghost"}},
+		{"luau-sleitnick-find", "SCRIPTHOLD_REAL_LUAU_SLEITNICK", "luau", []want{
+			{"find", SymbolKindFunction, 3},
+		}, []string{"instance.FindFirstChild", "instance.GetFullName", "select", "Ghost"}},
+		{"luau-pvz-wave", "SCRIPTHOLD_REAL_LUAU_PVZ", "luau", []want{},
+			[]string{"Name", "Aliases", "Description", "Group", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -1311,7 +1335,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			if len(tc.present) == 0 &&
 				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-") || strings.HasPrefix(tc.name, "twig-") || strings.HasPrefix(tc.name, "ejs-") ||
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
-					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" || tc.name == "openapi-oai-callback-example") &&
+					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
+					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave") &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
