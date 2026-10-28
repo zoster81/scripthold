@@ -137,6 +137,7 @@ type fsharpParser struct {
 	bindingIndent int
 	inBinding     bool
 	currentType   *SymbolParent
+	typeParents   map[string]SymbolParent
 	typeIndent    int
 	dependencies  []StructuralDependency
 	relations     []StructuralRelation
@@ -180,6 +181,10 @@ func (p *fsharpParser) parse(lines []LogicalLine) {
 		case "member", "override":
 			if p.currentType != nil {
 				p.addMember(line, first)
+			}
+		case "static":
+			if p.currentType != nil && len(t) > 1 && strings.EqualFold(t[1].Text, "member") {
+				p.addMember(line, "member")
 			}
 		case "inherit", "interface":
 			if p.currentType != nil {
@@ -275,9 +280,33 @@ func (p *fsharpParser) addType(line LogicalLine) {
 		return
 	}
 	parent := p.namespace
+	name := line.Tokens[idx].Text
+	qualifiedName := name
+	if parent != nil {
+		qualifiedName = parent.QualifiedName + "." + name
+	}
+	for i := idx + 1; i < len(line.Tokens); i++ {
+		if line.Tokens[i].Text == "=" {
+			break
+		}
+		if strings.EqualFold(line.Tokens[i].Text, "with") {
+			if existing, ok := p.typeParents[qualifiedName]; ok {
+				p.currentType = &existing
+			} else {
+				p.currentType = nil
+				p.builder.MarkIncomplete()
+			}
+			p.typeIndent = line.Indent
+			return
+		}
+	}
 	s, ok := p.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: line.Tokens[idx].Text, Parent: parent, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.Tokens[idx].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 	if ok {
 		v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
+		if p.typeParents == nil {
+			p.typeParents = make(map[string]SymbolParent)
+		}
+		p.typeParents[v.QualifiedName] = v
 		p.currentType = &v
 		p.typeIndent = line.Indent
 	}
@@ -293,8 +322,37 @@ func (p *fsharpParser) addMember(line LogicalLine, native string) {
 	if memberAt < 0 {
 		return
 	}
+	// F# permits backtick-delimited symbolic member names (for example,
+	// static member ``***``). These are not identifier tokens in the
+	// generic scanner, so use the exact bounded source span after "member".
+	start := line.Tokens[memberAt].EndOffset
+	if start >= 0 && start <= line.EndOffset && line.EndOffset <= len(p.document.Text) {
+		at := start
+		for at < line.EndOffset && (p.document.Text[at] == ' ' || p.document.Text[at] == '\t') {
+			at++
+		}
+		if at+2 <= line.EndOffset && p.document.Text[at:at+2] == "``" {
+			nameStart := at + 2
+			if closeAt := strings.Index(p.document.Text[nameStart:line.EndOffset], "``"); closeAt > 0 {
+				nameEnd := nameStart + closeAt
+				p.add(SymbolSpec{Kind: SymbolKindMethod, NativeKind: native,
+					Name: p.document.Text[nameStart:nameEnd], Parent: p.currentType,
+					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+					NameRange:   OffsetRange{Start: nameStart, End: nameEnd},
+					Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+					Evidence:    SymbolEvidenceStructural})
+				return
+			}
+		}
+	}
 	name := -1
 	for i := memberAt + 1; i < len(line.Tokens); i++ {
+		if name < 0 && (strings.EqualFold(line.Tokens[i].Text, "inline") ||
+			strings.EqualFold(line.Tokens[i].Text, "private") ||
+			strings.EqualFold(line.Tokens[i].Text, "internal") ||
+			strings.EqualFold(line.Tokens[i].Text, "public")) {
+			continue
+		}
 		if line.Tokens[i].Kind == TokenIdentifier {
 			if i+2 < len(line.Tokens) && line.Tokens[i+1].Text == "." && line.Tokens[i+2].Kind == TokenIdentifier {
 				name = i + 2

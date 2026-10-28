@@ -1904,6 +1904,62 @@
       "coverageComplete": true
     },
     {
+      "id": "fsharp-backtick-operator-static-members",
+      "language": "fsharp",
+      "path": "Ops.fs",
+      "source": "namespace Sample\ntype Ops =\n    static member ``***`` (a: int, b: int) = a + b\n    static member ``&&&`` (a: int, b: int) = a * b\n",
+      "present": [
+        {
+          "qualifiedName": "Sample",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Sample.Ops",
+          "kind": "type",
+          "line": 2,
+          "parent": "Sample"
+        },
+        {
+          "qualifiedName": "Sample.Ops.***",
+          "kind": "method",
+          "line": 3,
+          "parent": "Sample.Ops"
+        },
+        {
+          "qualifiedName": "Sample.Ops.&&&",
+          "kind": "method",
+          "line": 4,
+          "parent": "Sample.Ops"
+        }
+      ],
+      "forbidden": [
+        "Sample.Ops.static",
+        "Sample.Ops.member",
+        "Sample.Ops.a",
+        "Sample.Ops.b",
+        "Sample.Ops.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-static-member-type-augmentation-no-duplicate",
+      "language": "fsharp",
+      "path": "Worker.fs",
+      "source": "namespace Sample\ntype Worker =\n    static member Act(x: int) = x\n    static member inline Run(x: int) = x\ntype Worker with\n    static member Extend(x: string) = x\ntype Other =\n    member this.Go() = 1\n",
+      "present": [
+        {"qualifiedName": "Sample", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Sample.Worker", "kind": "type", "line": 2, "parent": "Sample"},
+        {"qualifiedName": "Sample.Worker.Act", "kind": "method", "line": 3, "parent": "Sample.Worker"},
+        {"qualifiedName": "Sample.Worker.Run", "kind": "method", "line": 4, "parent": "Sample.Worker"},
+        {"qualifiedName": "Sample.Worker.Extend", "kind": "method", "line": 6, "parent": "Sample.Worker"},
+        {"qualifiedName": "Sample.Other", "kind": "type", "line": 7, "parent": "Sample"},
+        {"qualifiedName": "Sample.Other.Go", "kind": "method", "line": 8, "parent": "Sample.Other"}
+      ],
+      "forbidden": ["Sample.Worker.static", "Sample.Worker.inline", "Sample.Worker.Worker", "Sample.Worker.x", "Sample.Other.Act"],
+      "coverageComplete": true
+    },
+    {
       "id": "fsharp-qualified-module-and-nonowning-module-alias",
       "language": "fsharp",
       "path": "Main.fs",
