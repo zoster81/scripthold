@@ -261,6 +261,38 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"ACCT_CascadeDeleteLookups_TDTM.CascadeDeleteLoader", SymbolKindClass, 57},
 			{"ACCT_CascadeDeleteLookups_TDTM.CascadeDeleteLoader.load", SymbolKindMethod, 65},
 		}, []string{"CDL_CascadeDeleteLookups_TDTM", "ACCT_CascadeDeleteLookups_TDTM.CascadeDeleteLoader.CascadeUndeleteLoader", "ACCT_CascadeDeleteLookups_TDTM.Ghost"}},
+		{"blazor-antdesign-button", "SCRIPTHOLD_REAL_BLAZOR_ANTDESIGN", "blazor", []want{}, []string{"AntDesign", "Button", "CascadingValue", "HandleOnClick", "Loading", "Ghost"}},
+		{"blazor-blazorise-todoitem", "SCRIPTHOLD_REAL_BLAZOR_BLAZORISE", "blazor", []want{
+			{"OnCheckedChanged", SymbolKindMethod, 23},
+			{"OnRemoveClicked", SymbolKindMethod, 30},
+			{"Todo", SymbolKindProperty, 33},
+			{"StatusChanged", SymbolKindProperty, 35},
+			{"RemoveClicked", SymbolKindProperty, 37},
+		}, []string{"ListGroupItem", "OnClickCallback", "Todo.Completed", "Flex", "Ghost"}},
+		{"blazor-mudblazor-codeinline", "SCRIPTHOLD_REAL_BLAZOR_MUDBLAZOR", "blazor", []want{
+			{"ChildContent", SymbolKindProperty, 8},
+			{"Code", SymbolKindProperty, 10},
+			{"SecondaryColor", SymbolKindProperty, 12},
+			{"Class", SymbolKindProperty, 14},
+			{"Tag", SymbolKindProperty, 16},
+		}, []string{"code", "docs-code", "RenderFragment", "Ghost"}},
+		{"blazor-radzen-appearance", "SCRIPTHOLD_REAL_BLAZOR_RADZEN", "blazor", []want{}, []string{"RadzenToggleButton", "OnChange", "RadzenComponent", "Visible", "Ghost"}},
+		{"blazor-samples-child", "SCRIPTHOLD_REAL_BLAZOR_SAMPLES", "blazor", []want{
+			{"Title", SymbolKindProperty, 8},
+			{"ChildContent", SymbolKindProperty, 11},
+			{"OnClickCallback", SymbolKindProperty, 14},
+		}, []string{"button", "MouseEventArgs", "Parameter", "Ghost"}},
+		{"jinja-exercism-acronym", "SCRIPTHOLD_REAL_JINJA_EXERCISM", "jinja", []want{
+			{"test_case", SymbolKindFunction, 5},
+		}, []string{"generator_macros", "canonical_ref", "case", "test_case.input", "Ghost"}},
+		{"jinja-kde-template", "SCRIPTHOLD_REAL_JINJA_KDE", "jinja", []want{
+			{"content", SymbolKindSection, 32},
+			{"format_comments", SymbolKindFunction, 40},
+			{"join_params", SymbolKindFunction, 47},
+		}, []string{"title", "items", "user", "join_params.params", "user.name", "Ghost"}},
+		{"jinja-kubespray-containerd", "SCRIPTHOLD_REAL_JINJA_KUBESPRAY", "jinja", []want{}, []string{"containerd_version", "runtime", "key", "value", "containerd_storage_dir", "Ghost"}},
+		{"jinja-openstack-network", "SCRIPTHOLD_REAL_JINJA_OPENSTACK", "jinja", []want{}, []string{"bootstrap_host_scenarios_expanded", "bmaas_network", "bootstrap_host_internal_address", "Ghost"}},
+		{"jinja-ansible-haproxy", "SCRIPTHOLD_REAL_JINJA_ANSIBLE", "jinja", []want{}, []string{"host", "groups", "listenport", "daemonname", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -709,6 +741,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Decorators and attributes belong to the declaration, while the identifier
 	// itself starts on a later line; assert both coordinates independently.
 	decoratedNameLines := map[string]map[string]int{
+		"blazor-samples-child": {
+			"Title": 9, "ChildContent": 12, "OnClickCallback": 15,
+		},
 		"python-pytest-multipython": {
 			"python1": 17, "python2": 23, "test_basic_objects": 68,
 		},
@@ -835,6 +870,13 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				if symbols := seen[name]; len(symbols) > 0 {
 					t.Errorf("expression, comment, or local reference emitted as declaration %q: %+v", name, symbols)
 				}
+			}
+			// A template without a declaration-bearing region must not turn
+			// markup, expressions, or loop variables into symbol definitions.
+			if len(tc.present) == 0 &&
+				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-")) &&
+				len(result.Analysis.Symbols) != 0 {
+				t.Errorf("declaration-free template produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
 			if strings.HasPrefix(tc.name, "go-") || strings.HasPrefix(tc.name, "python-") ||
 				strings.HasPrefix(tc.name, "csharp-") {
