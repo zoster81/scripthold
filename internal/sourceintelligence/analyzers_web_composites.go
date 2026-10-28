@@ -91,6 +91,7 @@ var (
 	ejsBlockPattern               = regexp.MustCompile(`(?is)<%[-_=#]?(.*?)[-_]?%>`)
 	percentOpenPattern            = regexp.MustCompile(`(?is)<%`)
 	bladeSectionPattern           = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*\)`)
+	bladeInlineSectionPattern     = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*,`)
 	bladeVoltPattern              = regexp.MustCompile(`(?i)@volt\s*\(\s*["']([^"']+)["']\s*\)`)
 	bladeDependencyPattern        = regexp.MustCompile(`(?i)@(extends|include)\s*\(\s*["']([^"']+)["']\s*\)`)
 	templateScopeDirectivePattern = regexp.MustCompile(`(?is)^\{%[-+]?\s*(block|macro|endblock|endmacro)\b(?:\s+([A-Za-z_][A-Za-z0-9_-]*))?`)
@@ -1109,6 +1110,42 @@ func selfClosingTagOpening(opening string) bool {
 	return close >= 0 && strings.HasSuffix(strings.TrimSpace(opening[:close]), "/")
 }
 
+// bladeInlineSectionClose accepts a single-line, balanced Blade section expression.
+// A bounded scan avoids interpreting an unfinished nested call as a complete section.
+func bladeInlineSectionClose(probe string, open int) (int, bool) {
+	limit := min(len(probe), open+16384)
+	depth := 0
+	var quote byte
+	for i := open; i < limit; i++ {
+		c := probe[i]
+		if c == '\r' || c == '\n' {
+			break
+		}
+		if quote != 0 {
+			if c == '\\' && i+1 < limit {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i + 1, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func addBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, probe string) ([]bladeVoltComponent, error) {
 	sectionMatches := bladeSectionPattern.FindAllStringSubmatchIndex(probe, -1)
 	voltMatches := bladeVoltPattern.FindAllStringSubmatchIndex(probe, -1)
@@ -1117,6 +1154,20 @@ func addBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, prob
 		declarations = append(declarations, bladeDeclaration{
 			kind: SymbolKindSection, nativeKind: "section", name: document.Text[match[2]:match[3]],
 			declaration: OffsetRange{Start: match[0], End: match[1]}, nameRange: OffsetRange{Start: match[2], End: match[3]},
+		})
+	}
+	for _, match := range bladeInlineSectionPattern.FindAllStringSubmatchIndex(probe, -1) {
+		open := match[0] + strings.IndexByte(probe[match[0]:match[1]], '(')
+		end, complete := bladeInlineSectionClose(probe, open)
+		if !complete {
+			builder.MarkIncomplete()
+			r := OffsetRange{Start: match[0], End: match[1]}
+			_ = builder.AddDiagnostic(DiagnosticSpec{Code: "blade-inline-section-unclosed", Message: "Inline Blade section has no matching closing parenthesis", Severity: DiagnosticWarning, Range: &r, AffectsCoverage: true})
+			continue
+		}
+		declarations = append(declarations, bladeDeclaration{
+			kind: SymbolKindSection, nativeKind: "section", name: document.Text[match[2]:match[3]],
+			declaration: OffsetRange{Start: match[0], End: end}, nameRange: OffsetRange{Start: match[2], End: match[3]},
 		})
 	}
 	validVoltMatches := 0

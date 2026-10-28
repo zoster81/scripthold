@@ -3,6 +3,31 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "blade-inline-sections-nested-expression-malformed-coverage",
+      "language": "blade",
+      "path": "401.blade.php",
+      "source": "@section('title', __('Unauthorized'))\n@section('code', '401')\n{{-- @section('commented', 'fake') --}}\n@section('broken', __('Oops')\n",
+      "present": [
+        {
+          "qualifiedName": "title",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "code",
+          "kind": "section",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "commented",
+        "broken",
+        "Unauthorized",
+        "fake"
+      ],
+      "coverageComplete": false
+    },
+    {
       "id": "freebasic-typed-first-shared-dim-variables",
       "language": "freebasic",
       "path": "typed-first.bas",
