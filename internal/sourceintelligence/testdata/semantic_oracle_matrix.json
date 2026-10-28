@@ -1907,7 +1907,7 @@
       "id": "fsharp-backtick-operator-static-members",
       "language": "fsharp",
       "path": "Ops.fs",
-      "source": "namespace Sample\ntype Ops =\n    static member ``***`` (a: int, b: int) = a + b\n    static member ``&&&`` (a: int, b: int) = a * b\n",
+      "source": "namespace Sample\ntype Ops =\n    static member ``***`` (a: int, b: int) = a + b\n    static member ``&&&`` (a: int, b: int) = a * b\ntype Ops with\n    static member inline ``^^^`` (a: int, b: int) = a ^^^ b\n",
       "present": [
         {
           "qualifiedName": "Sample",
@@ -1930,6 +1930,12 @@
           "qualifiedName": "Sample.Ops.&&&",
           "kind": "method",
           "line": 4,
+          "parent": "Sample.Ops"
+        },
+        {
+          "qualifiedName": "Sample.Ops.^^^",
+          "kind": "method",
+          "line": 6,
           "parent": "Sample.Ops"
         }
       ],

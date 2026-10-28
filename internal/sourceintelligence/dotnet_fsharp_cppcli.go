@@ -326,6 +326,9 @@ func (p *fsharpParser) addMember(line LogicalLine, native string) {
 	// static member ``***``). These are not identifier tokens in the
 	// generic scanner, so use the exact bounded source span after "member".
 	start := line.Tokens[memberAt].EndOffset
+	if memberAt+1 < len(line.Tokens) && strings.EqualFold(line.Tokens[memberAt+1].Text, "inline") {
+		start = line.Tokens[memberAt+1].EndOffset
+	}
 	if start >= 0 && start <= line.EndOffset && line.EndOffset <= len(p.document.Text) {
 		at := start
 		for at < line.EndOffset && (p.document.Text[at] == ' ' || p.document.Text[at] == '\t') {
