@@ -328,7 +328,7 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 	visibility := csharpVisibility(modifiers)
 	paren := parser.findTopOpening(start, segmentEnd, "(", depth+1)
 	if paren >= 0 {
-		nameIndex := parser.lastIdentifier(start, paren)
+		nameIndex := parser.memberMethodNameIndex(start, paren)
 		if nameIndex >= 0 {
 			kind := SymbolKindMethod
 			nativeKind := "method"
@@ -462,6 +462,29 @@ func (parser *csharpParser) nextIdentifier(index, end int) int {
 		index++
 	}
 	return -1
+}
+
+// memberMethodNameIndex skips the bounded type parameter list between a
+// generic method's name and its argument list, rather than returning a type
+// parameter as the declared method name.
+func (parser *csharpParser) memberMethodNameIndex(start, paren int) int {
+	last := parser.lastIdentifier(start, paren)
+	if paren <= start || parser.tokens[paren-1].Text != ">" {
+		return last
+	}
+	depth := 0
+	for index := paren - 1; index >= start; index-- {
+		switch parser.tokens[index].Text {
+		case ">":
+			depth++
+		case "<":
+			depth--
+			if depth == 0 && index > start && parser.tokens[index-1].Kind == TokenIdentifier {
+				return index - 1
+			}
+		}
+	}
+	return last
 }
 
 func (parser *csharpParser) lastIdentifier(start, end int) int {

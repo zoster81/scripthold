@@ -2169,6 +2169,21 @@
       "coverageComplete": true
     },
     {
+      "id": "csharp-generic-method-name-before-type-parameters",
+      "language": "csharp",
+      "path": "Helpers.cs",
+      "source": "namespace Demo;\npublic class Helpers {\n public T Echo<T>(T value) { return value; }\n public TValue Pair<TKey, TValue>(TKey key, TValue value) { return value; }\n public int Count() { return 1; }\n}\n",
+      "present": [
+        {"qualifiedName": "Demo", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Demo.Helpers", "kind": "class", "line": 2},
+        {"qualifiedName": "Demo.Helpers.Echo", "kind": "method", "line": 3, "parent": "Demo.Helpers"},
+        {"qualifiedName": "Demo.Helpers.Pair", "kind": "method", "line": 4, "parent": "Demo.Helpers"},
+        {"qualifiedName": "Demo.Helpers.Count", "kind": "method", "line": 5, "parent": "Demo.Helpers"}
+      ],
+      "forbidden": ["Demo.Helpers.T", "Demo.Helpers.TKey", "Demo.Helpers.TValue", "Demo.Helpers.value", "Demo.Helpers.Ghost"],
+      "coverageComplete": true
+    },
+    {
       "id": "csharp-comment-ghost",
       "language": "csharp",
       "path": "Service.cs",

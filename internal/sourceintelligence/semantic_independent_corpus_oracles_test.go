@@ -21,6 +21,93 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		present             []want
 		forbidden           []string
 	}{
+		{"go-chi-context", "SCRIPTHOLD_REAL_GO_CHI", "go", []want{
+			{"chi", SymbolKindPackage, 1}, {"chi.URLParam", SymbolKindFunction, 10},
+			{"chi.RouteContext", SymbolKindFunction, 27}, {"chi.Context", SymbolKindStruct, 45},
+			{"chi.Context.Reset", SymbolKindMethod, 82}, {"chi.Context.URLParam", SymbolKindMethod, 100},
+			{"chi.RouteParams", SymbolKindStruct, 147}, {"chi.RouteParams.Add", SymbolKindMethod, 152},
+		}, []string{"chi.Ghost", "chi.Context.Ghost", "chi.context.Value", "chi.String"}},
+		{"go-cobra-args", "SCRIPTHOLD_REAL_GO_COBRA", "go", []want{
+			{"cobra", SymbolKindPackage, 15}, {"cobra.PositionalArgs", SymbolKindType, 22},
+			{"cobra.legacyArgs", SymbolKindFunction, 28}, {"cobra.NoArgs", SymbolKindFunction, 42},
+			{"cobra.OnlyValidArgs", SymbolKindFunction, 51}, {"cobra.MatchAll", SymbolKindFunction, 127},
+			{"cobra.ExactValidArgs", SymbolKindFunction, 142},
+		}, []string{"cobra.Ghost", "cobra.CommandPath", "cobra.fmt.Errorf", "cobra.ValidArgs"}},
+		{"go-bubbletea-commands", "SCRIPTHOLD_REAL_GO_BUBBLETEA", "go", []want{
+			{"tea", SymbolKindPackage, 1}, {"tea.Batch", SymbolKindFunction, 15},
+			{"tea.BatchMsg", SymbolKindType, 21}, {"tea.Sequence", SymbolKindFunction, 25},
+			{"tea.compactCmds", SymbolKindFunction, 36}, {"tea.Every", SymbolKindFunction, 102},
+			{"tea.Tick", SymbolKindFunction, 154}, {"tea.RequestWindowSize", SymbolKindFunction, 173},
+		}, []string{"tea.Ghost", "tea.time.Now", "tea.TickMsg", "tea.T"}},
+		{"python-fastapi-response-models", "SCRIPTHOLD_REAL_PY_FASTAPI", "python", []want{
+			{"Item", SymbolKindClass, 6}, {"Message", SymbolKindClass, 11},
+			{"read_item", SymbolKindFunction, 18},
+		}, []string{"JSONResponse", "FastAPI", "BaseModel", "Ghost"}},
+		{"python-flask-auth", "SCRIPTHOLD_REAL_PY_FLASK", "python", []want{
+			{"login_required", SymbolKindFunction, 19},
+			{"login_required.wrapped_view", SymbolKindFunction, 22},
+			{"load_logged_in_user", SymbolKindFunction, 32},
+			{"register", SymbolKindFunction, 46}, {"login", SymbolKindFunction, 84},
+			{"logout", SymbolKindFunction, 112},
+		}, []string{"url_for", "generate_password_hash", "get_db", "Ghost"}},
+		{"python-httpx-auth", "SCRIPTHOLD_REAL_PY_HTTPX", "python", []want{
+			{"Auth", SymbolKindClass, 22}, {"Auth.auth_flow", SymbolKindMethod, 38},
+			{"Auth.sync_auth_flow", SymbolKindMethod, 62}, {"Auth.async_auth_flow", SymbolKindMethod, 87},
+			{"FunctionAuth", SymbolKindClass, 113}, {"BasicAuth", SymbolKindClass, 126},
+			{"NetRCAuth", SymbolKindClass, 145}, {"DigestAuth", SymbolKindClass, 175},
+			{"DigestAuth._parse_challenge", SymbolKindMethod, 224},
+		}, []string{"typing", "ProtocolError", "Auth.Ghost", "DigestAuth.Ghost"}},
+		{"csharp-mediatr-pinghandler", "SCRIPTHOLD_REAL_CS_MEDIATR", "csharp", []want{
+			{"MediatR.Examples", SymbolKindNamespace, 4},
+			{"MediatR.Examples.PingHandler", SymbolKindClass, 8},
+			{"MediatR.Examples.PingHandler.Handle", SymbolKindMethod, 17},
+		}, []string{"MediatR.Examples.IRequestHandler", "MediatR.Examples.PingHandler.WriteLineAsync", "MediatR.Examples.Ghost"}},
+		{"csharp-polly-retry", "SCRIPTHOLD_REAL_CS_POLLY", "csharp", []want{
+			{"Polly.Benchmarks", SymbolKindNamespace, 1},
+			{"Polly.Benchmarks.Retry", SymbolKindClass, 3},
+			{"Polly.Benchmarks.Retry.Retry_Synchronous_Succeeds", SymbolKindMethod, 9},
+			{"Polly.Benchmarks.Retry.Retry_Asynchronous_Succeeds", SymbolKindMethod, 13},
+			{"Polly.Benchmarks.Retry.Retry_Synchronous_Throws_Then_Succeeds", SymbolKindMethod, 33},
+		}, []string{"Polly.Benchmarks.Workloads.Action", "Polly.Benchmarks.Retry.Ghost", "Polly.Benchmarks.Policy"}},
+		{"csharp-dapper-belgrade-benchmark", "SCRIPTHOLD_REAL_CS_DAPPER", "csharp", []want{
+			{"Dapper.Tests.Performance", SymbolKindNamespace, 7},
+			{"Dapper.Tests.Performance.BelgradeBenchmarks", SymbolKindClass, 9},
+			{"Dapper.Tests.Performance.BelgradeBenchmarks.Setup", SymbolKindMethod, 14},
+			{"Dapper.Tests.Performance.BelgradeBenchmarks.FirstOrDefault", SymbolKindMethod, 21},
+		}, []string{"Dapper.Tests.Performance.QueryMapper", "Dapper.Tests.Performance.BelgradeBenchmarks.Step", "Dapper.Tests.Performance.Ghost"}},
+		{"go-fsnotify-shared", "SCRIPTHOLD_REAL_GO_FSNOTIFY", "go", []want{
+			{"fsnotify", SymbolKindPackage, 1}, {"fsnotify.shared", SymbolKindStruct, 5},
+			{"fsnotify.newShared", SymbolKindFunction, 12}, {"fsnotify.shared.sendEvent", SymbolKindMethod, 21},
+			{"fsnotify.shared.sendError", SymbolKindMethod, 34},
+			{"fsnotify.shared.isClosed", SymbolKindMethod, 46}, {"fsnotify.shared.close", SymbolKindMethod, 56},
+		}, []string{"fsnotify.Ghost", "fsnotify.sync.Mutex", "fsnotify.shared.Lock", "fsnotify.shared.Unlock"}},
+		{"go-validator-options", "SCRIPTHOLD_REAL_GO_VALIDATOR", "go", []want{
+			{"validator", SymbolKindPackage, 1}, {"validator.Option", SymbolKindType, 4},
+			{"validator.WithRequiredStructEnabled", SymbolKindFunction, 12},
+			{"validator.WithPrivateFieldValidation", SymbolKindFunction, 22},
+			{"validator.WithTagNameFuncBlankOmit", SymbolKindFunction, 36},
+		}, []string{"validator.Ghost", "validator.Validate", "validator.requiredStructEnabled"}},
+		{"python-attrs-filters", "SCRIPTHOLD_REAL_PY_ATTRS", "python", []want{
+			{"_split_what", SymbolKindFunction, 10},
+			{"include", SymbolKindFunction, 21}, {"include.include_", SymbolKindFunction, 38},
+			{"exclude", SymbolKindFunction, 48}, {"exclude.exclude_", SymbolKindFunction, 65},
+		}, []string{"frozenset", "Attribute", "include.Ghost", "exclude.Ghost"}},
+		{"python-click-colors", "SCRIPTHOLD_REAL_PY_CLICK", "python", []want{
+			{"cli", SymbolKindFunction, 24},
+		}, []string{"click", "all_colors", "click.echo", "Ghost"}},
+		{"csharp-newtonsoft-name-table", "SCRIPTHOLD_REAL_CS_NEWTONSOFT", "csharp", []want{
+			{"Newtonsoft.Json", SymbolKindNamespace, 29},
+			{"Newtonsoft.Json.DefaultJsonNameTable", SymbolKindClass, 34},
+			{"Newtonsoft.Json.DefaultJsonNameTable.Get", SymbolKindMethod, 63},
+			{"Newtonsoft.Json.DefaultJsonNameTable.Add", SymbolKindMethod, 107},
+			{"Newtonsoft.Json.DefaultJsonNameTable.AddEntry", SymbolKindMethod, 139},
+			{"Newtonsoft.Json.DefaultJsonNameTable.Grow", SymbolKindMethod, 151},
+			{"Newtonsoft.Json.DefaultJsonNameTable.Entry", SymbolKindClass, 194},
+		}, []string{"Newtonsoft.Json.DefaultJsonNameTable.Ghost", "Newtonsoft.Json.Environment.TickCount", "Newtonsoft.Json.Entry"}},
+		{"csharp-serilog-logger-extensions", "SCRIPTHOLD_REAL_CS_SERILOG", "csharp", []want{
+			{"Serilog", SymbolKindNamespace, 1}, {"Serilog.LoggerExtensions", SymbolKindClass, 6},
+			{"Serilog.LoggerExtensions.ForContext", SymbolKindMethod, 20},
+		}, []string{"Serilog.Guard.AgainstNull", "Serilog.LoggerExtensions.Ghost", "Serilog.LogEventLevel"}},
 		{"autohotkey-windowspy-v2", "SCRIPTHOLD_REAL_AHK_WINDOWSPY", "autohotkey", []want{
 			{"WinSpyGui", SymbolKindFunction, 16}, {"WinSpySize", SymbolKindFunction, 60},
 			{"WinSpyClose", SymbolKindFunction, 74}, {"Update", SymbolKindFunction, 78},
@@ -372,6 +459,27 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
 	}
+	// Decorators and attributes belong to the declaration, while the identifier
+	// itself starts on a later line; assert both coordinates independently.
+	decoratedNameLines := map[string]map[string]int{
+		"python-click-colors":            {"cli": 25},
+		"python-fastapi-response-models": {"read_item": 19},
+		"python-flask-auth": {
+			"login_required.wrapped_view": 23, "load_logged_in_user": 33,
+			"register": 47, "login": 85, "logout": 113,
+		},
+		"csharp-polly-retry": {
+			"Polly.Benchmarks.Retry":                                        4,
+			"Polly.Benchmarks.Retry.Retry_Synchronous_Succeeds":             10,
+			"Polly.Benchmarks.Retry.Retry_Asynchronous_Succeeds":            14,
+			"Polly.Benchmarks.Retry.Retry_Synchronous_Throws_Then_Succeeds": 34,
+		},
+		"csharp-dapper-belgrade-benchmark": {
+			"Dapper.Tests.Performance.BelgradeBenchmarks":                10,
+			"Dapper.Tests.Performance.BelgradeBenchmarks.Setup":          15,
+			"Dapper.Tests.Performance.BelgradeBenchmarks.FirstOrDefault": 22,
+		},
+	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -418,13 +526,18 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				matched := false
 				for _, symbol := range seen[expected.name] {
 					if symbol.Kind == expected.kind && symbol.DeclarationRange.Start.Line == expected.line {
+						if wantLine, ok := decoratedNameLines[tc.name][expected.name]; ok &&
+							symbol.NameRange.Start.Line != wantLine {
+							t.Errorf("name position for %q: got %d, want %d", expected.name,
+								symbol.NameRange.Start.Line, wantLine)
+						}
 						matched = true
 						break
 					}
 				}
 				if !matched {
-					t.Errorf("expected declaration %q kind=%q line=%d, found=%+v", expected.name, expected.kind,
-						expected.line, seen[expected.name])
+					t.Errorf("expected declaration %q kind=%q line=%d, found=%+v; names=%v", expected.name, expected.kind,
+						expected.line, seen[expected.name], sortedSymbolQualifiedNames(result.Analysis.Symbols))
 				}
 			}
 			for _, name := range tc.forbidden {
