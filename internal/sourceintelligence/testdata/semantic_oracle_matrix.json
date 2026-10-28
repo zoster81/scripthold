@@ -2281,6 +2281,40 @@
       "coverageComplete": true
     },
     {
+      "id": "kotlin-expect-constructor-typed-property",
+      "language": "kotlin",
+      "path": "ForwardingSource.kt",
+      "source": "package okio\nexpect abstract class ForwardingSource constructor(\n  delegate: Source,\n) : Source {\n  val delegate: Source\n  override fun read(sink: Buffer, byteCount: Long): Long\n}\n",
+      "present": [
+        {
+          "qualifiedName": "okio",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "okio.ForwardingSource",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "okio.ForwardingSource.delegate",
+          "kind": "property",
+          "line": 5
+        },
+        {
+          "qualifiedName": "okio.ForwardingSource.read",
+          "kind": "method",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "okio.ForwardingSource.Source",
+        "okio.ForwardingSource.Buffer",
+        "okio.ForwardingSource.Long"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "kotlin-string-fake",
       "language": "kotlin",
       "path": "Box.kt",

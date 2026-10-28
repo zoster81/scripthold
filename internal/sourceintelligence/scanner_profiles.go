@@ -215,7 +215,7 @@ func KotlinScannerProfile() ScannerProfile {
 	return ScannerProfile{
 		Name: "kotlin",
 		Keywords: []string{
-			"abstract", "actual", "annotation", "as", "class", "companion", "const", "constructor", "crossinline", "data", "delegate", "dynamic", "enum", "expect", "external", "final", "fun", "in", "infix", "inline", "inner", "interface", "internal", "lateinit", "noinline", "object", "open", "operator", "out", "override", "package", "private", "protected", "public", "reified", "sealed", "suspend", "tailrec", "typealias", "val", "var", "vararg", "where",
+			"abstract", "actual", "annotation", "as", "class", "companion", "const", "constructor", "crossinline", "data", "dynamic", "enum", "expect", "external", "final", "fun", "in", "infix", "inline", "inner", "interface", "internal", "lateinit", "noinline", "object", "open", "operator", "out", "override", "package", "private", "protected", "public", "reified", "sealed", "suspend", "tailrec", "typealias", "val", "var", "vararg", "where",
 		},
 		LineComments:  []string{"//"},
 		BlockComments: []BlockCommentRule{{Start: "/*", End: "*/", Nestable: true}},

@@ -376,6 +376,53 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"com.termux.terminal.ByteQueue.read", SymbolKindMethod, 20},
 			{"com.termux.terminal.ByteQueue.write", SymbolKindMethod, 59},
 		}, []string{"com.termux.terminal.ByteQueue.mBuffer.length", "com.termux.terminal.ByteQueue.oneRun", "com.termux.terminal.ByteQueue.Ghost"}},
+		{"kotlin-moshi-indexed-parameters", "SCRIPTHOLD_REAL_KT_MOSHI", "kotlin", []want{
+			{"com.squareup.moshi.kotlin.reflect", SymbolKindPackage, 1},
+			{"com.squareup.moshi.kotlin.reflect.IndexedParameterMap", SymbolKindClass, 4},
+			{"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.put", SymbolKindMethod, 9},
+			{"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.entries", SymbolKindProperty, 11},
+			{"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.containsKey", SymbolKindMethod, 19},
+			{"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.get", SymbolKindMethod, 21},
+		}, []string{"AbstractMutableMap", "SimpleEntry", "IndexedParameterMap.allPossibleEntries", "IndexedParameterMap.Ghost"}},
+		{"kotlin-timber-tree", "SCRIPTHOLD_REAL_KT_TIMBER", "kotlin", []want{
+			{"timber.log", SymbolKindPackage, 1},
+			{"timber.log.Timber", SymbolKindClass, 4},
+			{"timber.log.Timber.Tree", SymbolKindClass, 7},
+			{"timber.log.Timber.Tree.v", SymbolKindMethod, 10},
+			{"timber.log.Timber.Tree.d", SymbolKindMethod, 19},
+			{"timber.log.Timber.Tree.isLoggable", SymbolKindMethod, 73},
+		}, []string{"timber.log.Timber.Log", "timber.log.Timber.Throwable", "timber.log.Timber.Tree.Ghost"}},
+		{"kotlin-okio-forwarding-source", "SCRIPTHOLD_REAL_KT_OKIO", "kotlin", []want{
+			{"okio", SymbolKindPackage, 16},
+			{"okio.ForwardingSource", SymbolKindClass, 19},
+			{"okio.ForwardingSource.delegate", SymbolKindProperty, 24},
+			{"okio.ForwardingSource.timeout", SymbolKindMethod, 31},
+			{"okio.ForwardingSource.close", SymbolKindMethod, 34},
+			{"okio.ForwardingSource.toString", SymbolKindMethod, 36},
+		}, []string{"okio.IOException", "okio.ForwardingSource.Source", "okio.ForwardingSource.Thrown", "okio.ForwardingSource.Ghost"}},
+		{"kotlin-materialfiles-action-state", "SCRIPTHOLD_REAL_KT_MATERIALFILES", "kotlin", []want{
+			{"me.zhanghai.android.files.util", SymbolKindPackage, 6},
+			{"me.zhanghai.android.files.util.ActionState", SymbolKindClass, 8},
+			{"me.zhanghai.android.files.util.ActionState.Ready", SymbolKindClass, 9},
+			{"me.zhanghai.android.files.util.ActionState.Ready.equals", SymbolKindMethod, 10},
+			{"me.zhanghai.android.files.util.ActionState.Running", SymbolKindClass, 23},
+			{"me.zhanghai.android.files.util.ActionState.Success", SymbolKindClass, 25},
+		}, []string{"me.zhanghai.android.files.util.ActionState.javaClass", "me.zhanghai.android.files.util.ActionState.Ghost"}},
+		{"kotlin-gkd-load-status", "SCRIPTHOLD_REAL_KT_GKD", "kotlin", []want{
+			{"li.songe.gkd.util", SymbolKindPackage, 1},
+			{"li.songe.gkd.util.LoadStatus", SymbolKindClass, 3},
+			{"li.songe.gkd.util.LoadStatus.Loading", SymbolKindClass, 4},
+			{"li.songe.gkd.util.LoadStatus.Failure", SymbolKindClass, 5},
+			{"li.songe.gkd.util.LoadStatus.Success", SymbolKindClass, 6},
+		}, []string{"li.songe.gkd.util.Exception", "li.songe.gkd.util.LoadStatus.Ghost"}},
+		{"kotlin-seal-date-time", "SCRIPTHOLD_REAL_KT_SEAL", "kotlin", []want{
+			{"com.junkfood.seal.util", SymbolKindPackage, 1},
+			{"com.junkfood.seal.util.toLocalizedString", SymbolKindFunction, 14},
+		}, []string{"com.junkfood.seal.util.Locale", "com.junkfood.seal.util.DateFormat", "com.junkfood.seal.util.toLocalizedString.Build", "com.junkfood.seal.util.Ghost"}},
+		{"kotlin-nekobox-plugin-utils", "SCRIPTHOLD_REAL_KT_NEKOBOX", "kotlin", []want{
+			{"com.github.shadowsocks.plugin", SymbolKindPackage, 3},
+			{"com.github.shadowsocks.plugin.Empty", SymbolKindClass, 9},
+		}, []string{"com.github.shadowsocks.plugin.Parcelable", "com.github.shadowsocks.plugin.Parcelize", "com.github.shadowsocks.plugin.Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -861,6 +908,24 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"kotlin-moshi-indexed-parameters": {
+			"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.put":     "com.squareup.moshi.kotlin.reflect.IndexedParameterMap",
+			"com.squareup.moshi.kotlin.reflect.IndexedParameterMap.entries": "com.squareup.moshi.kotlin.reflect.IndexedParameterMap",
+		},
+		"kotlin-timber-tree": {
+			"timber.log.Timber.Tree":            "timber.log.Timber",
+			"timber.log.Timber.Tree.isLoggable": "timber.log.Timber.Tree",
+		},
+		"kotlin-okio-forwarding-source": {
+			"okio.ForwardingSource.delegate": "okio.ForwardingSource",
+			"okio.ForwardingSource.timeout":  "okio.ForwardingSource",
+		},
+		"kotlin-materialfiles-action-state": {
+			"me.zhanghai.android.files.util.ActionState.Ready": "me.zhanghai.android.files.util.ActionState",
+		},
+		"kotlin-gkd-load-status": {
+			"li.songe.gkd.util.LoadStatus.Loading": "li.songe.gkd.util.LoadStatus",
+		},
 		"java-eventbus-no-subscriber": {
 			"org.greenrobot.eventbus.NoSubscriberEvent.eventBus":          "org.greenrobot.eventbus.NoSubscriberEvent",
 			"org.greenrobot.eventbus.NoSubscriberEvent.NoSubscriberEvent": "org.greenrobot.eventbus.NoSubscriberEvent",
