@@ -293,6 +293,52 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"jinja-kubespray-containerd", "SCRIPTHOLD_REAL_JINJA_KUBESPRAY", "jinja", []want{}, []string{"containerd_version", "runtime", "key", "value", "containerd_storage_dir", "Ghost"}},
 		{"jinja-openstack-network", "SCRIPTHOLD_REAL_JINJA_OPENSTACK", "jinja", []want{}, []string{"bootstrap_host_scenarios_expanded", "bmaas_network", "bootstrap_host_internal_address", "Ghost"}},
 		{"jinja-ansible-haproxy", "SCRIPTHOLD_REAL_JINJA_ANSIBLE", "jinja", []want{}, []string{"host", "groups", "listenport", "daemonname", "Ghost"}},
+		{"typescript-zustand-shallow", "SCRIPTHOLD_REAL_TS_ZUSTAND", "typescript", []want{
+			{"shallow", SymbolKindFunction, 48},
+		}, []string{"Map", "Object.is", "isIterable.Map", "shallow.valueA", "shallow.valueB", "Ghost"}},
+		{"typescript-quill-selection", "SCRIPTHOLD_REAL_TS_QUILL", "typescript", []want{
+			{"NativeRange", SymbolKindAlias, 11},
+			{"NormalizedRange", SymbolKindInterface, 13},
+			{"Bounds", SymbolKindInterface, 22},
+			{"Bounds.bottom", SymbolKindProperty, 23},
+			{"Bounds.height", SymbolKindProperty, 24},
+			{"Bounds.width", SymbolKindProperty, 28},
+			{"Range", SymbolKindClass, 31},
+			{"Selection", SymbolKindClass, 38},
+		}, []string{"LeafBlot", "Scope", "Scroll", "Emitter", "Ghost"}},
+		{"typescript-ink-ansi-tokenizer", "SCRIPTHOLD_REAL_TS_INK", "typescript", []want{
+			{"ControlStringType", SymbolKindAlias, 11},
+			{"CsiToken", SymbolKindAlias, 13},
+			{"EscToken", SymbolKindAlias, 21},
+			{"AnsiToken", SymbolKindAlias, 53},
+		}, []string{"ControlStringType.osc", "CsiToken.type", "TextToken.readonly", "Ghost"}},
+		{"typescript-hexo-types", "SCRIPTHOLD_REAL_TS_HEXO", "typescript", []want{
+			{"NodeJSLikeCallback", SymbolKindAlias, 35},
+			{"RenderData", SymbolKindInterface, 37},
+			{"RenderData.engine", SymbolKindProperty, 38},
+			{"TagSchema", SymbolKindInterface, 50},
+			{"TagSchema.name", SymbolKindProperty, 53},
+			{"TagSchema.slug", SymbolKindProperty, 54},
+			{"DataSchema", SymbolKindInterface, 61},
+		}, []string{"moment", "Query", "default_config", "RenderData.moment", "Ghost"}},
+		{"typescript-openspec-id", "SCRIPTHOLD_REAL_TS_OPENSPEC", "typescript", []want{
+			{"KEBAB_ID_REGEX", SymbolKindConstant, 5},
+			{"isKebabId", SymbolKindFunction, 7},
+			{"KEBAB_ID_DESCRIPTION", SymbolKindConstant, 12},
+			{"KEBAB_ID_FIX", SymbolKindConstant, 16},
+			{"folderStyleNameProblem", SymbolKindFunction, 24},
+		}, []string{"value", "label", "RegExp", "String", "Ghost"}},
+		{"typescript-pretext-bidi", "SCRIPTHOLD_REAL_TS_PRETEXT", "typescript", []want{
+			{"classifyCodePoint", SymbolKindFunction, 13},
+			{"computeBidiLevels", SymbolKindFunction, 35},
+		}, []string{"lo", "hi", "codePoint", "GeneratedBidiType", "BidiType", "Ghost"}},
+		{"typescript-typechallenges-returntype", "SCRIPTHOLD_REAL_TS_TYPECHALLENGES", "typescript", []want{
+			{"MyReturnType", SymbolKindAlias, 1},
+		}, []string{"any", "T", "Ghost"}},
+		{"typescript-wechat-utils", "SCRIPTHOLD_REAL_TS_WECHAT", "typescript", []want{
+			{"cn", SymbolKindFunction, 4},
+			{"formatCount", SymbolKindFunction, 8},
+		}, []string{"clsx", "twMerge", "NumberFormat", "value", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -778,6 +824,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"typescript-quill-selection": {"Bounds.bottom": "Bounds", "Bounds.height": "Bounds", "Bounds.width": "Bounds"},
+		"typescript-hexo-types":      {"RenderData.engine": "RenderData", "TagSchema.name": "TagSchema", "TagSchema.slug": "TagSchema"},
 		"go-participle-api-interfaces": {
 			"participle.Capture.Capture": "participle.Capture",
 			"participle.Parseable.Parse": "participle.Parseable",
