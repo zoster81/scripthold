@@ -458,6 +458,13 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			continue
 		}
 		if inLet && (trimmed == "in" || strings.HasPrefix(trimmed, "in ")) {
+			// Only let bindings are indexed; attributes returned by the Nix
+			// expression must not silently count as completely navigable.
+			value := strings.TrimSpace(strings.TrimPrefix(trimmed, "in"))
+			if value == "" || strings.Contains(value, "{") {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-result-structure",
+					"Nix result structure is not indexed by the let-binding analyzer", line.start, line.end)
+			}
 			inLet = false
 			continue
 		}

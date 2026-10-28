@@ -2064,6 +2064,133 @@
         "nums.fake"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "swift-type-and-function-declarations",
+      "language": "swift",
+      "path": "Greeter.swift",
+      "source": "import Foundation\nstruct Greeter {\n  let prefix = \"hello\"\n  func greet(_ name: String) -> String {\n    return prefix + name\n  }\n}\nfunc top() {}\n// func Ghost() {}\nlet text = \"func Fake() {}\"\n",
+      "present": [
+        {
+          "qualifiedName": "Greeter",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Greeter.prefix",
+          "kind": "property",
+          "line": 3,
+          "parent": "Greeter"
+        },
+        {
+          "qualifiedName": "Greeter.greet",
+          "kind": "method",
+          "line": 4,
+          "parent": "Greeter"
+        },
+        {
+          "qualifiedName": "top",
+          "kind": "function",
+          "line": 8
+        },
+        {
+          "qualifiedName": "text",
+          "kind": "variable",
+          "line": 10
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Fake",
+        "Greeter.Fake",
+        "prefix"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "swift-protocol-members-and-conformance",
+      "language": "swift",
+      "path": "Pingable.swift",
+      "source": "protocol Pingable {\n  func ping()\n}\nclass Worker: Pingable {\n  func ping() {}\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Pingable",
+          "kind": "interface",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Pingable.ping",
+          "kind": "method",
+          "line": 2,
+          "parent": "Pingable"
+        },
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Worker.ping",
+          "kind": "method",
+          "line": 5,
+          "parent": "Worker"
+        }
+      ],
+      "forbidden": [
+        "ping",
+        "Worker.Pingable",
+        "Pingable.Worker"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "nix-simple-let-binding",
+      "language": "nix",
+      "path": "simple.nix",
+      "source": "let\n  version = 3;\n  enabled = true;\nin version\n",
+      "present": [
+        {
+          "qualifiedName": "version",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "enabled",
+          "kind": "variable",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "true",
+        "3",
+        "version.enabled"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "nix-attrset-output-honest-incomplete",
+      "language": "nix",
+      "path": "attributes.nix",
+      "source": "let\n  bool = true;\n  hint = \"value\";\nin {\n  child = bool;\n  nested.key = hint;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "bool",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hint",
+          "kind": "variable",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "hint.child",
+        "bool.nested",
+        "nested",
+        "child.hint"
+      ],
+      "coverageComplete": false
     }
   ]
 }

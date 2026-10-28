@@ -31,6 +31,7 @@ func TestProviderIdentityAndStructuralNavigation(t *testing.T) {
 		text     string
 		want     map[string]SymbolKind
 		deps     []string
+		partial  bool
 	}{
 		{
 			language: "sql", analyzer: SQLAnalyzer{},
@@ -55,8 +56,9 @@ func TestProviderIdentityAndStructuralNavigation(t *testing.T) {
 		},
 		{
 			language: "nix", analyzer: NixAnalyzer{},
-			text: "{ pkgs ? import <nixpkgs> {} }:\nlet\n  answer = 42;\n  package = pkgs.stdenv.mkDerivation { pname = \"demo\"; };\nin { inherit answer package; }\n",
-			want: map[string]SymbolKind{"answer": SymbolKindVariable, "package": SymbolKindVariable},
+			text:    "{ pkgs ? import <nixpkgs> {} }:\nlet\n  answer = 42;\n  package = pkgs.stdenv.mkDerivation { pname = \"demo\"; };\nin { inherit answer package; }\n",
+			want:    map[string]SymbolKind{"answer": SymbolKindVariable, "package": SymbolKindVariable},
+			partial: true,
 		},
 		{
 			language: "proto", analyzer: ProtoAnalyzer{},
@@ -150,8 +152,21 @@ func TestProviderIdentityAndStructuralNavigation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0 {
-				t.Fatalf("%s analysis unexpectedly partial: %+v", tc.language, result.Analysis)
+			if result.Analysis.CoverageComplete == tc.partial || result.Analysis.Truncated {
+				t.Fatalf("%s coverage incorrectly classified (want partial=%v): %+v", tc.language, tc.partial, result.Analysis)
+			}
+			if tc.partial {
+				found := false
+				for _, diagnostic := range result.Analysis.Diagnostics {
+					if diagnostic.Code == "nix-unmodeled-result-structure" {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("%s missing unsupported-structure diagnostic: %+v", tc.language, result.Analysis.Diagnostics)
+				}
+			} else if len(result.Analysis.Diagnostics) != 0 {
+				t.Fatalf("%s unexpected diagnostics: %+v", tc.language, result.Analysis.Diagnostics)
 			}
 			byName := symbolsByQualifiedName(result.Analysis.Symbols)
 			for qualified, kind := range tc.want {

@@ -14,12 +14,13 @@ func TestDataHardwareDocumentConformanceAcrossEncodingsAndDeterminism(t *testing
 		bom                             bool
 		analyzer                        SourceAnalyzer
 		want                            []string
+		partial                         bool
 	}{
 		{name: "sql-windows1252-crlf", extension: ".sql", encoding: "windows-1252", analyzer: SQLAnalyzer{}, text: "-- café\r\nCREATE TABLE users(id INTEGER);\r\n", want: []string{"users"}},
 		{name: "plsql-utf16le", extension: ".pkb", encoding: "utf-16le", bom: true, analyzer: PLSQLAnalyzer{}, text: "-- résumé\nCREATE OR REPLACE PACKAGE Demo AS\n  PROCEDURE Run;\nEND Demo;\n/\n", want: []string{"Demo", "Demo.Run"}},
 		{name: "graphql-utf16be", extension: ".graphql", encoding: "utf-16be", bom: true, analyzer: GraphQLAnalyzer{}, text: "# résumé\nschema { query: Query }\ntype Query { ping: String }\n", want: []string{"schema", "Query", "Query.ping"}},
 		{name: "terraform-utf32le", extension: ".tf", encoding: "utf-32le", bom: true, analyzer: TerraformAnalyzer{}, text: "# café\nterraform { required_version = \">= 1.6\" }\nresource \"demo_resource\" \"main\" {}\n", want: []string{"demo_resource.main"}},
-		{name: "nix-windows1252", extension: ".nix", encoding: "windows-1252", analyzer: NixAnalyzer{}, text: "# café\nlet\n  answer = 42;\nin { inherit answer; }\n", want: []string{"answer"}},
+		{name: "nix-windows1252", extension: ".nix", encoding: "windows-1252", analyzer: NixAnalyzer{}, text: "# café\nlet\n  answer = 42;\nin { inherit answer; }\n", want: []string{"answer"}, partial: true},
 		{name: "proto-utf16le", extension: ".proto", encoding: "utf-16le", bom: true, analyzer: ProtoAnalyzer{}, text: "// résumé\nsyntax = \"proto3\";\npackage demo;\nmessage Item { string id = 1; }\n", want: []string{"demo", "demo.Item", "demo.Item.id"}},
 		{name: "vhdl-windows1252-crlf", extension: ".vhd", encoding: "windows-1252", analyzer: VHDLAnalyzer{}, text: "-- café\r\nentity Counter is\r\nend Counter;\r\narchitecture rtl of Counter is\r\n  signal count : integer;\r\nbegin\r\nend rtl;\r\n", want: []string{"Counter", "Counter.rtl", "Counter.rtl.count"}},
 		{name: "verilog-utf16be", extension: ".v", encoding: "utf-16be", bom: true, analyzer: VerilogAnalyzer{}, text: "// résumé\nmodule counter;\n  wire ready;\nendmodule\n", want: []string{"counter", "counter.ready"}},
@@ -61,8 +62,19 @@ func TestDataHardwareDocumentConformanceAcrossEncodingsAndDeterminism(t *testing
 			if !reflect.DeepEqual(first, second) {
 				t.Fatalf("%s output is nondeterministic", tc.analyzer.Language())
 			}
-			if !first.Analysis.CoverageComplete || first.Analysis.Truncated {
-				t.Fatalf("%s conformance partial: %+v", tc.analyzer.Language(), first.Analysis)
+			if first.Analysis.CoverageComplete == tc.partial || first.Analysis.Truncated {
+				t.Fatalf("%s incorrect coverage (want partial=%v): %+v", tc.analyzer.Language(), tc.partial, first.Analysis)
+			}
+			if tc.partial {
+				found := false
+				for _, diagnostic := range first.Analysis.Diagnostics {
+					if diagnostic.Code == "nix-unmodeled-result-structure" {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("%s missing partial-coverage diagnostic: %+v", tc.analyzer.Language(), first.Analysis.Diagnostics)
+				}
 			}
 			names := sortedSymbolQualifiedNames(first.Analysis.Symbols)
 			for _, want := range tc.want {

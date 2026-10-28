@@ -176,6 +176,21 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"paths./sample/path.get.summary", SymbolKindKey, 14},
 			{"components.schemas.NullableField", SymbolKindKey, 26},
 		}, []string{"servers.url", "servers.description", "tags.name", "fake"}},
+		{"swift-kde-arguments", "SCRIPTHOLD_REAL_SWIFT_A", "swift", []want{
+			{"Options.maxArgumentNameLength", SymbolKindProperty, 35},
+			{"Options.addArguments", SymbolKindMethod, 45},
+			{"parseArguments", SymbolKindFunction, 58},
+			{"preprocessArguments", SymbolKindFunction, 98},
+			{"Foo", SymbolKindInterface, 689},
+			{"Foo.foo", SymbolKindMethod, 690},
+			{"FooImpl", SymbolKindClass, 695},
+		}, []string{"UnicodeScalarView", "FormatError", "FooImpl.foo", "popFirst"}},
+		{"swift-sample-even-odd", "SCRIPTHOLD_REAL_SWIFT_B", "swift", []want{
+			{"is_even", SymbolKindVariable, 13},
+		}, []string{"print", "Even", "Odd", "System.exit"}},
+		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
+			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
+		}, []string{"false", "Multi-line", "HOME", "builtins"}},
 	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
