@@ -3,6 +3,289 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "css-selectors-vs-properties-and-comments",
+      "language": "css",
+      "path": "styles.css",
+      "source": "/* .ghost { color: red; } */\n.sd-card-header {\n  font-size: 110%;\n}\nh1, .h1 {\n  color: #00353d;\n}\n",
+      "present": [
+        {
+          "qualifiedName": ".sd-card-header",
+          "kind": "selector",
+          "line": 2
+        },
+        {
+          "qualifiedName": "h1",
+          "kind": "selector",
+          "line": 5
+        },
+        {
+          "qualifiedName": ".h1",
+          "kind": "selector",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        ".ghost",
+        "font-size",
+        "color"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "assembly-labels-vs-comments-and-operations",
+      "language": "assembly",
+      "path": "module.asm",
+      "source": "; Phantom:\nstart:\n  mov eax, 1\nnext:\n  jmp start\n",
+      "present": [
+        {
+          "qualifiedName": "start",
+          "kind": "label",
+          "line": 2
+        },
+        {
+          "qualifiedName": "next",
+          "kind": "label",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "mov",
+        "jmp"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "openapi-schema-vs-comment-and-property",
+      "language": "openapi",
+      "path": "api.yaml",
+      "source": "openapi: 3.0.0\ncomponents:\n  schemas:\n    Widget:\n      type: object\n      properties:\n        name:\n          type: string\n# operationId: Ghost\npaths:\n  /widget:\n    get:\n      operationId: listWidgets\n",
+      "present": [
+        {
+          "qualifiedName": "Widget",
+          "kind": "type",
+          "line": 4
+        },
+        {
+          "qualifiedName": "listWidgets",
+          "kind": "operation",
+          "line": 13
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "name",
+        "properties"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ansible-indentless-task-sequence",
+      "language": "ansible-yaml",
+      "path": "indentless.yml",
+      "source": "- name: First\n  tasks:\n  - name: taskOne\n    debug:\n- name: Second\n  hosts: all\n",
+      "present": [
+        {
+          "qualifiedName": "First",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "First.taskOne",
+          "kind": "operation",
+          "line": 3,
+          "parent": "First"
+        },
+        {
+          "qualifiedName": "Second",
+          "kind": "section",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "taskOne",
+        "Second.taskOne",
+        "First.debug"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "scala-consecutive-package-clauses",
+      "language": "scala",
+      "path": "NestedMain.scala",
+      "source": "package dotty.tools\npackage dotc\n// object Phantom extends Driver\nobject Main extends Driver\n",
+      "present": [
+        {
+          "qualifiedName": "dotty.tools.dotc.Main",
+          "kind": "module",
+          "line": 4,
+          "parent": "dotty.tools.dotc"
+        }
+      ],
+      "forbidden": [
+        "dotc.Main",
+        "dotty.tools.Phantom",
+        "dotty.tools.dotc.Driver"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "terraform-resource-vs-reference",
+      "language": "terraform",
+      "path": "resources.tf",
+      "source": "# resource \"ghost\" \"never\" {}\nresource \"test_instance\" \"foo\" {\n  ami = \"bar\"\n}\n",
+      "present": [
+        {
+          "qualifiedName": "test_instance.foo",
+          "kind": "resource",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost.never",
+        "bar"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "xaml-class-and-named-element",
+      "language": "xaml",
+      "path": "window.xaml",
+      "source": "<!-- <Window x:Class=\"Ghost.View\" /> -->\n<Window x:Class=\"Demo.View\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">\n  <Grid x:Name=\"Primary\" />\n</Window>\n",
+      "present": [
+        {
+          "qualifiedName": "Demo.View",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Demo.View.Primary",
+          "kind": "field",
+          "line": 3,
+          "parent": "Demo.View"
+        }
+      ],
+      "forbidden": [
+        "Ghost.View",
+        "Demo.View.xmlns"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ansible-play-task-vs-module",
+      "language": "ansible-yaml",
+      "path": "ping.yml",
+      "source": "# - name: Ghost\n- name: Ping\n  hosts: all\n  tasks:\n    - name: ping\n      win_ping:\n",
+      "present": [
+        {
+          "qualifiedName": "Ping",
+          "kind": "section",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Ping.ping",
+          "kind": "operation",
+          "line": 5,
+          "parent": "Ping"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Ping.win_ping"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "verilog-module-signal-vs-expression",
+      "language": "verilog",
+      "path": "logic.v",
+      "source": "// module ghost(); endmodule\nmodule aes_key_expand_128(clk);\n  input clk;\n  wire signal_a;\n  assign signal_a = clk;\nendmodule\n",
+      "present": [
+        {
+          "qualifiedName": "aes_key_expand_128",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "aes_key_expand_128.signal_a",
+          "kind": "signal",
+          "line": 4,
+          "parent": "aes_key_expand_128"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "aes_key_expand_128.assign"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "scala-object-vs-comment-and-base",
+      "language": "scala",
+      "path": "Main.scala",
+      "source": "package demo\n// object Ghost extends Driver\nobject Main extends Driver\n",
+      "present": [
+        {
+          "qualifiedName": "demo.Main",
+          "kind": "module",
+          "line": 3,
+          "parent": "demo"
+        }
+      ],
+      "forbidden": [
+        "demo.Ghost",
+        "demo.Driver"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "elixir-module-docstring-vs-function",
+      "language": "elixir",
+      "path": "atom.ex",
+      "source": "# defmodule Phantom do end\ndefmodule Atom do\n  @doc \"def ghost(arg), do: arg\"\n  def to_string(atom), do: :erlang.atom_to_binary(atom)\nend\n",
+      "present": [
+        {
+          "qualifiedName": "Atom",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Atom.to_string",
+          "kind": "function",
+          "line": 4,
+          "parent": "Atom"
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Atom.ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "svelte-script-vs-template-expression",
+      "language": "svelte",
+      "path": "main.svelte",
+      "source": "<script>\n  export function updateFoo(value) {\n    foo = value;\n  }\n  export let foo;\n</script>\n<p>{foo}</p>\n",
+      "present": [
+        {
+          "qualifiedName": "updateFoo",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "foo",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "value",
+        "p"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "cpp-using-directive",
       "language": "cpp",
       "path": "namespaces.cpp",

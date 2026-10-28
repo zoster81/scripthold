@@ -894,6 +894,7 @@ func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	lines := sourceTextLines(document.Text)
 	inSchemas := false
 	schemasIndent := -1
+	schemaEntryIndent := -1
 	for _, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -904,12 +905,20 @@ func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		}
 		if trimmed == "schemas:" {
 			inSchemas, schemasIndent = true, line.indent
+			schemaEntryIndent = -1
 			continue
 		}
 		if inSchemas && line.indent <= schemasIndent {
 			inSchemas = false
+			schemaEntryIndent = -1
 		}
 		if inSchemas && line.indent > schemasIndent && strings.HasSuffix(trimmed, ":") && !strings.Contains(strings.TrimSuffix(trimmed, ":"), " ") {
+			if schemaEntryIndent < 0 {
+				schemaEntryIndent = line.indent
+			}
+			if line.indent != schemaEntryIndent {
+				continue
+			}
 			name := strings.TrimSuffix(trimmed, ":")
 			trimStart := line.start + strings.Index(line.text, trimmed)
 			addDocumentDataHardwareSymbol(builder, SymbolKindType, "schema", name, nil, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart, End: trimStart + len(name)})
@@ -952,7 +961,7 @@ func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument
 		}
 		trimStart := line.start + strings.Index(line.text, trimmed)
 		nameOffset := strings.Index(trimmed, name)
-		if play == nil || tasksIndent < 0 || line.indent <= tasksIndent {
+		if play == nil || tasksIndent < 0 || line.indent < tasksIndent {
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindSection, "play", name, nil, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
 			if ok {
 				play = &symbol

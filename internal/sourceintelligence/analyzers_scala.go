@@ -89,6 +89,7 @@ type scalaParser struct {
 	braceCloses              map[int]Token
 	interpolationExpressions []OffsetRange
 	packageRoot              *SymbolParent
+	packageChain             bool
 	dependencies             []StructuralDependency
 	relations                []StructuralRelation
 	stopped                  bool
@@ -113,6 +114,7 @@ func (parser *scalaParser) parseRange(start, end int, parent *SymbolParent, pare
 			index++
 			continue
 		}
+		parser.packageChain = false
 		if scalaTokenEqual(line.Tokens[0], "import") || scalaTokenEqual(line.Tokens[0], "export") {
 			parser.parseImport(line)
 			index++
@@ -162,6 +164,8 @@ func (parser *scalaParser) parseRange(start, end int, parent *SymbolParent, pare
 }
 
 func (parser *scalaParser) parsePackage(line LogicalLine) {
+	chained := parser.packageChain
+	parser.packageChain = false
 	if len(line.Tokens) < 2 {
 		return
 	}
@@ -175,8 +179,14 @@ func (parser *scalaParser) parsePackage(line LogicalLine) {
 	}
 	nameStart := line.Tokens[1].StartOffset
 	nameEnd := line.Tokens[end-1].EndOffset
+	qualifiedName := name
+	var packageParent *SymbolParent
+	if chained && parser.packageRoot != nil {
+		packageParent = parser.packageRoot
+		qualifiedName = packageParent.QualifiedName + "." + name
+	}
 	symbol, err := parser.builder.Add(SymbolSpec{
-		Kind: SymbolKindPackage, NativeKind: "package", Name: name, QualifiedName: name,
+		Kind: SymbolKindPackage, NativeKind: "package", Name: name, QualifiedName: qualifiedName, Parent: packageParent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
 		NameRange:   OffsetRange{Start: nameStart, End: nameEnd}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
 		Evidence: SymbolEvidenceStructural,
@@ -190,6 +200,13 @@ func (parser *scalaParser) parsePackage(line LogicalLine) {
 		return
 	}
 	parser.packageRoot = &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+	parser.packageChain = true
+	for _, token := range line.Tokens {
+		if token.Text == "{" {
+			parser.packageChain = false
+			break
+		}
+	}
 }
 
 func (parser *scalaParser) parseImport(line LogicalLine) {

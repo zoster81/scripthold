@@ -20,6 +20,42 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		present             []want
 		forbidden           []string
 	}{
+		{"css-sphinx-design-overrides", "SCRIPTHOLD_REAL_CSS_A", "css", []want{
+			{".sd-card-header", SymbolKindSelector, 2},
+		}, []string{"font-size", "Audiowide"}},
+		{"css-esp-ebus-common", "SCRIPTHOLD_REAL_CSS_B", "css", []want{
+			{"body.centered", SymbolKindSelector, 20}, {".container", SymbolKindSelector, 24},
+			{".row", SymbolKindSelector, 28},
+		}, []string{"font-family", "padding", "#fafbfc"}},
+		{"terraform-core-check", "SCRIPTHOLD_REAL_TERRAFORM_A", "terraform", []want{
+			{"test_instance.foo", SymbolKindResource, 1}, {"check.test_instance_exists", SymbolKindSection, 5},
+		}, []string{"bar", "check.test_instance_exists.foo"}},
+		{"terraform-aws-vpc", "SCRIPTHOLD_REAL_TERRAFORM_B", "terraform", []want{
+			{"terraform", SymbolKindSection, 1}, {"terraform.required_providers", SymbolKindSection, 4},
+			{"terraform.provider_meta.aws", SymbolKindSection, 11},
+		}, []string{"hashicorp/aws", "terraform.source"}},
+		{"xaml-abp-app", "SCRIPTHOLD_REAL_XAML_A", "xaml", []want{
+			{"MyCompanyName.MyProjectName.App", SymbolKindClass, 5},
+		}, []string{"MyCompanyName.MyProjectName.App.Resources", "Resources/Styles/Colors.xaml"}},
+		{"xaml-desktop-toasts", "SCRIPTHOLD_REAL_XAML_B", "xaml", []want{
+			{"DesktopToastsSample.App", SymbolKindClass, 1},
+		}, []string{"DesktopToastsSample.MainWindow", "StartupUri"}},
+		{"ansible-windows-ping", "SCRIPTHOLD_REAL_ANSIBLE_A", "ansible-yaml", []want{
+			{"Ping", SymbolKindSection, 3}, {"Ping.ping", SymbolKindOperation, 7},
+		}, []string{"Ping.win_ping", "all"}},
+		{"svelte-custom-method", "SCRIPTHOLD_REAL_SVELTE_A", "svelte", []want{
+			{"updateFoo", SymbolKindFunction, 4}, {"foo", SymbolKindVariable, 8},
+		}, []string{"value", "custom-element"}},
+		{"scala3-compiler-main", "SCRIPTHOLD_REAL_SCALA_A", "scala", []want{
+			{"dotty.tools.dotc.Main", SymbolKindModule, 5},
+		}, []string{"dotty.tools.dotc.Driver", "dotty.tools.dotc.class"}},
+		{"verilog-yosys-key-expansion", "SCRIPTHOLD_REAL_VERILOG_A", "verilog", []want{
+			{"aes_key_expand_128", SymbolKindModule, 4}, {"aes_key_expand_128.w", SymbolKindSignal, 9},
+		}, []string{"aes_key_expand_128.assign", "aes_key_expand_128.kld_ref"}},
+		{"elixir-atom-standard-library", "SCRIPTHOLD_REAL_ELIXIR_A", "elixir", []want{
+			{"Atom", SymbolKindModule, 5}, {"Atom.to_string", SymbolKindFunction, 62},
+			{"Atom.to_charlist", SymbolKindFunction, 78}, {"Atom.to_char_list", SymbolKindFunction, 85},
+		}, []string{"Atom.apple", "Atom.ghost"}},
 		{"graphql-gqlgen", "SCRIPTHOLD_REAL_GRAPHQL_A", "graphql", []want{
 			{"Role", SymbolKindEnum, 8}, {"MyQuery", SymbolKindType, 18}, {"MyQuery.todo", SymbolKindField, 19},
 		}, []string{"forceResolver"}},
