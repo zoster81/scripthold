@@ -656,6 +656,33 @@
       "coverageComplete": true
     },
     {
+      "id": "classic-basic-distinct-type-suffixes",
+      "language": "classic-basic",
+      "path": "types.bas",
+      "source": "10 DIM S, S$(4), COUNT%, R!\n20 REM DIM Ghost$\n",
+      "present": [
+        {"qualifiedName": "S", "kind": "variable", "line": 1},
+        {"qualifiedName": "S$", "kind": "variable", "line": 1},
+        {"qualifiedName": "COUNT%", "kind": "variable", "line": 1},
+        {"qualifiedName": "R!", "kind": "variable", "line": 1}
+      ],
+      "forbidden": ["Ghost$", "COUNT", "R"],
+      "coverageComplete": true
+    },
+    {
+      "id": "qbasic-distinct-type-suffixes",
+      "language": "qbasic",
+      "path": "types.bas",
+      "source": "DIM Alias$\nDIM Alias\nDIM Amount%\nREM DIM Ghost$\n",
+      "present": [
+        {"qualifiedName": "Alias$", "kind": "variable", "line": 1},
+        {"qualifiedName": "Alias", "kind": "variable", "line": 2},
+        {"qualifiedName": "Amount%", "kind": "variable", "line": 3}
+      ],
+      "forbidden": ["Ghost$", "Amount", "Alias%"],
+      "coverageComplete": true
+    },
+    {
       "id": "classic-basic-numbered-subroutine",
       "language": "classic-basic",
       "path": "driver.bas",

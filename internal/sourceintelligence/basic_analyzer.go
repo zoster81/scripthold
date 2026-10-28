@@ -697,7 +697,11 @@ func (p *basicParser) addNamed(line basicLine, index int, kind SymbolKind, nativ
 	if tok.Kind != TokenIdentifier && tok.Kind != TokenKeyword {
 		return
 	}
-	name := normalizeBasicName(tok.Text, p.policy)
+	name := tok.Text
+	// Variable type suffixes distinguish BASIC identifiers; callable suffixes keep legacy normalization.
+	if kind != SymbolKindVariable && kind != SymbolKindField && kind != SymbolKindConstant {
+		name = normalizeBasicName(tok.Text, p.policy)
+	}
 	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
 }
 func (p *basicParser) addTypeField(line basicLine, parent *SymbolParent) bool {
@@ -741,10 +745,11 @@ func (p *basicParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 
 func normalizeBasicName(value string, policy basicDialectPolicy) string {
 	if policy.lineNumbers {
-		value = strings.TrimRight(value, "$%&!#")
+		return strings.TrimRight(value, "$%&!#")
 	}
 	return value
 }
+
 func basicStringValue(value string) string {
 	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
 		return strings.ReplaceAll(value[1:len(value)-1], "\"\"", "\"")

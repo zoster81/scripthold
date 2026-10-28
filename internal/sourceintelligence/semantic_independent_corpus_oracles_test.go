@@ -671,6 +671,29 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"resetVariables", SymbolKindFunction, 13},
 			{"Read_Sensors", SymbolKindFunction, 19},
 		}, []string{"ads.setGain", "secondsElapsed", "ADC_BitReso", "Ghost"}},
+		{"classic-basic-bluebat-ascii", "SCRIPTHOLD_REAL_CB_BLUEBAT", "classic-basic", []want{
+			{"A", SymbolKindVariable, 5},
+		}, []string{"CBASE", "ACODE", "GOSUB", "Ghost"}},
+		{"classic-basic-dualbrain-lanturn", "SCRIPTHOLD_REAL_CB_DUALBRAIN", "classic-basic", []want{
+			{"FNSS4", SymbolKindFunction, 5},
+			{"FNCOLLIDE", SymbolKindFunction, 6},
+			{"WX", SymbolKindVariable, 7},
+			{"BX", SymbolKindVariable, 8},
+		}, []string{"KEY", "FN", "GOSUB", "Ghost"}},
+		{"classic-basic-gwbasic-3d", "SCRIPTHOLD_REAL_CB_GWBASIC3D", "classic-basic", []want{
+			{"M", SymbolKindVariable, 8},
+			{"P", SymbolKindVariable, 9},
+			{"H", SymbolKindVariable, 10},
+		}, []string{"ACTIVE", "POINTS", "GOSUB", "Ghost"}},
+		{"classic-basic-jasbales-bmi", "SCRIPTHOLD_REAL_CB_JASBALES", "classic-basic", []want{},
+			[]string{"weight", "weightKg", "heightMeters", "bmi", "Ghost"}},
+		{"classic-basic-jumpup-game", "SCRIPTHOLD_REAL_CB_JUMPUP", "classic-basic", []want{},
+			[]string{"NAM$", "LEVEL", "T", "Ghost"}},
+		{"classic-basic-menu", "SCRIPTHOLD_REAL_CB_MENU", "classic-basic", []want{
+			{"S$", SymbolKindVariable, 2},
+		}, []string{"C1", "X1", "Y1", "Ghost"}},
+		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
+			[]string{"A", "C", "F", "Ghost"}},
 		{"luau-dekkonot-sha512", "SCRIPTHOLD_REAL_LUAU_DEKKONOT", "luau", []want{
 			{"lil_sig0", SymbolKindFunction, 51},
 			{"lil_sig1", SymbolKindFunction, 73},
@@ -1336,7 +1359,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-") || strings.HasPrefix(tc.name, "twig-") || strings.HasPrefix(tc.name, "ejs-") ||
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
-					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave") &&
+					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
+					strings.HasPrefix(tc.name, "classic-basic-")) &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
