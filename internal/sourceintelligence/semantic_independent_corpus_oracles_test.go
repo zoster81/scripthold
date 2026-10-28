@@ -615,6 +615,26 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"signal_async_wait", SymbolKindFunction, 39},
 			{"main", SymbolKindFunction, 64},
 		}, []string{"Service", "sig.async_wait", "config_file", "po", "Ghost"}},
+		{"jsp-ecommerce-admin-home", "SCRIPTHOLD_REAL_JSP_ECOMMERCE", "jsp", []want{
+			{"navbarSupportedContent", SymbolKindEntity, 33},
+		}, []string{"navbar-toggler", "bg-dark", "Home Page", "Ghost"}},
+		{"jsp-final-user-form", "SCRIPTHOLD_REAL_JSP_FINAL", "jsp", []want{}, []string{"user", "request.getContextPath", "User Management Application", "Ghost"}},
+		{"jsp-in28minutes-add-todo", "SCRIPTHOLD_REAL_JSP_IN28", "jsp", []want{}, []string{"todo", "category", "add", "header.jspf", "Ghost"}},
+		{"jsp-javaee7-builtins", "SCRIPTHOLD_REAL_JSP_JAVAEE", "jsp", []want{}, []string{"pageContext", "TestServlet", "Greeting Service", "Ghost"}},
+		{"jsp-servlet-book", "SCRIPTHOLD_REAL_JSP_SERVLET", "jsp", []want{
+			{"book", SymbolKindEntity, 9},
+		}, []string{"com.demo.Book", "bookForm", "java.sql", "Ghost"}},
+		{"razor-abp-multitenancy", "SCRIPTHOLD_REAL_RAZOR_ABP", "razor", []want{
+			{"Model", SymbolKindProperty, 16},
+		}, []string{"AbpCompilationRazorPageBase", "Response.StatusCode", "CultureInfo.CurrentCulture.Name", "Ghost"}},
+		{"razor-eshop-basket", "SCRIPTHOLD_REAL_RAZOR_ESHOP", "razor", []want{}, []string{"BasketComponentViewModel", "ItemsCount", "ViewData", "Ghost"}},
+		{"razor-nopcommerce-config", "SCRIPTHOLD_REAL_RAZOR_NOP", "razor", []want{}, []string{"savecustomerrolesrequirement@(Model.RequirementId)", "pnl-save-requirement-result@(Model.RequirementId)", "Html.IdFor", "Ghost"}},
+		{"razor-orchardcore-dashboard", "SCRIPTHOLD_REAL_RAZOR_ORCHARD", "razor", []want{}, []string{"DisplayAsync", "AdminDashboardContent", "Welcome to Orchard Core", "Ghost"}},
+		{"razor-umbraco-login", "SCRIPTHOLD_REAL_RAZOR_UMBRACO", "razor", []want{
+			{"login-error", SymbolKindEntity, 128},
+			{"username", SymbolKindEntity, 137},
+			{"password", SymbolKindEntity, 144},
+		}, []string{"Url.Action", "login-container", "externalProviders.Count", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -1253,7 +1273,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			// Declaration-free templates and API callback-only examples must not
 			// turn expressions or schema property names into symbol definitions.
 			if len(tc.present) == 0 &&
-				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-") || strings.HasPrefix(tc.name, "twig-") || strings.HasPrefix(tc.name, "ejs-") || tc.name == "openapi-oai-callback-example") &&
+				(strings.HasPrefix(tc.name, "blazor-") || strings.HasPrefix(tc.name, "jinja-") || strings.HasPrefix(tc.name, "twig-") || strings.HasPrefix(tc.name, "ejs-") ||
+					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
+					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" || tc.name == "openapi-oai-callback-example") &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
