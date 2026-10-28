@@ -90,8 +90,9 @@ func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, option
 }
 
 var (
-	scssVariable = regexp.MustCompile(`(?m)^[ \t]*\$([A-Za-z_-][A-Za-z0-9_-]*)[ \t]*:`)
-	lessVariable = regexp.MustCompile(`(?m)^[ \t]*@([A-Za-z_-][A-Za-z0-9_-]*)[ \t]*:`)
+	scssVariable        = regexp.MustCompile(`(?m)^[ \t]*\$([A-Za-z_-][A-Za-z0-9_-]*)[ \t]*:`)
+	scssModuleDirective = regexp.MustCompile(`(?m)^[ \t]*@(?:use|forward)\b`)
+	lessVariable        = regexp.MustCompile(`(?m)^[ \t]*@([A-Za-z_-][A-Za-z0-9_-]*)[ \t]*:`)
 )
 
 func (CSSAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -114,8 +115,10 @@ func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options A
 		lineCommentMarkers = []string{"//"}
 	}
 	structural := maskSourceComments(document.Text, lineCommentMarkers, "/*", "*/")
+	selectorSource := maskSourceStrings(structural, true, true, false)
 	if scss {
-		for _, match := range scssVariable.FindAllStringSubmatchIndex(structural, -1) {
+		variableSource := maskSCSSModuleDirectives(structural, selectorSource, builder)
+		for _, match := range scssVariable.FindAllStringSubmatchIndex(variableSource, -1) {
 			name := document.Text[match[2]:match[3]]
 			addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "variable", name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
 		}
@@ -126,9 +129,32 @@ func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options A
 			addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "variable", name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
 		}
 	}
-	selectorSource := maskSourceStrings(structural, true, true, false)
 	cssSelectors(ctx, builder, document, selectorSource)
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+// maskSCSSModuleDirectives excludes module configuration arguments from
+// variable declarations. Scanning string-masked text avoids treating quoted
+// semicolons as directive terminators; line endings and offsets stay intact.
+func maskSCSSModuleDirectives(structural, stringMasked string, builder *SymbolBuilder) string {
+	var masked []byte
+	for _, match := range scssModuleDirective.FindAllStringIndex(stringMasked, -1) {
+		if masked == nil {
+			masked = []byte(structural)
+		}
+		end := len(stringMasked)
+		if terminator := strings.IndexByte(stringMasked[match[1]:], ';'); terminator >= 0 {
+			end = match[1] + terminator + 1
+		} else {
+			// A truncated module directive cannot prove all later declarations.
+			builder.MarkIncomplete()
+		}
+		maskByteRangePreservingLines(masked, match[0], end)
+	}
+	if masked == nil {
+		return structural
+	}
+	return string(masked)
 }
 
 func cssSelectors(ctx context.Context, builder *SymbolBuilder, document *SourceDocument, source string) {

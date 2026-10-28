@@ -2428,6 +2428,36 @@
       "coverageComplete": true
     },
     {
+      "id": "scss-use-with-configuration-not-variable-declarations",
+      "language": "scss",
+      "path": "theme.scss",
+      "source": "$highlight: #123456;\n@use \"theme;file\" with (\n  $base-color: #245278,\n  $highlight: $highlight,\n  $map: (nested: (key: \"semi;colon\")),\n  $end: red\n);\n@forward \"shared\" with (\n  $theme: #444\n);\n.card {\n  $local: green;\n  color: $highlight;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "highlight",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "local",
+          "kind": "variable",
+          "line": 12
+        },
+        {
+          "qualifiedName": ".card",
+          "kind": "selector",
+          "line": 11
+        }
+      ],
+      "forbidden": [
+        "base-color",
+        "map",
+        "end",
+        "theme"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "scss-comment-ghost",
       "language": "scss",
       "path": "variables.scss",

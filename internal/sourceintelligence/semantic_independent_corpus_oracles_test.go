@@ -423,6 +423,33 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"com.github.shadowsocks.plugin", SymbolKindPackage, 3},
 			{"com.github.shadowsocks.plugin.Empty", SymbolKindClass, 9},
 		}, []string{"com.github.shadowsocks.plugin.Parcelable", "com.github.shadowsocks.plugin.Parcelize", "com.github.shadowsocks.plugin.Ghost"}},
+		{"scss-dart-docs-style", "SCRIPTHOLD_REAL_SCSS_DART", "scss", []want{
+			{"monospace", SymbolKindVariable, 23},
+			{"base-font-size", SymbolKindVariable, 41},
+			{"header-font-size", SymbolKindVariable, 47},
+			{"a", SymbolKindSelector, 25},
+			{"a:visited", SymbolKindSelector, 31},
+			{"div.highlight", SymbolKindSelector, 49},
+		}, []string{"font-family", "font-weight", "@font-face", "header-font-size * 2", "Ghost"}},
+		{"scss-hasura-beta-tag", "SCRIPTHOLD_REAL_SCSS_HASURA", "scss", []want{
+			{".beta-tag", SymbolKindSelector, 1},
+		}, []string{"font-size", "background-color", "--ifm-color-gray-600", "var", "Ghost"}},
+		{"scss-joomla-layout", "SCRIPTHOLD_REAL_SCSS_JOOMLA", "scss", []want{
+			{".media-container", SymbolKindSelector, 2},
+			{".media-col-main-panel", SymbolKindSelector, 16},
+			{".media-col-side-panel", SymbolKindSelector, 21},
+			{".media-main", SymbolKindSelector, 41},
+			{".media-sidebar", SymbolKindSelector, 47},
+		}, []string{"container-bg", "col-box-shadow", "col-gutter-width", "flex-wrap", "Ghost"}},
+		{"scss-ocaml-manual", "SCRIPTHOLD_REAL_SCSS_OCAML", "scss", []want{
+			{".content", SymbolKindSelector, 13},
+			{"#part-title", SymbolKindSelector, 15},
+			{".index", SymbolKindSelector, 43},
+			{".ocaml", SymbolKindSelector, 81},
+		}, []string{"font-sans", "content-frame", "colored-disc-marker", "@charset", "Ghost"}},
+		{"scss-wordpress-scheme-config", "SCRIPTHOLD_REAL_SCSS_WORDPRESS", "scss", []want{
+			{"highlight-color", SymbolKindVariable, 1},
+		}, []string{"scheme-name", "base-color", "icon-color", "notification-color", "menu-highlight-text", "menu-highlight-icon", "menu-bubble-text", "menu-submenu-text", "menu-submenu-focus-text", "dashboard-icon-background", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
