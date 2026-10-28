@@ -3,6 +3,441 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "classic-asp-unterminated-region-honest-coverage",
+      "language": "classic-asp",
+      "path": "partial.asp",
+      "source": "<%@ Language=\"VBScript\" %>\n<% Sub Good() : End Sub %>\n<% Sub Open()",
+      "present": [
+        {
+          "qualifiedName": "Good",
+          "kind": "method",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "End",
+        "ReadLine"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "php-html-unterminated-php-region-honest-coverage",
+      "language": "php-html",
+      "path": "partial.php",
+      "source": "<main id=\"hero\"></main>\n<?php function open() {",
+      "present": [
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "main",
+        "Page_Load"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "blade-unterminated-php-directive-honest-coverage",
+      "language": "blade",
+      "path": "partial.blade.php",
+      "source": "<main id=\"hero\"></main>\n@php function open() {",
+      "present": [
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Page_Load",
+        "main"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "astro-frontmatter-function-vs-markup",
+      "language": "astro",
+      "path": "Card.astro",
+      "source": "---\n// function Ghost() {}\nfunction load() { return 1 }\n---\n<main id=\"hero\">{{ load }}</main>\n",
+      "present": [
+        {
+          "qualifiedName": "load",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "main",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "autohotkey-class-and-method",
+      "language": "autohotkey",
+      "path": "worker.ahk",
+      "source": "; class Ghost {}\nclass Worker extends Base {\n Run(x) { return x }\n}\nTop(x) { return x }\n",
+      "present": [
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Worker.Run",
+          "kind": "method",
+          "line": 3,
+          "parent": "Worker"
+        },
+        {
+          "qualifiedName": "Top",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Base",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "blade-section-and-embedded-php",
+      "language": "blade",
+      "path": "card.blade.php",
+      "source": "{{-- @section('ghost') --}}\n<main id=\"hero\"></main>\n@section('content')\n@php function load() { return 1; } @endphp\n@endsection\n",
+      "present": [
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 2
+        },
+        {
+          "qualifiedName": "content",
+          "kind": "section",
+          "line": 3
+        },
+        {
+          "qualifiedName": "load",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "return",
+        "main"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "delphi-unit-class-method",
+      "language": "delphi",
+      "path": "Demo.pas",
+      "source": "unit Demo;\ninterface\ntype\n TWorker = class\n  procedure Run;\n end;\nimplementation\nend.\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.TWorker",
+          "kind": "class",
+          "line": 4,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.TWorker.Run",
+          "kind": "method",
+          "line": 5,
+          "parent": "Demo.TWorker"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Demo.interface",
+        "Demo.TWorker.procedure"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "mql4-expert-input-and-oninit",
+      "language": "mql4",
+      "path": "Expert.mq4",
+      "source": "// int Ghost() { return 1; }\ninput int Period = 14;\nint OnInit() { return 0; }\n",
+      "present": [
+        {
+          "qualifiedName": "Period",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "OnInit",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "return",
+        "input"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "objective-cpp-interface-and-cpp-class",
+      "language": "objective-cpp",
+      "path": "Bridge.mm",
+      "source": "// @interface Ghost\n@interface Bridge : NSObject\n- (void)run;\n@end\nclass CppHelper { public: void Execute() {} };\n",
+      "present": [
+        {
+          "qualifiedName": "Bridge",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Bridge.run",
+          "kind": "method",
+          "line": 3,
+          "parent": "Bridge"
+        },
+        {
+          "qualifiedName": "CppHelper",
+          "kind": "class",
+          "line": 5
+        },
+        {
+          "qualifiedName": "CppHelper.Execute",
+          "kind": "method",
+          "line": 5,
+          "parent": "CppHelper"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "NSObject",
+        "CppHelper.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "plsql-package-procedures",
+      "language": "plsql",
+      "path": "demo.pks",
+      "source": "-- CREATE PACKAGE Ghost AS\nCREATE OR REPLACE PACKAGE demo AS\n  PROCEDURE run(value NUMBER);\n  FUNCTION calc(value NUMBER) RETURN NUMBER;\nEND demo;\n/\n",
+      "present": [
+        {
+          "qualifiedName": "demo",
+          "kind": "package",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.run",
+          "kind": "function",
+          "line": 3,
+          "parent": "demo"
+        },
+        {
+          "qualifiedName": "demo.calc",
+          "kind": "function",
+          "line": 4,
+          "parent": "demo"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "NUMBER",
+        "demo.value"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vbscript-default-class-method",
+      "language": "vbscript",
+      "path": "service.vbs",
+      "source": "Class Service\n ' Default Function Phantom()\n Public Default Function Item(value)\n  Item = value\n End Function\nEnd Class\n",
+      "present": [
+        {
+          "qualifiedName": "Service",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Service.Item",
+          "kind": "method",
+          "line": 3,
+          "parent": "Service"
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Service.value",
+        "Service.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-asp-default-class-method",
+      "language": "classic-asp",
+      "path": "logger.asp",
+      "source": "<%@ Language=\"VBScript\" %>\n<%\nClass Logger\n Public Default Function log(value)\n  log = value\n End Function\nEnd Class\n%>\n",
+      "present": [
+        {
+          "qualifiedName": "Logger",
+          "kind": "class",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Logger.log",
+          "kind": "method",
+          "line": 4,
+          "parent": "Logger"
+        }
+      ],
+      "forbidden": [
+        "Logger.value",
+        "Logger.Ghost",
+        "Default"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "aspnet-webforms-server-csharp-vs-markup",
+      "language": "aspnet-webforms",
+      "path": "upload.aspx",
+      "source": "<%@ Page Language=\"C#\" %>\n<main id=\"hero\">Page_Load is text</main>\n<script runat=\"server\">\nprotected void Page_Load(object sender, EventArgs e) { }\n</script>\n",
+      "present": [
+        {
+          "qualifiedName": "Page_Load",
+          "kind": "method",
+          "line": 4
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "sender",
+        "Page_Load is text",
+        "runat"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-asp-vbscript-declaration-vs-comment",
+      "language": "classic-asp",
+      "path": "logger.asp",
+      "source": "<%@ Language=\"VBScript\" %>\n<% ' Class Ghost\nClass Logger\n Public Sub Run()\n End Sub\nEnd Class\n%>\n",
+      "present": [
+        {
+          "qualifiedName": "Logger",
+          "kind": "class",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Logger.Run",
+          "kind": "method",
+          "line": 4,
+          "parent": "Logger"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Logger.Ghost",
+        "Public"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "jscript-net-variables-vs-calls",
+      "language": "jscript-net",
+      "path": "hello.js",
+      "source": "import System;\n// function ghost() {}\nvar _name = Console.ReadLine();\nConsole.WriteLine(_name);\n",
+      "present": [
+        {
+          "qualifiedName": "_name",
+          "kind": "variable",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "Console.WriteLine",
+        "Console.ReadLine"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-html-embedded-function-vs-markup",
+      "language": "php-html",
+      "path": "view.php",
+      "source": "<?php // function ghost() {}\nfunction render_card() { return 1; }\n?>\n<main id=\"hero\">{{ render_card }}</main>\n",
+      "present": [
+        {
+          "qualifiedName": "render_card",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "return",
+        "main"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vbnet-class-property-and-comment",
+      "language": "vbnet",
+      "path": "Arrow.vb",
+      "source": "' Class Ghost\nFriend Class Arrow\n Public Property Angle As Double\n End Property\n Public Shared ReadOnly AngleProperty As Integer = 1\nEnd Class\n",
+      "present": [
+        {
+          "qualifiedName": "Arrow",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Arrow.Angle",
+          "kind": "property",
+          "line": 3,
+          "parent": "Arrow"
+        },
+        {
+          "qualifiedName": "Arrow.AngleProperty",
+          "kind": "field",
+          "line": 5,
+          "parent": "Arrow"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Double",
+        "Arrow.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "fortran-program-and-contained-subroutine",
       "language": "fortran",
       "path": "example.f90",

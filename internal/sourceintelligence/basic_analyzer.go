@@ -276,6 +276,13 @@ func basicSemanticIndex(tokens []Token) int {
 		switch value {
 		case "public", "private", "protected", "friend", "shared":
 			continue
+		case "default":
+			if index+1 < len(tokens) {
+				next := strings.ToLower(tokens[index+1].Text)
+				if next == "function" || next == "property" {
+					continue
+				}
+			}
 		case "static":
 			if index+1 < len(tokens) {
 				next := strings.ToLower(tokens[index+1].Text)

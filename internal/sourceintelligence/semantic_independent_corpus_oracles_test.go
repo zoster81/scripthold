@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +21,20 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		present             []want
 		forbidden           []string
 	}{
+		{"webforms-vcsamples-upload", "SCRIPTHOLD_REAL_WEBFORMS_A", "aspnet-webforms", []want{
+			{"Page_Load", SymbolKindMethod, 6},
+		}, []string{"Request.Headers", "fileName", "Request.InputStream", "Page_Load.Ghost"}},
+		{"classic-asp-logger", "SCRIPTHOLD_REAL_CLASSICASP_A", "classic-asp", []want{
+			{"logger", SymbolKindClass, 11},
+			{"logger.log", SymbolKindMethod, 33}, {"logger.setLogFile", SymbolKindMethod, 44},
+		}, []string{"logger.Ghost", "server.createObject", "logger.p_string"}},
+		{"jscript-net-snu-hello", "SCRIPTHOLD_REAL_JSNET_A", "jscript-net", []want{
+			{"_name", SymbolKindVariable, 6},
+		}, []string{"Console.ReadLine", "Console.WriteLine", "Hello"}},
+		{"vbnet-svb-arrow-bom", "SCRIPTHOLD_REAL_VBNET_A", "vbnet", []want{
+			{"Arrow", SymbolKindClass, 1}, {"Arrow.Angle", SymbolKindProperty, 3},
+			{"Arrow.AngleProperty", SymbolKindField, 15},
+		}, []string{"Arrow.RotateTransform", "Angle.GetValue", "Arrow.Ghost"}},
 		{"c-curl-altsvc", "SCRIPTHOLD_REAL_C_A", "c", []want{
 			{"main", SymbolKindFunction, 32},
 		}, []string{"curl_easy_init", "curl_easy_setopt", "curl_global_cleanup"}},
@@ -342,7 +357,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			if !ok {
 				t.Fatal("provider not active")
 			}
-			result, err := analyzer.Analyze(context.Background(), testSourceDocument(filepath.Base(path), string(data)), testAnalyzeOptions(true, 2048))
+			// The source loader supplies decoded text without a physical UTF-8 BOM.
+			text := strings.TrimPrefix(string(data), "\uFEFF")
+			result, err := analyzer.Analyze(context.Background(), testSourceDocument(filepath.Base(path), text), testAnalyzeOptions(true, 2048))
 			if err != nil {
 				t.Fatal(err)
 			}
