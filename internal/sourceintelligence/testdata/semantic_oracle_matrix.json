@@ -1903,6 +1903,167 @@
         "fake"
       ],
       "coverageComplete": true
+    },
+    {
+      "id": "bash-functions-opaque-heredoc",
+      "language": "bash",
+      "path": "build.bash",
+      "source": "#!/usr/bin/env bash\nsource \"./lib.bash\"\nfunction deploy() { echo ready; }\ncompile () {\n  cat <<'EOF'\nfunction Phantom() { echo fake; }\nEOF\n  echo done\n}\n# function Ghost() { :; }\nfunction cleanup { :; }\n",
+      "present": [
+        {
+          "qualifiedName": "deploy",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "compile",
+          "kind": "function",
+          "line": 4
+        },
+        {
+          "qualifiedName": "cleanup",
+          "kind": "function",
+          "line": 11
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Ghost",
+        "cat",
+        "echo"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "shell-posix-functions",
+      "language": "shell",
+      "path": "build.sh",
+      "source": "#!/bin/sh\n. ./env.sh\nbuild() {\n  printf '%s\\n' ok\n}\n# shadow() { false; }\nclean() { :; }\n",
+      "present": [
+        {
+          "qualifiedName": "build",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "clean",
+          "kind": "function",
+          "line": 7
+        }
+      ],
+      "forbidden": [
+        "shadow",
+        "printf",
+        "false"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "json-nested-objects-opaque-string",
+      "language": "json",
+      "path": "config.json",
+      "source": "{\n  \"service\": {\n    \"name\": \"api\",\n    \"enabled\": true\n  },\n  \"note\": \"class Ghost { }\",\n  \"params\": {}\n}\n",
+      "present": [
+        {
+          "qualifiedName": "service",
+          "kind": "key",
+          "line": 2
+        },
+        {
+          "qualifiedName": "service.name",
+          "kind": "key",
+          "line": 3,
+          "parent": "service"
+        },
+        {
+          "qualifiedName": "service.enabled",
+          "kind": "key",
+          "line": 4,
+          "parent": "service"
+        },
+        {
+          "qualifiedName": "note",
+          "kind": "key",
+          "line": 6
+        },
+        {
+          "qualifiedName": "params",
+          "kind": "key",
+          "line": 7
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "name",
+        "service.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "json-malformed-structure-incomplete",
+      "language": "json",
+      "path": "invalid.json",
+      "source": "{\n  \"safe\": 1,\n  \"broken\": [1,\n}\n",
+      "present": [
+        {
+          "qualifiedName": "safe",
+          "kind": "key",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "broken.Ghost",
+        "Ghost"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "json-array-of-objects-incomplete",
+      "language": "json",
+      "path": "catalog.json",
+      "source": "{\n  \"tools\": [{\"name\": \"read_text_file\", \"description\": \"a tool\"}],\n  \"count\": 1\n}\n",
+      "present": [
+        {
+          "qualifiedName": "tools",
+          "kind": "key",
+          "line": 2
+        },
+        {
+          "qualifiedName": "count",
+          "kind": "key",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "tools.name",
+        "tools.description",
+        "name",
+        "description"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "json-scalar-array-remains-complete",
+      "language": "json",
+      "path": "numbers.json",
+      "source": "{\"nums\":[1,2,3],\"text\":\"{ fake: 1 }\"}\n",
+      "present": [
+        {
+          "qualifiedName": "nums",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "text",
+          "kind": "key",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "fake",
+        "nums.fake"
+      ],
+      "coverageComplete": true
     }
   ]
 }

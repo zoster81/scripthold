@@ -66,8 +66,19 @@ func TestRazorClientScriptTypeSelectsDataLanguage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Analysis.CoverageComplete {
-		t.Fatalf("Razor data-script regions reported partial: %+v", result.Analysis)
+	// JSON objects inside arrays are not indexed; the composite must preserve
+	// its script-language routing without claiming complete structural coverage.
+	if result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("Razor JSON data script overclaimed coverage: %+v", result.Analysis)
+	}
+	foundArrayDiagnostic := false
+	for _, diagnostic := range result.Analysis.Diagnostics {
+		if diagnostic.Code == "json-unmodeled-array-objects" {
+			foundArrayDiagnostic = true
+		}
+	}
+	if !foundArrayDiagnostic {
+		t.Fatalf("Razor JSON array coverage diagnostic missing: %+v", result.Analysis.Diagnostics)
 	}
 	var scriptLanguages []string
 	for _, region := range result.Regions {

@@ -364,6 +364,10 @@ func (p *jsonStructuralParser) object(index int, parent *SymbolParent) (int, boo
 				return index, false
 			}
 		} else {
+			if text[index] == '[' && jsonArrayContainsObject(text, index, declEnd) {
+				addDocumentDataHardwareDiagnostic(p.builder, "json-unmodeled-array-objects",
+					"JSON object keys inside arrays are not indexed", index, declEnd)
+			}
 			index = declEnd
 		}
 		index = skipJSONSpace(text, index)
@@ -376,6 +380,32 @@ func (p *jsonStructuralParser) object(index int, parent *SymbolParent) (int, boo
 		}
 		return index, false
 	}
+}
+
+// jsonArrayContainsObject detects unindexed objects while ignoring braces in
+// JSON string values. Scalar-only arrays do not hide structural declarations.
+func jsonArrayContainsObject(text string, start, end int) bool {
+	inString := false
+	escaped := false
+	for index := start + 1; index < end; index++ {
+		c := text[index]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+		} else if c == '{' {
+			return true
+		}
+	}
+	return false
 }
 
 func jsonString(text string, index int) (string, int, int, int, bool) {

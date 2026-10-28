@@ -236,3 +236,30 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	}
 	t.Logf("independent real source files checked: %d/%d; these cases do not certify all native providers", ran, len(cases))
 }
+
+// The KDE shell syntax-highlighting corpus intentionally contains malformed
+// constructs. An analyzer may omit declarations, but must not claim completeness.
+func TestSemanticIndependentMalformedBashCorpusCoverage(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_BASH_A")
+	if path == "" {
+		t.Skip("independent malformed shell corpus not configured")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatal("corpus must be a regular source file, not a link")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := (BashAnalyzer{}).Analyze(context.Background(), testSourceDocument(filepath.Base(path), string(data)), testAnalyzeOptions(true, 2048))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("malformed corpus must report incomplete, untruncated analysis: %+v", result.Analysis)
+	}
+}
