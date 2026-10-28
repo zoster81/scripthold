@@ -1151,12 +1151,18 @@ func addBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, prob
 	voltMatches := bladeVoltPattern.FindAllStringSubmatchIndex(probe, -1)
 	declarations := make([]bladeDeclaration, 0, len(sectionMatches)+len(voltMatches))
 	for _, match := range sectionMatches {
+		if match[0] > 0 && probe[match[0]-1] == '@' {
+			continue // Blade renders @@section literally.
+		}
 		declarations = append(declarations, bladeDeclaration{
 			kind: SymbolKindSection, nativeKind: "section", name: document.Text[match[2]:match[3]],
 			declaration: OffsetRange{Start: match[0], End: match[1]}, nameRange: OffsetRange{Start: match[2], End: match[3]},
 		})
 	}
 	for _, match := range bladeInlineSectionPattern.FindAllStringSubmatchIndex(probe, -1) {
+		if match[0] > 0 && probe[match[0]-1] == '@' {
+			continue
+		}
 		open := match[0] + strings.IndexByte(probe[match[0]:match[1]], '(')
 		end, complete := bladeInlineSectionClose(probe, open)
 		if !complete {

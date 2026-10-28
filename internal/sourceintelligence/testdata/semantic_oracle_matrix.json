@@ -3,6 +3,33 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "blade-escaped-section-directives-do-not-declare-or-truncate",
+      "language": "blade",
+      "path": "escaped.blade.php",
+      "source": "@@section('escapedSimple')\n@@section('escapedInline', __('literal'))\n@@section('escapedUnclosed', __('unfinished')\n@section('actualSimple')\n@section('actualInline', __('nested'))\n{{-- @section('commented') --}}\n",
+      "present": [
+        {
+          "qualifiedName": "actualSimple",
+          "kind": "section",
+          "line": 4
+        },
+        {
+          "qualifiedName": "actualInline",
+          "kind": "section",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "escapedSimple",
+        "escapedInline",
+        "escapedUnclosed",
+        "commented",
+        "literal",
+        "nested"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "blade-inline-sections-nested-expression-malformed-coverage",
       "language": "blade",
       "path": "401.blade.php",
