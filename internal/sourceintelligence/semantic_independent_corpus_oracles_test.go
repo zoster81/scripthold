@@ -339,6 +339,43 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"cn", SymbolKindFunction, 4},
 			{"formatCount", SymbolKindFunction, 8},
 		}, []string{"clsx", "twMerge", "NumberFormat", "value", "Ghost"}},
+		{"java-eventbus-no-subscriber", "SCRIPTHOLD_REAL_JAVA_EVENTBUS", "java", []want{
+			{"org.greenrobot.eventbus", SymbolKindPackage, 16},
+			{"org.greenrobot.eventbus.NoSubscriberEvent", SymbolKindClass, 23},
+			{"org.greenrobot.eventbus.NoSubscriberEvent.eventBus", SymbolKindField, 25},
+			{"org.greenrobot.eventbus.NoSubscriberEvent.originalEvent", SymbolKindField, 28},
+			{"org.greenrobot.eventbus.NoSubscriberEvent.NoSubscriberEvent", SymbolKindConstructor, 30},
+		}, []string{"EventBus", "org.greenrobot.eventbus.Ghost", "org.greenrobot.eventbus.NoSubscriberEvent.this", "org.greenrobot.eventbus.NoSubscriberEvent.EventBus"}},
+		{"java-butterknife-class", "SCRIPTHOLD_REAL_JAVA_BUTTERKNIFE", "java", []want{
+			{"butterknife", SymbolKindPackage, 1},
+			{"butterknife.ButterKnife", SymbolKindClass, 74},
+			{"butterknife.ButterKnife.ButterKnife", SymbolKindConstructor, 75},
+			{"butterknife.ButterKnife.TAG", SymbolKindConstant, 79},
+			{"butterknife.ButterKnife.debug", SymbolKindField, 80},
+			{"butterknife.ButterKnife.setDebug", SymbolKindMethod, 86},
+		}, []string{"Activity", "Dialog", "butterknife.View", "butterknife.ButterKnife.AssertionError", "butterknife.ButterKnife.Ghost"}},
+		{"java-algorithms-left-rotation", "SCRIPTHOLD_REAL_JAVA_ALGORITHMS", "java", []want{
+			{"com.thealgorithms.others", SymbolKindPackage, 1},
+			{"com.thealgorithms.others.ArrayLeftRotation", SymbolKindClass, 10},
+			{"com.thealgorithms.others.ArrayLeftRotation.ArrayLeftRotation", SymbolKindConstructor, 11},
+			{"com.thealgorithms.others.ArrayLeftRotation.rotateLeft", SymbolKindMethod, 21},
+		}, []string{"com.thealgorithms.others.ArrayLeftRotation.size", "com.thealgorithms.others.ArrayLeftRotation.rotated", "com.thealgorithms.others.Ghost"}},
+		{"java-jcsprout-application", "SCRIPTHOLD_REAL_JAVA_JCSPROUT", "java", []want{
+			{"com.crossoverjie", SymbolKindPackage, 1},
+			{"com.crossoverjie.Application", SymbolKindClass, 13},
+			{"com.crossoverjie.Application.LOGGER", SymbolKindConstant, 15},
+			{"com.crossoverjie.Application.main", SymbolKindMethod, 18},
+		}, []string{"com.crossoverjie.SpringApplication", "com.crossoverjie.Application.SpringBootApplication", "com.crossoverjie.Application.Ghost"}},
+		{"java-termux-bytequeue", "SCRIPTHOLD_REAL_JAVA_TERMUX", "java", []want{
+			{"com.termux.terminal", SymbolKindPackage, 1},
+			{"com.termux.terminal.ByteQueue", SymbolKindClass, 4},
+			{"com.termux.terminal.ByteQueue.mBuffer", SymbolKindField, 6},
+			{"com.termux.terminal.ByteQueue.mHead", SymbolKindField, 7},
+			{"com.termux.terminal.ByteQueue.ByteQueue", SymbolKindConstructor, 11},
+			{"com.termux.terminal.ByteQueue.close", SymbolKindMethod, 15},
+			{"com.termux.terminal.ByteQueue.read", SymbolKindMethod, 20},
+			{"com.termux.terminal.ByteQueue.write", SymbolKindMethod, 59},
+		}, []string{"com.termux.terminal.ByteQueue.mBuffer.length", "com.termux.terminal.ByteQueue.oneRun", "com.termux.terminal.ByteQueue.Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},
@@ -824,6 +861,23 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"java-eventbus-no-subscriber": {
+			"org.greenrobot.eventbus.NoSubscriberEvent.eventBus":          "org.greenrobot.eventbus.NoSubscriberEvent",
+			"org.greenrobot.eventbus.NoSubscriberEvent.NoSubscriberEvent": "org.greenrobot.eventbus.NoSubscriberEvent",
+		},
+		"java-butterknife-class": {
+			"butterknife.ButterKnife.setDebug": "butterknife.ButterKnife",
+		},
+		"java-algorithms-left-rotation": {
+			"com.thealgorithms.others.ArrayLeftRotation.rotateLeft": "com.thealgorithms.others.ArrayLeftRotation",
+		},
+		"java-jcsprout-application": {
+			"com.crossoverjie.Application.main": "com.crossoverjie.Application",
+		},
+		"java-termux-bytequeue": {
+			"com.termux.terminal.ByteQueue.read":  "com.termux.terminal.ByteQueue",
+			"com.termux.terminal.ByteQueue.write": "com.termux.terminal.ByteQueue",
+		},
 		"typescript-quill-selection": {"Bounds.bottom": "Bounds", "Bounds.height": "Bounds", "Bounds.width": "Bounds"},
 		"typescript-hexo-types":      {"RenderData.engine": "RenderData", "TagSchema.name": "TagSchema", "TagSchema.slug": "TagSchema"},
 		"go-participle-api-interfaces": {
