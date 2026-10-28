@@ -21,6 +21,18 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		present             []want
 		forbidden           []string
 	}{
+		{"delphi-delphimvc", "SCRIPTHOLD_REAL_DELPHI_DMVC", "delphi", []want{{"renders_spring4d_nullables", SymbolKindModule, 1}, {"renders_spring4d_nullables.RunServer", SymbolKindFunction, 21}}, []string{"Writeln", "ParamStr", "TIdHTTPWebBrokerBridge.Create"}},
+		{"delphi-horse", "SCRIPTHOLD_REAL_DELPHI_HORSE", "delphi", []want{{"Apache", SymbolKindModule, 1}, {"Apache.ApacheModuleData", SymbolKindVariable, 26}}, []string{"THorse.Listen", "THorse.Get", "Ghost"}},
+		{"delphi-mormot2", "SCRIPTHOLD_REAL_DELPHI_MORMOT", "delphi", []want{{"BasicdemoServer", SymbolKindModule, 1}, {"BasicdemoServer.srv", SymbolKindVariable, 22}}, []string{"TBasicDemoServer.Create", "TSynLog.Add", "WriteLn"}},
+		{"delphi-neon", "SCRIPTHOLD_REAL_DELPHI_NEON", "delphi", []want{{"Benchmarks", SymbolKindModule, 10}}, []string{"Application.Run", "Application.Initialize", "TfrmBenchmarks"}},
+		{"delphi-pasclaw", "SCRIPTHOLD_REAL_DELPHI_PASCLAW", "delphi", []want{{"PasclawDesktop", SymbolKindModule, 1}}, []string{"Application.CreateForm", "FindStyleDir", "FMX.RetroSkins"}},
+		{"delphi-tdlib", "SCRIPTHOLD_REAL_DELPHI_TDLIB", "delphi", []want{{"testando", SymbolKindModule, 1}}, []string{"Application.MainFormOnTaskbar", "XSuperJSON", "Ghost"}},
+		{"delphi-thread-demo", "SCRIPTHOLD_REAL_DELPHI_THREAD", "delphi", []want{{"ThreadDemo", SymbolKindModule, 1}}, []string{"Application.Run", "Vcl.Themes", "TStyleManager.TrySetStyle"}},
+		{"plsql-alexandria", "SCRIPTHOLD_REAL_PLSQL_ALEX", "plsql", []want{{"hash_util_pkg", SymbolKindPackage, 1}, {"hash_util_pkg.sha1", SymbolKindFunction, 29}, {"hash_util_pkg.unittest", SymbolKindFunction, 46}}, []string{"hash_util_pkg.p_buffer", "DBMS_CRYPTO", "Ghost"}},
+		{"plsql-oracle-examples", "SCRIPTHOLD_REAL_PLSQL_EXAMPLE", "plsql", []want{{"sectionutils", SymbolKindPackage, 1}, {"sectionutils.cleanup_sections", SymbolKindFunction, 2}}, []string{"sectionutils.sections", "sectionutils.replace", "show"}},
+		{"plsql-oxar", "SCRIPTHOLD_REAL_PLSQL_OXAR", "plsql", []want{{"aop_sample3_pkg", SymbolKindPackage, 3}, {"aop_sample3_pkg.aop_store_document", SymbolKindFunction, 14}, {"aop_sample3_pkg.get_file", SymbolKindFunction, 46}}, []string{"aop_sample3_pkg.p_output_blob", "Ghost", "aop_sample3_pkg.REST"}},
+		{"plsql-utplsql", "SCRIPTHOLD_REAL_PLSQL_UT", "plsql", []want{{"utplsql", SymbolKindPackage, 1}, {"utplsql.global_setup", SymbolKindFunction, 6}}, []string{"utplsql.beforeall", "Ghost", "utplsql.suite"}},
+		{"plsql-wrapping-gist", "SCRIPTHOLD_REAL_PLSQL_WRAP", "plsql", []want{{"HELLO_PKG", SymbolKindPackage, 10}, {"HELLO_PKG.hello", SymbolKindFunction, 12}}, []string{"HELLO_PKG.Nate", "dbms_ddl.create_wrapped", "Ghost"}},
 		{"webforms-vcsamples-upload", "SCRIPTHOLD_REAL_WEBFORMS_A", "aspnet-webforms", []want{
 			{"Page_Load", SymbolKindMethod, 6},
 		}, []string{"Request.Headers", "fileName", "Request.InputStream", "Page_Load.Ghost"}},
@@ -386,8 +398,19 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					t.Errorf("expression, comment, or local reference emitted as declaration %q: %+v", name, symbols)
 				}
 			}
-			if result.Analysis.Truncated {
-				t.Errorf("oracle cannot prove completeness with truncated source output")
+			if tc.name == "plsql-oxar" {
+				// This source has a declaration header above the configured signature-text cap.
+				// Retained declarations remain checkable, but coverage must stay explicitly partial.
+				if !result.Analysis.Truncated || result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+					t.Errorf("large PL/SQL signature must report partial retention: %+v", result.Analysis)
+				}
+				for _, diagnostic := range result.Analysis.Diagnostics {
+					if diagnostic.Code != "signature-limit" {
+						t.Errorf("unexpected PL/SQL partial-coverage reason: %+v", diagnostic)
+					}
+				}
+			} else if result.Analysis.Truncated {
+				t.Errorf("oracle cannot prove completeness with truncated source output: retained=%d diagnostics=%+v", len(result.Analysis.Symbols), result.Analysis.Diagnostics)
 			}
 		})
 	}

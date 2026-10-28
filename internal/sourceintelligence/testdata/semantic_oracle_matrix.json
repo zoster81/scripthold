@@ -3,6 +3,31 @@
   "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
   "cases": [
     {
+      "id": "delphi-library-declaration-vs-comment",
+      "language": "delphi",
+      "path": "Apache.dpr",
+      "source": "library Apache;\n// library Phantom;\nvar ApacheModuleData: Integer;\nbegin\n ApacheModuleData := 1;\nend.\n",
+      "present": [
+        {
+          "qualifiedName": "Apache",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Apache.ApacheModuleData",
+          "kind": "variable",
+          "line": 3,
+          "parent": "Apache"
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Apache.Integer",
+        "Apache.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "classic-asp-unterminated-region-honest-coverage",
       "language": "classic-asp",
       "path": "partial.asp",

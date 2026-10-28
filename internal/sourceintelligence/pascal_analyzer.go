@@ -130,7 +130,7 @@ func (p *pascalParser) parseLine(line LogicalLine) {
 	if p.handleEndOrBegin(tokens) {
 		return
 	}
-	if word == "program" || word == "unit" || word == "package" {
+	if word == "program" || word == "unit" || word == "package" || word == "library" {
 		p.parseModule(line, first, word)
 		p.mode = ""
 		return
@@ -213,6 +213,7 @@ func (p *pascalParser) handleEndOrBegin(tokens []Token) bool {
 	}
 	first := strings.ToLower(tokens[0].Text)
 	if first == "begin" {
+		p.mode = ""
 		if len(p.scopes) > 0 && pascalRoutineScope(p.scopes[len(p.scopes)-1].kind) {
 			p.scopes[len(p.scopes)-1].beginDepth++
 		}
