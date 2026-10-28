@@ -232,15 +232,18 @@ type cilParser struct {
 }
 
 func (p *cilParser) parse(lines []LogicalLine) {
+	type classScope struct {
+		outer     *SymbolParent
+		baseDepth int
+		opened    bool
+	}
+	depth := 0
+	var classes []classScope
 	for _, line := range lines {
 		if p.stopped || p.ctx.Err() != nil || len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
-		if first == "}" {
-			p.class = nil
-			continue
-		}
 		switch first {
 		case ".assembly":
 			p.assembly(line)
@@ -249,7 +252,11 @@ func (p *cilParser) parse(lines []LogicalLine) {
 				p.moduleDecl(line)
 			}
 		case ".class":
+			outer := p.class
 			p.classDecl(line)
+			if p.class != nil && (outer == nil || p.class.ID != outer.ID) {
+				classes = append(classes, classScope{outer: outer, baseDepth: depth})
+			}
 		case ".field":
 			if p.class != nil {
 				p.member(line, SymbolKindField, "field")
@@ -257,6 +264,24 @@ func (p *cilParser) parse(lines []LogicalLine) {
 		case ".method":
 			if p.class != nil {
 				p.member(line, SymbolKindMethod, "method")
+			}
+		}
+		for _, token := range line.Tokens {
+			switch token.Text {
+			case "{":
+				depth++
+				if len(classes) > 0 && depth > classes[len(classes)-1].baseDepth {
+					classes[len(classes)-1].opened = true
+				}
+			case "}":
+				if depth > 0 {
+					depth--
+				}
+				// A method's closing brace must not end its containing class.
+				for len(classes) > 0 && classes[len(classes)-1].opened && depth <= classes[len(classes)-1].baseDepth {
+					p.class = classes[len(classes)-1].outer
+					classes = classes[:len(classes)-1]
+				}
 			}
 		}
 	}

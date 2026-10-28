@@ -15,6 +15,7 @@ This release improves read-only source navigation and response size, without cha
 
 ### Fixed
 
+- Source Intelligence now preserves distinct type-suffixed BASIC variables and retains CIL class ownership across nested method bodies, so later methods and fields remain discoverable. These read-only symbol fixes do not change MCP inputs or execution privileges.
 - `source_query` and `source_symbols` now retain at most `maxFiles` selected file paths during directory traversal rather than collecting every matching path first. Selection remains lexicographically deterministic, filters and path authorization are unchanged, and omitted-file coverage remains explicit.
 - A filtered `source_symbols outline` now applies `maxSymbols` to matching declarations after bounded analysis, instead of losing matches behind earlier declarations of other kinds. Full-analysis and result-truncation coverage remain explicit.
 

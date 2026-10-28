@@ -694,6 +694,44 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"cil-asmresolver-forwarders", "SCRIPTHOLD_REAL_CIL_ASMRESOLVER", "cil", []want{
+			{"ForwarderLibrary", SymbolKindModule, 1},
+			{"ForwarderLibrary.IMyModel", SymbolKindClass, 7},
+			{"ForwarderLibrary.MyClass", SymbolKindClass, 12},
+		}, []string{"ActualLibrary", "ForwarderLibrary.ActualLibrary", "Ghost"}},
+		{"cil-cecil-hello", "SCRIPTHOLD_REAL_CIL_CECIL", "cil", []want{
+			{"Hello", SymbolKindModule, 7},
+			{"Hello.Foo", SymbolKindClass, 11},
+			{"Hello.Foo.Bar", SymbolKindMethod, 20},
+			{"Hello.Foo.Baz", SymbolKindMethod, 32},
+			{"Hello.Foo.PrintEmpty", SymbolKindMethod, 44},
+		}, []string{"mscorlib", "Hello.Foo.res", "Hello.Foo.Ghost"}},
+		{"cil-ilspy-bitnot", "SCRIPTHOLD_REAL_CIL_ILSPY", "cil", []want{
+			{"ConvTest", SymbolKindModule, 7},
+			{"ConvTest.Program", SymbolKindClass, 15},
+			{"ConvTest.Program.Main", SymbolKindMethod, 18},
+			{"ConvTest.Program.BitwiseComplementInNativeSize", SymbolKindMethod, 42},
+			{"ConvTest.Program.PrintHex", SymbolKindMethod, 73},
+			{"ConvTest.Enums.EUInt16", SymbolKindClass, 92},
+			{"ConvTest.Enums.EUInt16.__value", SymbolKindField, 95},
+		}, []string{"ConvTest.Program.not", "ConvTest.Program.Ghost", "mscorlib"}},
+		{"cil-mono-generic", "SCRIPTHOLD_REAL_CIL_MONO", "cil", []want{
+			{"CS0012-10-lib", SymbolKindModule, 9},
+			{"CS0012-10-lib.I", SymbolKindClass, 45},
+		}, []string{"CS0012-lib-missing", "mscorlib", "Ghost"}},
+		{"cil-runtime-arithmetic", "SCRIPTHOLD_REAL_CIL_RUNTIME", "cil", []want{
+			{"BasicArithmeticTests", SymbolKindModule, 8},
+			{"BasicArithmeticTests.BasicArithmeticTestsType", SymbolKindClass, 12},
+			{"BasicArithmeticTests.BasicArithmeticTestsType.SimpleAdd_Invalid_ExpectedNumericType", SymbolKindMethod, 25},
+		}, []string{"System.Runtime", "BasicArithmeticTests.BasicArithmeticTestsType.ldstr", "Ghost"}},
+		{"cil-roslyn-class-layout", "SCRIPTHOLD_REAL_CIL_ROSLYN", "cil", []want{
+			{"b", SymbolKindModule, 12},
+			{"b.S1", SymbolKindClass, 32},
+			{"b.S2", SymbolKindClass, 39},
+			{"b.S3", SymbolKindClass, 46},
+			{"b.S4", SymbolKindClass, 53},
+			{"b.S5", SymbolKindClass, 60},
+		}, []string{"mscorlib", "b.Ghost", ".pack"}},
 		{"luau-dekkonot-sha512", "SCRIPTHOLD_REAL_LUAU_DEKKONOT", "luau", []want{
 			{"lil_sig0", SymbolKindFunction, 51},
 			{"lil_sig1", SymbolKindFunction, 73},
@@ -1203,6 +1241,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"cil-cecil-hello":           {"Hello.Foo.Bar": "Hello.Foo", "Hello.Foo.Baz": "Hello.Foo"},
+		"cil-ilspy-bitnot":          {"ConvTest.Program.Main": "ConvTest.Program", "ConvTest.Enums.EUInt16.__value": "ConvTest.Enums.EUInt16"},
 		"cpp-btop-logger":           {"Logger.Level": "Logger", "Logger.detail": "Logger", "Logger.detail.log_write": "Logger.detail"},
 		"cpp-typesense-metrics":     {"AppMetrics.get_instance": "AppMetrics", "AppMetrics.increment_count": "AppMetrics"},
 		"cpp-trafficmonitor-plugin": {"CPluginSystemDate.GetItemName": "CPluginSystemDate", "CPluginSystemDate.GetItemId": "CPluginSystemDate"},

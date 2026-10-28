@@ -1753,6 +1753,21 @@
       "coverageComplete": true
     },
     {
+      "id": "cil-class-method-block-scope",
+      "language": "cil",
+      "path": "nested-methods.il",
+      "source": ".assembly DemoLibrary {}\n.class public Demo\n{\n  .method public static void First() cil managed\n  {\n    ret\n  }\n  .method public static void Second() cil managed\n  {\n    ret\n  }\n  .field public int32 Count\n}\n.method public static void Ghost() cil managed\n",
+      "present": [
+        {"qualifiedName": "DemoLibrary", "kind": "module", "line": 1},
+        {"qualifiedName": "DemoLibrary.Demo", "kind": "class", "line": 2},
+        {"qualifiedName": "DemoLibrary.Demo.First", "kind": "method", "line": 4, "parent": "DemoLibrary.Demo"},
+        {"qualifiedName": "DemoLibrary.Demo.Second", "kind": "method", "line": 8, "parent": "DemoLibrary.Demo"},
+        {"qualifiedName": "DemoLibrary.Demo.Count", "kind": "field", "line": 12, "parent": "DemoLibrary.Demo"}
+      ],
+      "forbidden": ["Ghost", "DemoLibrary.Demo.Ghost", "DemoLibrary.Demo.ret"],
+      "coverageComplete": true
+    },
+    {
       "id": "cil-quoted-assembly",
       "language": "cil",
       "path": "quoted.il",
