@@ -1075,6 +1075,25 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 			index = parser.parseNamespace(index, end, parent)
 			continue
 		}
+		if parser.cpp && parser.token(index, "static_assert") {
+			open := nextStructuralToken(parser.tokens, index+1, end)
+			if open >= end || !parser.token(open, "(") {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			close := parser.pairs[open]
+			if close <= open || close >= end {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			terminator := nextStructuralToken(parser.tokens, close+1, end)
+			if terminator >= end || !parser.token(terminator, ";") {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			index = terminator + 1
+			continue
+		}
 		if keyword, declarationStart, ok := parser.typeDeclarationAt(index, end); ok {
 			index = parser.parseType(declarationStart, keyword, end, parent)
 			continue

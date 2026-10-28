@@ -635,6 +635,42 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"username", SymbolKindEntity, 137},
 			{"password", SymbolKindEntity, 144},
 		}, []string{"Url.Action", "login-container", "externalProviders.Count", "Ghost"}},
+		{"arduino-biomurph-mouseeye", "SCRIPTHOLD_REAL_ARDUINO_BIOMURPH", "arduino", []want{
+			{"noMove", SymbolKindVariable, 12},
+			{"setup", SymbolKindFunction, 14},
+			{"loop", SymbolKindFunction, 21},
+		}, []string{"Mouse.getMouse", "Mouse.deltaX", "Serial.println", "Ghost"}},
+		{"arduino-eggduino-sketch", "SCRIPTHOLD_REAL_ARDUINO_EGGDUINO", "arduino", []want{
+			{"penMin", SymbolKindVariable, 69},
+			{"penMax", SymbolKindVariable, 70},
+			{"setup", SymbolKindFunction, 87},
+			{"loop", SymbolKindFunction, 93},
+		}, []string{"makeComInterface", "initHardware", "moveOneStep", "rotMotor.step1", "Ghost"}},
+		{"arduino-farmbot-controller", "SCRIPTHOLD_REAL_ARDUINO_FARMBOT", "arduino", []want{
+			{"setup", SymbolKindFunction, 15},
+			{"loop", SymbolKindFunction, 49},
+		}, []string{"startSerial", "readParameters", "homeOnBoot", "Ghost"}},
+		{"arduino-dccex-station", "SCRIPTHOLD_REAL_ARDUINO_DCC", "arduino", []want{
+			{"setup", SymbolKindFunction, 80},
+		}, []string{"SerialManager.init", "IODevice.begin", "MAX_LOCOS", "Ghost"}},
+		{"arduino-gvret-console", "SCRIPTHOLD_REAL_ARDUINO_GVRET", "arduino", []want{
+			{"i", SymbolKindVariable, 47},
+			{"serialBufferLength", SymbolKindVariable, 50},
+			{"SWCAN_Int", SymbolKindFunction, 68},
+			{"loadSettings", SymbolKindFunction, 75},
+		}, []string{"SWCAN.intHandler", "settings.version", "EEPROM.read", "Ghost"}},
+		{"arduino-stc1000-com", "SCRIPTHOLD_REAL_ARDUINO_STC", "arduino", []want{
+			{"write_bit", SymbolKindFunction, 33},
+			{"read_bit", SymbolKindFunction, 47},
+			{"write_byte", SymbolKindFunction, 62},
+			{"read_byte", SymbolKindFunction, 71},
+			{"write_eeprom", SymbolKindFunction, 86},
+		}, []string{"COM_PIN", "digitalWrite", "pinMode", "Ghost"}},
+		{"arduino-fugu-sensors", "SCRIPTHOLD_REAL_ARDUINO_FUGU", "arduino", []want{
+			{"ADC_SetGain", SymbolKindFunction, 1},
+			{"resetVariables", SymbolKindFunction, 13},
+			{"Read_Sensors", SymbolKindFunction, 19},
+		}, []string{"ads.setGain", "secondsElapsed", "ADC_BitReso", "Ghost"}},
 		{"fsharp-fsharpplus-arrow", "SCRIPTHOLD_REAL_FS_FSHARPPLUS", "fsharp", []want{
 			{"FSharpPlus.Control", SymbolKindNamespace, 1},
 			{"FSharpPlus.Control.Arr", SymbolKindType, 13},

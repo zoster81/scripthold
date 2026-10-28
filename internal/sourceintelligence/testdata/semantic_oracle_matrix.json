@@ -1584,6 +1584,71 @@
       "coverageComplete": true
     },
     {
+      "id": "cpp-static-assert-class-scope",
+      "language": "cpp",
+      "path": "device.hpp",
+      "source": "class Device {\n  static_assert(sizeof(int) > 0, \"ok\");\n  int slot;\n};\n",
+      "present": [
+        {
+          "qualifiedName": "Device",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Device.slot",
+          "kind": "field",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Device.static_assert",
+        "Device.sizeof",
+        "Device.int"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-static-assert-unterminated-incomplete",
+      "language": "cpp",
+      "path": "broken.hpp",
+      "source": "int stable;\nstatic_assert(sizeof(int) > 0, \"unterminated\"\nint after;\n",
+      "present": [
+        {
+          "qualifiedName": "stable",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "static_assert",
+        "sizeof"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "cpp-static-assert-is-not-declaration",
+      "language": "cpp",
+      "path": "sketch.hpp",
+      "source": "static_assert(MAX_LOCOS > 1 && MAX_LOCOS < 256, \"range\");\nvoid setup() {}\nvoid loop() {}\n",
+      "present": [
+        {
+          "qualifiedName": "setup",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "loop",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "MAX_LOCOS",
+        "static_assert"
+      ],
+      "coverageComplete": true
+    },
+    {
       "id": "cpp-member-before-lock-statement",
       "language": "cpp",
       "path": "app_metrics.h",
