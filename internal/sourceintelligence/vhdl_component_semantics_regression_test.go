@@ -58,6 +58,60 @@ end architecture;`
 	}
 }
 
+func TestVHDLArchitectureDoesNotCloseAtNestedFunctionEnd(t *testing.T) {
+	for _, finalEnd := range []string{"end rtl;", "end;"} {
+		t.Run(finalEnd, func(t *testing.T) {
+			source := "entity Core is\nend;\narchitecture rtl of Core is\n" +
+				"  function Helper return integer is\n  begin\n    return 1;\n  end;\n" +
+				"  signal after_function : std_logic;\n" +
+				"  component UART\n    port (clk : in std_logic);\n  end component;\n" +
+				"begin\n  after_function <= '0';\n" + finalEnd + "\n"
+			result, err := (VHDLAnalyzer{}).Analyze(context.Background(), testSourceDocument("nested.vhd", source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Errorf("valid nested VHDL structure must remain complete: %+v", result.Analysis.Diagnostics)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, kind := range map[string]SymbolKind{
+				"Core":                    SymbolKindEntity,
+				"Core.rtl":                SymbolKindImplementation,
+				"Core.rtl.after_function": SymbolKindSignal,
+				"Core.rtl.UART":           SymbolKindType,
+			} {
+				sym, ok := got[name]
+				if !ok || sym.Kind != kind {
+					t.Errorf("%q: found=%v kind=%q; want %q", name, ok, sym.Kind, kind)
+				}
+			}
+		})
+	}
+}
+
+func TestVHDLNestedFunctionEndDoesNotHideUnclosedArchitecture(t *testing.T) {
+	source := "entity Core is\nend;\narchitecture rtl of Core is\n" +
+		"  function Helper return integer is\n  begin\n    return 1;\n  end;\n" +
+		"  signal after_function : std_logic;\nbegin\n  after_function <= '0';\n" +
+		"entity Following is\nend Following;\n"
+	result, err := (VHDLAnalyzer{}).Analyze(context.Background(), testSourceDocument("unclosed-nested.vhd", source), testAnalyzeOptions(false, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete {
+		t.Fatal("nested function's bare end must not make a missing outer architecture complete")
+	}
+	found := false
+	for _, diagnostic := range result.Analysis.Diagnostics {
+		if diagnostic.Code == "vhdl-unclosed-architecture" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing architecture closure diagnostic: %+v", result.Analysis.Diagnostics)
+	}
+}
+
 func TestVHDLUnclosedComponentDoesNotForgeDeclaration(t *testing.T) {
 	source := "entity Core is\nend entity;\narchitecture rtl of Core is\n component Ghost\n begin\nend architecture;\n"
 	result, err := (VHDLAnalyzer{}).Analyze(context.Background(), testSourceDocument("broken.vhd", source), testAnalyzeOptions(false, 64))

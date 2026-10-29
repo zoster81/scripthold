@@ -104,6 +104,36 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 }
 
 func vhdlEnd(text string, start int, kind, name string) int {
+	if kind == "architecture" {
+		// Prefer a named architecture end over a bare end for nested functions.
+		// Never borrow a terminator from a subsequent design unit.
+		limit := len(text)
+		nextUnit := regexp.MustCompile("(?im)^[ \\t]*(?:entity|architecture|package|configuration)[ \\t]+[A-Za-z_][A-Za-z0-9_]*\\b")
+		if match := nextUnit.FindStringIndex(text[start:]); match != nil {
+			limit = start + match[0]
+		}
+		body := text[start:limit]
+		named := regexp.MustCompile("(?im)^[ \\t]*end(?:[ \\t]+architecture(?:[ \\t]+" + regexp.QuoteMeta(name) + ")?|[ \\t]+" + regexp.QuoteMeta(name) + ")[ \\t]*;")
+		if match := named.FindStringIndex(body); match != nil {
+			return start + match[1]
+		}
+		// Without an explicit architecture name, the final bare end is the
+		// outer closure rather than an earlier subprogram's bare end.
+		bare := regexp.MustCompile("(?im)^[ \\t]*end[ \\t]*;")
+		lastEnd := -1
+		for cursor := 0; cursor < len(body); {
+			match := bare.FindStringIndex(body[cursor:])
+			if match == nil {
+				break
+			}
+			lastEnd = cursor + match[1]
+			cursor = lastEnd
+		}
+		if lastEnd >= 0 && strings.TrimSpace(body[lastEnd:]) == "" {
+			return start + lastEnd
+		}
+		return -1
+	}
 	pattern := regexp.MustCompile(`(?im)^[ \t]*end(?:[ \t]+` + regexp.QuoteMeta(kind) + `)?(?:[ \t]+` + regexp.QuoteMeta(name) + `)?[ \t]*;`)
 	if match := pattern.FindStringIndex(text[start:]); match != nil {
 		return start + match[1]
