@@ -1505,6 +1505,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"get_params", SymbolKindLabel, 78},
 			{"find_param", SymbolKindLabel, 107},
 			{"get_output_file", SymbolKindLabel, 121},
+			{"_copyright", SymbolKindVariable, 263},
+			{"_logo", SymbolKindVariable, 265},
+			{"character", SymbolKindVariable, 288},
 		}, []string{"mov", "GetTickCount", "formatter", "ghost"}},
 		{"assembly-universal-68hc11", "SCRIPTHOLD_REAL_ASM_CTAGS", "assembly", []want{
 			{"INTERRUPTS", SymbolKindLabel, 1},
