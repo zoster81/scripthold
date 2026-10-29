@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -109,6 +110,62 @@ func TestVHDLNestedFunctionEndDoesNotHideUnclosedArchitecture(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("missing architecture closure diagnostic: %+v", result.Analysis.Diagnostics)
+	}
+}
+
+func TestVHDLBareNestedFunctionEndAtEOFIsNotArchitectureEnd(t *testing.T) {
+	for _, count := range []int{1, 2} {
+		t.Run(fmt.Sprintf("nested-functions-%d", count), func(t *testing.T) {
+			source := "entity Core is\nend entity;\narchitecture rtl of Core is\n"
+			for n := 0; n < count; n++ {
+				source += fmt.Sprintf("  function F%d return integer is\n  begin\n    return %d;\n  end;\n", n, n)
+			}
+			result, err := (VHDLAnalyzer{}).Analyze(context.Background(), testSourceDocument("unfinished.vhd", source), testAnalyzeOptions(false, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete {
+				t.Fatal("nested function termination is not a closing architecture delimiter")
+			}
+			found := false
+			for _, diagnostic := range result.Analysis.Diagnostics {
+				if diagnostic.Code == "vhdl-unclosed-architecture" {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("missing unclosed architecture diagnostic: %+v", result.Analysis.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestVHDLBareArchitectureEndAfterNamedSubprogramOrPrototype(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		subprogram string
+	}{
+		{"end-function", "function Helper return integer is\nbegin\n  return 1;\nend function;"},
+		{"end-function-name", "function Helper return integer is\nbegin\n  return 1;\nend function Helper;"},
+		{"end-name", "function Helper return integer is\nbegin\n  return 1;\nend Helper;"},
+		{"function-prototype", "function Helper return integer;"},
+		{"end-procedure", "procedure Helper is\nbegin\n  null;\nend procedure;"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "entity Core is\nend entity;\narchitecture rtl of Core is\n" +
+				tc.subprogram + "\nsignal live : std_logic;\nbegin\nlive <= '0';\nend;\n"
+			result, err := (VHDLAnalyzer{}).Analyze(context.Background(), testSourceDocument("named-nested.vhd", source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Errorf("valid architecture should remain complete: %+v", result.Analysis.Diagnostics)
+			}
+			sym, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Core.rtl.live"]
+			if !ok || sym.Kind != SymbolKindSignal {
+				t.Errorf("subprogram closure hid a later architecture signal: present=%v symbol=%+v", ok, sym)
+			}
+		})
 	}
 }
 

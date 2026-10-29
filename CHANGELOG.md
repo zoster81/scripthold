@@ -6,7 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
-- VHDL source navigation preserves architecture declarations beyond nested subprogram `end;` statements and reports missing outer architecture closures instead of silently treating inner closures as complete.
+- VHDL source navigation preserves architecture declarations beyond nested subprogram `end;` statements and reports missing outer architecture closures, including when a nested function ends at the end of the file, instead of treating an inner closure as complete.
 - COBOL source navigation recognizes paragraph declarations in free-form and fixed-format `PROCEDURE DIVISION` code, retaining section ownership and source locations without treating standalone executable statements as paragraphs.
 - SQL source navigation no longer treats unrecognized `CREATE TABLE` headers as confirmed table declarations; it keeps recognized definitions available and explicitly reports incomplete coverage for unsupported headers.
 - D source navigation no longer mistakes assertions inside `unittest` blocks or `static assert(...)` compile-time checks for function declarations; surrounding real functions and types remain discoverable.

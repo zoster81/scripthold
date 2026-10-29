@@ -129,7 +129,8 @@ func vhdlEnd(text string, start int, kind, name string) int {
 			lastEnd = cursor + match[1]
 			cursor = lastEnd
 		}
-		if lastEnd >= 0 && strings.TrimSpace(body[lastEnd:]) == "" {
+		if lastEnd >= 0 && strings.TrimSpace(body[lastEnd:]) == "" &&
+			vhdlArchitectureBareEndProven(body, lastEnd) {
 			return start + lastEnd
 		}
 		return -1
@@ -139,6 +140,48 @@ func vhdlEnd(text string, start int, kind, name string) int {
 		return start + match[1]
 	}
 	return -1
+}
+
+// A bare end following a nested subprogram is not proof of an outer
+// architecture closure until a separate architecture begin follows the
+// subprogram's closing end. Unrecognized forms remain incomplete.
+func vhdlArchitectureBareEndProven(body string, lastEnd int) bool {
+	begin := regexp.MustCompile(`(?im)^[ \t]*begin\b`)
+	subprogram := regexp.MustCompile(`(?im)^[ \t]*(?:(?:pure|impure)[ \t]+)?(?:function|procedure)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	isKeyword := regexp.MustCompile(`(?i)\bis\b`)
+	// Scan headers forward once. Looking for a begin after every header
+	// would rescan large malformed files quadratically.
+	lastHeaderStart, lastHeaderEnd := -1, -1
+	lastBodyName := ""
+	for offset := 0; offset < lastEnd; {
+		match := subprogram.FindStringSubmatchIndex(body[offset:lastEnd])
+		if match == nil {
+			break
+		}
+		lastHeaderStart = offset + match[0]
+		lastHeaderEnd = offset + match[1]
+		lastBodyName = body[offset+match[2] : offset+match[3]]
+		offset = lastHeaderEnd
+	}
+	if lastHeaderStart < 0 {
+		return begin.FindStringIndex(body[:lastEnd]) != nil
+	}
+	opening := begin.FindStringIndex(body[lastHeaderEnd:lastEnd])
+	if opening == nil {
+		return false
+	}
+	if !isKeyword.MatchString(body[lastHeaderStart : lastHeaderEnd+opening[0]]) {
+		// A subprogram prototype without a body does not own a bare end.
+		return begin.FindStringIndex(body[:lastEnd]) != nil
+	}
+	lastBodyStart := lastHeaderEnd + opening[1]
+	closing := regexp.MustCompile(`(?im)^[ \t]*end(?:[ \t]+(?:function|procedure)(?:[ \t]+` +
+		regexp.QuoteMeta(lastBodyName) + `)?|[ \t]+` + regexp.QuoteMeta(lastBodyName) + `)?[ \t]*;`)
+	end := closing.FindStringIndex(body[lastBodyStart:lastEnd])
+	if end == nil {
+		return false
+	}
+	return begin.FindStringIndex(body[lastBodyStart+end[1]:lastEnd]) != nil
 }
 
 var (
