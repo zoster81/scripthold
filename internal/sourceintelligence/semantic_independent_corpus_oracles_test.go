@@ -1413,6 +1413,51 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"json-elekstube-esp32-board", "SCRIPTHOLD_REAL_JSON_ELEKSTUBE", "json", []want{
+			{"build", SymbolKindKey, 2},
+			{"build.arduino.ldscript", SymbolKindKey, 4},
+			{"build.extra_flags", SymbolKindKey, 7},
+			{"upload.flash_size", SymbolKindKey, 29},
+			{"vendor", SymbolKindKey, 36},
+		}, []string{"Ghost", "build.vendor", "build.arduino.mcu"}},
+		{"json-lora-igate-config", "SCRIPTHOLD_REAL_JSON_LORA", "json", []want{
+			{"callsign", SymbolKindKey, 2},
+			{"wifi.autoAP.password", SymbolKindKey, 5},
+			{"beacon.interval", SymbolKindKey, 14},
+			{"lora.rxActive", SymbolKindKey, 43},
+			{"syslog.active", SymbolKindKey, 80},
+			{"mqtt.topic", SymbolKindKey, 94},
+		}, []string{"wifi.password", "beacon.Ghost", "lora.rx", "mqtt.server.name"}},
+		{"json-geekmagic-devcontainer", "SCRIPTHOLD_REAL_JSON_GEEKMAGIC", "json", []want{
+			{"name", SymbolKindKey, 2},
+			{"build.dockerfile", SymbolKindKey, 4},
+			{"customizations.vscode.settings.terminal.integrated.defaultProfile.linux", SymbolKindKey, 9},
+			{"runArgs", SymbolKindKey, 20},
+			{"containerEnv.GNUPGHOME", SymbolKindKey, 42},
+		}, []string{"dockerfile", "runArgs.name", "containerEnv.Ghost"}},
+		{"json-openearable-vscode", "SCRIPTHOLD_REAL_JSON_OPENEARABLE", "json", []want{
+			{"files.associations", SymbolKindKey, 2},
+			{"files.associations.*.cps", SymbolKindKey, 3},
+			{"files.associations.type_traits", SymbolKindKey, 4},
+			{"files.associations.*.txt", SymbolKindKey, 14},
+		}, []string{"type_traits", "files.associations.Ghost", "files"}},
+		{"json-kike-wokwi-diagram", "SCRIPTHOLD_REAL_JSON_KIKE", "json", []want{
+			{"version", SymbolKindKey, 2},
+			{"author", SymbolKindKey, 3},
+			{"parts", SymbolKindKey, 5},
+			{"connections", SymbolKindKey, 10},
+			{"dependencies", SymbolKindKey, 22},
+		}, []string{"parts.type", "parts.id", "connections.id", "Ghost"}},
+		{"json-senseshift-library", "SCRIPTHOLD_REAL_JSON_SENSESHIFT", "json", []want{
+			{"$schema", SymbolKindKey, 2},
+			{"frameworks", SymbolKindKey, 3},
+			{"dependencies", SymbolKindKey, 4},
+			{"dependencies.opengloves-lib", SymbolKindKey, 5},
+		}, []string{"opengloves-lib", "dependencies.Ghost", "schema"}},
+		{"json-farmbot-cpp-properties", "SCRIPTHOLD_REAL_JSON_FARMBOT", "json", []want{
+			{"configurations", SymbolKindKey, 2},
+		}, []string{"configurations.name", "configurations.includePath", "name", "Ghost"}},
+		{"json-dcc-installer-root-array", "SCRIPTHOLD_REAL_JSON_DCC", "json", []want{}, []string{"Name", "Libraries.Name", "SupportedBoards.FQBN", "Ghost"}},
 		{"html-ebus-config", "SCRIPTHOLD_REAL_HTML_EBUS", "html", []want{
 			{"btnHome", SymbolKindEntity, 14},
 			{"wifiSsid", SymbolKindEntity, 28},
@@ -1515,6 +1560,11 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"json-elekstube-esp32-board":      {"build.arduino.ldscript": "build.arduino", "upload.flash_size": "upload"},
+		"json-lora-igate-config":          {"wifi.autoAP.password": "wifi.autoAP", "beacon.interval": "beacon", "lora.rxActive": "lora", "mqtt.topic": "mqtt"},
+		"json-geekmagic-devcontainer":     {"build.dockerfile": "build", "customizations.vscode.settings.terminal.integrated.defaultProfile.linux": "customizations.vscode.settings", "containerEnv.GNUPGHOME": "containerEnv"},
+		"json-openearable-vscode":         {"files.associations.type_traits": "files.associations", "files.associations.*.cps": "files.associations"},
+		"json-senseshift-library":         {"dependencies.opengloves-lib": "dependencies"},
 		"haskell-highlightjs-udp":         {"Network.UDP.DataPacket": "Network.UDP", "Network.UDP.openBoundUDPPort": "Network.UDP", "Network.UDP.pingUDPPort": "Network.UDP"},
 		"objective-c-appdelegate":         {"RCTAppDelegate.init": "RCTAppDelegate", "RCTAppDelegate.rootViewFactory": "RCTAppDelegate"},
 		"objective-c-testlib-common":      {"TestLibraryCommon.defaultPrefix": "TestLibraryCommon"},
@@ -1614,6 +1664,18 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			"Microsoft.EventHandlerExtensions.Raise": "Microsoft.EventHandlerExtensions",
 		},
 	}
+	// The JSON provider deliberately reports arrays of objects and object-free
+	// root arrays as incomplete, rather than inventing indexed key identities.
+	jsonCoverage := map[string]bool{
+		"json-elekstube-esp32-board":    true,
+		"json-lora-igate-config":        true,
+		"json-geekmagic-devcontainer":   true,
+		"json-openearable-vscode":       true,
+		"json-kike-wokwi-diagram":       false,
+		"json-senseshift-library":       true,
+		"json-farmbot-cpp-properties":   false,
+		"json-dcc-installer-root-array": false,
+	}
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -1665,6 +1727,17 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertAnalyzerResultCoordinates(t, result)
+			if wantComplete, exists := jsonCoverage[tc.name]; exists {
+				if result.Analysis.CoverageComplete != wantComplete ||
+					(wantComplete && len(result.Analysis.Diagnostics) != 0) ||
+					(!wantComplete && len(result.Analysis.Diagnostics) == 0) {
+					t.Errorf("JSON independent source coverage mismatch: complete=%v diagnostics=%+v; expected complete=%v",
+						result.Analysis.CoverageComplete, result.Analysis.Diagnostics, wantComplete)
+				}
+				if tc.name == "json-dcc-installer-root-array" && len(result.Analysis.Symbols) != 0 {
+					t.Errorf("unmodeled JSON array root must not invent keys: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
 			seen := make(map[string][]NormalizedSymbol, len(result.Analysis.Symbols))
 			for _, symbol := range result.Analysis.Symbols {
 				seen[symbol.QualifiedName] = append(seen[symbol.QualifiedName], symbol)
