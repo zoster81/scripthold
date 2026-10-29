@@ -694,6 +694,14 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"haskell-highlightjs-udp", "SCRIPTHOLD_REAL_HS_HIGHLIGHTJS", "haskell", []want{
+			{"Network.UDP", SymbolKindModule, 2},
+			{"Network.UDP.DataPacket", SymbolKindInterface, 19},
+			{"Network.UDP.openBoundUDPPort", SymbolKindFunction, 29},
+			{"Network.UDP.pingUDPPort", SymbolKindFunction, 37},
+		}, []string{"Network", "Network.UDP.Strict", "Network.UDP.bindAddr", "Network.UDP.Ghost"}},
+		{"haskell-chroma-numeric", "SCRIPTHOLD_REAL_HS_CHROMA", "haskell", []want{},
+			[]string{"Network", "x", "e", "Ghost"}},
 		{"objective-cpp-gist-wrapper", "SCRIPTHOLD_REAL_OBJCPP_GIST", "objective-cpp", []want{
 			{"MyCppNSStringWrapper", SymbolKindClass, 10},
 			{"MyCppNSStringWrapper.length", SymbolKindMethod, 15},
@@ -1426,6 +1434,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"haskell-highlightjs-udp":         {"Network.UDP.DataPacket": "Network.UDP", "Network.UDP.openBoundUDPPort": "Network.UDP", "Network.UDP.pingUDPPort": "Network.UDP"},
 		"objective-cpp-gist-wrapper":      {"MyCppNSStringWrapper.length": "MyCppNSStringWrapper", "MyCppNSStringWrapper.characterAtIndex": "MyCppNSStringWrapper"},
 		"objective-cpp-react-appdelegate": {"RCTAppDelegate.init": "RCTAppDelegate", "RCTAppDelegate.rootViewFactory": "RCTAppDelegate"},
 		"objective-cpp-testlib-common":    {"TestLibraryCommon.defaultPrefix": "TestLibraryCommon"},
@@ -1612,7 +1621,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-")) &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || tc.name == "haskell-chroma-numeric") &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}

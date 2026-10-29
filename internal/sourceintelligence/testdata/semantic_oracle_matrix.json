@@ -2094,6 +2094,19 @@
       "coverageComplete": true
     },
     {
+      "id": "haskell-qualified-module-and-top-level-signature",
+      "language": "haskell",
+      "path": "UDP.hs",
+      "source": "module Network.UDP where\nclass DataPacket a where\n  toStrictBS :: a -> String\npingUDPPort :: Int -> Int\npingUDPPort value = value\n",
+      "present": [
+        {"qualifiedName": "Network.UDP", "kind": "module", "line": 1},
+        {"qualifiedName": "Network.UDP.DataPacket", "kind": "interface", "line": 2, "parent": "Network.UDP"},
+        {"qualifiedName": "Network.UDP.pingUDPPort", "kind": "function", "line": 4, "parent": "Network.UDP"}
+      ],
+      "forbidden": ["Network", "Network.UDP.String", "Network.UDP.value", "Network.UDP.Ghost"],
+      "coverageComplete": true
+    },
+    {
       "id": "haskell-local-bindings",
       "language": "haskell",
       "path": "Demo.hs",
