@@ -694,6 +694,26 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"purebasic-aliustaoglu-main", "SCRIPTHOLD_REAL_PB_ALIUSTAOGLU", "purebasic", []want{
+			{"Windows", SymbolKindEnum, 6},
+			{"MenuBar", SymbolKindEnum, 10},
+			{"MenuItems", SymbolKindEnum, 14},
+			{"StatusBar", SymbolKindEnum, 23},
+			{"UpdateWindow", SymbolKindFunction, 27},
+			{"Main", SymbolKindFunction, 34},
+		}, []string{"dx", "dy", "WindowWidth", "ProgramTitle", "Ghost"}},
+		{"purebasic-falsam-wan-ip", "SCRIPTHOLD_REAL_PB_FALSAM", "purebasic", []want{
+			{"GetWanIp", SymbolKindFunction, 1},
+		}, []string{"IP", "n", "Buffer", "ReceiveHTTPMemory", "MakeIPAddress", "Ghost"}},
+		{"purebasic-kenmo-7zip", "SCRIPTHOLD_REAL_PB_KENMO", "purebasic", []want{
+			{"__7ZIPSTRUCT", SymbolKindStruct, 33},
+			{"__7ZIPSTRUCT.Init", SymbolKindField, 34},
+			{"__7ZIPSTRUCT.Output", SymbolKindField, 37},
+			{"__7Zip_Run", SymbolKindFunction, 59},
+			{"Reset7Zip", SymbolKindFunction, 87},
+			{"Set7ZipPassword", SymbolKindFunction, 94},
+			{"Set7ZipFlags", SymbolKindFunction, 100},
+		}, []string{"PID", "Executable", "RunProgram", "SevenZip_IncludeVersion", "Ghost"}},
 		{"cpp-cli-iocompression-assembly", "SCRIPTHOLD_REAL_CPPCLI_IO", "cpp-cli", []want{},
 			[]string{"System", "System.Reflection", "AssemblyTitleAttribute", "Ghost"}},
 		{"cpp-cli-libyara-meta", "SCRIPTHOLD_REAL_CPPCLI_LIBYARA", "cpp-cli", []want{
@@ -1318,6 +1338,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"purebasic-kenmo-7zip": {"__7ZIPSTRUCT.Init": "__7ZIPSTRUCT", "__7ZIPSTRUCT.Output": "__7ZIPSTRUCT"},
 		"cpp-cli-libyara-meta": {
 			"libyaraNET.Meta": "libyaraNET", "libyaraNET.Meta.Meta": "libyaraNET.Meta",
 		},

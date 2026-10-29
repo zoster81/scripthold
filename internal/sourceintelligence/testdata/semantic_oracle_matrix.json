@@ -714,6 +714,19 @@
       "coverageComplete": true
     },
     {
+      "id": "purebasic-procedure-return-type-and-name",
+      "language": "purebasic",
+      "path": "typed.pb",
+      "source": "Procedure.i Compute_Value(value.i)\n  ProcedureReturn value\nEndProcedure\nProcedure.s LabelText()\n  ProcedureReturn \"ok\"\nEndProcedure\nProcedure Plain()\nEndProcedure\n",
+      "present": [
+        {"qualifiedName": "Compute_Value", "kind": "function", "line": 1},
+        {"qualifiedName": "LabelText", "kind": "function", "line": 4},
+        {"qualifiedName": "Plain", "kind": "function", "line": 7}
+      ],
+      "forbidden": ["Compute", "i", "s", "ProcedureReturn", "Ghost"],
+      "coverageComplete": true
+    },
+    {
       "id": "purebasic-module-and-procedure",
       "language": "purebasic",
       "path": "tools.pb",

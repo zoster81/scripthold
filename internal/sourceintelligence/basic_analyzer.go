@@ -630,7 +630,12 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 		kind = SymbolKindOperator
 	}
 	if label == "procedure" {
-		nameIndex = 1
+		nameIndex = semantic + 1
+		// PureBasic permits a return type between Procedure and its name.
+		if p.policy.pureBasic && nameIndex+2 < len(tokens) && tokens[nameIndex].Text == "." &&
+			(tokens[nameIndex+1].Kind == TokenIdentifier || tokens[nameIndex+1].Kind == TokenKeyword) {
+			nameIndex += 2
+		}
 	}
 	if label == "property" && nameIndex < len(tokens) {
 		switch strings.ToLower(tokens[nameIndex].Text) {
