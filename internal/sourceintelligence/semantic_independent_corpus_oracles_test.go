@@ -1413,6 +1413,37 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"vhdl-linguist-inverter", "SCRIPTHOLD_REAL_VHDL_LINGUIST", "vhdl", []want{
+			{"inverter", SymbolKindEntity, 6},
+			{"inverter.rtl", SymbolKindImplementation, 11},
+		}, []string{"ieee", "std_logic", "rtl", "inverter.ghost"}},
+		{"vhdl-geany-logical-ops", "SCRIPTHOLD_REAL_VHDL_GEANY", "vhdl", []want{
+			{"logical_ops_1", SymbolKindEntity, 2},
+		}, []string{"bit", "std_logic", "logical_ops_1.ghost"}},
+		{"vhdl-ctags-component", "SCRIPTHOLD_REAL_VHDL_CTAGS", "vhdl", []want{
+			{"ENTITY_TOP", SymbolKindEntity, 6},
+			{"ENTITY_TOP.arch", SymbolKindImplementation, 15},
+			{"ENTITY_TOP.arch.sig", SymbolKindSignal, 16},
+		}, []string{"ieee", "ENTITY_TOP.arch.ghost", "sig"}},
+		{"vhdl-lexilla-generate", "SCRIPTHOLD_REAL_VHDL_LEXILLA", "vhdl", []want{
+			{"x", SymbolKindEntity, 5},
+			{"x.behavioral", SymbolKindImplementation, 16},
+			{"x.behavioral.q_i", SymbolKindSignal, 17},
+		}, []string{"std_logic", "behavioral", "rising_edge", "x.ghost"}},
+		{"vhdl-pygments-multientity", "SCRIPTHOLD_REAL_VHDL_PYGMENTS", "vhdl", []want{
+			{"top_testbench", SymbolKindEntity, 11},
+			{"top_testbench.top_testbench_arch", SymbolKindImplementation, 18},
+			{"top_testbench.top_testbench_arch.clk", SymbolKindSignal, 34},
+			{"add32csa", SymbolKindEntity, 137},
+			{"add32csa.circuits", SymbolKindImplementation, 148},
+			{"add32csa.circuits.zero", SymbolKindSignal, 149},
+		}, []string{"ieee", "std_logic_vector", "top_testbench.top_testbench_arch.ghost", "add32csa.circuits.ghost"}},
+		{"vhdl-kde-muldiv-partial", "SCRIPTHOLD_REAL_VHDL_KDE", "vhdl", []want{
+			{"light52_muldiv", SymbolKindEntity, 84},
+			{"light52_muldiv.sequential", SymbolKindImplementation, 107},
+			{"light52_muldiv.sequential.bit_ctr", SymbolKindSignal, 109},
+			{"concat", SymbolKindEntity, 384},
+		}, []string{"t_word", "work", "light52_muldiv.ghost"}},
 		{"d-linguist-function", "SCRIPTHOLD_REAL_D_LINGUIST", "d", []want{
 			{"foo", SymbolKindFunction, 1},
 		}, []string{"bar", "void", "ghost"}},
@@ -1677,6 +1708,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"vhdl-lexilla-generate":           {"x.behavioral": "x", "x.behavioral.q_i": "x.behavioral"},
+		"vhdl-pygments-multientity":       {"top_testbench.top_testbench_arch": "top_testbench", "top_testbench.top_testbench_arch.clk": "top_testbench.top_testbench_arch", "add32csa.circuits.zero": "add32csa.circuits"},
+		"vhdl-ctags-component":            {"ENTITY_TOP.arch": "ENTITY_TOP", "ENTITY_TOP.arch.sig": "ENTITY_TOP.arch"},
 		"d-geany-struct-class":            {"test.simple.Class.bar": "test.simple.Class"},
 		"d-source-highlight-class":        {"CmdLin.argnum": "CmdLin", "CmdLin.argv": "CmdLin"},
 		"sql-sqlprovider-postgresql":      {"other_schema.table_in_other_schema": "other_schema"},
@@ -1784,6 +1818,16 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			"Microsoft.EventHandlerExtensions.Raise": "Microsoft.EventHandlerExtensions",
 		},
 	}
+	// Real VHDL highlighting samples may contain unsupported or malformed constructs;
+	// their bounded structural coverage must remain explicit.
+	vhdlCoverage := map[string]bool{
+		"vhdl-linguist-inverter":    true,
+		"vhdl-geany-logical-ops":    true,
+		"vhdl-ctags-component":      true,
+		"vhdl-lexilla-generate":     true,
+		"vhdl-pygments-multientity": true,
+		"vhdl-kde-muldiv-partial":   false,
+	}
 	// The JSON provider deliberately reports arrays of objects and object-free
 	// root arrays as incomplete, rather than inventing indexed key identities.
 	jsonCoverage := map[string]bool{
@@ -1856,6 +1900,14 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				(!result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0) {
 				t.Errorf("valid original XML unexpectedly incomplete: complete=%v diagnostics=%+v",
 					result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
+			}
+			if complete, exists := vhdlCoverage[tc.name]; exists {
+				if result.Analysis.CoverageComplete != complete ||
+					(complete && len(result.Analysis.Diagnostics) != 0) ||
+					(!complete && len(result.Analysis.Diagnostics) == 0) {
+					t.Errorf("VHDL original-source coverage: complete=%v diagnostics=%+v; expected complete=%v",
+						result.Analysis.CoverageComplete, result.Analysis.Diagnostics, complete)
+				}
 			}
 			if wantComplete, exists := jsonCoverage[tc.name]; exists {
 				if result.Analysis.CoverageComplete != wantComplete ||
