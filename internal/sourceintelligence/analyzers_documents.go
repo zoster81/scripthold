@@ -42,10 +42,20 @@ func (AnsibleYAMLAnalyzer) ID() AnalyzerID   { return AnalyzerAnsibleYAML }
 func (AnsibleYAMLAnalyzer) Language() string { return "ansible-yaml" }
 
 var (
-	markupTag      = regexp.MustCompile(`(?is)<([A-Za-z_][A-Za-z0-9_.:-]*)\b[^>]*>`)
-	markupDoubleID = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*"([^"]+)"`)
-	markupSingleID = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*'([^']+)'`)
-	markupBareID   = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*([^\s>"']+)`)
+	markupTag        = regexp.MustCompile(`(?is)<([A-Za-z_][A-Za-z0-9_.:-]*)\b[^>]*>`)
+	markupDoubleID   = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*"([^"]+)"`)
+	markupSingleID   = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*'([^']+)'`)
+	markupBareID     = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*([^\s>"']+)`)
+	htmlRawTextClose = map[string]*regexp.Regexp{
+		"script":   regexp.MustCompile(`(?i)</script\s*>`),
+		"style":    regexp.MustCompile(`(?i)</style\s*>`),
+		"textarea": regexp.MustCompile(`(?i)</textarea\s*>`),
+		"title":    regexp.MustCompile(`(?i)</title\s*>`),
+		"xmp":      regexp.MustCompile(`(?i)</xmp\s*>`),
+		"iframe":   regexp.MustCompile(`(?i)</iframe\s*>`),
+		"noembed":  regexp.MustCompile(`(?i)</noembed\s*>`),
+		"noframes": regexp.MustCompile(`(?i)</noframes\s*>`),
+	}
 )
 
 func (HTMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -66,25 +76,48 @@ func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, option
 		regions = append(regions, [2]string{"<![CDATA[", "]]>"})
 	}
 	source := maskDelimitedSourceRegions(document.Text, regions)
-	for _, tag := range markupTag.FindAllStringSubmatchIndex(source, -1) {
+	for cursor := 0; cursor < len(source); {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
-		raw := document.Text[tag[0]:tag[1]]
-		var id []int
-		for _, pattern := range []*regexp.Regexp{markupDoubleID, markupSingleID, markupBareID} {
-			match := pattern.FindStringSubmatchIndex(raw)
-			if match != nil {
-				id = match
-				break
-			}
+		tag := markupTag.FindStringSubmatchIndex(source[cursor:])
+		if tag == nil {
+			break
 		}
-		if id == nil {
+		start, end := cursor+tag[0], cursor+tag[1]
+		raw := document.Text[start:end]
+		for _, pattern := range []*regexp.Regexp{markupDoubleID, markupSingleID, markupBareID} {
+			id := pattern.FindStringSubmatchIndex(raw)
+			if id == nil {
+				continue
+			}
+			name := raw[id[2]:id[3]]
+			addDocumentDataHardwareSymbol(builder, SymbolKindEntity, "id-element", name, nil,
+				OffsetRange{Start: start, End: end}, OffsetRange{Start: start + id[2], End: start + id[3]})
+			break
+		}
+		tagName := strings.ToLower(source[cursor+tag[2] : cursor+tag[3]])
+		cursor = end
+		if language != "html" {
 			continue
 		}
-		name := raw[id[2]:id[3]]
-		addDocumentDataHardwareSymbol(builder, SymbolKindEntity, "id-element", name, nil,
-			OffsetRange{Start: tag[0], End: tag[1]}, OffsetRange{Start: tag[0] + id[2], End: tag[0] + id[3]})
+		name := tagName
+		if strings.HasSuffix(strings.TrimSpace(raw[:len(raw)-1]), "/") {
+			continue // Self-closing tags in template hosts have no raw-text body.
+		}
+		if name == "plaintext" {
+			break // HTML plaintext content extends to EOF.
+		}
+		closePattern := htmlRawTextClose[name]
+		if closePattern == nil {
+			continue
+		}
+		closeTag := closePattern.FindStringIndex(source[cursor:])
+		if closeTag == nil {
+			builder.MarkIncomplete()
+			break // An unterminated raw-text element cannot safely expose later tags.
+		}
+		cursor += closeTag[1]
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }

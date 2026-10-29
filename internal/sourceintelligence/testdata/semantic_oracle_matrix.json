@@ -1908,6 +1908,49 @@
       "coverageComplete": true
     },
     {
+      "id": "html-script-and-style-text-are-not-markup",
+      "language": "html",
+      "path": "inline.html",
+      "source": "<script id=\"script-anchor\">\nconst html = '<li id=\"face_item_' + key + '\">';\n</script>\n<style>.x::before { content: '<span id=\"style-ghost\">'; }</style>\n<textarea><div id=\"textarea-ghost\"></textarea>\n<main id=\"actual\"></main>\n",
+      "present": [
+        {
+          "qualifiedName": "script-anchor",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "actual",
+          "kind": "entity",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "face_item_' + key + '",
+        "face_item_",
+        "style-ghost",
+        "textarea-ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "html-unterminated-script-does-not-expose-phantoms",
+      "language": "html",
+      "path": "broken.html",
+      "source": "<div id=\"before\"></div>\n<script>\nconst html = '<div id=\"phantom\">';\n<section id=\"also-phantom\">\n",
+      "present": [
+        {
+          "qualifiedName": "before",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "phantom",
+        "also-phantom"
+      ],
+      "coverageComplete": false
+    },
+    {
       "id": "dart-named-constructors-not-methods",
       "language": "dart",
       "path": "vessel.dart",

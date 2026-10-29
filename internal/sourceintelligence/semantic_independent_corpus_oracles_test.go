@@ -1413,6 +1413,35 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"html-ebus-config", "SCRIPTHOLD_REAL_HTML_EBUS", "html", []want{
+			{"btnHome", SymbolKindEntity, 14},
+			{"wifiSsid", SymbolKindEntity, 28},
+			{"wifiTableBody", SymbolKindEntity, 50},
+		}, []string{"WiFi Credentials", "fetchJson", "configureWireless", "ghost"}},
+		{"html-dcc-websocket", "SCRIPTHOLD_REAL_HTML_DCC", "html", []want{
+			{"message", SymbolKindEntity, 36},
+			{"messages", SymbolKindEntity, 39},
+		}, []string{"sender", "messageElem", "WebSocket", "ghost"}},
+		{"html-elekstube-app", "SCRIPTHOLD_REAL_HTML_ELEKSTUBE", "html", []want{
+			{"mainMenu", SymbolKindEntity, 800},
+			{"clock", SymbolKindEntity, 806},
+			{"logo", SymbolKindEntity, 810},
+		}, []string{"face_item_' + key + '", "updateElements", "setFace", "ghost"}},
+		{"html-lora-igate", "SCRIPTHOLD_REAL_HTML_LORA", "html", []want{
+			{"backup", SymbolKindEntity, 74},
+			{"restore", SymbolKindEntity, 75},
+			{"themeToggle", SymbolKindEntity, 76},
+			{"callsign", SymbolKindEntity, 264},
+		}, []string{"localStorage", "igateTheme", "document", "ghost"}},
+		{"html-sparkfun-rtk", "SCRIPTHOLD_REAL_HTML_SPARKFUN", "html", []want{
+			{"batteryIcon", SymbolKindEntity, 85},
+			{"batteryPercent", SymbolKindEntity, 87},
+			{"resetInProcess", SymbolKindEntity, 92},
+		}, []string{"WebSocket", "getElementById", "bootstrap", "ghost"}},
+		{"html-geekmagic-gif", "SCRIPTHOLD_REAL_HTML_GEEKMAGIC", "html", []want{
+			{"header-placeholder", SymbolKindEntity, 20},
+			{"footer-placeholder", SymbolKindEntity, 80},
+		}, []string{"gifUploadHandler", "uploadGif", "image/gif", "ghost"}},
 		{"javascript-ebus-common", "SCRIPTHOLD_REAL_JS_EBUS", "javascript", []want{
 			{"handleHome", SymbolKindFunction, 6},
 			{"setStatus", SymbolKindFunction, 14},
