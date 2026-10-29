@@ -367,6 +367,18 @@
       "coverageComplete": true
     },
     {
+      "id": "objective-cpp-class-typedef-return-is-function",
+      "language": "objective-cpp",
+      "path": "Linking.mm",
+      "source": "Class RCTLinkingClassProvider(const char *name) {\n  return nil;\n}\nclass RealCppType {};\n",
+      "present": [
+        {"qualifiedName": "RCTLinkingClassProvider", "kind": "function", "line": 1},
+        {"qualifiedName": "RealCppType", "kind": "class", "line": 4}
+      ],
+      "forbidden": ["Class", "RCTLinkingClassProvider.nil", "Ghost"],
+      "coverageComplete": true
+    },
+    {
       "id": "objective-cpp-interface-and-cpp-class",
       "language": "objective-cpp",
       "path": "Bridge.mm",

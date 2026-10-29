@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - C++/CLI source analysis recognizes managed classes declared with trailing `sealed` or `abstract` modifiers and excludes `[assembly:...]` attributes from source declarations, including when an attribute line omits its trailing semicolon.
 - PureBasic source navigation recognizes procedures with explicit return types (for example `Procedure.i` and `Procedure.s`) while preserving their declared names and source positions.
 - Dart source navigation correctly identifies named constructors (including factory and const forms) as constructors rather than ordinary methods; surrounding methods remain unchanged.
+- Objective-C++ source navigation no longer mistakes the Objective-C `Class` return type for a lowercase C++ `class` declaration; C++ classes and functions remain discoverable.
 
 These read-only parser fixes do not change MCP inputs, filesystem authorization, or execution privileges.
 

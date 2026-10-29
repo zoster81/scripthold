@@ -694,6 +694,33 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"objective-cpp-gist-wrapper", "SCRIPTHOLD_REAL_OBJCPP_GIST", "objective-cpp", []want{
+			{"MyCppNSStringWrapper", SymbolKindClass, 10},
+			{"MyCppNSStringWrapper.length", SymbolKindMethod, 15},
+			{"MyCppNSStringWrapper.characterAtIndex", SymbolKindMethod, 16},
+			{"main", SymbolKindFunction, 49},
+		}, []string{"NSString", "NSAutoreleasePool", "alloc", "initWithCString", "Ghost"}},
+		{"objective-cpp-react-appdelegate", "SCRIPTHOLD_REAL_OBJCPP_APPDELEGATE", "objective-cpp", []want{
+			{"RCTAppDelegate@implementation", SymbolKindImplementation, 31},
+			{"RCTAppDelegate.init", SymbolKindConstructor, 33},
+			{"RCTAppDelegate.rootViewFactory", SymbolKindMethod, 65},
+		}, []string{"RCTReactNativeFactory", "RCTAppDelegate.Ghost", "RCTAppDelegate.alloc", "RCTAppDelegate.self"}},
+		{"objective-cpp-react-animation-utils", "SCRIPTHOLD_REAL_OBJCPP_ANIMATION", "objective-cpp", []want{
+			{"RCTFindIndexOfNearestValue", SymbolKindFunction, 16},
+			{"RCTInterpolateValue", SymbolKindFunction, 32},
+			{"RCTInterpolateValueInRange", SymbolKindFunction, 71},
+			{"RCTInterpolateColorInRange", SymbolKindFunction, 87},
+		}, []string{"CGFloat", "RCTLogError", "getRed", "index", "Ghost"}},
+		{"objective-cpp-react-linking", "SCRIPTHOLD_REAL_OBJCPP_LINKING", "objective-cpp", []want{
+			{"RCTLinkingClassProvider", SymbolKindFunction, 20},
+		}, []string{"RCTLinkingManagerCls", "Class", "std", "Ghost"}},
+		{"objective-cpp-testlib-apple", "SCRIPTHOLD_REAL_OBJCPP_TESTAPPLE", "objective-cpp", []want{
+			{"TestLibraryApple@implementation", SymbolKindImplementation, 16},
+		}, []string{"RCTPromiseResolveBlock", "TestLibraryCommon", "stringWithFormat", "Ghost"}},
+		{"objective-cpp-testlib-common", "SCRIPTHOLD_REAL_OBJCPP_TESTCOMMON", "objective-cpp", []want{
+			{"TestLibraryCommon@implementation", SymbolKindImplementation, 10},
+			{"TestLibraryCommon.defaultPrefix", SymbolKindMethod, 14},
+		}, []string{"RCT_EXPORT_MODULE", "RCTPromiseResolveBlock", "resolve", "Ghost"}},
 		{"dart-sdk-core-bool", "SCRIPTHOLD_REAL_DART_SDK", "dart", []want{
 			{"bool", SymbolKindClass, 16},
 			{"bool.parse", SymbolKindMethod, 159},
@@ -1399,8 +1426,11 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
-		"dart-sdk-core-bool":      {"bool.parse": "bool", "bool.fromEnvironment": "bool"},
-		"dart-chroma-monte-carlo": {"Point.Point": "Point"},
+		"objective-cpp-gist-wrapper":      {"MyCppNSStringWrapper.length": "MyCppNSStringWrapper", "MyCppNSStringWrapper.characterAtIndex": "MyCppNSStringWrapper"},
+		"objective-cpp-react-appdelegate": {"RCTAppDelegate.init": "RCTAppDelegate", "RCTAppDelegate.rootViewFactory": "RCTAppDelegate"},
+		"objective-cpp-testlib-common":    {"TestLibraryCommon.defaultPrefix": "TestLibraryCommon"},
+		"dart-sdk-core-bool":              {"bool.parse": "bool", "bool.fromEnvironment": "bool"},
+		"dart-chroma-monte-carlo":         {"Point.Point": "Point"},
 		"dart-highlightjs-sample": {
 			"SomeClass.SomeClass": "SomeClass", "SomeClass._internal": "SomeClass",
 			"SomeClass.sum": "SomeClass", "SomeClass.els": "SomeClass",

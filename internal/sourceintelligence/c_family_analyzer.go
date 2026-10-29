@@ -1154,7 +1154,8 @@ func (parser *cFamilyParser) typeDeclarationAt(start, end int) (keyword, declara
 			continue
 		}
 		if text == "struct" || text == "class" || text == "union" || text == "enum" {
-			if text == "class" && !parser.cpp {
+			// C++ keywords are case-sensitive; Objective-C uses Class as a type name.
+			if text == "class" && (!parser.cpp || parser.tokens[cursor].Text != "class") {
 				return 0, start, false
 			}
 			if !parser.typeHeadIsDefinitionOrForwardDeclaration(cursor, end) {
