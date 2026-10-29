@@ -1413,6 +1413,32 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"xml-elekstube-weather-svg", "SCRIPTHOLD_REAL_XML_ELEKSTUBE", "xml", []want{
+			{"a", SymbolKindEntity, 1},
+			{"b", SymbolKindEntity, 1},
+			{"c", SymbolKindEntity, 1},
+		}, []string{"svg", "linearGradient", "path", "d", "ghost"}},
+		{"xml-sparkfun-icon-font", "SCRIPTHOLD_REAL_XML_SPARKFUN", "xml", []want{
+			{"icomoon", SymbolKindEntity, 6},
+		}, []string{"close, remove, times", "info-circle", "floppy-o, save", "font-face", "ghost"}},
+		{"xml-kike-laser-svg", "SCRIPTHOLD_REAL_XML_KIKE", "xml", []want{
+			{"svg3090", SymbolKindEntity, 2},
+			{"metadata3139", SymbolKindEntity, 17},
+			{"namedview3137", SymbolKindEntity, 29},
+			{"defs3092", SymbolKindEntity, 51},
+			{"marker22685", SymbolKindEntity, 53},
+			{"path22683", SymbolKindEntity, 61},
+		}, []string{"sodipodi:docname", "Arrow1Lend", "svg:svg", "ghost"}},
+		{"xml-maxritter-enclosure-svg", "SCRIPTHOLD_REAL_XML_MAXRITTER", "xml", []want{
+			{"face0-cut", SymbolKindEntity, 9},
+			{"face1-cut", SymbolKindEntity, 13},
+			{"face2-cut", SymbolKindEntity, 17},
+			{"face0-interior", SymbolKindEntity, 33},
+		}, []string{"path", "fill", "stroke", "ghost"}},
+		{"xml-dapper-nhibernate-mapping", "SCRIPTHOLD_REAL_XML_DAPPER", "xml", []want{}, []string{"Id", "Counter1", "Posts", "hibernate-mapping", "ghost"}},
+		{"xml-serilog-linker", "SCRIPTHOLD_REAL_XML_SERILOG", "xml", []want{}, []string{"Serilog", "Serilog.Capturing.TrimConfiguration", "get_IsStructureValueSupported", "linker", "ghost"}},
+		{"xml-lexilla-cdata", "SCRIPTHOLD_REAL_XML_LEXILLA", "xml", []want{}, []string{"len", "done", "example-code", "foo", "ghost"}},
+		{"xml-utilitech-favicon", "SCRIPTHOLD_REAL_XML_UTILITECH", "xml", []want{}, []string{"svg", "path", "ghost"}},
 		{"sql-flask-schema", "SCRIPTHOLD_REAL_SQL_FLASK", "sql", []want{
 			{"user", SymbolKindType, 7},
 			{"post", SymbolKindType, 13},
@@ -1761,6 +1787,11 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertAnalyzerResultCoordinates(t, result)
+			if strings.HasPrefix(tc.name, "xml-") && tc.name != "xml-maxritter-enclosure-svg" &&
+				(!result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0) {
+				t.Errorf("valid original XML unexpectedly incomplete: complete=%v diagnostics=%+v",
+					result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
+			}
 			if wantComplete, exists := jsonCoverage[tc.name]; exists {
 				if result.Analysis.CoverageComplete != wantComplete ||
 					(wantComplete && len(result.Analysis.Diagnostics) != 0) ||
@@ -1811,7 +1842,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric" || tc.name == "sql-lexilla-non-declarations" || tc.name == "sql-pygments-dml-no-declarations") &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric" || tc.name == "sql-lexilla-non-declarations" || tc.name == "sql-pygments-dml-no-declarations" || strings.HasPrefix(tc.name, "xml-")) &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
@@ -1826,15 +1857,15 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				t.Errorf("AutoHotkey original-source declaration inventory differs: got %d symbols, want %d; declarations=%v",
 					len(result.Analysis.Symbols), len(tc.present), seen)
 			}
-			if tc.name == "plsql-oxar" {
-				// This source has a declaration header above the configured signature-text cap.
+			if tc.name == "plsql-oxar" || tc.name == "xml-maxritter-enclosure-svg" {
+				// Long source declarations exceed the configured signature-text cap.
 				// Retained declarations remain checkable, but coverage must stay explicitly partial.
 				if !result.Analysis.Truncated || result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
-					t.Errorf("large PL/SQL signature must report partial retention: %+v", result.Analysis)
+					t.Errorf("oversized source signature must report partial retention: %+v", result.Analysis)
 				}
 				for _, diagnostic := range result.Analysis.Diagnostics {
 					if diagnostic.Code != "signature-limit" {
-						t.Errorf("unexpected PL/SQL partial-coverage reason: %+v", diagnostic)
+						t.Errorf("unexpected source signature partial-coverage reason: %+v", diagnostic)
 					}
 				}
 			} else if result.Analysis.Truncated {
