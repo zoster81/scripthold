@@ -694,6 +694,39 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"bash-ansible-dns-config", "SCRIPTHOLD_REAL_SH_ANSIBLE", "bash", []want{
+			{"print_help", SymbolKindFunction, 21},
+			{"checkForProgram", SymbolKindFunction, 111},
+			{"checkDomain", SymbolKindFunction, 126},
+			{"checkRecord", SymbolKindFunction, 144},
+			{"deleteRecord", SymbolKindFunction, 159},
+			{"writeDNS", SymbolKindFunction, 165},
+		}, []string{"DO_PAT", "PARAMS", "record_type", "domain", "force_add", "Ghost"}},
+		{"shell-ansible-dns-config", "SCRIPTHOLD_REAL_SH_ANSIBLE", "shell", []want{
+			{"print_help", SymbolKindFunction, 21},
+			{"checkForProgram", SymbolKindFunction, 111},
+			{"checkDomain", SymbolKindFunction, 126},
+			{"checkRecord", SymbolKindFunction, 144},
+			{"deleteRecord", SymbolKindFunction, 159},
+			{"writeDNS", SymbolKindFunction, 165},
+		}, []string{"DO_PAT", "record_name", "Ghost"}},
+		{"shell-arduino-wifi-upgrade", "SCRIPTHOLD_REAL_SH_ARDUINO", "shell", []want{
+			{"usage", SymbolKindFunction, 11},
+			{"upgradeHDmodule", SymbolKindFunction, 23},
+			{"upgradeShield", SymbolKindFunction, 39},
+		}, []string{"WIFI_FW_PATH", "progname", "cat", "dfu-programmer", "Ghost"}},
+		{"shell-curl-codespell", "SCRIPTHOLD_REAL_SH_CURL", "shell", []want{},
+			[]string{"codespell", "git", "xargs", "skip", "Ghost"}},
+		{"shell-automapper-prebuild", "SCRIPTHOLD_REAL_SH_AUTOMAPPER", "shell", []want{},
+			[]string{"version", "major", "minor", "patch", "oldVersion", "curl", "unzip", "Ghost"}},
+		{"shell-testify-gofmt", "SCRIPTHOLD_REAL_SH_TESTIFY", "shell", []want{},
+			[]string{"gofmt", "git", "go", "Ghost"}},
+		{"shell-kotlin-runtest", "SCRIPTHOLD_REAL_SH_KOTLIN", "shell", []want{},
+			[]string{"FILTERED_FILE", "cat", "sed", "konanc", "Ghost"}},
+		{"shell-fastapi-format", "SCRIPTHOLD_REAL_SH_FASTAPI", "shell", []want{},
+			[]string{"ruff", "check", "format", "Ghost"}},
+		{"shell-rust-clean-all", "SCRIPTHOLD_REAL_SH_RUST", "shell", []want{},
+			[]string{"rm", "target", "Ghost"}},
 		{"purebasic-aliustaoglu-main", "SCRIPTHOLD_REAL_PB_ALIUSTAOGLU", "purebasic", []want{
 			{"Windows", SymbolKindEnum, 6},
 			{"MenuBar", SymbolKindEnum, 10},
@@ -1511,7 +1544,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-")) &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-")) &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
