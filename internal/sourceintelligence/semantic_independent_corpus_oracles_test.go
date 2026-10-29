@@ -1413,6 +1413,20 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"cobol-linguist-hello", "SCRIPTHOLD_REAL_COBOL_LINGUIST", "cobol", []want{
+			{"hello", SymbolKindModule, 2},
+		}, []string{"DISPLAY", "Hello World!", "ghost"}},
+		{"cobol-geany-program", "SCRIPTHOLD_REAL_COBOL_GEANY", "cobol", []want{
+			{"Program-Name", SymbolKindModule, 2},
+		}, []string{"STOP", "SAMPLE.DAT", "ZEROS", "ghost"}},
+		{"cobol-pygments-ocic", "SCRIPTHOLD_REAL_COBOL_PYGMENTS", "cobol", []want{
+			{"OCic", SymbolKindModule, 2},
+		}, []string{"OpenCOBOL", "Compile", "ghost"}},
+		{"cobol-sample-even-odd", "SCRIPTHOLD_REAL_COBOL_SAMPLE", "cobol", []want{
+			{"even-odd", SymbolKindModule, 2},
+		}, []string{"test-numval", "cmdargs.from.command-line", "Usage: please input a number", "ghost"}},
+		{"cobol-ctags-comment-only", "SCRIPTHOLD_REAL_COBOL_CTAGS", "cobol", []want{}, []string{"DONTTAGME", "DONTTAGME.SECTION", "ghost"}},
+		{"cobol-lexilla-token-samples", "SCRIPTHOLD_REAL_COBOL_LEXILLA", "cobol", []want{}, []string{"identifier", "data", "remarks", "preprocessor", "ghost"}},
 		{"vhdl-linguist-inverter", "SCRIPTHOLD_REAL_VHDL_LINGUIST", "vhdl", []want{
 			{"inverter", SymbolKindEntity, 6},
 			{"inverter.rtl", SymbolKindImplementation, 11},
@@ -1959,7 +1973,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric" || tc.name == "sql-lexilla-non-declarations" || tc.name == "sql-pygments-dml-no-declarations" || strings.HasPrefix(tc.name, "xml-") || strings.HasPrefix(tc.name, "assembly-")) &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric" || tc.name == "sql-lexilla-non-declarations" || tc.name == "sql-pygments-dml-no-declarations" || strings.HasPrefix(tc.name, "xml-") || strings.HasPrefix(tc.name, "assembly-") || tc.name == "cobol-ctags-comment-only" || tc.name == "cobol-lexilla-token-samples") &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
