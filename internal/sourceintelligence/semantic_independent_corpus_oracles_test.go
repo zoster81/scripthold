@@ -1413,6 +1413,36 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"assembly-linguist-fasm", "SCRIPTHOLD_REAL_ASM_LINGUIST", "assembly", []want{
+			{"start", SymbolKindLabel, 10},
+			{"display_bytes_count", SymbolKindLabel, 64},
+			{"get_params", SymbolKindLabel, 78},
+			{"find_param", SymbolKindLabel, 107},
+			{"get_output_file", SymbolKindLabel, 121},
+		}, []string{"mov", "GetTickCount", "formatter", "ghost"}},
+		{"assembly-universal-68hc11", "SCRIPTHOLD_REAL_ASM_CTAGS", "assembly", []want{
+			{"INTERRUPTS", SymbolKindLabel, 1},
+			{"sym2", SymbolKindLabel, 21},
+			{"sym3", SymbolKindLabel, 22},
+			{"sym4", SymbolKindLabel, 23},
+		}, []string{"LDS", "LDAA", "bne", "ghost"}},
+		{"assembly-geany-masm", "SCRIPTHOLD_REAL_ASM_GEANY", "assembly", []want{
+			{"QUACK", SymbolKindLabel, 5},
+			{"LabelMaker1", SymbolKindLabel, 25},
+			{"LabelMaker2", SymbolKindLabel, 27},
+		}, []string{"enter", "mov", "ENDP", "ghost"}},
+		{"assembly-pygments-nasm", "SCRIPTHOLD_REAL_ASM_PYGMENTS", "assembly", []want{
+			{"..start", SymbolKindLabel, 12},
+			{"hello", SymbolKindLabel, 26},
+			{"stacktop", SymbolKindLabel, 30},
+		}, []string{"mov", "int", "resb", "ghost"}},
+		{"assembly-source-highlight-screen", "SCRIPTHOLD_REAL_ASM_SOURCE_HIGHLIGHT", "assembly", []want{
+			{"_VIOheight", SymbolKindLabel, 39},
+			{"odos4", SymbolKindLabel, 47},
+			{"cga", SymbolKindLabel, 56},
+		}, []string{"ret", "info.txtrow", "public", "ghost"}},
+		{"assembly-lexilla-styles", "SCRIPTHOLD_REAL_ASM_LEXILLA", "assembly", []want{}, []string{"identifier", "section", "ECX", "ghost"}},
+		{"assembly-nasm-directives", "SCRIPTHOLD_REAL_ASM_NASM", "assembly", []want{}, []string{"__FILE__", "__LINE__", "db", "ghost"}},
 		{"xml-elekstube-weather-svg", "SCRIPTHOLD_REAL_XML_ELEKSTUBE", "xml", []want{
 			{"a", SymbolKindEntity, 1},
 			{"b", SymbolKindEntity, 1},
@@ -1787,6 +1817,11 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertAnalyzerResultCoordinates(t, result)
+			if strings.HasPrefix(tc.name, "assembly-") &&
+				(!result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0) {
+				t.Errorf("bounded assembly label scan unexpectedly incomplete: complete=%v diagnostics=%+v",
+					result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
+			}
 			if strings.HasPrefix(tc.name, "xml-") && tc.name != "xml-maxritter-enclosure-svg" &&
 				(!result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0) {
 				t.Errorf("valid original XML unexpectedly incomplete: complete=%v diagnostics=%+v",
@@ -1842,7 +1877,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric" || tc.name == "sql-lexilla-non-declarations" || tc.name == "sql-pygments-dml-no-declarations" || strings.HasPrefix(tc.name, "xml-")) &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric" || tc.name == "sql-lexilla-non-declarations" || tc.name == "sql-pygments-dml-no-declarations" || strings.HasPrefix(tc.name, "xml-") || strings.HasPrefix(tc.name, "assembly-")) &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
