@@ -21,6 +21,20 @@ func TestBraceSharedStatementConsumption(t *testing.T) {
 			absent:   []string{"demo.core.core", "demo.core.stdio"},
 		},
 		{
+			name:     "D unittest assertions are calls, not function declarations",
+			analyzer: DAnalyzer{},
+			source:   "module demo;\nint before() { return 1; }\nunittest {\n  assert(before() == 1);\n  assert(true);\n}\nvoid after() {}\n",
+			want:     map[string]SymbolKind{"demo": SymbolKindModule, "demo.before": SymbolKindFunction, "demo.after": SymbolKindFunction},
+			absent:   []string{"demo.assert", "demo.true", "demo.unittest"},
+		},
+		{
+			name:     "D static assert is a compile-time check, not a function declaration",
+			analyzer: DAnalyzer{},
+			source:   "module demo;\nstatic assert(1 == 1, \"valid\");\nint usable() { return 1; }\n",
+			want:     map[string]SymbolKind{"demo": SymbolKindModule, "demo.usable": SymbolKindFunction},
+			absent:   []string{"demo.assert", "demo.static"},
+		},
+		{
 			name:     "Solidity pragma does not become variable",
 			analyzer: SolidityAnalyzer{},
 			source:   "pragma solidity ^0.8.0;\nimport \"VaultBase.sol\";\ncontract Vault { uint amount; function pay() public {} }\n",

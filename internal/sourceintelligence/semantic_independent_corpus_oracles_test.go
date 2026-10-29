@@ -1413,6 +1413,34 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"d-linguist-function", "SCRIPTHOLD_REAL_D_LINGUIST", "d", []want{
+			{"foo", SymbolKindFunction, 1},
+		}, []string{"bar", "void", "ghost"}},
+		{"d-geany-struct-class", "SCRIPTHOLD_REAL_D_GEANY", "d", []want{
+			{"test.simple", SymbolKindModule, 1},
+			{"test.simple.Struct", SymbolKindStruct, 7},
+			{"test.simple.Interface", SymbolKindInterface, 22},
+			{"test.simple.Class", SymbolKindClass, 27},
+			{"test.simple.Class.bar", SymbolKindMethod, 36},
+			{"test.simple.main", SymbolKindFunction, 74},
+		}, []string{"test.simple.assert", "test.simple.Class.assert", "test.simple.error", "ghost"}},
+		{"d-pygments-unittest", "SCRIPTHOLD_REAL_D_PYGMENTS", "d", []want{
+			{"phoneno", SymbolKindModule, 4},
+			{"phoneno.stripNonDigit", SymbolKindFunction, 14},
+			{"phoneno.wordToNum", SymbolKindFunction, 36},
+			{"phoneno.main", SymbolKindFunction, 65},
+		}, []string{"phoneno.assert", "phoneno.unittest", "phoneno.if", "ghost"}},
+		{"d-source-highlight-class", "SCRIPTHOLD_REAL_D_SOURCE_HIGHLIGHT", "d", []want{
+			{"main", SymbolKindFunction, 38},
+			{"CmdLin", SymbolKindClass, 78},
+			{"CmdLin.argnum", SymbolKindMethod, 90},
+			{"CmdLin.argv", SymbolKindMethod, 95},
+			{"CmdLin.suffix", SymbolKindMethod, 100},
+		}, []string{"CmdLin.return", "CmdLin.writefln", "ghost"}},
+		{"d-kde-highlight-fixture", "SCRIPTHOLD_REAL_D_KDE", "d", []want{
+			{"highlighttest", SymbolKindModule, 6},
+			{"highlighttest.main", SymbolKindFunction, 52},
+		}, []string{"highlighttest.pragma", "highlighttest.if", "ghost"}},
 		{"assembly-linguist-fasm", "SCRIPTHOLD_REAL_ASM_LINGUIST", "assembly", []want{
 			{"start", SymbolKindLabel, 10},
 			{"display_bytes_count", SymbolKindLabel, 64},
@@ -1649,6 +1677,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"d-geany-struct-class":            {"test.simple.Class.bar": "test.simple.Class"},
+		"d-source-highlight-class":        {"CmdLin.argnum": "CmdLin", "CmdLin.argv": "CmdLin"},
 		"sql-sqlprovider-postgresql":      {"other_schema.table_in_other_schema": "other_schema"},
 		"json-elekstube-esp32-board":      {"build.arduino.ldscript": "build.arduino", "upload.flash_size": "upload"},
 		"json-lora-igate-config":          {"wifi.autoAP.password": "wifi.autoAP", "beacon.interval": "beacon", "lora.rxActive": "lora", "mqtt.topic": "mqtt"},

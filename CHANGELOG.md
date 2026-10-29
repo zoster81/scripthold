@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- D source navigation no longer mistakes assertions inside `unittest` blocks or `static assert(...)` compile-time checks for function declarations; surrounding real functions and types remain discoverable.
 - Source Intelligence preserves distinct type-suffixed BASIC variables and retains CIL class ownership across nested method bodies, so later declarations remain discoverable.
 - PHP/HTML structural analysis no longer indexes a runtime-generated HTML `id` containing embedded PHP as a fixed identifier; neighboring literal IDs remain discoverable.
 - C++/CLI source analysis recognizes managed classes declared with trailing `sealed` or `abstract` modifiers and excludes `[assembly:...]` attributes from source declarations, including when an attribute line omits its trailing semicolon.

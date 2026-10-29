@@ -797,6 +797,38 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i++
 			continue
 		}
+		// D unittest bodies contain executable statements, not declarations.
+		if p.policy.language == "d" && p.tokens[i].Text == "unittest" {
+			open := nextStructuralToken(p.tokens, i+1, end)
+			if open < end && p.tokens[open].Text == "{" {
+				if close := p.pairs[open]; close > open && close < end {
+					i = close + 1
+					continue
+				}
+			}
+			p.builder.MarkIncomplete()
+			i++
+			continue
+		}
+		// D static assertions are compile-time checks, not callable definitions.
+		if p.policy.language == "d" && p.tokens[i].Text == "static" {
+			assertion := nextStructuralToken(p.tokens, i+1, end)
+			if assertion < end && p.tokens[assertion].Text == "assert" {
+				open := nextStructuralToken(p.tokens, assertion+1, end)
+				if open < end && p.tokens[open].Text == "(" {
+					if close := p.pairs[open]; close > open && close < end {
+						semi := nextStructuralToken(p.tokens, close+1, end)
+						if semi < end && p.tokens[semi].Text == ";" {
+							i = semi + 1
+							continue
+						}
+					}
+				}
+				p.builder.MarkIncomplete()
+				i = assertion + 1
+				continue
+			}
+		}
 		// Solidity imports may contain named-brace lists. Consume the entire
 		// directive before parsing declarations, or its braces can hide the
 		// following contract and orphan all of that contract's members.
