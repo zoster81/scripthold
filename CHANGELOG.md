@@ -4,6 +4,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+### Added
+
+- Assembly source navigation now finds MASM and Motorola-style `NAME EQU value` constants as named, positioned declarations alongside existing labels; other assignment and data directives remain outside this bounded recognition.
+
 ### Fixed
 
 - VHDL source navigation preserves architecture declarations beyond nested subprogram `end;` statements and reports missing outer architecture closures, including when a nested function ends at the end of the file, instead of treating an inner closure as complete.

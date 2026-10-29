@@ -1508,12 +1508,16 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"mov", "GetTickCount", "formatter", "ghost"}},
 		{"assembly-universal-68hc11", "SCRIPTHOLD_REAL_ASM_CTAGS", "assembly", []want{
 			{"INTERRUPTS", SymbolKindLabel, 1},
+			{"PORTD", SymbolKindConstant, 3},
+			{"SP", SymbolKindConstant, 5},
+			{"sym1", SymbolKindConstant, 20},
 			{"sym2", SymbolKindLabel, 21},
 			{"sym3", SymbolKindLabel, 22},
 			{"sym4", SymbolKindLabel, 23},
 		}, []string{"LDS", "LDAA", "bne", "ghost"}},
 		{"assembly-geany-masm", "SCRIPTHOLD_REAL_ASM_GEANY", "assembly", []want{
 			{"QUACK", SymbolKindLabel, 5},
+			{"myequ", SymbolKindConstant, 15},
 			{"LabelMaker1", SymbolKindLabel, 25},
 			{"LabelMaker2", SymbolKindLabel, 27},
 		}, []string{"enter", "mov", "ENDP", "ghost"}},

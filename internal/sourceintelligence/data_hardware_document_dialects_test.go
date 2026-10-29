@@ -199,6 +199,58 @@ service "api" {
 	}
 }
 
+func TestAssemblyEQUConstantsAreNotLabelsOrInstructions(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		want   map[string]int
+		labels []string
+	}{
+		{
+			name:   "masm-equ",
+			text:   ".data\nMsg DB 'hello'\nmyequ EQU 3\nMain PROC\n  ret\nMain ENDP\n",
+			want:   map[string]int{"myequ": 3},
+			labels: []string{"Main"},
+		},
+		{
+			name:   "68hc11-equ",
+			text:   "INTERRUPTS:\nPORTD EQU $1008\nSP EQU $20\nsym1 EQU 1\nsym2: EQU 2\n",
+			want:   map[string]int{"PORTD": 2, "SP": 3, "sym1": 4},
+			labels: []string{"sym2", "INTERRUPTS"},
+		},
+		{
+			name: "forbidden-pseudo-declarations",
+			text: "; Ghost EQU 5\nFake EQU ; missing operand\nmov eax, EQU\nnope EQU\n_valid EQU $10 ; comment\n",
+			want: map[string]int{"_valid": 5},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.asm", tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range tc.want {
+				sym, ok := got[name]
+				if !ok || sym.Kind != SymbolKindConstant || sym.DeclarationRange.Start.Line != line {
+					t.Errorf("Assembly EQU %q: got=%+v present=%v, want constant at line %d", name, sym, ok, line)
+				}
+			}
+			for _, name := range tc.labels {
+				if sym, ok := got[name]; !ok || sym.Kind != SymbolKindLabel {
+					t.Errorf("Assembly label %q: got=%+v present=%v", name, sym, ok)
+				}
+			}
+			for _, name := range []string{"Ghost", "Fake", "nope", "mov", "EQU", "DB"} {
+				if _, ok := got[name]; ok {
+					t.Errorf("unsupported or malformed assembly text became symbol %q", name)
+				}
+			}
+		})
+	}
+}
+
 func TestAssemblyDialectLabels(t *testing.T) {
 	tests := []struct {
 		name string
