@@ -1421,6 +1421,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"Program-Name.INPUT-OUPUT", SymbolKindSection, 6},
 			{"Program-Name.FILE", SymbolKindSection, 12},
 			{"Program-Name.WORKING-STORAGE", SymbolKindSection, 17},
+			{"Program-Name.Begin", SymbolKindFunction, 27},
+			{"Program-Name.Subprogram-Name", SymbolKindFunction, 30},
 		}, []string{"STOP", "SAMPLE.DAT", "ZEROS", "ghost"}},
 		{"cobol-pygments-ocic", "SCRIPTHOLD_REAL_COBOL_PYGMENTS", "cobol", []want{
 			{"OCic", SymbolKindModule, 2},
@@ -1428,6 +1430,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"cobol-sample-even-odd", "SCRIPTHOLD_REAL_COBOL_SAMPLE", "cobol", []want{
 			{"even-odd", SymbolKindModule, 2},
 			{"even-odd.working-storage", SymbolKindSection, 5},
+			{"even-odd.main", SymbolKindFunction, 12},
 		}, []string{"test-numval", "cmdargs.from.command-line", "Usage: please input a number", "ghost"}},
 		{"cobol-ctags-comment-only", "SCRIPTHOLD_REAL_COBOL_CTAGS", "cobol", []want{}, []string{"DONTTAGME", "DONTTAGME.SECTION", "ghost"}},
 		{"cobol-lexilla-token-samples", "SCRIPTHOLD_REAL_COBOL_LEXILLA", "cobol", []want{}, []string{"identifier", "data", "remarks", "preprocessor", "ghost"}},
@@ -1729,8 +1732,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
-		"cobol-geany-program":             {"Program-Name.INPUT-OUPUT": "Program-Name", "Program-Name.FILE": "Program-Name", "Program-Name.WORKING-STORAGE": "Program-Name"},
-		"cobol-sample-even-odd":           {"even-odd.working-storage": "even-odd"},
+		"cobol-geany-program":             {"Program-Name.INPUT-OUPUT": "Program-Name", "Program-Name.FILE": "Program-Name", "Program-Name.WORKING-STORAGE": "Program-Name", "Program-Name.Begin": "Program-Name", "Program-Name.Subprogram-Name": "Program-Name"},
+		"cobol-sample-even-odd":           {"even-odd.working-storage": "even-odd", "even-odd.main": "even-odd"},
 		"vhdl-lexilla-generate":           {"x.behavioral": "x", "x.behavioral.q_i": "x.behavioral"},
 		"vhdl-pygments-multientity":       {"top_testbench.top_testbench_arch": "top_testbench", "top_testbench.top_testbench_arch.clk": "top_testbench.top_testbench_arch", "add32csa.circuits.zero": "add32csa.circuits"},
 		"vhdl-ctags-component":            {"ENTITY_TOP.arch": "ENTITY_TOP", "ENTITY_TOP.arch.sig": "ENTITY_TOP.arch"},

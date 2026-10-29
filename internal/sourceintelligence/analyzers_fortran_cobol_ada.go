@@ -866,6 +866,7 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		return AnalyzerResult{}, err
 	}
 	var program *SymbolParent
+	var procedureSection *SymbolParent
 	division := ""
 	dependencies := []StructuralDependency{}
 	continuedQuote := byte(0)
@@ -916,6 +917,7 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		switch {
 		case strings.HasSuffix(upper, " DIVISION."):
 			division = strings.TrimSpace(strings.TrimSuffix(upper, " DIVISION."))
+			procedureSection = nil
 		case strings.HasPrefix(upper, "PROGRAM-ID."):
 			name := cobolWordAfter(code, "PROGRAM-ID.")
 			if name == "" {
@@ -938,8 +940,25 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			if division != "" && division != "PROCEDURE" {
 				kind = SymbolKindSection
 			}
-			addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "section", Name: name, Parent: program,
+			symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "section", Name: name, Parent: program,
 				Declaration: line.Code, NameRange: nameRange, Signature: &line.Code, Evidence: SymbolEvidenceStructural})
+			if division == "PROCEDURE" {
+				procedureSection = nil
+				if ok {
+					value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+					procedureSection = &value
+				}
+			}
+		case division == "PROCEDURE":
+			if name := cobolParagraphLabel(code, rawCode, fixedFormat); name != "" {
+				parent := program
+				if procedureSection != nil {
+					parent = procedureSection
+				}
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "paragraph", Name: name, Parent: parent,
+					Declaration: line.Code, NameRange: findEqualFoldRange(document.Text, line.Code, name),
+					Signature: &line.Code, Evidence: SymbolEvidenceStructural})
+			}
 		}
 		if index := strings.Index(upper, "COPY "); index >= 0 {
 			rest := strings.TrimSpace(code[index+len("COPY "):])
@@ -954,6 +973,34 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		addUnterminatedLiteral(continuedRange)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// Paragraph labels are standalone words in the procedure division. Fixed-format
+// labels also belong to Area A (columns 8-11), unlike executable statements.
+func cobolParagraphLabel(code, rawCode string, fixedFormat bool) string {
+	if fixedFormat && len(rawCode)-len(strings.TrimLeft(rawCode, " \t")) > 3 {
+		return ""
+	}
+	if !strings.HasSuffix(code, ".") {
+		return ""
+	}
+	name := strings.TrimSuffix(code, ".")
+	if name == "" || cobolLeadingWord(name) != name {
+		return ""
+	}
+	upper := strings.ToUpper(name)
+	if strings.HasPrefix(upper, "END-") || strings.HasPrefix(upper, "EXIT-") {
+		return ""
+	}
+	switch upper {
+	case "CONTINUE", "GOBACK", "EXIT", "STOP", "RETURN", "NEXT", "NEXT-SENTENCE",
+		"DISPLAY", "ACCEPT", "INITIALIZE", "CANCEL", "COMMIT", "ROLLBACK",
+		"READ", "WRITE", "REWRITE", "DELETE", "OPEN", "CLOSE", "MOVE", "SET",
+		"ADD", "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE", "IF", "ELSE",
+		"PERFORM", "EVALUATE", "SEARCH", "STRING", "UNSTRING", "CALL":
+		return ""
+	}
+	return name
 }
 
 func cobolStripInlineComment(text string) (string, bool) {

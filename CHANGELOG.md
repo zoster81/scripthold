@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- COBOL source navigation recognizes paragraph declarations in free-form and fixed-format `PROCEDURE DIVISION` code, retaining section ownership and source locations without treating standalone executable statements as paragraphs.
 - SQL source navigation no longer treats unrecognized `CREATE TABLE` headers as confirmed table declarations; it keeps recognized definitions available and explicitly reports incomplete coverage for unsupported headers.
 - D source navigation no longer mistakes assertions inside `unittest` blocks or `static assert(...)` compile-time checks for function declarations; surrounding real functions and types remain discoverable.
 - Source Intelligence preserves distinct type-suffixed BASIC variables and retains CIL class ownership across nested method bodies, so later declarations remain discoverable.
