@@ -199,6 +199,55 @@ service "api" {
 	}
 }
 
+func TestAssemblyNamedDataExcludesStructureAndMacroFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		want      map[string]int
+		forbidden []string
+	}{
+		{
+			name: "masm-fields-and-macro",
+			text: ".data\nMsg DB 'hello'\nWORD_BUFFER DW 512 dup (?)\n" +
+				"VIOinfo struc\nlevel DB ?\nflags DW ?\nVIOinfo ends\n" +
+				"after_struct DB 8\nmymacro macro args\ninner DB 9\nendm\n" +
+				"after_macro DW 10\n",
+			want:      map[string]int{"Msg": 2, "WORD_BUFFER": 3, "after_struct": 8, "after_macro": 12},
+			forbidden: []string{"level", "flags", "inner", "mymacro", "VIOinfo"},
+		},
+		{
+			name: "nasm-and-negative-syntax",
+			text: "section .data\ngreeting db 'hello'\ncount dw 4\n" +
+				"; Ghost DB 1\ninvalid db ; no operand\nlabel: db 1\n" +
+				"struc Packet\nfield db 1\nendstruc\n" +
+				"%macro make 0\nmacro_value db 3\n%endmacro\n" +
+				"tail dw 2\n",
+			want:      map[string]int{"greeting": 2, "count": 3, "tail": 13},
+			forbidden: []string{"Ghost", "invalid", "field", "macro_value"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("data.asm", tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range tc.want {
+				symbol, ok := got[name]
+				if !ok || symbol.Kind != SymbolKindVariable || symbol.DeclarationRange.Start.Line != line {
+					t.Errorf("Assembly data variable %q: got=%+v present=%v, want variable at line %d", name, symbol, ok, line)
+				}
+			}
+			for _, name := range tc.forbidden {
+				if _, ok := got[name]; ok {
+					t.Errorf("Assembly macro/structure/invalid data became a variable: %q", name)
+				}
+			}
+		})
+	}
+}
+
 func TestAssemblyEQUConstantsAreNotLabelsOrInstructions(t *testing.T) {
 	tests := []struct {
 		name   string

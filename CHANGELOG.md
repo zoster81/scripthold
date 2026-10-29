@@ -6,7 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
-- Assembly source navigation now finds MASM and Motorola-style `NAME EQU value` constants as named, positioned declarations alongside existing labels; other assignment and data directives remain outside this bounded recognition.
+- Assembly source navigation now finds MASM/Motorola `NAME EQU value` constants and named MASM/NASM `DB`/`DW` data declarations, excluding fields inside recognized structure/macro blocks; other assignment/data directives, macro expansion, and assembler execution semantics remain unsupported.
 
 ### Fixed
 

@@ -1516,8 +1516,10 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"sym4", SymbolKindLabel, 23},
 		}, []string{"LDS", "LDAA", "bne", "ghost"}},
 		{"assembly-geany-masm", "SCRIPTHOLD_REAL_ASM_GEANY", "assembly", []want{
+			{"Msg", SymbolKindVariable, 3},
 			{"QUACK", SymbolKindLabel, 5},
 			{"myequ", SymbolKindConstant, 15},
+			{"WORD_BUFFER", SymbolKindVariable, 22},
 			{"LabelMaker1", SymbolKindLabel, 25},
 			{"LabelMaker2", SymbolKindLabel, 27},
 		}, []string{"enter", "mov", "ENDP", "ghost"}},
@@ -1527,11 +1529,16 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"stacktop", SymbolKindLabel, 30},
 		}, []string{"mov", "int", "resb", "ghost"}},
 		{"assembly-source-highlight-screen", "SCRIPTHOLD_REAL_ASM_SOURCE_HIGHLIGHT", "assembly", []want{
+			{"vseg", SymbolKindVariable, 9},
+			{"vmode", SymbolKindVariable, 10},
+			{"color", SymbolKindVariable, 13},
 			{"_VIOheight", SymbolKindLabel, 39},
 			{"odos4", SymbolKindLabel, 47},
 			{"cga", SymbolKindLabel, 56},
-		}, []string{"ret", "info.txtrow", "public", "ghost"}},
-		{"assembly-lexilla-styles", "SCRIPTHOLD_REAL_ASM_LEXILLA", "assembly", []want{}, []string{"identifier", "section", "ECX", "ghost"}},
+		}, []string{"level", "flags", "mode", "pixcol", "ret", "info.txtrow", "public", "ghost"}},
+		{"assembly-lexilla-styles", "SCRIPTHOLD_REAL_ASM_LEXILLA", "assembly", []want{
+			{"hw", SymbolKindVariable, 57},
+		}, []string{"identifier", "section", "ECX", "ghost"}},
 		{"assembly-nasm-directives", "SCRIPTHOLD_REAL_ASM_NASM", "assembly", []want{}, []string{"__FILE__", "__LINE__", "db", "ghost"}},
 		{"xml-elekstube-weather-svg", "SCRIPTHOLD_REAL_XML_ELEKSTUBE", "xml", []want{
 			{"a", SymbolKindEntity, 1},

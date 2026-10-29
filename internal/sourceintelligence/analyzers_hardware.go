@@ -322,6 +322,7 @@ var (
 	assemblyLabel    = regexp.MustCompile(`(?m)^[ \t]*([0-9]+|[A-Za-z_.$][A-Za-z0-9_.$@]*):`)
 	assemblyMASMProc = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+PROC\b`)
 	assemblyEQU      = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+EQU[ \t]+[^ \t;\r\n][^;\r\n]*`)
+	assemblyData     = regexp.MustCompile(`(?i)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+(DB|DW)[ \t]+[^ \t;\r\n][^;\r\n]*`)
 )
 
 func (AssemblyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -353,5 +354,69 @@ func (AssemblyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, o
 		addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "equ", name, nil,
 			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
 	}
+	if err := assemblyNamedData(ctx, builder, document.Text); err != nil {
+		return AnalyzerResult{}, err
+	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+// Assembly DB/DW names outside macro and structure definitions are data
+// declarations. Scan lines once to avoid indexing structure fields as globals.
+func assemblyNamedData(ctx context.Context, builder *SymbolBuilder, text string) error {
+	var structureDepth, macroDepth int
+	for start := 0; start < len(text); {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		end := len(text)
+		if index := strings.IndexByte(text[start:], '\n'); index >= 0 {
+			end = start + index
+		}
+		line := text[start:end]
+		words := strings.Fields(strings.TrimSpace(line))
+		if len(words) > 0 && !strings.HasPrefix(words[0], ";") {
+			upper := strings.ToUpper(words[0])
+			second := ""
+			if len(words) > 1 {
+				second = strings.ToUpper(words[1])
+			}
+			openMacro := upper == "%MACRO" || upper == "MACRO" || second == "MACRO"
+			closeMacro := upper == "ENDM" || upper == "%ENDMACRO"
+			openStruct := upper == "STRUC" || second == "STRUC" || second == "STRUCT"
+			closeStruct := upper == "ENDSTRUC" || upper == "ENDS" || second == "ENDS"
+			switch {
+			case macroDepth > 0:
+				if openMacro {
+					macroDepth++
+				} else if closeMacro {
+					macroDepth--
+				}
+			case structureDepth > 0:
+				if openStruct {
+					structureDepth++
+				} else if closeStruct {
+					structureDepth--
+				}
+			case openMacro:
+				macroDepth = 1
+			case openStruct:
+				structureDepth = 1
+			default:
+				if match := assemblyData.FindStringSubmatchIndex(line); match != nil {
+					name := line[match[2]:match[3]]
+					addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "data", name, nil,
+						OffsetRange{Start: start + match[0], End: start + match[1]},
+						OffsetRange{Start: start + match[2], End: start + match[3]})
+				}
+			}
+		}
+		if end == len(text) {
+			break
+		}
+		start = end + 1
+	}
+	if structureDepth > 0 || macroDepth > 0 {
+		builder.MarkIncomplete()
+	}
+	return nil
 }

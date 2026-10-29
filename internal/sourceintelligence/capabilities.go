@@ -329,7 +329,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "verilog", "systemverilog":
 				descriptor.KnownLimitations = []string{"module/interface/package/signal structure is bounded and macro-free; preprocessing, generate/elaboration, parameter/type/net binding, simulation semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "assembly":
-				descriptor.KnownLimitations = []string{"GAS/NASM-style labels, numeric local labels, MASM PROC declarations, and MASM/Motorola EQU constants are structural only; other assignment and data directives, macro expansion, instruction decoding, control-flow/symbol/linker resolution, architecture semantics, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"GAS/NASM-style labels, numeric local labels, MASM PROC declarations, MASM/Motorola EQU constants, and named MASM/NASM DB/DW data outside recognized macro/structure blocks are structural only; other assignments/data directives, macro expansion, assembler END semantics, instruction decoding, control-flow/symbol/linker resolution, architecture semantics, semantic relations, and incremental indexing are not implemented"}
 			case "html", "xml":
 				descriptor.KnownLimitations = []string{"only elements with explicit id attributes are navigation symbols; DOM/schema/namespace validation, template/runtime semantics, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
 			case "css", "scss", "sass", "less":
