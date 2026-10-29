@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- SQL source navigation no longer treats unrecognized `CREATE TABLE` headers as confirmed table declarations; it keeps recognized definitions available and explicitly reports incomplete coverage for unsupported headers.
 - D source navigation no longer mistakes assertions inside `unittest` blocks or `static assert(...)` compile-time checks for function declarations; surrounding real functions and types remain discoverable.
 - Source Intelligence preserves distinct type-suffixed BASIC variables and retains CIL class ownership across nested method bodies, so later declarations remain discoverable.
 - PHP/HTML structural analysis no longer indexes a runtime-generated HTML `id` containing embedded PHP as a fixed identifier; neighboring literal IDs remain discoverable.

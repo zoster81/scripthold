@@ -1575,6 +1575,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"myarray", SymbolKindType, 14},
 		}, []string{"toString", "Compare", "myobject.m_name", "Ghost"}},
 		{"sql-lexilla-non-declarations", "SCRIPTHOLD_REAL_SQL_LEXILLA", "sql", []want{}, []string{"select", "object", "identifier", "dbms_output.disable", "Ghost"}},
+		{"sql-kde-malformed-table-header", "SCRIPTHOLD_REAL_SQL_KDE", "sql", []want{
+			{"[Current Product List]", SymbolKindType, 51},
+		}, []string{"stuff", "Customers", "Ghost"}},
 		{"json-elekstube-esp32-board", "SCRIPTHOLD_REAL_JSON_ELEKSTUBE", "json", []want{
 			{"build", SymbolKindKey, 2},
 			{"build.arduino.ldscript", SymbolKindKey, 4},
@@ -1921,6 +1924,20 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					(!complete && len(result.Analysis.Diagnostics) == 0) {
 					t.Errorf("VHDL original-source coverage: complete=%v diagnostics=%+v; expected complete=%v",
 						result.Analysis.CoverageComplete, result.Analysis.Diagnostics, complete)
+				}
+			}
+			if tc.name == "sql-kde-malformed-table-header" {
+				if result.Analysis.CoverageComplete {
+					t.Error("malformed real SQL table header must report incomplete coverage")
+				}
+				found := false
+				for _, diagnostic := range result.Analysis.Diagnostics {
+					if diagnostic.Code == "sql-unrecognized-table-header" {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("missing SQL table-header diagnostic: %+v", result.Analysis.Diagnostics)
 				}
 			}
 			if wantComplete, exists := jsonCoverage[tc.name]; exists {

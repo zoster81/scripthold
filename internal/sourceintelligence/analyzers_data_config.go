@@ -68,7 +68,14 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	}
 	source := maskSourceComments(document.Text, []string{"--"}, "/*", "*/")
 	source = maskSourceStrings(source, true, false, false)
-	candidates := sqlDeclarations(document, source)
+	candidates, unsupportedHeaders := sqlDeclarations(document, source)
+	for _, header := range unsupportedHeaders {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{
+			Code: "sql-unrecognized-table-header", Message: "SQL table declaration has an unrecognized header",
+			Severity: DiagnosticWarning, Range: &header, AffectsCoverage: true,
+		})
+	}
 	parents := map[string]SymbolParent{}
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -121,15 +128,20 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
-func sqlDeclarations(document *SourceDocument, source string) []sqlDeclarationCandidate {
+func sqlDeclarations(document *SourceDocument, source string) ([]sqlDeclarationCandidate, []OffsetRange) {
 	seen := map[string]struct{}{}
 	var candidates []sqlDeclarationCandidate
+	var unsupportedHeaders []OffsetRange
 	for _, profile := range sqlDialectProfiles {
 		for _, match := range profile.pattern.FindAllStringSubmatchIndex(source, -1) {
 			if !sqlDeclarationBoundary(source, match[0]) {
 				continue
 			}
 			kindWord := strings.ToLower(strings.Join(strings.Fields(document.Text[match[2]:match[3]]), " "))
+			if kindWord == "table" && !sqlSupportedTableHeader(source, match[1]) {
+				unsupportedHeaders = append(unsupportedHeaders, OffsetRange{Start: match[0], End: match[1]})
+				continue
+			}
 			fullName, parentName, leafName, leafStart, leafEnd, ok := sqlCanonicalName(document.Text[match[4]:match[5]])
 			if !ok {
 				continue
@@ -157,7 +169,35 @@ func sqlDeclarations(document *SourceDocument, source string) []sqlDeclarationCa
 		}
 		return candidates[i].fullName < candidates[j].fullName
 	})
-	return candidates
+	return candidates, unsupportedHeaders
+}
+
+// Recognize common SQL table-header shapes without claiming to validate each
+// dialect's full DDL grammar. Unknown forms remain explicitly incomplete.
+func sqlSupportedTableHeader(source string, headerEnd int) bool {
+	rest := strings.TrimLeft(source[headerEnd:], " \t\r\n")
+	if len(rest) == 0 {
+		return false
+	}
+	if rest[0] == '(' {
+		return true
+	}
+	end := 0
+	for end < len(rest) {
+		value := rest[end]
+		if value < 'A' || value > 'Z' {
+			if value < 'a' || value > 'z' {
+				break
+			}
+		}
+		end++
+	}
+	switch strings.ToLower(rest[:end]) {
+	case "as", "like", "of", "partition", "using", "options", "cluster", "with":
+		return true
+	default:
+		return false
+	}
 }
 
 func sqlDeclarationBoundary(source string, start int) bool {

@@ -38,6 +38,40 @@ func TestSQLDialectProfiles(t *testing.T) {
 	}
 }
 
+// Unsupported table headers must not become proven declarations. The scanner
+// still reports partial coverage when SQL dialect syntax is not recognized.
+func TestSQLUnsupportedTableHeaderDoesNotInventDeclarations(t *testing.T) {
+	text := "CREATE TABLE broken COLUMNS (id INT);\n" +
+		"CREATE TABLE valid (id INTEGER);\n" +
+		"CREATE TABLE copied AS SELECT id FROM valid;\n" +
+		"CREATE TABLE cloned LIKE valid;\n" +
+		"CREATE TABLE no_body;\n" +
+		"CREATE VIEW active AS SELECT id FROM valid;\n"
+	result, err := (SQLAnalyzer{}).Analyze(context.Background(), testSourceDocument("unsupported.sql", text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"valid", "copied", "cloned", "active"} {
+		if _, ok := symbols[name]; !ok {
+			t.Errorf("valid declaration %q missing: %v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, name := range []string{"broken", "no_body"} {
+		if _, ok := symbols[name]; ok {
+			t.Errorf("unsupported SQL table header invented declaration %q", name)
+		}
+	}
+	if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 2 {
+		t.Fatalf("unsupported headers require two explicit incomplete-coverage diagnostics: %+v", result.Analysis)
+	}
+	for _, diagnostic := range result.Analysis.Diagnostics {
+		if diagnostic.Code != "sql-unrecognized-table-header" {
+			t.Errorf("unexpected SQL header diagnostic: %+v", diagnostic)
+		}
+	}
+}
+
 func TestSQLQuotedDDLHierarchyAndReferenceDependencies(t *testing.T) {
 	text := "CREATE SCHEMA IF NOT EXISTS `lemans24` DEFAULT CHARACTER SET utf8mb4;\n" +
 		"CREATE TABLE IF NOT EXISTS `lemans24`.`drivers` (`id` INT PRIMARY KEY);\n" +
