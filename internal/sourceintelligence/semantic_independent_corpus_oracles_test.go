@@ -702,6 +702,26 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"Network", "Network.UDP.Strict", "Network.UDP.bindAddr", "Network.UDP.Ghost"}},
 		{"haskell-chroma-numeric", "SCRIPTHOLD_REAL_HS_CHROMA", "haskell", []want{},
 			[]string{"Network", "x", "e", "Ghost"}},
+		{"objective-c-appdelegate", "SCRIPTHOLD_REAL_OBJC_APPDELEGATE", "objective-c", []want{
+			{"RCTAppDelegate@implementation", SymbolKindImplementation, 31},
+			{"RCTAppDelegate.init", SymbolKindConstructor, 33},
+			{"RCTAppDelegate.rootViewFactory", SymbolKindMethod, 65},
+		}, []string{"RCTAppDelegate.alloc", "RCTAppDelegate.Ghost", "RCTReactNativeFactory", "MyCppNSStringWrapper"}},
+		{"objective-c-testlib-apple", "SCRIPTHOLD_REAL_OBJC_APPLE", "objective-c", []want{
+			{"TestLibraryApple@implementation", SymbolKindImplementation, 16},
+		}, []string{"TestLibraryCommon", "RCT_EXPORT_MODULE", "TestLibraryApple.Ghost"}},
+		{"objective-c-testlib-common", "SCRIPTHOLD_REAL_OBJC_COMMON", "objective-c", []want{
+			{"TestLibraryCommon@implementation", SymbolKindImplementation, 10},
+			{"TestLibraryCommon.defaultPrefix", SymbolKindMethod, 14},
+		}, []string{"RCTPromiseResolveBlock", "TestLibraryCommon.Ghost", "resolve"}},
+		{"objective-c-animation-plugins", "SCRIPTHOLD_REAL_OBJC_ANIMATION", "objective-c", []want{},
+			[]string{"RCTAnimationClassProvider", "RCTNativeAnimatedModuleCls", "Class", "Ghost"}},
+		{"objective-c-blob-plugins", "SCRIPTHOLD_REAL_OBJC_BLOB", "objective-c", []want{},
+			[]string{"RCTBlobClassProvider", "RCTBlobManagerCls", "Class", "Ghost"}},
+		{"objective-c-image-plugins", "SCRIPTHOLD_REAL_OBJC_IMAGE", "objective-c", []want{},
+			[]string{"RCTImageClassProvider", "RCTImageLoaderCls", "Class", "Ghost"}},
+		{"objective-c-gist-cpp-only", "SCRIPTHOLD_REAL_OBJC_GIST", "objective-c", []want{},
+			[]string{"MyCppNSStringWrapper", "main", "NSString", "NSAutoreleasePool", "Ghost"}},
 		{"objective-cpp-gist-wrapper", "SCRIPTHOLD_REAL_OBJCPP_GIST", "objective-cpp", []want{
 			{"MyCppNSStringWrapper", SymbolKindClass, 10},
 			{"MyCppNSStringWrapper.length", SymbolKindMethod, 15},
@@ -1393,6 +1413,38 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"javascript-ebus-common", "SCRIPTHOLD_REAL_JS_EBUS", "javascript", []want{
+			{"handleHome", SymbolKindFunction, 6},
+			{"setStatus", SymbolKindFunction, 14},
+			{"fetchJson", SymbolKindFunction, 25},
+			{"postSimple", SymbolKindFunction, 44},
+			{"handleSimpleTable", SymbolKindFunction, 64},
+			{"renderSimpleTable", SymbolKindFunction, 81},
+		}, []string{"window", "document", "jsonData", "fetch", "Set"}},
+		{"javascript-elekstube-server", "SCRIPTHOLD_REAL_JS_ELEKSTUBE", "javascript", []want{
+			{"app", SymbolKindVariable, 14},
+			{"server", SymbolKindVariable, 16},
+			{"uploadHandler", SymbolKindVariable, 29},
+			{"pages", SymbolKindVariable, 72},
+			{"sendPages", SymbolKindVariable, 90},
+		}, []string{"req", "res", "http.createServer", "pages.value", "multiparty.Form"}},
+		{"javascript-sparkfun-websocket", "SCRIPTHOLD_REAL_JS_SPARKFUN", "javascript", []want{
+			{"gateway", SymbolKindVariable, 1},
+			{"onLoad", SymbolKindFunction, 6},
+			{"initWebSocket", SymbolKindFunction, 10},
+			{"ge", SymbolKindFunction, 17},
+			{"CoordinateTypes", SymbolKindConstant, 65},
+		}, []string{"window", "WebSocket", "getElementById", "websocket.onmessage"}},
+		{"javascript-geekmagic-gif", "SCRIPTHOLD_REAL_JS_GEEKMAGIC", "javascript", []want{
+			{"gifUploadHandler", SymbolKindFunction, 1},
+		}, []string{"apiFetch", "FormData", "humanFileSize", "this.uploadGif", "this.usedBytes"}},
+		{"javascript-lora-aprs-settings", "SCRIPTHOLD_REAL_JS_LORA", "javascript", []want{
+			{"currentSettings", SymbolKindVariable, 3},
+			{"backupSettings", SymbolKindFunction, 5},
+			{"fetchSettings", SymbolKindFunction, 39},
+			{"loadSettings", SymbolKindFunction, 53},
+			{"BeaconingViaRFCheckbox", SymbolKindConstant, 332},
+		}, []string{"document", "settings.callsign", "reader", "this", "alert"}},
 	}
 	// Decorators and attributes belong to the declaration, while the identifier
 	// itself starts on a later line; assert both coordinates independently.
@@ -1435,6 +1487,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
 		"haskell-highlightjs-udp":         {"Network.UDP.DataPacket": "Network.UDP", "Network.UDP.openBoundUDPPort": "Network.UDP", "Network.UDP.pingUDPPort": "Network.UDP"},
+		"objective-c-appdelegate":         {"RCTAppDelegate.init": "RCTAppDelegate", "RCTAppDelegate.rootViewFactory": "RCTAppDelegate"},
+		"objective-c-testlib-common":      {"TestLibraryCommon.defaultPrefix": "TestLibraryCommon"},
 		"objective-cpp-gist-wrapper":      {"MyCppNSStringWrapper.length": "MyCppNSStringWrapper", "MyCppNSStringWrapper.characterAtIndex": "MyCppNSStringWrapper"},
 		"objective-cpp-react-appdelegate": {"RCTAppDelegate.init": "RCTAppDelegate", "RCTAppDelegate.rootViewFactory": "RCTAppDelegate"},
 		"objective-cpp-testlib-common":    {"TestLibraryCommon.defaultPrefix": "TestLibraryCommon"},
@@ -1621,7 +1675,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || tc.name == "haskell-chroma-numeric") &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric") &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}

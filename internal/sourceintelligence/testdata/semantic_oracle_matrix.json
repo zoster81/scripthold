@@ -2920,6 +2920,19 @@
       "coverageComplete": true
     },
     {
+      "id": "objective-c-methods-ignore-cpp-statements-in-mm",
+      "language": "objective-c",
+      "path": "Mixed.mm",
+      "source": "@implementation Sample\n- (instancetype)init { return self; }\n+ (NSString *)identifier { return @\"x\"; }\n@end\nClass RCTLinkingClassProvider(const char *name) { return nil; }\nclass HiddenCpp {};\n",
+      "present": [
+        {"qualifiedName": "Sample@implementation", "kind": "implementation", "line": 1},
+        {"qualifiedName": "Sample.init", "kind": "constructor", "line": 2, "parent": "Sample"},
+        {"qualifiedName": "Sample.identifier", "kind": "method", "line": 3, "parent": "Sample"}
+      ],
+      "forbidden": ["RCTLinkingClassProvider", "HiddenCpp", "Class", "Sample.Ghost"],
+      "coverageComplete": true
+    },
+    {
       "id": "objective-c-implementation",
       "language": "objective-c",
       "path": "Foo.m",
