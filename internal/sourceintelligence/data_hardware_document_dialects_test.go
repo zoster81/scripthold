@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -245,6 +246,52 @@ func TestAssemblyNamedDataExcludesStructureAndMacroFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAssemblyEQUInsideMacroDefinitionIsNotGlobal(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		expected  string
+		forbidden string
+	}{
+		{
+			name:      "masm",
+			text:      "makeConst MACRO\ninner EQU 2\nENDM\noutside EQU 3\n",
+			expected:  "outside",
+			forbidden: "inner",
+		},
+		{
+			name:      "nasm",
+			text:      "%macro makeConst 0\nlocalValue EQU 4\n%endmacro\npublicValue EQU 5\n",
+			expected:  "publicValue",
+			forbidden: "localValue",
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct {
+			name  string
+			value string
+		}{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				source := strings.ReplaceAll(tc.text, "\n", eol.value)
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("macro.asm", source), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if symbol, exists := symbols[tc.expected]; !exists || symbol.Kind != SymbolKindConstant {
+					t.Errorf("real constant %q missing: %+v", tc.expected, symbol)
+				}
+				if symbol, exists := symbols[tc.forbidden]; exists {
+					t.Errorf("unexpanded macro body became global constant: %+v", symbol)
+				}
+				if !result.Analysis.CoverageComplete {
+					t.Errorf("closed macro has partial coverage: %+v", result.Analysis.Diagnostics)
+				}
+			})
+		}
 	}
 }
 

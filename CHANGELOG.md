@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Assembly source navigation excludes `EQU` constants inside recognized unexpanded MASM/NASM macro definitions, rather than inventing global declarations; the same bounded scope scan now handles named `EQU`, `DB`, and `DW` statements.
 - VHDL source navigation preserves architecture declarations beyond nested subprogram `end;` statements and reports missing outer architecture closures, including when a nested function ends at the end of the file, instead of treating an inner closure as complete.
 - COBOL source navigation recognizes paragraph declarations in free-form and fixed-format `PROCEDURE DIVISION` code, retaining section ownership and source locations without treating standalone executable statements as paragraphs.
 - SQL source navigation no longer treats unrecognized `CREATE TABLE` headers as confirmed table declarations; it keeps recognized definitions available and explicitly reports incomplete coverage for unsupported headers.
