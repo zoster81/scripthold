@@ -1145,7 +1145,10 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 					kind = SymbolKindMethod
 					native = "method"
 				}
-				if members && owner != "" && p.eq(name, owner) {
+				// Dart named constructors use Owner.name(...), not a method name.
+				if members && owner != "" && (p.eq(name, owner) ||
+					(p.policy.language == "dart" && nameIndex >= start+2 &&
+						p.tokens[nameIndex-1].Text == "." && p.eq(p.tokens[nameIndex-2].Text, owner))) {
 					kind = SymbolKindConstructor
 					native = "constructor"
 				}

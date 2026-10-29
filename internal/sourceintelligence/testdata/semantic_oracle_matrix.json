@@ -1896,6 +1896,22 @@
       "coverageComplete": true
     },
     {
+      "id": "dart-named-constructors-not-methods",
+      "language": "dart",
+      "path": "vessel.dart",
+      "source": "class Vessel {\n  Vessel();\n  Vessel.named();\n  const Vessel._internal();\n  void pump() {}\n  external factory Vessel.fromHost();\n}\n",
+      "present": [
+        {"qualifiedName": "Vessel", "kind": "class", "line": 1},
+        {"qualifiedName": "Vessel.Vessel", "kind": "constructor", "line": 2, "parent": "Vessel"},
+        {"qualifiedName": "Vessel.named", "kind": "constructor", "line": 3, "parent": "Vessel"},
+        {"qualifiedName": "Vessel._internal", "kind": "constructor", "line": 4, "parent": "Vessel"},
+        {"qualifiedName": "Vessel.pump", "kind": "method", "line": 5, "parent": "Vessel"},
+        {"qualifiedName": "Vessel.fromHost", "kind": "constructor", "line": 6, "parent": "Vessel"}
+      ],
+      "forbidden": ["Vessel.Ghost", "Vessel.value", "Vessel.factory"],
+      "coverageComplete": true
+    },
+    {
       "id": "dart-annotation",
       "language": "dart",
       "path": "example.dart",

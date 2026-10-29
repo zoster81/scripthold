@@ -694,6 +694,34 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"dart-sdk-core-bool", "SCRIPTHOLD_REAL_DART_SDK", "dart", []want{
+			{"bool", SymbolKindClass, 16},
+			{"bool.parse", SymbolKindMethod, 159},
+			{"bool.fromEnvironment", SymbolKindConstructor, 67},
+		}, []string{"Logger", "bool.loggingEnabled", "bool.indentLines", "Ghost"}},
+		{"dart-chroma-monte-carlo", "SCRIPTHOLD_REAL_DART_CHROMA", "dart", []want{
+			{"main", SymbolKindFunction, 10},
+			{"computePi", SymbolKindFunction, 21},
+			{"generateRandom", SymbolKindFunction, 39},
+			{"Point", SymbolKindClass, 46},
+			{"Point.Point", SymbolKindConstructor, 48},
+		}, []string{"querySelector", "estimate", "inside", "SomeMissing", "Ghost"}},
+		{"dart-highlightjs-sample", "SCRIPTHOLD_REAL_DART_HIGHLIGHTJS", "dart", []want{
+			{"SomeClass", SymbolKindClass, 10},
+			{"SomeClass.SomeClass", SymbolKindConstructor, 11},
+			{"SomeClass._internal", SymbolKindConstructor, 12},
+			{"SomeClass.sum", SymbolKindMethod, 18},
+			{"SomeClass.els", SymbolKindMethod, 20},
+			{"checkVersion", SymbolKindFunction, 35},
+		}, []string{"Awesome", "lookUpVersion", "SomeClass.z", "Ghost"}},
+		{"dart-pygments-greeter", "SCRIPTHOLD_REAL_DART_PYGMENTS", "dart", []want{
+			{"Greeter", SymbolKindClass, 3},
+			{"Greeter.Greeter", SymbolKindConstructor, 5},
+			{"Greeter.withPrefix", SymbolKindConstructor, 6},
+			{"Greeter.greet", SymbolKindMethod, 7},
+			{"Greeter.compareTo", SymbolKindMethod, 9},
+			{"main", SymbolKindFunction, 12},
+		}, []string{"Comparable", "Greeter.greeter", "Greeter.Ghost", "print"}},
 		{"bash-ansible-dns-config", "SCRIPTHOLD_REAL_SH_ANSIBLE", "bash", []want{
 			{"print_help", SymbolKindFunction, 21},
 			{"checkForProgram", SymbolKindFunction, 111},
@@ -1371,6 +1399,16 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"dart-sdk-core-bool":      {"bool.parse": "bool", "bool.fromEnvironment": "bool"},
+		"dart-chroma-monte-carlo": {"Point.Point": "Point"},
+		"dart-highlightjs-sample": {
+			"SomeClass.SomeClass": "SomeClass", "SomeClass._internal": "SomeClass",
+			"SomeClass.sum": "SomeClass", "SomeClass.els": "SomeClass",
+		},
+		"dart-pygments-greeter": {
+			"Greeter.Greeter": "Greeter", "Greeter.withPrefix": "Greeter",
+			"Greeter.greet": "Greeter", "Greeter.compareTo": "Greeter",
+		},
 		"purebasic-kenmo-7zip": {"__7ZIPSTRUCT.Init": "__7ZIPSTRUCT", "__7ZIPSTRUCT.Output": "__7ZIPSTRUCT"},
 		"cpp-cli-libyara-meta": {
 			"libyaraNET.Meta": "libyaraNET", "libyaraNET.Meta.Meta": "libyaraNET.Meta",
