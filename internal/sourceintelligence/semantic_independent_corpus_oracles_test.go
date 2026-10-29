@@ -1413,6 +1413,39 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"nix-kde-bindings", "SCRIPTHOLD_REAL_NIX_A", "nix", []want{
 			{"bool", SymbolKindVariable, 4}, {"var1", SymbolKindVariable, 5},
 		}, []string{"false", "Multi-line", "HOME", "builtins"}},
+		{"sql-flask-schema", "SCRIPTHOLD_REAL_SQL_FLASK", "sql", []want{
+			{"user", SymbolKindType, 7},
+			{"post", SymbolKindType, 13},
+		}, []string{"id", "username", "user.id", "post.author_id", "Ghost"}},
+		{"sql-rezoom-user-model", "SCRIPTHOLD_REAL_SQL_REZOOM", "sql", []want{
+			{"Users", SymbolKindType, 1},
+			{"Groups", SymbolKindType, 9},
+			{"UserGroupMaps", SymbolKindType, 14},
+		}, []string{"Id", "UserId", "Users.Id", "Groups.Name", "Ghost"}},
+		{"sql-sqlprovider-postgresql", "SCRIPTHOLD_REAL_SQL_SQLPROVIDER", "sql", []want{
+			{"COUNTRIES", SymbolKindType, 1},
+			{"LOCATIONS", SymbolKindType, 10},
+			{"EMPLOYEES", SymbolKindType, 53},
+			{"JOB_HISTORY", SymbolKindType, 80},
+			{"other_schema", SymbolKindSchema, 152},
+			{"other_schema.table_in_other_schema", SymbolKindType, 154},
+		}, []string{"EMAIL", "EMPLOYEES.EMAIL", "REGION_ID", "phantom_schema", "Ghost"}},
+		{"sql-geany-ctags-employees", "SCRIPTHOLD_REAL_SQL_GEANY", "sql", []want{
+			{"employees", SymbolKindType, 8},
+		}, []string{"address", "employees.address", "employees.name", "Ghost"}},
+		{"sql-source-highlight-authors", "SCRIPTHOLD_REAL_SQL_SOURCE_HIGHLIGHT", "sql", []want{
+			{"authors", SymbolKindType, 7},
+		}, []string{"idauthor", "authors.surname", "surname", "Ghost"}},
+		{"sql-pygments-dml-no-declarations", "SCRIPTHOLD_REAL_SQL_PYGMENTS", "sql", []want{},
+			[]string{"#temp_employee", "employee", "Department", "Name", "Ghost"}},
+		{"sql-sublime-tsql-symbols", "SCRIPTHOLD_REAL_SQL_SUBLIME", "sql", []want{
+			{"hello", SymbolKindType, 3},
+		}, []string{"IX_some_index", "dbo.some_table", "field1", "Ghost"}},
+		{"sql-linguist-plsql-types", "SCRIPTHOLD_REAL_SQL_LINGUIST", "sql", []want{
+			{"myobject", SymbolKindType, 1},
+			{"myarray", SymbolKindType, 14},
+		}, []string{"toString", "Compare", "myobject.m_name", "Ghost"}},
+		{"sql-lexilla-non-declarations", "SCRIPTHOLD_REAL_SQL_LEXILLA", "sql", []want{}, []string{"select", "object", "identifier", "dbms_output.disable", "Ghost"}},
 		{"json-elekstube-esp32-board", "SCRIPTHOLD_REAL_JSON_ELEKSTUBE", "json", []want{
 			{"build", SymbolKindKey, 2},
 			{"build.arduino.ldscript", SymbolKindKey, 4},
@@ -1560,6 +1593,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"sql-sqlprovider-postgresql":      {"other_schema.table_in_other_schema": "other_schema"},
 		"json-elekstube-esp32-board":      {"build.arduino.ldscript": "build.arduino", "upload.flash_size": "upload"},
 		"json-lora-igate-config":          {"wifi.autoAP.password": "wifi.autoAP", "beacon.interval": "beacon", "lora.rxActive": "lora", "mqtt.topic": "mqtt"},
 		"json-geekmagic-devcontainer":     {"build.dockerfile": "build", "customizations.vscode.settings.terminal.integrated.defaultProfile.linux": "customizations.vscode.settings", "containerEnv.GNUPGHOME": "containerEnv"},
@@ -1777,7 +1811,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric") &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-") || strings.HasPrefix(tc.name, "shell-") || strings.HasPrefix(tc.name, "objective-c-") || tc.name == "haskell-chroma-numeric" || tc.name == "sql-lexilla-non-declarations" || tc.name == "sql-pygments-dml-no-declarations") &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}
