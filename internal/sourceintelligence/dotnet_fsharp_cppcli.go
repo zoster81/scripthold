@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -442,6 +443,12 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	}
 	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
 }
+
+var (
+	cppCLIAssemblyAttribute     = regexp.MustCompile(`(?mi)^[ \t]*\[assembly[ \t]*:[^\r\n]*\]`)
+	cppCLITrailingClassModifier = regexp.MustCompile(`(?i)\bclass[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+(sealed|abstract)\b`)
+)
+
 func maskCPPCLIModifiers(text string) string {
 	result := []byte(text)
 	words := []string{"ref", "value", "interface", "sealed", "abstract"}
@@ -468,6 +475,16 @@ func maskCPPCLIModifiers(text string) string {
 			}
 			search = end
 		}
+	}
+	// C++/CLI metadata is not a C++ declaration; missing semicolons must not
+	// attach a later attribute name to an unrelated statement.
+	for _, match := range cppCLIAssemblyAttribute.FindAllStringIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[0], match[1])
+	}
+	// A trailing managed type modifier is valid after the name, but C++
+	// treats it as an unrelated identifier and loses the class scope.
+	for _, match := range cppCLITrailingClassModifier.FindAllStringSubmatchIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[2], match[3])
 	}
 	return string(result)
 }

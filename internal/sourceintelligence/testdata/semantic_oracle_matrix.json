@@ -1747,6 +1747,28 @@
       "coverageComplete": true
     },
     {
+      "id": "cpp-cli-ref-class-trailing-sealed",
+      "language": "cpp-cli",
+      "path": "Meta.h",
+      "source": "namespace libyaraNET {\n public ref class Meta sealed {\n public:\n Meta() {}\n property String^ Identifier;\n };\n}\n",
+      "present": [
+        {"qualifiedName": "libyaraNET", "kind": "namespace", "line": 1},
+        {"qualifiedName": "libyaraNET.Meta", "kind": "class", "line": 2},
+        {"qualifiedName": "libyaraNET.Meta.Meta", "kind": "constructor", "line": 4, "parent": "libyaraNET.Meta"}
+      ],
+      "forbidden": ["libyaraNET.Identifier", "libyaraNET.Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-cli-assembly-metadata-not-declarations",
+      "language": "cpp-cli",
+      "path": "AssemblyInfo.cpp",
+      "source": "using namespace System;\n[assembly:AssemblyTitle(\"NTagLib\")];\n[assembly:AssemblyDescription(\"About\")]\n[assembly:AssemblyConfiguration(\"\")];\npublic ref class Marker {};\n",
+      "present": [{"qualifiedName": "Marker", "kind": "class", "line": 5}],
+      "forbidden": ["System", "AssemblyTitle", "AssemblyDescription", "AssemblyConfiguration"],
+      "coverageComplete": true
+    },
+    {
       "id": "cpp-cli-using-directive-bom",
       "language": "cpp-cli",
       "path": "assembly.cpp",

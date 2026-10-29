@@ -694,6 +694,29 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		}, []string{"C1", "X1", "Y1", "Ghost"}},
 		{"classic-basic-shravan-budget", "SCRIPTHOLD_REAL_CB_SHRAVAN", "classic-basic", []want{},
 			[]string{"A", "C", "F", "Ghost"}},
+		{"cpp-cli-iocompression-assembly", "SCRIPTHOLD_REAL_CPPCLI_IO", "cpp-cli", []want{},
+			[]string{"System", "System.Reflection", "AssemblyTitleAttribute", "Ghost"}},
+		{"cpp-cli-libyara-meta", "SCRIPTHOLD_REAL_CPPCLI_LIBYARA", "cpp-cli", []want{
+			{"libyaraNET", SymbolKindNamespace, 7},
+			{"libyaraNET.Meta", SymbolKindClass, 9},
+			{"libyaraNET.Meta.Meta", SymbolKindConstructor, 15},
+		}, []string{"System", "libyaraNET.Identifier", "libyaraNET.Ghost"}},
+		{"cpp-cli-managedfbx-pose", "SCRIPTHOLD_REAL_CPPCLI_FBX", "cpp-cli", []want{
+			{"ArcManagedFBX", SymbolKindNamespace, 3},
+			{"ArcManagedFBX.FBXPose", SymbolKindClass, 5},
+		}, []string{"ArcManagedFBX.ref", "ArcManagedFBX.private", "ArcManagedFBX.Ghost"}},
+		{"cpp-cli-managedffmpeg-constants", "SCRIPTHOLD_REAL_CPPCLI_FFMPEG", "cpp-cli", []want{
+			{"FFMpegNet", SymbolKindNamespace, 5},
+			{"FFMpegNet.AVFormat", SymbolKindNamespace, 7},
+			{"FFMpegNet.AVFormat.AVConstants", SymbolKindClass, 9},
+			{"FFMpegNet.AVFormat.AVConstants.AVConstants", SymbolKindConstructor, 12},
+		}, []string{"System", "FFMpegNet.AVFormat.Ghost", "FFMpegNet.AVFormat.AVConstants.__int64"}},
+		{"cpp-cli-ntaglib-assembly", "SCRIPTHOLD_REAL_CPPCLI_NTAGLIB", "cpp-cli", []want{},
+			[]string{"System", "System.Reflection", "AssemblyTitle", "AssemblyVersion", "Ghost"}},
+		{"cpp-cli-physx-constraint", "SCRIPTHOLD_REAL_CPPCLI_PHYSX", "cpp-cli", []want{
+			{"PhysX", SymbolKindNamespace, 3},
+			{"PhysX.ConstraintShaderTable", SymbolKindClass, 5},
+		}, []string{"PhysX.ref", "PhysX.Ghost", "ConstraintShaderTable.Ghost"}},
 		{"vba-commonlib-arrayutils", "SCRIPTHOLD_REAL_VBA_COMMONLIB", "vba", []want{
 			{"VBALib_ArrayUtils", SymbolKindModule, 1},
 			{"VBALib_ArrayUtils.NORMALIZE_LBOUND", SymbolKindConstant, 11},
@@ -1295,6 +1318,15 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 	// Parent relations on independently inspected originals must agree with the
 	// qualified identity, not just a matching text span.
 	independentParents := map[string]map[string]string{
+		"cpp-cli-libyara-meta": {
+			"libyaraNET.Meta": "libyaraNET", "libyaraNET.Meta.Meta": "libyaraNET.Meta",
+		},
+		"cpp-cli-managedfbx-pose": {"ArcManagedFBX.FBXPose": "ArcManagedFBX"},
+		"cpp-cli-managedffmpeg-constants": {
+			"FFMpegNet.AVFormat": "FFMpegNet", "FFMpegNet.AVFormat.AVConstants": "FFMpegNet.AVFormat",
+			"FFMpegNet.AVFormat.AVConstants.AVConstants": "FFMpegNet.AVFormat.AVConstants",
+		},
+		"cpp-cli-physx-constraint":  {"PhysX.ConstraintShaderTable": "PhysX"},
 		"vba-commonlib-arrayutils":  {"VBALib_ArrayUtils.NormalizeArray": "VBALib_ArrayUtils", "VBALib_ArrayUtils.CopyMemory": "VBALib_ArrayUtils"},
 		"vba-modernjson-common":     {"Json_Common.JsonTextBuilder": "Json_Common", "Json_Common.JsonSB_Init": "Json_Common"},
 		"vba-xlframe-ezarray":       {"EZArray.Resize": "EZArray", "EZArray.NumRows": "EZArray"},
@@ -1458,7 +1490,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 					tc.name == "jsp-final-user-form" || tc.name == "jsp-in28minutes-add-todo" || tc.name == "jsp-javaee7-builtins" ||
 					tc.name == "razor-eshop-basket" || tc.name == "razor-orchardcore-dashboard" ||
 					tc.name == "openapi-oai-callback-example" || tc.name == "luau-pvz-wave" ||
-					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-")) &&
+					strings.HasPrefix(tc.name, "classic-basic-") || strings.HasPrefix(tc.name, "php-html-") || strings.HasPrefix(tc.name, "cpp-cli-")) &&
 				len(result.Analysis.Symbols) != 0 {
 				t.Errorf("declaration-free source produced symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 			}

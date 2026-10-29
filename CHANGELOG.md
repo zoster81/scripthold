@@ -8,6 +8,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 - Source Intelligence preserves distinct type-suffixed BASIC variables and retains CIL class ownership across nested method bodies, so later declarations remain discoverable.
 - PHP/HTML structural analysis no longer indexes a runtime-generated HTML `id` containing embedded PHP as a fixed identifier; neighboring literal IDs remain discoverable.
+- C++/CLI source analysis recognizes managed classes declared with trailing `sealed` or `abstract` modifiers and excludes `[assembly:...]` attributes from source declarations, including when an attribute line omits its trailing semicolon.
 
 These read-only parser fixes do not change MCP inputs, filesystem authorization, or execution privileges.
 
