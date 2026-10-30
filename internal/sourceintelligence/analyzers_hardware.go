@@ -330,28 +330,14 @@ func (AssemblyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, o
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	for _, match := range assemblyLabel.FindAllStringSubmatchIndex(document.Text, -1) {
-		if err := ctx.Err(); err != nil {
-			return AnalyzerResult{}, err
-		}
-		name := document.Text[match[2]:match[3]]
-		addDocumentDataHardwareSymbol(builder, SymbolKindLabel, "label", name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
-	}
-	for _, match := range assemblyMASMProc.FindAllStringSubmatchIndex(document.Text, -1) {
-		if err := ctx.Err(); err != nil {
-			return AnalyzerResult{}, err
-		}
-		name := document.Text[match[2]:match[3]]
-		addDocumentDataHardwareSymbol(builder, SymbolKindLabel, "masm-proc", name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
-	}
 	if err := assemblyNamedDeclarations(ctx, builder, document.Text); err != nil {
 		return AnalyzerResult{}, err
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
 
-// Index named EQU constants and DB/DW variables outside macro and structure
-// definitions. A single pass avoids treating unexpanded macro bodies as globals.
+// Index labels, MASM procedures, EQU constants, and DB/DW variables outside
+// recognized macro and structure definitions, without expanding their bodies.
 func assemblyNamedDeclarations(ctx context.Context, builder *SymbolBuilder, text string) error {
 	var structureDepth, macroDepth int
 	for start := 0; start < len(text); {
@@ -392,7 +378,17 @@ func assemblyNamedDeclarations(ctx context.Context, builder *SymbolBuilder, text
 			case openStruct:
 				structureDepth = 1
 			default:
-				if match := assemblyEQU.FindStringSubmatchIndex(line); match != nil {
+				if match := assemblyLabel.FindStringSubmatchIndex(line); match != nil {
+					name := line[match[2]:match[3]]
+					addDocumentDataHardwareSymbol(builder, SymbolKindLabel, "label", name, nil,
+						OffsetRange{Start: start + match[0], End: start + match[1]},
+						OffsetRange{Start: start + match[2], End: start + match[3]})
+				} else if match := assemblyMASMProc.FindStringSubmatchIndex(line); match != nil {
+					name := line[match[2]:match[3]]
+					addDocumentDataHardwareSymbol(builder, SymbolKindLabel, "masm-proc", name, nil,
+						OffsetRange{Start: start + match[0], End: start + match[1]},
+						OffsetRange{Start: start + match[2], End: start + match[3]})
+				} else if match := assemblyEQU.FindStringSubmatchIndex(line); match != nil {
 					name := line[match[2]:match[3]]
 					addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "equ", name, nil,
 						OffsetRange{Start: start + match[0], End: start + match[1]},

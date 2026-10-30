@@ -249,6 +249,68 @@ func TestAssemblyNamedDataExcludesStructureAndMacroFields(t *testing.T) {
 	}
 }
 
+func TestAssemblyLabelsInsideMacroAndStructureAreNotGlobals(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		want      map[string]int
+		forbidden []string
+		complete  bool
+	}{
+		{
+			name: "masm",
+			text: "entry:\nMake MACRO\ninside_label:\nInner PROC\nInner ENDP\nENDM\n" +
+				"Packet STRUCT\nfield_label:\nPacket ENDS\nexit_label:\nExport PROC\nExport ENDP\n",
+			want:      map[string]int{"entry": 1, "exit_label": 10, "Export": 11},
+			forbidden: []string{"inside_label", "Inner", "field_label"},
+			complete:  true,
+		},
+		{
+			name:      "nasm",
+			text:      "start:\n%macro define 0\nmacro_label:\n%endmacro\nstruc Record\nstructure_label:\nendstruc\ndone:\n",
+			want:      map[string]int{"start": 1, "done": 8},
+			forbidden: []string{"macro_label", "structure_label"},
+			complete:  true,
+		},
+		{
+			name:      "unterminated-masm-macro",
+			text:      "before:\nGen MACRO\nshould_not_escape:\nGhost PROC\n",
+			want:      map[string]int{"before": 1},
+			forbidden: []string{"should_not_escape", "Ghost"},
+			complete:  false,
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct {
+			name  string
+			value string
+		}{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				source := strings.ReplaceAll(tc.text, "\n", eol.value)
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("scopes.asm", source), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := symbolsByQualifiedName(result.Analysis.Symbols)
+				for name, line := range tc.want {
+					symbol, ok := got[name]
+					if !ok || symbol.Kind != SymbolKindLabel || symbol.DeclarationRange.Start.Line != line {
+						t.Errorf("global Assembly label/procedure %q: got=%+v present=%v, want label at line %d", name, symbol, ok, line)
+					}
+				}
+				for _, name := range tc.forbidden {
+					if symbol, ok := got[name]; ok {
+						t.Errorf("unexpanded macro/structure exported a global: %+v", symbol)
+					}
+				}
+				if result.Analysis.CoverageComplete != tc.complete {
+					t.Errorf("coverage complete=%v, want %v; diagnostics=%+v", result.Analysis.CoverageComplete, tc.complete, result.Analysis.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
 func TestAssemblyEQUInsideMacroDefinitionIsNotGlobal(t *testing.T) {
 	tests := []struct {
 		name      string
