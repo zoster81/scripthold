@@ -55,7 +55,7 @@ var (
 	sqlSimpleIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]*$`)
 	sqlReference        = regexp.MustCompile(`(?im)\breferences[ \t\r\n]+(` + sqlQualifiedNamePattern + `)`)
 	sqlDialectProfiles  = []sqlDialectProfile{
-		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(?:(?:or[ \t]+replace)[ \t]+)?(schema|table|view|function|procedure|type)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + sqlQualifiedNamePattern + `)`)},
+		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:(?:or[ \t]+replace)[ \t\r\n]+)?(schema|table|view|function|procedure|type)[ \t\r\n]+(?:if[ \t]+not[ \t]+exists[ \t\r\n]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "postgresql", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(materialized[ \t]+view)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "sqlserver", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+or[ \t]+alter[ \t]+(view|function|procedure)[ \t]+(` + sqlQualifiedNamePattern + `)`)},
 	}

@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 )
@@ -36,6 +37,88 @@ func TestSQLDialectProfiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// SQL allows the table identifier on the next line. These are original-source
+// declaration forms, not INSERT references or strings mentioning CREATE TABLE.
+func TestSQLMultilineCreateTableDeclaresActualTables(t *testing.T) {
+	for _, eol := range []struct {
+		name string
+		sep  string
+	}{
+		{name: "LF", sep: "\n"},
+		{name: "CRLF", sep: "\r\n"},
+	} {
+		t.Run(eol.name, func(t *testing.T) {
+			lines := []string{
+				"CREATE TABLE",
+				"    animals (id INTEGER PRIMARY KEY);",
+				"CREATE TABLE",
+				"    species (id INT);",
+				"CREATE",
+				"    TABLE",
+				"    owners (id INT);",
+				"INSERT INTO animals (id) VALUES (1);",
+				"-- CREATE TABLE ignored_comment (id INT);",
+				"SELECT 'CREATE TABLE ignored_string (id INT)';",
+				"CREATE TABLE broken COLUMNS (id INT);",
+			}
+			result, err := (SQLAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("vet_schema.sql", strings.Join(lines, eol.sep)+eol.sep), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range map[string]int{"animals": 2, "species": 4, "owners": 7} {
+				symbol, ok := symbols[name]
+				if !ok || symbol.Kind != SymbolKindType || symbol.NameRange.Start.Line != line {
+					t.Errorf("table %s: got %+v exists=%v, expected type at line %d", name, symbol, ok, line)
+				}
+			}
+			for _, forbidden := range []string{"ignored_comment", "ignored_string", "broken"} {
+				if _, ok := symbols[forbidden]; ok {
+					t.Errorf("invented table %s", forbidden)
+				}
+			}
+			if result.Analysis.CoverageComplete {
+				t.Error("unsupported table header must leave coverage incomplete")
+			}
+			if len(result.Analysis.Diagnostics) != 1 || result.Analysis.Diagnostics[0].Code != "sql-unrecognized-table-header" {
+				t.Errorf("expected one unsupported-header diagnostic, got %+v", result.Analysis.Diagnostics)
+			}
+		})
+	}
+}
+
+// The original project source is opt-in, not a dependency of the portable test suite.
+func TestSQLRealVetClinicMultilineTables(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_SQL_REAL_SCHEMA")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_SQL_REAL_SCHEMA to an authorized original schema.sql")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := (SQLAnalyzer{}).Analyze(context.Background(),
+		testSourceDocument("vet_schema.sql", string(content)), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, line := range map[string]int{
+		"animals": 2, "species": 13, "owners": 20,
+		"vets": 39, "specializations": 48, "visits": 66,
+	} {
+		symbol, ok := symbols[name]
+		if !ok || symbol.Kind != SymbolKindType || symbol.NameRange.Start.Line != line {
+			t.Errorf("original SQL table %q = %+v exists=%v; expected declaration line %d", name, symbol, ok, line)
+		}
+	}
+	if len(symbols) != 6 || !result.Analysis.CoverageComplete {
+		t.Errorf("original SQL declarations: symbols=%v coverageComplete=%v diagnostics=%+v",
+			sortedSymbolQualifiedNames(result.Analysis.Symbols), result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
 	}
 }
 
