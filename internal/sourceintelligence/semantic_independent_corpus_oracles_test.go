@@ -1947,6 +1947,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertAnalyzerResultCoordinates(t, result)
+			if tc.name == "cobol-pygments-ocic" && (!result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0) {
+				t.Errorf("original fixed-column COBOL with historic sequence IDs must be complete: %+v", result.Analysis.Diagnostics)
+			}
 			if wantComplete, ok := matlabEnumComplete[tc.name]; ok {
 				if result.Analysis.CoverageComplete != wantComplete || len(result.Analysis.Diagnostics) != 0 {
 					t.Errorf("valid original MATLAB enumeration class coverage: complete=%v diagnostics=%+v", result.Analysis.CoverageComplete, result.Analysis.Diagnostics)

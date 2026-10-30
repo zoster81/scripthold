@@ -1090,24 +1090,38 @@ func cobolFreeFormLineEvidence(line string) bool {
 }
 
 func cobolFixedPrefixCompatible(line string) bool {
-	if utf8.RuneCountInString(line) < 7 {
+	if utf8.RuneCountInString(line) < 6 {
 		return false
 	}
+	hasSequenceLetter, hasSequenceDigit, hasSequenceSpace := false, false, false
 	for column := 1; column <= 6; column++ {
 		offset := scalarColumnOffset(line, column)
 		if offset >= len(line) {
 			return false
 		}
 		r, _ := utf8.DecodeRuneInString(line[offset:])
-		if r != ' ' && (r < '0' || r > '9') {
+		switch {
+		case r == ' ':
+			hasSequenceSpace = true
+		case r >= '0' && r <= '9':
+			hasSequenceDigit = true
+		case r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z':
+			hasSequenceLetter = true
+		default:
 			return false
 		}
 	}
+	// Six-column sequence-only records are valid and carry no source code.
 	indicatorOffset := scalarColumnOffset(line, 7)
 	if indicatorOffset >= len(line) {
-		return false
+		return hasSequenceLetter && hasSequenceDigit && !hasSequenceSpace
 	}
 	indicator, _ := utf8.DecodeRuneInString(line[indicatorOffset:])
+	// Historic sequences may be mixed letter/digit IDs or all-letter comment
+	// tags (e.g. SCROLL*). Reject ambiguous short free-format identifiers.
+	if hasSequenceLetter && (!hasSequenceDigit || hasSequenceSpace) && indicator != '*' && indicator != '/' {
+		return false
+	}
 	switch indicator {
 	case ' ', '*', '/', 'D', 'd', '-':
 		return true

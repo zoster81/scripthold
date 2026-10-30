@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- COBOL source navigation now recognizes historical mixed-letter-and-digit sequence columns, sequence-only records, and named comment indicators in fixed-format files, avoiding false free-format classification and spurious unterminated-string warnings.
 - MATLAB source navigation now recognizes enumeration blocks inside classes when balancing structural scopes. Valid enumeration classes report complete coverage without inventing declaration symbols for enum values; incomplete classes still report diagnostics.
 - Assembly source navigation excludes labels, MASM `PROC` declarations, and `EQU` constants inside recognized unexpanded macro and structure definitions rather than inventing globals. A shared bounded line scan now handles labels, procedures, `EQU`, `DB`, and `DW` while preserving declarations outside those blocks.
 - VHDL source navigation preserves architecture declarations beyond nested subprogram `end;` statements and reports missing outer architecture closures, including when a nested function ends at the end of the file, instead of treating an inner closure as complete.

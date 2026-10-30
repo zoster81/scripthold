@@ -2,8 +2,48 @@ package sourceintelligence
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 )
+
+func TestCOBOLFixedFormatMixedAlphanumericSequenceNumbers(t *testing.T) {
+	for _, eol := range []string{"\n", "\r\n"} {
+		t.Run(fmt.Sprintf("eol-%d", len(eol)), func(t *testing.T) {
+			source := strings.Join([]string{
+				"       IDENTIFICATION DIVISION.",
+				"       PROGRAM-ID. DEMO.",
+				"       DATA DIVISION.",
+				"       WORKING-STORAGE SECTION.",
+				"GC0909 01  ACCOUNT-ID PIC X(8).",
+				"GC0909",
+				"SCROLL* COMMENTED DISPLAY 'must never be scanned",
+				"      * Comments with an unmatched ' quote are not source.",
+				"       PROCEDURE DIVISION.",
+				"       MAIN.",
+				"           DISPLAY 'hello'.",
+				"",
+			}, eol)
+			if cobolLooksFreeForm(source) {
+				t.Fatal("mixed alphanumeric sequence column must not force free-format routing")
+			}
+			result, err := (COBOLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0 {
+				t.Fatalf("fixed-format sequence lines yielded incomplete coverage: %+v", result.Analysis.Diagnostics)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			if symbols["DEMO"].Kind != SymbolKindModule || symbols["DEMO.MAIN"].Kind != SymbolKindFunction {
+				t.Fatalf("expected program and paragraph: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if _, falseSymbol := symbols["DEMO.ACCOUNT-ID"]; falseSymbol {
+				t.Fatal("data field must not become a procedure declaration")
+			}
+		})
+	}
+}
 
 func TestCOBOLProcedureParagraphsKeepDeclarationIdentity(t *testing.T) {
 	tests := []struct {
