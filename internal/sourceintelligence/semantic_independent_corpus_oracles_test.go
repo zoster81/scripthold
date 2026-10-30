@@ -1513,6 +1513,8 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"INTERRUPTS", SymbolKindLabel, 1},
 			{"PORTD", SymbolKindConstant, 3},
 			{"SP", SymbolKindConstant, 5},
+			{"TRAPP", SymbolKindVariable, 7},
+			{"PROMPT", SymbolKindVariable, 12},
 			{"sym1", SymbolKindConstant, 20},
 			{"sym2", SymbolKindLabel, 21},
 			{"sym3", SymbolKindLabel, 22},

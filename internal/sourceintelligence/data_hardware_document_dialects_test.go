@@ -249,6 +249,75 @@ func TestAssemblyNamedDataExcludesStructureAndMacroFields(t *testing.T) {
 	}
 }
 
+func TestAssemblyMotorolaFCBAndFCCNamedData(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		want      map[string]int
+		forbidden []string
+		complete  bool
+	}{
+		{
+			name: "68hc11-declarations-and-invalid-operands",
+			text: "INTERRUPTS:\nTRAPP FCB CR,LF\n  FCB CR,LF\n  FCC 'unlabelled'\n" +
+				"PROMPT fcb 0\nBANNER FCC \"HELLO\"\nSLASH FCC /a;b/ ; real character data\n" +
+				"COLD LDS #STACK\n; Ghost FCB 2\ninvalidByte FCB ; no value\n" +
+				"invalidStart FCB ,7\ninvalidText FCC unquoted\nemptyText FCC ; no string\n" +
+				"namedLabel: FCB 9\n",
+			want:      map[string]int{"TRAPP": 2, "PROMPT": 5, "BANNER": 6, "SLASH": 7},
+			forbidden: []string{"COLD", "Ghost", "invalidByte", "invalidStart", "invalidText", "emptyText"},
+			complete:  true,
+		},
+		{
+			name: "macro-and-structure-scopes",
+			text: "before FCB 1\nGenerator MACRO\nmacroByte FCB 2\nmacroText FCC 'ghost'\nENDM\n" +
+				"Packet STRUCT\nstructByte FCB 3\nstructText FCC 'hidden'\nPacket ENDS\n" +
+				"after FCC 'done'\n",
+			want:      map[string]int{"before": 1, "after": 10},
+			forbidden: []string{"macroByte", "macroText", "structByte", "structText"},
+			complete:  true,
+		},
+		{
+			name:      "unterminated-macro",
+			text:      "before FCB 1\nGenerator MACRO\nmacroData FCB 2\nmacroText FCC 'hidden'\n",
+			want:      map[string]int{"before": 1},
+			forbidden: []string{"macroData", "macroText"},
+			complete:  false,
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct {
+			name, value string
+		}{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				source := strings.ReplaceAll(tc.text, "\n", eol.value)
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("motorola.asm", source), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				byName := symbolsByQualifiedName(result.Analysis.Symbols)
+				for name, line := range tc.want {
+					sym, ok := byName[name]
+					if !ok || sym.Kind != SymbolKindVariable || sym.DeclarationRange.Start.Line != line {
+						t.Errorf("named Motorola data %q: got=%+v exists=%v, want variable line %d", name, sym, ok, line)
+					}
+				}
+				for _, name := range tc.forbidden {
+					if sym, ok := byName[name]; ok {
+						t.Errorf("invalid, instruction or unexpanded data exported: %+v", sym)
+					}
+				}
+				if symbol, ok := byName["namedLabel"]; tc.name == "68hc11-declarations-and-invalid-operands" && (!ok || symbol.Kind != SymbolKindLabel) {
+					t.Errorf("colon-terminated Motorola label changed kind: %+v, exists=%v", symbol, ok)
+				}
+				if result.Analysis.CoverageComplete != tc.complete {
+					t.Errorf("coverageComplete=%v, want %v, diagnostics=%+v", result.Analysis.CoverageComplete, tc.complete, result.Analysis.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
 func TestAssemblyLabelsInsideMacroAndStructureAreNotGlobals(t *testing.T) {
 	tests := []struct {
 		name      string

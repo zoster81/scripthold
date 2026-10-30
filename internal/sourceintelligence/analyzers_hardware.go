@@ -319,10 +319,11 @@ func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string,
 }
 
 var (
-	assemblyLabel    = regexp.MustCompile(`(?m)^[ \t]*([0-9]+|[A-Za-z_.$][A-Za-z0-9_.$@]*):`)
-	assemblyMASMProc = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+PROC\b`)
-	assemblyEQU      = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+EQU[ \t]+[^ \t;\r\n][^;\r\n]*`)
-	assemblyData     = regexp.MustCompile(`(?i)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+(DB|DW)[ \t]+[^ \t;\r\n][^;\r\n]*`)
+	assemblyLabel        = regexp.MustCompile(`(?m)^[ \t]*([0-9]+|[A-Za-z_.$][A-Za-z0-9_.$@]*):`)
+	assemblyMASMProc     = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+PROC\b`)
+	assemblyEQU          = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+EQU[ \t]+[^ \t;\r\n][^;\r\n]*`)
+	assemblyData         = regexp.MustCompile(`(?i)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+(DB|DW)[ \t]+[^ \t;\r\n][^;\r\n]*`)
+	assemblyMotorolaData = regexp.MustCompile(`(?i)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+(FCB|FCC)[ \t]+([^ \t\r\n][^\r\n]*)`)
 )
 
 func (AssemblyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -336,8 +337,8 @@ func (AssemblyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, o
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
 
-// Index labels, MASM procedures, EQU constants, and DB/DW variables outside
-// recognized macro and structure definitions, without expanding their bodies.
+// Index labels, MASM procedures, EQU constants, and supported named data
+// declarations outside recognized macro/structure definitions, without expansion.
 func assemblyNamedDeclarations(ctx context.Context, builder *SymbolBuilder, text string) error {
 	var structureDepth, macroDepth int
 	for start := 0; start < len(text); {
@@ -398,6 +399,12 @@ func assemblyNamedDeclarations(ctx context.Context, builder *SymbolBuilder, text
 					addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "data", name, nil,
 						OffsetRange{Start: start + match[0], End: start + match[1]},
 						OffsetRange{Start: start + match[2], End: start + match[3]})
+				} else if match := assemblyMotorolaData.FindStringSubmatchIndex(line); match != nil &&
+					assemblyMotorolaDataOperandValid(line[match[4]:match[5]], line[match[6]:match[7]]) {
+					name := line[match[2]:match[3]]
+					addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "data", name, nil,
+						OffsetRange{Start: start + match[0], End: start + match[1]},
+						OffsetRange{Start: start + match[2], End: start + match[3]})
 				}
 			}
 		}
@@ -410,4 +417,31 @@ func assemblyNamedDeclarations(ctx context.Context, builder *SymbolBuilder, text
 		builder.MarkIncomplete()
 	}
 	return nil
+}
+
+// FCC accepts any printable ASCII delimiter; the closing delimiter must be
+// followed only by whitespace or a comment. This checks declaration shape,
+// not assembler expression semantics or macro expansion.
+func assemblyMotorolaDataOperandValid(directive, operand string) bool {
+	operand = strings.TrimSpace(operand)
+	if operand == "" {
+		return false
+	}
+	if strings.EqualFold(directive, "FCB") {
+		return operand[0] != ',' && operand[0] != ';'
+	}
+	delimiter := operand[0]
+	if delimiter < '!' || delimiter > '~' {
+		return false
+	}
+	for index := 1; index < len(operand); index++ {
+		if operand[index] != delimiter {
+			continue
+		}
+		rest := strings.TrimSpace(operand[index+1:])
+		if rest == "" || strings.HasPrefix(rest, ";") {
+			return true
+		}
+	}
+	return false
 }
