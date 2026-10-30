@@ -261,7 +261,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"ACCT_CascadeDeleteLookups_TDTM.CascadeDeleteLoader", SymbolKindClass, 57},
 			{"ACCT_CascadeDeleteLookups_TDTM.CascadeDeleteLoader.load", SymbolKindMethod, 65},
 		}, []string{"CDL_CascadeDeleteLookups_TDTM", "ACCT_CascadeDeleteLookups_TDTM.CascadeDeleteLoader.CascadeUndeleteLoader", "ACCT_CascadeDeleteLookups_TDTM.Ghost"}},
-		{"blazor-antdesign-button", "SCRIPTHOLD_REAL_BLAZOR_ANTDESIGN", "blazor", []want{}, []string{"AntDesign", "Button", "CascadingValue", "HandleOnClick", "Loading", "Ghost"}},
+		{"blazor-antdesign-button", "SCRIPTHOLD_REAL_BLAZOR_ANTDESIGN", "blazor", []want{}, []string{"AntDesign", "Button", "CascadingValue", "HandleOnClick", "Loading", "@Id", "Ghost"}},
 		{"blazor-blazorise-todoitem", "SCRIPTHOLD_REAL_BLAZOR_BLAZORISE", "blazor", []want{
 			{"OnCheckedChanged", SymbolKindMethod, 23},
 			{"OnRemoveClicked", SymbolKindMethod, 30},
@@ -1083,7 +1083,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 		{"autohotkey-ahk2exe-v1-directives-only", "SCRIPTHOLD_REAL_AHK_AHK2EXE", "autohotkey", nil,
 			[]string{"Ahk2Exe64", "b", "Ahk2Exe", "Ghost"}},
 		{"autohotkey-uia-v2-calls-only", "SCRIPTHOLD_REAL_AHK_UIA", "autohotkey", nil,
-			[]string{"UIA", "Run", "WinWaitActive", "ControlGetHwnd", "editEl", "Ghost"}},
+			[]string{"UIA", "Run", "WinWaitActive", "ControlGetHwnd", "WinExist", "editEl", "Ghost"}},
 		{"blade-bagisto-template-id", "SCRIPTHOLD_REAL_BLADE_BAGISTO", "blade", []want{{"v-two-factor-setup-template", SymbolKindEntity, 10}}, []string{"admin.account.update", "scripts", "v-two-factor-setup", "route", "Ghost"}},
 		{"blade-framework-error-sections", "SCRIPTHOLD_REAL_BLADE_FRAMEWORK", "blade", []want{{"title", SymbolKindSection, 3}, {"code", SymbolKindSection, 4}, {"message", SymbolKindSection, 5}}, []string{"minimal", "Unauthorized", "__", "Ghost"}},
 		{"blade-laravel-svg-mask-ids", "SCRIPTHOLD_REAL_BLADE_LARAVEL", "blade", []want{{"path-1-mask", SymbolKindEntity, 155}, {"path-2-mask", SymbolKindEntity, 167}, {"path-3-mask", SymbolKindEntity, 179}}, []string{"tailwindcss", "font-sans", "maskUnits", "Ghost"}},
