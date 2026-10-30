@@ -651,6 +651,37 @@ func TestMATLABArgumentsBlockClosesBeforeFunction(t *testing.T) {
 	}
 }
 
+func TestMATLABClassEnumerationBalancesScopes(t *testing.T) {
+	for _, tc := range []struct {
+		name, text, className string
+		complete              bool
+	}{
+		{"simulink-enum", "classdef SensorsEnum < Simulink.IntEnumType\n  enumeration\n    None(1)\n    ZOH(2)\n  end\nend\n", "SensorsEnum", true},
+		{"uint8-enum", "classdef UIReadSubCodes < uint8\n  enumeration\n    GetVbatt (1)\n    GetLbatt (18)\n  end\nend\n", "UIReadSubCodes", true},
+		{"missing-class-end", "classdef SensorsEnum\n  enumeration\n    None(1)\n  end\n", "SensorsEnum", false},
+	} {
+		for _, eol := range []string{"\n", "\r\n"} {
+			t.Run(tc.name+fmt.Sprintf("-eol-%d", len(eol)), func(t *testing.T) {
+				text := strings.ReplaceAll(tc.text, "\n", eol)
+				result, err := (MATLABAnalyzer{}).Analyze(context.Background(), testSourceDocument(tc.className+".m", text), testAnalyzeOptions(false, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.CoverageComplete != tc.complete || result.Analysis.Truncated {
+					t.Fatalf("enumeration scope completeness=%v want=%v diagnostics=%+v", result.Analysis.CoverageComplete, tc.complete, result.Analysis.Diagnostics)
+				}
+				if !tc.complete && len(result.Analysis.Diagnostics) == 0 {
+					t.Fatal("unterminated enumeration/class must provide diagnostic")
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if len(symbols) != 1 || symbols[tc.className].Kind != SymbolKindClass {
+					t.Fatalf("unexpected enumeration declarations: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			})
+		}
+	}
+}
+
 func TestMATLABLikeUnmatchedEndRemainsIncomplete(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

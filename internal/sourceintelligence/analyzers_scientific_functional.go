@@ -213,6 +213,11 @@ func handleMATLABLikeControlScope(
 			scopes = appendMATLABLikeOpenScopes(scopes, first, tokens, false)
 		}
 		return scopes, true
+	case "enumeration":
+		if !octave && len(scopes) > 0 && scopes[len(scopes)-1].label == "class" {
+			scopes = appendMATLABLikeOpenScopes(scopes, first, tokens, false)
+		}
+		return scopes, true
 	case "unwind_protect":
 		if octave {
 			scopes = appendMATLABLikeOpenScopes(scopes, first, tokens, true)
@@ -443,6 +448,11 @@ func matlabLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave bool) 
 				scopes = append(scopes, first)
 				scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, false)...)
 			}
+		case "enumeration":
+			if !octave && len(scopes) > 0 && scopes[len(scopes)-1] == "class" && !matlabLikeLineClosesOwnScope(line.Tokens, false) {
+				scopes = append(scopes, first)
+				scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, false)...)
+			}
 		case "unwind_protect":
 			if octave && !matlabLikeLineClosesOwnScope(line.Tokens, true) {
 				scopes = append(scopes, first)
@@ -470,7 +480,7 @@ func matlabLikeScopeOpeningLine(keyword string, octave bool) bool {
 	switch keyword {
 	case "classdef", "function", "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
 		return true
-	case "arguments":
+	case "arguments", "enumeration":
 		return !octave
 	case "unwind_protect":
 		return octave

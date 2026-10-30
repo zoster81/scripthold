@@ -1867,6 +1867,12 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			"Microsoft.EventHandlerExtensions.Raise": "Microsoft.EventHandlerExtensions",
 		},
 	}
+	// Original MATLAB enumeration classes have balanced class and enumeration
+	// scopes; their member values are not indexed as declarations.
+	matlabEnumComplete := map[string]bool{
+		"matlab-nasa-enum":     true,
+		"matlab-robotics-enum": true,
+	}
 	// Real VHDL highlighting samples may contain unsupported or malformed constructs;
 	// their bounded structural coverage must remain explicit.
 	vhdlCoverage := map[string]bool{
@@ -1941,6 +1947,11 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertAnalyzerResultCoordinates(t, result)
+			if wantComplete, ok := matlabEnumComplete[tc.name]; ok {
+				if result.Analysis.CoverageComplete != wantComplete || len(result.Analysis.Diagnostics) != 0 {
+					t.Errorf("valid original MATLAB enumeration class coverage: complete=%v diagnostics=%+v", result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
+				}
+			}
 			if strings.HasPrefix(tc.name, "assembly-") &&
 				(!result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 0) {
 				t.Errorf("bounded assembly label scan unexpectedly incomplete: complete=%v diagnostics=%+v",
