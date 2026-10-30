@@ -6,7 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
-- Assembly source navigation now finds MASM/Motorola `NAME EQU value` constants, named MASM/NASM `DB`/`DW` data, and named Motorola 68HC11 `FCB`/`FCC` data declarations outside recognized macro/structure definitions. `FCB` operands must be present and `FCC` strings must use matching delimiters; this is structural navigation, not assembler expression evaluation or macro expansion.
+- Assembly source navigation now finds MASM/Motorola `NAME EQU value` constants, named MASM/NASM `DB`/`DW` data, and named Motorola 68HC11 `FCB`/`FCC`/`FDB`/`RMB` data declarations outside recognized macro/structure definitions. `FCB`/`FDB` operands must be present, `RMB` requires one storage-size expression, and `FCC` strings must use matching delimiters; this is structural navigation, not assembler expression evaluation or macro expansion.
 
 ### Fixed
 

@@ -323,7 +323,7 @@ var (
 	assemblyMASMProc     = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+PROC\b`)
 	assemblyEQU          = regexp.MustCompile(`(?im)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+EQU[ \t]+[^ \t;\r\n][^;\r\n]*`)
 	assemblyData         = regexp.MustCompile(`(?i)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+(DB|DW)[ \t]+[^ \t;\r\n][^;\r\n]*`)
-	assemblyMotorolaData = regexp.MustCompile(`(?i)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+(FCB|FCC)[ \t]+([^ \t\r\n][^\r\n]*)`)
+	assemblyMotorolaData = regexp.MustCompile(`(?i)^[ \t]*([A-Za-z_.$][A-Za-z0-9_.$@]*)[ \t]+(FCB|FCC|FDB|RMB)[ \t]+([^ \t\r\n][^\r\n]*)`)
 )
 
 func (AssemblyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -419,16 +419,24 @@ func assemblyNamedDeclarations(ctx context.Context, builder *SymbolBuilder, text
 	return nil
 }
 
-// FCC accepts any printable ASCII delimiter; the closing delimiter must be
-// followed only by whitespace or a comment. This checks declaration shape,
-// not assembler expression semantics or macro expansion.
+// Validate only directive shape, not assembler expression semantics.
+// FCC accepts printable ASCII delimiters and requires a matching terminator.
 func assemblyMotorolaDataOperandValid(directive, operand string) bool {
 	operand = strings.TrimSpace(operand)
 	if operand == "" {
 		return false
 	}
-	if strings.EqualFold(directive, "FCB") {
-		return operand[0] != ',' && operand[0] != ';'
+	if !strings.EqualFold(directive, "FCC") {
+		if operand[0] == ',' || operand[0] == ';' {
+			return false
+		}
+		if strings.EqualFold(directive, "RMB") {
+			if comment := strings.IndexByte(operand, ';'); comment >= 0 {
+				operand = operand[:comment]
+			}
+			return !strings.Contains(operand, ",")
+		}
+		return true
 	}
 	delimiter := operand[0]
 	if delimiter < '!' || delimiter > '~' {

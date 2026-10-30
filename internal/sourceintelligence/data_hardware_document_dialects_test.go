@@ -249,6 +249,78 @@ func TestAssemblyNamedDataExcludesStructureAndMacroFields(t *testing.T) {
 	}
 }
 
+func TestAssemblyMotorolaFDBAndRMBNamedData(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		expected  map[string]int
+		forbidden []string
+		complete  bool
+	}{
+		{
+			name: "word-data-and-reserved-bytes",
+			source: "entry:\nvector FDB entry\nwords fdb $1234,$5678\n" +
+				"buffer RMB 16\nspan rmb $20 ; reserved storage\ncommentComma RMB 3 ; bytes, reserved\n" +
+				"  FDB 7\n  RMB 4\n; commented FDB 1\n" +
+				"badWord FDB ; missing operand\nbadReserve RMB ; missing count\n" +
+				"badList FDB ,8\nbadCount RMB ,4\nextraCount RMB 4,8\n" +
+				"namedLabel: RMB 1\n",
+			expected:  map[string]int{"vector": 2, "words": 3, "buffer": 4, "span": 5, "commentComma": 6},
+			forbidden: []string{"commented", "badWord", "badReserve", "badList", "badCount", "extraCount"},
+			complete:  true,
+		},
+		{
+			name: "recognized-macro-and-structure",
+			source: "outside FDB 123\nMaker MACRO\ninsideWord FDB $FF\ninsideReserve RMB 8\nENDM\n" +
+				"Packet STRUCT\nfieldWord FDB 9\nfieldReserve RMB 6\nPacket ENDS\n" +
+				"after RMB 32\n",
+			expected:  map[string]int{"outside": 1, "after": 10},
+			forbidden: []string{"insideWord", "insideReserve", "fieldWord", "fieldReserve"},
+			complete:  true,
+		},
+		{
+			name:      "unclosed-macro",
+			source:    "outside FDB 1\nMaker MACRO\ninsideWord FDB 2\ninsideReserve RMB 9\n",
+			expected:  map[string]int{"outside": 1},
+			forbidden: []string{"insideWord", "insideReserve"},
+			complete:  false,
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct{ name, value string }{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				document := testSourceDocument("motorola.asm", strings.ReplaceAll(tc.source, "\n", eol.value))
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				for name, line := range tc.expected {
+					symbol, found := symbols[name]
+					if !found || symbol.Kind != SymbolKindVariable || symbol.DeclarationRange.Start.Line != line {
+						t.Errorf("Motorola data %q: got %+v found=%v; want variable at line %d", name, symbol, found, line)
+					}
+				}
+				for _, name := range tc.forbidden {
+					if symbol, found := symbols[name]; found {
+						t.Errorf("invalid or non-global declaration indexed: %+v", symbol)
+					}
+				}
+				if tc.name == "word-data-and-reserved-bytes" {
+					for _, name := range []string{"entry", "namedLabel"} {
+						if symbol, found := symbols[name]; !found || symbol.Kind != SymbolKindLabel {
+							t.Errorf("label %q reclassified: %+v, found=%v", name, symbol, found)
+						}
+					}
+				}
+				if result.Analysis.CoverageComplete != tc.complete {
+					t.Errorf("coverage complete=%v want=%v diagnostics=%+v", result.Analysis.CoverageComplete, tc.complete, result.Analysis.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
 func TestAssemblyMotorolaFCBAndFCCNamedData(t *testing.T) {
 	tests := []struct {
 		name      string
