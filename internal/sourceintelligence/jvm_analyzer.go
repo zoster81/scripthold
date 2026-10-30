@@ -110,6 +110,10 @@ type jvmParser struct {
 
 func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, members bool, owner string) {
 	currentParent := parent
+	memberDepth := -1
+	if parser.kotlin && members && start > 0 {
+		memberDepth = parser.tokens[start-1].Nesting
+	}
 	for index := start; index < end && !parser.stopped; {
 		if parser.ctx.Err() != nil {
 			return
@@ -117,6 +121,10 @@ func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, member
 		index = nextStructuralToken(parser.tokens, index, end)
 		if index >= end || parser.tokens[index].Kind == TokenEOF {
 			return
+		}
+		if memberDepth >= 0 && parser.tokens[index].Nesting > memberDepth {
+			index++
+			continue
 		}
 		if parser.token(index, "@") {
 			if parser.kotlin {
@@ -875,6 +883,19 @@ func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParen
 		return marker + 1
 	}
 	depth := parser.tokens[marker].Nesting
+	// Extension properties name the identifier after the receiver's final dot.
+	// Stop at the type or initializer so dots inside values are not declarations.
+	for index := marker + 1; index < end; index++ {
+		token := parser.tokens[index]
+		if token.Nesting == depth && (token.Kind == TokenNewline || token.Text == ":" || token.Text == "=" || token.Text == "by") {
+			break
+		}
+		if token.Nesting == depth && token.Text == "." {
+			if next := nextStructuralToken(parser.tokens, index+1, end); next < end && parser.tokens[next].Kind == TokenIdentifier {
+				nameIndex = next
+			}
+		}
+	}
 	terminator := end
 	for index := nameIndex + 1; index < end; index++ {
 		if parser.tokens[index].Kind == TokenNewline && parser.tokens[index].Nesting == depth {

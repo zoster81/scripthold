@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-Scripthold can inspect Markdown structure and make controlled, source-preserving edits. The four Markdown-specific MCP tools and the shared 4.0 confirmation tool support a read–preview–apply workflow (3.3.6 still uses `markdown_apply`):
+Scripthold can inspect Markdown structure and make controlled, source-preserving edits. In 4.0 and later, the four Markdown-specific MCP tools and the shared confirmation tool support a read–preview–apply workflow:
 
 | Task | Tool |
 |---|---|

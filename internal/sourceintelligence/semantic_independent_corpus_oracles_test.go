@@ -407,6 +407,9 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"me.zhanghai.android.files.util.ActionState.Ready.equals", SymbolKindMethod, 10},
 			{"me.zhanghai.android.files.util.ActionState.Running", SymbolKindClass, 23},
 			{"me.zhanghai.android.files.util.ActionState.Success", SymbolKindClass, 25},
+			{"me.zhanghai.android.files.util.isReady", SymbolKindProperty, 30},
+			{"me.zhanghai.android.files.util.isRunning", SymbolKindProperty, 33},
+			{"me.zhanghai.android.files.util.isFinished", SymbolKindProperty, 36},
 		}, []string{"me.zhanghai.android.files.util.ActionState.javaClass", "me.zhanghai.android.files.util.ActionState.Ghost"}},
 		{"kotlin-gkd-load-status", "SCRIPTHOLD_REAL_KT_GKD", "kotlin", []want{
 			{"li.songe.gkd.util", SymbolKindPackage, 1},

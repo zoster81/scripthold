@@ -728,7 +728,7 @@ Navigate bounded source declarations without reading every complete source file.
 Scripthold has **100 active Source Intelligence providers**. The generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix shows what each provider can actually analyze; its contents are checked against the native registry.
 
 - **How analysis works:** Go uses the standard-library AST. Other providers use bounded native scanners, structural recognizers, or offset-preserving adapters. Composite providers retain host-file coordinates and analyze only supported embedded regions.
-- **What coverage means:** Shared file extensions and language dialects may be ambiguous. Indexing is bounded and process-local; enabling a provider does not imply that every project or semantic relationship is supported. Ambiguous, partial, truncated, and unsupported results are reported rather than guessed.
+- **What coverage means:** Shared file extensions and language dialects may be ambiguous. Indexing is bounded and process-local; enabling a provider does not imply that every project or semantic relationship is supported. `coverageComplete: true` means the selected analysis completed without reported omissions; it is not independent proof that every declaration was recognized correctly. Check important symbols against the source, and corroborate uncertain or missing declarations with `grep_text_files` and targeted reads. Ambiguous, partial, truncated, and unsupported results are reported rather than guessed.
 - **What is not required:** No external compiler, language server, network lookup, persistent code index, or complete-source cache.
 
 **Common navigation parameters:**

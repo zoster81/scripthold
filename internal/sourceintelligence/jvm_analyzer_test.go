@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -57,6 +58,76 @@ record Pair(int left, int right) implements Serializable {}
 		if !hasStructuralRelation(result.Relations, rel[0], rel[1], rel[2]) {
 			t.Fatalf("missing Java relation %v in %+v", rel, result.Relations)
 		}
+	}
+}
+
+func TestKotlinPropertyNamesAndGetterScopes(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   map[string]SymbolKind
+		absent []string
+	}{
+		{
+			name:   "extension properties keep their declared names",
+			source: "package demo\nclass ActionState\nval ActionState.isReady: Boolean\n    get() = true\nval ActionState.isRunning: Boolean\n    get() = false\n",
+			want:   map[string]SymbolKind{"demo.isReady": SymbolKindProperty, "demo.isRunning": SymbolKindProperty},
+			absent: nil,
+		},
+		{
+			name:   "getter local variables do not leak into class",
+			source: "package demo\nclass IndexedParameterMap {\n    val entries: Set<String>\n        get() {\n            val allPossibleEntries = listOf(\"x\")\n            return allPossibleEntries.toSet()\n        }\n    fun next() {}\n}\n",
+			want:   map[string]SymbolKind{"demo.IndexedParameterMap.entries": SymbolKindProperty, "demo.IndexedParameterMap.next": SymbolKindMethod},
+			absent: []string{"demo.IndexedParameterMap.allPossibleEntries"},
+		},
+		{
+			name:   "delegate property keeps name and following members",
+			source: "package okio\nexpect abstract class ForwardingSource constructor(\n    delegate: Source,\n) : Source {\n    val delegate: Source\n    override fun timeout(): Timeout\n}\n",
+			want:   map[string]SymbolKind{"okio.ForwardingSource.delegate": SymbolKindProperty, "okio.ForwardingSource.timeout": SymbolKindMethod},
+			absent: []string{"okio.ForwardingSource.Source"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				t.Run("eol-"+map[string]string{"\n": "LF", "\r\n": "CRLF"}[eol], func(t *testing.T) {
+					source := strings.ReplaceAll(tc.source, "\n", eol)
+					result, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 128))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !result.Analysis.CoverageComplete {
+						t.Fatalf("incomplete: %+v", result.Analysis.Diagnostics)
+					}
+					found := symbolsByQualifiedName(result.Analysis.Symbols)
+					for name, kind := range tc.want {
+						symbol, ok := found[name]
+						if !ok || symbol.Kind != kind {
+							t.Errorf("%s: expected %s, got %+v (exists=%v); names=%v", name, kind, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+						}
+					}
+					if tc.name == "extension properties keep their declared names" {
+						classCount := 0
+						for _, symbol := range result.Analysis.Symbols {
+							if symbol.QualifiedName == "demo.ActionState" {
+								if symbol.Kind != SymbolKindClass {
+									t.Errorf("spurious extension receiver property: %+v", symbol)
+								}
+								classCount++
+							}
+						}
+						if classCount != 1 {
+							t.Errorf("ActionState declarations=%d, expected one class", classCount)
+						}
+					}
+					for _, name := range tc.absent {
+						if symbol, ok := found[name]; ok {
+							t.Errorf("spurious declaration %s: %+v", name, symbol)
+						}
+					}
+				})
+			}
+		})
 	}
 }
 
