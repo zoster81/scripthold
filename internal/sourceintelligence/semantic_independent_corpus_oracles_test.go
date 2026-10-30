@@ -184,7 +184,7 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"Ownable.onlyOwner", SymbolKindMethod, 48},
 			{"Ownable.owner", SymbolKindMethod, 56},
 			{"Ownable._checkOwner", SymbolKindMethod, 63},
-		}, []string{"Context", "Ownable.Context", "Ownable._msgSender", "Ownable.Ghost"}},
+		}, []string{"Context", "Ownable.Context", "Ownable._msgSender", "Ownable.Ghost", "solidity"}},
 		{"solidity-aave-datatypes", "SCRIPTHOLD_REAL_SOL_AAVE", "solidity", []want{
 			{"DataTypes", SymbolKindModule, 4},
 			{"DataTypes.ReserveData", SymbolKindStruct, 5},
@@ -192,14 +192,14 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"DataTypes.ReserveConfigurationMap", SymbolKindStruct, 38},
 			{"DataTypes.ReserveConfigurationMap.data", SymbolKindField, 60},
 			{"DataTypes.UserConfigurationMap", SymbolKindStruct, 63},
-		}, []string{"ReserveData", "DataTypes.Ghost", "DataTypes.ReserveData.ReserveConfigurationMap"}},
+		}, []string{"ReserveData", "DataTypes.Ghost", "DataTypes.ReserveData.ReserveConfigurationMap", "solidity"}},
 		{"solidity-compound-unitroller", "SCRIPTHOLD_REAL_SOL_COMPOUND", "solidity", []want{
 			{"Unitroller", SymbolKindClass, 11},
 			{"Unitroller.NewPendingImplementation", SymbolKindEvent, 16},
 			{"Unitroller.Unitroller", SymbolKindConstructor, 33},
 			{"Unitroller._setPendingImplementation", SymbolKindMethod, 39},
 			{"Unitroller._acceptImplementation", SymbolKindMethod, 59},
-		}, []string{"Unitroller.Error", "Unitroller.fail", "Unitroller.msg", "Unitroller.Ghost"}},
+		}, []string{"Unitroller.Error", "Unitroller.fail", "Unitroller.msg", "Unitroller.Ghost", "solidity"}},
 		{"solidity-solmate-owned", "SCRIPTHOLD_REAL_SOL_SOLMATE", "solidity", []want{
 			{"Owned", SymbolKindClass, 6},
 			{"Owned.OwnershipTransferred", SymbolKindEvent, 11},
@@ -207,14 +207,14 @@ func TestSemanticIndependentRealCorpusOracles(t *testing.T) {
 			{"Owned.onlyOwner", SymbolKindMethod, 19},
 			{"Owned.Owned", SymbolKindConstructor, 29},
 			{"Owned.transferOwnership", SymbolKindMethod, 39},
-		}, []string{"Owned.require", "Owned.emit", "Owned.msg", "Owned.Ghost"}},
+		}, []string{"Owned.require", "Owned.emit", "Owned.msg", "Owned.Ghost", "solidity"}},
 		{"solidity-uniswap-nodelegatecall", "SCRIPTHOLD_REAL_SOL_UNISWAP", "solidity", []want{
 			{"NoDelegateCall", SymbolKindClass, 6},
 			{"NoDelegateCall.original", SymbolKindField, 8},
 			{"NoDelegateCall.NoDelegateCall", SymbolKindConstructor, 10},
 			{"NoDelegateCall.checkNotDelegateCall", SymbolKindMethod, 18},
 			{"NoDelegateCall.noDelegateCall", SymbolKindMethod, 23},
-		}, []string{"NoDelegateCall.require", "NoDelegateCall.address", "NoDelegateCall.Ghost"}},
+		}, []string{"NoDelegateCall.require", "NoDelegateCall.address", "NoDelegateCall.Ghost", "solidity"}},
 		{"apex-dlrs-bypass", "SCRIPTHOLD_REAL_APEX_DLRS", "apex", []want{
 			{"BypassHandler", SymbolKindClass, 33},
 			{"BypassHandler.bypassedRollups", SymbolKindField, 34},
