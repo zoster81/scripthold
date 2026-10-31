@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Kotlin source navigation now recognizes named `object` declarations, including `data object` and nested named objects, and preserves their member ownership. Anonymous object expressions are not promoted into declarations. The existing JVM-family parser is reused and Java behavior remains unchanged.
 - Swift source navigation now recognizes `package` access modifiers introduced in modern Swift, preserving package-scoped nested types, methods, and constructors. This fixes missing Vapor testing helpers without adding a parallel parser or changing the public API.
 - C# source navigation no longer misclassifies fields initialized with constructor calls or lambdas as methods or properties; expression-bodied properties and real methods keep their expected kinds. Verified against the original Polly resilience pipeline sources.
 - C# source navigation now preserves generic method names when declarations have line breaks before a method's type-parameter or argument list. It reuses the existing structural-token scanner, avoids indexing generic parameter names as methods, and retains original declaration positions.

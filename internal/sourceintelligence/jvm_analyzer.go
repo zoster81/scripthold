@@ -300,7 +300,9 @@ func (parser *jvmParser) typeDeclarationAt(start, end int) (keyword, declaration
 				return 0, start, "", false
 			}
 		}
-		if text == "class" || text == "interface" || (!parser.kotlin && (text == "enum" || text == "record")) {
+		if text == "class" || text == "interface" ||
+			(parser.kotlin && text == "object" && cursor+1 < end && parser.tokens[cursor+1].Kind == TokenIdentifier) ||
+			(!parser.kotlin && (text == "enum" || text == "record")) {
 			nativeKind = text
 			if parser.kotlin && text == "class" {
 				if containsLower(prefixes, "data") {

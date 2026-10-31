@@ -243,6 +243,110 @@ const val Answer: Int = 42
 	}
 }
 
+func TestKotlinNamedObjectDeclarations(t *testing.T) {
+	const source = `package demo
+object Config {
+    fun init() {}
+    val tag: String = "config"
+}
+data object Singleton
+class Wrapper {
+    private object Nested {
+        fun run() {}
+    }
+}
+fun factory() = object : Runnable {
+    override fun run() {}
+}
+val fake = "object Pretend { fun bogus() {} }"
+`
+	for _, tc := range []struct{ name, source string }{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("Kotlin object declaration incomplete: %+v", result.Analysis)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, kind := range map[string]SymbolKind{
+				"demo.Config":             SymbolKindClass,
+				"demo.Config.init":        SymbolKindMethod,
+				"demo.Config.tag":         SymbolKindProperty,
+				"demo.Singleton":          SymbolKindClass,
+				"demo.Wrapper":            SymbolKindClass,
+				"demo.Wrapper.Nested":     SymbolKindClass,
+				"demo.Wrapper.Nested.run": SymbolKindMethod,
+			} {
+				if symbol, ok := found[name]; !ok || symbol.Kind != kind {
+					t.Errorf("%s = %+v exists=%v; symbols=%v", name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				} else if name == "demo.Config" && symbol.NativeKind != "object" {
+					t.Errorf("Kotlin named object native kind = %q", symbol.NativeKind)
+				}
+			}
+			for _, name := range []string{"demo.Pretend", "demo.bogus", "demo.Runnable"} {
+				if symbol, exists := found[name]; exists {
+					t.Errorf("Kotlin anonymous/string false positive %s = %+v", name, symbol)
+				}
+			}
+		})
+	}
+}
+
+func TestKotlinOriginalNamedObjects(t *testing.T) {
+	for _, tc := range []struct {
+		env, qualified string
+		line           int
+	}{
+		{"SCRIPTHOLD_REAL_KOTLIN_REBUGGER_CONFIG", "com.theapache64.rebugger.RebuggerConfig", 5},
+		{"SCRIPTHOLD_REAL_KOTLIN_COMPRESSOR", "id.zelory.compressor.Compressor", 17},
+	} {
+		t.Run(tc.env, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to the qualified original Kotlin source", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original Kotlin fixture exceeds 1 MiB")
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc := sourceDocumentForScanner(string(contents))
+			doc.Path = path
+			result, err := (KotlinAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("original Kotlin object analysis incomplete: %+v", result.Analysis)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			obj, ok := found[tc.qualified]
+			if !ok || obj.Kind != SymbolKindClass || obj.NativeKind != "object" || obj.NameRange.Start.Line != tc.line {
+				t.Fatalf("original Kotlin object %s got %+v (exists=%v); symbols=%v", tc.qualified, obj, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			method := "init"
+			if tc.line == 17 {
+				method = "compress"
+			}
+			member, ok := found[tc.qualified+"."+method]
+			if !ok || member.Kind != SymbolKindMethod || member.ParentQualifiedName != tc.qualified {
+				t.Fatalf("original Kotlin member %s.%s got %+v (exists=%v)", tc.qualified, method, member, ok)
+			}
+		})
+	}
+}
+
 func TestKotlinAnalyzerGenericSupertypeCommaDoesNotSplitRelation(t *testing.T) {
 	text := `package demo
 class Empty
