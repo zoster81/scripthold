@@ -165,6 +165,117 @@ func TestCSharpOriginalSerilogGenericMethods(t *testing.T) {
 	}
 }
 
+func TestCSharpMemberInitializersAreNotCallableDeclarations(t *testing.T) {
+	const source = `class Pipeline {
+    public static readonly Pipeline Empty = new(1);
+    public Func<int> Callback = () => 1;
+    public int Value => Compute();
+    public static Pipeline Create(int value) => new(value);
+    private int Compute() => 7;
+}`
+	for _, tc := range []struct{ name, source string }{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("member initializer source partial: %+v", result.Analysis)
+			}
+			want := map[string]SymbolKind{
+				"Pipeline":          SymbolKindClass,
+				"Pipeline.Empty":    SymbolKindField,
+				"Pipeline.Callback": SymbolKindField,
+				"Pipeline.Value":    SymbolKindProperty,
+				"Pipeline.Create":   SymbolKindMethod,
+				"Pipeline.Compute":  SymbolKindMethod,
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				kind, ok := want[symbol.QualifiedName]
+				if !ok || symbol.Kind != kind {
+					t.Fatalf("unexpected member declaration %+v; want=%v", symbol, want)
+				}
+				delete(want, symbol.QualifiedName)
+			}
+			if len(want) != 0 {
+				t.Fatalf("members missing: %v; symbols=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestCSharpOriginalPollyPipelineMembers(t *testing.T) {
+	for _, tc := range []struct {
+		name, env string
+		want      map[int]struct {
+			qualified string
+			kind      SymbolKind
+		}
+	}{
+		{"type", "SCRIPTHOLD_REAL_CSHARP_POLLY_PIPELINE", map[int]struct {
+			qualified string
+			kind      SymbolKind
+		}{
+			13: {"Polly.ResiliencePipeline", SymbolKindClass},
+			18: {"Polly.ResiliencePipeline.Empty", SymbolKindField},
+		}},
+		{"async", "SCRIPTHOLD_REAL_CSHARP_POLLY_PIPELINE_ASYNC", map[int]struct {
+			qualified string
+			kind      SymbolKind
+		}{
+			17: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			32: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			48: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			63: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			86: {"Polly.ResiliencePipeline.ExecuteOutcomeAsync", SymbolKindMethod},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to a qualified original Polly C# file", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original Polly fixture exceeds 1 MiB")
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document := sourceDocumentForScanner(string(contents))
+			document.Path = path
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("original Polly analysis partial: %+v", result.Analysis)
+			}
+			seen := make(map[int]bool)
+			for _, symbol := range result.Analysis.Symbols {
+				if want, ok := tc.want[symbol.NameRange.Start.Line]; ok {
+					if symbol.QualifiedName != want.qualified || symbol.Kind != want.kind {
+						t.Fatalf("Polly declaration line %d: got %+v, want %+v", symbol.NameRange.Start.Line, symbol, want)
+					}
+					seen[symbol.NameRange.Start.Line] = true
+				}
+			}
+			for line := range tc.want {
+				if !seen[line] {
+					t.Fatalf("Polly declaration line %d missing; symbols=%v", line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
 func TestCSharpAnalyzerModernDeclarationsAndFalsePositiveResistance(t *testing.T) {
 	text := `using System;
 using IO = System.IO;

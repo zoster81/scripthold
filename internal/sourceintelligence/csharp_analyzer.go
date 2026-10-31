@@ -327,6 +327,10 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 	modifiers := parser.collectModifiers(start, segmentEnd)
 	visibility := csharpVisibility(modifiers)
 	paren := parser.findTopOpening(start, segmentEnd, "(", depth+1)
+	if paren >= 0 && (parser.findToken(start, paren, "=", depth) >= 0 || parser.findToken(start, paren, "=>", depth) >= 0) {
+		// An initializer invocation is not the member's parameter list.
+		paren = -1
+	}
 	if paren >= 0 {
 		nameIndex := parser.memberMethodNameIndex(start, paren)
 		if nameIndex >= 0 {
@@ -378,7 +382,7 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 			kind, nativeKind = SymbolKindConstant, "const"
 		} else if parser.containsToken(start, nameIndex, "event") {
 			kind, nativeKind = SymbolKindEvent, "event"
-		} else if closeIndex > terminator || parser.findToken(start, terminator, "=>", depth) >= 0 {
+		} else if parser.findToken(start, terminator, "=", depth) < 0 && (closeIndex > terminator || parser.findToken(start, terminator, "=>", depth) >= 0) {
 			kind, nativeKind = SymbolKindProperty, "property"
 		}
 		signatureEnd := parser.tokens[terminator].StartOffset
@@ -573,15 +577,11 @@ func (parser *csharpParser) indexerNameIndex(start, end, depth int) int {
 }
 
 func (parser *csharpParser) memberNameIndex(start, end int) int {
-	arrow := -1
+	depth := parser.tokens[start].Nesting
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == "=>" {
-			arrow = index
-			break
+		if parser.tokens[index].Nesting == depth && (parser.tokens[index].Text == "=" || parser.tokens[index].Text == "=>") {
+			return parser.lastIdentifier(start, index)
 		}
-	}
-	if arrow >= 0 {
-		return parser.lastIdentifier(start, arrow)
 	}
 	return parser.lastIdentifier(start, end)
 }
