@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -128,6 +129,52 @@ func TestKotlinPropertyNamesAndGetterScopes(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestKotlinOriginalOkioForwardingSource(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_KOTLIN_OKIO_FORWARDING_SOURCE")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_KOTLIN_OKIO_FORWARDING_SOURCE to the original Okio ForwardingSource.kt")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("original Kotlin fixture exceeds 1 MiB")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := sourceDocumentForScanner(string(contents))
+	document.Path = path
+	result, err := (KotlinAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("original Kotlin analysis partial: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for qualified, kind := range map[string]SymbolKind{
+		"okio.ForwardingSource":          SymbolKindClass,
+		"okio.ForwardingSource.delegate": SymbolKindProperty,
+		"okio.ForwardingSource.read":     SymbolKindMethod,
+		"okio.ForwardingSource.timeout":  SymbolKindMethod,
+		"okio.ForwardingSource.close":    SymbolKindMethod,
+	} {
+		symbol, exists := byName[qualified]
+		if !exists || symbol.Kind != kind {
+			t.Fatalf("%s: got %+v, exists=%v; symbols=%v", qualified, symbol, exists, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	if falseSymbol, exists := byName["okio.ForwardingSource.Source"]; exists {
+		t.Fatalf("Kotlin property type mistaken for property name: %+v", falseSymbol)
+	}
+	if !hasStructuralRelation(result.Relations, "supertype", "okio.ForwardingSource", "Source") {
+		t.Fatalf("Kotlin original supertype lost: %+v", result.Relations)
 	}
 }
 
