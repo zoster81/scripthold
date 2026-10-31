@@ -1143,6 +1143,14 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 	if terminator < 0 {
 		return start + 1, false
 	}
+	// Dart initializers can contain calls or function types; neither declares a callable.
+	if p.policy.language == "dart" && p.tokens[terminator].Text == ";" {
+		for i := start; i < terminator; i++ {
+			if p.tokens[i].Text == "=" && p.tokens[i].Nesting == depth {
+				return p.parseVariable(start, terminator, parent, members)
+			}
+		}
+	}
 	paren := -1
 	assignment := false
 	for i := start; i < terminator; i++ {

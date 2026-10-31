@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Dart source navigation now distinguishes top-level `final` values and fields initialized by function calls from actual callable declarations. This preserves names used in projects such as Spotube without altering the other brace-language analyzers. Original Hiddify annotation handling is protected by a separate regression test.
 - Kotlin source navigation now recognizes named `object` declarations, including `data object` and nested named objects, and preserves their member ownership. Anonymous object expressions are not promoted into declarations. The existing JVM-family parser is reused and Java behavior remains unchanged.
 - Swift source navigation now recognizes `package` access modifiers introduced in modern Swift, preserving package-scoped nested types, methods, and constructors. This fixes missing Vapor testing helpers without adding a parallel parser or changing the public API.
 - C# source navigation no longer misclassifies fields initialized with constructor calls or lambdas as methods or properties; expression-bodied properties and real methods keep their expected kinds. Verified against the original Polly resilience pipeline sources.

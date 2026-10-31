@@ -2,8 +2,191 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 )
+
+func TestDartRiverpodAnnotationKeepsClassAndMembers(t *testing.T) {
+	const original = `@Riverpod(keepAlive: true)
+class AnalyticsController extends GeneratedAnalyticsController {
+  Future<bool> build() async { return true; }
+  Future<void> enableAnalytics() async {}
+  Future<void> disableAnalytics() async {}
+}
+class Sibling {}
+`
+	for _, tc := range []struct{ name, source string }{
+		{"LF", original},
+		{"CRLF", strings.ReplaceAll(original, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (DartAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("Dart annotation analysis incomplete: %+v", result.Analysis)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, kind := range map[string]SymbolKind{
+				"AnalyticsController":                  SymbolKindClass,
+				"AnalyticsController.build":            SymbolKindMethod,
+				"AnalyticsController.enableAnalytics":  SymbolKindMethod,
+				"AnalyticsController.disableAnalytics": SymbolKindMethod,
+				"Sibling":                              SymbolKindClass,
+			} {
+				if sym, ok := found[name]; !ok || sym.Kind != kind {
+					t.Errorf("%s: exists=%v symbol=%+v; names=%v", name, ok, sym, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			if sym, ok := found["Riverpod"]; ok {
+				t.Errorf("annotation reported as callable: %+v", sym)
+			}
+		})
+	}
+}
+
+func TestDartOriginalHiddifyRiverpodController(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_DART_HIDDIFY_ANALYTICS_CONTROLLER")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_DART_HIDDIFY_ANALYTICS_CONTROLLER to the qualified Hiddify original")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("Hiddify fixture exceeds 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := sourceDocumentForScanner(string(data))
+	doc.Path = path
+	result, err := (DartAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("Hiddify analyzer incomplete: %+v", result.Analysis)
+	}
+	want := map[string]struct {
+		kind SymbolKind
+		line int
+	}{
+		"AnalyticsController":                  {SymbolKindClass, 20},
+		"AnalyticsController.build":            {SymbolKindMethod, 22},
+		"AnalyticsController.enableAnalytics":  {SymbolKindMethod, 28},
+		"AnalyticsController.disableAnalytics": {SymbolKindMethod, 63},
+	}
+	for _, sym := range result.Analysis.Symbols {
+		if sym.Name == "Riverpod" {
+			t.Fatalf("original Riverpod annotation became a symbol: %+v", sym)
+		}
+		if expected, ok := want[sym.QualifiedName]; ok {
+			if sym.Kind != expected.kind || sym.NameRange.Start.Line != expected.line {
+				t.Errorf("%s: got %+v want %+v", sym.QualifiedName, sym, expected)
+			}
+			delete(want, sym.QualifiedName)
+		}
+	}
+	if len(want) > 0 {
+		t.Fatalf("missing Hiddify symbols %v; got %v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestDartInitializerCallsAreNotFunctionDeclarations(t *testing.T) {
+	const source = `final numberFormatter = NumberFormat.compact();
+final currencyFormatter = NumberFormat.compactCurrency(
+  locale: 'en-US',
+  digits: 2,
+);
+final bool Function() predicate = () => true;
+void main() {}
+class Formatter {
+  final value = NumberFormat.compact();
+  void refresh() {}
+}
+final decoy = "final Fake = Formatter.fake();";
+`
+	for _, tc := range []struct{ name, source string }{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (DartAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("Dart initializer incomplete: %+v", result.Analysis)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, kind := range map[string]SymbolKind{
+				"numberFormatter":   SymbolKindConstant,
+				"currencyFormatter": SymbolKindConstant,
+				"predicate":         SymbolKindConstant,
+				"main":              SymbolKindFunction,
+				"Formatter":         SymbolKindClass,
+				"Formatter.value":   SymbolKindField,
+				"Formatter.refresh": SymbolKindMethod,
+			} {
+				if sym, ok := found[name]; !ok || sym.Kind != kind {
+					t.Errorf("%s: exists=%v got %+v, want %s; symbols=%v", name, ok, sym, kind, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			for _, name := range []string{"compact", "compactCurrency", "Fake", "Formatter.fake"} {
+				if sym, exists := found[name]; exists {
+					t.Errorf("fake initializer symbol %s: %+v", name, sym)
+				}
+			}
+		})
+	}
+}
+
+func TestDartOriginalSpotubeGlobalFormatters(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_DART_SPOTUBE_FORMATTERS")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_DART_SPOTUBE_FORMATTERS to the qualified original Spotube formatters.dart")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("Spotube fixture exceeds 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := sourceDocumentForScanner(string(data))
+	doc.Path = path
+	result, err := (DartAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("Spotube original analyzer incomplete: %+v", result.Analysis)
+	}
+	want := map[string]int{"compactNumberFormatter": 3, "usdFormatter": 4}
+	for _, sym := range result.Analysis.Symbols {
+		if line, ok := want[sym.QualifiedName]; ok {
+			if sym.NameRange.Start.Line != line || sym.Kind != SymbolKindConstant {
+				t.Errorf("%s: expected constant at line %d; got %+v", sym.QualifiedName, line, sym)
+			}
+			delete(want, sym.QualifiedName)
+		}
+		if sym.Name == "compact" || sym.Name == "compactCurrency" {
+			t.Errorf("formatter initializer call became a function declaration: %+v", sym)
+		}
+	}
+	if len(want) > 0 {
+		t.Fatalf("missing original Spotube globals: %v, found=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
 
 func TestBraceSharedStatementConsumption(t *testing.T) {
 	tests := []struct {
