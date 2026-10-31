@@ -1002,12 +1002,17 @@ func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument
 	}
 	var play *SymbolParent
 	tasksIndent := -1
-	for _, line := range sourceTextLines(document.Text) {
+	lines := sourceTextLines(document.Text)
+	for i, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
 		trimmed := strings.TrimSpace(stripLineComment(line.text, "#"))
-		if trimmed == "tasks:" && play != nil {
+		if line.indent == 0 && strings.HasPrefix(trimmed, "- hosts:") {
+			play = nil
+			tasksIndent = -1
+		}
+		if play != nil && (trimmed == "tasks:" || trimmed == "pre_tasks:" || trimmed == "post_tasks:" || trimmed == "handlers:") {
 			tasksIndent = line.indent
 			continue
 		}
@@ -1020,15 +1025,44 @@ func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument
 		}
 		trimStart := line.start + strings.Index(line.text, trimmed)
 		nameOffset := strings.Index(trimmed, name)
-		if play == nil || tasksIndent < 0 || line.indent < tasksIndent {
+		isPlay := false
+		if line.indent == 0 {
+			play = nil
+			tasksIndent = -1
+			// A play has a sibling hosts or task-list key, not a nested variable with that name.
+			childIndent, hostsIndent, taskListIndent := -1, -1, -1
+			for _, next := range lines[i+1:] {
+				nextText := strings.TrimSpace(stripLineComment(next.text, "#"))
+				if nextText == "" {
+					continue
+				}
+				if next.indent <= line.indent {
+					break
+				}
+				if childIndent < 0 || next.indent < childIndent {
+					childIndent = next.indent
+				}
+				if strings.HasPrefix(nextText, "hosts:") && (hostsIndent < 0 || next.indent < hostsIndent) {
+					hostsIndent = next.indent
+				}
+				if (nextText == "tasks:" || nextText == "pre_tasks:" || nextText == "post_tasks:" || nextText == "handlers:") && (taskListIndent < 0 || next.indent < taskListIndent) {
+					taskListIndent = next.indent
+				}
+			}
+			isPlay = (hostsIndent >= 0 && hostsIndent == childIndent) || (taskListIndent >= 0 && taskListIndent == childIndent)
+		}
+		if isPlay {
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindSection, "play", name, nil, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
 			if ok {
 				play = &symbol
-				tasksIndent = -1
 			}
 			continue
 		}
-		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, "task", name, play, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
+		var parent *SymbolParent
+		if play != nil && tasksIndent >= 0 && line.indent >= tasksIndent {
+			parent = play
+		}
+		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, "task", name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }

@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Ansible YAML source navigation now distinguishes real named plays from standalone task lists and tasks inside unnamed plays by checking for a sibling `hosts` field. It preserves task names and source locations, including `pre_tasks`, without interpreting Ansible execution semantics.
 - Dart source navigation now distinguishes top-level `final` values and fields initialized by function calls from actual callable declarations. This preserves names used in projects such as Spotube without altering the other brace-language analyzers. Original Hiddify annotation handling is protected by a separate regression test.
 - Kotlin source navigation now recognizes named `object` declarations, including `data object` and nested named objects, and preserves their member ownership. Anonymous object expressions are not promoted into declarations. The existing JVM-family parser is reused and Java behavior remains unchanged.
 - Swift source navigation now recognizes `package` access modifiers introduced in modern Swift, preserving package-scoped nested types, methods, and constructors. This fixes missing Vapor testing helpers without adding a parallel parser or changing the public API.
