@@ -144,11 +144,14 @@ func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options A
 		return AnalyzerResult{}, err
 	}
 	var lineCommentMarkers []string
-	if scss {
+	if scss || less {
 		lineCommentMarkers = []string{"//"}
 	}
 	structural := maskSourceComments(document.Text, lineCommentMarkers, "/*", "*/")
 	selectorSource := maskSourceStrings(structural, true, true, false)
+	if less {
+		selectorSource = maskLessSelectorPunctuation(selectorSource)
+	}
 	if scss {
 		variableSource := maskSCSSModuleDirectives(structural, selectorSource, builder)
 		for _, match := range scssVariable.FindAllStringSubmatchIndex(variableSource, -1) {
@@ -164,6 +167,40 @@ func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options A
 	}
 	cssSelectors(ctx, builder, document, selectorSource)
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+// maskLessSelectorPunctuation prevents Less interpolation braces and mixin
+// argument separators from being mistaken for CSS rule boundaries. Keep every
+// byte offset unchanged so extracted names still come from the original text.
+func maskLessSelectorPunctuation(source string) string {
+	masked := []byte(source)
+	parenDepth := 0
+	for index := 0; index < len(masked); index++ {
+		if masked[index] == '@' && index+1 < len(masked) && masked[index+1] == '{' {
+			// A nested opening brace means this interpolation cannot be proved.
+			// Searching only up to the next delimiter keeps malformed input linear.
+			if next := strings.IndexAny(source[index+2:], "{}"); next >= 0 && source[index+2+next] == '}' {
+				close := index + 2 + next
+				masked[index+1] = ' '
+				masked[close] = ' '
+				index = close
+				continue
+			}
+		}
+		switch masked[index] {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case ';':
+			if parenDepth > 0 {
+				masked[index] = ' '
+			}
+		}
+	}
+	return string(masked)
 }
 
 // maskSCSSModuleDirectives excludes module configuration arguments from
@@ -210,7 +247,7 @@ func cssSelectors(ctx context.Context, builder *SymbolBuilder, document *SourceD
 		raw := strings.TrimSpace(source[segmentStart:open])
 		if raw != "" && !strings.HasPrefix(raw, "@") && !strings.Contains(raw, ": ") {
 			for _, span := range cssSelectorSpans(source[segmentStart:open]) {
-				selector := source[span.Start:span.End]
+				selector := source[segmentStart+span.Start : segmentStart+span.End]
 				if strings.Contains(selector, "\n") && strings.Contains(selector, ":") {
 					continue
 				}

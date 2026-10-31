@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Less source navigation now preserves selectors containing variable interpolation (such as `.@{prefix}-alert`), mixin declarations with semicolon-separated parameters, and selectors following `//` comments. The shared CSS/SCSS/Less scanner also uses the correct source segment offset when evaluating selector names, preventing missed declarations after earlier statements. These are structural discoveries; Less interpolation and mixins are not evaluated or expanded.
 - Elixir source navigation recognizes `defprotocol` as an interface-like declaration and preserves ownership and source positions of protocol functions, without expanding protocol implementations.
 - Erlang source navigation recognizes single-quoted module atoms (such as `-module('chat').`) and correctly associates functions with their declared module, while preserving module and function source positions.
 - D source navigation now preserves annotated and template-parameterized class and struct declarations, including those inside visibility groups, while excluding imported names and unexpanded mixin invocations from invented declarations. Unexpanded mixins explicitly leave coverage incomplete; D source is not compiled or evaluated.
