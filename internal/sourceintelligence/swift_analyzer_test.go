@@ -2,7 +2,9 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -90,6 +92,97 @@ let fake = "class StringFake { func nope() {} }"
 		!hasStructuralRelation(result.Relations, "conforms", "Item", "Codable") ||
 		!hasStructuralRelation(result.Relations, "conforms", "Service", "CustomStringConvertible") {
 		t.Fatalf("Swift relations = %+v", result.Relations)
+	}
+}
+
+func TestSwiftPackageScopedTypesAndMethods(t *testing.T) {
+	const original = `class Application {}
+extension Application {
+    package struct Live {
+        package func performTest() {}
+    }
+    package struct InMemory {
+        package init() {}
+        package func run() {}
+    }
+}
+let decoy = "package struct Fake {}"`
+	for _, tc := range []struct{ name, source string }{
+		{"LF", original},
+		{"CRLF", strings.ReplaceAll(original, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (SwiftAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 100))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("package declarations incomplete: %+v", result.Analysis)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, kind := range map[string]SymbolKind{
+				"Application":                   SymbolKindClass,
+				"Application.Live":              SymbolKindStruct,
+				"Application.Live.performTest":  SymbolKindMethod,
+				"Application.InMemory":          SymbolKindStruct,
+				"Application.InMemory.InMemory": SymbolKindConstructor,
+				"Application.InMemory.run":      SymbolKindMethod,
+			} {
+				if symbol, ok := got[name]; !ok || symbol.Kind != kind {
+					t.Fatalf("%s: got %+v, exists=%v; symbols=%v", name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			if _, falsePositive := got["Fake"]; falsePositive {
+				t.Fatalf("Swift string produced false type: %+v", got["Fake"])
+			}
+		})
+	}
+}
+
+func TestSwiftOriginalVaporPackageNestedTypes(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_SWIFT_VAPOR_TESTING_APPLICATION")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_SWIFT_VAPOR_TESTING_APPLICATION to original Vapor TestingApplication.swift")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("original Vapor fixture exceeds 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := sourceDocumentForScanner(string(data))
+	document.Path = path
+	result, err := (SwiftAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("original Vapor package analysis incomplete: %+v", result.Analysis)
+	}
+	want := map[string]struct {
+		kind SymbolKind
+		line int
+	}{
+		"Application.Live":                 {SymbolKindStruct, 22},
+		"Application.InMemory":             {SymbolKindStruct, 75},
+		"Application.Live.performTest":     {SymbolKindMethod, 33},
+		"Application.InMemory.performTest": {SymbolKindMethod, 82},
+	}
+	for _, symbol := range result.Analysis.Symbols {
+		if expected, ok := want[symbol.QualifiedName]; ok {
+			if symbol.Kind != expected.kind || symbol.NameRange.Start.Line != expected.line {
+				t.Fatalf("Vapor %s: got %+v, expected %+v", symbol.QualifiedName, symbol, expected)
+			}
+			delete(want, symbol.QualifiedName)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("Vapor package declarations missing %v; symbols=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 	}
 }
 

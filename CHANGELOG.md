@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Swift source navigation now recognizes `package` access modifiers introduced in modern Swift, preserving package-scoped nested types, methods, and constructors. This fixes missing Vapor testing helpers without adding a parallel parser or changing the public API.
 - C# source navigation no longer misclassifies fields initialized with constructor calls or lambdas as methods or properties; expression-bodied properties and real methods keep their expected kinds. Verified against the original Polly resilience pipeline sources.
 - C# source navigation now preserves generic method names when declarations have line breaks before a method's type-parameter or argument list. It reuses the existing structural-token scanner, avoids indexing generic parameter names as methods, and retains original declaration positions.
 - C++ source navigation retains explicitly written single-level qualifiers on definitions even when their type or namespace is declared in another file. The existing project search can then retrieve declarations and definitions sharing that written name; matching text alone does not prove class ownership or a semantic link. The public API is unchanged.

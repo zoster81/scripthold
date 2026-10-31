@@ -58,7 +58,7 @@ func (SwiftAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 
 var swiftModifiers = map[string]struct{}{
 	"convenience": {}, "fileprivate": {}, "final": {}, "internal": {}, "mutating": {}, "nonisolated": {}, "open": {},
-	"override": {}, "private": {}, "public": {}, "required": {}, "static": {},
+	"override": {}, "package": {}, "private": {}, "public": {}, "required": {}, "static": {},
 }
 
 type swiftParser struct {
