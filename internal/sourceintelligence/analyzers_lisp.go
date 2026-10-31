@@ -298,7 +298,7 @@ func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, token
 	switch head {
 	case "defpackage":
 		kind = SymbolKindPackage
-	case "defclass":
+	case "defclass", "define-condition":
 		kind = SymbolKindClass
 	case "defstruct":
 		kind = SymbolKindStruct
