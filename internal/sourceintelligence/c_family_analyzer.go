@@ -1168,9 +1168,33 @@ func (parser *cFamilyParser) typeDeclarationAt(start, end int) (keyword, declara
 	return 0, start, false
 }
 
+// cppTypeNameIndex skips the common unexpanded DLL export decoration in
+// class/struct/union heads, but never treats a bare macro-shaped name as a decoration.
+func (parser *cFamilyParser) cppTypeNameIndex(keyword, end int) int {
+	cursor := keyword + 1
+	kind := parser.tokens[keyword].Text
+	if kind == "enum" && parser.cpp && cursor < end && (parser.token(cursor, "class") || parser.token(cursor, "struct")) {
+		cursor++
+	}
+	nameIndex := nextIdentifierToken(parser.tokens, cursor, end)
+	if !parser.cpp || nameIndex < 0 || (kind != "class" && kind != "struct" && kind != "union") {
+		return nameIndex
+	}
+	macro := parser.tokens[nameIndex].Text
+	if macro != strings.ToUpper(macro) || (!strings.HasSuffix(macro, "_API") && !strings.HasSuffix(macro, "_EXPORT")) {
+		return nameIndex
+	}
+	next := nextStructuralToken(parser.tokens, nameIndex+1, end)
+	if next >= end || parser.tokens[next].Nesting != parser.tokens[keyword].Nesting ||
+		parser.tokens[next].Kind != TokenIdentifier || parser.token(next, "final") || cFamilyTypeAttribute(parser.tokens[next].Text) {
+		return nameIndex
+	}
+	return next
+}
+
 func (parser *cFamilyParser) typeHeadIsDefinitionOrForwardDeclaration(keyword, end int) bool {
 	depth := parser.tokens[keyword].Nesting
-	nameIndex := nextIdentifierToken(parser.tokens, keyword+1, end)
+	nameIndex := parser.cppTypeNameIndex(keyword, end)
 	if nameIndex < 0 {
 		return true
 	}
@@ -1268,11 +1292,7 @@ func (parser *cFamilyParser) parseNamespace(start, end int, parent *SymbolParent
 func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolParent) int {
 	depth := parser.tokens[keyword].Nesting
 	nativeKind := strings.ToLower(parser.tokens[keyword].Text)
-	cursor := keyword + 1
-	if nativeKind == "enum" && parser.cpp && cursor < end && (parser.token(cursor, "class") || parser.token(cursor, "struct")) {
-		cursor++
-	}
-	nameIndex := nextIdentifierToken(parser.tokens, cursor, end)
+	nameIndex := parser.cppTypeNameIndex(keyword, end)
 	if nameIndex < 0 {
 		parser.builder.MarkIncomplete()
 		return keyword + 1

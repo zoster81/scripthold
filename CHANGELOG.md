@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- C++ source navigation now recognizes classes, structs, and unions with common unexpanded uppercase `_API` or `_EXPORT` decorations, preserving declared names, constructors, member ownership, inheritance, and source positions without mistaking a standalone class name for an export macro.
 - Rust source navigation now keeps multiline quoted string literals opaque, preserving real declarations after macro strings while avoiding false symbols from embedded text. Unterminated strings still report incomplete coverage.
 - Flow and TypeScript source navigation no longer confuses object-type braces inside generic class constraints with the class body, preserving real class methods and source ownership across LF and CRLF input.
 - TypeScript source navigation no longer reports class or interface generic constraints as inheritance relationships. Actual `extends` and `implements` clauses remain indexed, including when generic parameters span multiple lines.

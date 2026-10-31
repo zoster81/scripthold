@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -865,5 +866,120 @@ struct Hooks {
 		if (symbol.Name == "callback" || symbol.Name == "on_event") && (symbol.Kind == SymbolKindFunction || symbol.Kind == SymbolKindMethod) {
 			t.Fatalf("function pointer overclaimed as callable declaration: %+v", symbol)
 		}
+	}
+}
+
+func TestCPPExportDecoratedTypesPreserveNamesAndMembers(t *testing.T) {
+	const source = `namespace Demo {
+class LIBRARY_API Widget final : public Base {
+public:
+    Widget();
+    void work();
+};
+struct LIBRARY_EXPORT Record { int count; };
+union LIBRARY_EXPORT Variant { int value; };
+class Plain { public: void regular(); };
+class Valid_API final {};
+class DECLARED_EXPORT final {};
+class LIBRARY_API Forward;
+}`
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{name: "LF", text: source},
+		{name: "CRLF", text: strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid decorated class declarations reported partial: %+v", result.Analysis)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for qualified, kind := range map[string]SymbolKind{
+				"Demo.Widget":          SymbolKindClass,
+				"Demo.Widget.Widget":   SymbolKindConstructor,
+				"Demo.Widget.work":     SymbolKindMethod,
+				"Demo.Record":          SymbolKindStruct,
+				"Demo.Record.count":    SymbolKindField,
+				"Demo.Variant":         SymbolKindType,
+				"Demo.Variant.value":   SymbolKindField,
+				"Demo.Plain":           SymbolKindClass,
+				"Demo.Plain.regular":   SymbolKindMethod,
+				"Demo.Valid_API":       SymbolKindClass,
+				"Demo.DECLARED_EXPORT": SymbolKindClass,
+				"Demo.Forward":         SymbolKindClass,
+			} {
+				if got, ok := byName[qualified]; !ok || got.Kind != kind {
+					t.Fatalf("%s = %+v exists=%v; symbols=%v", qualified, got, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Name == "LIBRARY_API" || symbol.Name == "LIBRARY_EXPORT" {
+					t.Fatalf("export decoration indexed as a declaration: %+v", symbol)
+				}
+			}
+			if !hasStructuralRelation(result.Relations, "inherits", "Demo.Widget", "Base") {
+				t.Fatalf("decorated class lost inheritance: %+v", result.Relations)
+			}
+		})
+	}
+}
+
+func TestCPPOriginalSFMLExportDecoratedTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, qualified, constructor string
+		line                              int
+	}{
+		{"RenderWindow", "SCRIPTHOLD_REAL_CPP_SFML_RENDERWINDOW_HEADER", "sf.RenderWindow", "sf.RenderWindow.RenderWindow", 54},
+		{"Sprite", "SCRIPTHOLD_REAL_CPP_SFML_SPRITE_HEADER", "sf.Sprite", "sf.Sprite.Sprite", 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to an original qualified SFML header", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original fixture exceeds 1 MiB")
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document := sourceDocumentForScanner(string(data))
+			document.Path = path
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			foundClass, foundConstructor := false, false
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.QualifiedName == tc.qualified && symbol.Kind == SymbolKindClass {
+					if symbol.NameRange.Start.Line != tc.line {
+						t.Fatalf("original SFML class name range = %+v, want line %d", symbol.NameRange, tc.line)
+					}
+					foundClass = true
+				}
+				if symbol.QualifiedName == tc.constructor && symbol.Kind == SymbolKindConstructor {
+					if symbol.ParentQualifiedName != tc.qualified {
+						t.Fatalf("original SFML constructor lost owner: %+v", symbol)
+					}
+					foundConstructor = true
+				}
+				if symbol.Name == "SFML_GRAPHICS_API" {
+					t.Fatalf("SFML export decoration became a symbol: %+v", symbol)
+				}
+			}
+			if !foundClass || !foundConstructor {
+				t.Fatalf("original SFML symbols missing: class=%v constructor=%v; symbols=%v diagnostics=%+v", foundClass, foundConstructor, sortedSymbolQualifiedNames(result.Analysis.Symbols), result.Analysis.Diagnostics)
+			}
+		})
 	}
 }
