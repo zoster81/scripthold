@@ -1514,11 +1514,14 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 	effectiveParent := parent
 	effectiveMembers := members
 	effectiveOwner := owner
+	unresolvedQualifier := ""
 	if parser.cpp {
 		if qualifiedParent, qualifiedOwner, ok := parser.qualifiedFunctionOwner(start, nameIndex, parent); ok {
 			effectiveParent = qualifiedParent
 			effectiveMembers = true
 			effectiveOwner = qualifiedOwner
+		} else {
+			unresolvedQualifier = qualifiedOwner
 		}
 	}
 	kind := SymbolKindFunction
@@ -1581,6 +1584,15 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		}
 	}
 	modifiers := collectKnownModifiers(parser.tokens, start, paren, cFamilyModifiers)
+	qualifiedName := ""
+	if unresolvedQualifier != "" {
+		// Preserve an explicit single-level C++ qualifier without inventing
+		// class membership: it might name a namespace from another file.
+		qualifiedName = unresolvedQualifier + "." + name
+		if parent != nil && parent.QualifiedName != "" {
+			qualifiedName = parent.QualifiedName + "." + qualifiedName
+		}
+	}
 	nameStart := parser.tokens[nameIndex].StartOffset
 	nameEnd := parser.tokens[nameIndex].EndOffset
 	if kind == SymbolKindOperator {
@@ -1590,7 +1602,7 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		}
 	}
 	_, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: name, Parent: effectiveParent,
+		Kind: kind, NativeKind: nativeKind, Name: name, QualifiedName: qualifiedName, Parent: effectiveParent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: nameStart, End: nameEnd},
 		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[bodyStartOrTerminator(bodyOpen, terminator)].StartOffset}, Body: body,
@@ -1653,7 +1665,11 @@ func (parser *cFamilyParser) qualifiedFunctionOwner(start, nameIndex int, lexica
 		match = &value
 	}
 	if match == nil {
-		return nil, "", false
+		if qualifierIndex > start && parser.tokens[qualifierIndex-1].Text == ":" {
+			// Multiple unknown scope components cannot be shortened safely.
+			return nil, "", false
+		}
+		return nil, qualifier, false
 	}
 	return match, qualifier, true
 }

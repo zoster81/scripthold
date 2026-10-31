@@ -420,6 +420,59 @@ func TestProjectQueryDeterminismLimitsCancellationAndUnsupported(t *testing.T) {
 	}
 }
 
+func TestCPPUnresolvedQualifierReusesProjectStructuralSearch(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "cpp-qualified")
+	header := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "printer.hpp"),
+		"class printer { public: void print(); };\nnamespace util { void tick(); }\n")
+	implementation := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "printer.cpp"),
+		"void printer::print() {}\nvoid util::tick() {}\n")
+	model, err := BuildProjectModel(context.Background(), registry,
+		[]ProjectFileFacts{header, implementation}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		wantCount int
+	}{
+		{"printer.print", 2},
+		{"util.tick", 2},
+	} {
+		result, err := model.StructuralSearch(context.Background(),
+			ProjectSearchOptions{Query: tc.name, Match: ProjectSearchExact, MaxResults: 8})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Matches) != tc.wantCount || result.Truncated {
+			t.Fatalf("project structural search %q returned %+v", tc.name, result)
+		}
+		var sawHeader, sawImplementation bool
+		for _, match := range result.Matches {
+			if match.QualifiedName != tc.name {
+				t.Fatalf("project scope was lost in match %+v", match)
+			}
+			switch match.Path {
+			case header.Path:
+				sawHeader = true
+			case implementation.Path:
+				sawImplementation = true
+				if match.Kind != SymbolKindFunction {
+					t.Fatalf("unproven C++ owner classified as a class: %+v", match)
+				}
+			default:
+				t.Fatalf("unexpected project path: %+v", match)
+			}
+		}
+		if !sawHeader || !sawImplementation {
+			t.Fatalf("project search %q lost a distinct file: %+v", tc.name, result.Matches)
+		}
+	}
+}
+
 func queryPathSelector(facts ProjectFileFacts) ProjectSelector {
 	return ProjectSelector{Kind: ProjectSelectorPath, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint}
 }

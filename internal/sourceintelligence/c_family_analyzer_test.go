@@ -815,6 +815,88 @@ T Box<T>::get() const { return T{}; }
 	}
 }
 
+func TestCPPUnresolvedQualifiedDefinitionsRetainAuthoredScope(t *testing.T) {
+	const source = `void printer::print(int value) {}
+void other_scope::free_function() {}
+namespace Local {
+void printer::reset() {}
+}
+void Outer::Inner::complicated() {}
+`
+	for _, tc := range []struct {
+		name, text string
+	}{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for qualified, line := range map[string]int{
+				"printer.print":             1,
+				"other_scope.free_function": 2,
+				"Local.printer.reset":       4,
+			} {
+				got, ok := byName[qualified]
+				if !ok || got.Kind != SymbolKindFunction || got.NameRange.Start.Line != line {
+					t.Fatalf("unresolved authored scope %q at line %d: got %+v, exists=%v; symbols=%v", qualified, line, got, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+				if got.ParentQualifiedName != "" && got.ParentQualifiedName != "Local" {
+					t.Fatalf("invented C++ type owner: %+v", got)
+				}
+			}
+			if _, falseOwnership := byName["Inner.complicated"]; falseOwnership {
+				t.Fatalf("nested unresolved qualification was truncated into a false scope: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestCPPOriginalClinkQualifiedDefinitions(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_CPP_CLINK_PRINTER_CPP")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CPP_CLINK_PRINTER_CPP to the qualified Clink printer.cpp fixture")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("original Clink fixture exceeds 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := sourceDocumentForScanner(string(data))
+	document.Path = path
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[int]bool{36: false, 62: false, 71: false}
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.QualifiedName != "printer.print" {
+			continue
+		}
+		if symbol.Name != "print" || symbol.Kind != SymbolKindFunction || symbol.ParentQualifiedName != "" {
+			t.Fatalf("unproven Clink class membership falsely asserted: %+v", symbol)
+		}
+		if _, ok := want[symbol.NameRange.Start.Line]; !ok {
+			t.Fatalf("unexpected qualified Clink print definition: %+v", symbol)
+		}
+		want[symbol.NameRange.Start.Line] = true
+	}
+	for line, found := range want {
+		if !found {
+			t.Fatalf("original Clink printer::print definition at line %d lost; symbols=%v", line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestCStructUsesAndInitializersDoNotBecomeTypeDefinitions(t *testing.T) {
 	text := `struct Item {
     int value;
