@@ -13,6 +13,75 @@ import (
 var _ SourceAnalyzer = JavaScriptAnalyzer{}
 var _ SourceAnalyzer = TypeScriptAnalyzer{}
 
+func TestECMAScriptGenericObjectConstraintPreservesClassMembers(t *testing.T) {
+	cases := []struct {
+		name     string
+		analyzer SourceAnalyzer
+		source   string
+		owner    string
+		member   string
+	}{
+		{
+			name:     "flow-generic-object",
+			analyzer: FlowAnalyzer{},
+			source:   "export class Container<State: {}> {\n  setState(value: State) { return value; }\n}\n",
+			owner:    "Container", member: "Container.setState",
+		},
+		{
+			name:     "typescript-nested-object-constraint",
+			analyzer: TypeScriptAnalyzer{},
+			source:   "export class Store<T extends { meta: { id: number } }> extends Base<T> {\n  update(value: T) { return value; }\n}\n",
+			owner:    "Store", member: "Store.update",
+		},
+	}
+	for _, tc := range cases {
+		for _, eol := range []struct{ name, value string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				input := strings.ReplaceAll(tc.source, "\n", eol.value)
+				result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(input), testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete {
+					t.Fatalf("valid generic class reported incomplete: %+v", result.Analysis)
+				}
+				byName := symbolsByQualifiedName(result.Analysis.Symbols)
+				if byName[tc.owner].Kind != SymbolKindClass || byName[tc.member].Kind != SymbolKindMethod {
+					t.Fatalf("class and member lost after generic object constraint: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+				if _, leaked := byName[tc.owner+".meta"]; leaked {
+					t.Fatalf("generic object property incorrectly became a class member: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			})
+		}
+	}
+}
+
+// The source file is supplied only by an explicit, private corpus binding.
+func TestFlowOriginalUnstatedContainerMembers(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_FLOW_UNSTATED")
+	if path == "" {
+		t.Skip("real original Flow corpus path not configured")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 1<<20 {
+		t.Fatal("real Flow source exceeds the regression bound")
+	}
+	document := sourceDocumentForScanner(string(data))
+	document.Path = path
+	result, err := (FlowAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 1024))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if byName["Container"].Kind != SymbolKindClass || byName["Container.setState"].Kind != SymbolKindMethod || byName["Container.subscribe"].Kind != SymbolKindMethod {
+		t.Fatalf("real Flow container declarations incomplete: %v (coverage=%v)", sortedSymbolQualifiedNames(result.Analysis.Symbols), result.Analysis.CoverageComplete)
+	}
+}
+
 func TestJavaScriptAnalyzerModulesDeclarationsArrowsAndOpaqueLiterals(t *testing.T) {
 	text := `import defaultThing, { named as alias } from "pkg";
 export { helper } from "./helper.js";

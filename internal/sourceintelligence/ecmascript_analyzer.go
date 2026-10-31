@@ -757,11 +757,27 @@ func splitECMATypeList(tokens []Token, start, end, nesting int) [][2]int {
 }
 
 func (parser *ecmaParser) findBodyOpen(start, end, base int) int {
+	angleDepth := 0
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == "{" && parser.tokens[index].Nesting == base+1 {
+		token := parser.tokens[index]
+		if token.Nesting == base {
+			switch token.Text {
+			case "<":
+				angleDepth++
+			case ">":
+				if angleDepth > 0 {
+					angleDepth--
+				}
+			case ">>", ">>>":
+				if angleDepth > 0 {
+					angleDepth = max(0, angleDepth-len(token.Text))
+				}
+			}
+		}
+		if token.Text == "{" && token.Nesting == base+1 && angleDepth == 0 {
 			return index
 		}
-		if parser.tokens[index].Kind == TokenEOF {
+		if token.Kind == TokenEOF {
 			break
 		}
 	}
