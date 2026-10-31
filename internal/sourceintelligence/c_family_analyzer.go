@@ -1470,6 +1470,9 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 }
 
 func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
+	if paren := parser.wrappedFunctionParen(start, end, depth); paren >= 0 {
+		return paren
+	}
 	for index := start; index < end; index++ {
 		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == depth {
 			return -1
@@ -1486,6 +1489,51 @@ func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
 		}
 	}
 	return -1
+}
+
+// Accept the common unexpanded EXPORT(type) function-return decoration only
+// when it precedes a distinct named function declarator. Macro expansion is
+// not inferred; this identifies the declaration written in the source.
+func (parser *cFamilyParser) wrappedFunctionParen(start, end, depth int) int {
+	macro := parser.tokens[start]
+	if macro.Kind != TokenIdentifier && macro.Kind != TokenKeyword {
+		return -1
+	}
+	upper := strings.ToUpper(macro.Text)
+	if !strings.HasSuffix(upper, "_PUBLIC") && !strings.HasSuffix(upper, "_EXPORT") && !strings.HasSuffix(upper, "_API") {
+		return -1
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if open >= end || parser.tokens[open].Text != "(" || parser.tokens[open].Nesting != depth+1 {
+		return -1
+	}
+	close := parser.pairs[open]
+	if close <= open+1 || close >= end {
+		return -1
+	}
+	hasType := false
+	for i := open + 1; i < close; i++ {
+		token := parser.tokens[i]
+		if token.Kind == TokenIdentifier || token.Kind == TokenKeyword {
+			hasType = true
+			continue
+		}
+		if token.Text != "*" && token.Text != "&" {
+			return -1 // Not a simple type expression: do not guess macro semantics.
+		}
+	}
+	if !hasType {
+		return -1
+	}
+	name := nextStructuralToken(parser.tokens, close+1, end)
+	if name >= end || parser.tokens[name].Nesting != depth || parser.tokens[name].Kind != TokenIdentifier {
+		return -1
+	}
+	paren := nextStructuralToken(parser.tokens, name+1, end)
+	if paren >= end || parser.tokens[paren].Text != "(" || parser.tokens[paren].Nesting != depth+1 {
+		return -1
+	}
+	return paren
 }
 
 func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, parent *SymbolParent, members bool, owner string) (int, bool) {

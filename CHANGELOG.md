@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- C source navigation now recognizes named function definitions and declarations following conservative unexpanded `_PUBLIC(type)`, `_API(type)`, or `_EXPORT(type)` return-type wrappers. It preserves source locations in projects such as cJSON, rejects malformed wrapper arguments rather than inventing functions, and does not evaluate or expand macros.
 - Bash and POSIX shell source navigation now finds functions declared inside command-level brace groups, including protected installation scripts, while keeping function-local declarations and quoted text out of global navigation.
 - AutoHotkey source navigation now recognizes classes whose opening brace is on the next line, including nested classes and their members, without interpreting unrelated later braces as the class body. Existing same-line declarations remain unchanged.
 - Ansible YAML source navigation now distinguishes real named plays from standalone task lists and tasks inside unnamed plays by checking for a sibling `hosts` field. It preserves task names and source locations, including `pre_tasks`, without interpreting Ansible execution semantics.
