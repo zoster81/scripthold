@@ -115,6 +115,56 @@ func TestCSharpOriginalNewtonsoftGenericMethods(t *testing.T) {
 	}
 }
 
+func TestCSharpOriginalSerilogGenericMethods(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, qualified string
+		line                 int
+	}{
+		{"extensions", "SCRIPTHOLD_REAL_CSHARP_SERILOG_EXTENSIONS", "Serilog.LoggerExtensions.ForContext", 20},
+		{"interface", "SCRIPTHOLD_REAL_CSHARP_SERILOG_ILOGGER", "Serilog.ILogger.ForContext", 105},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to an original pinned Serilog C# source file", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original Serilog C# fixture exceeds 1 MiB")
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document := sourceDocumentForScanner(string(contents))
+			document.Path = path
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("original Serilog analysis partial: %+v", result.Analysis)
+			}
+			found := false
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Kind == SymbolKindMethod && (symbol.Name == "TSource" || symbol.Name == "TValue") {
+					t.Fatalf("Serilog generic argument misnamed as method: %+v", symbol)
+				}
+				if symbol.NameRange.Start.Line == tc.line &&
+					symbol.QualifiedName == tc.qualified && symbol.Kind == SymbolKindMethod {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("original Serilog generic method %q at line %d missing; symbols=%v", tc.qualified, tc.line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
 func TestCSharpAnalyzerModernDeclarationsAndFalsePositiveResistance(t *testing.T) {
 	text := `using System;
 using IO = System.IO;
