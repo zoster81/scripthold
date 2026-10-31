@@ -10,6 +10,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Elixir source navigation recognizes `defprotocol` as an interface-like declaration and preserves ownership and source positions of protocol functions, without expanding protocol implementations.
+- Erlang source navigation recognizes single-quoted module atoms (such as `-module('chat').`) and correctly associates functions with their declared module, while preserving module and function source positions.
 - D source navigation now preserves annotated and template-parameterized class and struct declarations, including those inside visibility groups, while excluding imported names and unexpanded mixin invocations from invented declarations. Unexpanded mixins explicitly leave coverage incomplete; D source is not compiled or evaluated.
 - Common Lisp source navigation now recognizes standard `define-condition` definitions as class-like declarations, preserving their original names, offsets, and package ownership. This is structural navigation and does not evaluate Lisp forms or expand macros.
 - COBOL source navigation now recognizes PROCEDURE DIVISION declarations with USING parameters, including headers continued across lines, so named paragraphs in free-format programs remain navigable. Existing fixed-format paragraph and section handling is preserved; argument/control-flow semantics are not evaluated.

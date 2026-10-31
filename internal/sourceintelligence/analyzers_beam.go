@@ -53,7 +53,7 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		first := strings.ToLower(line.Tokens[0].Text)
 		var declarationScope *elixirScope
 		switch first {
-		case "defmodule":
+		case "defmodule", "defprotocol":
 			start := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 			if start >= 0 {
 				end := start + 1
@@ -62,7 +62,11 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 				}
 				name := tokenRangeText(line.Tokens, start, end)
 				if name != "" {
-					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "defmodule", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[start].StartOffset, End: line.Tokens[end-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+					kind := SymbolKindModule
+					if first == "defprotocol" {
+						kind = SymbolKindInterface
+					}
+					symbol, ok := state.add(SymbolSpec{Kind: kind, NativeKind: first, Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[start].StartOffset, End: line.Tokens[end-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 					if ok {
 						parent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 						scope := elixirScope{kind: "module", parent: parent}
@@ -544,9 +548,19 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 			switch attribute {
 			case "module":
 				idx := nextIdentifierOrKeywordToken(tokens, open+1, close)
+				if idx < 0 && open+2 == close && tokens[open+1].Kind == TokenString && strings.HasPrefix(tokens[open+1].Text, "'") {
+					idx = open + 1
+				}
 				if idx >= 0 {
 					tok := tokens[idx]
-					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: tok.Text, QualifiedName: tok.Text, Declaration: OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, Evidence: SymbolEvidenceStructural})
+					name := tok.Text
+					if tok.Kind == TokenString {
+						name = quotedTokenStringValue(tok)
+					}
+					if name == "" {
+						continue
+					}
+					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, Evidence: SymbolEvidenceStructural})
 					if ok {
 						module = &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 					}
