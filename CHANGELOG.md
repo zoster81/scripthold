@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Rust source navigation now keeps multiline quoted string literals opaque, preserving real declarations after macro strings while avoiding false symbols from embedded text. Unterminated strings still report incomplete coverage.
 - Flow and TypeScript source navigation no longer confuses object-type braces inside generic class constraints with the class body, preserving real class methods and source ownership across LF and CRLF input.
 - TypeScript source navigation no longer reports class or interface generic constraints as inheritance relationships. Actual `extends` and `implements` clauses remain indexed, including when generic parameters span multiple lines.
 - SQL source navigation recognizes multiline `CREATE TABLE` declarations when a keyword or table name starts on the next line. Existing comment/string exclusions and incomplete-coverage diagnostics for unsupported headers remain intact.

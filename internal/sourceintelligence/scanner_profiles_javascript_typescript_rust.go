@@ -58,7 +58,7 @@ func RustScannerProfile() ScannerProfile {
 			{Start: "/*", End: "*/", Nestable: true},
 		},
 		Strings: []StringRule{
-			{Prefixes: []string{"b", "c", ""}, Delimiter: "\"", BackslashEscapes: true},
+			{Prefixes: []string{"b", "c", ""}, Delimiter: "\"", BackslashEscapes: true, Multiline: true},
 		},
 	}
 }

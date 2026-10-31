@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +10,94 @@ import (
 )
 
 var _ SourceAnalyzer = RustAnalyzer{}
+
+func TestRustMultilineQuotedStringsPreserveFollowingDeclarations(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{"ordinary-macro-string", `struct HelpTemplate;
+impl HelpTemplate {
+    fn make(&self) {
+        color_print::cstr!("\\
+struct Phantom {}
+fn fake() {}
+");
+    }
+}
+#[derive(Clone)]
+pub enum Cmd { Add, Edit }
+pub struct After;
+`},
+		{"byte-string", `const HELP: &[u8] = b"first
+struct Phantom {}
+second";
+pub enum Cmd { Add, Edit }
+`},
+	}
+	for _, tc := range cases {
+		for _, lineEnd := range []struct{ name, value string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+			t.Run(tc.name+"-"+lineEnd.name, func(t *testing.T) {
+				text := strings.ReplaceAll(tc.source, "\n", lineEnd.value)
+				result, err := (RustAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+					t.Fatalf("valid multiline string reported partial: %+v", result.Analysis)
+				}
+				byName := symbolsByQualifiedName(result.Analysis.Symbols)
+				if byName["Cmd"].Kind != SymbolKindEnum {
+					t.Fatalf("Cmd enum after multiline literal not recovered: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+				if _, leaked := byName["Phantom"]; leaked {
+					t.Fatalf("string literal leaked a declaration: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			})
+		}
+	}
+	malformed := sourceDocumentForScanner("const BAD: &str = \"not closed\nstruct Phantom {}\n")
+	partial, err := (RustAnalyzer{}).Analyze(context.Background(), malformed, testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if partial.Analysis.CoverageComplete || len(partial.Analysis.Diagnostics) == 0 {
+		t.Fatalf("unterminated Rust string should remain incomplete: %+v", partial.Analysis)
+	}
+}
+
+func TestRustOriginalZoxideMultilineMacroPreservesCmd(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_RUST_ZOXIDE_CMD")
+	if path == "" {
+		t.Skip("real original Rust zoxide project path not configured")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 1<<20 {
+		t.Fatal("real Rust source exceeds regression limit")
+	}
+	document := sourceDocumentForScanner(string(data))
+	document.Path = path
+	result, err := (RustAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, kind := range map[string]SymbolKind{
+		"Cmd":         SymbolKindEnum,
+		"EditCommand": SymbolKindEnum,
+		"Query":       SymbolKindStruct,
+	} {
+		if byName[name].Kind != kind {
+			t.Fatalf("missing original Rust declaration %s: symbols=%v complete=%v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols), result.Analysis.CoverageComplete)
+		}
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("valid original Rust declarations reported incomplete: %+v", result.Analysis.Diagnostics)
+	}
+}
 
 func TestRustAnalyzerModulesTraitsImplsFunctionsAndMacroOpacity(t *testing.T) {
 	text := `mod inner {
