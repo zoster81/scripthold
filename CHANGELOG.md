@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- D source navigation now preserves annotated and template-parameterized class and struct declarations, including those inside visibility groups, while excluding imported names and unexpanded mixin invocations from invented declarations. Unexpanded mixins explicitly leave coverage incomplete; D source is not compiled or evaluated.
 - Common Lisp source navigation now recognizes standard `define-condition` definitions as class-like declarations, preserving their original names, offsets, and package ownership. This is structural navigation and does not evaluate Lisp forms or expand macros.
 - COBOL source navigation now recognizes PROCEDURE DIVISION declarations with USING parameters, including headers continued across lines, so named paragraphs in free-format programs remain navigable. Existing fixed-format paragraph and section handling is preserved; argument/control-flow semantics are not evaluated.
 - CIL source navigation now retains methods whose declaration headers span multiple lines, including the return type and method name on later lines; it bounds header collection and preserves class ownership and source positions without interpreting IL instructions.

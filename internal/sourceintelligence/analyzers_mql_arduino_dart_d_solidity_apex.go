@@ -797,6 +797,12 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i++
 			continue
 		}
+		if p.policy.language == "d" {
+			if next, consumed := p.skipDStructuralPrelude(i, end, parent, members, owner); consumed {
+				i = next
+				continue
+			}
+		}
 		// D unittest bodies contain executable statements, not declarations.
 		if p.policy.language == "d" && p.tokens[i].Text == "unittest" {
 			open := nextStructuralToken(p.tokens, i+1, end)
@@ -860,10 +866,52 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 	}
 }
 
+// skipDStructuralPrelude keeps annotations, imports and visibility groups
+// from consuming the declaration that follows. Mixin expansion is not modeled.
+func (p *braceLanguageParser) skipDStructuralPrelude(start, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
+	token := p.tokens[start].Text
+	depth := p.tokens[start].Nesting
+	if token == "@" {
+		return p.skipBraceAnnotation(start, end), true
+	}
+	if token == "mixin" || token == "import" || token == "module" {
+		if semi := p.findSameDepth(start+1, end, ";", depth); semi >= 0 {
+			if token == "mixin" {
+				p.builder.MarkIncomplete()
+			}
+			return semi + 1, true
+		}
+		p.builder.MarkIncomplete()
+		return start + 1, true
+	}
+	switch token {
+	case "public", "private", "protected", "package", "export":
+		open := nextStructuralToken(p.tokens, start+1, end)
+		if open < end && p.tokens[open].Text == "{" && p.tokens[open].Nesting == depth+1 {
+			if close := p.pairs[open]; close > open && close < end {
+				p.parseScope(open+1, close, parent, members, owner)
+				return close + 1, true
+			}
+			p.builder.MarkIncomplete()
+		}
+		if open < end && p.tokens[open].Text == ":" {
+			return open + 1, true
+		}
+	}
+	return start, false
+}
+
 // skipBraceAnnotation consumes metadata without mistaking its arguments for a
 // callable declaration. The following declaration remains available to parseScope.
 func (p *braceLanguageParser) skipBraceAnnotation(start, end int) int {
 	name := nextStructuralToken(p.tokens, start+1, end)
+	if p.policy.language == "d" && name < end && p.tokens[name].Text == "(" {
+		if close := p.pairs[name]; close > name && close < end {
+			return close + 1
+		}
+		p.builder.MarkIncomplete()
+		return start + 1
+	}
 	if name >= end || p.tokens[name].Kind != TokenIdentifier {
 		p.builder.MarkIncomplete()
 		return start + 1
