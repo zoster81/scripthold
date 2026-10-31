@@ -88,16 +88,27 @@ func shellDelimiterRules(bash bool) []DelimiterRule {
 }
 
 func parseShellFunctions(state *structuralAnalyzerState, tokens []Token, pairs map[int]int, bash bool) {
-	for index := 0; index < len(tokens) && !state.stopped; {
+	parseShellFunctionsInGroup(state, tokens, pairs, bash, 0, len(tokens), 0)
+}
+
+func parseShellFunctionsInGroup(state *structuralAnalyzerState, tokens []Token, pairs map[int]int, bash bool, start, end, nesting int) {
+	for index := start; index < end && !state.stopped; {
 		token := tokens[index]
 		if token.Kind == TokenEOF {
 			return
 		}
-		if token.Nesting != 0 || token.Kind == TokenNewline || token.Kind == TokenHereDoc {
+		if token.Text == "{" && token.Nesting == nesting+1 && shellGroupCommandStart(tokens, index) {
+			if close := pairs[index]; close > index && close < end {
+				parseShellFunctionsInGroup(state, tokens, pairs, bash, index+1, close, nesting+1)
+				index = close + 1
+				continue
+			}
+		}
+		if token.Nesting != nesting || token.Kind == TokenNewline || token.Kind == TokenHereDoc {
 			index++
 			continue
 		}
-		start, nameIndex, paren, ok := shellFunctionCandidate(tokens, index, bash)
+		declarationStart, nameIndex, paren, ok := shellFunctionCandidate(tokens, index, bash)
 		if !ok {
 			index++
 			continue
@@ -111,20 +122,39 @@ func parseShellFunctions(state *structuralAnalyzerState, tokens []Token, pairs m
 			}
 			search = closeParen + 1
 		}
-		open := nextStructuralToken(tokens, search, len(tokens))
-		if open >= len(tokens) || tokens[open].Text != "{" {
+		open := nextStructuralToken(tokens, search, end)
+		if open >= end || tokens[open].Text != "{" {
 			index++
 			continue
 		}
 		close := pairs[open]
-		if close <= open {
+		if close <= open || close >= end {
 			state.builder.MarkIncomplete()
 			return
 		}
 		name := tokens[nameIndex]
-		state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "function", Name: name.Text, Declaration: OffsetRange{Start: tokens[start].StartOffset, End: tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: tokens[start].StartOffset, End: tokens[open].StartOffset}, Body: &OffsetRange{Start: tokens[open].StartOffset, End: tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
+		state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "function", Name: name.Text, Declaration: OffsetRange{Start: tokens[declarationStart].StartOffset, End: tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: tokens[declarationStart].StartOffset, End: tokens[open].StartOffset}, Body: &OffsetRange{Start: tokens[open].StartOffset, End: tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
 		index = close + 1
 	}
+}
+
+// Grouping braces at command boundaries introduce shell scope without
+// introducing function-local scope. Function bodies are skipped above.
+func shellGroupCommandStart(tokens []Token, index int) bool {
+	for i := index - 1; i >= 0; i-- {
+		if tokens[i].Kind == TokenDirective {
+			continue
+		}
+		if tokens[i].Kind == TokenNewline {
+			return true
+		}
+		switch tokens[i].Text {
+		case "{", ";", "then", "do", "else":
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 func shellFunctionCandidate(tokens []Token, index int, bash bool) (start, nameIndex, paren int, ok bool) {
