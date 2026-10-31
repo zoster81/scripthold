@@ -2,12 +2,118 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 )
 
 var _ SourceAnalyzer = CSharpAnalyzer{}
+
+func TestCSharpAnalyzerGenericMethodNames(t *testing.T) {
+	const source = `namespace Demo {
+public class Converter {
+    public static T? DeserializeObject<T>(string value) => default;
+    public static T? DeserializeAnonymousType<T>(string value, T item) { return default; }
+    public static T? DeserializeObject<T>
+        (string value, int count) => default;
+    public static TResult? Map<TResult, TKey>(TKey key) where TResult : class { return default; }
+    public static int Compare(int left, int right) => left < right ? left : right;
+    public static TValue? Parse
+        <TValue>
+        (string value) => default;
+}
+}`
+	for _, tc := range []struct {
+		name, source string
+	}{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("generic method source analysis partial: %+v", result.Analysis)
+			}
+			want := map[int]string{
+				3: "DeserializeObject",
+				4: "DeserializeAnonymousType",
+				5: "DeserializeObject",
+				7: "Map",
+				8: "Compare",
+				9: "Parse",
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				line := symbol.NameRange.Start.Line
+				if expected, ok := want[line]; ok {
+					if symbol.Name != expected || symbol.Kind != SymbolKindMethod ||
+						symbol.QualifiedName != "Demo.Converter."+expected ||
+						symbol.ParentQualifiedName != "Demo.Converter" {
+						t.Fatalf("generic method at line %d: got %+v, want %s", line, symbol, expected)
+					}
+					delete(want, line)
+				}
+				if symbol.Kind == SymbolKindMethod && (symbol.Name == "T" || symbol.Name == "TResult" || symbol.Name == "TKey") {
+					t.Fatalf("generic parameter indexed as method: %+v", symbol)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("generic methods missing at lines %v; symbols=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestCSharpOriginalNewtonsoftGenericMethods(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_CSHARP_NEWTONSOFT_JSONCONVERT")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CSHARP_NEWTONSOFT_JSONCONVERT to the original JsonConvert.cs")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("original C# fixture exceeds 1 MiB")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := sourceDocumentForScanner(string(contents))
+	document.Path = path
+	result, err := (CSharpAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("original Newtonsoft analysis partial: %+v", result.Analysis)
+	}
+	want := map[int]string{
+		744: "DeserializeObject",
+		763: "DeserializeAnonymousType",
+		786: "DeserializeAnonymousType",
+		801: "DeserializeObject",
+		819: "DeserializeObject",
+	}
+	for _, symbol := range result.Analysis.Symbols {
+		line := symbol.NameRange.Start.Line
+		if expected, ok := want[line]; ok {
+			if symbol.Name != expected || symbol.Kind != SymbolKindMethod ||
+				symbol.QualifiedName != "Newtonsoft.Json.JsonConvert."+expected ||
+				symbol.ParentQualifiedName != "Newtonsoft.Json.JsonConvert" {
+				t.Fatalf("original Newtonsoft generic declaration line %d: got %+v, want %q", line, symbol, expected)
+			}
+			delete(want, line)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("original Newtonsoft generic methods missing at lines %v; symbols=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
 
 func TestCSharpAnalyzerModernDeclarationsAndFalsePositiveResistance(t *testing.T) {
 	text := `using System;

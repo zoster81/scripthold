@@ -469,18 +469,22 @@ func (parser *csharpParser) nextIdentifier(index, end int) int {
 // parameter as the declared method name.
 func (parser *csharpParser) memberMethodNameIndex(start, paren int) int {
 	last := parser.lastIdentifier(start, paren)
-	if paren <= start || parser.tokens[paren-1].Text != ">" {
+	lastToken := previousStructuralToken(parser.tokens, paren-1, start)
+	if lastToken < 0 || parser.tokens[lastToken].Text != ">" {
 		return last
 	}
 	depth := 0
-	for index := paren - 1; index >= start; index-- {
+	for index := lastToken; index >= start; index-- {
 		switch parser.tokens[index].Text {
 		case ">":
 			depth++
 		case "<":
 			depth--
-			if depth == 0 && index > start && parser.tokens[index-1].Kind == TokenIdentifier {
-				return index - 1
+			if depth == 0 {
+				nameIndex := previousStructuralToken(parser.tokens, index-1, start)
+				if nameIndex >= start && parser.tokens[nameIndex].Kind == TokenIdentifier {
+					return nameIndex
+				}
 			}
 		}
 	}
