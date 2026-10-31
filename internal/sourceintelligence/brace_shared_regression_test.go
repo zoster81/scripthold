@@ -188,6 +188,103 @@ func TestDartOriginalSpotubeGlobalFormatters(t *testing.T) {
 	}
 }
 
+func TestApexAnnotatedTopLevelTypes(t *testing.T) {
+	const source = `@NamespaceAccessible
+@SuppressWarnings('PMD.ClassNamingConventions')
+public interface fflib_Answer {
+  Object answer(fflib_InvocationOnMock invocation);
+}
+@SuppressWarnings('PMD.CognitiveComplexity, PMD.ExcessivePublicCount')
+public without sharing class LoggerCache {
+  public static Object getOrganizationCache() { return null; }
+}
+class Sibling {}
+`
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (ApexAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("incomplete Apex analysis: %+v", result.Analysis)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			for qualified, kind := range map[string]SymbolKind{
+				"fflib_Answer":                     SymbolKindInterface,
+				"fflib_Answer.answer":              SymbolKindMethod,
+				"LoggerCache":                      SymbolKindClass,
+				"LoggerCache.getOrganizationCache": SymbolKindMethod,
+				"Sibling":                          SymbolKindClass,
+			} {
+				if got, ok := found[qualified]; !ok || got.Kind != kind {
+					t.Errorf("%s: got %+v exists=%v; want %s; symbols=%v", qualified, got, ok, kind, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			for _, falseName := range []string{"NamespaceAccessible", "SuppressWarnings", "LoggerCache.SuppressWarnings"} {
+				if symbol, ok := found[falseName]; ok {
+					t.Errorf("Apex annotation became a declaration: %+v", symbol)
+				}
+			}
+		})
+	}
+}
+
+func TestApexOriginalAnnotatedTopLevelTypes(t *testing.T) {
+	for _, tc := range []struct {
+		env, name string
+		kind      SymbolKind
+		line      int
+		member    string
+	}{
+		{"SCRIPTHOLD_REAL_APEX_FFLIB_ANSWER", "fflib_Answer", SymbolKindInterface, 12, "fflib_Answer.answer"},
+		{"SCRIPTHOLD_REAL_APEX_NEBULA_LOGGER_CACHE", "LoggerCache", SymbolKindClass, 11, "LoggerCache.getOrganizationCache"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skip("set " + tc.env + " to the pinned Apex original source")
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original Apex fixture exceeds 1 MiB")
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document := sourceDocumentForScanner(string(raw))
+			document.Path = path
+			result, err := (ApexAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 2048))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("original Apex incomplete: %+v", result.Analysis)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			typeSym, ok := found[tc.name]
+			if !ok || typeSym.Kind != tc.kind || typeSym.NameRange.Start.Line != tc.line {
+				t.Errorf("%s type: %+v present=%v; expected %s at line %d; symbols=%v", tc.name, typeSym, ok, tc.kind, tc.line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if member, ok := found[tc.member]; !ok || member.Kind != SymbolKindMethod {
+				t.Errorf("%s method missing or misclassified: %+v present=%v", tc.member, member, ok)
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Name == "SuppressWarnings" || symbol.Name == "NamespaceAccessible" {
+					t.Errorf("annotation indexed as declaration: %+v", symbol)
+				}
+			}
+		})
+	}
+}
+
 func TestBraceSharedStatementConsumption(t *testing.T) {
 	tests := []struct {
 		name     string
