@@ -276,6 +276,115 @@ func TestCSharpOriginalPollyPipelineMembers(t *testing.T) {
 	}
 }
 
+func TestCSharpOriginalMediatRSendOverloads(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, owner string
+		lines            []int
+	}{
+		{"interface", "SCRIPTHOLD_REAL_CSHARP_MEDIATR_ISENDER", "MediatR.ISender", []int{19, 27, 36}},
+		{"implementation", "SCRIPTHOLD_REAL_CSHARP_MEDIATR_MEDIATOR", "MediatR.Mediator", []int{50, 67, 85}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to the qualified original MediatR C# source", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("MediatR fixture exceeds 1 MiB")
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc := sourceDocumentForScanner(string(data))
+			doc.Path = path
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("MediatR analysis incomplete: %+v", result.Analysis)
+			}
+			want := make(map[int]bool, len(tc.lines))
+			for _, line := range tc.lines {
+				want[line] = false
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Kind == SymbolKindMethod && (symbol.Name == "TResponse" || symbol.Name == "TRequest") {
+					t.Fatalf("generic parameter became a method: %+v", symbol)
+				}
+				line := symbol.NameRange.Start.Line
+				if _, exists := want[line]; !exists {
+					continue
+				}
+				if symbol.Kind != SymbolKindMethod || symbol.Name != "Send" ||
+					symbol.QualifiedName != tc.owner+".Send" || symbol.ParentQualifiedName != tc.owner {
+					t.Fatalf("MediatR Send at line %d: %+v", line, symbol)
+				}
+				want[line] = true
+			}
+			for line, found := range want {
+				if !found {
+					t.Fatalf("missing %s.Send at line %d; symbols=%v", tc.owner, line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
+func TestCSharpOriginalDapperQueryAsyncOverloads(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_CSHARP_DAPPER_SQLMAPPER_ASYNC")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CSHARP_DAPPER_SQLMAPPER_ASYNC to the qualified Dapper SqlMapper.Async.cs")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("Dapper original fixture exceeds 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := sourceDocumentForScanner(string(data))
+	doc.Path = path
+	result, err := (CSharpAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 512))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("Dapper original analysis partial: %+v", result.Analysis)
+	}
+	lines := []int{27, 36, 90, 213, 298, 307, 691, 708, 730, 748, 771, 790, 814, 834, 859, 880, 906, 928, 969}
+	want := make(map[int]bool, len(lines))
+	for _, line := range lines {
+		want[line] = false
+	}
+	for _, symbol := range result.Analysis.Symbols {
+		line := symbol.NameRange.Start.Line
+		if _, exists := want[line]; !exists {
+			continue
+		}
+		if symbol.Name != "QueryAsync" || symbol.Kind != SymbolKindMethod ||
+			symbol.QualifiedName != "Dapper.SqlMapper.QueryAsync" ||
+			symbol.ParentQualifiedName != "Dapper.SqlMapper" {
+			t.Fatalf("Dapper QueryAsync at %d: %+v", line, symbol)
+		}
+		want[line] = true
+	}
+	for line, found := range want {
+		if !found {
+			t.Fatalf("missing Dapper QueryAsync at line %d; symbols=%v", line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
 func TestCSharpAnalyzerModernDeclarationsAndFalsePositiveResistance(t *testing.T) {
 	text := `using System;
 using IO = System.IO;
