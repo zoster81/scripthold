@@ -255,7 +255,10 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 					break
 				}
 				if p.tokens[j].Kind == TokenNewline {
-					break
+					next := nextStructuralToken(p.tokens, j+1, end)
+					if next >= end || p.tokens[next].Text != "{" || p.tokens[next].Nesting != nesting+1 {
+						break
+					}
 				}
 			}
 			if open < 0 {
