@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -186,6 +187,87 @@ const node = <Widget prop="class TSXFake {}" />;
 	if !hasStructuralRelation(result.Relations, "extends", "Repository", "BaseRepo<T>") ||
 		!hasStructuralRelation(result.Relations, "implements", "Service", "Repository<T>") {
 		t.Fatalf("TypeScript type relations = %+v", result.Relations)
+	}
+}
+
+// Generic constraints are not superclass/interface relationships. The only
+// inheritance evidence starts after the matching class/interface type parameters.
+func TestTypeScriptGenericConstraintsExcludePhantomInheritance(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		eol  string
+	}{
+		{name: "LF", eol: "\n"},
+		{name: "CRLF", eol: "\r\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := []string{
+				"export class Hono<",
+				"  E extends Env = BlankEnv,",
+				"  S extends Schema = BlankSchema,",
+				"  BasePath extends string = '/',",
+				"> extends HonoBase<E, S, BasePath> implements Handler<E> {}",
+				"interface Repository<T extends Record<string, Item>> extends BaseRepo<T> {}",
+				"class Plain extends DirectBase {}",
+				"class GenericOnly<T extends Constraint> {}",
+				"interface GenericInterface<T extends InterfaceConstraint> {}",
+			}
+			text := strings.Join(lines, tc.eol) + tc.eol
+			result, err := (TypeScriptAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(text), testAnalyzeOptions(true, 256))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Errorf("well-formed generic declarations are partial: %+v", result.Analysis.Diagnostics)
+			}
+			expected := map[string]string{
+				"Hono|extends":       "HonoBase<E,S,BasePath>",
+				"Hono|implements":    "Handler<E>",
+				"Repository|extends": "BaseRepo<T>",
+				"Plain|extends":      "DirectBase",
+			}
+			actual := make(map[string][]string)
+			for _, relation := range result.Relations {
+				key := relation.Source + "|" + relation.Kind
+				actual[key] = append(actual[key], relation.Target)
+			}
+			for key, want := range expected {
+				got := actual[key]
+				if len(got) != 1 || got[0] != want {
+					t.Errorf("%s: relations %v, want only %q", key, got, want)
+				}
+			}
+			if len(result.Relations) != len(expected) {
+				t.Errorf("unexpected extra inheritance from generic constraints: %+v", result.Relations)
+			}
+		})
+	}
+}
+
+// An opt-in original project guards the real generic Hono class regression.
+func TestTypeScriptRealHonoGenericInheritance(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_TS_HONO")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_TS_HONO to an authorized original hono.ts")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := (TypeScriptAnalyzer{}).Analyze(context.Background(),
+		testSourceDocument("hono.ts", string(content)), testAnalyzeOptions(true, 512))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inheritance []string
+	for _, relation := range result.Relations {
+		if relation.Source == "Hono" && relation.Kind == "extends" {
+			inheritance = append(inheritance, relation.Target)
+		}
+	}
+	if len(inheritance) != 1 || inheritance[0] != "HonoBase<E,S,BasePath>" {
+		t.Fatalf("original Hono inherits %v; want only HonoBase<E,S,BasePath>", inheritance)
 	}
 }
 

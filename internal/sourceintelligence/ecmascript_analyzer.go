@@ -689,6 +689,32 @@ func (parser *ecmaParser) memberValueKind() SymbolKind {
 }
 
 func (parser *ecmaParser) collectTypeRelations(source string, start, end, nesting int, interfaceDecl bool) {
+	start = parser.skipTrivia(start, end)
+	if parser.typescript && parser.token(start, "<") {
+		depth := 0
+		closed := false
+		for index := start; index < end; index++ {
+			switch parser.tokens[index].Text {
+			case "<":
+				depth++
+			case ">":
+				depth--
+			case ">>":
+				depth -= 2
+			case ">>>":
+				depth -= 3
+			}
+			if depth <= 0 {
+				start = index + 1
+				closed = true
+				break
+			}
+		}
+		if !closed {
+			parser.builder.MarkIncomplete()
+			return
+		}
+	}
 	for index := start; index < end; index++ {
 		kind := ""
 		switch parser.tokens[index].Text {

@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- TypeScript source navigation no longer reports class or interface generic constraints as inheritance relationships. Actual `extends` and `implements` clauses remain indexed, including when generic parameters span multiple lines.
 - SQL source navigation recognizes multiline `CREATE TABLE` declarations when a keyword or table name starts on the next line. Existing comment/string exclusions and incomplete-coverage diagnostics for unsupported headers remain intact.
 - Kotlin source navigation now names extension properties after their declared member (rather than the receiver type) and excludes getter-local variables from class property lists. Class declarations and subsequent members remain discoverable.
 - COBOL source navigation now recognizes historical mixed-letter-and-digit sequence columns, sequence-only records, and named comment indicators in fixed-format files, avoiding false free-format classification and spurious unterminated-string warnings.
