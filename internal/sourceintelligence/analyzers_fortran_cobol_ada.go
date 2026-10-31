@@ -918,6 +918,10 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		case strings.HasSuffix(upper, " DIVISION."):
 			division = strings.TrimSpace(strings.TrimSuffix(upper, " DIVISION."))
 			procedureSection = nil
+		case strings.HasPrefix(upper, "PROCEDURE DIVISION USING "):
+			// A procedure header may list parameters and continue on later lines.
+			division = "PROCEDURE"
+			procedureSection = nil
 		case strings.HasPrefix(upper, "PROGRAM-ID."):
 			name := cobolWordAfter(code, "PROGRAM-ID.")
 			if name == "" {

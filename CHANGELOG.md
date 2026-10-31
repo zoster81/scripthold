@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- COBOL source navigation now recognizes PROCEDURE DIVISION declarations with USING parameters, including headers continued across lines, so named paragraphs in free-format programs remain navigable. Existing fixed-format paragraph and section handling is preserved; argument/control-flow semantics are not evaluated.
 - CIL source navigation now retains methods whose declaration headers span multiple lines, including the return type and method name on later lines; it bounds header collection and preserves class ownership and source positions without interpreting IL instructions.
 - C source navigation now recognizes named function definitions and declarations following conservative unexpanded `_PUBLIC(type)`, `_API(type)`, or `_EXPORT(type)` return-type wrappers. It preserves source locations in projects such as cJSON, rejects malformed wrapper arguments rather than inventing functions, and does not evaluate or expand macros.
 - Bash and POSIX shell source navigation now finds functions declared inside command-level brace groups, including protected installation scripts, while keeping function-local declarations and quoted text out of global navigation.
