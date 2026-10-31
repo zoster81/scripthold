@@ -239,7 +239,8 @@ func (p *cilParser) parse(lines []LogicalLine) {
 	}
 	depth := 0
 	var classes []classScope
-	for _, line := range lines {
+	for index := 0; index < len(lines); index++ {
+		line := lines[index]
 		if p.stopped || p.ctx.Err() != nil || len(line.Tokens) == 0 {
 			continue
 		}
@@ -263,7 +264,10 @@ func (p *cilParser) parse(lines []LogicalLine) {
 			}
 		case ".method":
 			if p.class != nil {
-				p.member(line, SymbolKindMethod, "method")
+				header, through := cilMethodHeader(lines, index)
+				p.member(header, SymbolKindMethod, "method")
+				index = through
+				line = header
 			}
 		}
 		for _, token := range line.Tokens {
@@ -286,6 +290,47 @@ func (p *cilParser) parse(lines []LogicalLine) {
 		}
 	}
 }
+
+// CIL method signatures may place the method name on a later line.
+// Only join a short header up to its first parameter list, never IL body lines.
+func cilMethodHeader(lines []LogicalLine, start int) (LogicalLine, int) {
+	header := lines[start]
+	for _, token := range header.Tokens {
+		if token.Text == "(" {
+			return header, start
+		}
+	}
+	candidate := header
+	for next := start + 1; next < len(lines) && next <= start+8; next++ {
+		line := lines[next]
+		if line.EndOffset-header.StartOffset > 8192 {
+			break
+		}
+		if len(line.Tokens) == 0 {
+			continue
+		}
+		first := line.Tokens[0].Text
+		if strings.HasPrefix(first, ".") || first == "{" || first == "}" {
+			break
+		}
+		foundParen := false
+		for _, token := range line.Tokens {
+			if token.Text == "{" || token.Text == "}" {
+				return header, start
+			}
+			if token.Text == "(" {
+				foundParen = true
+			}
+		}
+		candidate.Tokens = append(candidate.Tokens, line.Tokens...)
+		candidate.EndOffset = line.EndOffset
+		if foundParen {
+			return candidate, next
+		}
+	}
+	return header, start
+}
+
 func (p *cilParser) assembly(line LogicalLine) {
 	if len(line.Tokens) < 2 {
 		return
