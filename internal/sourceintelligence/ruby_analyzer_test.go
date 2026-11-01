@@ -233,6 +233,30 @@ func TestRubyAnalyzerOperatorMethodPreservesClassOwnership(t *testing.T) {
 	}
 }
 
+func TestRubyAnalyzerBracketMethodsPreserveNestedOwners(t *testing.T) {
+	source := "module Demo\n  module Queues\n    class << self\n      def [](name)\n        @jobs[name]\n      end\n      def []=(name, value)\n        @jobs[name] = value\n      end\n      def push(job)\n        @jobs << job\n      end\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"Demo": 1, "Demo.Queues": 2, "Demo.Queues.[]": 4, "Demo.Queues.[]=": 7, "Demo.Queues.push": 10}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("Ruby bracket-method declarations or scope missing: %+v", result.Analysis)
+	}
+	found := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, line := range want {
+		got, ok := found[name]
+		if !ok || got.DeclarationRange.Start.Line != line {
+			t.Errorf("Ruby missing/wrong bracket-method symbol %s: %+v", name, got)
+		}
+	}
+	for _, name := range []string{"Demo.Queues.[]", "Demo.Queues.[]=", "Demo.Queues.push"} {
+		if found[name].ParentQualifiedName != "Demo.Queues" || found[name].Kind != SymbolKindMethod {
+			t.Errorf("Ruby method owner/kind %s: %+v", name, found[name])
+		}
+	}
+}
+
 func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	partial, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class Good\nend\nclass Broken\n"), testAnalyzeOptions(true, 32))
 	if err != nil {

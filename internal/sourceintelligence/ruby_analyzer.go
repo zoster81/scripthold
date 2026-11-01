@@ -529,12 +529,24 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 		classMethod = true
 		cursor += 2
 	}
-	if cursor >= len(tokens) || !rubySupportedMethodName(tokens[cursor]) {
+	if cursor >= len(tokens) {
 		p.markMalformed(line, "ruby-method-name", "Ruby method declaration has no supported name")
 		return
 	}
 	nameIndex := cursor
+	nameEnd := cursor + 1
 	name := tokens[nameIndex].Text
+	if name == "[" && nameEnd < len(tokens) && tokens[nameEnd].Text == "]" {
+		name = "[]"
+		nameEnd++
+		if nameEnd < len(tokens) && tokens[nameEnd].Text == "=" {
+			name += "="
+			nameEnd++
+		}
+	} else if !rubySupportedMethodName(tokens[cursor]) {
+		p.markMalformed(line, "ruby-method-name", "Ruby method declaration has no supported name")
+		return
+	}
 	kind := SymbolKindFunction
 	nativeKind := "function"
 	parent := p.currentParent()
@@ -553,7 +565,7 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 	}
 	_, ok := p.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
-		NameRange:   OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset},
+		NameRange:   OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameEnd-1].EndOffset},
 		Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Visibility: visibility, Evidence: SymbolEvidenceStructural,
 		Disambiguator: tokenRangeText(tokens, nameIndex, len(tokens)) + ":" + nativeKind})
 	if ok {
