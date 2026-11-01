@@ -988,6 +988,18 @@ func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		return AnalyzerResult{}, err
 	}
 	lines := sourceTextLines(document.Text)
+	// Arazzo workflow operationIds reference API operations; they do not declare them.
+	// Check all root keys before collecting symbols so a misplaced dialect key
+	// cannot leave earlier references reported as OpenAPI declarations.
+	for _, line := range lines {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		if line.indent == 0 && strings.HasPrefix(strings.TrimSpace(stripLineComment(line.text, "#")), "arazzo:") {
+			builder.MarkIncomplete()
+			return AnalyzerResult{Analysis: builder.Result()}, nil
+		}
+	}
 	inSchemas := false
 	schemasIndent := -1
 	schemaEntryIndent := -1
