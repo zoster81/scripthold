@@ -1419,7 +1419,10 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 	assignmentSeen := false
 	for index := start; index < end; index++ {
 		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == depth {
-			assignmentSeen = true
+			// operator=(...) names an overload, not a variable initializer.
+			if !parser.operatorTokenBefore(index, start) {
+				assignmentSeen = true
+			}
 			continue
 		}
 		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
@@ -1475,7 +1478,7 @@ func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
 		return paren
 	}
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == depth {
+		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == depth && !parser.operatorTokenBefore(index, start) {
 			return -1
 		}
 		if parser.tokens[index].Text != "(" || parser.tokens[index].Nesting != depth+1 {
@@ -1485,11 +1488,21 @@ func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
 		if previous < 0 {
 			continue
 		}
-		if parser.tokens[previous].Kind == TokenIdentifier || parser.tokens[previous].Text == "]" || parser.tokens[previous].Text == ")" {
+		if parser.tokens[previous].Kind == TokenIdentifier || parser.tokens[previous].Text == "]" || parser.tokens[previous].Text == ")" || parser.operatorTokenBefore(previous, start) {
 			return index
 		}
 	}
 	return -1
+}
+
+// Only punctuation immediately following the operator keyword belongs to
+// the overloaded function name; other '=' tokens still start initializers.
+func (parser *cFamilyParser) operatorTokenBefore(index, start int) bool {
+	if !parser.cpp || index <= start {
+		return false
+	}
+	previous := previousStructuralToken(parser.tokens, index-1, start)
+	return previous >= start && parser.token(previous, "operator")
 }
 
 // Accept the common unexpanded EXPORT(type) function-return decoration only
@@ -1753,7 +1766,66 @@ func (parser *cFamilyParser) parseVariable(start, semicolon, nameLimit int, pare
 	if nameIndex < 0 {
 		return semicolon + 1, false
 	}
-	lowerName := strings.ToLower(parser.tokens[nameIndex].Text)
+	nameIndices := []int{nameIndex}
+	if nameLimit == semicolon {
+		// A declaration may introduce several names under one type. Split only
+		// at top-level commas; template, call and initializer commas are not
+		// independent declarators.
+		parts := splitTypeTokenRange(parser.tokens, start, semicolon, parser.tokens[start].Nesting)
+		if len(parts) == 1 {
+			// In an initializer, '<' can be comparison rather than a template
+			// opener. A type before '=' may still contain template commas.
+			firstEqual, firstAngle := -1, -1
+			for index := start; index < semicolon; index++ {
+				if parser.tokens[index].Nesting != parser.tokens[start].Nesting {
+					continue
+				}
+				if firstEqual < 0 && parser.tokens[index].Text == "=" {
+					firstEqual = index
+				}
+				if firstAngle < 0 && parser.tokens[index].Text == "<" {
+					firstAngle = index
+				}
+			}
+			if firstEqual >= 0 && (firstAngle < 0 || firstEqual < firstAngle) {
+				parts = splitCommaTokenRangeAt(parser.tokens, start, semicolon, parser.tokens[start].Nesting)
+			}
+		}
+		if len(parts) > 1 {
+			candidates := make([]int, 0, len(parts))
+			for _, part := range parts {
+				partLimit := part[1]
+				for index := part[0]; index < partLimit; index++ {
+					if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == parser.tokens[start].Nesting {
+						partLimit = index
+						break
+					}
+				}
+				candidate := previousIdentifierToken(parser.tokens, partLimit-1, part[0])
+				// In a fixed-size array declarator, the identifier before
+				// the bracket owns the declaration, not a dimension name.
+				for index := part[0]; index < partLimit; index++ {
+					if parser.tokens[index].Text == "[" && parser.tokens[index].Nesting == parser.tokens[start].Nesting+1 {
+						candidate = previousIdentifierToken(parser.tokens, index-1, part[0])
+						break
+					}
+				}
+				if candidate < 0 {
+					candidates = nil
+					break
+				}
+				if _, modifier := cFamilyModifiers[strings.ToLower(parser.tokens[candidate].Text)]; modifier {
+					candidates = nil
+					break
+				}
+				candidates = append(candidates, candidate)
+			}
+			if len(candidates) == len(parts) {
+				nameIndices = candidates
+			}
+		}
+	}
+	lowerName := strings.ToLower(parser.tokens[nameIndices[0]].Text)
 	if _, isModifier := cFamilyModifiers[lowerName]; isModifier {
 		return semicolon + 1, false
 	}
@@ -1763,19 +1835,26 @@ func (parser *cFamilyParser) parseVariable(start, semicolon, nameLimit int, pare
 		kind = SymbolKindField
 		nativeKind = "field"
 	}
-	if parser.hasToken(start, nameIndex, "const") || parser.hasToken(start, nameIndex, "constexpr") {
+	if parser.hasToken(start, nameIndices[0], "const") || parser.hasToken(start, nameIndices[0], "constexpr") {
 		if !members {
 			kind = SymbolKindConstant
 			nativeKind = "constant"
 		}
 	}
-	modifiers := collectKnownModifiers(parser.tokens, start, nameIndex, cFamilyModifiers)
-	_, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
-		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
-		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
-		Visibility:  visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
-	})
+	modifiers := collectKnownModifiers(parser.tokens, start, nameIndices[0], cFamilyModifiers)
+	added := false
+	for _, name := range nameIndices {
+		_, ok := parser.add(SymbolSpec{
+			Kind: kind, NativeKind: nativeKind, Name: parser.tokens[name].Text, Parent: parent,
+			Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+			NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+			Visibility:  visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
+		})
+		added = added || ok
+		if parser.stopped {
+			break
+		}
+	}
 	return semicolon + 1, added
 }
 
