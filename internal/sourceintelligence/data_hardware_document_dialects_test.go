@@ -208,6 +208,56 @@ func TestSQLQuotedDDLHierarchyAndReferenceDependencies(t *testing.T) {
 	}
 }
 
+// Index definitions are named schema objects, not CREATE TABLE declarations.
+func TestSQLNamedIndexesAreStructuralResources(t *testing.T) {
+	for _, tc := range []struct{ name, eol string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := []string{
+				"CREATE TABLE owners (id INT PRIMARY KEY);",
+				"CREATE INDEX idx_owners_id ON owners (id);",
+				"CREATE UNIQUE INDEX idx_owners_unique ON owners (id);",
+				"CREATE INDEX IF NOT EXISTS",
+				"  idx_owners_concurrent ON owners USING btree (id);",
+				"-- CREATE INDEX ghost ON owners (id);",
+				"SELECT 'CREATE INDEX fake ON owners (id)';",
+				"CREATE INDEX broken AS SELECT id FROM owners;",
+				"CREATE INDEX incomplete ON owners (",
+			}
+			source := strings.Join(lines, tc.eol) + tc.eol
+			result, err := (SQLAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("indexes.sql", source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range map[string]int{
+				"idx_owners_id": 2, "idx_owners_unique": 3,
+				"idx_owners_concurrent": 4,
+			} {
+				s, ok := found[name]
+				if !ok || s.Kind != SymbolKindResource || s.NativeKind != "index" ||
+					s.DeclarationRange.Start.Line != line {
+					t.Errorf("missing index %s on line %d: %+v", name, line, s)
+				}
+			}
+			if got := found["owners"]; got.Kind != SymbolKindType {
+				t.Errorf("table changed kind: %+v", got)
+			}
+			for _, absent := range []string{"ghost", "fake", "broken", "incomplete"} {
+				if _, ok := found[absent]; ok {
+					t.Errorf("invented SQL index %s", absent)
+				}
+			}
+			if len(found) != 4 {
+				t.Errorf("incorrect index inventory: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if result.Analysis.CoverageComplete {
+				t.Error("malformed CREATE INDEX must mark coverage incomplete")
+			}
+		})
+	}
+}
+
 func TestGenericHCLUsesTerraformProviderWithoutInventingTerraformSemantics(t *testing.T) {
 	registry, err := NewLanguageRegistry(defaultLanguageDescriptors())
 	if err != nil {

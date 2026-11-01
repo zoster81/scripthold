@@ -56,6 +56,7 @@ var (
 	sqlReference        = regexp.MustCompile(`(?im)\breferences[ \t\r\n]+(` + sqlQualifiedNamePattern + `)`)
 	sqlDialectProfiles  = []sqlDialectProfile{
 		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:(?:or[ \t]+replace)[ \t\r\n]+)?(schema|table|view|function|procedure|type)[ \t\r\n]+(?:if[ \t]+not[ \t]+exists[ \t\r\n]+)?(` + sqlQualifiedNamePattern + `)`)},
+		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:unique[ \t\r\n]+)?(index)[ \t\r\n]+(?:if[ \t]+not[ \t]+exists[ \t\r\n]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "postgresql", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(materialized[ \t]+view)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "sqlserver", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+or[ \t]+alter[ \t]+(view|function|procedure)[ \t]+(` + sqlQualifiedNamePattern + `)`)},
 	}
@@ -68,11 +69,18 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	}
 	source := maskSourceComments(document.Text, []string{"--"}, "/*", "*/")
 	source = maskSourceStrings(source, true, false, false)
-	candidates, unsupportedHeaders := sqlDeclarations(document, source)
+	candidates, unsupportedHeaders, unsupportedIndexes := sqlDeclarations(document, source)
 	for _, header := range unsupportedHeaders {
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{
 			Code: "sql-unrecognized-table-header", Message: "SQL table declaration has an unrecognized header",
+			Severity: DiagnosticWarning, Range: &header, AffectsCoverage: true,
+		})
+	}
+	for _, header := range unsupportedIndexes {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{
+			Code: "sql-unrecognized-index-header", Message: "SQL index declaration has an unrecognized header",
 			Severity: DiagnosticWarning, Range: &header, AffectsCoverage: true,
 		})
 	}
@@ -87,6 +95,8 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			kind = SymbolKindSchema
 		case "function", "procedure":
 			kind = SymbolKindFunction
+		case "index":
+			kind = SymbolKindResource
 		}
 		name := candidate.fullName
 		nameStart := candidate.nameStart
@@ -128,10 +138,11 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
-func sqlDeclarations(document *SourceDocument, source string) ([]sqlDeclarationCandidate, []OffsetRange) {
+func sqlDeclarations(document *SourceDocument, source string) ([]sqlDeclarationCandidate, []OffsetRange, []OffsetRange) {
 	seen := map[string]struct{}{}
 	var candidates []sqlDeclarationCandidate
 	var unsupportedHeaders []OffsetRange
+	var unsupportedIndexes []OffsetRange
 	for _, profile := range sqlDialectProfiles {
 		for _, match := range profile.pattern.FindAllStringSubmatchIndex(source, -1) {
 			if !sqlDeclarationBoundary(source, match[0]) {
@@ -140,6 +151,10 @@ func sqlDeclarations(document *SourceDocument, source string) ([]sqlDeclarationC
 			kindWord := strings.ToLower(strings.Join(strings.Fields(document.Text[match[2]:match[3]]), " "))
 			if kindWord == "table" && !sqlSupportedTableHeader(source, match[1]) {
 				unsupportedHeaders = append(unsupportedHeaders, OffsetRange{Start: match[0], End: match[1]})
+				continue
+			}
+			if kindWord == "index" && !sqlSupportedIndexHeader(source, match[1]) {
+				unsupportedIndexes = append(unsupportedIndexes, OffsetRange{Start: match[0], End: match[1]})
 				continue
 			}
 			fullName, parentName, leafName, leafStart, leafEnd, ok := sqlCanonicalName(document.Text[match[4]:match[5]])
@@ -169,7 +184,32 @@ func sqlDeclarations(document *SourceDocument, source string) ([]sqlDeclarationC
 		}
 		return candidates[i].fullName < candidates[j].fullName
 	})
-	return candidates, unsupportedHeaders
+	return candidates, unsupportedHeaders, unsupportedIndexes
+}
+
+var sqlIndexBody = regexp.MustCompile(`(?is)^[ \t\r\n]+on[ \t\r\n]+(?:only[ \t\r\n]+)?` + sqlQualifiedNamePattern + `[ \t\r\n]*(?:using[ \t\r\n]+[A-Za-z_][A-Za-z_0-9]*[ \t\r\n]*)?\(`)
+
+func sqlSupportedIndexHeader(source string, headerEnd int) bool {
+	match := sqlIndexBody.FindStringIndex(source[headerEnd:])
+	if match == nil {
+		return false
+	}
+	open := headerEnd + match[1] - 1
+	depth := 0
+	for index := open; index < len(source); index++ {
+		switch source[index] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(source[open+1:index]) != ""
+			}
+		case ';':
+			return false
+		}
+	}
+	return false
 }
 
 // Recognize common SQL table-header shapes without claiming to validate each

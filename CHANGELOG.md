@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
+- SQL source navigation now finds named `CREATE INDEX` and `CREATE UNIQUE INDEX` objects, including common `IF NOT EXISTS` and `USING` forms, as `resource` declarations with `nativeKind: index`. Index headers must identify a table and column list; unsupported forms report incomplete coverage instead of inventing indexes. SQL execution and database schema resolution remain unavailable.
 - Assembly source navigation now finds MASM/Motorola `NAME EQU value` constants, named MASM/NASM `DB`/`DW` data, and named Motorola 68HC11 `FCB`/`FCC`/`FDB`/`RMB` data declarations outside recognized macro/structure definitions. `FCB`/`FDB` operands must be present, `RMB` requires one storage-size expression, and `FCC` strings must use matching delimiters; this is structural navigation, not assembler expression evaluation or macro expansion.
 
 ### Fixed
