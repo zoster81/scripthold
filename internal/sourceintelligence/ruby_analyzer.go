@@ -414,6 +414,12 @@ func (p *rubyParser) parseLine(line LogicalLine) {
 		return
 	}
 	if text == "public" || text == "protected" || text == "private" {
+		// An inline visibility modifier applies only to this method. It must
+		// still open the method scope so the following end balances correctly.
+		if len(tokens) > 1 && tokens[1].Text == "def" {
+			p.parseMethodWithVisibility(line, 1, Visibility(text))
+			return
+		}
 		p.setVisibility(text)
 		return
 	}

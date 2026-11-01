@@ -257,6 +257,40 @@ func TestRubyAnalyzerBracketMethodsPreserveNestedOwners(t *testing.T) {
 	}
 }
 
+func TestRubyAnalyzerInlineMethodVisibilityPreservesEnclosingScope(t *testing.T) {
+	source := "module Demo\n  class Box\n    private def guarded(value)\n      value\n    end\n    def ordinary\n      :ok\n    end\n    protected def covered\n      :ok\n    end\n    public def exposed\n      :ok\n    end\n  end\n  module Later\n    def next_method\n      :ok\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind       SymbolKind
+		owner      string
+		visibility Visibility
+		line       int
+	}{
+		"Demo":                   {SymbolKindModule, "", VisibilityPublic, 1},
+		"Demo.Box":               {SymbolKindClass, "Demo", VisibilityPublic, 2},
+		"Demo.Box.guarded":       {SymbolKindMethod, "Demo.Box", VisibilityPrivate, 3},
+		"Demo.Box.ordinary":      {SymbolKindMethod, "Demo.Box", VisibilityPublic, 6},
+		"Demo.Box.covered":       {SymbolKindMethod, "Demo.Box", VisibilityProtected, 9},
+		"Demo.Box.exposed":       {SymbolKindMethod, "Demo.Box", VisibilityPublic, 12},
+		"Demo.Later":             {SymbolKindModule, "Demo", VisibilityPublic, 16},
+		"Demo.Later.next_method": {SymbolKindMethod, "Demo.Later", VisibilityPublic, 17},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("inline visibility corrupted Ruby method scopes: %+v", result.Analysis)
+	}
+	found := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, expected := range want {
+		s, ok := found[name]
+		if !ok || s.Kind != expected.kind || s.ParentQualifiedName != expected.owner ||
+			s.Visibility != expected.visibility || s.DeclarationRange.Start.Line != expected.line {
+			t.Errorf("wrong Ruby method visibility/owner for %s: got=%+v expected=%+v exists=%v", name, s, expected, ok)
+		}
+	}
+}
+
 func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	partial, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class Good\nend\nclass Broken\n"), testAnalyzeOptions(true, 32))
 	if err != nil {
