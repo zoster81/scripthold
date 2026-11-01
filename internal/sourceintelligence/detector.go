@@ -114,6 +114,9 @@ var (
 	kotlinContentMarker        = regexp.MustCompile(`(?m)^[ \t]*(?:package[ \t]+[A-Za-z_]|import[ \t]+[A-Za-z_]|(?:(?:public|private|protected|internal|sealed|data|enum|open|abstract)[ \t]+)*(?:class|interface|object)[ \t]+[A-Za-z_]|(?:fun|typealias)[ \t]+[A-Za-z_])`)
 	scalaContentMarker         = regexp.MustCompile(`(?m)^[ \t]*(?:(?:case[ \t]+class|trait|object|given|extension)[ \t]+[A-Za-z_][A-Za-z0-9_]*|enum[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:|def[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^\r\n)]*\)[ \t]*:[ \t]*[A-Za-z_][A-Za-z0-9_.\[\]]*)`)
 	flowContentMarker          = regexp.MustCompile(`(?m)^[ \t]*(?://|/\*)[ \t]*@flow\b`)
+	flowTypedSignatureHeader   = regexp.MustCompile(`(?m)^//[ \t]*flow-typed[ \t]+signature:[ \t]*[0-9a-f]{8,64}[ \t]*\r?$`)
+	flowTypedVersionHeader     = regexp.MustCompile(`(?m)^//[ \t]*flow-typed[ \t]+version:[ \t]*[^\r\n]+/flow_>=v[0-9][^\r\n]*\r?$`)
+	jsModuleExportMarker       = regexp.MustCompile(`(?m)^[ \t]*(?:module[ \t]*\.[ \t]*exports[ \t]*=|export[ \t]+default[ \t]+)`)
 	phpContentMarker           = regexp.MustCompile(`(?i)<\?php\b`)
 	phpEchoContentMarker       = regexp.MustCompile(`(?i)<\?=`)
 	phpHTMLHostMarkupMarker    = regexp.MustCompile(`(?is)<(?:!doctype\s+html\b|html\b|head\b|body\b|main\b|div\b|section\b|article\b|nav\b|form\b|table\b|ul\b|ol\b|li\b|p\b|h[1-6]\b|span\b|template\b|script\b|style\b|link\b|meta\b)[^>]*>`)
@@ -318,6 +321,7 @@ func DetectLanguage(ctx context.Context, registry *LanguageRegistry, input Detec
 	}
 	addDirectiveEvidence(registry, collector, probeText)
 	addContentMarkerEvidence(registry, collector, probeText)
+	addJavaScriptModuleEvidence(registry, collector, base, probeText)
 	addCompositePathContentEvidence(registry, collector, base, probeText)
 
 	for _, hinted := range input.ProjectLanguages {
@@ -692,6 +696,13 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 		}
 	}
 
+	headerLines := strings.SplitN(text, "\n", 3)
+	if len(headerLines) >= 2 && flowTypedSignatureHeader.MatchString(headerLines[0]) && flowTypedVersionHeader.MatchString(headerLines[1]) {
+		if languageID, ok := registry.lookupLanguageID("flow"); ok {
+			collector.add(languageID, EvidenceContentMarker, "flow-typed-libdef-header", priorityDistinctiveContent)
+		}
+	}
+
 	for _, marker := range genericContentMarkerRules {
 		if !contentMarkerMayMatch(text, marker.requiredAny) {
 			continue
@@ -702,6 +713,58 @@ func addContentMarkerEvidence(registry *LanguageRegistry, collector *detectionCo
 			}
 		}
 	}
+}
+
+// A JavaScript module signature corroborates a JavaScript-family extension;
+// it does not promote JavaScript inside an unrelated host language or a Flow
+// source carrying an explicit Flow marker.
+func addJavaScriptModuleEvidence(registry *LanguageRegistry, collector *detectionCollector, base, text string) {
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".js", ".mjs", ".cjs", ".jsx":
+	default:
+		return
+	}
+	probe := maskSourceStrings(maskSourceComments(text, []string{"//"}, "/*", "*/"), true, true, false)
+	probe = maskJavaScriptBackticks(probe)
+	if !jsModuleExportMarker.MatchString(probe) {
+		return
+	}
+	if languageID, ok := registry.lookupLanguageID("javascript"); ok {
+		collector.add(languageID, EvidenceContentMarker, "javascript-module-export", priorityContent)
+	}
+}
+
+// Mask a full backtick literal, including interpolated expressions, for
+// conservative module-syntax corroboration. The source text is already bounded.
+func maskJavaScriptBackticks(text string) string {
+	var masked []byte
+	for index := 0; index < len(text); index++ {
+		if text[index] != '`' {
+			continue
+		}
+		start := index
+		index++
+		for index < len(text) {
+			if text[index] == '\\' {
+				index += min(2, len(text)-index)
+				continue
+			}
+			if text[index] == '`' {
+				index++
+				break
+			}
+			index++
+		}
+		if masked == nil {
+			masked = []byte(text)
+		}
+		maskByteRangePreservingLines(masked, start, index)
+		index--
+	}
+	if masked == nil {
+		return text
+	}
+	return string(masked)
 }
 
 func addCompositePathContentEvidence(registry *LanguageRegistry, collector *detectionCollector, base, text string) {

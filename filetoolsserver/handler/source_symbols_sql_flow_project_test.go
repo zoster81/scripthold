@@ -117,6 +117,40 @@ func TestSourceSymbolsRealSQLClinicFullProject(t *testing.T) {
 	}
 }
 
+func TestSourceSymbolsRealUnstatedAllJavaScriptSourcesAutoDetect(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_FLOW_UNSTATED_PROJECT")
+	if root == "" {
+		t.Skip("original JavaScript/Flow project not provided")
+	}
+	names := []string{
+		".babelrc.js", "rollup.config.js", "__tests__/unstated.js",
+		"example/complex.js", "example/shared.js", "example/simple.js",
+		"flow-typed/npm/jest_v22.x.x.js", "src/unstated.js",
+	}
+	paths := make([]string, 0, len(names))
+	for _, name := range names {
+		paths = append(paths, filepath.Join(root, filepath.FromSlash(name)))
+	}
+	h := NewHandler([]string{root})
+	failed, digest, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "digest", Paths: paths, Presentation: "compact", MaxFiles: 8,
+	})
+	if err != nil || failed != nil || digest.FilesConsidered != 8 || digest.FilesParsed != 8 || digest.FilesSkipped != 0 {
+		t.Fatalf("full eight-file JavaScript/Flow digest: err=%v tool=%+v output=%+v", err, failed, digest)
+	}
+	expectedLanguages := map[string]string{
+		".babelrc.js": "javascript", "rollup.config.js": "javascript",
+		"jest_v22.x.x.js": "flow", "unstated.js": "flow",
+	}
+	for _, item := range digest.OverviewFiles {
+		name := filepath.Base(item.Path)
+		if want, ok := expectedLanguages[name]; ok && (item.Language != want || item.Status != "parsed") {
+			t.Errorf("wrong original JavaScript/Flow routing %s: language=%s status=%s, want %s", name, item.Language, item.Status, want)
+		}
+		t.Logf("original source=%s routed=%s status=%s coverageComplete=%v", name, item.Language, item.Status, item.CoverageComplete)
+	}
+}
+
 func TestSourceSymbolsRealFlowUnstatedContainer(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_FLOW_UNSTATED_PROJECT")
 	if root == "" {
