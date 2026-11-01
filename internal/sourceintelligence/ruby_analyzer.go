@@ -529,7 +529,7 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 		classMethod = true
 		cursor += 2
 	}
-	if cursor >= len(tokens) || (tokens[cursor].Kind != TokenIdentifier && tokens[cursor].Kind != TokenKeyword) {
+	if cursor >= len(tokens) || !rubySupportedMethodName(tokens[cursor]) {
 		p.markMalformed(line, "ruby-method-name", "Ruby method declaration has no supported name")
 		return
 	}
@@ -559,6 +559,14 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 	if ok {
 		p.scopes = append(p.scopes, rubyScope{kind: "method", parent: parent, owner: owner, visibility: visibility})
 	}
+}
+
+// Ruby operator methods have explicit names, unlike arbitrary operator expressions.
+func rubySupportedMethodName(token Token) bool {
+	if token.Kind == TokenIdentifier || token.Kind == TokenKeyword {
+		return true
+	}
+	return token.Kind == TokenOperator && token.Text == "<<"
 }
 
 func (p *rubyParser) parseMixin(tokens []Token, keyword int) {

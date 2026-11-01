@@ -17,13 +17,15 @@ func TestSourceSymbolsRealPythonRequestsDeclarations(t *testing.T) {
 	paths := []string{
 		filepath.Join(root, "src", "requests", "exceptions.py"),
 		filepath.Join(root, "src", "requests", "status_codes.py"),
+		filepath.Join(root, "src", "requests", "hooks.py"),
+		filepath.Join(root, "src", "requests", "_internal_utils.py"),
 	}
 	h := NewHandler([]string{root})
 	ctx := context.Background()
 	failed, out, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
-		Operation: "outline", Paths: paths, Presentation: "compact", MaxFiles: 2, MaxSymbols: 80,
+		Operation: "outline", Paths: paths, Presentation: "compact", MaxFiles: 4, MaxSymbols: 80,
 	})
-	if err != nil || failed != nil || !out.CoverageComplete || out.FilesParsed != 2 || out.SymbolCount != 34 {
+	if err != nil || failed != nil || !out.CoverageComplete || out.FilesParsed != 4 || out.SymbolCount != 46 {
 		t.Fatalf("original Python outline: err=%v failed=%+v count=%d parsed=%d coverage=%v", err, failed, out.SymbolCount, out.FilesParsed, out.CoverageComplete)
 	}
 
@@ -71,6 +73,22 @@ func TestSourceSymbolsRealPythonRequestsDeclarations(t *testing.T) {
 			"_init":     {"function", 109, ""},
 			"_init.doc": {"function", 116, "_init"},
 		},
+		"hooks.py": {
+			"HOOKS":         {"variable", 22, ""},
+			"default_hooks": {"function", 25, ""},
+			"dispatch_hook": {"function", 32, ""},
+		},
+		"_internal_utils.py": {
+			"_VALID_HEADER_NAME_RE_BYTE":  {"variable", 13, ""},
+			"_VALID_HEADER_NAME_RE_STR":   {"variable", 14, ""},
+			"_VALID_HEADER_VALUE_RE_BYTE": {"variable", 15, ""},
+			"_VALID_HEADER_VALUE_RE_STR":  {"variable", 16, ""},
+			"_HEADER_VALIDATORS_STR":      {"variable", 18, ""},
+			"_HEADER_VALIDATORS_BYTE":     {"variable", 19, ""},
+			"HEADER_VALIDATORS":           {"variable", 20, ""},
+			"to_native_string":            {"function", 26, ""},
+			"unicode_is_ascii":            {"function", 39, ""},
+		},
 	}
 	for _, f := range out.OutlineFiles {
 		want, exists := expectedByFile[filepath.Base(f.Path)]
@@ -105,6 +123,75 @@ func TestSourceSymbolsRealPythonRequestsDeclarations(t *testing.T) {
 			}
 			if sym.ParentID != parentID {
 				t.Errorf("wrong owner for %s: parentID=%s, want=%s", sym.QualifiedName, sym.ParentID, parentID)
+			}
+		}
+	}
+	// A project map must agree with the independently checked file inventories.
+	failed, digest, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "digest", Paths: paths, Presentation: "compact", MaxFiles: 4,
+	})
+	if err != nil || failed != nil || !digest.CoverageComplete || digest.FilesParsed != 4 ||
+		digest.SymbolCount != 46 || len(digest.OverviewFiles) != 4 {
+		t.Fatalf("original Python digest: err=%v failed=%+v output=%+v", err, failed, digest)
+	}
+	fingerprints := make(map[string]string, len(out.OutlineFiles))
+	for _, f := range out.OutlineFiles {
+		fingerprints[filepath.Base(f.Path)] = f.SourceFingerprint
+	}
+	for _, f := range digest.OverviewFiles {
+		name := filepath.Base(f.Path)
+		want := expectedByFile[name]
+		if !f.CoverageComplete || f.Status != "parsed" || f.Language != "python" ||
+			f.SourceFingerprint == "" || f.SourceFingerprint != fingerprints[name] {
+			t.Errorf("inconsistent Python digest file %+v", f)
+		}
+		counts := make(map[string]int)
+		for _, declaration := range f.DeclarationCounts {
+			counts[string(declaration.Kind)] += declaration.Count
+		}
+		wantCounts := make(map[string]int)
+		for _, expected := range want {
+			wantCounts[expected.kind]++
+		}
+		if len(counts) != len(wantCounts) {
+			t.Errorf("digest kind groups for %s: got=%v want=%v", name, counts, wantCounts)
+		}
+		for kind, count := range wantCounts {
+			if counts[kind] != count {
+				t.Errorf("digest %s %s count=%d want=%d", name, kind, counts[kind], count)
+			}
+		}
+	}
+	failed, tree, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "outline", Paths: paths, Presentation: "tree", MaxFiles: 4, MaxSymbols: 80,
+	})
+	if err != nil || failed != nil || !tree.CoverageComplete || tree.SymbolCount != 46 ||
+		len(tree.OutlineFiles) != 4 {
+		t.Fatalf("original Python tree: err=%v failed=%+v output=%+v", err, failed, tree)
+	}
+	for _, file := range tree.OutlineFiles {
+		name := filepath.Base(file.Path)
+		want := expectedByFile[name]
+		seen := make(map[string]int)
+		var walk func([]*SourceOutlineNode, string)
+		walk = func(nodes []*SourceOutlineNode, parent string) {
+			for _, node := range nodes {
+				expected, ok := want[node.QualifiedName]
+				if !ok || string(node.Kind) != expected.kind || node.Line != expected.line ||
+					expected.parent != parent {
+					t.Errorf("wrong Python tree node %s parent=%s node=%+v", name, parent, node)
+				}
+				seen[node.QualifiedName]++
+				walk(node.Children, node.QualifiedName)
+			}
+		}
+		walk(file.Symbols, "")
+		if len(seen) != len(want) {
+			t.Errorf("Python tree %s has %d unique names, want %d", name, len(seen), len(want))
+		}
+		for expected := range want {
+			if seen[expected] != 1 {
+				t.Errorf("Python tree %s missing/duplicate %s: %d", name, expected, seen[expected])
 			}
 		}
 	}

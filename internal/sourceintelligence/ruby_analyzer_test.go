@@ -202,6 +202,37 @@ end
 	}
 }
 
+func TestRubyAnalyzerOperatorMethodPreservesClassOwnership(t *testing.T) {
+	text := "module Demo\n  class Ring\n    def initialize(size)\n      @size = size\n    end\n    def <<(element)\n      @buf << element\n    end\n    def buffer\n      @buf\n    end\n    def reset(default = 0)\n      @buf.fill(default)\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind  SymbolKind
+		line  int
+		owner string
+	}{
+		"Demo":             {SymbolKindModule, 1, ""},
+		"Demo.Ring":        {SymbolKindClass, 2, "Demo"},
+		"Demo.Ring.Ring":   {SymbolKindConstructor, 3, "Demo.Ring"},
+		"Demo.Ring.<<":     {SymbolKindMethod, 6, "Demo.Ring"},
+		"Demo.Ring.buffer": {SymbolKindMethod, 9, "Demo.Ring"},
+		"Demo.Ring.reset":  {SymbolKindMethod, 12, "Demo.Ring"},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("Ruby operator method broke outline/coverage: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for qualified, expected := range want {
+		got, exists := byName[qualified]
+		if !exists || got.Kind != expected.kind || got.DeclarationRange.Start.Line != expected.line ||
+			got.ParentQualifiedName != expected.owner {
+			t.Errorf("Ruby declaration %s: got=%+v exists=%v, expected=%+v", qualified, got, exists, expected)
+		}
+	}
+}
+
 func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	partial, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class Good\nend\nclass Broken\n"), testAnalyzeOptions(true, 32))
 	if err != nil {

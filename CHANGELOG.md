@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Ruby source navigation now recognizes explicit left-shift operator methods (`def <<(value)`) and preserves class ownership of subsequent methods. Dynamic methods created through Ruby DSL calls remain unresolved; no Ruby code is executed.
 - Python source navigation now includes direct module assignments and annotations as `variable` declarations and direct class attributes as `field` declarations, preserving ownership and source positions. Method-local variables and dotted assignments remain excluded; conditional and dynamic assignments are not resolved or executed.
 - JavaScript/Flow source detection now uses real CommonJS/ES module export syntax to corroborate JavaScript-family files and recognizes paired generated `flow-typed` declaration headers as Flow, so these sources do not become ambiguous from coincidental Ruby, Python, F#, or other language markers. Comments, quoted strings, and backtick templates do not supply false JavaScript module evidence; a single or embedded fake Flow header is insufficient. Ordinary Flow `@flow` directives continue to take precedence.
 - Twig and Jinja source navigation no longer reports runtime-computed HTML `id` fragments (including mixed literal and template expressions) as fixed entities. Literal HTML IDs and template block/macro declarations remain discoverable at their original positions; templates are not executed or rendered.
