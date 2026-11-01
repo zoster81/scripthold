@@ -1257,6 +1257,7 @@ func (parser *cFamilyParser) parseNamespace(start, end int, parent *SymbolParent
 			break
 		}
 		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
+			parser.parseNamespaceAlias(start, index, parent)
 			return index + 1
 		}
 	}
@@ -1287,6 +1288,65 @@ func (parser *cFamilyParser) parseNamespace(start, end int, parent *SymbolParent
 		parser.parseScope(open+1, close, nsParent, false, "")
 	}
 	return close + 1
+}
+
+// A namespace alias declares a name. In contrast, "using namespace X"
+// imports a namespace and does not declare a new symbol.
+func (parser *cFamilyParser) parseNamespaceAlias(start, semicolon int, parent *SymbolParent) {
+	name := nextStructuralToken(parser.tokens, start+1, semicolon)
+	if name >= semicolon || parser.tokens[name].Kind != TokenIdentifier {
+		return
+	}
+	equals := nextStructuralToken(parser.tokens, name+1, semicolon)
+	if equals >= semicolon || !parser.token(equals, "=") {
+		return
+	}
+	cursor := nextStructuralToken(parser.tokens, equals+1, semicolon)
+	if cursor >= semicolon {
+		return
+	}
+	if next, ok := parser.namespaceAliasSeparator(cursor, semicolon); ok {
+		cursor = next
+	}
+	for cursor < semicolon {
+		if parser.tokens[cursor].Kind != TokenIdentifier && parser.tokens[cursor].Kind != TokenKeyword {
+			return
+		}
+		next := nextStructuralToken(parser.tokens, cursor+1, semicolon)
+		if next == semicolon {
+			break
+		}
+		afterSeparator, ok := parser.namespaceAliasSeparator(next, semicolon)
+		if !ok {
+			return
+		}
+		cursor = afterSeparator
+		if cursor >= semicolon {
+			return
+		}
+	}
+	_, _ = parser.add(SymbolSpec{
+		Kind: SymbolKindAlias, NativeKind: "namespace-alias", Name: parser.tokens[name].Text, Parent: parent,
+		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+		Evidence:    SymbolEvidenceStructural,
+	})
+}
+
+// The structural scanner may represent C++ "::" as one token or two
+// adjacent ":" tokens. Do not accept a single colon as a namespace path.
+func (parser *cFamilyParser) namespaceAliasSeparator(index, end int) (int, bool) {
+	if parser.token(index, "::") {
+		return nextStructuralToken(parser.tokens, index+1, end), true
+	}
+	if parser.token(index, ":") {
+		second := nextStructuralToken(parser.tokens, index+1, end)
+		if parser.token(second, ":") {
+			return nextStructuralToken(parser.tokens, second+1, end), true
+		}
+	}
+	return index, false
 }
 
 func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolParent) int {

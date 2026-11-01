@@ -446,6 +446,7 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 
 var (
 	cppCLIAssemblyAttribute     = regexp.MustCompile(`(?mi)^[ \t]*\[assembly[ \t]*:[^\r\n]*\]`)
+	cppCLIStandaloneAttribute   = regexp.MustCompile(`(?m)^[ \t]*\[[A-Za-z_][A-Za-z0-9_:]*(?:\([^\]\r\n]*\))?\][ \t]*\r?$`)
 	cppCLITrailingClassModifier = regexp.MustCompile(`(?i)\bclass[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+(sealed|abstract)\b`)
 )
 
@@ -476,9 +477,12 @@ func maskCPPCLIModifiers(text string) string {
 			search = end
 		}
 	}
-	// C++/CLI metadata is not a C++ declaration; missing semicolons must not
-	// attach a later attribute name to an unrelated statement.
+	// C++/CLI metadata is not a C++ declaration. A standalone managed
+	// attribute must not conceal the following function or expose its body.
 	for _, match := range cppCLIAssemblyAttribute.FindAllStringIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[0], match[1])
+	}
+	for _, match := range cppCLIStandaloneAttribute.FindAllStringIndex(text, -1) {
 		maskByteRangePreservingLines(result, match[0], match[1])
 	}
 	// A trailing managed type modifier is valid after the name, but C++
