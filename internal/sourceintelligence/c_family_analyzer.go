@@ -1450,8 +1450,9 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 		paren := parser.firstFunctionParen(start, terminator, depth)
 		if paren >= 0 {
 			if parser.cpp && parser.tokens[terminator].Text == ";" {
-				if close := parser.pairs[paren]; close > paren+1 && (parser.tokens[paren+1].Kind == TokenNumber || parser.tokens[paren+1].Kind == TokenString) {
-					return parser.parseVariable(start, terminator, parent, members)
+				// Literal and 'new' arguments cannot begin a function parameter declaration.
+				if close := parser.pairs[paren]; close > paren+1 && (parser.tokens[paren+1].Kind == TokenNumber || parser.tokens[paren+1].Kind == TokenString || parser.tokens[paren+1].Text == "new") {
+					return parser.parseVariable(start, terminator, paren, parent, members)
 				}
 			}
 			if next, ok := parser.parseFunction(start, paren, terminator, end, parent, members, owner); ok {
@@ -1466,7 +1467,7 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 		}
 		return terminator + 1, false
 	}
-	return parser.parseVariable(start, terminator, parent, members)
+	return parser.parseVariable(start, terminator, terminator, parent, members)
 }
 
 func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
@@ -1728,7 +1729,7 @@ func bodyStartOrTerminator(bodyOpen, terminator int) int {
 	return terminator
 }
 
-func (parser *cFamilyParser) parseVariable(start, semicolon int, parent *SymbolParent, members bool) (int, bool) {
+func (parser *cFamilyParser) parseVariable(start, semicolon, nameLimit int, parent *SymbolParent, members bool) (int, bool) {
 	if parser.hasToken(start, semicolon, "typedef") {
 		nameIndex := previousIdentifierToken(parser.tokens, semicolon-1, start)
 		if nameIndex >= 0 {
@@ -1738,8 +1739,8 @@ func (parser *cFamilyParser) parseVariable(start, semicolon int, parent *SymbolP
 			return semicolon + 1, added
 		}
 	}
-	limit := semicolon
-	for index := start; index < semicolon; index++ {
+	limit := min(semicolon, nameLimit)
+	for index := start; index < limit; index++ {
 		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == parser.tokens[start].Nesting {
 			limit = index
 			break

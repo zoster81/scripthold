@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- C++ and Objective-C++ source navigation now identifies pointer variables constructed with a parenthesized `new` expression (such as `std::mutex *hookMutex(new std::mutex);`) as variables instead of function declarations. This keeps the original identifier, parent, and source position, while preserving ordinary function declarations and existing literal-initializer handling; it does not evaluate C++ expressions.
 - Less source navigation now preserves selectors containing variable interpolation (such as `.@{prefix}-alert`), mixin declarations with semicolon-separated parameters, and selectors following `//` comments. The shared CSS/SCSS/Less scanner also uses the correct source segment offset when evaluating selector names, preventing missed declarations after earlier statements. These are structural discoveries; Less interpolation and mixins are not evaluated or expanded.
 - Elixir source navigation recognizes `defprotocol` as an interface-like declaration and preserves ownership and source positions of protocol functions, without expanding protocol implementations.
 - Erlang source navigation recognizes single-quoted module atoms (such as `-module('chat').`) and correctly associates functions with their declared module, while preserving module and function source positions.
