@@ -44,7 +44,7 @@ All public documentation is user-facing first, even when it also serves as a tec
 - Streamable HTTP security contract: [`docs/HTTP_SECURITY.md`](docs/HTTP_SECURITY.md)
 - Durable task execution contract: [`docs/DURABLE_TASKS.md`](docs/DURABLE_TASKS.md)
 - Source Intelligence capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
-- Intentional compatibility changes: [`docs/MIGRATION_2.0.md`](docs/MIGRATION_2.0.md) and [`docs/MIGRATION_3.0.md`](docs/MIGRATION_3.0.md)
+- Intentional compatibility changes: [`docs/MIGRATION_2.0.md`](docs/MIGRATION_2.0.md), [`docs/MIGRATION_3.0.md`](docs/MIGRATION_3.0.md), and [`docs/MIGRATION_4.0.md`](docs/MIGRATION_4.0.md)
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
 Link to these sources instead of duplicating their content. Release history belongs in `CHANGELOG.md`, implementation history in Git, and current milestone state only in `docs/ROADMAP.md`. Do not create phase diaries, checkpoint documents, or completed-design archives when current behavior can be documented in an existing source of truth.

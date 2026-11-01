@@ -149,7 +149,7 @@ The image runs as unprivileged UID/GID `10001`.
 
 Source Intelligence helps agents navigate source code without running it or requiring an external compiler, parser, or language server. Use `source_symbols` to map project files with `digest` `presentation: "compact"`, browse a tree-structured file outline by default (or request `presentation: "detailed"` for the previous outline JSON structure), and inspect a selected symbol; use `source_query` for structural search, supported project relationships, dependency graphs, and verified context. Use `grep_text_files` when looking for arbitrary text or code behavior that is not represented by structural symbols.
 
-Unsupported or ambiguous relationships are rejected rather than guessed. Markdown files have their own [document tools](TOOLS.md#markdown_read). Check the generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix for available source providers and analysis coverage.
+Unsupported or ambiguous relationships are rejected rather than guessed. A completed structural scan is **not** proof that every source declaration or caller was identified; verify important results against the original source and prefer `grep_text_files` for literal occurrences. Markdown files have their own [document tools](TOOLS.md#markdown_read). Check the generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix for available source providers and analysis coverage.
 
 ## Markdown documents
 

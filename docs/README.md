@@ -2,6 +2,8 @@
 
 Start with the [project README](../README.md) to install Scripthold and connect an MCP client. Use this page to find the right guide without reading the entire reference library.
 
+**Check which version applies.** [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) identifies the published software. The [Changelog](../CHANGELOG.md#unreleased) distinguishes fixes present only in the development tree. Publishing or committing a fix does not install it in a running server; use the [self-update guide](SELF_UPDATE.md) only for eligible standalone installations. Historical migration guides describe their named versions rather than today's behavior.
+
 ## Use Scripthold
 
 | I want to… | Start here |

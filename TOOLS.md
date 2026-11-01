@@ -4,6 +4,8 @@ This reference explains what each Scripthold tool does, when to use it, its main
 
 Scripthold 4.x exposes 36 tools and 3 guided prompts; check [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) for the latest published version. Version 4.0 replaces eight approval/apply commands with `confirm_verified_operation`; clients upgrading from 3.x must follow the [4.0 migration guide](docs/MIGRATION_4.0.md). Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
 
+This reference describes the checked-in implementation. An installed server might be an earlier release and therefore lack fixes listed under [Unreleased](CHANGELOG.md#unreleased). Updating documentation or merging source does not update an active runtime.
+
 ## Find the right tool
 
 Use this index to start with a task, then open the tool section for its inputs, examples, limits, and errors. New to the server? Begin with the [quick start](README.md#quick-start) or the [Documentation Guide](docs/README.md).

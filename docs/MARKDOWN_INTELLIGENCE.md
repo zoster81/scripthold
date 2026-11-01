@@ -1,4 +1,4 @@
-# Markdown / Document Intelligence (R30)
+# Markdown Document Intelligence
 
 ## Status and authority
 

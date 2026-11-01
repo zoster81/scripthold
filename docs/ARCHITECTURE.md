@@ -95,6 +95,7 @@ Source Intelligence is read-only and fail-closed.
 - Language/dialect routing uses source evidence and reports ambiguity rather than guessing.
 - Public coordinates are based on decoded source, independent of the original byte encoding.
 - Project relationships and evidence levels are reported only where the provider proves them.
+- `coverageComplete` and `truncated` describe the bounded analysis performed, not independent proof of semantic correctness. Verify important symbols against original source; use text search or targeted reads when the question concerns arbitrary text, call sites, or unsupported relations.
 - Process-local incremental indexing is bounded and retains normalized analysis facts, not a persistent complete-source cache.
 - Returned source context is re-opened and fingerprint-verified before text is materialized.
 - Source Intelligence does not execute project code and does not require external parser/compiler/LSP processes.
