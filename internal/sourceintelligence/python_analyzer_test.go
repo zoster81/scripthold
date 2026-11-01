@@ -147,3 +147,47 @@ class Fake:
 		t.Fatal("class-looking text in unterminated triple string became a symbol")
 	}
 }
+
+func TestPythonAnalyzerModuleVariablesAndClassFields(t *testing.T) {
+	text := `config: int = 3
+cache = {"key": "def Fake(): pass"}
+
+class Settings:
+    timeout: float
+    retries = 2
+
+    def get(self):
+        local: int = 1
+        self.timeout = local
+        return self.timeout
+
+def handler():
+    x = 42
+    return x
+
+# fake_field: int
+`
+	document := sourceDocumentForScanner(text)
+	document.Path = "variables.py"
+	result, err := (PythonAnalyzer{}).Analyze(context.Background(), document, AnalyzeOptions{
+		Limits: SymbolBuilderLimits{MaxSymbols: 64, MaxSignatureBytes: 4096, MaxDiagnostics: 16},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]SymbolKind{
+		"config": SymbolKindVariable, "cache": SymbolKindVariable,
+		"Settings": SymbolKindClass, "Settings.timeout": SymbolKindField,
+		"Settings.retries": SymbolKindField, "Settings.get": SymbolKindMethod,
+		"handler": SymbolKindFunction,
+	}
+	got := symbolsByQualifiedName(result.Analysis.Symbols)
+	if !result.Analysis.CoverageComplete || len(got) != len(want) {
+		t.Fatalf("Python declarations incomplete or unexpected: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+	for name, kind := range want {
+		if got[name].Kind != kind {
+			t.Errorf("%s: got %+v, want %s", name, got[name], kind)
+		}
+	}
+}
