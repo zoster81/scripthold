@@ -56,7 +56,7 @@ These read-only parser fixes do not change MCP inputs, filesystem authorization,
 
 ## 4.0.1 - 2026-10-26
 
-This release improves read-only source navigation and response size, without changing filesystem mutation or authorization behavior. Structural navigation can now return a compact project map, an outline tree, and an authenticated continuation cursor so clients can inspect specific declarations instead of transferring entire files. The relative usefulness of these workflows versus grep and targeted reads remains task-dependent; unbiased ChatGPT client-choice measurements are scheduled after updating the connector.
+This release improves read-only source navigation and response size, without changing filesystem mutation or authorization behavior. Structural navigation can now return a compact project map, an outline tree, and an authenticated continuation cursor so clients can inspect specific declarations instead of transferring entire files. The relative usefulness of these workflows versus grep and targeted reads remains task-dependent; the release does not claim complete semantic accuracy for every supported language.
 
 **MCP catalog refresh:** After updating to 4.0.1, reconnect or refresh tool discovery so LLM clients receive the current tool descriptions and response schema. `source_symbols` with `operation: "outline"` defaults to `presentation: "tree"` (`outlineFiles`). The optional `presentation: "detailed"` continues to expose the earlier top-level `files` and `symbols` layout when explicitly requested. No separate migration is needed for agents using the refreshed catalog. Other operations and read-only authorization boundaries remain unchanged.
 
