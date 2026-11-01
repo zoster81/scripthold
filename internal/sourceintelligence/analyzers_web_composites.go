@@ -379,9 +379,21 @@ func analyzePHPHTMLHost(ctx context.Context, document *SourceDocument, options A
 }
 
 // A PHP expression inside an HTML id is not a statically addressable entity.
-// Mask the whole attribute before HTML analysis without moving source offsets.
 func maskPHPComputedIDAttributes(host string, regions []compositeEmbeddedRegion) string {
 	if len(regions) == 0 {
+		return host
+	}
+	ranges := make([]OffsetRange, len(regions))
+	for i, region := range regions {
+		ranges[i] = region.full
+	}
+	return maskMarkupComputedIDAttributes(host, ranges)
+}
+
+// Mask the whole computed ID attribute, not just embedded spans, while preserving
+// byte offsets. Embedded ranges must be ordered as in the original source.
+func maskMarkupComputedIDAttributes(host string, ranges []OffsetRange) string {
+	if len(ranges) == 0 {
 		return host
 	}
 	var masked []byte
@@ -394,10 +406,10 @@ func maskPHPComputedIDAttributes(host string, regions []compositeEmbeddedRegion)
 				continue
 			}
 			start, end := tag[0]+match[2], tag[0]+match[3]
-			for regionIndex < len(regions) && regions[regionIndex].full.End <= start {
+			for regionIndex < len(ranges) && ranges[regionIndex].End <= start {
 				regionIndex++
 			}
-			if regionIndex < len(regions) && regions[regionIndex].full.Start < end {
+			if regionIndex < len(ranges) && ranges[regionIndex].Start < end {
 				if masked == nil {
 					masked = []byte(host)
 				}
@@ -869,6 +881,7 @@ func analyzeTemplateHost(ctx context.Context, document *SourceDocument, options 
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
 	masked, ranges, complete := maskTemplateSyntax(document.Text)
+	masked = maskMarkupComputedIDAttributes(masked, ranges)
 	declarationProbe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}, {"{#", "#}"}, {"{{", "}}"}})
 	result, err := analyzeMaskedEmbeddedRegion(ctx, document, masked, options, language, analyzer, "host-html", "html")
 	if err != nil {

@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Twig and Jinja source navigation no longer reports runtime-computed HTML `id` fragments (including mixed literal and template expressions) as fixed entities. Literal HTML IDs and template block/macro declarations remain discoverable at their original positions; templates are not executed or rendered.
 - PowerShell source navigation now correctly names scope-qualified functions such as `function global:prompt` using the declared function name, and no longer treats hashtable keys such as `Function = @(` or `Filter = @(` as function declarations. This is structural navigation only: it does not execute scripts or resolve dynamic scopes.
 - OpenAPI source navigation now avoids reporting Arazzo workflow step `operationId` references as API operation declarations. An explicitly identified Arazzo root document returns incomplete OpenAPI coverage rather than fabricated operations; genuine OpenAPI documents and rootless OpenAPI fragments remain supported. No workflow interpretation or reference resolution is performed.
 - C++ and Objective-C++ source navigation now identifies pointer variables constructed with a parenthesized `new` expression (such as `std::mutex *hookMutex(new std::mutex);`) as variables instead of function declarations. This keeps the original identifier, parent, and source position, while preserving ordinary function declarations and existing literal-initializer handling; it does not evaluate C++ expressions.
