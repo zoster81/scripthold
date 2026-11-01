@@ -323,6 +323,53 @@ func TestRubyAnalyzerSimpleMethodBodiesAreExactAndNestedBodiesStayConservative(t
 	}
 }
 
+func TestRubyAnalyzerPreservesPriorSimpleBodiesBeforeInlineSiblingClass(t *testing.T) {
+	source := "module Liquid\n  class Interrupt\n    def initialize(message = nil)\n      @message = message\n    end\n  end\n  class BreakInterrupt < Interrupt; end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != 4 {
+		t.Fatalf("Ruby inline sibling declarations: %+v", result.Analysis)
+	}
+	got := symbolsByQualifiedName(result.Analysis.Symbols)["Liquid.Interrupt.Interrupt"]
+	if got.BodyRange == nil {
+		t.Fatalf("Ruby simple constructor preceding inline sibling lost verified body %+v", got)
+	}
+	decl, _, _, body := got.SourceOffsets()
+	if body == nil || !strings.Contains(source[decl.Start:decl.End], "@message = message") ||
+		!strings.Contains(source[body.Start:body.End], "@message = message") ||
+		strings.Contains(source[body.Start:body.End], "BreakInterrupt") {
+		t.Fatalf("Ruby method body swallowed later sibling: %+v %+v", decl, body)
+	}
+}
+
+func TestRubyAnalyzerQualifiedClassConstructorUsesLeafName(t *testing.T) {
+	source := "class Scientist::Observation\n  def initialize(value)\n    @value = value\n  end\n  def value\n    @value\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind   SymbolKind
+		line   int
+		parent string
+	}{
+		"Scientist::Observation":             {SymbolKindClass, 1, ""},
+		"Scientist::Observation.Observation": {SymbolKindConstructor, 2, "Scientist::Observation"},
+		"Scientist::Observation.value":       {SymbolKindMethod, 5, "Scientist::Observation"},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("Ruby qualified class symbols incomplete: %+v", result.Analysis)
+	}
+	for _, s := range result.Analysis.Symbols {
+		expected, ok := want[s.QualifiedName]
+		if !ok || s.Kind != expected.kind || s.DeclarationRange.Start.Line != expected.line || s.ParentQualifiedName != expected.parent {
+			t.Errorf("Ruby qualified class constructor wrong: %+v want=%+v exists=%v", s, expected, ok)
+		}
+	}
+}
+
 func TestRubyAnalyzerMalformedLimitsAndCancellation(t *testing.T) {
 	partial, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner("class Good\nend\nclass Broken\n"), testAnalyzeOptions(true, 32))
 	if err != nil {

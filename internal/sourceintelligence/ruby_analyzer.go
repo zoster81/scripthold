@@ -387,9 +387,11 @@ func rubySimpleMethodBodies(lines []LogicalLine, maxNesting int) map[int]rubySim
 			continue
 		}
 		// An inline end cannot be safely paired with a separate declaration.
+		// Stop inferring later bodies, but retain independently closed
+		// method bodies that were already verified before this line.
 		for _, token := range tokens[1:] {
 			if token.Kind == TokenKeyword && strings.EqualFold(token.Text, "end") {
-				return nil
+				return bodies
 			}
 		}
 		method := first == "def" || ((first == "private" || first == "protected" || first == "public") &&
@@ -412,11 +414,21 @@ func rubySimpleMethodBodies(lines []LogicalLine, maxNesting int) map[int]rubySim
 			}
 			next := scope{method: method, start: line.StartOffset, safe: method}
 			if method {
+				parenDepth := 0
 				for _, token := range tokens {
-					// Endless declarations and assignment-bearing headers need a
-					// dedicated Ruby grammar proof, not a guessed trailing end.
-					if token.Text == "=" || token.Text == "=>" {
-						next.safe = false
+					switch token.Text {
+					case "(":
+						parenDepth++
+					case ")":
+						if parenDepth > 0 {
+							parenDepth--
+						}
+					case "=", "=>":
+						// Defaults inside the parameter list are not endless
+						// methods. Assignment outside it remains unproven.
+						if parenDepth == 0 {
+							next.safe = false
+						}
 					}
 				}
 			}
@@ -653,7 +665,12 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 	if strings.EqualFold(name, "initialize") && parent != nil && owner != "" {
 		kind = SymbolKindConstructor
 		nativeKind = "initialize"
+		// A qualified class declaration names its constructor by the final
+		// class constant, not by repeating the entire qualified owner.
 		name = owner
+		if at := strings.LastIndex(owner, "::"); at >= 0 {
+			name = owner[at+2:]
+		}
 	}
 	spec := SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
