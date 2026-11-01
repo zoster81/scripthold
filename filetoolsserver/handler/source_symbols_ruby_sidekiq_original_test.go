@@ -126,6 +126,69 @@ func TestSourceSymbolsRealRubySidekiqSelectedScopes(t *testing.T) {
 
 // This complete-file oracle is derived from the original Sidekiq source rather
 // than from the analyzer's output. DSL-generated accessors and aliases are excluded.
+func TestSourceSymbolsRealRubySidekiqJobUtilBody(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_RUBY_SIDEKIQ_PROJECT")
+	if root == "" {
+		t.Skip("original qualified Ruby project not provided")
+	}
+	path := filepath.Join(root, "lib", "sidekiq", "job_util.rb")
+	h := NewHandler([]string{root})
+	ctx := context.Background()
+	failed, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "outline", Paths: []string{path}, Presentation: "detailed", MaxFiles: 1, MaxSymbols: 32,
+	})
+	if err != nil || failed != nil || !outline.CoverageComplete || outline.SymbolCount != 10 ||
+		len(outline.Files) != 1 || len(outline.Symbols) != 10 {
+		t.Fatalf("original Sidekiq JobUtil outline: err=%v failed=%+v output=%+v", err, failed, outline)
+	}
+	want := map[string]int{
+		"Sidekiq": 6, "Sidekiq.JobUtil": 7, "Sidekiq.JobUtil.TRANSIENT_ATTRIBUTES": 10,
+		"Sidekiq.JobUtil.validate": 12, "Sidekiq.JobUtil.verify_json": 21,
+		"Sidekiq.JobUtil.normalize_item": 43, "Sidekiq.JobUtil.now_in_millis": 65,
+		"Sidekiq.JobUtil.normalized_hash": 69, "Sidekiq.JobUtil.RECURSIVE_JSON_UNSAFE": 80,
+		"Sidekiq.JobUtil.json_unsafe?": 109,
+	}
+	var simpleID string
+	for _, symbol := range outline.Symbols {
+		if symbol.DeclarationRange.Start.Line != want[symbol.QualifiedName] {
+			t.Errorf("wrong original Sidekiq JobUtil declaration: %+v", symbol)
+		}
+		if symbol.QualifiedName == "Sidekiq.JobUtil.now_in_millis" {
+			simpleID = symbol.ID
+			if symbol.BodyRange == nil || symbol.ParentQualifiedName != "Sidekiq.JobUtil" {
+				t.Errorf("simple Ruby method body or owner absent: %+v", symbol)
+			}
+		}
+		if symbol.QualifiedName == "Sidekiq.JobUtil.verify_json" && symbol.BodyRange != nil {
+			t.Errorf("nested conditional body must not be guessed: %+v", symbol)
+		}
+	}
+	if simpleID == "" {
+		t.Fatal("Sidekiq simple method not found")
+	}
+	failed, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "show", Path: path, Language: "ruby", Encoding: "utf-8",
+		SymbolID: simpleID, SourceFingerprint: outline.Files[0].SourceFingerprint, MaxBytes: 2048,
+	})
+	if err != nil || failed != nil || shown.Show == nil ||
+		!strings.HasPrefix(shown.Show.Text, "def now_in_millis") ||
+		!strings.Contains(shown.Show.Text, "::Process.clock_gettime(") ||
+		!strings.HasSuffix(strings.TrimSpace(shown.Show.Text), "end") {
+		t.Fatalf("Sidekiq simple Ruby show lacks verified method body: err=%v failed=%+v shown=%+v", err, failed, shown.Show)
+	}
+	failed, contextOutput, err := h.SourceQuery(ctx, nil, SourceQueryInput{
+		Operation: "context", Paths: []string{path}, Language: "ruby", Encoding: "utf-8",
+		Targets: []SourceSelectorInput{{Kind: "symbol", Path: path, SymbolID: simpleID,
+			SourceFingerprint: outline.Files[0].SourceFingerprint}},
+		BodyPolicy: "prefer", BudgetBytes: 2048, MaxItems: 4, MaxDepth: 2,
+	})
+	if err != nil || failed != nil || contextOutput.Context == nil ||
+		len(contextOutput.Context.Items) == 0 || string(contextOutput.Context.Items[0].Representation) != "body" ||
+		!strings.Contains(contextOutput.Context.Items[0].Text, "::Process.clock_gettime(") {
+		t.Fatalf("Sidekiq simple Ruby context lacks implementation: err=%v failed=%+v context=%+v", err, failed, contextOutput.Context)
+	}
+}
+
 func TestSourceSymbolsRealRubySidekiqTestAPI(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_RUBY_SIDEKIQ_PROJECT")
 	if root == "" {

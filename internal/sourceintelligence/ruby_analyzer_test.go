@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -288,6 +289,37 @@ func TestRubyAnalyzerInlineMethodVisibilityPreservesEnclosingScope(t *testing.T)
 			s.Visibility != expected.visibility || s.DeclarationRange.Start.Line != expected.line {
 			t.Errorf("wrong Ruby method visibility/owner for %s: got=%+v expected=%+v exists=%v", name, s, expected, ok)
 		}
+	}
+}
+
+func TestRubyAnalyzerSimpleMethodBodiesAreExactAndNestedBodiesStayConservative(t *testing.T) {
+	source := "module Demo\n  class Service\n    def simple(value)\n      value * 2\n    end\n    def nested(flag)\n      if flag\n        :yes\n      end\n    end\n    def after\n      :ok\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Ruby source structure incomplete: %+v", result.Analysis)
+	}
+	symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, expected := range map[string]string{
+		"Demo.Service.simple": "def simple(value)\n      value * 2\n    end",
+		"Demo.Service.after":  "def after\n      :ok\n    end",
+	} {
+		s, ok := symbols[name]
+		if !ok || s.BodyRange == nil {
+			t.Errorf("%s lacks a verifiable simple body: %+v", name, s)
+			continue
+		}
+		declaration, _, _, body := s.SourceOffsets()
+		if body == nil || source[declaration.Start:declaration.End] != expected ||
+			!strings.Contains(source[body.Start:body.End], ":ok") && name == "Demo.Service.after" ||
+			!strings.Contains(source[body.Start:body.End], "value * 2") && name == "Demo.Service.simple" {
+			t.Errorf("%s wrong declaration/body offsets: declaration=%+v body=%+v", name, declaration, body)
+		}
+	}
+	if nested := symbols["Demo.Service.nested"]; nested.BodyRange != nil {
+		t.Fatalf("unverified nested control flow must not claim complete body: %+v", nested)
 	}
 }
 

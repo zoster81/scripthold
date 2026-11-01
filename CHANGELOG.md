@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Ruby source navigation now returns full, fingerprint-verified source for simple methods with unambiguous `end` boundaries via `source_symbols show` and body-preferred `source_query context`. Nested or uncertain method bodies remain signature-only rather than claiming guessed code.
 - Ruby source navigation now recognizes inline `private def`, `protected def`, and `public def` declarations with their method-specific visibility, preventing misattributed later declarations when nested scopes close.
 - Ruby source navigation now recognizes explicit left-shift and bracket method operators (`<<`, `[]`, and `[]=`), preserving class ownership of subsequent methods. Dynamic methods created through Ruby DSL calls remain unresolved; no Ruby code is executed.
 - Python source navigation now includes direct module assignments and annotations as `variable` declarations and direct class attributes as `field` declarations, preserving ownership and source positions. Method-local variables and dotted assignments remain excluded; conditional and dynamic assignments are not resolved or executed.

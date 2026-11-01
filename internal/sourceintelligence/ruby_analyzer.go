@@ -75,8 +75,13 @@ func (RubyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	if !scan.Complete {
 		builder.MarkIncomplete()
 	}
-	parser := &rubyParser{ctx: ctx, document: document, builder: builder}
-	parser.parse(BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{";"}}))
+	lines := BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{";"}})
+	var methodBodies map[int]rubySimpleMethodBody
+	if scan.Complete && len(scan.Diagnostics) == 0 {
+		methodBodies = rubySimpleMethodBodies(lines, maxNesting)
+	}
+	parser := &rubyParser{ctx: ctx, document: document, builder: builder, methodBodies: methodBodies}
+	parser.parse(lines)
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_ruby_source", document.Path, err)
 	}
@@ -351,6 +356,86 @@ type rubyScope struct {
 	visibility Visibility
 }
 
+// Only spans with an unambiguous, unnested end may supply Ruby method bodies.
+// A conservative second pass avoids fabricating implementation ranges for DSLs,
+// nested control flow, inline Ruby expressions, or malformed scoped text.
+type rubySimpleMethodBody struct{ end int }
+
+func rubySimpleMethodBodies(lines []LogicalLine, maxNesting int) map[int]rubySimpleMethodBody {
+	type scope struct {
+		method bool
+		start  int
+		safe   bool
+	}
+	var scopes []scope
+	bodies := make(map[int]rubySimpleMethodBody)
+	for _, line := range lines {
+		if len(line.Tokens) == 0 {
+			continue
+		}
+		tokens := line.Tokens
+		first := strings.ToLower(tokens[0].Text)
+		if first == "end" {
+			if len(scopes) == 0 {
+				return nil
+			}
+			last := scopes[len(scopes)-1]
+			scopes = scopes[:len(scopes)-1]
+			if last.method && last.safe && tokens[0].EndOffset > last.start {
+				bodies[last.start] = rubySimpleMethodBody{end: tokens[0].EndOffset}
+			}
+			continue
+		}
+		// An inline end cannot be safely paired with a separate declaration.
+		for _, token := range tokens[1:] {
+			if token.Kind == TokenKeyword && strings.EqualFold(token.Text, "end") {
+				return nil
+			}
+		}
+		method := first == "def" || ((first == "private" || first == "protected" || first == "public") &&
+			len(tokens) > 1 && tokens[1].Text == "def")
+		if first == "private_class_method" {
+			for _, token := range tokens[1:] {
+				if token.Text == "def" {
+					method = true
+					break
+				}
+			}
+		}
+		opens := method || first == "class" || first == "module" || rubyStartsAnonymousBlock(tokens)
+		if opens {
+			if len(scopes) >= maxNesting {
+				return nil
+			}
+			if n := len(scopes); n > 0 && scopes[n-1].method {
+				scopes[n-1].safe = false
+			}
+			next := scope{method: method, start: line.StartOffset, safe: method}
+			if method {
+				for _, token := range tokens {
+					// Endless declarations and assignment-bearing headers need a
+					// dedicated Ruby grammar proof, not a guessed trailing end.
+					if token.Text == "=" || token.Text == "=>" {
+						next.safe = false
+					}
+				}
+			}
+			scopes = append(scopes, next)
+			continue
+		}
+		if n := len(scopes); n > 0 && scopes[n-1].method {
+			switch first {
+			case "else", "elsif", "ensure", "rescue", "when", "in":
+				scopes[n-1].safe = false
+			}
+		}
+	}
+	if len(scopes) != 0 {
+		return nil
+	}
+	return bodies
+}
+
 type rubyParser struct {
 	ctx          context.Context
 	document     *SourceDocument
@@ -358,6 +443,7 @@ type rubyParser struct {
 	dependencies []StructuralDependency
 	relations    []StructuralRelation
 	scopes       []rubyScope
+	methodBodies map[int]rubySimpleMethodBody
 	stopped      bool
 }
 
@@ -569,11 +655,16 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 		nativeKind = "initialize"
 		name = owner
 	}
-	_, ok := p.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
+	spec := SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
 		NameRange:   OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameEnd-1].EndOffset},
 		Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Visibility: visibility, Evidence: SymbolEvidenceStructural,
-		Disambiguator: tokenRangeText(tokens, nameIndex, len(tokens)) + ":" + nativeKind})
+		Disambiguator: tokenRangeText(tokens, nameIndex, len(tokens)) + ":" + nativeKind}
+	if body, present := p.methodBodies[line.StartOffset]; present {
+		spec.Declaration.End = body.end
+		spec.Body = &OffsetRange{Start: line.EndOffset, End: body.end}
+	}
+	_, ok := p.add(spec)
 	if ok {
 		p.scopes = append(p.scopes, rubyScope{kind: "method", parent: parent, owner: owner, visibility: visibility})
 	}

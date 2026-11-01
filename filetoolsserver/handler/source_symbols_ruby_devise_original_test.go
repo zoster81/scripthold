@@ -138,6 +138,39 @@ func TestSourceSymbolsRealRubyDeviseSelectedFiles(t *testing.T) {
 			t.Errorf("Devise digest %s count=%d want=%d", name, total, len(want[name]))
 		}
 	}
+	// The original private method has no nested Ruby end-blocks: its entire
+	// implementation must be available without reading the surrounding file.
+	bodyPath := filepath.Join(root, "lib", "devise", "parameter_filter.rb")
+	for _, symbol := range outline.Symbols {
+		if symbol.QualifiedName != "Devise.ParameterFilter.param_requires_string_conversion?" {
+			continue
+		}
+		if symbol.BodyRange == nil {
+			t.Fatal("Devise simple private method lacks its verified body range")
+		}
+		failed, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+			Operation: "show", Path: bodyPath, SymbolID: symbol.ID,
+			SourceFingerprint: fingerprints["parameter_filter.rb"], Language: "ruby", Encoding: "utf-8", MaxBytes: 1024,
+		})
+		if err != nil || failed != nil || shown.Show == nil ||
+			!strings.HasPrefix(shown.Show.Text, "def param_requires_string_conversion?(value)") ||
+			!strings.Contains(shown.Show.Text, "true") ||
+			!strings.HasSuffix(strings.TrimSpace(shown.Show.Text), "end") {
+			t.Fatalf("Devise simple Ruby source show is not the complete method: err=%v failed=%+v shown=%+v", err, failed, shown.Show)
+		}
+		failed, contextOutput, err := h.SourceQuery(ctx, nil, SourceQueryInput{
+			Operation: "context", Paths: []string{bodyPath}, Language: "ruby", Encoding: "utf-8",
+			Targets: []SourceSelectorInput{{Kind: "symbol", Path: bodyPath, SymbolID: symbol.ID,
+				SourceFingerprint: fingerprints["parameter_filter.rb"]}},
+			BodyPolicy: "prefer", BudgetBytes: 2048, MaxDepth: 2, MaxItems: 4,
+		})
+		if err != nil || failed != nil || contextOutput.Context == nil || len(contextOutput.Context.Items) == 0 ||
+			string(contextOutput.Context.Items[0].Representation) != "body" ||
+			!strings.Contains(contextOutput.Context.Items[0].Text, "true") {
+			t.Fatalf("Devise simple Ruby context did not select implementation: err=%v failed=%+v context=%+v", err, failed, contextOutput.Context)
+		}
+		break
+	}
 	path := filepath.Join(root, "lib", "devise", "time_inflector.rb")
 	for _, query := range []string{"Devise.TimeInflector.instance", "Devise.TimeInflector.time_ago_in_words"} {
 		failed, result, err := h.SourceQuery(ctx, nil, SourceQueryInput{
