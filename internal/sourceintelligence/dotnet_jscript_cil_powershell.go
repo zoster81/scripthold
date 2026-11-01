@@ -601,9 +601,15 @@ func (p *powerShellParser) parseClass(start, end int, parent *SymbolParent) int 
 	return close + 1
 }
 func (p *powerShellParser) parseFunction(start, end int, parent *SymbolParent) int {
-	name := nextIdentifierToken(p.tokens, start+1, end)
-	if name < 0 {
+	name := nextStructuralToken(p.tokens, start+1, end)
+	if name >= end || p.tokens[name].Kind != TokenIdentifier || p.tokens[name].Text == "@" {
+		// Hashtable keys named Function/Filter are not declarations.
 		return start + 1
+	}
+	if name+2 < end && p.tokens[name+1].Text == ":" && p.tokens[name+2].Kind == TokenIdentifier {
+		// In a scope-qualified function name (global:prompt), the identifier
+		// after the scope is the declared function, not the scope itself.
+		name += 2
 	}
 	open := -1
 	for i := name + 1; i < end; i++ {
