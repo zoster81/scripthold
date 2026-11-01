@@ -34,9 +34,30 @@ This file tracks **current and future work only**. Completed changes belong in [
 7. **Complete provider and regression qualification.** Repeat representative positive, negative, hierarchy, and project-navigation cases for each declared provider capability. Run risk-appropriate regression, static, race, safety, and cross-platform checks before proposing promotion. Report remaining limitations honestly; do not claim universal grammar correctness from sampled results.
 8. **Final standalone MCP qualification (deferred).** Only after project-first structural and handler tests are sufficiently complete, run the separately authorized standalone local MCP server and transport checks. This is deliberately deferred; do not start or restart servers during ordinary source-analyzer development.
 
-**Provider execution order and shared foundations:** Finish the active Ruby provider before starting the next language family. Ruby acceptance requires independently qualified representative scopes across at least eight distinct real projects where available, all supported declaration kinds and ownership, matched `outline`/`digest`/`find`/`show`/`source_query` evidence, exact source ranges where verified, and explicit unresolved dynamic or unsafe syntax. A correct sample is not a provider-wide completion claim.
+**Current qualification boundary:** Ruby has passed the development-handler structural acceptance gate on independently annotated complete scopes from eight real projects (18 original source files, 156 supported declarations), with regression tests and explicit non-declaration cases. This qualifies **those selected scopes**, not every Ruby grammar construct or an updated installed server. Dynamic metaprogramming, some nested/endless body shapes, and unresolved runtime relationships remain outside claimed semantic coverage; final cross-platform, race, promotion, and standalone-MCP checks remain deferred. The next work is the **cross-provider shared-foundation inventory and qualification**, without reopening Ruby unless new independent evidence identifies a relevant defect.
 
-After Ruby, assess reusable source-document decoding, scanner/lexer profiles, logical lines, source-symbol building, scope/range handling, conditional masking, and handler/index/coverage orchestration **before** adding provider-specific fixes. Start with the highest-impact demonstrated shared defect, not a speculative refactor: inventory actual consumers, create counterexamples in at least two affected provider families, compare the smallest shared repair with isolated fixes, and verify against all direct consumers. The C/C++ analyzers already share `analyzeCFamily`; seven BASIC dialect analyzers share `analyzeBasicDialect`. Prioritize these established families next, then other groups with proven shared implementations, while allowing a verified P0 correctness/security defect to override sequence. Each individual language still requires independent multi-project original-source qualification, and shared-family tests never replace per-language evidence.
+After Ruby, prioritize **shared implementations across the full provider registry**, not an alphabetical language list or a fixed C-then-BASIC queue. First inventory consumers of source-document decoding, scanner profiles, logical-line construction, symbol building, scope/range and conditional handling, and handler/index/coverage orchestration. Reproduce any proposed common defect in representative direct consumers before changing shared code. Compare a minimal shared repair with isolated fixes, reject regressions and unsupported generalizations, and requalify all affected consumers. Select the next family by demonstrated severity, potential reuse, corpus coverage, and remaining verification cost.
+
+The source tree currently contains these **confirmed shared implementation seams** (examples, not a complete grouping of all 100 providers):
+
+| Shared implementation | Direct consumers or composition |
+|---|---|
+| `analyzeCFamily` | C and C++; C-like relatives also need individual dependency tracing |
+| `analyzeBasicDialect` | VB6, VBA, VBScript, QBasic, classic BASIC, FreeBasic, PureBasic |
+| `analyzeECMAScriptDialect` | JavaScript, TypeScript; Flow also composes the JavaScript-family analysis |
+| `analyzeJVMFamilyScope` | Java, Kotlin; JSP reuses Java member parsing in embedded regions |
+| `analyzePascalFamily` | Pascal, Delphi |
+| `analyzeLispSource` | Common Lisp, Clojure, Emacs Lisp |
+| `analyzeLuaFamily` | Lua, Luau |
+| `analyzeShellFamily` | Shell, Bash |
+| `analyzeMATLABLike` | MATLAB, Octave |
+| `analyzeHDLSource` | Verilog, SystemVerilog; VHDL is separate |
+| `analyzeObjectiveCFamily` | Objective-C, Objective-C++ (with additional C++ composition) |
+| `analyzeMQL` | MQL4, MQL5 (with C-family-related components) |
+| `analyzeMarkupDocument` / `analyzeCSSDocument` | HTML/XML and CSS/SCSS/Less, respectively; Sass remains separate |
+| Composite-host and .NET member-region helpers | Vue, Svelte, Astro, PHP/HTML, JSP, EJS, Blade, Jinja/Twig and ASP.NET/Razor/Blazor integrations have distinct embedded-language boundaries |
+
+Also inventory shared scanners, preprocessor/masking and source-query indexing for **all remaining providers**, including SQL/data/config, hardware, scientific/functional, BEAM, .NET, systems, and language-specific analyzers. Some are related by syntax but **do not share a parser**; do not merge their implementation or infer coverage from a family name. Use the native analyzer registry and capability matrix to reconcile every active provider and track ungrouped providers explicitly. A repair in a common component never replaces **at least eight independently qualified original projects per language where available**, including positive and negative cases, project navigation and honest unsupported coverage.
 
 **Priority:** P0 — fabricated or misclassified symbols, incorrect ownership, or wrong source bodies; P1 — missing declarations, incomplete hierarchy/outline/digest, or wrong paths/relationships; P2 — misleading completeness, ambiguity, encoding, freshness, or nondeterminism; P3 — unnecessary output, latency, or memory cost. Address P0/P1 first; run independent project checks in parallel only where they do not share mutable qualification inputs.
 

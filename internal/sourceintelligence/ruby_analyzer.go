@@ -404,7 +404,7 @@ func rubySimpleMethodBodies(lines []LogicalLine, maxNesting int) map[int]rubySim
 				}
 			}
 		}
-		opens := method || first == "class" || first == "module" || rubyStartsAnonymousBlock(tokens)
+		opens := (method && !rubyEndlessMethod(tokens)) || first == "class" || first == "module" || rubyStartsAnonymousBlock(tokens)
 		if opens {
 			if len(scopes) >= maxNesting {
 				return nil
@@ -682,9 +682,49 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 		spec.Body = &OffsetRange{Start: line.EndOffset, End: body.end}
 	}
 	_, ok := p.add(spec)
-	if ok {
+	if ok && !rubyEndlessMethod(tokens) {
 		p.scopes = append(p.scopes, rubyScope{kind: "method", parent: parent, owner: owner, visibility: visibility})
 	}
+}
+
+// rubyEndlessMethod recognizes the explicit Ruby 3 form "def name = expr"
+// without confusing a setter name or default arguments with an expression
+// body. It is shared by scope construction and conservative body extraction.
+func rubyEndlessMethod(tokens []Token) bool {
+	def := -1
+	for i, token := range tokens {
+		if token.Text == "def" && token.Kind == TokenKeyword {
+			def = i
+			break
+		}
+	}
+	if def < 0 || def+1 >= len(tokens) {
+		return false
+	}
+	depth := 0
+	for i := def + 2; i < len(tokens); i++ {
+		switch tokens[i].Text {
+		case "(":
+			depth++
+		case ")":
+			if depth > 0 {
+				depth--
+			}
+		case "=":
+			if depth != 0 {
+				continue
+			}
+			// In "def name=(value)" and "def []=(key, value)", the
+			// operator belongs to the method name rather than starting
+			// an endless expression body.
+			if i+1 < len(tokens) && tokens[i+1].Text == "(" &&
+				tokens[i-1].EndOffset == tokens[i].StartOffset {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // Ruby operator methods have explicit names, unlike arbitrary operator expressions.

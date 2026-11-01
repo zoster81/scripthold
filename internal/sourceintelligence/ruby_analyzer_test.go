@@ -344,6 +344,40 @@ func TestRubyAnalyzerPreservesPriorSimpleBodiesBeforeInlineSiblingClass(t *testi
 	}
 }
 
+func TestRubyAnalyzerEndlessMethodKeepsFollowingScopeAndBody(t *testing.T) {
+	source := "module Demo\n  def answer = 42\n  def normal\n    :ok\n  end\n  def []=(key, value)\n    @values[key] = value\n  end\n  def label=(value)\n    @label = value\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind   SymbolKind
+		line   int
+		parent string
+	}{
+		"Demo":        {SymbolKindModule, 1, ""},
+		"Demo.answer": {SymbolKindMethod, 2, "Demo"},
+		"Demo.normal": {SymbolKindMethod, 3, "Demo"},
+		"Demo.[]=":    {SymbolKindMethod, 6, "Demo"},
+		"Demo.label=": {SymbolKindMethod, 9, "Demo"},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("endless Ruby declaration leaked scope: %+v", result.Analysis)
+	}
+	for _, sym := range result.Analysis.Symbols {
+		expected, ok := want[sym.QualifiedName]
+		if !ok || sym.Kind != expected.kind || sym.DeclarationRange.Start.Line != expected.line || sym.ParentQualifiedName != expected.parent {
+			t.Errorf("Ruby endless/ordinary/symbol setter scope wrong: %+v expected=%+v found=%v", sym, expected, ok)
+		}
+		if sym.QualifiedName == "Demo.answer" && sym.BodyRange != nil {
+			t.Errorf("Ruby endless declaration must not invent an end-block body: %+v", sym)
+		}
+		if sym.QualifiedName == "Demo.normal" && sym.BodyRange == nil {
+			t.Errorf("following ordinary Ruby method lost its provable body: %+v", sym)
+		}
+	}
+}
+
 func TestRubyAnalyzerQualifiedClassConstructorUsesLeafName(t *testing.T) {
 	source := "class Scientist::Observation\n  def initialize(value)\n    @value = value\n  end\n  def value\n    @value\n  end\nend\n"
 	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))

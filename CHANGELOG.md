@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Ruby source navigation now recognizes explicit Ruby 3 endless methods (`def name = expression`) without consuming a following method's scope or closing `end`. Ordinary methods and bracket setters keep their original ownership; unsupported expression semantics are not evaluated.
 - Ruby source navigation now names constructors of explicitly qualified classes by their final class constant, rather than repeating the full qualified class name. Simple method bodies with default parameter values are retained when their closing `end` is unambiguous, even if later sibling Ruby declarations use inline syntax; uncertain later bodies still fall back to signatures.
 - Ruby source navigation now returns full, fingerprint-verified source for simple methods with unambiguous `end` boundaries via `source_symbols show` and body-preferred `source_query context`. Nested or uncertain method bodies remain signature-only rather than claiming guessed code.
 - Ruby source navigation now recognizes inline `private def`, `protected def`, and `public def` declarations with their method-specific visibility, preventing misattributed later declarations when nested scopes close.
