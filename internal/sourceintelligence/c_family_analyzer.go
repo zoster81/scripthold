@@ -1117,6 +1117,12 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 			index = terminator + 1
 			continue
 		}
+		if parser.token(index, "typedef") {
+			if next, ok := parser.parseAnonymousEnumTypedef(index, end, parent); ok {
+				index = next
+				continue
+			}
+		}
 		if keyword, declarationStart, ok := parser.typeDeclarationAt(index, end); ok {
 			index = parser.parseType(declarationStart, keyword, end, parent)
 			continue
@@ -1146,6 +1152,38 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 
 func (parser *cFamilyParser) token(index int, value string) bool {
 	return index >= 0 && index < len(parser.tokens) && parser.tokens[index].Text == value
+}
+
+// parseAnonymousEnumTypedef accepts only a single, balanced enum typedef
+// ending in an ordinary identifier and semicolon. The alias must not be
+// interpreted as a variable after the anonymous enum body closes.
+func (parser *cFamilyParser) parseAnonymousEnumTypedef(start, end int, parent *SymbolParent) (int, bool) {
+	keyword := nextStructuralToken(parser.tokens, start+1, end)
+	if !parser.token(keyword, "enum") {
+		return start, false
+	}
+	open := nextStructuralToken(parser.tokens, keyword+1, end)
+	if !parser.token(open, "{") || parser.tokens[open].Nesting != parser.tokens[start].Nesting+1 {
+		return start, false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		return start, false
+	}
+	nameIndex := nextStructuralToken(parser.tokens, close+1, end)
+	semicolon := nextStructuralToken(parser.tokens, nameIndex+1, end)
+	if nameIndex >= end || parser.tokens[nameIndex].Kind != TokenIdentifier ||
+		parser.tokens[nameIndex].Nesting != parser.tokens[start].Nesting ||
+		!parser.token(semicolon, ";") || parser.tokens[semicolon].Nesting != parser.tokens[start].Nesting {
+		return start, false
+	}
+	parser.add(SymbolSpec{
+		Kind: SymbolKindAlias, NativeKind: "typedef-enum", Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
+		Evidence:    SymbolEvidenceStructural,
+	})
+	return semicolon + 1, true
 }
 
 func (parser *cFamilyParser) typeDeclarationAt(start, end int) (keyword, declarationStart int, ok bool) {
