@@ -44,6 +44,52 @@ func TestBasicDialectAnalyzersRemainDistinct(t *testing.T) {
 	}
 }
 
+// The segment-register directive in a real QBasic map converter is not a DEF FN declaration.
+func TestBasicDefSegmentDirectiveDoesNotInventFunctions(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{"qbasic", QBasicAnalyzer{}},
+		{"classic-basic", ClassicBasicAnalyzer{}},
+		{"freebasic", FreeBasicAnalyzer{}},
+		{"vb6", VB6Analyzer{}},
+		{"vba", VBAAnalyzer{}},
+		{"vbscript", VBScriptAnalyzer{}},
+		{"purebasic", PureBasicAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "DEF SEG = VARSEG(mz%(0, 0))\nDEF SEG\n"
+			if tc.name == "qbasic" || tc.name == "classic-basic" {
+				source += "DEF FNDOUBLE(X)=X*2\n"
+			}
+			result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("unexpected partial analysis: %+v", result.Analysis)
+			}
+			want := map[string]SymbolKind{}
+			if tc.name == "qbasic" || tc.name == "classic-basic" {
+				want["FNDOUBLE"] = SymbolKindFunction
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			if !reflect.DeepEqual(gotNamesAndKinds(got), want) {
+				t.Fatalf("unexpected DEF symbols: got=%v want=%v", gotNamesAndKinds(got), want)
+			}
+		})
+	}
+}
+
+func gotNamesAndKinds(symbols map[string]NormalizedSymbol) map[string]SymbolKind {
+	kinds := make(map[string]SymbolKind, len(symbols))
+	for name, symbol := range symbols {
+		kinds[name] = symbol.Kind
+	}
+	return kinds
+}
+
 func TestRealWorldFreeBasicTypeAliasesDoNotOpenScopes(t *testing.T) {
 	text := "Type pCall As Function (xy As Any Ptr) As Long\n" +
 		"Type ValueAlias As Long\n" +

@@ -692,6 +692,10 @@ func (p *basicParser) parseDef(line basicLine, parent *SymbolParent) {
 	if semantic < 0 || semantic+1 >= len(line.tokens) {
 		return
 	}
+	name := line.tokens[semantic+1].Text
+	if len(name) <= 2 || !strings.EqualFold(name[:2], "fn") {
+		return
+	}
 	p.addNamed(line, semantic+1, SymbolKindFunction, "def-fn", parent)
 }
 func (p *basicParser) addNamed(line basicLine, index int, kind SymbolKind, native string, parent *SymbolParent) {

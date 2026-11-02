@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- BASIC-family source navigation no longer reports `DEF SEG` segment-register directives as `DEF FN` functions. The common seven-dialect parser now requires an explicit `FN`-prefixed function name after `DEF`, while retaining genuine classic BASIC and QBasic `DEF FN...` declarations. This fixes false symbols found in an original QBasic game converter without executing the program or changing the public API.
 - Ruby source navigation now recognizes explicit Ruby 3 endless methods (`def name = expression`) without consuming a following method's scope or closing `end`. Ordinary methods and bracket setters keep their original ownership; unsupported expression semantics are not evaluated.
 - Ruby source navigation now names constructors of explicitly qualified classes by their final class constant, rather than repeating the full qualified class name. Simple method bodies with default parameter values are retained when their closing `end` is unambiguous, even if later sibling Ruby declarations use inline syntax; uncertain later bodies still fall back to signatures.
 - Ruby source navigation now returns full, fingerprint-verified source for simple methods with unambiguous `end` boundaries via `source_symbols show` and body-preferred `source_query context`. Nested or uncertain method bodies remain signature-only rather than claiming guessed code.

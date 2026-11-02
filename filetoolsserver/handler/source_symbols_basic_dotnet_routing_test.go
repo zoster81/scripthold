@@ -111,3 +111,31 @@ func TestSourceSymbolsRoutesDistinctFormatsAndExplicitDialects(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceSymbolsBasicDefSegOriginalFormIsNotAFunction(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "segment.bas")
+	original := "DIM mz%(50, 50)\nDEF SEG = VARSEG(mz%(0, 0))\nDEF SEG\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	for _, language := range []string{"qbasic", "classic-basic", "freebasic", "vb6", "vba", "vbscript", "purebasic"} {
+		t.Run(language, func(t *testing.T) {
+			toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: language, Encoding: "utf-8", MaxSymbols: 32,
+			})
+			if err != nil || toolErr != nil {
+				t.Fatalf("outline err=%v toolErr=%+v", err, toolErr)
+			}
+			if !result.CoverageComplete || result.FilesParsed != 1 || result.FilesSkipped != 0 {
+				t.Fatalf("unexpected coverage: %+v", result)
+			}
+			for _, symbol := range result.Symbols {
+				if symbol.Kind == "function" || symbol.Name == "SEG" {
+					t.Fatalf("DEF SEG invented a function: %+v", symbol)
+				}
+			}
+		})
+	}
+}
