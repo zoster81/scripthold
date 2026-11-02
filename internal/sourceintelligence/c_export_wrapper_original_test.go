@@ -78,6 +78,45 @@ func TestCHeaderConditionalLinkageBlockDoesNotInventMacroFunction(t *testing.T) 
 	}
 }
 
+func TestCUppercaseAPIReturnMacroAcrossLines(t *testing.T) {
+	const source = "#define LIBAPI(type) type\n" +
+		"LIBAPI(void)\ndo_work(int count);\n" +
+		"LIBAPI(int)\nanother(int x) { return x; }\n" +
+		"LIBAPI(char *) make_name(void);\n" +
+		"LIBAPI(int, void) malformed(void);\n"
+	for _, language := range []string{"c", "cpp"} {
+		for _, tc := range []struct{ name, text string }{
+			{"lf", source}, {"crlf", strings.ReplaceAll(source, "\n", "\r\n")},
+		} {
+			t.Run(language+"/"+tc.name, func(t *testing.T) {
+				var analyzer SourceAnalyzer = CAnalyzer{}
+				if language == "cpp" {
+					analyzer = CPPAnalyzer{}
+				}
+				out, err := analyzer.Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !out.Analysis.CoverageComplete || out.Analysis.Truncated {
+					t.Fatalf("unexpected partial API declarations: %+v", out.Analysis)
+				}
+				byName := symbolsByQualifiedName(out.Analysis.Symbols)
+				for name, line := range map[string]int{"do_work": 3, "another": 5, "make_name": 6} {
+					sym, found := byName[name]
+					if !found || sym.Kind != SymbolKindFunction || sym.NameRange.Start.Line != line {
+						t.Errorf("missing/wrong %s at %d: found=%v sym=%+v", name, line, found, sym)
+					}
+				}
+				for _, forbidden := range []string{"LIBAPI", "malformed"} {
+					if sym, found := byName[forbidden]; found {
+						t.Errorf("wrong macro-based symbol %s: %+v", forbidden, sym)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestCExportWrapperFunctionAndNoPhantoms(t *testing.T) {
 	const source = "#define CJSON_PUBLIC(type) type\n" +
 		"CJSON_PUBLIC(const char *) cJSON_Version(void) { return \"1.0\"; }\n" +

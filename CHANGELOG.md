@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- C and C++ source navigation now recognizes uppercase return-type export macros ending in `API` without an underscore, including declarations split across lines (such as `XMLPARSEAPI(XML_Parser)` in an original Expat header). Unsupported multi-argument wrapper forms are consumed without fabricating function or variable declarations; LF/CRLF and whole-project handler regression tests cover the behavior. This does not execute macros or resolve compiler conditions.
 - C and C++ source navigation now treats balanced `extern "C" { ... }` linkage blocks as transparent declaration scopes, including inside conditional preprocessor branches. This prevents a fabricated `CJSON_PUBLIC` function in the original cJSON utility header while preserving all 14 real declarations; LF/CRLF and real-handler regressions cover the change without expanding macros.
 - Groovy source navigation now recognizes semicolon-free class fields with visibility/final modifiers, initialized fields and bounded nested generic types without mistaking initializer calls for methods. Source-derived LF/CRLF regressions and eight independent original project files cover this behavior; arbitrary dynamic or multiline Groovy declarations remain outside this narrow recognition.
 - Groovy source navigation no longer indexes semicolon-terminated `package` declarations as fabricated variables; real package symbols and class members remain discoverable, without changing the other brace-language dialects.

@@ -1532,6 +1532,19 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 	if terminator < 0 {
 		return start + 1, false
 	}
+	// An unsupported return-type macro followed by a function declarator
+	// is neither a real function named after the macro nor a variable.
+	if parser.invalidWrappedReturnPrefix(start, terminator, depth) &&
+		parser.wrappedFunctionParen(start, terminator, depth) < 0 {
+		if parser.tokens[terminator].Text == "{" {
+			if close := parser.pairs[terminator]; close > terminator {
+				return close + 1, true
+			}
+		}
+		// The unsupported declaration is consumed. Returning false would
+		// rescan its suffix and invent a function or variable from it.
+		return terminator + 1, true
+	}
 	if _, functionPointer := parser.functionPointerDeclarator(start, terminator); !functionPointer {
 		paren := parser.firstFunctionParen(start, terminator, depth)
 		if paren >= 0 {
@@ -1588,6 +1601,35 @@ func (parser *cFamilyParser) operatorTokenBefore(index, start int) bool {
 	return previous >= start && parser.token(previous, "operator")
 }
 
+// Detect malformed/unsupported macro-return syntax without inventing a
+// function whose name is the unexpanded return-type macro.
+func (parser *cFamilyParser) invalidWrappedReturnPrefix(start, end, depth int) bool {
+	if !cFamilyReturnMacroName(parser.tokens[start].Text) {
+		return false
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if open >= end || parser.tokens[open].Text != "(" || parser.tokens[open].Nesting != depth+1 {
+		return false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		return false
+	}
+	name := nextStructuralToken(parser.tokens, close+1, end)
+	if name >= end || parser.tokens[name].Nesting != depth || parser.tokens[name].Kind != TokenIdentifier {
+		return false
+	}
+	paren := nextStructuralToken(parser.tokens, name+1, end)
+	return paren < end && parser.tokens[paren].Text == "(" && parser.tokens[paren].Nesting == depth+1
+}
+
+func cFamilyReturnMacroName(name string) bool {
+	upper := strings.ToUpper(name)
+	unseparatedAPI := name == upper && len(upper) > len("API") && strings.HasSuffix(upper, "API")
+	return strings.HasSuffix(upper, "_PUBLIC") || strings.HasSuffix(upper, "_EXPORT") ||
+		strings.HasSuffix(upper, "_API") || unseparatedAPI
+}
+
 // Accept the common unexpanded EXPORT(type) function-return decoration only
 // when it precedes a distinct named function declarator. Macro expansion is
 // not inferred; this identifies the declaration written in the source.
@@ -1596,8 +1638,7 @@ func (parser *cFamilyParser) wrappedFunctionParen(start, end, depth int) int {
 	if macro.Kind != TokenIdentifier && macro.Kind != TokenKeyword {
 		return -1
 	}
-	upper := strings.ToUpper(macro.Text)
-	if !strings.HasSuffix(upper, "_PUBLIC") && !strings.HasSuffix(upper, "_EXPORT") && !strings.HasSuffix(upper, "_API") {
+	if !cFamilyReturnMacroName(macro.Text) {
 		return -1
 	}
 	open := nextStructuralToken(parser.tokens, start+1, end)
