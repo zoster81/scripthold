@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -109,6 +110,49 @@ func TestSourceSymbolsRoutesDistinctFormatsAndExplicitDialects(t *testing.T) {
 		if !found {
 			t.Fatalf("explicit %s missing %s; symbols=%+v", tc.language, tc.want, result.Symbols)
 		}
+	}
+}
+
+// A DIM SHARED statement after a TYPE block still declares every variable.
+func TestSourceSymbolsQBasicDimSharedAfterTypeAndSegmentDirective(t *testing.T) {
+	for _, tc := range []struct{ name, eol string }{{"lf", "\n"}, {"crlf", "\r\n"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := canonicalHandlerTestDir(t)
+			path := filepath.Join(root, "program.bas")
+			source := "TYPE Player\n  x AS INTEGER\nEND TYPE\nDIM SHARED mapwidth, mapheight, numscripts AS INTEGER\nDEF SEG = VARSEG(mapwidth)\nDEF SEG\nSUB MovePlayer\nEND SUB\n"
+			source = strings.ReplaceAll(source, "\n", tc.eol)
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{root})
+			toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "qbasic", Encoding: "utf-8", MaxSymbols: 32,
+			})
+			if err != nil || toolErr != nil {
+				t.Fatalf("handler err=%v toolErr=%+v", err, toolErr)
+			}
+			if !result.CoverageComplete || result.FilesParsed != 1 || len(result.Symbols) != 6 {
+				t.Fatalf("unexpected coverage/symbols: %+v", result)
+			}
+			want := map[string]struct {
+				kind string
+				line int
+			}{
+				"Player": {"type", 1}, "Player.x": {"field", 2},
+				"mapwidth": {"variable", 4}, "mapheight": {"variable", 4}, "numscripts": {"variable", 4},
+				"MovePlayer": {"function", 7},
+			}
+			for _, symbol := range result.Symbols {
+				v, ok := want[symbol.QualifiedName]
+				if !ok || string(symbol.Kind) != v.kind || symbol.DeclarationRange.Start.Line != v.line {
+					t.Fatalf("unexpected symbol: %+v", symbol)
+				}
+				delete(want, symbol.QualifiedName)
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing symbols: %+v", want)
+			}
+		})
 	}
 }
 

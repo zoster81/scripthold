@@ -90,6 +90,42 @@ func gotNamesAndKinds(symbols map[string]NormalizedSymbol) map[string]SymbolKind
 	return kinds
 }
 
+// A real QBasic file declares three independent names in one DIM SHARED statement.
+func TestBasicCommaSeparatedDimSharedNames(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		analyzer    SourceAnalyzer
+		declaration string
+	}{
+		{"qbasic", QBasicAnalyzer{}, "DIM SHARED mapwidth, mapheight, numscripts AS INTEGER"},
+		{"classic-basic", ClassicBasicAnalyzer{}, "DIM mapwidth, mapheight, numscripts"},
+		{"freebasic", FreeBasicAnalyzer{}, "DIM SHARED mapwidth, mapheight, numscripts AS INTEGER"},
+		{"vb6", VB6Analyzer{}, "Dim mapwidth, mapheight, numscripts As Integer"},
+		{"vba", VBAAnalyzer{}, "Dim mapwidth, mapheight, numscripts As Integer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(tc.declaration+eol), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+					t.Fatalf("incomplete %q: %+v", eol, result.Analysis)
+				}
+				got := symbolsByQualifiedName(result.Analysis.Symbols)
+				for _, name := range []string{"mapwidth", "mapheight", "numscripts"} {
+					if sym, ok := got[name]; !ok || sym.Kind != SymbolKindVariable || sym.DeclarationRange.Start.Line != 1 {
+						t.Fatalf("name %q missing/wrong on EOL %q: %+v; symbols=%v", name, eol, sym, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+					}
+				}
+				if len(result.Analysis.Symbols) != 3 {
+					t.Fatalf("wrong number of DIM declarations (%q): %v", eol, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
 func TestRealWorldFreeBasicTypeAliasesDoNotOpenScopes(t *testing.T) {
 	text := "Type pCall As Function (xy As Any Ptr) As Long\n" +
 		"Type ValueAlias As Long\n" +
