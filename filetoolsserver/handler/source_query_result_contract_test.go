@@ -84,6 +84,50 @@ func TestSourceQuerySearchIdentifiesDeclarationsWithoutAdditionalLookup(t *testi
 	}
 }
 
+// A second typed name on one BASIC DIM line must remain searchable in the project index.
+func TestSourceQuerySearchBasicMultiDeclaratorNames(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "window.bas")
+	original := "Dim win_Img As Integer, win_Img_Image As Long\nDim win_Cat As Integer, win_Cat_Text As String\nSUB Draw\nEND SUB\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	for _, language := range []string{"classic-basic", "qbasic", "freebasic", "vb6", "vba"} {
+		t.Run(language, func(t *testing.T) {
+			for _, tc := range []struct {
+				name         string
+				line, column int
+			}{
+				{"win_Img", 1, 5},
+				{"win_Img_Image", 1, 25},
+				{"win_Cat_Text", 2, 25},
+				{"Draw", 3, 5},
+			} {
+				result, output, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+					Operation: "search", Paths: []string{path}, Query: tc.name, Mode: "structural",
+					Match: "exact", Language: language, Encoding: "utf-8", MaxResults: 16,
+				})
+				if err != nil || (result != nil && result.IsError) || output.Search == nil {
+					t.Fatalf("search %s result=%+v output=%+v err=%v", tc.name, result, output, err)
+				}
+				if !output.Coverage.CoverageComplete || output.Coverage.FilesParsed != 1 {
+					t.Fatalf("search %s incomplete: %+v", tc.name, output.Coverage)
+				}
+				found := false
+				for _, match := range output.Search.Matches {
+					if match.Name == tc.name && match.Range.Start.Line == tc.line && match.Range.Start.Column == tc.column {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("search %s absent at %d:%d: %+v", tc.name, tc.line, tc.column, output.Search.Matches)
+				}
+			}
+		})
+	}
+}
+
 func TestSourceQueryContextResultVocabulary(t *testing.T) {
 	output := SourceQueryOutput{
 		Operation:        "context",
