@@ -826,6 +826,14 @@ func (scanner *sourceScanner) scanOperator() error {
 			if !isOperatorRune(next) || isDelimiterOrPunctuation(next) {
 				break
 			}
+			// A comment opener ends the current operator token, even without
+			// intervening whitespace (for example, `||/* comment */`).
+			if scanner.lineCommentPrefixAt(scanner.at) != "" {
+				break
+			}
+			if _, ok := scanner.blockCommentRuleAt(scanner.at); ok {
+				break
+			}
 			scanner.at += nextSize
 		}
 	}
