@@ -4,10 +4,52 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+// The original declaration is at line 3; nearby Apex annotations and calls
+// are not substitutes for an indexed structural method definition.
+func TestSourceQueryOriginalApexCheckApexTypes(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/apex-lwc-recipes/force-app/main/default/classes/ApexTypesController.cls"))
+	h := NewHandler([]string{root})
+	failed, result, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "search", Mode: "structural", Paths: []string{path},
+		Language: "apex", Encoding: "utf-8", Query: "checkApexTypes",
+		Match: "exact", MaxResults: 8,
+	})
+	if err != nil || failed != nil || !result.Coverage.CoverageComplete ||
+		result.Search == nil || len(result.Search.Matches) != 1 {
+		t.Fatalf("original Apex method search: err=%v failed=%+v result=%+v", err, failed, result)
+	}
+	m := result.Search.Matches[0]
+	if m.QualifiedName != "ApexTypesController.checkApexTypes" ||
+		m.Evidence != sourceintelligence.SymbolEvidenceStructural || m.SymbolID == "" {
+		t.Fatalf("original Apex method misclassified: %+v", m)
+	}
+	failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "apex", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16,
+	})
+	if err != nil || failed != nil || len(outline.Files) != 1 ||
+		!outline.CoverageComplete || len(outline.Symbols) != 2 {
+		t.Fatalf("original Apex outline unexpected: err=%v failed=%+v outline=%+v", err, failed, outline)
+	}
+	failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "show", Path: path, Language: "apex", Encoding: "utf-8",
+		SymbolID: m.SymbolID, SourceFingerprint: outline.Files[0].SourceFingerprint, MaxBytes: 4096,
+	})
+	if err != nil || failed != nil || shown.Show == nil ||
+		!strings.Contains(shown.Show.Text, "return response;") {
+		t.Fatalf("original Apex show missing expected body: err=%v failed=%+v", err, failed)
+	}
+}
 
 func TestSourceQueryStructuralSearchAndCoverage(t *testing.T) {
 	root := canonicalHandlerTestDir(t)

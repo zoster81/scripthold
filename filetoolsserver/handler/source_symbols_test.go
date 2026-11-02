@@ -166,6 +166,165 @@ func TestSourceSymbolsSolidityAccessOriginalSelectedFile(t *testing.T) {
 	}
 }
 
+// Each selected original file has an independently reviewed, complete inventory.
+// The corpus remains a private opt-in test input rather than a repository fixture.
+func TestSourceSymbolsAdditionalOriginalBraceInventories(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	type declaration struct {
+		qualified, kind string
+		line            int
+	}
+	cases := []struct {
+		name, relative, language, pkg, owner, query, snippet string
+		want                                                 []declaration
+	}{
+		{
+			name:     "groovy-method-signature",
+			relative: "real-projects/groovy-jenkinsci-jenkinspipelineunit/src/main/groovy/com/lesfurets/jenkins/unit/MethodSignature.groovy",
+			language: "groovy", pkg: "com.lesfurets.jenkins.unit",
+			owner: "com.lesfurets.jenkins.unit.MethodSignature",
+			query: "argsToString", snippet: "return args.collect",
+			want: []declaration{
+				{"com.lesfurets.jenkins.unit", "package", 1},
+				{"com.lesfurets.jenkins.unit.MethodSignature", "class", 8},
+				{"com.lesfurets.jenkins.unit.MethodSignature.name", "field", 9},
+				{"com.lesfurets.jenkins.unit.MethodSignature.args", "field", 10},
+				{"com.lesfurets.jenkins.unit.MethodSignature.method", "method", 12},
+				{"com.lesfurets.jenkins.unit.MethodSignature.MethodSignature", "constructor", 16},
+				{"com.lesfurets.jenkins.unit.MethodSignature.argsToString", "method", 21},
+				{"com.lesfurets.jenkins.unit.MethodSignature.equals", "method", 32},
+				{"com.lesfurets.jenkins.unit.MethodSignature.hashCode", "method", 54},
+				{"com.lesfurets.jenkins.unit.MethodSignature.toString", "method", 63},
+			},
+		},
+		{
+			name:     "groovy-directory-manager",
+			relative: "real-projects/groovy-kezong-fat-aar-android/source/src/main/groovy/com/kezong/fataar/DirectoryManager.groovy",
+			language: "groovy", pkg: "com.kezong.fataar",
+			owner: "com.kezong.fataar.DirectoryManager",
+			query: "getRJavaDirectory", snippet: "return sProject.file",
+			want: []declaration{
+				{"com.kezong.fataar", "package", 1},
+				{"com.kezong.fataar.DirectoryManager", "class", 10},
+				{"com.kezong.fataar.DirectoryManager.RE_BUNDLE_FOLDER", "field", 12},
+				{"com.kezong.fataar.DirectoryManager.INTERMEDIATES_TEMP_FOLDER", "field", 14},
+				{"com.kezong.fataar.DirectoryManager.sProject", "field", 16},
+				{"com.kezong.fataar.DirectoryManager.attach", "method", 18},
+				{"com.kezong.fataar.DirectoryManager.getReBundleDirectory", "method", 22},
+				{"com.kezong.fataar.DirectoryManager.getRJavaDirectory", "method", 26},
+				{"com.kezong.fataar.DirectoryManager.getRClassDirectory", "method", 30},
+				{"com.kezong.fataar.DirectoryManager.getRJarDirectory", "method", 34},
+				{"com.kezong.fataar.DirectoryManager.getMergeClassDirectory", "method", 38},
+				{"com.kezong.fataar.DirectoryManager.getKotlinMetaDirectory", "method", 42},
+			},
+		},
+		{
+			name:     "solidity-atoken-harness",
+			relative: "real-projects/solidity-aave-v3/certora/harness/ATokenHarness.sol",
+			language: "solidity", owner: "ATokenHarness",
+			query: "scaledTotalSupply", snippet: "uint256 val = super.scaledTotalSupply();",
+			want: []declaration{
+				{"ATokenHarness", "class", 13},
+				{"ATokenHarness.ATokenHarness", "constructor", 17},
+				{"ATokenHarness.scaledTotalSupply", "method", 19},
+				{"ATokenHarness.additionalData", "method", 24},
+				{"ATokenHarness.scaledBalanceOfToBalanceOf", "method", 28},
+			},
+		},
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(root, filepath.FromSlash(tc.relative))
+			failed, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || failed != nil || !result.CoverageComplete || result.Truncated ||
+				len(result.Files) != 1 || result.Files[0].SourceFingerprint == "" {
+				t.Fatalf("incomplete original file inventory: err=%v failed=%+v result=%+v", err, failed, result)
+			}
+			want := make(map[string]declaration, len(tc.want))
+			for _, item := range tc.want {
+				want[item.qualified] = item
+			}
+			seen := make(map[string]int, len(result.Symbols))
+			for _, got := range result.Symbols {
+				seen[got.QualifiedName]++
+				expected, ok := want[got.QualifiedName]
+				parent := tc.owner
+				if got.QualifiedName == tc.pkg {
+					parent = ""
+				} else if got.QualifiedName == tc.owner {
+					parent = tc.pkg
+				}
+				if !ok || string(got.Kind) != expected.kind ||
+					got.NameRange.Start.Line != expected.line || got.ParentQualifiedName != parent {
+					t.Errorf("wrong/extra source declaration: %s kind=%s line=%d owner=%s expected=%+v present=%v", got.QualifiedName, got.Kind, got.NameRange.Start.Line, got.ParentQualifiedName, expected, ok)
+				}
+			}
+			for _, expected := range tc.want {
+				if seen[expected.qualified] != 1 {
+					t.Errorf("missing/duplicate %s: %d", expected.qualified, seen[expected.qualified])
+				}
+			}
+			if len(result.Symbols) != len(tc.want) {
+				t.Errorf("symbol count %d expected %d", len(result.Symbols), len(tc.want))
+			}
+			for _, presentation := range []string{"tree", "compact"} {
+				failed, view, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+					Operation: "outline", Presentation: presentation, Paths: []string{path},
+					Language: tc.language, Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128,
+				})
+				if err != nil || failed != nil || !view.CoverageComplete ||
+					view.SymbolCount != len(tc.want) || len(view.OutlineFiles) != 1 ||
+					view.OutlineFiles[0].SourceFingerprint != result.Files[0].SourceFingerprint {
+					t.Errorf("%s outline mismatch: err=%v failed=%+v", presentation, err, failed)
+				}
+			}
+			failed, digest, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "digest", Presentation: "compact", Paths: []string{path},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 1,
+			})
+			if err != nil || failed != nil || !digest.CoverageComplete ||
+				digest.SymbolCount != len(tc.want) || len(digest.OverviewFiles) != 1 {
+				t.Errorf("digest mismatch: err=%v failed=%+v", err, failed)
+			}
+			failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: tc.language,
+				Encoding: "utf-8", Query: tc.query, Match: "exact", MaxSymbols: 8,
+			})
+			qualified := tc.owner + "." + tc.query
+			if err != nil || failed != nil || len(found.Symbols) != 1 ||
+				found.Symbols[0].QualifiedName != qualified {
+				t.Fatalf("original find mismatch: err=%v failed=%+v found=%+v", err, failed, found.Symbols)
+			}
+			failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: tc.language, Encoding: "utf-8",
+				SymbolID: found.Symbols[0].ID, SourceFingerprint: result.Files[0].SourceFingerprint,
+				MaxBytes: 4096,
+			})
+			if err != nil || failed != nil || shown.Show == nil ||
+				!strings.Contains(shown.Show.Text, tc.snippet) {
+				t.Errorf("original show mismatch: err=%v failed=%+v", err, failed)
+			}
+			failed, queried, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Mode: "structural", Paths: []string{path},
+				Language: tc.language, Encoding: "utf-8", Query: tc.query,
+				Match: "exact", MaxResults: 8,
+			})
+			if err != nil || failed != nil || queried.Search == nil ||
+				len(queried.Search.Matches) != 1 ||
+				queried.Search.Matches[0].QualifiedName != qualified {
+				t.Errorf("original structural search mismatch: err=%v failed=%+v query=%+v", err, failed, queried.Search)
+			}
+		})
+	}
+}
+
 func TestSourceSymbolsOutlineFindShowAndStaleFingerprint(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")

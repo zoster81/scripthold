@@ -45,6 +45,41 @@ func TestDTypeAliasDoesNotInventTypeofFunction(t *testing.T) {
 	}
 }
 
+func TestGroovyPackagePreludeDoesNotInventVariable(t *testing.T) {
+	const code = "package demo.tools;\nimport demo.api.Service;\nclass Example {\n  String name\n}\n"
+	for _, tc := range []struct{ name, source string }{
+		{"lf", code}, {"crlf", strings.ReplaceAll(code, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := (GroovyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Analysis.CoverageComplete || out.Analysis.Truncated {
+				t.Fatalf("unexpected incomplete source: %+v", out.Analysis)
+			}
+			got := symbolsByQualifiedName(out.Analysis.Symbols)
+			for _, want := range []struct {
+				name string
+				kind SymbolKind
+				line int
+			}{
+				{"demo.tools", SymbolKindPackage, 1},
+				{"demo.tools.Example", SymbolKindClass, 3},
+				{"demo.tools.Example.name", SymbolKindField, 4},
+			} {
+				s, ok := got[want.name]
+				if !ok || s.Kind != want.kind || s.NameRange.Start.Line != want.line {
+					t.Errorf("missing/wrong %s: found=%v actual=%+v", want.name, ok, s)
+				}
+			}
+			if len(out.Analysis.Symbols) != 3 {
+				t.Errorf("unexpected declarations: %v", sortedSymbolQualifiedNames(out.Analysis.Symbols))
+			}
+		})
+	}
+}
+
 func TestGroovyGenericAndPrimitiveFields(t *testing.T) {
 	const code = "package demo\nclass Config {\n  List<String> items\n  boolean enabled\n  String plain\n  List<Integer> getNumbers() { return [] }\n  void update() {}\n}\n"
 	for _, tc := range []struct{ name, source string }{

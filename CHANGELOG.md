@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Groovy source navigation no longer indexes semicolon-terminated `package` declarations as fabricated variables; real package symbols and class members remain discoverable, without changing the other brace-language dialects.
 - Solidity source navigation now preserves contract and library fields initialized by calls (such as `address(0)` or `uint16(...)`) instead of fabricating methods or omitting the real field name. The narrowly scoped fix preserves genuine Solidity functions and existing Apex initialization handling; original project source is inspected, not executed.
 - Apex source navigation now recognizes auto-properties with accessor visibility modifiers, including `{ get; private set; }`, without inventing `get` or `set` fields. The property keeps its real name and source location; unsupported accessor bodies remain conservatively scoped.
 - Dart source navigation now recognizes typed and inferred getters with block or expression bodies as properties, preserving their names and source ranges rather than indexing calls inside the getter body as methods. This corrects false methods and missing getters observed in real Dart extension sources; ordinary methods and other brace-language dialects keep their existing behavior.

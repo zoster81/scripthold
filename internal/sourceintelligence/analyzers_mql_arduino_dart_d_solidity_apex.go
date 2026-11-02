@@ -1486,7 +1486,8 @@ func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *Symbol
 		return semicolon + 1, false
 	}
 	first := p.lower(p.tokens[start].Text)
-	if first == "module" || first == "import" || first == "export" || first == "part" || first == "pragma" || first == "using" || first == "return" {
+	if first == "module" || first == "import" || first == "export" || first == "part" || first == "pragma" || first == "using" || first == "return" ||
+		(first == "package" && p.policy.language == "groovy") {
 		return semicolon + 1, true
 	}
 	limit := semicolon
