@@ -51,6 +51,74 @@ func TestSourceQueryOriginalApexCheckApexTypes(t *testing.T) {
 	}
 }
 
+// This verifies source-derived, two-file dependency edges without implying
+// whole-project or exhaustive caller coverage.
+func TestSourceQueryOriginalCrossFileDependencies(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	cases := []struct {
+		name, language, source, target string
+		importLine                     int
+	}{
+		{"solidity-openzeppelin", "solidity",
+			"real-projects/solidity-openzeppelin/contracts/access/Ownable.sol",
+			"real-projects/solidity-openzeppelin/contracts/utils/Context.sol", 6},
+		{"groovy-gradle-node", "groovy",
+			"groovy-srs-gradle-node-plugin/src/main/groovy/com/moowork/gradle/node/NodePlugin.groovy",
+			"groovy-srs-gradle-node-plugin/src/main/groovy/com/moowork/gradle/node/task/NodeTask.groovy", 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := filepath.Join(root, filepath.FromSlash(tc.source))
+			target := filepath.Join(root, filepath.FromSlash(tc.target))
+			h := NewHandler([]string{root})
+			failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{source, target},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 2, MaxSymbols: 128,
+			})
+			if err != nil || failed != nil || !outline.CoverageComplete || outline.Truncated || len(outline.Files) != 2 {
+				t.Fatalf("original two-file outline: failed=%+v err=%v result=%+v", failed, err, outline)
+			}
+			fingerprints := make(map[string]string, 2)
+			for _, file := range outline.Files {
+				fingerprints[file.Path] = file.SourceFingerprint
+			}
+			if fingerprints[source] == "" || fingerprints[target] == "" {
+				t.Fatal("missing source fingerprints")
+			}
+			failed, result, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "relations", Relation: "dependencies", Paths: []string{source, target},
+				Language: tc.language, Encoding: "utf-8",
+				Subject:  &SourceSelectorInput{Kind: "path", Path: source, SourceFingerprint: fingerprints[source]},
+				MaxFiles: 2, MaxResults: 32, MaxNodes: 32, MaxEdges: 64, MaxDepth: 2,
+			})
+			if err != nil || failed != nil || result.Relations == nil ||
+				!result.Coverage.CoverageComplete || result.Coverage.FilesParsed != 2 ||
+				result.Relations.EvidenceScope != "indexed-relations-only" {
+				t.Fatalf("original dependencies: failed=%+v err=%v output=%+v", failed, err, result)
+			}
+			var resolved int
+			for _, edge := range result.Relations.Relations {
+				if edge.Resolution != sourceintelligence.ResolutionResolved {
+					continue
+				}
+				resolved++
+				if edge.Source.Path != source || edge.Target.Path != target ||
+					edge.Source.Range == nil || edge.Source.Range.Start.Line != tc.importLine ||
+					edge.Evidence != sourceintelligence.SymbolEvidenceProjectResolved ||
+					edge.Target.SourceFingerprint != fingerprints[target] {
+					t.Errorf("incorrect resolved dependency: %+v", edge)
+				}
+			}
+			if resolved != 1 {
+				t.Errorf("resolved edges=%d want=1", resolved)
+			}
+		})
+	}
+}
+
 func TestSourceQueryStructuralSearchAndCoverage(t *testing.T) {
 	root := canonicalHandlerTestDir(t)
 	basePath := filepath.Join(root, "Base.java")

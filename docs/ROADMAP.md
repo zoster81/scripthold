@@ -64,10 +64,13 @@ The source tree currently contains these **confirmed shared implementation seams
 
 ### Current original-project qualification
 
+**Distinct evidence levels:** The pinned historical ledger accepted **1,020 project/provider qualification pairs** across the 100 current source languages (plus 10 Markdown pairs outside Source Intelligence), exceeding the 800-pair minimum target. This historical result belongs to its earlier tested revision; it does not certify subsequent analyzer changes. At current development HEAD, eight providers (Ruby, QBasic, classic BASIC, D, Dart, Apex, Groovy, Solidity) have selected structural questions tested across eight original projects each; three of those (Ruby, Groovy, Solidity) additionally have complete independently annotated inventories for selected original files in all eight projects. C and BASIC also have prior verified project qualification and parser fixes: the stricter complete-current-file stage must not be confused with work never performed. A new current C original-header inventory and two bounded cross-file dependencies are verified separately; no whole-project graph is certified.
+
 The original-project acquisition ledger records at least eight accepted independent projects for each of the 100 registered providers; this external qualification corpus is not part of the public release. **Acquiring a project, completely reading a selected file, checking sampled declarations, and qualifying a complete scope are different stages.** The table reports the actual development Go MCP-handler checks; symbol totals are *returned counts*, not independent proof that all real declarations were found.
 
 | Provider | Independent projects with selected original files read | Verified development-handler scope | Still open |
 |---|---:|---|---|
+| C | Historical 10 accepted; 1 original utility header fully annotated on current HEAD | Exact 14 function declarations, no fabricated `CJSON_PUBLIC` wrapper; Go handler test PASS | Seven further independently annotated original selected files, full project graph, C conditional edge cases |
 | Ruby | 8 (18 files) | Complete independently annotated selected scopes: 156 supported declarations | Dynamic Ruby forms, complete project relations, broader grammar |
 | QBasic | 8 | Selected positive/negative declarations, owners and positions; 192 symbols returned | Exhaustive selected-file inventories and project navigation |
 | Classic BASIC | 8 | Selected positive/negative declarations, owners and positions; 625 symbols returned | Exhaustive selected-file inventories and project navigation |

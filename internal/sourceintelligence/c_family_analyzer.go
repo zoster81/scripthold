@@ -1071,6 +1071,29 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 		if index >= end || parser.tokens[index].Kind == TokenEOF {
 			return
 		}
+		// A conditional C++ linkage wrapper in a C header is a transparent
+		// scope, not the return-type prefix of the first wrapped declaration.
+		// Conditional variants are scanned structurally without macro expansion.
+		if parser.token(index, "extern") {
+			linkage := index + 1
+			for linkage < end && (parser.tokens[linkage].Kind == TokenNewline || parser.tokens[linkage].Kind == TokenDirective) {
+				linkage++
+			}
+			if linkage < end && parser.tokens[linkage].Kind == TokenString &&
+				(parser.token(linkage, "\"C\"") || parser.token(linkage, "\"C++\"")) {
+				open := nextStructuralToken(parser.tokens, linkage+1, end)
+				if open < end && parser.token(open, "{") {
+					close := parser.pairs[open]
+					if close <= open || close >= end {
+						parser.builder.MarkIncomplete()
+						return
+					}
+					parser.parseScope(open+1, close, parent, members, owner)
+					index = close + 1
+					continue
+				}
+			}
+		}
 		if parser.cpp && parser.token(index, "namespace") {
 			index = parser.parseNamespace(index, end, parent)
 			continue

@@ -13,6 +13,56 @@ import (
 	"github.com/zoster81/scripthold/internal/config"
 )
 
+// Complete source-derived header inventory; the connected server may run older
+// C macro parsing and must not be conflated with development handler results.
+func TestSourceSymbolsOriginalCJSONUtilsHeader(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/c-davegamble-cjson/cJSON_Utils.h"))
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "c", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failed != nil || !out.CoverageComplete || out.Truncated || len(out.Files) != 1 {
+		t.Fatalf("C original header outline: failed=%+v err=%v output=%+v", failed, err, out)
+	}
+	want := map[string]int{
+		"cJSONUtils_GetPointer":                      34,
+		"cJSONUtils_GetPointerCaseSensitive":         35,
+		"cJSONUtils_GeneratePatches":                 39,
+		"cJSONUtils_GeneratePatchesCaseSensitive":    40,
+		"cJSONUtils_AddPatchToArray":                 42,
+		"cJSONUtils_ApplyPatches":                    44,
+		"cJSONUtils_ApplyPatchesCaseSensitive":       45,
+		"cJSONUtils_MergePatch":                      70,
+		"cJSONUtils_MergePatchCaseSensitive":         71,
+		"cJSONUtils_GenerateMergePatch":              74,
+		"cJSONUtils_GenerateMergePatchCaseSensitive": 75,
+		"cJSONUtils_FindPointerFromObjectTo":         78,
+		"cJSONUtils_SortObject":                      81,
+		"cJSONUtils_SortObjectCaseSensitive":         82,
+	}
+	seen := make(map[string]int, len(out.Symbols))
+	for _, sym := range out.Symbols {
+		seen[sym.QualifiedName]++
+		if line, ok := want[sym.QualifiedName]; !ok || string(sym.Kind) != "function" ||
+			sym.NameRange.Start.Line != line || sym.ParentQualifiedName != "" {
+			t.Errorf("unexpected original C declaration: %+v", sym)
+		}
+	}
+	for name := range want {
+		if seen[name] != 1 {
+			t.Errorf("%s declaration count %d, want 1", name, seen[name])
+		}
+	}
+	if len(out.Symbols) != len(want) {
+		t.Errorf("found %d declarations, want %d", len(out.Symbols), len(want))
+	}
+}
+
 // Real source is read only; selected declarations were independently annotated.
 func TestSourceSymbolsGroovyPackerOriginalSelectedFile(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")

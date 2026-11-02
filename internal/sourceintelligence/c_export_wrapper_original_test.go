@@ -41,6 +41,43 @@ func TestCQualifiedOriginalCJSONExportWrapper(t *testing.T) {
 	}
 }
 
+func TestCHeaderConditionalLinkageBlockDoesNotInventMacroFunction(t *testing.T) {
+	const code = "#ifdef __cplusplus\nextern \"C\"\n{\n#endif\n" +
+		"CJSON_PUBLIC(char *) get_one(void);\n" +
+		"CJSON_PUBLIC(int) get_two(void);\n" +
+		"#ifdef __cplusplus\n}\n#endif\n"
+	for _, language := range []string{"c", "cpp"} {
+		for _, tc := range []struct{ name, text string }{
+			{"lf", code}, {"crlf", strings.ReplaceAll(code, "\n", "\r\n")},
+		} {
+			t.Run(language+"/"+tc.name, func(t *testing.T) {
+				var analyzer SourceAnalyzer = CAnalyzer{}
+				if language == "cpp" {
+					analyzer = CPPAnalyzer{}
+				}
+				out, err := analyzer.Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !out.Analysis.CoverageComplete || out.Analysis.Truncated {
+					t.Fatalf("unexpected incomplete header: %+v", out.Analysis)
+				}
+				want := map[string]int{"get_one": 5, "get_two": 6}
+				actual := symbolsByQualifiedName(out.Analysis.Symbols)
+				for name, line := range want {
+					s, found := actual[name]
+					if !found || s.Kind != SymbolKindFunction || s.NameRange.Start.Line != line {
+						t.Errorf("missing/wrong %s line=%d: found=%v got=%+v", name, line, found, s)
+					}
+				}
+				if len(out.Analysis.Symbols) != len(want) {
+					t.Errorf("unexpected declarations: %v", sortedSymbolQualifiedNames(out.Analysis.Symbols))
+				}
+			})
+		}
+	}
+}
+
 func TestCExportWrapperFunctionAndNoPhantoms(t *testing.T) {
 	const source = "#define CJSON_PUBLIC(type) type\n" +
 		"CJSON_PUBLIC(const char *) cJSON_Version(void) { return \"1.0\"; }\n" +

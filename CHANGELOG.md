@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- C and C++ source navigation now treats balanced `extern "C" { ... }` linkage blocks as transparent declaration scopes, including inside conditional preprocessor branches. This prevents a fabricated `CJSON_PUBLIC` function in the original cJSON utility header while preserving all 14 real declarations; LF/CRLF and real-handler regressions cover the change without expanding macros.
 - Groovy source navigation now recognizes semicolon-free class fields with visibility/final modifiers, initialized fields and bounded nested generic types without mistaking initializer calls for methods. Source-derived LF/CRLF regressions and eight independent original project files cover this behavior; arbitrary dynamic or multiline Groovy declarations remain outside this narrow recognition.
 - Groovy source navigation no longer indexes semicolon-terminated `package` declarations as fabricated variables; real package symbols and class members remain discoverable, without changing the other brace-language dialects.
 - Solidity source navigation now preserves contract and library fields initialized by calls (such as `address(0)` or `uint16(...)`) instead of fabricating methods or omitting the real field name. The narrowly scoped fix preserves genuine Solidity functions and existing Apex initialization handling; original project source is inspected, not executed.
