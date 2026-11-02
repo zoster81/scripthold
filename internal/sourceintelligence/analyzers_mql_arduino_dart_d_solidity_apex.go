@@ -1338,7 +1338,9 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 		}
 	}
 	if paren >= 0 {
-		if assignment && p.policy.language == "apex" {
+		// Apex and Solidity allow field initializers containing calls;
+		// those calls are not method declarations.
+		if assignment && (p.policy.language == "apex" || p.policy.language == "solidity") {
 			return p.parseVariable(start, terminator, parent, members)
 		}
 		nameIndex := previousIdentifierToken(p.tokens, paren-1, start)

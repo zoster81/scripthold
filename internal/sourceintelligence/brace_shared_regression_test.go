@@ -449,6 +449,42 @@ func TestApexOriginalAnnotatedTopLevelTypes(t *testing.T) {
 	}
 }
 
+func TestSolidityCallInitializerDoesNotBecomeMethod(t *testing.T) {
+	const code = "pragma solidity ^0.8.20;\ncontract Arbitrage {\n  address private constant NATIVE = address(0);\n  uint16 public constant SignatureSize = uint16(128);\n  function execute() public {}\n}\n"
+	for _, tc := range []struct{ name, code string }{{"lf", code}, {"crlf", strings.ReplaceAll(code, "\n", "\r\n")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := (SolidityAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.code), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Analysis.CoverageComplete || out.Analysis.Truncated {
+				t.Fatalf("incomplete: %+v", out.Analysis)
+			}
+			got := symbolsByQualifiedName(out.Analysis.Symbols)
+			for _, want := range []struct {
+				name string
+				kind SymbolKind
+				line int
+			}{
+				{"Arbitrage", SymbolKindClass, 2},
+				{"Arbitrage.NATIVE", SymbolKindField, 3},
+				{"Arbitrage.SignatureSize", SymbolKindField, 4},
+				{"Arbitrage.execute", SymbolKindMethod, 5},
+			} {
+				s, ok := got[want.name]
+				if !ok || s.Kind != want.kind || s.NameRange.Start.Line != want.line {
+					t.Errorf("%s present=%v got=%+v expected=%s line=%d", want.name, ok, s, want.kind, want.line)
+				}
+			}
+			for _, bad := range []string{"solidity", "Arbitrage.address", "Arbitrage.uint16"} {
+				if s, ok := got[bad]; ok {
+					t.Errorf("false symbol %s: %+v", bad, s)
+				}
+			}
+		})
+	}
+}
+
 func TestBraceSharedStatementConsumption(t *testing.T) {
 	tests := []struct {
 		name     string
