@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Groovy source navigation now recognizes semicolon-free class fields with visibility/final modifiers, initialized fields and bounded nested generic types without mistaking initializer calls for methods. Source-derived LF/CRLF regressions and eight independent original project files cover this behavior; arbitrary dynamic or multiline Groovy declarations remain outside this narrow recognition.
 - Groovy source navigation no longer indexes semicolon-terminated `package` declarations as fabricated variables; real package symbols and class members remain discoverable, without changing the other brace-language dialects.
 - Solidity source navigation now preserves contract and library fields initialized by calls (such as `address(0)` or `uint16(...)`) instead of fabricating methods or omitting the real field name. The narrowly scoped fix preserves genuine Solidity functions and existing Apex initialization handling; original project source is inspected, not executed.
 - Apex source navigation now recognizes auto-properties with accessor visibility modifiers, including `{ get; private set; }`, without inventing `get` or `set` fields. The property keeps its real name and source location; unsupported accessor bodies remain conservatively scoped.

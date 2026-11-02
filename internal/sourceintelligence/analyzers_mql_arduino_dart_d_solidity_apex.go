@@ -961,7 +961,28 @@ func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *Sym
 	if lineEnd >= end || p.tokens[lineEnd].Kind != TokenNewline {
 		return 0, false
 	}
-	first := p.tokens[start]
+	depth := p.tokens[start].Nesting
+	lhsEnd := lineEnd
+	for i := start; i < lineEnd; i++ {
+		if p.tokens[i].Text == ";" && p.tokens[i].Nesting == depth {
+			return 0, false
+		}
+		if p.tokens[i].Text == "=" && p.tokens[i].Nesting == depth {
+			lhsEnd = i
+			break
+		}
+	}
+	typeStart := start
+	for typeStart < lhsEnd {
+		if _, modifier := p.policy.modifiers[p.lower(p.tokens[typeStart].Text)]; !modifier {
+			break
+		}
+		typeStart++
+	}
+	if typeStart >= lhsEnd {
+		return 0, false
+	}
+	first := p.tokens[typeStart]
 	if first.Kind != TokenIdentifier && first.Text != "def" {
 		switch first.Text {
 		case "boolean", "byte", "short", "int", "long", "float", "double", "char":
@@ -969,22 +990,24 @@ func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *Sym
 			return 0, false
 		}
 	}
-	nameIndex := previousIdentifierToken(p.tokens, lineEnd-1, start+1)
-	if nameIndex <= start || nameIndex != lineEnd-1 {
+	nameIndex := previousIdentifierToken(p.tokens, lhsEnd-1, typeStart+1)
+	if nameIndex <= typeStart || nameIndex != lhsEnd-1 {
 		return 0, false
 	}
-	// Accept balanced, type-only generic arguments; calls and expressions
-	// remain outside this semicolon-free declaration subset.
+	// Only recognize a typed declaration on the left of the assignment.
+	// Nested generic delimiters are types, while calls, member accesses and
+	// executable expressions must never become class declarations.
 	genericDepth := 0
-	for i := start + 1; i < nameIndex; i++ {
+	for i := typeStart + 1; i < nameIndex; i++ {
 		switch p.tokens[i].Text {
 		case "<":
 			genericDepth++
-		case ">":
-			if genericDepth == 0 {
+		case ">", ">>", ">>>":
+			closeCount := len(p.tokens[i].Text)
+			if closeCount > genericDepth {
 				return 0, false
 			}
-			genericDepth--
+			genericDepth -= closeCount
 		case ",":
 			if genericDepth == 0 {
 				return 0, false

@@ -80,6 +80,52 @@ func TestGroovyPackagePreludeDoesNotInventVariable(t *testing.T) {
 	}
 }
 
+func TestGroovyModifiedInitializedClassFields(t *testing.T) {
+	const source = "package demo\nclass Settings {\n  private final Project project\n  private final boolean enabled\n  private Map<String, String> tokens = Maps.newHashMap()\n  public ArrayList<Map<String, Object>> entries = []\n  ArrayList<Info> list = new ArrayList<>()\n  def cacheEnabled = true\n  void execute() {}\n}\n"
+	for _, tc := range []struct{ name, text string }{
+		{"lf", source}, {"crlf", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := (GroovyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Analysis.CoverageComplete || out.Analysis.Truncated {
+				t.Fatalf("incomplete original-derived source: %+v", out.Analysis)
+			}
+			want := []struct {
+				name string
+				kind SymbolKind
+				line int
+			}{
+				{"demo", SymbolKindPackage, 1}, {"demo.Settings", SymbolKindClass, 2},
+				{"demo.Settings.project", SymbolKindField, 3},
+				{"demo.Settings.enabled", SymbolKindField, 4},
+				{"demo.Settings.tokens", SymbolKindField, 5},
+				{"demo.Settings.entries", SymbolKindField, 6},
+				{"demo.Settings.list", SymbolKindField, 7},
+				{"demo.Settings.cacheEnabled", SymbolKindField, 8},
+				{"demo.Settings.execute", SymbolKindMethod, 9},
+			}
+			got := symbolsByQualifiedName(out.Analysis.Symbols)
+			if len(out.Analysis.Symbols) != len(want) {
+				t.Errorf("declaration count=%d want=%d: %v", len(out.Analysis.Symbols), len(want), sortedSymbolQualifiedNames(out.Analysis.Symbols))
+			}
+			for _, w := range want {
+				s, ok := got[w.name]
+				if !ok || s.Kind != w.kind || s.NameRange.Start.Line != w.line {
+					t.Errorf("missing/wrong %s, present=%v symbol=%+v", w.name, ok, s)
+				}
+			}
+			for _, bad := range []string{"demo.Settings.newHashMap", "demo.Settings.ArrayList", "demo.Settings.Map"} {
+				if _, ok := got[bad]; ok {
+					t.Errorf("initializer/type indexed as method %s", bad)
+				}
+			}
+		})
+	}
+}
+
 func TestGroovyGenericAndPrimitiveFields(t *testing.T) {
 	const code = "package demo\nclass Config {\n  List<String> items\n  boolean enabled\n  String plain\n  List<Integer> getNumbers() { return [] }\n  void update() {}\n}\n"
 	for _, tc := range []struct{ name, source string }{
