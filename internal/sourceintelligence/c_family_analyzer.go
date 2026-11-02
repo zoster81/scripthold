@@ -1118,7 +1118,7 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 			continue
 		}
 		if parser.token(index, "typedef") {
-			if next, ok := parser.parseAnonymousEnumTypedef(index, end, parent); ok {
+			if next, ok := parser.parseAnonymousAggregateTypedef(index, end, parent); ok {
 				index = next
 				continue
 			}
@@ -1154,12 +1154,16 @@ func (parser *cFamilyParser) token(index int, value string) bool {
 	return index >= 0 && index < len(parser.tokens) && parser.tokens[index].Text == value
 }
 
-// parseAnonymousEnumTypedef accepts only a single, balanced enum typedef
-// ending in an ordinary identifier and semicolon. The alias must not be
-// interpreted as a variable after the anonymous enum body closes.
-func (parser *cFamilyParser) parseAnonymousEnumTypedef(start, end int, parent *SymbolParent) (int, bool) {
+// parseAnonymousAggregateTypedef accepts a single balanced anonymous
+// struct, union, or enum typedef. It owns its fields and does not reinterpret
+// the alias or members as top-level variables.
+func (parser *cFamilyParser) parseAnonymousAggregateTypedef(start, end int, parent *SymbolParent) (int, bool) {
 	keyword := nextStructuralToken(parser.tokens, start+1, end)
-	if !parser.token(keyword, "enum") {
+	if keyword >= end {
+		return start, false
+	}
+	nativeKind := parser.tokens[keyword].Text
+	if nativeKind != "enum" && nativeKind != "struct" && nativeKind != "union" {
 		return start, false
 	}
 	open := nextStructuralToken(parser.tokens, keyword+1, end)
@@ -1177,12 +1181,17 @@ func (parser *cFamilyParser) parseAnonymousEnumTypedef(start, end int, parent *S
 		!parser.token(semicolon, ";") || parser.tokens[semicolon].Nesting != parser.tokens[start].Nesting {
 		return start, false
 	}
-	parser.add(SymbolSpec{
-		Kind: SymbolKindAlias, NativeKind: "typedef-enum", Name: parser.tokens[nameIndex].Text, Parent: parent,
+	symbol, added := parser.add(SymbolSpec{
+		Kind: SymbolKindAlias, NativeKind: "typedef-" + nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 		Evidence:    SymbolEvidenceStructural,
 	})
+	if added && nativeKind != "enum" {
+		typeParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+		parser.types[symbol.QualifiedName] = *typeParent
+		parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+	}
 	return semicolon + 1, true
 }
 
