@@ -1422,6 +1422,13 @@ func (p *braceLanguageParser) parseApexAutoProperty(start, open int, parent *Sym
 	}
 	accessors := 0
 	for i := nextStructuralToken(p.tokens, open+1, close); i < close; {
+		if p.eq(p.tokens[i].Text, "private") || p.eq(p.tokens[i].Text, "protected") ||
+			p.eq(p.tokens[i].Text, "public") || p.eq(p.tokens[i].Text, "global") {
+			i = nextStructuralToken(p.tokens, i+1, close)
+			if i >= close {
+				return 0, false
+			}
+		}
 		if !p.eq(p.tokens[i].Text, "get") && !p.eq(p.tokens[i].Text, "set") {
 			return 0, false
 		}

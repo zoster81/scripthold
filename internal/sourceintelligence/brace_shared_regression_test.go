@@ -310,6 +310,48 @@ func TestDartOriginalSpotubeGlobalFormatters(t *testing.T) {
 	}
 }
 
+// Apex accessor visibility modifies get/set, not the property's declaration name.
+func TestApexPropertyWithPrivateSetterKeepsRealName(t *testing.T) {
+	const original = "global class RemoteSiteHelperController {\n" +
+		"  global static Exception LastMetadataAPIConnectionException { get; private set; }\n" +
+		"  public String Host { get; set; }\n" +
+		"  public void refresh() {}\n}\n"
+	for _, tc := range []struct{ name, source string }{
+		{"lf", original}, {"crlf", strings.ReplaceAll(original, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (ApexAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("Apex property analysis incomplete: %+v", result.Analysis)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, want := range []struct {
+				name string
+				kind SymbolKind
+				line int
+			}{
+				{"RemoteSiteHelperController", SymbolKindClass, 1},
+				{"RemoteSiteHelperController.LastMetadataAPIConnectionException", SymbolKindProperty, 2},
+				{"RemoteSiteHelperController.Host", SymbolKindProperty, 3},
+				{"RemoteSiteHelperController.refresh", SymbolKindMethod, 4},
+			} {
+				s, ok := byName[want.name]
+				if !ok || s.Kind != want.kind || s.NameRange.Start.Line != want.line {
+					t.Errorf("symbol %s missing/misclassified: exists=%v got=%+v kind=%s line=%d", want.name, ok, s, want.kind, want.line)
+				}
+			}
+			for _, falseName := range []string{"RemoteSiteHelperController.get", "RemoteSiteHelperController.set", "RemoteSiteHelperController.private"} {
+				if s, ok := byName[falseName]; ok {
+					t.Errorf("accessor token incorrectly indexed: %+v", s)
+				}
+			}
+		})
+	}
+}
+
 func TestApexAnnotatedTopLevelTypes(t *testing.T) {
 	const source = `@NamespaceAccessible
 @SuppressWarnings('PMD.ClassNamingConventions')

@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Apex source navigation now recognizes auto-properties with accessor visibility modifiers, including `{ get; private set; }`, without inventing `get` or `set` fields. The property keeps its real name and source location; unsupported accessor bodies remain conservatively scoped.
 - Dart source navigation now recognizes typed and inferred getters with block or expression bodies as properties, preserving their names and source ranges rather than indexing calls inside the getter body as methods. This corrects false methods and missing getters observed in real Dart extension sources; ordinary methods and other brace-language dialects keep their existing behavior.
 - D source navigation now identifies simple `alias Name = target;` declarations as aliases instead of fabricating functions from `typeof(...)` or template targets. Unsupported alias forms are not guessed and are reported with incomplete structural coverage. This also makes supported D aliases discoverable through structural search without executing source code.
 - Groovy source navigation now recognizes simple semicolon-free class fields without merging them into the following method declaration. This restores missing fields and the correct method source position; complex Groovy syntax remains conservatively scoped and the other brace-language dialects retain their existing parsing rules.
