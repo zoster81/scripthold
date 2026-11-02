@@ -448,16 +448,21 @@ func (p *basicParser) parseVariableDeclaration(line basicLine, semantic int, fir
 	if first == "dim" && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "shared") {
 		nameIndex++
 	}
-	if p.policy.freeBasic && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "as") {
+	if (p.policy.freeBasic || p.policy.lineNumbers) && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "as") {
 		nameIndex++
-		if nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "const") {
+		if p.policy.freeBasic && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "const") {
+			nameIndex++
+		}
+		if p.policy.lineNumbers && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "_unsigned") {
 			nameIndex++
 		}
 		if nameIndex < len(line.tokens) {
-			nameIndex++ // FreeBasic permits the type before the declared names.
+			nameIndex++ // Type-first DIM places the declared names after the type.
 		}
-		for nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "ptr") {
-			nameIndex++
+		if p.policy.freeBasic {
+			for nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "ptr") {
+				nameIndex++
+			}
 		}
 	}
 	if nameIndex < len(line.tokens) {

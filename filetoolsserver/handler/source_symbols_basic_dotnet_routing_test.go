@@ -156,6 +156,55 @@ func TestSourceSymbolsQBasicDimSharedAfterTypeAndSegmentDirective(t *testing.T) 
 	}
 }
 
+// Type-first DIM from real QB64 sources must not create an "AS" declaration.
+func TestSourceSymbolsBasicTypeFirstDimAfterType(t *testing.T) {
+	for _, language := range []string{"qbasic", "classic-basic", "freebasic"} {
+		t.Run(language, func(t *testing.T) {
+			root := canonicalHandlerTestDir(t)
+			path := filepath.Join(root, "types.bas")
+			source := "TYPE Vector\n  x AS SINGLE\nEND TYPE\nDIM AS LONG g1, g2\nDIM AS _UNSIGNED LONG index, totalParticles\nSUB Run\n  DIM AS SINGLE dx, dy\nEND SUB\n"
+			if language == "freebasic" {
+				source = strings.ReplaceAll(source, "AS _UNSIGNED LONG", "AS LONG")
+			}
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{root})
+			toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: language, Encoding: "utf-8", MaxSymbols: 32,
+			})
+			if err != nil || toolErr != nil {
+				t.Fatalf("handler: %v %+v", err, toolErr)
+			}
+			if !result.CoverageComplete || result.FilesParsed != 1 || result.FilesSkipped != 0 {
+				t.Fatalf("incomplete: %+v", result)
+			}
+			names := map[string]struct {
+				kind string
+				line int
+			}{
+				"Vector": {"type", 1}, "Vector.x": {"field", 2},
+				"g1": {"variable", 4}, "g2": {"variable", 4},
+				"index": {"variable", 5}, "totalParticles": {"variable", 5},
+				"Run": {"function", 6}, "Run.dx": {"variable", 7}, "Run.dy": {"variable", 7},
+			}
+			if len(result.Symbols) != len(names) {
+				t.Fatalf("symbols=%+v", result.Symbols)
+			}
+			for _, symbol := range result.Symbols {
+				expected, ok := names[symbol.QualifiedName]
+				if !ok || string(symbol.Kind) != expected.kind || symbol.DeclarationRange.Start.Line != expected.line {
+					t.Fatalf("unexpected symbol: %+v", symbol)
+				}
+				delete(names, symbol.QualifiedName)
+			}
+			if len(names) != 0 {
+				t.Fatalf("missing: %v", names)
+			}
+		})
+	}
+}
+
 func TestSourceSymbolsBasicDefSegOriginalFormIsNotAFunction(t *testing.T) {
 	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "segment.bas")

@@ -126,6 +126,49 @@ func TestBasicCommaSeparatedDimSharedNames(t *testing.T) {
 	}
 }
 
+// Original QB64 sources use both per-declarator types and type-first DIM forms.
+func TestBasicMultiDeclaratorTypePlacement(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+		source   string
+		want     []string
+	}{
+		{"qbasic-suffix-types", QBasicAnalyzer{}, "DIM SHARED Size_Screen_X AS INTEGER, Size_Screen_Y AS INTEGER", []string{"Size_Screen_X", "Size_Screen_Y"}},
+		{"classic-suffix-types", ClassicBasicAnalyzer{}, "DIM win_Img AS INTEGER, win_Img_Image AS LONG", []string{"win_Img", "win_Img_Image"}},
+		{"vb6-suffix-types", VB6Analyzer{}, "Dim first As Integer, second As Long", []string{"first", "second"}},
+		{"vba-suffix-types", VBAAnalyzer{}, "Dim first As Integer, second As Long", []string{"first", "second"}},
+		{"freebasic-suffix-types", FreeBasicAnalyzer{}, "Dim first As Integer, second As Long", []string{"first", "second"}},
+		{"qbasic-type-first", QBasicAnalyzer{}, "DIM AS LONG g1, g2", []string{"g1", "g2"}},
+		{"classic-type-first", ClassicBasicAnalyzer{}, "DIM AS LONG g1, g2", []string{"g1", "g2"}},
+		{"freebasic-type-first", FreeBasicAnalyzer{}, "DIM AS LONG g1, g2", []string{"g1", "g2"}},
+		{"classic-unsigned-type-first", ClassicBasicAnalyzer{}, "DIM AS _UNSIGNED LONG i, totalParticles", []string{"i", "totalParticles"}},
+		{"qbasic-unsigned-type-first", QBasicAnalyzer{}, "DIM AS _UNSIGNED LONG i, totalParticles", []string{"i", "totalParticles"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, ending := range []string{"\n", "\r\n"} {
+				result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(tc.source+ending), testAnalyzeOptions(true, 32))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+					t.Fatalf("partial: %+v", result.Analysis)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if len(symbols) != len(tc.want) {
+					t.Fatalf("symbol names=%v, want %v", sortedSymbolQualifiedNames(result.Analysis.Symbols), tc.want)
+				}
+				for _, name := range tc.want {
+					sym, ok := symbols[name]
+					if !ok || sym.Kind != SymbolKindVariable || sym.DeclarationRange.Start.Line != 1 {
+						t.Errorf("missing/wrong %s: %+v; names=%v", name, sym, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestRealWorldFreeBasicTypeAliasesDoNotOpenScopes(t *testing.T) {
 	text := "Type pCall As Function (xy As Any Ptr) As Long\n" +
 		"Type ValueAlias As Long\n" +
