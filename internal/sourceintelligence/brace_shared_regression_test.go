@@ -80,6 +80,55 @@ func TestGroovyNewlineTerminatedFieldsBeforeMethod(t *testing.T) {
 	}
 }
 
+// Getter declarations use their own names; body calls are not methods.
+func TestDartGetterDeclarationsDoNotIndexBodyCalls(t *testing.T) {
+	const original = "extension ColorExtension on Color {\n" +
+		"  Color get opacity80 {\n    return withValues(alpha: 0.8);\n  }\n" +
+		"  int get alpha8bit => (value32bit) >> 24;\n" +
+		"  String get hex {\n    final red = toARGB32();\n    return '\\u0024{red.toString()}'.toUpperCase();\n  }\n" +
+		"  int doubleValue(int x) { return x * 2; }\n}\n" +
+		"int get globalCount => 42;\nclass Other {\n  bool get ready => true;\n}\n"
+	for _, tc := range []struct{ name, source string }{
+		{"lf", original}, {"crlf", strings.ReplaceAll(original, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (DartAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("Dart getter analysis partial: %+v", result.Analysis)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, want := range []struct {
+				name string
+				kind SymbolKind
+				line int
+			}{
+				{"ColorExtension", SymbolKindType, 1},
+				{"ColorExtension.opacity80", SymbolKindProperty, 2},
+				{"ColorExtension.alpha8bit", SymbolKindProperty, 5},
+				{"ColorExtension.hex", SymbolKindProperty, 6},
+				{"ColorExtension.doubleValue", SymbolKindMethod, 10},
+				{"globalCount", SymbolKindProperty, 12},
+				{"Other", SymbolKindClass, 13},
+				{"Other.ready", SymbolKindProperty, 14},
+			} {
+				sym, ok := got[want.name]
+				if !ok || sym.Kind != want.kind || sym.NameRange.Start.Line != want.line {
+					t.Errorf("%s: exists=%v got=%+v want kind=%s line=%d", want.name, ok, sym, want.kind, want.line)
+				}
+			}
+			for _, forbidden := range []string{"ColorExtension.withValues", "ColorExtension.value32bit",
+				"ColorExtension.toARGB32", "ColorExtension.toUpperCase", "Other.true"} {
+				if sym, ok := got[forbidden]; ok {
+					t.Errorf("false body declaration %s: %+v", forbidden, sym)
+				}
+			}
+		})
+	}
+}
+
 func TestDartRiverpodAnnotationKeepsClassAndMembers(t *testing.T) {
 	const original = `@Riverpod(keepAlive: true)
 class AnalyticsController extends GeneratedAnalyticsController {

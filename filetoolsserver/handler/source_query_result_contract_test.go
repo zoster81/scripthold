@@ -172,6 +172,59 @@ func TestSourceQueryDTypeAliasDeclarations(t *testing.T) {
 	}
 }
 
+// Dart getter search must return declarations instead of calls in getter bodies.
+func TestSourceQueryDartGetterNamesAndNegativeCalls(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "color.dart")
+	source := "extension ColorExtension on Color {\n" +
+		"  Color get opacity80 { return withValues(alpha: 0.8); }\n" +
+		"  int get alpha8bit => toARGB32() >> 24;\n" +
+		"  void lighten() {}\n}\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		name string
+		line int
+		kind sourceintelligence.SymbolKind
+	}{
+		{"opacity80", 2, sourceintelligence.SymbolKindProperty},
+		{"alpha8bit", 3, sourceintelligence.SymbolKindProperty},
+		{"lighten", 4, sourceintelligence.SymbolKindMethod},
+	} {
+		result, output, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+			Operation: "search", Paths: []string{path}, Query: tc.name, Mode: "structural",
+			Match: "exact", Language: "dart", Encoding: "utf-8", MaxResults: 8,
+		})
+		if err != nil || (result != nil && result.IsError) || output.Search == nil || !output.Coverage.CoverageComplete {
+			t.Fatalf("search %s: result=%+v output=%+v err=%v", tc.name, result, output, err)
+		}
+		found := false
+		for _, match := range output.Search.Matches {
+			if match.Name == tc.name && match.Kind == tc.kind && match.Range.Start.Line == tc.line &&
+				match.QualifiedName == "ColorExtension."+tc.name {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing getter or method %s: %+v", tc.name, output.Search.Matches)
+		}
+	}
+	for _, falseCall := range []string{"withValues", "toARGB32"} {
+		result, output, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+			Operation: "search", Paths: []string{path}, Query: falseCall, Mode: "structural",
+			Match: "exact", Language: "dart", Encoding: "utf-8", MaxResults: 8,
+		})
+		if err != nil || (result != nil && result.IsError) || output.Search == nil || !output.Coverage.CoverageComplete {
+			t.Fatalf("false-call search %s: result=%+v output=%+v err=%v", falseCall, result, output, err)
+		}
+		if len(output.Search.Matches) != 0 {
+			t.Errorf("getter body call %s indexed as declaration: %+v", falseCall, output.Search.Matches)
+		}
+	}
+}
+
 func TestSourceQueryContextResultVocabulary(t *testing.T) {
 	output := SourceQueryOutput{
 		Operation:        "context",

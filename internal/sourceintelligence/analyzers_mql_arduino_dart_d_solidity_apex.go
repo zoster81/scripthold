@@ -858,6 +858,12 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i = p.parseExplicit(i, end, parent, members, owner, native)
 			continue
 		}
+		if p.policy.language == "dart" {
+			if next, consumed := p.parseDartGetter(i, end, parent); consumed {
+				i = next
+				continue
+			}
+		}
 		if p.policy.language == "groovy" && members {
 			if next, consumed := p.parseGroovySimpleField(i, end, parent); consumed {
 				i = next
@@ -870,6 +876,81 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 		}
 		i++
 	}
+}
+
+// parseDartGetter recognizes explicit get declarations before the generic
+// callable parser can mistake invocations inside a getter body for methods.
+func (p *braceLanguageParser) parseDartGetter(start, end int, parent *SymbolParent) (int, bool) {
+	depth := p.tokens[start].Nesting
+	limit := min(end, start+20)
+	for i := start; i < limit; i++ {
+		token := p.tokens[i]
+		if token.Nesting < depth || token.Kind == TokenEOF {
+			break
+		}
+		if token.Nesting == depth && token.Text == "get" {
+			name := nextStructuralToken(p.tokens, i+1, end)
+			if name >= end || p.tokens[name].Kind != TokenIdentifier {
+				return 0, false
+			}
+			bodyStart := nextStructuralToken(p.tokens, name+1, end)
+			if bodyStart >= end {
+				return 0, false
+			}
+			var body *OffsetRange
+			var signatureEnd int
+			var declarationEnd int
+			var next int
+			switch p.tokens[bodyStart].Text {
+			case "{":
+				if p.tokens[bodyStart].Nesting != depth+1 {
+					return 0, false
+				}
+				close := p.pairs[bodyStart]
+				if close <= bodyStart || close >= end {
+					p.builder.MarkIncomplete()
+					return end, true
+				}
+				signatureEnd = p.tokens[bodyStart].StartOffset
+				declarationEnd = p.tokens[close].EndOffset
+				value := OffsetRange{Start: p.tokens[bodyStart].StartOffset, End: declarationEnd}
+				body = &value
+				next = close + 1
+			case "=>":
+				if p.tokens[bodyStart].Nesting != depth {
+					return 0, false
+				}
+				semi := p.findSameDepth(bodyStart+1, end, ";", depth)
+				if semi < 0 {
+					p.builder.MarkIncomplete()
+					return end, true
+				}
+				signatureEnd = p.tokens[bodyStart].StartOffset
+				declarationEnd = p.tokens[semi].EndOffset
+				value := OffsetRange{Start: p.tokens[bodyStart].StartOffset, End: declarationEnd}
+				body = &value
+				next = semi + 1
+			default:
+				return 0, false
+			}
+			mods := p.collectModifiers(start, i)
+			p.add(SymbolSpec{
+				Kind: SymbolKindProperty, NativeKind: "getter", Name: p.tokens[name].Text, Parent: parent,
+				Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd},
+				NameRange:   OffsetRange{Start: p.tokens[name].StartOffset, End: p.tokens[name].EndOffset},
+				Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd},
+				Body:        body, Visibility: braceLanguageVisibility(mods), Modifiers: mods, Evidence: SymbolEvidenceStructural,
+			})
+			return next, true
+		}
+		if token.Nesting == depth && (token.Text == ";" || token.Text == "(" || token.Text == "=" || token.Text == "=>") {
+			break
+		}
+		if token.Nesting == depth+1 && token.Text == "{" {
+			break
+		}
+	}
+	return 0, false
 }
 
 // parseGroovySimpleField handles semicolon-free class fields without treating
