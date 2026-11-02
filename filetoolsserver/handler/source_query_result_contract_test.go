@@ -128,6 +128,50 @@ func TestSourceQuerySearchBasicMultiDeclaratorNames(t *testing.T) {
 	}
 }
 
+// D aliases name structural declarations; target calls are not methods.
+func TestSourceQueryDTypeAliasDeclarations(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "types.d")
+	source := "module demo;\nclass Cache(T) {\n  alias TSelf = typeof(this);\n  alias TBinding = Container!(T);\n  T value;\n  void run() {}\n}\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		name string
+		line int
+	}{{"TSelf", 3}, {"TBinding", 4}} {
+		result, output, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+			Operation: "search", Paths: []string{path}, Query: tc.name,
+			Mode: "structural", Match: "exact", Language: "d", Encoding: "utf-8", MaxResults: 8,
+		})
+		if err != nil || (result != nil && result.IsError) || output.Search == nil || !output.Coverage.CoverageComplete {
+			t.Fatalf("alias search %q: result=%+v output=%+v err=%v", tc.name, result, output, err)
+		}
+		found := false
+		for _, match := range output.Search.Matches {
+			if match.Name == tc.name && match.Kind == sourceintelligence.SymbolKindAlias &&
+				match.Range.Start.Line == tc.line && match.QualifiedName == "demo.Cache."+tc.name {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing alias %q at line %d: %+v", tc.name, tc.line, output.Search.Matches)
+		}
+	}
+	toolErr, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "d", Encoding: "utf-8", MaxSymbols: 32,
+	})
+	if err != nil || toolErr != nil || !outline.CoverageComplete {
+		t.Fatalf("outline failed: %v %+v %+v", err, toolErr, outline)
+	}
+	for _, symbol := range outline.Symbols {
+		if symbol.Name == "typeof" || symbol.Name == "Container" {
+			t.Errorf("type expression wrongly exposed as callable: %+v", symbol)
+		}
+	}
+}
+
 func TestSourceQueryContextResultVocabulary(t *testing.T) {
 	output := SourceQueryOutput{
 		Operation:        "context",

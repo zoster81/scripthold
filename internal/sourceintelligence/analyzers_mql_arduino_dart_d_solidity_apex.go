@@ -901,6 +901,25 @@ func (p *braceLanguageParser) skipDStructuralPrelude(start, end int, parent *Sym
 	if token == "@" {
 		return p.skipBraceAnnotation(start, end), true
 	}
+	if token == "alias" {
+		semi := p.findSameDepth(start+1, end, ";", depth)
+		if semi < 0 {
+			p.builder.MarkIncomplete()
+			return start + 1, true
+		}
+		name := nextStructuralToken(p.tokens, start+1, semi)
+		equals := nextStructuralToken(p.tokens, name+1, semi)
+		if name < semi && p.tokens[name].Kind == TokenIdentifier && equals < semi && p.tokens[equals].Text == "=" {
+			p.add(SymbolSpec{Kind: SymbolKindAlias, NativeKind: "alias", Name: p.tokens[name].Text, Parent: parent,
+				Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semi].EndOffset},
+				NameRange:   OffsetRange{Start: p.tokens[name].StartOffset, End: p.tokens[name].EndOffset},
+				Evidence:    SymbolEvidenceStructural})
+		} else {
+			// Other D alias forms need a separate structural oracle.
+			p.builder.MarkIncomplete()
+		}
+		return semi + 1, true
+	}
 	if token == "mixin" || token == "import" || token == "module" {
 		if semi := p.findSameDepth(start+1, end, ";", depth); semi >= 0 {
 			if token == "mixin" {

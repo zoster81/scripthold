@@ -8,6 +8,43 @@ import (
 )
 
 // Groovy class fields without semicolons must not be swallowed by the next method.
+// A D alias declaration names its alias, not a call in its target expression.
+func TestDTypeAliasDoesNotInventTypeofFunction(t *testing.T) {
+	const code = "module demo;\nclass Service(T) {\n  alias TSelf = typeof(this);\n  alias TBinding = Container!(T);\n  T value;\n  void run() {}\n}\n"
+	for _, tc := range []struct{ name, text string }{{"lf", code}, {"crlf", strings.ReplaceAll(code, "\n", "\r\n")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := (DAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Analysis.CoverageComplete || out.Analysis.Truncated {
+				t.Fatalf("incomplete source: %+v", out.Analysis)
+			}
+			names := symbolsByQualifiedName(out.Analysis.Symbols)
+			for _, want := range []struct {
+				name string
+				kind SymbolKind
+				line int
+			}{
+				{"demo", SymbolKindModule, 1}, {"demo.Service", SymbolKindClass, 2},
+				{"demo.Service.TSelf", SymbolKindAlias, 3}, {"demo.Service.TBinding", SymbolKindAlias, 4},
+				{"demo.Service.value", SymbolKindField, 5}, {"demo.Service.run", SymbolKindMethod, 6},
+			} {
+				sym, ok := names[want.name]
+				if !ok || sym.Kind != want.kind || sym.NameRange.Start.Line != want.line {
+					t.Errorf("symbol %s present=%v got=%+v; want kind=%s line=%d; all=%v", want.name, ok, sym, want.kind, want.line, sortedSymbolQualifiedNames(out.Analysis.Symbols))
+				}
+			}
+			if _, falseSymbol := names["demo.Service.typeof"]; falseSymbol {
+				t.Error("type query indexed as a method")
+			}
+			if _, falseSymbol := names["demo.Service.Container"]; falseSymbol {
+				t.Error("template target indexed as a method")
+			}
+		})
+	}
+}
+
 func TestGroovyNewlineTerminatedFieldsBeforeMethod(t *testing.T) {
 	const original = "package demo\nclass MethodSignature {\n  String name\n  Class[] args\n  static MethodSignature method(String name, Class... args = []) { return null }\n  MethodSignature(String name, Class[] args) {}\n}\n"
 	for _, tc := range []struct{ name, source string }{
