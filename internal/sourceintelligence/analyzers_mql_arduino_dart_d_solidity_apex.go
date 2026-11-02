@@ -958,18 +958,46 @@ func (p *braceLanguageParser) parseDartGetter(start, end int, parent *SymbolPare
 // declarations remain outside this deliberately narrow structural subset.
 func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *SymbolParent) (int, bool) {
 	lineEnd := p.lineEnd(start)
-	if lineEnd >= end || p.tokens[lineEnd].Kind != TokenNewline ||
-		p.tokens[start].Kind != TokenIdentifier && p.tokens[start].Text != "def" {
+	if lineEnd >= end || p.tokens[lineEnd].Kind != TokenNewline {
 		return 0, false
+	}
+	first := p.tokens[start]
+	if first.Kind != TokenIdentifier && first.Text != "def" {
+		switch first.Text {
+		case "boolean", "byte", "short", "int", "long", "float", "double", "char":
+		default:
+			return 0, false
+		}
 	}
 	nameIndex := previousIdentifierToken(p.tokens, lineEnd-1, start+1)
 	if nameIndex <= start || nameIndex != lineEnd-1 {
 		return 0, false
 	}
+	// Accept balanced, type-only generic arguments; calls and expressions
+	// remain outside this semicolon-free declaration subset.
+	genericDepth := 0
 	for i := start + 1; i < nameIndex; i++ {
-		if p.tokens[i].Text != "[" && p.tokens[i].Text != "]" {
-			return 0, false
+		switch p.tokens[i].Text {
+		case "<":
+			genericDepth++
+		case ">":
+			if genericDepth == 0 {
+				return 0, false
+			}
+			genericDepth--
+		case ",":
+			if genericDepth == 0 {
+				return 0, false
+			}
+		case "[", "]":
+		default:
+			if genericDepth == 0 || p.tokens[i].Kind != TokenIdentifier {
+				return 0, false
+			}
 		}
+	}
+	if genericDepth != 0 {
+		return 0, false
 	}
 	return p.parseVariable(start, lineEnd, parent, true)
 }

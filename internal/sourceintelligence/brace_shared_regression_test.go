@@ -45,6 +45,42 @@ func TestDTypeAliasDoesNotInventTypeofFunction(t *testing.T) {
 	}
 }
 
+func TestGroovyGenericAndPrimitiveFields(t *testing.T) {
+	const code = "package demo\nclass Config {\n  List<String> items\n  boolean enabled\n  String plain\n  List<Integer> getNumbers() { return [] }\n  void update() {}\n}\n"
+	for _, tc := range []struct{ name, source string }{
+		{"lf", code}, {"crlf", strings.ReplaceAll(code, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (GroovyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, want := range []struct {
+				name string
+				kind SymbolKind
+				line int
+			}{
+				{"demo.Config.items", SymbolKindField, 3},
+				{"demo.Config.enabled", SymbolKindField, 4},
+				{"demo.Config.plain", SymbolKindField, 5},
+				{"demo.Config.getNumbers", SymbolKindMethod, 6},
+				{"demo.Config.update", SymbolKindMethod, 7},
+			} {
+				s, ok := got[want.name]
+				if !ok || s.Kind != want.kind || s.NameRange.Start.Line != want.line {
+					t.Errorf("%s missing or misclassified: present=%v got=%+v", want.name, ok, s)
+				}
+			}
+			for _, bad := range []string{"demo.Config.List", "demo.Config.String", "demo.Config.Integer"} {
+				if _, ok := got[bad]; ok {
+					t.Errorf("false declaration %s", bad)
+				}
+			}
+		})
+	}
+}
+
 func TestGroovyNewlineTerminatedFieldsBeforeMethod(t *testing.T) {
 	const original = "package demo\nclass MethodSignature {\n  String name\n  Class[] args\n  static MethodSignature method(String name, Class... args = []) { return null }\n  MethodSignature(String name, Class[] args) {}\n}\n"
 	for _, tc := range []struct{ name, source string }{

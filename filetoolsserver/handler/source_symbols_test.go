@@ -13,6 +13,159 @@ import (
 	"github.com/zoster81/scripthold/internal/config"
 )
 
+// Real source is read only; selected declarations were independently annotated.
+func TestSourceSymbolsGroovyPackerOriginalSelectedFile(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/groovy-mcxiaoke-gradle-packer-plugin/plugin/src/main/groovy/com/mcxiaoke/packer/AndroidPackerExtension.groovy"))
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "groovy", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failed != nil || out.Truncated || !out.CoverageComplete {
+		t.Fatalf("original Groovy outline failed: %v %+v", err, failed)
+	}
+	want := map[string]int{
+		"com.mcxiaoke.packer":                                               1,
+		"com.mcxiaoke.packer.AndroidPackerExtension":                        6,
+		"com.mcxiaoke.packer.AndroidPackerExtension.archiveOutput":          11,
+		"com.mcxiaoke.packer.AndroidPackerExtension.archiveNameFormat":      28,
+		"com.mcxiaoke.packer.AndroidPackerExtension.manifestMatcher":        33,
+		"com.mcxiaoke.packer.AndroidPackerExtension.buildNumberAuto":        40,
+		"com.mcxiaoke.packer.AndroidPackerExtension.buildNumberTypeMatcher": 44,
+		"com.mcxiaoke.packer.AndroidPackerExtension.AndroidPackerExtension": 47,
+	}
+	seen := map[string]int{}
+	for _, s := range out.Symbols {
+		seen[s.QualifiedName]++
+		if line, ok := want[s.QualifiedName]; !ok || s.NameRange.Start.Line != line {
+			t.Errorf("unexpected declaration: %s %s line %d", s.QualifiedName, s.Kind, s.NameRange.Start.Line)
+		}
+	}
+	for name := range want {
+		if seen[name] != 1 {
+			t.Errorf("missing/duplicated: %s (%d)", name, seen[name])
+		}
+	}
+	const pkg = "com.mcxiaoke.packer"
+	const owner = pkg + ".AndroidPackerExtension"
+	var ctorID string
+	for _, s := range out.Symbols {
+		kind, parent := "field", owner
+		switch s.QualifiedName {
+		case pkg:
+			kind, parent = "package", ""
+		case owner:
+			kind, parent = "class", pkg
+		case owner + ".AndroidPackerExtension":
+			kind = "constructor"
+			ctorID = s.ID
+		}
+		if string(s.Kind) != kind || s.ParentQualifiedName != parent {
+			t.Errorf("wrong kind/ownership for %s: kind=%s parent=%s", s.QualifiedName, s.Kind, s.ParentQualifiedName)
+		}
+	}
+	if len(out.Symbols) != len(want) || len(out.Files) != 1 || ctorID == "" {
+		t.Fatalf("original file inventory mismatch: count=%d expected=%d", len(out.Symbols), len(want))
+	}
+	for _, view := range []string{"tree", "compact"} {
+		failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "outline", Presentation: view, Paths: []string{path},
+			Language: "groovy", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+		})
+		if err != nil || failed != nil || outline.SymbolCount != len(want) ||
+			!outline.CoverageComplete || len(outline.OutlineFiles) != 1 ||
+			outline.OutlineFiles[0].SourceFingerprint != out.Files[0].SourceFingerprint {
+			t.Fatalf("original %s outline inconsistent: err=%v failed=%+v", view, err, failed)
+		}
+	}
+	failed, digest, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "digest", Presentation: "compact", Paths: []string{path},
+		Language: "groovy", Encoding: "utf-8", MaxFiles: 1,
+	})
+	if err != nil || failed != nil || !digest.CoverageComplete ||
+		digest.SymbolCount != len(want) || len(digest.OverviewFiles) != 1 {
+		t.Fatalf("original compact digest mismatch: err=%v failed=%+v", err, failed)
+	}
+	failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "find", Paths: []string{path}, Language: "groovy", Encoding: "utf-8",
+		Query: "buildNumberTypeMatcher", Match: "exact", MaxSymbols: 8,
+	})
+	if err != nil || failed != nil || len(found.Symbols) != 1 ||
+		found.Symbols[0].QualifiedName != owner+".buildNumberTypeMatcher" {
+		t.Fatalf("original find mismatch: err=%v failed=%+v symbols=%+v", err, failed, found.Symbols)
+	}
+	failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "show", Path: path, SymbolID: ctorID,
+		SourceFingerprint: out.Files[0].SourceFingerprint,
+		Language:          "groovy", Encoding: "utf-8", MaxBytes: 4096,
+	})
+	if err != nil || failed != nil || shown.Show == nil ||
+		!strings.Contains(shown.Show.Text, "archiveOutput = new File(") {
+		t.Fatalf("original constructor show mismatch: err=%v failed=%+v shown=%+v", err, failed, shown.Show)
+	}
+	failed, result, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "search", Mode: "structural", Paths: []string{path},
+		Language: "groovy", Encoding: "utf-8", Query: "manifestMatcher",
+		Match: "exact", MaxResults: 8,
+	})
+	if err != nil || failed != nil || result.Search == nil ||
+		len(result.Search.Matches) != 1 ||
+		result.Search.Matches[0].QualifiedName != owner+".manifestMatcher" {
+		t.Fatalf("original structural search mismatch: err=%v failed=%+v search=%+v", err, failed, result.Search)
+	}
+}
+
+// Check the entire selected original Solidity file against a source-derived inventory.
+func TestSourceSymbolsSolidityAccessOriginalSelectedFile(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/solidity-fravoll-solidity-patterns/AccessRestriction/AccessRestriction.sol"))
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "solidity", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failed != nil || !out.CoverageComplete || out.Truncated || len(out.Files) != 1 {
+		t.Fatalf("original Solidity outline failed: err=%v failed=%+v", err, failed)
+	}
+	want := map[string]struct {
+		kind string
+		line int
+	}{
+		"AccessRestriction":                 {"class", 6},
+		"AccessRestriction.owner":           {"field", 8},
+		"AccessRestriction.lastOwnerChange": {"field", 9},
+		"AccessRestriction.onlyBy":          {"method", 11},
+		"AccessRestriction.onlyAfter":       {"method", 16},
+		"AccessRestriction.costs":           {"method", 21},
+		"AccessRestriction.changeOwner":     {"method", 29},
+		"AccessRestriction.buyContract":     {"method", 33},
+	}
+	seen := map[string]int{}
+	for _, s := range out.Symbols {
+		seen[s.QualifiedName]++
+		w, ok := want[s.QualifiedName]
+		parent := "AccessRestriction"
+		if s.QualifiedName == "AccessRestriction" {
+			parent = ""
+		}
+		if !ok || string(s.Kind) != w.kind || s.NameRange.Start.Line != w.line || s.ParentQualifiedName != parent {
+			t.Errorf("unexpected original Solidity declaration %+v", s)
+		}
+	}
+	for name := range want {
+		if seen[name] != 1 {
+			t.Errorf("missing/duplicate %s: %d", name, seen[name])
+		}
+	}
+}
+
 func TestSourceSymbolsOutlineFindShowAndStaleFingerprint(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")
