@@ -858,12 +858,39 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i = p.parseExplicit(i, end, parent, members, owner, native)
 			continue
 		}
+		if p.policy.language == "groovy" && members {
+			if next, consumed := p.parseGroovySimpleField(i, end, parent); consumed {
+				i = next
+				continue
+			}
+		}
 		if next, consumed := p.parseCStyle(i, end, parent, members, owner); consumed {
 			i = next
 			continue
 		}
 		i++
 	}
+}
+
+// parseGroovySimpleField handles semicolon-free class fields without treating
+// the next line's method declaration as a continuation. Complex Groovy
+// declarations remain outside this deliberately narrow structural subset.
+func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *SymbolParent) (int, bool) {
+	lineEnd := p.lineEnd(start)
+	if lineEnd >= end || p.tokens[lineEnd].Kind != TokenNewline ||
+		p.tokens[start].Kind != TokenIdentifier && p.tokens[start].Text != "def" {
+		return 0, false
+	}
+	nameIndex := previousIdentifierToken(p.tokens, lineEnd-1, start+1)
+	if nameIndex <= start || nameIndex != lineEnd-1 {
+		return 0, false
+	}
+	for i := start + 1; i < nameIndex; i++ {
+		if p.tokens[i].Text != "[" && p.tokens[i].Text != "]" {
+			return 0, false
+		}
+	}
+	return p.parseVariable(start, lineEnd, parent, true)
 }
 
 // skipDStructuralPrelude keeps annotations, imports and visibility groups

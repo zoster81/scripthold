@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Groovy source navigation now recognizes simple semicolon-free class fields without merging them into the following method declaration. This restores missing fields and the correct method source position; complex Groovy syntax remains conservatively scoped and the other brace-language dialects retain their existing parsing rules.
 - Classic BASIC and QBasic source navigation now recognizes type-first `DIM AS Type name1, name2` declarations, including QB64's `_UNSIGNED` modifier. Previously these declarations could fabricate a variable named `AS` and omit the first real name. The fix reuses the shared BASIC parser while preserving variable ownership and source positions; other dialects retain their existing declaration rules. No source program is executed.
 - BASIC-family source navigation no longer reports `DEF SEG` segment-register directives as `DEF FN` functions. The common seven-dialect parser now requires an explicit `FN`-prefixed function name after `DEF`, while retaining genuine classic BASIC and QBasic `DEF FN...` declarations. This fixes false symbols found in an original QBasic game converter without executing the program or changing the public API.
 - Ruby source navigation now recognizes explicit Ruby 3 endless methods (`def name = expression`) without consuming a following method's scope or closing `end`. Ordinary methods and bracket setters keep their original ownership; unsupported expression semantics are not evaluated.
