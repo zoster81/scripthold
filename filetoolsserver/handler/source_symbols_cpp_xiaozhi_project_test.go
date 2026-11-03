@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
 // Every original Xiaozhi ESP32 C++ source, board variant, test and vendored
@@ -191,6 +193,78 @@ func TestSourceSymbolsOriginalCppXiaozhiDummyAudioFullHeaderOracle(t *testing.T)
 	}
 	for name := range want {
 		t.Errorf("original C++ header declaration missing: %s", name)
+	}
+}
+
+// A resolved source include plus a unique written qualified name is a useful
+// navigation candidate, not proof of matching overloads or cross-file owner IDs.
+func TestSourceQueryOriginalCppXiaozhiCrossFileDefinitionCandidates(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus not configured")
+	}
+	folder := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-78-xiaozhi-esp32", "main", "audio", "codecs")
+	header := filepath.Join(folder, "dummy_audio_codec.h")
+	implementation := filepath.Join(folder, "dummy_audio_codec.cc")
+	h := NewHandler([]string{root})
+	fail, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{header, implementation},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 2, MaxSymbols: 24,
+	})
+	if err != nil || fail != nil || out.Truncated || !out.CoverageComplete || len(out.Files) != 2 {
+		t.Fatalf("original C++ header/source outlines unavailable: fail=%+v err=%v output=%+v", fail, err, out)
+	}
+	fingerprints := make(map[string]string, 2)
+	for _, file := range out.Files {
+		fingerprints[file.Path] = file.SourceFingerprint
+	}
+	declarations, definitions := map[string]string{}, map[string]string{}
+	for _, symbol := range out.Symbols {
+		if symbol.Name != "Read" && symbol.Name != "Write" {
+			continue
+		}
+		if symbol.Path == header {
+			if string(symbol.Kind) != "method" || symbol.ParentQualifiedName != "DummyAudioCodec" || symbol.ParentID == "" {
+				t.Fatalf("original method declaration owner incorrect: %+v", symbol)
+			}
+			declarations[symbol.Name] = symbol.ID
+		}
+		if symbol.Path == implementation {
+			if string(symbol.Kind) != "function" || symbol.ParentID != "" || symbol.BodyRange == nil {
+				t.Fatalf("original method definition must remain conservatively file-local: %+v", symbol)
+			}
+			definitions[symbol.Name] = symbol.ID
+		}
+	}
+	if len(declarations) != 2 || len(definitions) != 2 || fingerprints[header] == "" || fingerprints[implementation] == "" {
+		t.Fatalf("incomplete original project inputs: header=%v source=%v files=%v", declarations, definitions, fingerprints)
+	}
+	for _, name := range []string{"Read", "Write"} {
+		fail, output, queryErr := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+			Operation: "relations", Relation: "definitions", Paths: []string{header, implementation}, Language: "cpp",
+			Subject:  &SourceSelectorInput{Kind: "symbol", Path: header, SymbolID: declarations[name], SourceFingerprint: fingerprints[header]},
+			MaxFiles: 2, MaxResults: 8, MaxNodes: 16, MaxEdges: 32, MaxDepth: 4,
+		})
+		if queryErr != nil || fail != nil || output.Relations == nil || !output.Coverage.CoverageComplete {
+			t.Fatalf("original %s project navigation unavailable: err=%v fail=%+v out=%+v", name, queryErr, fail, output)
+		}
+		found := false
+		for _, relation := range output.Relations.Relations {
+			if relation.Target.Path != implementation {
+				continue
+			}
+			if found || relation.Source.Path != header || relation.Source.SymbolID != declarations[name] ||
+				relation.Target.SymbolID != definitions[name] || relation.Target.QualifiedName != "DummyAudioCodec."+name ||
+				relation.Target.SourceFingerprint != fingerprints[implementation] ||
+				relation.Resolution != sourceintelligence.ResolutionAmbiguous ||
+				relation.Evidence != sourceintelligence.SymbolEvidenceStructural {
+				t.Fatalf("unsafe original %s candidate: %+v", name, relation)
+			}
+			found = true
+		}
+		if !found {
+			t.Fatalf("original %s cross-file candidate not exposed: %+v", name, output.Relations.Relations)
+		}
 	}
 }
 

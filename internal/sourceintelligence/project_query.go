@@ -425,12 +425,82 @@ func (model *ProjectModel) definitionRecords(selection projectQuerySelection, fi
 		return result, nil
 	}
 	if selection.entity.SymbolID != "" {
-		if !filter.allows(SymbolEvidenceScopeResolved) {
-			return nil, nil
+		result := make([]RelationRecord, 0, 2)
+		if filter.allows(SymbolEvidenceScopeResolved) {
+			result = append(result, RelationRecord{Kind: RelationDefinitions, Source: cloneRelationEntity(selection.entity), Target: cloneRelationEntity(selection.entity), Evidence: SymbolEvidenceScopeResolved, Resolution: ResolutionResolved})
 		}
-		return []RelationRecord{{Kind: RelationDefinitions, Source: cloneRelationEntity(selection.entity), Target: cloneRelationEntity(selection.entity), Evidence: SymbolEvidenceScopeResolved, Resolution: ResolutionResolved}}, nil
+		if filter.allows(SymbolEvidenceStructural) {
+			if candidate, ok := model.cppExplicitHeaderDefinitionCandidate(selection); ok {
+				result = append(result, RelationRecord{Kind: RelationDefinitions, Source: cloneRelationEntity(selection.entity), Target: cloneRelationEntity(candidate), Evidence: SymbolEvidenceStructural, Resolution: ResolutionAmbiguous})
+			}
+		}
+		return result, nil
 	}
 	return nil, operation.New(operation.KindInvalidInput, "definitions requires a reference position or symbol selector")
+}
+
+// cppExplicitHeaderDefinitionCandidate provides navigation, not semantic ownership.
+// A matching qualified spelling and a directly resolved #include still cannot
+// prove equivalent C++ overloads, macros, template substitutions or parameter types.
+// Return one explicitly ambiguous candidate only when every indexed precondition
+// is unambiguous; never attach cross-file class parents to file-local symbols.
+func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projectQuerySelection) (RelationEntity, bool) {
+	file := model.files[selection.pathKey]
+	if file.languageID != "cpp" || !file.facts.Analysis.Analysis.CoverageComplete || file.facts.Analysis.Analysis.Truncated {
+		return RelationEntity{}, false
+	}
+	var member *projectSymbolRecord
+	for index := range model.symbolsByFile[selection.pathKey] {
+		record := &model.symbolsByFile[selection.pathKey][index]
+		if record.symbol.ID == selection.entity.SymbolID && record.symbol.Kind == SymbolKindMethod &&
+			record.symbol.BodyRange == nil && record.symbol.ParentID != "" {
+			member = record
+			break
+		}
+	}
+	if member == nil {
+		return RelationEntity{}, false
+	}
+	ownerCount := 0
+	for _, owner := range model.symbolsByQualified["cpp\x00"+projectSymbolLookupKey(LanguageDescriptor{ID: "cpp"}, member.symbol.ParentQualifiedName)] {
+		if owner.symbol.Kind == SymbolKindClass || owner.symbol.Kind == SymbolKindStruct {
+			ownerCount++
+			if owner.pathKey != selection.pathKey || owner.symbol.ID != member.symbol.ParentID {
+				return RelationEntity{}, false
+			}
+		}
+	}
+	if ownerCount != 1 {
+		return RelationEntity{}, false
+	}
+	methodCount, definitionCount := 0, 0
+	var definition *projectSymbolRecord
+	for _, record := range model.symbolsByQualified["cpp\x00"+member.qualifiedKey] {
+		if record.pathKey == selection.pathKey && record.symbol.Kind == SymbolKindMethod &&
+			record.symbol.ParentID == member.symbol.ParentID {
+			methodCount++
+		}
+		if record.pathKey != selection.pathKey && record.symbol.Kind == SymbolKindFunction &&
+			record.symbol.ParentID == "" && record.symbol.BodyRange != nil {
+			definitionCount++
+			definition = record
+		}
+	}
+	if methodCount != 1 || definitionCount != 1 {
+		return RelationEntity{}, false
+	}
+	candidateFile := model.files[definition.pathKey]
+	if !candidateFile.facts.Analysis.Analysis.CoverageComplete || candidateFile.facts.Analysis.Analysis.Truncated {
+		return RelationEntity{}, false
+	}
+	for _, dependency := range model.dependenciesBySource[definition.pathKey] {
+		if dependency.Dependency.Kind == StructuralDependencyInclude &&
+			dependency.Resolution == ResolutionResolved && len(dependency.Targets) == 1 &&
+			projectPathKey(dependency.Targets[0].Path) == selection.pathKey {
+			return definition.entity, true
+		}
+	}
+	return RelationEntity{}, false
 }
 
 func isInheritanceStructuralKind(value string) bool {

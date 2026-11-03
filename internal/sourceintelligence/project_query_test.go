@@ -10,6 +10,98 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+// A C++ declaration and a qualified out-of-class definition may share a name
+// without proving the same overload. Navigation can expose an explicit candidate,
+// but must not assert resolved class ownership or an exact signature match.
+func TestProjectQueryCPPExplicitHeaderDefinitionCandidates(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, header, source string
+		wantCandidate        bool
+	}{
+		{
+			name:          "single-authored-method",
+			header:        "class Codec { public: int Read(int n); };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "overload-ambiguous",
+			header: "class Codec { public: int Read(int n); int Read(double n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(double n) { return 1; }\n",
+		},
+		{
+			name:   "missing-include",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "int Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:   "only-declaration-in-source",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n);\n",
+		},
+		{
+			name:          "different-parameter-spelling-stays-ambiguous",
+			header:        "class Codec { public: int Read(int n); };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(double n) { return 0; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "namespace-not-a-class",
+			header: "namespace Codec { int Read(int n); }\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:   "two-written-implementations",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\nint Codec::Read(double n) { return 0; }\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "cpp", tc.name)
+			header := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.hpp"), tc.header)
+			implementation := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.cc"), tc.source)
+			id := projectSymbolID(t, header, "Codec.Read")
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{implementation, header}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(header, id), ProjectSelector{}, nil, queryLimits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidateCount := 0
+			for _, record := range result.Records {
+				if record.Target.Path != implementation.Path {
+					continue
+				}
+				candidateCount++
+				if record.Resolution != ResolutionAmbiguous || record.Evidence != SymbolEvidenceStructural ||
+					record.Target.SymbolID == "" || record.Target.QualifiedName != "Codec.Read" ||
+					record.Source.Path != header.Path || record.Source.SymbolID != id {
+					t.Errorf("unsafe candidate relation: %+v", record)
+				}
+			}
+			if (candidateCount == 1) != tc.wantCandidate || candidateCount > 1 {
+				t.Fatalf("candidate count=%d, want candidate=%v; records=%+v", candidateCount, tc.wantCandidate, result.Records)
+			}
+			filtered, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(header, id),
+				ProjectSelector{}, []SymbolEvidence{SymbolEvidenceScopeResolved}, queryLimits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range filtered.Records {
+				if record.Target.Path == implementation.Path {
+					t.Fatalf("scope-only filter leaked a project candidate: %+v", record)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectQueryDependenciesDependentsTraceImpactAndCycles(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
