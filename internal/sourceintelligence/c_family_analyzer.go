@@ -1127,6 +1127,12 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 				}
 			}
 		}
+		if parser.cpp {
+			if next, ok := parser.cppExplicitClassInstantiation(index, end); ok {
+				index = next
+				continue
+			}
+		}
 		if parser.cpp && parser.token(index, "namespace") {
 			index = parser.parseNamespace(index, end, parent)
 			continue
@@ -1181,6 +1187,49 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 		}
 		index++
 	}
+}
+
+// An explicit template instantiation such as "template class Box<int>;"
+// refers to an existing C++ class. Neither its template arguments nor its
+// specialization name introduce a source declaration in this file. Match
+// this exact semicolon-terminated form only: template declarations beginning
+// with '<' and class definitions retain their normal parser path.
+func (parser *cFamilyParser) cppExplicitClassInstantiation(start, end int) (int, bool) {
+	cursor := start
+	if parser.token(cursor, "extern") {
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	if !parser.token(cursor, "template") {
+		return start, false
+	}
+	keyword := nextStructuralToken(parser.tokens, cursor+1, end)
+	if !parser.token(keyword, "class") && !parser.token(keyword, "struct") && !parser.token(keyword, "union") {
+		return start, false
+	}
+	depth := parser.tokens[start].Nesting
+	seenArguments := false
+	for i := keyword + 1; i < end; i++ {
+		token := parser.tokens[i]
+		if token.Kind == TokenEOF || token.Text == "{" || token.Text == "}" {
+			return start, false
+		}
+		if token.Text == "<" {
+			seenArguments = true
+		}
+		if token.Nesting != depth {
+			continue
+		}
+		if token.Text == "=" {
+			return start, false
+		}
+		if token.Text == ";" {
+			if seenArguments {
+				return i + 1, true
+			}
+			return start, false
+		}
+	}
+	return start, false
 }
 
 func (parser *cFamilyParser) token(index int, value string) bool {
