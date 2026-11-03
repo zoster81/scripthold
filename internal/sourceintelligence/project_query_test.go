@@ -102,6 +102,91 @@ func TestProjectQueryCPPExplicitHeaderDefinitionCandidates(t *testing.T) {
 	}
 }
 
+// An unresolved out-of-class C++ constructor/destructor remains a file-local
+// function. Project navigation may expose only a structurally ambiguous candidate.
+func TestProjectQueryCPPQualifiedLifecycleCandidates(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, header, source        string
+		wantConstruct, wantDestruct bool
+	}{
+		{"one-ctor-one-dtor",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\n", true, true},
+		{"overloaded-constructors",
+			"class Codec { public: Codec(int n); Codec(double n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\n", false, true},
+		{"no-include",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"Codec::Codec(int n) {}\nCodec::~Codec() {}\n", false, false},
+		{"declarations-only",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n);\nCodec::~Codec();\n", false, false},
+		{"invalid-return-type",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nint Codec::Codec(int n) { return n; }\nCodec::~Codec() {}\n", false, true},
+		{"duplicate-destructor-definitions",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\nCodec::~Codec() {}\n", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "cpp", "lifecycle", tc.name)
+			header := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.hpp"), tc.header)
+			source := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.cc"), tc.source)
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{source, header}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, kind := range []struct {
+				value  SymbolKind
+				want   bool
+				native string
+			}{
+				{SymbolKindConstructor, tc.wantConstruct, "qualified-constructor-definition"},
+				{SymbolKindDestructor, tc.wantDestruct, "qualified-destructor-definition"},
+			} {
+				var declaration *NormalizedSymbol
+				for i := range header.Analysis.Analysis.Symbols {
+					s := &header.Analysis.Analysis.Symbols[i]
+					if s.Kind == kind.value {
+						declaration = s
+						break
+					}
+				}
+				if declaration == nil {
+					t.Fatalf("missing %s declaration: %+v", kind.value, header.Analysis.Analysis.Symbols)
+				}
+				relations, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(header, declaration.ID), ProjectSelector{}, nil, queryLimits())
+				if err != nil {
+					t.Fatal(err)
+				}
+				candidates := 0
+				for _, rel := range relations.Records {
+					if rel.Target.Path != source.Path {
+						continue
+					}
+					candidates++
+					if rel.Evidence != SymbolEvidenceStructural || rel.Resolution != ResolutionAmbiguous ||
+						rel.Source.SymbolID != declaration.ID || rel.Target.SymbolID == "" || rel.Target.QualifiedName != "Codec.Codec" {
+						t.Errorf("unsafe %s link: %+v", kind.value, rel)
+					}
+					for _, symbol := range source.Analysis.Analysis.Symbols {
+						if symbol.ID == rel.Target.SymbolID && (symbol.Kind != SymbolKindFunction || symbol.NativeKind != kind.native || symbol.ParentID != "" || symbol.BodyRange == nil) {
+							t.Errorf("not a lexical %s definition: %+v", kind.value, symbol)
+						}
+					}
+				}
+				if (candidates == 1) != kind.want || candidates > 1 {
+					t.Errorf("%s candidate count=%d, want=%v: %+v", kind.value, candidates, kind.want, relations.Records)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectQueryDependenciesDependentsTraceImpactAndCycles(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

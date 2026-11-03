@@ -268,6 +268,87 @@ func TestSourceQueryOriginalCppXiaozhiCrossFileDefinitionCandidates(t *testing.T
 	}
 }
 
+// Original constructor and destructor share a written qualified name but
+// have distinct authored spellings and bodies in the implementation file.
+func TestSourceQueryOriginalCppXiaozhiQualifiedLifecycleCandidates(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus not configured")
+	}
+	folder := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-78-xiaozhi-esp32", "main", "audio", "codecs")
+	header := filepath.Join(folder, "dummy_audio_codec.h")
+	source := filepath.Join(folder, "dummy_audio_codec.cc")
+	h := NewHandler([]string{root})
+	fail, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{header, source},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 2, MaxSymbols: 24,
+	})
+	if err != nil || fail != nil || outline.Truncated || !outline.CoverageComplete || len(outline.Files) != 2 {
+		t.Fatalf("original C++ lifecycle files unavailable: err=%v fail=%+v out=%+v", err, fail, outline)
+	}
+	fingerprints := make(map[string]string, 2)
+	for _, file := range outline.Files {
+		fingerprints[file.Path] = file.SourceFingerprint
+	}
+	for _, tc := range []struct {
+		name                   string
+		kind                   sourceintelligence.SymbolKind
+		headerLine, sourceLine int
+		nativeKind, bodyText   string
+	}{
+		{"constructor", sourceintelligence.SymbolKindConstructor, 12, 3, "qualified-constructor-definition", "duplex_ = true"},
+		{"destructor", sourceintelligence.SymbolKindDestructor, 13, 11, "qualified-destructor-definition", "~DummyAudioCodec()"},
+	} {
+		var decl, def *sourceintelligence.NormalizedSymbol
+		for i := range outline.Symbols {
+			s := &outline.Symbols[i]
+			if s.Path == header && s.NameRange.Start.Line == tc.headerLine && s.Kind == tc.kind {
+				decl = s
+			}
+			if s.Path == source && s.NameRange.Start.Line == tc.sourceLine && s.NativeKind == tc.nativeKind {
+				def = s
+			}
+		}
+		if decl == nil || def == nil || decl.ParentID == "" || def.ParentID != "" ||
+			def.Kind != sourceintelligence.SymbolKindFunction || def.BodyRange == nil ||
+			decl.QualifiedName != "DummyAudioCodec.DummyAudioCodec" ||
+			def.QualifiedName != "DummyAudioCodec.DummyAudioCodec" {
+			t.Fatalf("incorrect original %s lifecycle declarations: header=%+v source=%+v", tc.name, decl, def)
+		}
+		fail, output, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+			Operation: "relations", Relation: "definitions", Paths: []string{header, source}, Language: "cpp",
+			Subject:  &SourceSelectorInput{Kind: "symbol", Path: header, SymbolID: decl.ID, SourceFingerprint: fingerprints[header]},
+			MaxFiles: 2, MaxResults: 8, MaxNodes: 16, MaxEdges: 32, MaxDepth: 4,
+		})
+		if err != nil || fail != nil || output.Relations == nil || !output.Coverage.CoverageComplete {
+			t.Fatalf("original %s candidate query failed: err=%v fail=%+v out=%+v", tc.name, err, fail, output)
+		}
+		candidates := 0
+		for _, edge := range output.Relations.Relations {
+			if edge.Target.Path != source {
+				continue
+			}
+			candidates++
+			if edge.Source.SymbolID != decl.ID || edge.Target.SymbolID != def.ID ||
+				edge.Target.SourceFingerprint != fingerprints[source] ||
+				edge.Resolution != sourceintelligence.ResolutionAmbiguous ||
+				edge.Evidence != sourceintelligence.SymbolEvidenceStructural {
+				t.Errorf("unsafe original %s candidate: %+v", tc.name, edge)
+			}
+		}
+		if candidates != 1 {
+			t.Errorf("original %s cross-file candidates=%d, want 1: %+v", tc.name, candidates, output.Relations.Relations)
+		}
+		fail, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "show", Path: source, SymbolID: def.ID, SourceFingerprint: fingerprints[source],
+			Language: "cpp", Encoding: "utf-8", MaxBytes: 1024,
+		})
+		if err != nil || fail != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, tc.bodyText) {
+			t.Errorf("original %s source body not verified: err=%v fail=%+v shown=%+v", tc.name, err, fail, shown)
+		}
+	}
+}
+
 func TestSourceSymbolsOriginalCppXiaozhiQualifiedDefinitions(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {

@@ -452,7 +452,8 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 	var member *projectSymbolRecord
 	for index := range model.symbolsByFile[selection.pathKey] {
 		record := &model.symbolsByFile[selection.pathKey][index]
-		if record.symbol.ID == selection.entity.SymbolID && record.symbol.Kind == SymbolKindMethod &&
+		if record.symbol.ID == selection.entity.SymbolID &&
+			(record.symbol.Kind == SymbolKindMethod || record.symbol.Kind == SymbolKindConstructor || record.symbol.Kind == SymbolKindDestructor) &&
 			record.symbol.BodyRange == nil && record.symbol.ParentID != "" {
 			member = record
 			break
@@ -473,20 +474,28 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 	if ownerCount != 1 {
 		return RelationEntity{}, false
 	}
-	methodCount, definitionCount := 0, 0
+	definitionNative := "function-definition"
+	switch member.symbol.Kind {
+	case SymbolKindConstructor:
+		definitionNative = "qualified-constructor-definition"
+	case SymbolKindDestructor:
+		definitionNative = "qualified-destructor-definition"
+	}
+	memberCount, definitionCount := 0, 0
 	var definition *projectSymbolRecord
 	for _, record := range model.symbolsByQualified["cpp\x00"+member.qualifiedKey] {
-		if record.pathKey == selection.pathKey && record.symbol.Kind == SymbolKindMethod &&
+		if record.pathKey == selection.pathKey && record.symbol.Kind == member.symbol.Kind &&
 			record.symbol.ParentID == member.symbol.ParentID {
-			methodCount++
+			memberCount++
 		}
 		if record.pathKey != selection.pathKey && record.symbol.Kind == SymbolKindFunction &&
-			record.symbol.ParentID == "" && record.symbol.BodyRange != nil {
+			record.symbol.ParentID == "" && record.symbol.BodyRange != nil &&
+			record.symbol.NativeKind == definitionNative {
 			definitionCount++
 			definition = record
 		}
 	}
-	if methodCount != 1 || definitionCount != 1 {
+	if memberCount != 1 || definitionCount != 1 {
 		return RelationEntity{}, false
 	}
 	candidateFile := model.files[definition.pathKey]

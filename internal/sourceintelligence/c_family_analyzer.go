@@ -2041,6 +2041,25 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 			nativeKind = "operator-definition"
 		}
 	}
+	if parser.cpp && unresolvedQualifier != "" && body != nil && kind == SymbolKindFunction {
+		// The written spelling distinguishes lifecycle definitions even when the
+		// qualifier's class/namespace identity is unknown across files. Preserve
+		// the conservative function kind and unowned parent.
+		owner := unresolvedQualifier
+		if dot := strings.LastIndexByte(owner, '.'); dot >= 0 {
+			owner = owner[dot+1:]
+		}
+		if name == owner {
+			prefix := tokenRangeText(parser.tokens, start, nameIndex)
+			qualifier := strings.ReplaceAll(unresolvedQualifier, ".", "::") + "::"
+			switch prefix {
+			case qualifier:
+				nativeKind = "qualified-constructor-definition"
+			case qualifier + "~":
+				nativeKind = "qualified-destructor-definition"
+			}
+		}
+	}
 	modifiers := collectKnownModifiers(parser.tokens, start, paren, cFamilyModifiers)
 	qualifiedName := ""
 	if unresolvedQualifier != "" {

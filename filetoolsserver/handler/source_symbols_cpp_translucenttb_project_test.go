@@ -199,6 +199,83 @@ func TestSourceSymbolsOriginalCppTranslucentTBMaybeDeleteHeaderOracle(t *testing
 	}
 }
 
+// This independent C++ project has a declared destructor and two written
+// constructor overloads (one deleted). Only the destructor is a candidate.
+func TestSourceQueryOriginalCppTranslucentTBDetourLifecycle(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus not configured")
+	}
+	folder := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-translucenttb-translucenttb", "ExplorerHooks")
+	header, source := filepath.Join(folder, "detourtransaction.hpp"), filepath.Join(folder, "detourtransaction.cpp")
+	h := NewHandler([]string{root})
+	fail, outlined, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{header, source}, Language: "cpp", Encoding: "utf-8",
+		MaxFiles: 2, MaxSymbols: 128,
+	})
+	if err != nil || fail != nil || outlined.Truncated || !outlined.CoverageComplete || len(outlined.Files) != 2 {
+		t.Fatalf("original C++ detour declarations unavailable: err=%v fail=%+v out=%+v", err, fail, outlined)
+	}
+	fingerprints := map[string]string{}
+	for _, file := range outlined.Files {
+		fingerprints[file.Path] = file.SourceFingerprint
+	}
+	var destructorID, constructorID, sourceDestructorID string
+	ctorDeclarations := 0
+	for _, symbol := range outlined.Symbols {
+		if symbol.Path == header && symbol.QualifiedName == "DetourTransaction.DetourTransaction" {
+			switch string(symbol.Kind) {
+			case "constructor":
+				ctorDeclarations++
+				if symbol.NameRange.Start.Line == 51 {
+					constructorID = symbol.ID
+				}
+			case "destructor":
+				if symbol.NameRange.Start.Line == 59 {
+					destructorID = symbol.ID
+				}
+			}
+		}
+		if symbol.Path == source && symbol.NameRange.Start.Line == 128 &&
+			symbol.NativeKind == "qualified-destructor-definition" && string(symbol.Kind) == "function" &&
+			symbol.ParentID == "" && symbol.BodyRange != nil {
+			sourceDestructorID = symbol.ID
+		}
+	}
+	if ctorDeclarations != 2 || constructorID == "" || destructorID == "" || sourceDestructorID == "" ||
+		fingerprints[header] == "" || fingerprints[source] == "" {
+		t.Fatalf("original detour lifecycle oracle incomplete: constructors=%d constructor=%q destructor=%q source=%q", ctorDeclarations, constructorID, destructorID, sourceDestructorID)
+	}
+	for _, tc := range []struct {
+		id   string
+		want int
+	}{{destructorID, 1}, {constructorID, 0}} {
+		fail, output, queryErr := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+			Operation: "relations", Relation: "definitions", Paths: []string{header, source}, Language: "cpp",
+			Subject:  &SourceSelectorInput{Kind: "symbol", Path: header, SymbolID: tc.id, SourceFingerprint: fingerprints[header]},
+			MaxFiles: 2, MaxResults: 16, MaxNodes: 64, MaxEdges: 128, MaxDepth: 4,
+		})
+		if queryErr != nil || fail != nil || output.Relations == nil || !output.Coverage.CoverageComplete {
+			t.Fatalf("original detour query failed: err=%v fail=%+v out=%+v", queryErr, fail, output)
+		}
+		found := 0
+		for _, edge := range output.Relations.Relations {
+			if edge.Target.Path != source {
+				continue
+			}
+			found++
+			if tc.want == 1 && (edge.Target.SymbolID != sourceDestructorID ||
+				edge.Source.SymbolID != destructorID || string(edge.Resolution) != "ambiguous" ||
+				string(edge.Evidence) != "structural" || edge.Target.SourceFingerprint != fingerprints[source]) {
+				t.Errorf("unsafe original detour destructor candidate: %+v", edge)
+			}
+		}
+		if found != tc.want {
+			t.Errorf("original detour lifecycle candidates=%d, want=%d: %+v", found, tc.want, output.Relations.Relations)
+		}
+	}
+}
+
 func TestSourceSymbolsOriginalCppTranslucentTBConceptIsNotAVariable(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {
