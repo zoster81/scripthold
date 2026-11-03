@@ -94,29 +94,30 @@ func TestSourceSymbolsOriginalLargeCProjectInventory(t *testing.T) {
 				outstanding = append(outstanding, filepath.ToSlash(rel))
 			}
 			sort.Strings(outstanding)
-			if tc.name == "c-obsproject-obs-studio" {
-				// A known, source-verified conditional linkage mismatch is not
-				// silently promoted to completeness; any new gap is a regression.
-				if len(outstanding) > 1 || len(outstanding) == 1 && outstanding[0] != "deps/w32-pthreads/implement.h" {
-					t.Errorf("unreviewed OBS original incomplete sources: %v", outstanding)
-				}
+			if len(partial) != 0 {
+				t.Fatalf("%s has %d partially analyzed original sources: %v", tc.name, len(partial), outstanding)
 			}
-			if tc.name == "c-ffmpeg-ffmpeg" {
-				if len(partial) != 0 {
-					t.Fatalf("FFmpeg still has %d partially analyzed sources: %v", len(partial), outstanding)
-				}
-				// In the same complete 4,670-file original scope, distinguish
-				// the 61 grep occurrences (mostly calls) from two declarations.
+			// The whole-project source search must distinguish independently
+			// verified declarations from text calls found by grep.
+			{
+				query := "av_crc_get_table"
 				expected := map[string]int{
 					filepath.Join(project, "libavutil", "crc.h"): 83,
 					filepath.Join(project, "libavutil", "crc.c"): 389,
+				}
+				if tc.name == "c-obsproject-obs-studio" {
+					query = "calc_crc32"
+					expected = map[string]int{
+						filepath.Join(project, "libobs", "util", "crc32.h"): 25,
+						filepath.Join(project, "libobs", "util", "crc32.c"): 53,
+					}
 				}
 				matched := make(map[string]int)
 				for start := 0; start < len(files); start += batchSize {
 					end := min(start+batchSize, len(files))
 					failed, found, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
 						Operation: "search", Mode: "structural", Match: "exact",
-						Query: "av_crc_get_table", Paths: files[start:end],
+						Query: query, Paths: files[start:end],
 						Language: "c", Encoding: "utf-8", MaxFiles: batchSize, MaxResults: 32,
 					})
 					if err != nil || failed != nil || !found.Coverage.CoverageComplete ||
@@ -124,22 +125,22 @@ func TestSourceSymbolsOriginalLargeCProjectInventory(t *testing.T) {
 						t.Fatalf("original FFmpeg project-wide structural search incomplete at %d:%d: %v %+v %+v", start, end, err, failed, found.Coverage)
 					}
 					for _, match := range found.Search.Matches {
-						if string(match.Kind) != "function" || match.QualifiedName != "av_crc_get_table" ||
+						if string(match.Kind) != "function" || match.QualifiedName != query ||
 							match.SymbolID == "" || match.SourceFingerprint != fingerprints[match.Path] {
-							t.Errorf("unexpected unbound FFmpeg structural match: %+v", match)
+							t.Errorf("unexpected unbound %s structural match: %+v", tc.name, match)
 						}
 						if _, exists := matched[match.Path]; exists {
-							t.Errorf("duplicate FFmpeg project-wide API in %s", match.Path)
+							t.Errorf("duplicate %s project-wide API in %s", tc.name, match.Path)
 						}
 						matched[match.Path] = match.Range.Start.Line
 					}
 				}
 				if len(matched) != len(expected) {
-					t.Errorf("FFmpeg expected two structural declarations, found %v", matched)
+					t.Errorf("%s expected two structural declarations, found %v", tc.name, matched)
 				}
 				for path, line := range expected {
 					if matched[path] != line {
-						t.Errorf("FFmpeg API expected %s:%d; found %d", path, line, matched[path])
+						t.Errorf("%s API expected %s:%d; found %d", tc.name, path, line, matched[path])
 					}
 				}
 			}

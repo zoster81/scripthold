@@ -798,6 +798,13 @@ func cFamilyConditionalState(keyword, rest string, macroVersions map[string]int,
 		}
 		return key, 1
 	case "#if":
+		if name, positive := cFamilyExactDefinedCondition(rest); name != "" {
+			key := "macro:" + strconv.Itoa(cFamilyConditionalIncludeEpoch(name, includeEpoch)) + ":" + strconv.Itoa(macroVersions[name]) + ":" + name
+			if !positive {
+				return key, -1
+			}
+			return key, 1
+		}
 		expression := strings.Join(strings.Fields(rest), " ")
 		if expression == "" {
 			return "", 0
@@ -806,6 +813,32 @@ func cFamilyConditionalState(keyword, rest string, macroVersions map[string]int,
 	default:
 		return "", 0
 	}
+}
+
+// Only a single exact defined(MACRO) expression has the same state as
+// #ifdef MACRO. Composite expressions retain the conservative expression key.
+func cFamilyExactDefinedCondition(expression string) (string, bool) {
+	expression = strings.TrimSpace(expression)
+	positive := true
+	if strings.HasPrefix(expression, "!") {
+		positive = false
+		expression = strings.TrimSpace(expression[1:])
+	}
+	rest, ok := strings.CutPrefix(expression, "defined")
+	if !ok || rest == "" {
+		return "", false
+	}
+	if rest[0] != '(' && rest[0] != ' ' && rest[0] != '\t' {
+		return "", false
+	}
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, "(") && strings.HasSuffix(rest, ")") {
+		rest = strings.TrimSpace(rest[1 : len(rest)-1])
+	}
+	if rest == "" || cFamilyDirectiveMacroName(rest) != rest {
+		return "", false
+	}
+	return rest, positive
 }
 
 func cFamilyConditionalIncludeEpoch(name string, includeEpoch int) int {
