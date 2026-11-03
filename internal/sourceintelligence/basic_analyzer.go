@@ -437,14 +437,29 @@ func (p *basicParser) parseDeclareLibraryBlock(index, end int, parent *SymbolPar
 }
 
 func (p *basicParser) parseVariableDeclaration(line basicLine, semantic int, first, scopeKind string, parent *SymbolParent) bool {
+	bareModuleVariable := false
 	if first != "dim" && first != "global" && first != "static" {
-		return false
+		if !p.policy.metadataModule || scopeKind != "" || semantic != 1 ||
+			!strings.EqualFold(line.tokens[0].Text, "public") && !strings.EqualFold(line.tokens[0].Text, "private") ||
+			line.tokens[semantic].Kind != TokenIdentifier || semantic+1 >= len(line.tokens) {
+			return false
+		}
+		// VB6/VBA module-level variables can omit Dim: Public Options As Config.
+		// Require declaration syntax to avoid treating an arbitrary statement as a variable.
+		separator := line.tokens[semantic+1].Text
+		if !strings.EqualFold(separator, "as") && separator != "=" && separator != "," && separator != "(" {
+			return false
+		}
+		bareModuleVariable = true
 	}
 	kind := SymbolKindVariable
 	if basicFieldScope(scopeKind) {
 		kind = SymbolKindField
 	}
 	nameIndex := semantic + 1
+	if bareModuleVariable {
+		nameIndex = semantic
+	}
 	if first == "dim" && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "shared") {
 		nameIndex++
 	}
@@ -540,7 +555,11 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 				_ = p.builder.AddDiagnostic(DiagnosticSpec{Code: p.policy.language + "-missing-end", Message: "declaration is missing its matching end", Severity: DiagnosticWarning, Range: &OffsetRange{Start: line.start, End: line.end}, AffectsCoverage: true})
 				close = end
 			}
-			symbol, added := p.addScopeSymbol(line, label, currentParent)
+			bodyEnd := line.end
+			if ok && close > i && close < len(p.lines) {
+				bodyEnd = p.lines[close].end
+			}
+			symbol, added := p.addScopeSymbol(line, label, currentParent, bodyEnd)
 			if !added {
 				i++
 				continue
@@ -582,7 +601,7 @@ func basicFieldScope(scopeKind string) bool {
 	}
 }
 
-func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *SymbolParent) (NormalizedSymbol, bool) {
+func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *SymbolParent, bodyEnd int) (NormalizedSymbol, bool) {
 	tokens := line.tokens
 	semantic := basicSemanticIndex(tokens)
 	if semantic < 0 {
@@ -656,7 +675,16 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 		return NormalizedSymbol{}, false
 	}
 	name := normalizeBasicName(nameToken.Text, p.policy)
-	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset}, Signature: &OffsetRange{Start: line.start, End: line.end}, Evidence: SymbolEvidenceStructural})
+	declarationEnd := line.end
+	var body *OffsetRange
+	if bodyEnd > line.end {
+		switch label {
+		case "sub", "function", "property", "procedure", "constructor", "destructor", "operator":
+			declarationEnd = bodyEnd
+			body = &OffsetRange{Start: line.end, End: bodyEnd}
+		}
+	}
+	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset}, Signature: &OffsetRange{Start: line.start, End: line.end}, Body: body, Evidence: SymbolEvidenceStructural})
 }
 
 func (p *basicParser) parseDeclareLibraryPrototypes(start, end int, parent *SymbolParent) {
