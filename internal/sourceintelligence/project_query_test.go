@@ -29,7 +29,7 @@ func TestProjectQueryCPPExplicitHeaderDefinitionCandidates(t *testing.T) {
 			wantCandidate: true,
 		},
 		{
-			name:   "overload-ambiguous",
+			name:   "unmatched-first-overload",
 			header: "class Codec { public: int Read(int n); int Read(double n); };\n",
 			source: "#include \"codec.hpp\"\nint Codec::Read(double n) { return 1; }\n",
 		},
@@ -44,9 +44,41 @@ func TestProjectQueryCPPExplicitHeaderDefinitionCandidates(t *testing.T) {
 			source: "#include \"codec.hpp\"\nint Codec::Read(int n);\n",
 		},
 		{
-			name:          "different-parameter-spelling-stays-ambiguous",
-			header:        "class Codec { public: int Read(int n); };\n",
-			source:        "#include \"codec.hpp\"\nint Codec::Read(double n) { return 0; }\n",
+			name:   "mismatched-parameter-type-not-a-candidate",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(double n) { return 0; }\n",
+		},
+		{
+			name:   "renamed-parameter-conservative",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int count) { return count; }\n",
+		},
+		{
+			name:   "different-cv-qualifier",
+			header: "class Codec { public: int Read(int n) const; };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:          "same-cv-qualifier",
+			header:        "class Codec { public: int Read(int n) const; };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) const { return n; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:          "virtual-override-not-in-out-of-class-definition",
+			header:        "class Base { public: virtual int Read(int n) const; }; class Codec : public Base { public: int Read(int n) const override; };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) const { return n; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "different-noexcept-qualifier",
+			header: "class Codec { public: int Read(int n) noexcept; };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:          "matching-overload-among-declarations",
+			header:        "class Codec { public: int Read(int n); int Read(double n); };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
 			wantCandidate: true,
 		},
 		{
@@ -55,9 +87,15 @@ func TestProjectQueryCPPExplicitHeaderDefinitionCandidates(t *testing.T) {
 			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
 		},
 		{
-			name:   "two-written-implementations",
+			name:          "two-definitions-different-overloads",
+			header:        "class Codec { public: int Read(int n); int Read(double n); };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\nint Codec::Read(double n) { return 0; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "duplicate-identical-definition-stays-unlinked",
 			header: "class Codec { public: int Read(int n); };\n",
-			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\nint Codec::Read(double n) { return 0; }\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\nint Codec::Read(int n) { return n + 1; }\n",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,7 +156,7 @@ func TestProjectQueryCPPQualifiedLifecycleCandidates(t *testing.T) {
 			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\n", true, true},
 		{"overloaded-constructors",
 			"class Codec { public: Codec(int n); Codec(double n); ~Codec(); };\n",
-			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\n", false, true},
+			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\n", true, true},
 		{"no-include",
 			"class Codec { public: Codec(int n); ~Codec(); };\n",
 			"Codec::Codec(int n) {}\nCodec::~Codec() {}\n", false, false},

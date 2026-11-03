@@ -1966,6 +1966,41 @@ func (parser *cFamilyParser) wrappedFunctionParen(start, end, depth int) int {
 	return paren
 }
 
+// cppLexicalDeclaratorKey keeps only a bounded private C++ token spelling.
+// It does not erase parameter names, resolve types, or claim semantic overload
+// identity. Token separators prevent distinct spellings from colliding.
+func cppLexicalDeclaratorKey(tokens []Token, start, closeParen, end int) string {
+	const maxBytes = 512
+	if start < 0 || end > len(tokens) || start >= end {
+		return ""
+	}
+	var result strings.Builder
+	for i := start; i < end; i++ {
+		token := tokens[i]
+		switch token.Kind {
+		case TokenNewline:
+			continue
+		case TokenString, TokenDirective, TokenEOF:
+			return ""
+		}
+		if token.Text == "" {
+			continue
+		}
+		// override/final are in-class virt-specifiers, not part of a
+		// corresponding out-of-class function definition's declarator.
+		if i > closeParen && token.Nesting == tokens[start].Nesting-1 &&
+			(token.Text == "override" || token.Text == "final") {
+			continue
+		}
+		if result.Len()+1+len(token.Text) > maxBytes {
+			return ""
+		}
+		result.WriteByte(0)
+		result.WriteString(token.Text)
+	}
+	return result.String()
+}
+
 func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
 	closeParen := parser.pairs[paren]
 	if closeParen <= paren || closeParen >= end {
@@ -2129,13 +2164,32 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 			nameEnd = parser.tokens[last].EndOffset
 		}
 	}
+	cppDeclaratorKey := ""
+	if parser.cpp {
+		keyEnd := terminator
+		depth := parser.tokens[start].Nesting
+		for index := closeParen + 1; index < terminator; index++ {
+			if parser.tokens[index].Nesting == depth &&
+				(parser.token(index, ":") || parser.token(index, "=")) {
+				keyEnd = index // Constructor initializers and =default/delete are not qualifiers.
+				break
+			}
+		}
+		cppDeclaratorKey = cppLexicalDeclaratorKey(parser.tokens, paren, closeParen, keyEnd)
+		last := previousStructuralToken(parser.tokens, terminator-1, closeParen)
+		before := previousStructuralToken(parser.tokens, last-1, closeParen)
+		if parser.token(last, "delete") && parser.token(before, "=") {
+			cppDeclaratorKey = "" // A deleted member cannot have an out-of-class definition.
+		}
+	}
 	_, added := parser.add(SymbolSpec{
 		Kind: kind, NativeKind: nativeKind, Name: name, QualifiedName: qualifiedName, Parent: effectiveParent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: nameStart, End: nameEnd},
 		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[bodyStartOrTerminator(bodyOpen, terminator)].StartOffset}, Body: body,
 		Visibility: visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
-		Disambiguator: tokenRangeText(parser.tokens, paren, closeParen+1),
+		Disambiguator:    tokenRangeText(parser.tokens, paren, closeParen+1),
+		cppDeclaratorKey: cppDeclaratorKey,
 	})
 	return next, added
 }

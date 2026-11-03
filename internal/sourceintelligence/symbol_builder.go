@@ -109,20 +109,21 @@ type SymbolParent struct {
 
 // SymbolSpec is the analyzer-facing language-neutral declaration input.
 type SymbolSpec struct {
-	Kind          SymbolKind
-	NativeKind    string
-	Name          string
-	QualifiedName string
-	Parent        *SymbolParent
-	RegionID      string
-	Declaration   OffsetRange
-	NameRange     OffsetRange
-	Signature     *OffsetRange
-	Body          *OffsetRange
-	Visibility    Visibility
-	Modifiers     []string
-	Evidence      SymbolEvidence
-	Disambiguator string
+	Kind             SymbolKind
+	NativeKind       string
+	Name             string
+	QualifiedName    string
+	Parent           *SymbolParent
+	RegionID         string
+	Declaration      OffsetRange
+	NameRange        OffsetRange
+	Signature        *OffsetRange
+	Body             *OffsetRange
+	Visibility       Visibility
+	Modifiers        []string
+	Evidence         SymbolEvidence
+	Disambiguator    string
+	cppDeclaratorKey string
 }
 
 // NormalizedSymbol is the shared language-neutral symbol IR. Raw parser/AST types never escape
@@ -153,6 +154,7 @@ type NormalizedSymbol struct {
 	signatureOffsets   *OffsetRange
 	bodyOffsets        *OffsetRange
 	signatureTruncated bool
+	cppDeclaratorKey   string
 }
 
 // SourceOffsets exposes decoded-text UTF-8 offsets only to in-module internal
@@ -517,6 +519,7 @@ func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol
 		Analyzer:            builder.options.Analyzer,
 		declarationOffsets:  spec.Declaration,
 		nameOffsets:         spec.NameRange,
+		cppDeclaratorKey:    spec.cppDeclaratorKey,
 	}
 	if spec.Signature != nil {
 		publicRange, rangeErr := builder.normalizeOptionalRange("signature", *spec.Signature, spec.Declaration, declarationRange)

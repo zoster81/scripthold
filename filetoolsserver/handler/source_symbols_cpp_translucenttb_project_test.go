@@ -199,8 +199,8 @@ func TestSourceSymbolsOriginalCppTranslucentTBMaybeDeleteHeaderOracle(t *testing
 	}
 }
 
-// This independent C++ project has a declared destructor and two written
-// constructor overloads (one deleted). Only the destructor is a candidate.
+// This original project defines the zero-argument constructor and destructor;
+// its deleted copy constructor must never become a cross-file candidate.
 func TestSourceQueryOriginalCppTranslucentTBDetourLifecycle(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {
@@ -220,7 +220,7 @@ func TestSourceQueryOriginalCppTranslucentTBDetourLifecycle(t *testing.T) {
 	for _, file := range outlined.Files {
 		fingerprints[file.Path] = file.SourceFingerprint
 	}
-	var destructorID, constructorID, sourceDestructorID string
+	var destructorID, constructorID, deletedID, sourceDestructorID, sourceConstructorID string
 	ctorDeclarations := 0
 	for _, symbol := range outlined.Symbols {
 		if symbol.Path == header && symbol.QualifiedName == "DetourTransaction.DetourTransaction" {
@@ -229,6 +229,8 @@ func TestSourceQueryOriginalCppTranslucentTBDetourLifecycle(t *testing.T) {
 				ctorDeclarations++
 				if symbol.NameRange.Start.Line == 51 {
 					constructorID = symbol.ID
+				} else if symbol.NameRange.Start.Line == 53 {
+					deletedID = symbol.ID
 				}
 			case "destructor":
 				if symbol.NameRange.Start.Line == 59 {
@@ -241,15 +243,21 @@ func TestSourceQueryOriginalCppTranslucentTBDetourLifecycle(t *testing.T) {
 			symbol.ParentID == "" && symbol.BodyRange != nil {
 			sourceDestructorID = symbol.ID
 		}
+		if symbol.Path == source && symbol.NameRange.Start.Line == 76 &&
+			symbol.NativeKind == "qualified-constructor-definition" && string(symbol.Kind) == "function" &&
+			symbol.ParentID == "" && symbol.BodyRange != nil {
+			sourceConstructorID = symbol.ID
+		}
 	}
-	if ctorDeclarations != 2 || constructorID == "" || destructorID == "" || sourceDestructorID == "" ||
+	if ctorDeclarations != 2 || constructorID == "" || deletedID == "" || destructorID == "" ||
+		sourceConstructorID == "" || sourceDestructorID == "" ||
 		fingerprints[header] == "" || fingerprints[source] == "" {
 		t.Fatalf("original detour lifecycle oracle incomplete: constructors=%d constructor=%q destructor=%q source=%q", ctorDeclarations, constructorID, destructorID, sourceDestructorID)
 	}
 	for _, tc := range []struct {
-		id   string
-		want int
-	}{{destructorID, 1}, {constructorID, 0}} {
+		id, target string
+		want       int
+	}{{destructorID, sourceDestructorID, 1}, {constructorID, sourceConstructorID, 1}, {deletedID, "", 0}} {
 		fail, output, queryErr := h.SourceQuery(context.Background(), nil, SourceQueryInput{
 			Operation: "relations", Relation: "definitions", Paths: []string{header, source}, Language: "cpp",
 			Subject:  &SourceSelectorInput{Kind: "symbol", Path: header, SymbolID: tc.id, SourceFingerprint: fingerprints[header]},
@@ -264,8 +272,8 @@ func TestSourceQueryOriginalCppTranslucentTBDetourLifecycle(t *testing.T) {
 				continue
 			}
 			found++
-			if tc.want == 1 && (edge.Target.SymbolID != sourceDestructorID ||
-				edge.Source.SymbolID != destructorID || string(edge.Resolution) != "ambiguous" ||
+			if tc.want == 1 && (edge.Target.SymbolID != tc.target ||
+				edge.Source.SymbolID != tc.id || string(edge.Resolution) != "ambiguous" ||
 				string(edge.Evidence) != "structural" || edge.Target.SourceFingerprint != fingerprints[source]) {
 				t.Errorf("unsafe original detour destructor candidate: %+v", edge)
 			}

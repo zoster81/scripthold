@@ -442,8 +442,11 @@ func (model *ProjectModel) definitionRecords(selection projectQuerySelection, fi
 // cppExplicitHeaderDefinitionCandidate provides navigation, not semantic ownership.
 // A matching qualified spelling and a directly resolved #include still cannot
 // prove equivalent C++ overloads, macros, template substitutions or parameter types.
-// Return one explicitly ambiguous candidate only when every indexed precondition
-// is unambiguous; never attach cross-file class parents to file-local symbols.
+// Use the bounded written declarator spelling to reject evident overload
+// mismatches. It is not a type-system signature: different parameter names,
+// macros, defaults, and templates can prevent a match. Return one explicitly
+// ambiguous candidate only when indexed preconditions are unambiguous; never
+// attach cross-file class parents to file-local symbols.
 func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projectQuerySelection) (RelationEntity, bool) {
 	file := model.files[selection.pathKey]
 	if file.languageID != "cpp" || !file.facts.Analysis.Analysis.CoverageComplete || file.facts.Analysis.Analysis.Truncated {
@@ -459,7 +462,13 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 			break
 		}
 	}
-	if member == nil {
+	if member == nil || member.symbol.cppDeclaratorKey == "" {
+		return RelationEntity{}, false
+	}
+	// An explicitly defaulted definition is not an unresolved declaration.
+	switch member.symbol.NativeKind {
+	case "method-declaration", "constructor-declaration", "destructor-declaration":
+	default:
 		return RelationEntity{}, false
 	}
 	ownerCount := 0
@@ -485,12 +494,14 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 	var definition *projectSymbolRecord
 	for _, record := range model.symbolsByQualified["cpp\x00"+member.qualifiedKey] {
 		if record.pathKey == selection.pathKey && record.symbol.Kind == member.symbol.Kind &&
-			record.symbol.ParentID == member.symbol.ParentID {
+			record.symbol.ParentID == member.symbol.ParentID &&
+			record.symbol.cppDeclaratorKey == member.symbol.cppDeclaratorKey {
 			memberCount++
 		}
 		if record.pathKey != selection.pathKey && record.symbol.Kind == SymbolKindFunction &&
 			record.symbol.ParentID == "" && record.symbol.BodyRange != nil &&
-			record.symbol.NativeKind == definitionNative {
+			record.symbol.NativeKind == definitionNative &&
+			record.symbol.cppDeclaratorKey == member.symbol.cppDeclaratorKey {
 			definitionCount++
 			definition = record
 		}
