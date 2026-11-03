@@ -2102,7 +2102,10 @@ func bodyStartOrTerminator(bodyOpen, terminator int) int {
 
 func (parser *cFamilyParser) parseVariable(start, semicolon, nameLimit int, parent *SymbolParent, members bool) (int, bool) {
 	if parser.hasToken(start, semicolon, "typedef") {
-		nameIndex := previousIdentifierToken(parser.tokens, semicolon-1, start)
+		nameIndex, functionPointer := parser.functionPointerDeclarator(start, semicolon)
+		if !functionPointer {
+			nameIndex = previousIdentifierToken(parser.tokens, semicolon-1, start)
+		}
 		if nameIndex >= 0 {
 			_, added := parser.add(SymbolSpec{Kind: SymbolKindAlias, NativeKind: "typedef", Name: parser.tokens[nameIndex].Text, Parent: parent,
 				Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
