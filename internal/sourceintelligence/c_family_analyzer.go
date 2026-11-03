@@ -1133,6 +1133,18 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 				continue
 			}
 		}
+		if parser.cpp {
+			if next, ok := parser.cppStandaloneUnresolvedMacro(index, end); ok {
+				index = next
+				continue
+			}
+			if using, ok := parser.cppTemplateUsingAlias(index, end); ok {
+				if next, parsed := parser.parseUsingAlias(index, using, end, parent); parsed {
+					index = next
+					continue
+				}
+			}
+		}
 		if parser.cpp && parser.token(index, "namespace") {
 			index = parser.parseNamespace(index, end, parent)
 			continue
@@ -1167,7 +1179,7 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 			continue
 		}
 		if parser.cpp && parser.token(index, "using") {
-			if next, ok := parser.parseUsingAlias(index, end, parent); ok {
+			if next, ok := parser.parseUsingAlias(index, index, end, parent); ok {
 				index = next
 				continue
 			}
@@ -1225,6 +1237,78 @@ func (parser *cFamilyParser) cppExplicitClassInstantiation(start, end int) (int,
 		if token.Text == ";" {
 			if seenArguments {
 				return i + 1, true
+			}
+			return start, false
+		}
+	}
+	return start, false
+}
+
+// A macro call occupying an entire C++ source line is not a function
+// declaration. Its expansion might introduce scopes, so preserve following
+// authored declarations but explicitly report incomplete structural coverage.
+// Do not assume any specific project macro expands to namespace braces.
+func (parser *cFamilyParser) cppStandaloneUnresolvedMacro(start, end int) (int, bool) {
+	token := parser.tokens[start]
+	name := token.Text
+	if token.Kind != TokenIdentifier || len(name) < 3 ||
+		name != strings.ToUpper(name) || !strings.Contains(name, "_") {
+		return start, false
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if !parser.token(open, "(") || parser.tokens[open].Nesting != token.Nesting+1 {
+		return start, false
+	}
+	if strings.ContainsAny(parser.document.Text[token.EndOffset:parser.tokens[open].StartOffset], "\r\n") {
+		return start, false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		return start, false
+	}
+	after := close + 1
+	if after >= end || parser.tokens[after].Kind != TokenNewline && parser.tokens[after].Kind != TokenEOF {
+		return start, false
+	}
+	rangeValue := OffsetRange{Start: token.StartOffset, End: parser.tokens[close].EndOffset}
+	_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+		Code:     "cpp-unresolved-macro-invocation",
+		Message:  "standalone function-like macro expansion is unknown; following C++ declarations are preserved without inferring macro-generated scope",
+		Severity: DiagnosticWarning, Range: &rangeValue, AffectsCoverage: true,
+	})
+	return after + 1, true
+}
+
+// Only a complete template parameter head immediately followed by 'using'
+// is a template alias. Other templates remain owned by their existing parsers.
+func (parser *cFamilyParser) cppTemplateUsingAlias(start, end int) (int, bool) {
+	if !parser.token(start, "template") {
+		return start, false
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if !parser.token(open, "<") {
+		return start, false
+	}
+	angle := 0
+	for index := open; index < end; index++ {
+		token := parser.tokens[index]
+		switch token.Text {
+		case "<":
+			angle++
+		case ">":
+			angle--
+		case ">>":
+			angle -= 2
+		case "{", ";":
+			return start, false
+		}
+		if angle < 0 || angle > 64 || token.Kind == TokenEOF {
+			return start, false
+		}
+		if angle == 0 {
+			using := nextStructuralToken(parser.tokens, index+1, end)
+			if parser.token(using, "using") {
+				return using, true
 			}
 			return start, false
 		}
@@ -1598,10 +1682,10 @@ func (parser *cFamilyParser) collectCPPBaseRelations(source string, start, end, 
 	}
 }
 
-func (parser *cFamilyParser) parseUsingAlias(start, end int, parent *SymbolParent) (int, bool) {
-	depth := parser.tokens[start].Nesting
+func (parser *cFamilyParser) parseUsingAlias(start, using, end int, parent *SymbolParent) (int, bool) {
+	depth := parser.tokens[using].Nesting
 	semicolon := -1
-	for index := start + 1; index < end; index++ {
+	for index := using + 1; index < end; index++ {
 		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
 			semicolon = index
 			break
@@ -1610,7 +1694,7 @@ func (parser *cFamilyParser) parseUsingAlias(start, end int, parent *SymbolParen
 	if semicolon < 0 {
 		return start + 1, false
 	}
-	nameIndex := nextIdentifierToken(parser.tokens, start+1, semicolon)
+	nameIndex := nextIdentifierToken(parser.tokens, using+1, semicolon)
 	if nameIndex < 0 || !parser.hasToken(nameIndex+1, semicolon, "=") {
 		// A using-directive or using-declaration imports a name; it does
 		// not introduce a variable. Consume it instead of rescanning tokens.
