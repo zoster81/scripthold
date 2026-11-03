@@ -456,7 +456,8 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 	for index := range model.symbolsByFile[selection.pathKey] {
 		record := &model.symbolsByFile[selection.pathKey][index]
 		if record.symbol.ID == selection.entity.SymbolID &&
-			(record.symbol.Kind == SymbolKindMethod || record.symbol.Kind == SymbolKindConstructor || record.symbol.Kind == SymbolKindDestructor) &&
+			(record.symbol.Kind == SymbolKindMethod || record.symbol.Kind == SymbolKindConstructor ||
+				record.symbol.Kind == SymbolKindDestructor || record.symbol.Kind == SymbolKindOperator) &&
 			record.symbol.BodyRange == nil && record.symbol.ParentID != "" {
 			member = record
 			break
@@ -467,7 +468,7 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 	}
 	// An explicitly defaulted definition is not an unresolved declaration.
 	switch member.symbol.NativeKind {
-	case "method-declaration", "constructor-declaration", "destructor-declaration":
+	case "method-declaration", "constructor-declaration", "destructor-declaration", "operator-declaration":
 	default:
 		return RelationEntity{}, false
 	}
@@ -489,6 +490,12 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 		definitionNative = "qualified-constructor-definition"
 	case SymbolKindDestructor:
 		definitionNative = "qualified-destructor-definition"
+	case SymbolKindOperator:
+		definitionNative = "operator-definition"
+	}
+	definitionKind := SymbolKindFunction
+	if member.symbol.Kind == SymbolKindOperator {
+		definitionKind = SymbolKindOperator
 	}
 	memberCount, definitionCount := 0, 0
 	var definition *projectSymbolRecord
@@ -498,7 +505,7 @@ func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projec
 			record.symbol.cppDeclaratorKey == member.symbol.cppDeclaratorKey {
 			memberCount++
 		}
-		if record.pathKey != selection.pathKey && record.symbol.Kind == SymbolKindFunction &&
+		if record.pathKey != selection.pathKey && record.symbol.Kind == definitionKind &&
 			record.symbol.ParentID == "" && record.symbol.BodyRange != nil &&
 			record.symbol.NativeKind == definitionNative &&
 			record.symbol.cppDeclaratorKey == member.symbol.cppDeclaratorKey {

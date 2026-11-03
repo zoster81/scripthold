@@ -220,6 +220,63 @@ func TestSourceSymbolsOriginalCppBehaviorTreeDefaultedDestructor(t *testing.T) {
 	}
 }
 
+// The original class declares a deleted copy assignment and a move assignment.
+// Both are operators, not fields; only the move assignment has a written body.
+func TestSourceSymbolsOriginalCppBehaviorTreeAssignmentOverloadOracle(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("original source corpus not configured")
+	}
+	base := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-behaviortree-behaviortree.cpp")
+	header := filepath.Join(base, "include", "behaviortree_cpp", "tree_node.h")
+	source := filepath.Join(base, "src", "tree_node.cpp")
+	for _, fixture := range []struct{ path, exact string }{
+		{header, "TreeNode& operator=(const TreeNode& other) = delete;"},
+		{header, "TreeNode& operator=(TreeNode&& other) noexcept;"},
+		{source, "TreeNode& TreeNode::operator=(TreeNode&& other) noexcept"},
+	} {
+		data, err := os.ReadFile(fixture.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), fixture.exact) {
+			t.Fatalf("original source changed: %s", fixture.exact)
+		}
+	}
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{header, source},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 2, MaxSymbols: 400,
+	})
+	if err != nil || failed != nil || out.Truncated || !out.CoverageComplete || len(out.Files) != 2 {
+		t.Fatalf("original assignment-operator oracle incomplete: err=%v fail=%+v", err, failed)
+	}
+	got := map[string]bool{}
+	for _, s := range out.Symbols {
+		if s.Path != header && s.Path != source {
+			t.Errorf("out-of-scope source: %+v", s)
+			continue
+		}
+		line := s.NameRange.Start.Line
+		if s.Path == header && line != 171 && line != 174 {
+			continue
+		}
+		if s.Path == source && line != 63 {
+			continue
+		}
+		if string(s.Kind) != "operator" || s.Name != "operator=" || s.QualifiedName != "BT.TreeNode.operator=" ||
+			s.ID == "" || (s.Path == header && (s.ParentID == "" || s.ParentQualifiedName != "BT.TreeNode")) ||
+			(s.Path == source && (s.NativeKind != "operator-definition" || s.BodyRange == nil)) {
+			t.Errorf("false original C++ operator classification: %+v", s)
+			continue
+		}
+		got[filepath.Base(s.Path)+"@"+strconv.Itoa(line)] = true
+	}
+	if !got["tree_node.h@171"] || !got["tree_node.h@174"] || !got["tree_node.cpp@63"] || len(got) != 3 {
+		t.Fatalf("missing original assignment overload: %+v", got)
+	}
+}
+
 // Exhaustive independent declaration inventories for two small original
 // headers; class constructors and methods must preserve real ownership and
 // source positions, with no fabricated base-class or call symbols.

@@ -140,6 +140,72 @@ func TestProjectQueryCPPExplicitHeaderDefinitionCandidates(t *testing.T) {
 	}
 }
 
+// Original C++ move-assignment operators have overloads, including deleted
+// copy-assignment members. Only a matching written declarator and a directly
+// resolved include justify a single ambiguous cross-file navigation candidate.
+func TestProjectQueryCPPAssignmentOperatorCandidates(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const header = "class Codec {\npublic:\n Codec& operator=(Codec&& other) noexcept;\n Codec& operator=(const Codec& other) = delete;\n};\n"
+	for _, tc := range []struct {
+		name, source string
+		wantMove     bool
+	}{
+		{"matching-move", "#include \"codec.hpp\"\nCodec& Codec::operator=(Codec&& other) noexcept { return *this; }\n", true},
+		{"mismatched-const-reference", "#include \"codec.hpp\"\nCodec& Codec::operator=(const Codec& other) { return *this; }\n", false},
+		{"missing-include", "Codec& Codec::operator=(Codec&& other) noexcept { return *this; }\n", false},
+		{"duplicate-definitions", "#include \"codec.hpp\"\nCodec& Codec::operator=(Codec&& other) noexcept { return *this; }\nCodec& Codec::operator=(Codec&& other) noexcept { return *this; }\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "cpp", "operators", tc.name)
+			h := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.hpp"), header)
+			s := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.cc"), tc.source)
+			ids := map[int]string{}
+			for _, symbol := range h.Analysis.Analysis.Symbols {
+				if symbol.NameRange.Start.Line != 3 && symbol.NameRange.Start.Line != 4 {
+					continue
+				}
+				if symbol.Kind != SymbolKindOperator || symbol.Name != "operator=" ||
+					symbol.QualifiedName != "Codec.operator=" || symbol.ParentID == "" {
+					t.Fatalf("false C++ assignment member: %+v", symbol)
+				}
+				ids[symbol.NameRange.Start.Line] = symbol.ID
+			}
+			if len(ids) != 2 {
+				t.Fatalf("missing move/deleted assignment overloads: %+v", h.Analysis.Analysis.Symbols)
+			}
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{h, s}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range []int{3, 4} {
+				relations, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(h, ids[line]), ProjectSelector{}, nil, queryLimits())
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := 0
+				for _, rel := range relations.Records {
+					if rel.Target.Path != s.Path {
+						continue
+					}
+					got++
+					if rel.Evidence != SymbolEvidenceStructural || rel.Resolution != ResolutionAmbiguous ||
+						rel.Source.SymbolID != ids[line] || rel.Target.SymbolID == "" ||
+						rel.Target.QualifiedName != "Codec.operator=" {
+						t.Errorf("unsafe operator candidate: %+v", rel)
+					}
+				}
+				want := line == 3 && tc.wantMove
+				if (got == 1) != want || got > 1 {
+					t.Errorf("line=%d candidates=%d want=%v: %+v", line, got, want, relations.Records)
+				}
+			}
+		})
+	}
+}
+
 // An unresolved out-of-class C++ constructor/destructor remains a file-local
 // function. Project navigation may expose only a structurally ambiguous candidate.
 func TestProjectQueryCPPQualifiedLifecycleCandidates(t *testing.T) {
