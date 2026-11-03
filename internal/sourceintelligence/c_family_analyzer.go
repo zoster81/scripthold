@@ -1602,6 +1602,20 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 				index = close
 				continue
 			}
+			if parser.cpp && parser.firstFunctionParen(start, index, depth) < 0 {
+				// A C++ declarator such as int count{1}; is a variable,
+				// not a function body. Consume its full initializer before
+				// scanning the next declaration, even inside a class.
+				close := parser.pairs[index]
+				if close > index && close < end {
+					semicolon := nextStructuralToken(parser.tokens, close+1, end)
+					previous := previousStructuralToken(parser.tokens, index-1, start)
+					if previous >= start && parser.tokens[previous].Kind == TokenIdentifier &&
+						semicolon < end && parser.tokens[semicolon].Text == ";" && parser.tokens[semicolon].Nesting == depth {
+						return parser.parseVariable(start, semicolon, index, parent, members)
+					}
+				}
+			}
 			terminator = index
 			break
 		}
@@ -1879,17 +1893,24 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 }
 
 func (parser *cFamilyParser) qualifiedFunctionOwner(start, nameIndex int, lexicalParent *SymbolParent) (*SymbolParent, string, bool) {
+	// A scope qualifier must directly precede this function's name (or its
+	// destructor marker). Earlier qualifiers may belong to the return type,
+	// e.g. std::string method(), and must never become an owner.
+	cursor := previousStructuralToken(parser.tokens, nameIndex-1, start)
+	if cursor >= start && parser.tokens[cursor].Text == "~" {
+		cursor = previousStructuralToken(parser.tokens, cursor-1, start)
+	}
 	separator := -1
-	for index := nameIndex - 1; index > start; index-- {
-		if parser.tokens[index].Text == ":" && parser.tokens[index-1].Text == ":" {
-			separator = index - 1
-			break
+	if cursor >= start && parser.tokens[cursor].Text == ":" {
+		previous := previousStructuralToken(parser.tokens, cursor-1, start)
+		if previous >= start && parser.tokens[previous].Text == ":" {
+			separator = previous
 		}
 	}
 	if separator < 0 {
 		return nil, "", false
 	}
-	cursor := separator - 1
+	cursor = separator - 1
 	if cursor < start {
 		return nil, "", false
 	}
