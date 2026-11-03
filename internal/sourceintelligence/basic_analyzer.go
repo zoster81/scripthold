@@ -641,7 +641,7 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 			}
 		}
 	}
-	if label == "property" && parent != nil {
+	if label == "property" && (parent != nil || p.policy.freeBasic) {
 		kind = SymbolKindProperty
 	}
 	if label == "constructor" {
@@ -670,6 +670,21 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 	if nameIndex >= len(tokens) {
 		return NormalizedSymbol{}, false
 	}
+	qualifiedName := ""
+	if p.policy.freeBasic && (label == "sub" || label == "function" || label == "property") {
+		firstName := nameIndex
+		for nameIndex+2 < len(tokens) && tokens[nameIndex+1].Text == "." &&
+			(tokens[nameIndex+2].Kind == TokenIdentifier || tokens[nameIndex+2].Kind == TokenKeyword) {
+			nameIndex += 2
+		}
+		if nameIndex > firstName {
+			parts := make([]string, 0, (nameIndex-firstName)/2+1)
+			for index := firstName; index <= nameIndex; index += 2 {
+				parts = append(parts, normalizeBasicName(tokens[index].Text, p.policy))
+			}
+			qualifiedName = strings.Join(parts, ".")
+		}
+	}
 	nameToken := tokens[nameIndex]
 	if nameToken.Kind != TokenIdentifier && nameToken.Kind != TokenKeyword {
 		return NormalizedSymbol{}, false
@@ -684,7 +699,7 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 			body = &OffsetRange{Start: line.end, End: bodyEnd}
 		}
 	}
-	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset}, Signature: &OffsetRange{Start: line.start, End: line.end}, Body: body, Evidence: SymbolEvidenceStructural})
+	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, QualifiedName: qualifiedName, Parent: parent, Declaration: OffsetRange{Start: line.start, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset}, Signature: &OffsetRange{Start: line.start, End: line.end}, Body: body, Evidence: SymbolEvidenceStructural})
 }
 
 func (p *basicParser) parseDeclareLibraryPrototypes(start, end int, parent *SymbolParent) {
@@ -712,6 +727,10 @@ func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent) {
 	}
 	kindIndex := semantic + 1
 	k := strings.ToLower(line.tokens[kindIndex].Text)
+	if k == "property" && p.policy.freeBasic {
+		p.addNamed(line, kindIndex+1, SymbolKindProperty, "declare-property", parent)
+		return
+	}
 	if k != "sub" && k != "function" {
 		return
 	}
