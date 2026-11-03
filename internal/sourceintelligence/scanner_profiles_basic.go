@@ -23,6 +23,8 @@ func FreeBasicScannerProfile() ScannerProfile    { return BasicScannerProfile("f
 func PureBasicScannerProfile() ScannerProfile {
 	profile := BasicScannerProfile("purebasic")
 	profile.LineComments = []string{";"}
+	// PureBasic single-quoted character constants can contain a double quote.
+	profile.Strings = append(profile.Strings, StringRule{Prefixes: []string{""}, Delimiter: "'"})
 	profile.Directives = false
 	profile.ExplicitContinuation = ""
 	return profile

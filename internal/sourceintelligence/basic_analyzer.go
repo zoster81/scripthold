@@ -352,6 +352,8 @@ func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 	}
 	if p.policy.pureBasic {
 		switch first {
+		case "declaremodule":
+			return "declaremodule", true
 		case "module":
 			return "module", true
 		case "structure":
@@ -392,6 +394,8 @@ func (p *basicParser) scopeClose(tokens []Token) string {
 	first := strings.ToLower(tokens[0].Text)
 	if p.policy.pureBasic {
 		switch first {
+		case "enddeclaremodule":
+			return "declaremodule"
 		case "endmodule":
 			return "module"
 		case "endstructure":
@@ -612,7 +616,7 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 	native := label
 	if p.policy.pureBasic {
 		switch label {
-		case "module":
+		case "module", "declaremodule":
 			kind = SymbolKindModule
 		case "structure":
 			kind = SymbolKindStruct
@@ -726,6 +730,17 @@ func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent) {
 		return
 	}
 	kindIndex := semantic + 1
+	if p.policy.pureBasic {
+		nameIndex := kindIndex
+		if nameIndex+2 < len(line.tokens) && line.tokens[nameIndex].Text == "." &&
+			(line.tokens[nameIndex+1].Kind == TokenIdentifier || line.tokens[nameIndex+1].Kind == TokenKeyword) {
+			nameIndex += 2
+		}
+		if nameIndex+1 < len(line.tokens) && line.tokens[nameIndex+1].Text == "(" {
+			p.addNamed(line, nameIndex, SymbolKindFunction, "declare-procedure", parent)
+		}
+		return
+	}
 	k := strings.ToLower(line.tokens[kindIndex].Text)
 	if k == "property" && p.policy.freeBasic {
 		p.addNamed(line, kindIndex+1, SymbolKindProperty, "declare-property", parent)
