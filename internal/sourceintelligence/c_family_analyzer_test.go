@@ -1125,3 +1125,42 @@ func TestCPP20ConceptDoesNotBecomeVariable(t *testing.T) {
 		t.Fatalf("adjacent declarations lost: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
 	}
 }
+
+func TestCPPQualifiedTemplateSpecializationPreservesDefinitions(t *testing.T) {
+	cases := []struct {
+		name, code string
+		want       map[string]int
+	}{
+		{
+			name: "explicit-specialization",
+			code: "template<>\nvoid Error::impl::Handle<spdlog::level::err>(int value) {\n  if (value) { Log(); }\n}\nvoid Error::impl::Ready() {}\n",
+			want: map[string]int{"Error.impl.Handle": 2, "Error.impl.Ready": 5},
+		},
+		{
+			name: "nested-qualified-function",
+			code: "std::wstring Alpha::Beta::Get(int count) { return {}; }\n",
+			want: map[string]int{"Alpha.Beta.Get": 1},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.code), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("unexpected incomplete scan: %+v", result.Analysis)
+			}
+			if len(result.Analysis.Symbols) != len(tc.want) {
+				t.Fatalf("declarations %v; expected %v", sortedSymbolQualifiedNames(result.Analysis.Symbols), tc.want)
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				line, ok := tc.want[symbol.QualifiedName]
+				if !ok || symbol.Kind != SymbolKindFunction || symbol.NameRange.Start.Line != line ||
+					symbol.BodyRange == nil || symbol.ParentID != "" || symbol.ParentQualifiedName != "" {
+					t.Errorf("false or misqualified C++ declaration: %+v", symbol)
+				}
+			}
+		})
+	}
+}

@@ -1850,7 +1850,8 @@ func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
 		if previous < 0 {
 			continue
 		}
-		if parser.tokens[previous].Kind == TokenIdentifier || parser.tokens[previous].Text == "]" || parser.tokens[previous].Text == ")" || parser.operatorTokenBefore(previous, start) {
+		if parser.tokens[previous].Kind == TokenIdentifier || parser.tokens[previous].Text == "]" || parser.tokens[previous].Text == ")" || parser.operatorTokenBefore(previous, start) ||
+			(parser.cpp && parser.cppExplicitSpecializationName(start, index) >= 0) {
 			return index
 		}
 	}
@@ -1956,6 +1957,11 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		}
 	}
 	nameIndex := previousIdentifierToken(parser.tokens, paren-1, start)
+	if parser.cpp {
+		if specializationName := parser.cppExplicitSpecializationName(start, paren); specializationName >= 0 {
+			nameIndex = specializationName
+		}
+	}
 	if operatorIndex >= 0 {
 		nameIndex = operatorIndex
 	}
@@ -2064,53 +2070,113 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 	return next, added
 }
 
+// cppExplicitSpecializationName finds the name before a balanced template
+// argument list only for a written "template<> ... Name<...>(...)" function.
+// Ordinary calls, initializers and unproven templates keep existing parsing.
+func (parser *cFamilyParser) cppExplicitSpecializationName(start, paren int) int {
+	if !parser.cpp || !parser.token(start, "template") {
+		return -1
+	}
+	open := nextStructuralToken(parser.tokens, start+1, paren)
+	close := open
+	if !parser.token(open, "<>") {
+		close = nextStructuralToken(parser.tokens, open+1, paren)
+		if !parser.token(open, "<") || !parser.token(close, ">") {
+			return -1
+		}
+	}
+	cursor := previousStructuralToken(parser.tokens, paren-1, start)
+	if !parser.token(cursor, ">") && !parser.token(cursor, ">>") {
+		return -1
+	}
+	angle := 0
+	for index := cursor; index > close; index-- {
+		switch parser.tokens[index].Text {
+		case ">":
+			angle++
+		case ">>":
+			angle += 2
+		case "<":
+			angle--
+		}
+		if angle == 0 {
+			name := previousStructuralToken(parser.tokens, index-1, start)
+			if name > close && parser.tokens[name].Kind == TokenIdentifier {
+				return name
+			}
+			return -1
+		}
+		if angle < 0 || angle > 64 {
+			return -1
+		}
+	}
+	return -1
+}
+
+// Only a written scope adjacent to the function name is collected. Return
+// types can carry unrelated qualifiers. Unknown multi-part qualifiers remain
+// qualified names, never invented parent symbols.
 func (parser *cFamilyParser) qualifiedFunctionOwner(start, nameIndex int, lexicalParent *SymbolParent) (*SymbolParent, string, bool) {
-	// A scope qualifier must directly precede this function's name (or its
-	// destructor marker). Earlier qualifiers may belong to the return type,
-	// e.g. std::string method(), and must never become an owner.
 	cursor := previousStructuralToken(parser.tokens, nameIndex-1, start)
-	if cursor >= start && parser.tokens[cursor].Text == "~" {
+	if parser.token(cursor, "~") {
 		cursor = previousStructuralToken(parser.tokens, cursor-1, start)
 	}
-	separator := -1
-	if cursor >= start && parser.tokens[cursor].Text == ":" {
-		previous := previousStructuralToken(parser.tokens, cursor-1, start)
-		if previous >= start && parser.tokens[previous].Text == ":" {
-			separator = previous
-		}
-	}
-	if separator < 0 {
-		return nil, "", false
-	}
-	cursor = separator - 1
-	if cursor < start {
-		return nil, "", false
-	}
-	if parser.tokens[cursor].Text == ">" {
-		angle := 1
-		cursor--
-		for cursor >= start && angle > 0 {
-			switch parser.tokens[cursor].Text {
-			case ">":
-				angle++
-			case "<":
-				angle--
+	parts := make([]string, 0, 3)
+	for {
+		separator := -1
+		if parser.token(cursor, "::") {
+			separator = cursor
+		} else if parser.token(cursor, ":") {
+			previous := previousStructuralToken(parser.tokens, cursor-1, start)
+			if parser.token(previous, ":") {
+				separator = previous
 			}
-			cursor--
 		}
+		if separator < 0 {
+			break
+		}
+		cursor = previousStructuralToken(parser.tokens, separator-1, start)
+		if parser.token(cursor, ">") || parser.token(cursor, ">>") {
+			angle := 0
+			for cursor >= start {
+				switch parser.tokens[cursor].Text {
+				case ">":
+					angle++
+				case ">>":
+					angle += 2
+				case "<":
+					angle--
+				}
+				cursor = previousStructuralToken(parser.tokens, cursor-1, start)
+				if angle == 0 {
+					break
+				}
+				if angle < 0 || angle > 64 {
+					return nil, "", false
+				}
+			}
+		}
+		if cursor < start || parser.tokens[cursor].Kind != TokenIdentifier {
+			return nil, "", false
+		}
+		parts = append(parts, parser.tokens[cursor].Text)
+		cursor = previousStructuralToken(parser.tokens, cursor-1, start)
 	}
-	qualifierIndex := previousIdentifierToken(parser.tokens, cursor, start)
-	if qualifierIndex < 0 {
+	if len(parts) == 0 {
 		return nil, "", false
 	}
-	qualifier := parser.tokens[qualifierIndex].Text
+	for left, right := 0, len(parts)-1; left < right; left, right = left+1, right-1 {
+		parts[left], parts[right] = parts[right], parts[left]
+	}
+	qualifier := strings.Join(parts, ".")
+	ownerName := parts[len(parts)-1]
 	candidate := qualifier
 	if lexicalParent != nil && lexicalParent.QualifiedName != "" {
 		candidate = lexicalParent.QualifiedName + "." + qualifier
 	}
 	if parent, ok := parser.types[candidate]; ok {
 		value := parent
-		return &value, qualifier, true
+		return &value, ownerName, true
 	}
 	var match *SymbolParent
 	for qualified, parent := range parser.types {
@@ -2118,19 +2184,15 @@ func (parser *cFamilyParser) qualifiedFunctionOwner(start, nameIndex int, lexica
 			continue
 		}
 		if match != nil {
-			return nil, "", false
+			return nil, qualifier, false
 		}
 		value := parent
 		match = &value
 	}
-	if match == nil {
-		if qualifierIndex > start && parser.tokens[qualifierIndex-1].Text == ":" {
-			// Multiple unknown scope components cannot be shortened safely.
-			return nil, "", false
-		}
-		return nil, qualifier, false
+	if match != nil {
+		return match, ownerName, true
 	}
-	return match, qualifier, true
+	return nil, qualifier, false
 }
 func bodyStartOrTerminator(bodyOpen, terminator int) int {
 	if bodyOpen >= 0 {

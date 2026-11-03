@@ -220,3 +220,57 @@ func TestSourceSymbolsOriginalCppTranslucentTBConceptIsNotAVariable(t *testing.T
 		t.Fatalf("concept must not become a variable; preserve namespace: %+v", out.Symbols)
 	}
 }
+
+func TestSourceSymbolsOriginalCppTranslucentTBErrorSpecializations(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus not configured")
+	}
+	file := filepath.Join(root, "qualification", "final-candidate-corpus",
+		"project-cpp-translucenttb-translucenttb", "ProgramLog", "error", "error.cpp")
+	h := NewHandler([]string{root})
+	fail, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{file},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 32,
+	})
+	if err != nil || fail != nil || out.Truncated || !out.CoverageComplete ||
+		len(out.Files) != 1 || out.Files[0].SourceFingerprint == "" {
+		t.Fatalf("original C++ specialization file unavailable: err=%v fail=%+v out=%+v", err, fail, out)
+	}
+	want := map[string]bool{
+		"Error.impl.ShouldLogInternal@17":     false,
+		"Error.impl.Log@28":                   false,
+		"Error.impl.GetLogMessage@33":         false,
+		"Error.impl.Handle@53":                false,
+		"Error.impl.Handle@67":                false,
+		"Error.impl.HandleCommon@73":          false,
+		"Error.impl.HandleCriticalCommon@114": false,
+	}
+	if len(out.Symbols) != len(want) {
+		t.Fatalf("seven authored out-of-namespace definitions expected; got %+v", out.Symbols)
+	}
+	for _, symbol := range out.Symbols {
+		key := symbol.QualifiedName + "@" + strconv.Itoa(symbol.NameRange.Start.Line)
+		if _, found := want[key]; !found || want[key] || string(symbol.Kind) != "function" ||
+			symbol.ParentID != "" || symbol.ParentQualifiedName != "" || symbol.BodyRange == nil {
+			t.Errorf("invented or lost original qualified C++ definition: %+v", symbol)
+		}
+		want[key] = true
+		if key == "Error.impl.Handle@53" {
+			failed, show, showErr := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: file, SymbolID: symbol.ID,
+				SourceFingerprint: out.Files[0].SourceFingerprint,
+				Language:          "cpp", Encoding: "utf-8", MaxBytes: 2048,
+			})
+			if showErr != nil || failed != nil || show.Show == nil ||
+				!strings.Contains(show.Show.Text, "DebugBreak();") {
+				t.Errorf("original template specialization body lost: err=%v fail=%+v", showErr, failed)
+			}
+		}
+	}
+	for key, found := range want {
+		if !found {
+			t.Errorf("missing original C++ definition: %s", key)
+		}
+	}
+}

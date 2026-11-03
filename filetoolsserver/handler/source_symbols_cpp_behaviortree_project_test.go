@@ -68,6 +68,7 @@ func TestSourceSymbolsOriginalCppBehaviorTreeWholeProject(t *testing.T) {
 		"tests/gtest_name_validation.cpp":           true,
 		"tests/gtest_parallel.cpp":                  true,
 		"tests/gtest_plugin_issue953.cpp":           true,
+		"tests/gtest_ports.cpp":                     true,
 		"tests/gtest_sequence.cpp":                  true,
 		"tests/gtest_switch.cpp":                    true,
 		"tests/gtest_tree.cpp":                      true,
