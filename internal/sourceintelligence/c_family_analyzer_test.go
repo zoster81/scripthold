@@ -815,6 +815,91 @@ T Box<T>::get() const { return T{}; }
 	}
 }
 
+// A qualified assignment operator and defaulted destructor must not become variables.
+func TestCPPQualifiedOperatorAndDefaultedDestructorFromOriginalShape(t *testing.T) {
+	const source = `namespace BT {
+TreeNode& TreeNode::operator=(TreeNode&& other) noexcept
+{
+  return *this;
+}
+TreeNode::~TreeNode() = default;
+}`
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Fatalf("qualified source partial: %+v", result.Analysis)
+			}
+			foundOperator, foundDefaulted := false, false
+			for _, s := range result.Analysis.Symbols {
+				if s.NameRange.Start.Line != 2 && s.NameRange.Start.Line != 6 {
+					continue
+				}
+				if s.Kind == SymbolKindVariable {
+					t.Errorf("false variable: %+v", s)
+				}
+				if s.NameRange.Start.Line == 2 && s.Kind == SymbolKindOperator && s.Name == "operator=" &&
+					s.QualifiedName == "BT.TreeNode.operator=" && s.NativeKind == "operator-definition" && s.BodyRange != nil {
+					foundOperator = true
+				}
+				if s.NameRange.Start.Line == 6 && s.Kind == SymbolKindFunction && s.QualifiedName == "BT.TreeNode.TreeNode" &&
+					s.NativeKind == "qualified-destructor-defaulted-definition" && s.BodyRange == nil && s.ParentQualifiedName == "BT" {
+					foundDefaulted = true
+				}
+			}
+			if !foundOperator || !foundDefaulted {
+				t.Fatalf("operator=%v defaulted=%v; symbols=%+v", foundOperator, foundDefaulted, result.Analysis.Symbols)
+			}
+		})
+	}
+}
+
+// Out-of-class nested C++ type definitions must not masquerade as a
+// definition of their qualifier; the qualifier can live in a separate header.
+func TestCPPQualifiedNestedStructDoesNotInventOuterClass(t *testing.T) {
+	const source = `namespace BT {
+struct TreeNode::PImpl {
+  PImpl(int n) {}
+  int value;
+};
+TreeNode::~TreeNode() = default;
+}`
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("partial original-shaped nested class: %+v", result.Analysis)
+	}
+	wantStruct, wantCtor, wantDestructor := false, false, false
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.Kind == SymbolKindStruct && symbol.QualifiedName == "BT.TreeNode" {
+			t.Errorf("invented outer class from nested type: %+v", symbol)
+		}
+		if symbol.Kind == SymbolKindStruct && symbol.Name == "PImpl" && symbol.QualifiedName == "BT.TreeNode.PImpl" &&
+			symbol.ParentQualifiedName == "BT" && symbol.NameRange.Start.Line == 2 {
+			wantStruct = true
+		}
+		if symbol.Kind == SymbolKindConstructor && symbol.QualifiedName == "BT.TreeNode.PImpl.PImpl" &&
+			symbol.NameRange.Start.Line == 3 {
+			wantCtor = true
+		}
+		if symbol.Kind == SymbolKindFunction && symbol.QualifiedName == "BT.TreeNode.TreeNode" &&
+			symbol.NativeKind == "qualified-destructor-defaulted-definition" && symbol.BodyRange == nil &&
+			symbol.ParentQualifiedName == "BT" && symbol.NameRange.Start.Line == 6 {
+			wantDestructor = true
+		}
+	}
+	if !wantStruct || !wantCtor || !wantDestructor {
+		t.Fatalf("nested type=%v constructor=%v defaulted destructor=%v; symbols=%+v", wantStruct, wantCtor, wantDestructor, result.Analysis.Symbols)
+	}
+}
+
 func TestCPPUnresolvedQualifiedDefinitionsRetainAuthoredScope(t *testing.T) {
 	const source = `void printer::print(int value) {}
 void other_scope::free_function() {}

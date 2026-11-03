@@ -170,6 +170,56 @@ func TestSourceSymbolsOriginalCppBehaviorTreeWholeProject(t *testing.T) {
 	}
 }
 
+// This original source has an authored assignment operator and a C++
+// explicitly defaulted destructor, neither a variable nor a brace body.
+func TestSourceSymbolsOriginalCppBehaviorTreeDefaultedDestructor(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("original source corpus not configured")
+	}
+	path := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-behaviortree-behaviortree.cpp", "src", "tree_node.cpp")
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(original), "TreeNode& TreeNode::operator=(TreeNode&& other) noexcept") ||
+		!strings.Contains(string(original), "TreeNode::~TreeNode() = default;") {
+		t.Fatal("original project oracle has changed")
+	}
+	h := NewHandler([]string{root})
+	fail, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128,
+	})
+	if err != nil || fail != nil || out.Truncated || !out.CoverageComplete || len(out.Files) != 1 || out.Files[0].SourceFingerprint == "" {
+		t.Fatalf("original BehaviorTree source not fully analyzed: err=%v fail=%+v out=%+v", err, fail, out)
+	}
+	operatorCount, defaultedCount := 0, 0
+	var near []string
+	for _, symbol := range out.Symbols {
+		line := symbol.NameRange.Start.Line
+		if line != 63 && line != 69 {
+			continue
+		}
+		near = append(near, strconv.Itoa(line)+":"+string(symbol.Kind)+":"+symbol.QualifiedName+":"+symbol.NativeKind+":"+symbol.ParentQualifiedName)
+		if symbol.Kind == "variable" {
+			t.Errorf("false original declaration at line %d: %+v", line, symbol)
+		}
+		if line == 63 && symbol.Kind == "operator" && symbol.Name == "operator=" &&
+			symbol.QualifiedName == "BT.TreeNode.operator=" && symbol.BodyRange != nil {
+			operatorCount++
+		}
+		if line == 69 && symbol.Kind == "function" && symbol.QualifiedName == "BT.TreeNode.TreeNode" &&
+			symbol.NativeKind == "qualified-destructor-defaulted-definition" && symbol.BodyRange == nil &&
+			symbol.SignatureRange != nil && symbol.ParentQualifiedName == "BT" {
+			defaultedCount++
+		}
+	}
+	if operatorCount != 1 || defaultedCount != 1 {
+		t.Fatalf("original C++ operator count=%d defaulted destructor count=%d; nearby=%v", operatorCount, defaultedCount, near)
+	}
+}
+
 // Exhaustive independent declaration inventories for two small original
 // headers; class constructors and methods must preserve real ownership and
 // source positions, with no fabricated base-class or call symbols.

@@ -1676,10 +1676,35 @@ func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolPa
 		body = &value
 	}
 	modifiers := collectKnownModifiers(parser.tokens, start, keyword, cFamilyModifiers)
+	lastNameIndex := nameIndex
+	qualifiedName := ""
+	if parser.cpp && open >= 0 {
+		// A definition such as "struct Outer::Inner { ... }" declares Inner,
+		// not Outer. Its owner may only exist in a separate header: retain
+		// the written qualifier without manufacturing an outer class ID.
+		parts := []string{parser.tokens[nameIndex].Text}
+		for cursor := nextStructuralToken(parser.tokens, lastNameIndex+1, open); cursor < open; {
+			next, ok := parser.namespaceAliasSeparator(cursor, open)
+			if !ok || next >= open || parser.tokens[next].Kind != TokenIdentifier ||
+				parser.tokens[next].Nesting != depth {
+				break
+			}
+			lastNameIndex = next
+			parts = append(parts, parser.tokens[next].Text)
+			cursor = nextStructuralToken(parser.tokens, next+1, open)
+		}
+		if len(parts) > 1 {
+			qualifiedName = strings.Join(parts, ".")
+			if parent != nil && parent.QualifiedName != "" &&
+				!strings.HasPrefix(qualifiedName, parent.QualifiedName+".") {
+				qualifiedName = parent.QualifiedName + "." + qualifiedName
+			}
+		}
+	}
 	symbol, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[lastNameIndex].Text, QualifiedName: qualifiedName, Parent: parent,
 		Declaration: OffsetRange{Start: declarationStart, End: declarationEnd},
-		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[lastNameIndex].StartOffset, End: parser.tokens[lastNameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: declarationStart, End: signatureEnd}, Body: body,
 		Visibility: visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
 	})
@@ -1688,7 +1713,7 @@ func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolPa
 	}
 	parser.types[symbol.QualifiedName] = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 	if parser.cpp && open >= 0 {
-		parser.collectCPPBaseRelations(symbol.QualifiedName, nameIndex+1, open, depth)
+		parser.collectCPPBaseRelations(symbol.QualifiedName, lastNameIndex+1, open, depth)
 	}
 	if open >= 0 && nativeKind != "enum" {
 		typeParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
@@ -2041,10 +2066,28 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 			nativeKind = "operator-definition"
 		}
 	}
-	if parser.cpp && unresolvedQualifier != "" && body != nil && kind == SymbolKindFunction {
+	defaulted := false
+	if parser.cpp && body == nil && parser.token(terminator, ";") {
+		last := previousStructuralToken(parser.tokens, terminator-1, closeParen)
+		equals := previousStructuralToken(parser.tokens, last-1, closeParen)
+		defaulted = equals >= 0 && parser.token(last, "default") && parser.token(equals, "=") &&
+			parser.tokens[equals].Nesting == parser.tokens[start].Nesting
+		if defaulted {
+			switch kind {
+			case SymbolKindConstructor:
+				nativeKind = "constructor-defaulted-definition"
+			case SymbolKindDestructor:
+				nativeKind = "destructor-defaulted-definition"
+			case SymbolKindOperator:
+				nativeKind = "operator-defaulted-definition"
+			}
+		}
+	}
+	if parser.cpp && unresolvedQualifier != "" && (body != nil || defaulted) && kind == SymbolKindFunction {
 		// The written spelling distinguishes lifecycle definitions even when the
 		// qualifier's class/namespace identity is unknown across files. Preserve
-		// the conservative function kind and unowned parent.
+		// the conservative function kind and unowned parent. '= default' has no
+		// body, but is a C++ definition rather than a mere declaration.
 		owner := unresolvedQualifier
 		if dot := strings.LastIndexByte(owner, '.'); dot >= 0 {
 			owner = owner[dot+1:]
@@ -2054,9 +2097,17 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 			qualifier := strings.ReplaceAll(unresolvedQualifier, ".", "::") + "::"
 			switch prefix {
 			case qualifier:
-				nativeKind = "qualified-constructor-definition"
+				if defaulted {
+					nativeKind = "qualified-constructor-defaulted-definition"
+				} else {
+					nativeKind = "qualified-constructor-definition"
+				}
 			case qualifier + "~":
-				nativeKind = "qualified-destructor-definition"
+				if defaulted {
+					nativeKind = "qualified-destructor-defaulted-definition"
+				} else {
+					nativeKind = "qualified-destructor-definition"
+				}
 			}
 		}
 	}
