@@ -7,8 +7,78 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 )
+
+// This original 56-line header is exhaustively annotated, including conditional
+// declarations from both balanced preprocessing branches. Include directives,
+// macro names, comments and function parameters are not declarations.
+func TestSourceSymbolsOriginalCppCLI11EncodingCompleteOracle(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus not configured")
+	}
+	path := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-cliutils-cli11",
+		"include", "CLI", "Encoding.hpp")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, snippet := range []string{
+		"CLI11_INLINE std::string narrow(const std::wstring &str);",
+		"CLI11_INLINE std::wstring widen(const char *str, std::size_t size);",
+		"CLI11_INLINE std::string narrow(std::wstring_view str);",
+		"CLI11_INLINE std::filesystem::path to_path(std::string_view str);",
+	} {
+		if !strings.Contains(string(raw), snippet) {
+			t.Fatalf("independent CLI11 encoding oracle changed: %s", snippet)
+		}
+	}
+	h := NewHandler([]string{root})
+	fail, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 32,
+	})
+	if err != nil || fail != nil || !outline.CoverageComplete || outline.Truncated ||
+		len(outline.Files) != 1 || outline.Files[0].SourceFingerprint == "" {
+		t.Fatalf("original CLI11 encoding oracle incomplete: err=%v fail=%+v", err, fail)
+	}
+	type expectation struct{ kind, owner string }
+	want := map[string]expectation{
+		"CLI@27":         {"namespace", ""},
+		"CLI.narrow@31":  {"function", "CLI"},
+		"CLI.narrow@32":  {"function", "CLI"},
+		"CLI.narrow@33":  {"function", "CLI"},
+		"CLI.widen@36":   {"function", "CLI"},
+		"CLI.widen@37":   {"function", "CLI"},
+		"CLI.widen@38":   {"function", "CLI"},
+		"CLI.narrow@41":  {"function", "CLI"},
+		"CLI.widen@42":   {"function", "CLI"},
+		"CLI.to_path@47": {"function", "CLI"},
+	}
+	tp, fp := 0, 0
+	for _, sym := range outline.Symbols {
+		key := sym.QualifiedName + "@" + strconv.Itoa(sym.NameRange.Start.Line)
+		e, ok := want[key]
+		if !ok || string(sym.Kind) != e.kind || sym.ParentQualifiedName != e.owner ||
+			sym.ID == "" || (e.owner != "" && sym.ParentID == "") {
+			fp++
+			t.Errorf("false/wrong original CLI11 encoding declaration: %+v (want=%+v exists=%v)", sym, e, ok)
+			continue
+		}
+		tp++
+		delete(want, key)
+	}
+	fn := len(want)
+	for key := range want {
+		t.Errorf("missing original CLI11 encoding symbol: %s", key)
+	}
+	if tp != 10 || fp != 0 || fn != 0 {
+		t.Fatalf("CLI11 Encoding.hpp scope TP=%d FP=%d FN=%d returned=%d", tp, fp, fn, len(outline.Symbols))
+	}
+	t.Logf("original CLI11 Encoding.hpp complete scope TP=%d FP=%d FN=%d", tp, fp, fn)
+}
 
 // The original pinned CLI11 repository includes tests, examples and library
 // headers. Reconcile the full C++ source set in bounded MCP batches.

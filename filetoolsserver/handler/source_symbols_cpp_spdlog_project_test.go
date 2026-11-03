@@ -11,6 +11,155 @@ import (
 	"testing"
 )
 
+// This full-file oracle is manually derived from the original 38-line
+// null_mutex.h; parameter defaults, macros, and comments are not declarations.
+// Exact matches are counted for one bounded scope, not extrapolated to C++.
+func TestSourceSymbolsOriginalCppSpdlogNullMutexCompleteOracle(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original source corpus is not configured")
+	}
+	path := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-gabime-spdlog",
+		"include", "spdlog", "details", "null_mutex.h")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{
+		"struct null_mutex {", "struct null_atomic_int {",
+		"int value{0};", "null_atomic_int() = default;",
+		"explicit null_atomic_int(int new_value)",
+		"int load(std::memory_order = std::memory_order_relaxed) const",
+		"int exchange(int new_value, std::memory_order = std::memory_order_relaxed)",
+	} {
+		if !strings.Contains(string(raw), marker) {
+			t.Fatalf("original source oracle changed: %s", marker)
+		}
+	}
+	h := NewHandler([]string{root})
+	failure, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failure != nil || !outline.CoverageComplete ||
+		outline.Truncated || len(outline.Files) != 1 || outline.Files[0].SourceFingerprint == "" {
+		t.Fatalf("original header not fully analyzed: failure=%+v err=%v", failure, err)
+	}
+	type expectation struct{ kind, owner string }
+	expected := map[string]expectation{
+		"details@13":                                 {"namespace", ""},
+		"details.null_mutex@14":                      {"struct", "details"},
+		"details.null_mutex.lock@15":                 {"method", "details.null_mutex"},
+		"details.null_mutex.unlock@16":               {"method", "details.null_mutex"},
+		"details.null_atomic_int@19":                 {"struct", "details"},
+		"details.null_atomic_int.value@20":           {"field", "details.null_atomic_int"},
+		"details.null_atomic_int.null_atomic_int@21": {"constructor", "details.null_atomic_int"},
+		"details.null_atomic_int.null_atomic_int@23": {"constructor", "details.null_atomic_int"},
+		"details.null_atomic_int.load@26":            {"method", "details.null_atomic_int"},
+		"details.null_atomic_int.store@28":           {"method", "details.null_atomic_int"},
+		"details.null_atomic_int.exchange@30":        {"method", "details.null_atomic_int"},
+	}
+	tp, fp := 0, 0
+	for _, sym := range outline.Symbols {
+		key := sym.QualifiedName + "@" + strconv.Itoa(sym.NameRange.Start.Line)
+		want, ok := expected[key]
+		if !ok || string(sym.Kind) != want.kind ||
+			sym.ParentQualifiedName != want.owner || sym.ID == "" ||
+			(want.owner != "" && sym.ParentID == "") {
+			fp++
+			t.Errorf("false/wrong original symbol: %+v (expected=%+v present=%v)", sym, want, ok)
+			continue
+		}
+		tp++
+		delete(expected, key)
+	}
+	fn := len(expected)
+	for missing := range expected {
+		t.Errorf("missing original declaration: %s", missing)
+	}
+	if fp != 0 || fn != 0 || tp != 11 {
+		t.Fatalf("original bounded full-file precision/recall: TP=%d FP=%d FN=%d returned=%d; not a project-wide metric",
+			tp, fp, fn, len(outline.Symbols))
+	}
+	t.Logf("original spdlog null_mutex.h complete oracle: TP=%d FP=%d FN=%d (scope: one 38-line file)", tp, fp, fn)
+}
+
+// A second full original spdlog file checks an exported struct, five
+// constructors, an assignment operator, and eight fields. Macro tokens and
+// parameter names are forbidden from becoming parentless declarations.
+func TestSourceSymbolsOriginalCppSpdlogLogMsgCompleteOracle(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original source corpus is not configured")
+	}
+	path := filepath.Join(root, "qualification", "final-candidate-corpus", "project-cpp-gabime-spdlog",
+		"include", "spdlog", "details", "log_msg.h")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{
+		"struct SPDLOG_API log_msg {", "log_msg() = default;", "log_msg(const log_msg &other) = default;",
+		"log_msg &operator=(const log_msg &other) = default;", "level::level_enum level{level::off};",
+		"mutable size_t color_range_start{0};",
+	} {
+		if !strings.Contains(string(raw), text) {
+			t.Fatalf("original oracle changed: %s", text)
+		}
+	}
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failed != nil || !out.CoverageComplete || out.Truncated ||
+		len(out.Files) != 1 || out.Files[0].SourceFingerprint == "" {
+		t.Fatalf("original log_msg.h not fully analyzed: err=%v fail=%+v", err, failed)
+	}
+	type expectation struct{ kind, owner string }
+	const owner = "details.log_msg"
+	oracle := map[string]expectation{
+		"details@10":                           {"namespace", ""},
+		"details.log_msg@11":                   {"struct", "details"},
+		"details.log_msg.log_msg@12":           {"constructor", owner},
+		"details.log_msg.log_msg@13":           {"constructor", owner},
+		"details.log_msg.log_msg@18":           {"constructor", owner},
+		"details.log_msg.log_msg@19":           {"constructor", owner},
+		"details.log_msg.log_msg@20":           {"constructor", owner},
+		"details.log_msg.operator=@21":         {"operator", owner},
+		"details.log_msg.logger_name@23":       {"field", owner},
+		"details.log_msg.level@24":             {"field", owner},
+		"details.log_msg.time@25":              {"field", owner},
+		"details.log_msg.thread_id@26":         {"field", owner},
+		"details.log_msg.color_range_start@29": {"field", owner},
+		"details.log_msg.color_range_end@30":   {"field", owner},
+		"details.log_msg.source@32":            {"field", owner},
+		"details.log_msg.payload@33":           {"field", owner},
+	}
+	tp, fp := 0, 0
+	for _, sym := range out.Symbols {
+		key := sym.QualifiedName + "@" + strconv.Itoa(sym.NameRange.Start.Line)
+		want, ok := oracle[key]
+		if !ok || string(sym.Kind) != want.kind || sym.ParentQualifiedName != want.owner ||
+			sym.ID == "" || (want.owner != "" && sym.ParentID == "") {
+			fp++
+			t.Errorf("false/incorrect original declaration: %+v (wanted %+v exists=%v)", sym, want, ok)
+			continue
+		}
+		tp++
+		delete(oracle, key)
+	}
+	fn := len(oracle)
+	for missing := range oracle {
+		t.Errorf("missing original declaration: %s", missing)
+	}
+	if tp != 16 || fp != 0 || fn != 0 {
+		t.Fatalf("original log_msg.h bounded whole-file oracle TP=%d FP=%d FN=%d returned=%d",
+			tp, fp, fn, len(out.Symbols))
+	}
+	t.Logf("original spdlog log_msg.h: TP=%d FP=%d FN=%d (41-line scope only)", tp, fp, fn)
+}
+
 // Inventory the complete original spdlog project, including bundled fmt.
 // Three original fmt headers use unresolved C++ macros; all other source
 // files must remain fully covered, with no silently excluded inputs.
