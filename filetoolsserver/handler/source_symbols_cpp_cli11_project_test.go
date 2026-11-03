@@ -11,8 +11,9 @@ import (
 )
 
 // The original pinned CLI11 repository includes tests, examples and library
-// headers. Screen the whole eligible C++ source set in bounded MCP batches;
-// never infer that one sampled header qualifies all project semantics.
+// headers. Reconcile the full C++ source set in bounded MCP batches.
+// CLI/Error.hpp uses macros that generate constructors: report it as partial,
+// rather than claiming semantic completeness for those generated declarations.
 func TestSourceSymbolsOriginalCppCLI11WholeProject(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {
@@ -47,18 +48,34 @@ func TestSourceSymbolsOriginalCppCLI11WholeProject(t *testing.T) {
 	const batchSize = 32
 	seen := make(map[string]bool, eligible)
 	fingerprints := make(map[string]string, eligible)
+	expectedPartial := map[string]bool{
+		filepath.Join(project, "include", "CLI", "Error.hpp"): true,
+	}
+	observedPartial := make(map[string]bool)
 	for start := 0; start < eligible; start += batchSize {
 		end := min(start+batchSize, eligible)
+		batchComplete := true
+		for _, file := range originals[start:end] {
+			if expectedPartial[file] {
+				batchComplete = false
+			}
+		}
 		fail, digest, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
 			Operation: "digest", Presentation: "compact", Paths: originals[start:end],
 			Language: "cpp", Encoding: "utf-8", MaxFiles: batchSize,
 		})
-		if err != nil || fail != nil || digest.Truncated || !digest.CoverageComplete ||
+		if err != nil || fail != nil || digest.Truncated || digest.CoverageComplete != batchComplete ||
 			digest.FilesConsidered != end-start || digest.FilesParsed != end-start ||
 			digest.FilesSkipped != 0 || len(digest.OverviewFiles) != end-start {
-			t.Fatalf("C++ CLI11 structural batch %d:%d incomplete: err=%v fail=%+v files=%d parsed=%d skipped=%d complete=%v",
+			var partial []string
+			for _, f := range digest.OverviewFiles {
+				if !f.CoverageComplete {
+					partial = append(partial, f.Path)
+				}
+			}
+			t.Fatalf("C++ CLI11 structural batch %d:%d incomplete: err=%v fail=%+v files=%d parsed=%d skipped=%d complete=%v partial=%v",
 				start, end, err, fail, digest.FilesConsidered, digest.FilesParsed,
-				digest.FilesSkipped, digest.CoverageComplete)
+				digest.FilesSkipped, digest.CoverageComplete, partial)
 		}
 		required := make(map[string]bool, end-start)
 		for _, file := range originals[start:end] {
@@ -66,8 +83,11 @@ func TestSourceSymbolsOriginalCppCLI11WholeProject(t *testing.T) {
 		}
 		for _, file := range digest.OverviewFiles {
 			if !required[file.Path] || seen[file.Path] || file.Language != "cpp" ||
-				file.Status != "parsed" || !file.CoverageComplete || file.SourceFingerprint == "" {
-				t.Errorf("unexpected/incomplete C++ original source: %+v", file)
+				file.Status != "parsed" || file.CoverageComplete == expectedPartial[file.Path] || file.SourceFingerprint == "" {
+				t.Errorf("unexpected/incorrect C++ source coverage: %+v", file)
+			}
+			if !file.CoverageComplete {
+				observedPartial[file.Path] = true
 			}
 			seen[file.Path] = true
 			fingerprints[file.Path] = file.SourceFingerprint
@@ -80,6 +100,14 @@ func TestSourceSymbolsOriginalCppCLI11WholeProject(t *testing.T) {
 	if len(seen) != eligible {
 		t.Errorf("only %d/%d C++ project source files reconciled", len(seen), eligible)
 	}
+	if len(observedPartial) != len(expectedPartial) {
+		t.Errorf("CLI11 partial-source inventory changed: got %d, expected %d", len(observedPartial), len(expectedPartial))
+	}
+	for file := range expectedPartial {
+		if !observedPartial[file] {
+			t.Errorf("original CLI11 macro-generated declarations not marked partial: %s", file)
+		}
+	}
 	// Independent full-tree grep finds exactly one written Simple() declaration
 	// in the original 111 files; structured search must preserve its class,
 	// kind, location and source identity, without mistaking calls for symbols.
@@ -91,7 +119,13 @@ func TestSourceSymbolsOriginalCppCLI11WholeProject(t *testing.T) {
 			Paths: originals[start:end], Language: "cpp", Encoding: "utf-8",
 			MaxFiles: batchSize, MaxResults: 10,
 		})
-		if err != nil || fail != nil || !query.Coverage.CoverageComplete ||
+		queryBatchComplete := true
+		for _, file := range originals[start:end] {
+			if expectedPartial[file] {
+				queryBatchComplete = false
+			}
+		}
+		if err != nil || fail != nil || query.Coverage.CoverageComplete != queryBatchComplete ||
 			query.Coverage.FilesParsed != end-start || query.Search == nil {
 			t.Fatalf("original CLI11 project-wide structural search %d:%d incomplete: %v %+v %+v", start, end, err, fail, query.Coverage)
 		}
@@ -107,7 +141,7 @@ func TestSourceSymbolsOriginalCppCLI11WholeProject(t *testing.T) {
 	if found != 1 {
 		t.Errorf("original CLI11 has one Simple() declaration, source query found %d", found)
 	}
-	t.Logf("original CLI11 C++ whole-project structural file selection: %d files, %d bounded batches", eligible, (eligible+batchSize-1)/batchSize)
+	t.Logf("original CLI11 C++ full-file inventory: %d files, %d fully covered, %d explicit macro-generated partial; %d bounded batches", eligible, eligible-len(observedPartial), len(observedPartial), (eligible+batchSize-1)/batchSize)
 }
 
 // This original-source oracle is COMPLETE for CLI/Timer.hpp, including

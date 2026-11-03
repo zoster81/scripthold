@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// Cover the full original spdlog project: headers, implementation, examples,
-// benchmarks, tests and bundled fmt sources. This is an exhaustive structural
-// source screening, not a claim about complete project semantic correctness.
+// Inventory the complete original spdlog project, including bundled fmt.
+// Three original fmt headers use unresolved C++ macros; all other source
+// files must remain fully covered, with no silently excluded inputs.
 func TestSourceSymbolsOriginalCppSpdlogWholeProject(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {
@@ -48,28 +48,50 @@ func TestSourceSymbolsOriginalCppSpdlogWholeProject(t *testing.T) {
 	h := NewHandler([]string{root})
 	const batchSize = 32
 	fingerprints := make(map[string]string, eligible)
+	expectedPartial := map[string]bool{
+		filepath.Join(project, "include", "spdlog", "fmt", "bundled", "base.h"):   true,
+		filepath.Join(project, "include", "spdlog", "fmt", "bundled", "format.h"): true,
+		filepath.Join(project, "include", "spdlog", "fmt", "bundled", "ranges.h"): true,
+	}
+	observedPartial := make(map[string]bool)
 	for start := 0; start < eligible; start += batchSize {
 		end := min(start+batchSize, eligible)
+		batchComplete := true
+		for _, file := range files[start:end] {
+			if expectedPartial[file] {
+				batchComplete = false
+			}
+		}
 		inputs := files[start:end]
 		fail, digest, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
 			Operation: "digest", Presentation: "compact", Paths: inputs,
 			Language: "cpp", Encoding: "utf-8", MaxFiles: batchSize,
 		})
-		if err != nil || fail != nil || !digest.CoverageComplete ||
+		if err != nil || fail != nil || digest.CoverageComplete != batchComplete ||
 			digest.Truncated || digest.FilesConsidered != len(inputs) ||
 			digest.FilesParsed != len(inputs) || digest.FilesSkipped != 0 ||
 			len(digest.OverviewFiles) != len(inputs) {
-			t.Fatalf("original spdlog C++ batch %d:%d incomplete err=%v failure=%+v considered=%d parsed=%d skipped=%d complete=%v",
-				start, end, err, fail, digest.FilesConsidered, digest.FilesParsed, digest.FilesSkipped, digest.CoverageComplete)
+			var partial []string
+			for _, f := range digest.OverviewFiles {
+				if !f.CoverageComplete {
+					partial = append(partial, f.Path)
+				}
+			}
+			t.Fatalf("original spdlog C++ batch %d:%d incomplete err=%v failure=%+v considered=%d parsed=%d skipped=%d complete=%v partial=%v",
+				start, end, err, fail, digest.FilesConsidered, digest.FilesParsed, digest.FilesSkipped, digest.CoverageComplete, partial)
 		}
 		expected := make(map[string]bool, len(inputs))
 		for _, p := range inputs {
 			expected[p] = true
 		}
 		for _, file := range digest.OverviewFiles {
-			if !expected[file.Path] || fingerprints[file.Path] != "" || !file.CoverageComplete ||
+			if !expected[file.Path] || fingerprints[file.Path] != "" ||
+				file.CoverageComplete == expectedPartial[file.Path] ||
 				file.Status != "parsed" || file.Language != "cpp" || file.SourceFingerprint == "" {
-				t.Errorf("missing/partial/duplicated original spdlog file: %+v", file)
+				t.Errorf("missing/incorrectly covered/duplicated original spdlog file: %+v", file)
+			}
+			if !file.CoverageComplete {
+				observedPartial[file.Path] = true
 			}
 			fingerprints[file.Path] = file.SourceFingerprint
 			delete(expected, file.Path)
@@ -80,6 +102,14 @@ func TestSourceSymbolsOriginalCppSpdlogWholeProject(t *testing.T) {
 	}
 	if len(fingerprints) != eligible {
 		t.Errorf("only %d/%d spdlog sources reconciled", len(fingerprints), eligible)
+	}
+	if len(observedPartial) != len(expectedPartial) {
+		t.Errorf("spdlog partial-source inventory changed: %d instead of %d", len(observedPartial), len(expectedPartial))
+	}
+	for file := range expectedPartial {
+		if !observedPartial[file] {
+			t.Errorf("original spdlog unresolved macro source not marked partial: %s", file)
+		}
 	}
 
 	// Whole-project original grep has sixteen text occurrences of
@@ -93,8 +123,14 @@ func TestSourceSymbolsOriginalCppSpdlogWholeProject(t *testing.T) {
 			Query: "console_mutex", Paths: files[start:end], Language: "cpp",
 			Encoding: "utf-8", MaxFiles: batchSize, MaxResults: 16,
 		})
+		queryBatchComplete := true
+		for _, file := range files[start:end] {
+			if expectedPartial[file] {
+				queryBatchComplete = false
+			}
+		}
 		if err != nil || fail != nil || query.Search == nil ||
-			!query.Coverage.CoverageComplete || query.Coverage.FilesParsed != end-start {
+			query.Coverage.CoverageComplete != queryBatchComplete || query.Coverage.FilesParsed != end-start {
 			t.Fatalf("original spdlog full-tree structural search incomplete at %d:%d: err=%v fail=%+v", start, end, err, fail)
 		}
 		for _, m := range query.Search.Matches {
@@ -110,7 +146,7 @@ func TestSourceSymbolsOriginalCppSpdlogWholeProject(t *testing.T) {
 	if declarations != 1 {
 		t.Errorf("original spdlog has one console_mutex declaration, got %d", declarations)
 	}
-	t.Logf("original spdlog C++ project: %d fully selected source files, %d batches, 1 structural definition vs 16 text grep occurrences", eligible, (eligible+batchSize-1)/batchSize)
+	t.Logf("original spdlog C++ project: %d sources inventoried, %d complete, %d explicitly partial, %d batches; 1 known written structural declaration vs 16 text grep occurrences", eligible, eligible-len(observedPartial), len(observedPartial), (eligible+batchSize-1)/batchSize)
 }
 
 // This is an independently complete source-derived inventory for the small
