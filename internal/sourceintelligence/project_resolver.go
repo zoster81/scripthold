@@ -341,6 +341,11 @@ func (model *ProjectModel) resolveDependencyTargets(file projectFileRecord, desc
 	if dependency.Kind == StructuralDependencyReference {
 		return model.resolveReferenceDependencyTargets(file, descriptor, value, maxCandidates)
 	}
+	if dependency.Kind == StructuralDependencyInclude && dependency.cFamilyAngleInclude {
+		// Angle-bracket includes use compiler-defined search roots, not the
+		// including file's directory. No compile roots exist in project facts.
+		return nil, nil
+	}
 	pathLike := dependencyLooksPathLike(value, dependency.Kind)
 	pathMatches := model.dependencyPathMatches(file, dependency)
 	if len(pathMatches) > 0 {

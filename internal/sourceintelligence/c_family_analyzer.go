@@ -1032,7 +1032,10 @@ func collectCFamilyDirectives(document *SourceDocument, tokens []Token) cFamilyD
 			if value := cFamilyIncludeValue(rest); value != "" {
 				rangeValue, err := document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
 				if err == nil {
-					summary.dependencies = append(summary.dependencies, StructuralDependency{Kind: StructuralDependencyInclude, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
+					summary.dependencies = append(summary.dependencies, StructuralDependency{
+						Kind: StructuralDependencyInclude, Value: value, Range: rangeValue,
+						Evidence: SymbolEvidenceStructural, cFamilyAngleInclude: strings.HasPrefix(rest, "<"),
+					})
 				}
 			}
 		}

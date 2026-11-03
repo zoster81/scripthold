@@ -10,6 +10,65 @@ import (
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
+// Angle-bracket C/C++ includes depend on compiler search roots, whereas
+// quoted includes first check the including file's directory. The public
+// query must not present an incidental sibling as a resolved angle target.
+func TestSourceQueryCFamilyAngleIncludeDoesNotResolveSibling(t *testing.T) {
+	for _, tc := range []struct{ name, language, ext string }{
+		{"c", "c", ".c"}, {"cpp", "cpp", ".cpp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := canonicalHandlerTestDir(t)
+			header := filepath.Join(root, "local.h")
+			source := filepath.Join(root, "main"+tc.ext)
+			writeSourceQueryFixture(t, header, "int local;\n")
+			writeSourceQueryFixture(t, source, "#include <local.h>\n#include \"local.h\"\nint main(void) { return 0; }\n")
+			h := NewHandler([]string{root})
+			failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{source, header},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 2, MaxSymbols: 32,
+			})
+			if err != nil || failed != nil || outline.Truncated || !outline.CoverageComplete || len(outline.Files) != 2 {
+				t.Fatalf("two-file include fixture incomplete: failed=%+v err=%v", failed, err)
+			}
+			var fp string
+			for _, file := range outline.Files {
+				if file.Path == source {
+					fp = file.SourceFingerprint
+				}
+			}
+			if fp == "" {
+				t.Fatal("source fingerprint missing")
+			}
+			failed, out, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "relations", Relation: "dependencies", Paths: []string{source, header},
+				Language: tc.language, Encoding: "utf-8",
+				Subject:  &SourceSelectorInput{Kind: "path", Path: source, SourceFingerprint: fp},
+				MaxFiles: 2, MaxResults: 16, MaxNodes: 16, MaxEdges: 32, MaxDepth: 2,
+			})
+			if err != nil || failed != nil || out.Relations == nil || !out.Coverage.CoverageComplete {
+				t.Fatalf("bounded include dependencies unavailable: err=%v fail=%+v out=%+v", err, failed, out)
+			}
+			resolved := 0
+			for _, edge := range out.Relations.Relations {
+				if edge.Target.Path != header {
+					continue
+				}
+				if edge.Source.Range == nil || edge.Source.Range.Start.Line != 2 ||
+					edge.Resolution != sourceintelligence.ResolutionResolved ||
+					edge.Evidence != sourceintelligence.SymbolEvidenceProjectResolved {
+					t.Errorf("C/C++ angle include falsely linked as sibling: %+v", edge)
+				} else {
+					resolved++
+				}
+			}
+			if resolved != 1 {
+				t.Fatalf("resolved quoted include count=%d, want 1", resolved)
+			}
+		})
+	}
+}
+
 // The original declaration is at line 3; nearby Apex annotations and calls
 // are not substitutes for an indexed structural method definition.
 func TestSourceQueryOriginalApexCheckApexTypes(t *testing.T) {

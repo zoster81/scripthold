@@ -34,6 +34,9 @@ type StructuralDependency struct {
 	Alias    string                   `json:"alias,omitempty"`
 	Range    Range                    `json:"range"`
 	Evidence SymbolEvidence           `json:"evidence"`
+	// C/C++ angle includes require compiler include roots; never infer them from
+	// the source file's directory. Private: public include values stay unchanged.
+	cFamilyAngleInclude bool
 }
 
 func newStructuralAnalyzerBuilder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
