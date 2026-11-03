@@ -1138,6 +1138,10 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 				index = next
 				continue
 			}
+			if next, ok := parser.cppUnsupportedConceptDeclaration(index, end); ok {
+				index = next
+				continue
+			}
 			if using, ok := parser.cppTemplateUsingAlias(index, end); ok {
 				if next, parsed := parser.parseUsingAlias(index, using, end, parent); parsed {
 					index = next
@@ -1279,9 +1283,9 @@ func (parser *cFamilyParser) cppStandaloneUnresolvedMacro(start, end int) (int, 
 	return after + 1, true
 }
 
-// Only a complete template parameter head immediately followed by 'using'
-// is a template alias. Other templates remain owned by their existing parsers.
-func (parser *cFamilyParser) cppTemplateUsingAlias(start, end int) (int, bool) {
+// A complete bounded template head is shared by template aliases and
+// unsupported concept declarations. Leave other templates to their parsers.
+func (parser *cFamilyParser) cppTemplateDeclarationKeyword(start, end int) (int, bool) {
 	if !parser.token(start, "template") {
 		return start, false
 	}
@@ -1306,13 +1310,48 @@ func (parser *cFamilyParser) cppTemplateUsingAlias(start, end int) (int, bool) {
 			return start, false
 		}
 		if angle == 0 {
-			using := nextStructuralToken(parser.tokens, index+1, end)
-			if parser.token(using, "using") {
-				return using, true
-			}
-			return start, false
+			return nextStructuralToken(parser.tokens, index+1, end), true
 		}
 	}
+	return start, false
+}
+
+func (parser *cFamilyParser) cppTemplateUsingAlias(start, end int) (int, bool) {
+	keyword, ok := parser.cppTemplateDeclarationKeyword(start, end)
+	return keyword, ok && parser.token(keyword, "using")
+}
+
+// A concept is a constraint, not a variable. Until a normalized concept kind
+// exists, consume only a proven complete declaration and report partial coverage.
+func (parser *cFamilyParser) cppUnsupportedConceptDeclaration(start, end int) (int, bool) {
+	keyword, ok := parser.cppTemplateDeclarationKeyword(start, end)
+	if !ok || !parser.token(keyword, "concept") {
+		return start, false
+	}
+	name := nextStructuralToken(parser.tokens, keyword+1, end)
+	if name >= end || parser.tokens[name].Kind != TokenIdentifier {
+		return start, false
+	}
+	assignment := nextStructuralToken(parser.tokens, name+1, end)
+	if !parser.token(assignment, "=") {
+		return start, false
+	}
+	depth := parser.tokens[start].Nesting
+	for index := assignment + 1; index < end; index++ {
+		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
+			value := OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[index].EndOffset}
+			_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "cpp-unsupported-concept",
+				Message:  "C++20 concept declarations are not yet represented; no variable was inferred",
+				Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true,
+			})
+			return index + 1, true
+		}
+		if parser.tokens[index].Kind == TokenEOF || parser.tokens[index].Nesting < depth {
+			break
+		}
+	}
+	parser.builder.MarkIncomplete()
 	return start, false
 }
 

@@ -193,3 +193,54 @@ func TestSourceSymbolsOriginalCppXiaozhiDummyAudioFullHeaderOracle(t *testing.T)
 		t.Errorf("original C++ header declaration missing: %s", name)
 	}
 }
+
+func TestSourceSymbolsOriginalCppXiaozhiQualifiedDefinitions(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus not configured")
+	}
+	file := filepath.Join(root, "qualification", "final-candidate-corpus",
+		"project-cpp-78-xiaozhi-esp32", "main", "audio", "codecs", "dummy_audio_codec.cc")
+	h := NewHandler([]string{root})
+	fail, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{file},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16,
+	})
+	if err != nil || fail != nil || out.Truncated || !out.CoverageComplete ||
+		len(out.Files) != 1 || out.Files[0].SourceFingerprint == "" {
+		t.Fatalf("original qualified C++ source unreadable: err=%v fail=%+v out=%+v", err, fail, out)
+	}
+	want := map[string]bool{
+		"DummyAudioCodec.DummyAudioCodec@3":  false,
+		"DummyAudioCodec.DummyAudioCodec@11": false,
+		"DummyAudioCodec.Read@14":            false,
+		"DummyAudioCodec.Write@18":           false,
+	}
+	if len(out.Symbols) != len(want) {
+		t.Fatalf("expected four authored source definitions, got %+v", out.Symbols)
+	}
+	for _, symbol := range out.Symbols {
+		key := symbol.QualifiedName + "@" + strconv.Itoa(symbol.NameRange.Start.Line)
+		if _, exists := want[key]; !exists || want[key] || symbol.ID == "" ||
+			symbol.BodyRange == nil || symbol.ParentID != "" ||
+			symbol.ParentQualifiedName != "" || string(symbol.Kind) != "function" {
+			t.Errorf("unresolved cross-file C++ definition misrepresented: %+v", symbol)
+		}
+		want[key] = true
+		if key == "DummyAudioCodec.Read@14" {
+			failed, shown, showErr := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: file, SymbolID: symbol.ID,
+				SourceFingerprint: out.Files[0].SourceFingerprint, Language: "cpp", Encoding: "utf-8", MaxBytes: 1024,
+			})
+			if showErr != nil || failed != nil || shown.Show == nil ||
+				!strings.Contains(shown.Show.Text, "return 0;") {
+				t.Errorf("out-of-class Read body not retrievable: err=%v fail=%+v", showErr, failed)
+			}
+		}
+	}
+	for key, found := range want {
+		if !found {
+			t.Errorf("missing original qualified C++ definition %s", key)
+		}
+	}
+}

@@ -1065,3 +1065,63 @@ func TestCPPOriginalSFMLExportDecoratedTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestCPPQualifiedDefinitionOwnersDoNotInventCrossFileTypes(t *testing.T) {
+	cases := []struct {
+		name, input string
+		ownerKnown  bool
+	}{
+		{"known-class", "class Gadget { public: Gadget(); ~Gadget(); int Read(); };\nGadget::Gadget() {}\nGadget::~Gadget() {}\nint Gadget::Read() { return 0; }\n", true},
+		{"separate-definition", "#include \"gadget.h\"\nGadget::Gadget() {}\nGadget::~Gadget() {}\nint Gadget::Read() { return 0; }\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.input), testAnalyzeOptions(true, 40))
+			if err != nil {
+				t.Fatal(err)
+			}
+			definitions := map[string]bool{"Gadget.Gadget@2": false, "Gadget.Gadget@3": false, "Gadget.Read@4": false}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.BodyRange == nil || symbol.Kind == SymbolKindClass {
+					continue
+				}
+				key := fmt.Sprintf("%s@%d", symbol.QualifiedName, symbol.NameRange.Start.Line)
+				if _, exists := definitions[key]; !exists {
+					t.Errorf("unexpected definition: %+v", symbol)
+					continue
+				}
+				definitions[key] = true
+				if tc.ownerKnown {
+					if symbol.ParentQualifiedName != "Gadget" || symbol.ParentID == "" {
+						t.Errorf("lost known parent: %+v", symbol)
+					}
+				} else if symbol.ParentQualifiedName != "" || symbol.ParentID != "" {
+					t.Errorf("invented class in different file: %+v", symbol)
+				}
+			}
+			for key, found := range definitions {
+				if !found {
+					t.Errorf("missing explicit qualified definition %s: %v", key, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
+func TestCPP20ConceptDoesNotBecomeVariable(t *testing.T) {
+	input := "namespace Util {\ntemplate<typename T>\nconcept function_pointer = is_pointer<T>;\ntemplate<typename T> using value_type = T;\nint ordinary = 1;\n}\n"
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(input), testAnalyzeOptions(true, 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "cpp-unsupported-concept") {
+		t.Fatalf("unsupported concept must signal partial coverage: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if _, found := byName["Util.function_pointer"]; found {
+		t.Fatalf("concept fabricated as a variable: %+v", byName["Util.function_pointer"])
+	}
+	if byName["Util"].Kind != SymbolKindNamespace || byName["Util.value_type"].Kind != SymbolKindAlias || byName["Util.ordinary"].Kind != SymbolKindVariable {
+		t.Fatalf("adjacent declarations lost: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}

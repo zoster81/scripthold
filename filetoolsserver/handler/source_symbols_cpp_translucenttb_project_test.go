@@ -49,6 +49,7 @@ func TestSourceSymbolsOriginalCppTranslucentTBWholeProject(t *testing.T) {
 	// Preserve the exact original-file incomplete baseline. No file is omitted.
 	expectedPartial := map[string]bool{
 		"Common/undoc/explorer.hpp":   true,
+		"Common/util/concepts.hpp":    true,
 		"Xaml/Controls/ColorPicker.h": true,
 	}
 	observedPartial := map[string]bool{}
@@ -195,5 +196,27 @@ func TestSourceSymbolsOriginalCppTranslucentTBMaybeDeleteHeaderOracle(t *testing
 	if err != nil || fail != nil || show.Show == nil ||
 		!strings.Contains(show.Show.Text, "delete that;") {
 		t.Errorf("original C++ operator body unavailable or stale: %v %+v", err, fail)
+	}
+}
+
+func TestSourceSymbolsOriginalCppTranslucentTBConceptIsNotAVariable(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus not configured")
+	}
+	path := filepath.Join(root, "qualification", "final-candidate-corpus",
+		"project-cpp-translucenttb-translucenttb", "Common", "util", "concepts.hpp")
+	h := NewHandler([]string{root})
+	fail, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "cpp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16,
+	})
+	if err != nil || fail != nil || out.Truncated || out.CoverageComplete ||
+		len(out.Files) != 1 || out.Files[0].SourceFingerprint == "" {
+		t.Fatalf("original C++20 concept must report partial coverage: err=%v fail=%+v out=%+v", err, fail, out)
+	}
+	if len(out.Symbols) != 1 || out.Symbols[0].QualifiedName != "Util" ||
+		string(out.Symbols[0].Kind) != "namespace" {
+		t.Fatalf("concept must not become a variable; preserve namespace: %+v", out.Symbols)
 	}
 }
