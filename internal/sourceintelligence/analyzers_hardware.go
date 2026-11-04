@@ -185,14 +185,17 @@ func vhdlArchitectureBareEndProven(body string, lastEnd int) bool {
 }
 
 var (
-	verilogModule          = regexp.MustCompile(`(?im)^[ \t]*module[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
-	svPackage              = regexp.MustCompile(`(?im)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
-	svInterface            = regexp.MustCompile(`(?im)^[ \t]*interface[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
-	hdlSignal              = regexp.MustCompile(`(?i)\b(?:wire|reg|logic|bit)[ \t]+(?:signed[ \t]+|unsigned[ \t]+)?(?:\[[^\]\r\n]+\][ \t]+)?([A-Za-z_][A-Za-z0-9_$]*)\b`)
-	svTypedefStruct        = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
-	hdlEndModulePattern    = regexp.MustCompile(`(?i)\bendmodule\b`)
-	hdlEndPackagePattern   = regexp.MustCompile(`(?i)\bendpackage\b`)
-	hdlEndInterfacePattern = regexp.MustCompile(`(?i)\bendinterface\b`)
+	verilogModule = regexp.MustCompile(`(?im)^[ \t]*module[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
+	svPackage     = regexp.MustCompile(`(?im)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	svInterface   = regexp.MustCompile(`(?im)^[ \t]*interface[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
+	hdlSignal     = regexp.MustCompile(`(?i)\b(?:wire|reg|logic|bit)[ \t]+(?:signed[ \t]+|unsigned[ \t]+)?(?:\[[^\]\r\n]+\][ \t]+)?([A-Za-z_][A-Za-z0-9_$]*)\b`)
+	// Only explicitly introduced declarations are indexed; instance overrides
+	// and general assignments are not HDL parameter declarations.
+	hdlParameterDeclaration = regexp.MustCompile(`^[ \t]*(parameter|localparam)[ \t]+(?:(?:[A-Za-z_][A-Za-z0-9_$]*|\[[^\]\r\n]*\])[ \t]+)*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*=`)
+	svTypedefStruct         = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	hdlEndModulePattern     = regexp.MustCompile(`(?i)\bendmodule\b`)
+	hdlEndPackagePattern    = regexp.MustCompile(`(?i)\bendpackage\b`)
+	hdlEndInterfacePattern  = regexp.MustCompile(`(?i)\bendinterface\b`)
 )
 
 func (VerilogAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -301,6 +304,36 @@ func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string,
 		return
 	}
 	body := source[start:end]
+	// A typed SystemVerilog parameter may contain "logic" or "bit". Mask
+	// recognized parameter lines before scanning signals so that a parameter
+	// is not also misreported as a signal.
+	if strings.Contains(body, "parameter") || strings.Contains(body, "localparam") {
+		var masked []byte
+		for _, line := range sourceTextLines(body) {
+			match := hdlParameterDeclaration.FindStringSubmatchIndex(line.text)
+			if match == nil {
+				continue
+			}
+			kind := SymbolKindConstant
+			if fields := strings.Fields(line.text[match[3]:match[4]]); len(fields) > 0 && fields[0] == "type" {
+				kind = SymbolKindType
+			}
+			nameStart, nameEnd := start+line.start+match[4], start+line.start+match[5]
+			addDocumentDataHardwareSymbol(builder, kind, line.text[match[2]:match[3]],
+				document.Text[nameStart:nameEnd], parent,
+				OffsetRange{Start: start + line.start + match[0], End: start + line.end},
+				OffsetRange{Start: nameStart, End: nameEnd})
+			if masked == nil {
+				masked = []byte(body)
+			}
+			for index := line.start; index < line.end; index++ {
+				masked[index] = ' '
+			}
+		}
+		if masked != nil {
+			body = string(masked)
+		}
+	}
 	for search := 0; search < len(body); {
 		match := hdlSignal.FindStringSubmatchIndex(body[search:])
 		if match == nil {
