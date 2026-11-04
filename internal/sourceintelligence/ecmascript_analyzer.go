@@ -134,6 +134,10 @@ func (parser *ecmaParser) parseScope(start, end int, parent *SymbolParent, membe
 				index = next
 				continue
 			}
+			if next, ok := parser.parseExportDefaultWrappedFunction(index, end, parent); ok {
+				index = next
+				continue
+			}
 		}
 		semantic := parser.skipDeclarationPrefixes(index, end)
 		if semantic >= end {
@@ -233,6 +237,46 @@ func (parser *ecmaParser) skipUnknownStatement(start, end int) int {
 		return terminator + 1
 	}
 	return min(terminator+1, end)
+}
+
+// A named function passed directly to an exported default call is a useful
+// source-level edit target. Do not recurse through arbitrary call expressions:
+// that would promote unrelated nested callbacks into top-level declarations.
+func (parser *ecmaParser) parseExportDefaultWrappedFunction(start, end int, parent *SymbolParent) (int, bool) {
+	if !parser.token(start, "export") || !parser.token(start+1, "default") {
+		return 0, false
+	}
+	cursor := parser.skipTrivia(start+2, end)
+	if cursor >= end || parser.tokens[cursor].Kind != TokenIdentifier {
+		return 0, false
+	}
+	cursor++
+	for cursor+1 < end && parser.token(cursor, ".") && parser.tokens[cursor+1].Kind == TokenIdentifier {
+		cursor += 2
+	}
+	if !parser.token(cursor, "(") {
+		return 0, false
+	}
+	close, paired := parser.pairs[cursor]
+	if !paired || close <= cursor+1 || close >= end {
+		return 0, false
+	}
+	function := parser.skipTrivia(cursor+1, close)
+	if parser.token(function, "async") {
+		function = parser.skipTrivia(function+1, close)
+	}
+	if !parser.token(function, "function") {
+		return 0, false
+	}
+	name := function + 1
+	if parser.token(name, "*") {
+		name++
+	}
+	if name >= close || parser.tokens[name].Kind != TokenIdentifier {
+		return 0, false
+	}
+	parser.parseFunction(function, function, close, parent, false)
+	return parser.skipUnknownStatement(start, end), true
 }
 
 func (parser *ecmaParser) parseImport(start, end int) int {
