@@ -26,6 +26,10 @@ var (
 	vhdlSignal       = regexp.MustCompile(`(?im)^[ \t]*signal[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:`)
 	vhdlComponent    = regexp.MustCompile(`(?im)^[ \t]*component[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	vhdlUse          = regexp.MustCompile(`(?im)^[ \t]*use[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
+	vhdlGenericOpen  = regexp.MustCompile(`(?im)^[ \t]*generic[ \t\r\n]*\(`)
+	vhdlGenericWord  = regexp.MustCompile(`(?im)^[ \t]*generic\b`)
+	vhdlGenericDecl  = regexp.MustCompile(`(?is)^\s*(?:constant\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*(?:in\s+)?[A-Za-z_][A-Za-z0-9_]*\b`)
+	vhdlGenericIdent = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 )
 
 func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -53,6 +57,9 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindEntity, "entity", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 		if ok {
 			entities[strings.ToLower(name)] = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+			if end > match[1] {
+				vhdlEntityGenerics(builder, document, source, match[1], end, &symbol)
+			}
 		}
 	}
 	for _, match := range vhdlArchitecture.FindAllStringSubmatchIndex(source, -1) {
@@ -101,6 +108,84 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
+}
+
+// vhdlEntityGenerics indexes explicit scalar interface constants only inside
+// an entity declaration. Generic maps and component generics have different
+// owners and must not be attributed to this entity.
+func vhdlEntityGenerics(builder *SymbolBuilder, doc *SourceDocument, source string, start, end int, parent *SymbolParent) {
+	header := source[start:end]
+	open := vhdlGenericOpen.FindStringIndex(header)
+	if open == nil {
+		if vhdlGenericWord.MatchString(header) {
+			addDocumentDataHardwareDiagnostic(builder, "vhdl-unrecognized-generic", "Unrecognized VHDL generic clause", start, end)
+		}
+		return
+	}
+	at := start + open[1] - 1 // opening parenthesis
+	segmentStart, depth := at+1, 0
+	addSegment := func(stop int) {
+		segment := source[segmentStart:stop]
+		if strings.TrimSpace(segment) == "" {
+			return
+		}
+		decl := vhdlGenericDecl.FindStringSubmatchIndex(segment)
+		if decl == nil {
+			addDocumentDataHardwareDiagnostic(builder, "vhdl-unrecognized-generic", "VHDL generic declaration is not supported", segmentStart, stop)
+			return
+		}
+		// A conservative subtype prefix must be followed by a constrained
+		// subtype, range, initialization or the end of this declaration.
+		tail := strings.TrimSpace(segment[decl[1]:])
+		if tail != "" && !strings.HasPrefix(tail, "(") && !strings.HasPrefix(tail, ":=") &&
+			!strings.HasPrefix(strings.ToLower(tail), "range ") {
+			addDocumentDataHardwareDiagnostic(builder, "vhdl-unrecognized-generic", "VHDL generic subtype is not supported", segmentStart, stop)
+			return
+		}
+		nameList := segment[decl[2]:decl[3]]
+		for _, match := range vhdlGenericIdent.FindAllStringIndex(nameList, -1) {
+			nameStart := segmentStart + decl[2] + match[0]
+			nameEnd := segmentStart + decl[2] + match[1]
+			addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "generic", doc.Text[nameStart:nameEnd], parent,
+				OffsetRange{Start: nameStart, End: stop},
+				OffsetRange{Start: nameStart, End: nameEnd})
+		}
+	}
+	for cursor := at; cursor < end; cursor++ {
+		switch source[cursor] {
+		case '"':
+			for cursor++; cursor < end; cursor++ {
+				if source[cursor] == '"' {
+					if cursor+1 < end && source[cursor+1] == '"' {
+						cursor++
+						continue
+					}
+					break
+				}
+			}
+		case '\'':
+			if cursor+2 < end && source[cursor+2] == '\'' {
+				cursor += 2
+			}
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				addSegment(cursor)
+				if !strings.HasPrefix(strings.TrimSpace(source[cursor+1:end]), ";") {
+					addDocumentDataHardwareDiagnostic(builder, "vhdl-unrecognized-generic", "VHDL generic clause must end in a semicolon", at, cursor+1)
+				}
+				return
+			}
+		case ';':
+			if depth == 1 {
+				addSegment(cursor)
+				segmentStart = cursor + 1
+			}
+		}
+	}
+	addDocumentDataHardwareDiagnostic(builder, "vhdl-unclosed-generic", "VHDL generic clause is not closed", at, end)
 }
 
 func vhdlEnd(text string, start int, kind, name string) int {

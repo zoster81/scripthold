@@ -325,7 +325,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "proto":
 				descriptor.KnownLimitations = []string{"package/message/enum/service/rpc structure and literal imports are extracted without descriptor linking, option evaluation, generated-code semantics, type/project resolution, semantic relations, or incremental indexing"}
 			case "vhdl":
-				descriptor.KnownLimitations = []string{"entity/architecture/signal structure is extracted without elaboration, generic/port/type binding, library/project resolution, simulation semantics, semantic relations, or incremental indexing"}
+				descriptor.KnownLimitations = []string{"entity/architecture/signal/component and supported entity generic declarations are structural only; package declarations, generic/port/type binding, elaboration, library/project resolution, simulation semantics, semantic relations, and incremental indexing are not implemented"}
 			case "verilog", "systemverilog":
 				descriptor.KnownLimitations = []string{"module/interface/package/signal structure is bounded and macro-free; preprocessing, generate/elaboration, parameter/type/net binding, simulation semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "assembly":
