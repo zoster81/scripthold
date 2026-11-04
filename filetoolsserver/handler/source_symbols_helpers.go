@@ -383,9 +383,9 @@ func sourceSymbolMatches(symbol sourceintelligence.NormalizedSymbol, query, mode
 	case "prefix":
 		return strings.HasPrefix(symbol.Name, query) || strings.HasPrefix(symbol.QualifiedName, query)
 	case "qualified":
-		return symbol.QualifiedName == query
+		return symbol.QualifiedName == query || (symbol.QualifiedName == symbol.Name && symbol.MatchesOriginalName(query))
 	default:
-		return symbol.Name == query
+		return symbol.Name == query || symbol.MatchesOriginalName(query)
 	}
 }
 

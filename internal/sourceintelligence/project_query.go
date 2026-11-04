@@ -155,7 +155,9 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 					continue
 				}
 			}
-			if !acceptEvidence(record.symbol.Evidence) || (!projectSearchTextMatches(record.symbol.Name, query, matchMode) && !projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode)) {
+			if !acceptEvidence(record.symbol.Evidence) || (!projectSearchTextMatches(record.symbol.Name, query, matchMode) &&
+				!projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode) &&
+				!(matchMode == ProjectSearchExact && record.symbol.MatchesOriginalName(query))) {
 				continue
 			}
 			collector.append(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})

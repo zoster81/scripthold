@@ -833,6 +833,7 @@ type alConditionalSymbolValue struct {
 	Evidence            SymbolEvidence
 	Analyzer            string
 	SignatureTruncated  bool
+	SourceSpelling      string
 	CPPDeclaratorKey    string
 }
 
@@ -842,7 +843,7 @@ func alConditionalSymbolValueOf(symbol NormalizedSymbol) alConditionalSymbolValu
 		Name: symbol.Name, QualifiedName: symbol.QualifiedName, ParentID: symbol.ParentID, ParentQualifiedName: symbol.ParentQualifiedName,
 		RegionID: symbol.RegionID, DeclarationRange: symbol.DeclarationRange, NameRange: symbol.NameRange, Signature: symbol.Signature,
 		Visibility: symbol.Visibility, Evidence: symbol.Evidence, Analyzer: symbol.Analyzer, SignatureTruncated: symbol.signatureTruncated,
-		CPPDeclaratorKey: symbol.cppDeclaratorKey,
+		SourceSpelling: symbol.sourceSpelling, CPPDeclaratorKey: symbol.cppDeclaratorKey,
 	}
 }
 
