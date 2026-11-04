@@ -125,9 +125,13 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 	}
 	logical := BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{":"}})
 	lines := make([]basicLine, 0, len(logical))
+	var numberedLabels []Token
 	for _, line := range logical {
 		tokens := append([]Token(nil), line.Tokens...)
 		if policy.lineNumbers && len(tokens) > 0 && tokens[0].Kind == TokenNumber {
+			if basicPhysicalLineNumber(document.Text, tokens[0]) {
+				numberedLabels = append(numberedLabels, tokens[0])
+			}
 			tokens = tokens[1:]
 		}
 		if len(tokens) > 0 {
@@ -139,10 +143,50 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 	parser.pairs = parser.buildPairs()
 	parser.dependencies = collectBasicDependencies(document, policy)
 	parser.parseRange(0, len(lines), nil, "")
+	// Existing declarations take precedence when a caller sets a small symbol cap.
+	// Numbered BASIC labels remain navigable without changing statement semantics.
+	for _, number := range numberedLabels {
+		end := number.EndOffset
+		if next := strings.IndexAny(document.Text[end:], "\r\n"); next >= 0 {
+			end += next
+		} else {
+			end = len(document.Text)
+		}
+		if err := builder.addDiscard(SymbolSpec{
+			Kind: SymbolKindLabel, NativeKind: "line-number", Name: number.Text,
+			Declaration: OffsetRange{Start: number.StartOffset, End: end},
+			NameRange:   OffsetRange{Start: number.StartOffset, End: number.EndOffset},
+		}); err != nil {
+			break // The symbol builder reports truncation/limits and preserves prior symbols.
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_basic_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies}, nil
+}
+
+func basicPhysicalLineNumber(text string, token Token) bool {
+	if token.StartOffset < 0 || token.EndOffset > len(text) || token.StartOffset >= token.EndOffset {
+		return false
+	}
+	for _, digit := range token.Text {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	for offset := token.StartOffset; offset > 0; {
+		offset--
+		switch text[offset] {
+		case ' ', '\t':
+			continue
+		case '\n', '\r':
+			return true
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func maskPureBasicMacroBlocks(text string) (string, *OffsetRange, bool) {

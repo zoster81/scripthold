@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Added
 
+- QBasic and classic BASIC numbered source lines are now navigable as `label` declarations with `nativeKind: line-number`. Exact `source_symbols find` and structural `source_query search` locate source line numbers, and fingerprint-bound `show` retrieves the authored statement. Existing declarations take priority under symbol limits, and numeric expressions after `:` are not mistaken for new labels. This is structural navigation, not `GOTO`/`GOSUB` resolution or program execution; focused LF/CRLF regressions and two original classic BASIC projects check selected behavior.
 - SQL source navigation now finds named `CREATE INDEX` and `CREATE UNIQUE INDEX` objects, including common `IF NOT EXISTS` and `USING` forms, as `resource` declarations with `nativeKind: index`. Index headers must identify a table and column list; unsupported forms report incomplete coverage instead of inventing indexes. SQL execution and database schema resolution remain unavailable.
 - Assembly source navigation now finds MASM/Motorola `NAME EQU value` constants, named MASM/NASM `DB`/`DW` data, and named Motorola 68HC11 `FCB`/`FCC`/`FDB`/`RMB` data declarations outside recognized macro/structure definitions. `FCB`/`FDB` operands must be present, `RMB` requires one storage-size expression, and `FCC` strings must use matching delimiters; this is structural navigation, not assembler expression evaluation or macro expansion.
 
