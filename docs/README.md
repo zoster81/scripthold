@@ -12,6 +12,7 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | Adopt, update, check, or recover a standalone binary | [Verified Self-update](SELF_UPDATE.md) |
 | Find an MCP tool, parameter, example, or error code | [Tool Reference](../TOOLS.md) |
 | Understand the supported source languages and analysis capabilities | [Language Capabilities](LANGUAGE_CAPABILITIES.md) |
+| Check which source providers have passed current real-project navigation tests | [Current original-project qualification](ROADMAP.md#current-original-project-qualification) |
 | Inspect or safely edit Markdown documents | [Markdown Intelligence](MARKDOWN_INTELLIGENCE.md) and the [Markdown tools](../TOOLS.md#markdown_read) |
 | Configure tasks that outlive an MCP request | [Durable Tasks](DURABLE_TASKS.md) |
 | Run the server over HTTP or through a trusted proxy | [HTTP Security](HTTP_SECURITY.md) |
