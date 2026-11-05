@@ -130,6 +130,8 @@ func OCamlScannerProfile() ScannerProfile {
 
 func CommonLispScannerProfile() ScannerProfile {
 	profile := lispScannerProfile("common-lisp", []string{"defclass", "defconstant", "defmacro", "defpackage", "defparameter", "defstruct", "defun", "defvar", "in-package", "require"})
+	profile.Identifier.ExtraStart += "%"
+	profile.Identifier.ExtraContinue += "%"
 	profile.BlockComments = []BlockCommentRule{{Start: "#|", End: "|#", Nestable: true}}
 	return profile
 }
