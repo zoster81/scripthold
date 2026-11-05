@@ -225,7 +225,8 @@ func (p *objectiveCParser) collectDirectives(tokens []Token) {
 }
 
 func (p *objectiveCParser) parse(lines []LogicalLine) {
-	for _, line := range lines {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		if p.stopped || p.ctx.Err() != nil || len(line.Tokens) == 0 {
 			continue
 		}
@@ -245,9 +246,35 @@ func (p *objectiveCParser) parse(lines []LogicalLine) {
 			continue
 		}
 		if p.current != nil && (line.Tokens[0].Text == "-" || line.Tokens[0].Text == "+") {
+			// Objective-C selector pieces may start on subsequent source
+			// lines. Join only typed keyword continuations, not body labels,
+			// directives or the next declaration.
+			ended := objectiveCMethodHeaderEnded(line.Tokens)
+			for i+1 < len(lines) && !ended && p.ctx.Err() == nil &&
+				objectiveCSelectorContinuation(lines[i+1].Tokens) {
+				i++
+				next := lines[i]
+				ended = objectiveCMethodHeaderEnded(next.Tokens)
+				line.Tokens = append(line.Tokens, next.Tokens...)
+				line.EndOffset = next.EndOffset
+			}
 			p.method(line)
 		}
 	}
+}
+
+func objectiveCMethodHeaderEnded(tokens []Token) bool {
+	for _, token := range tokens {
+		if token.Text == "{" || token.Text == ";" {
+			return true
+		}
+	}
+	return false
+}
+
+func objectiveCSelectorContinuation(tokens []Token) bool {
+	return len(tokens) >= 3 && tokens[0].Kind == TokenIdentifier &&
+		tokens[1].Text == ":" && tokens[2].Text == "("
 }
 
 func objectiveCDirective(tokens []Token) (int, string) {
@@ -374,17 +401,33 @@ func (p *objectiveCParser) method(line LogicalLine) {
 	}
 	selector := line.Tokens[first].Text
 	colonCount := 0
+	depth = 0
 	for i := first + 1; i < len(line.Tokens); i++ {
-		if line.Tokens[i].Text == ":" {
-			if colonCount == 0 {
-				selector += ":"
-			} else {
-				piece := previousIdentifierToken(line.Tokens, i-1, first+1)
-				if piece >= 0 {
-					selector += line.Tokens[piece].Text + ":"
+		token := line.Tokens[i]
+		if token.Text == "{" || token.Text == ";" {
+			break
+		}
+		switch token.Text {
+		case "(":
+			depth++
+		case ")":
+			if depth > 0 {
+				depth--
+			}
+		case ":":
+			// A selector label precedes a colon at top level and may
+			// use an implicit (id) argument type. Exclude C++ scope
+			// resolution and any labels inside parameter types.
+			if depth == 0 && i > first && i+1 < len(line.Tokens) &&
+				line.Tokens[i-1].Kind == TokenIdentifier && line.Tokens[i+1].Text != ":" {
+				if colonCount == 0 && i-1 == first {
+					selector += ":"
+					colonCount++
+				} else if colonCount > 0 && i > first+1 {
+					selector += line.Tokens[i-1].Text + ":"
+					colonCount++
 				}
 			}
-			colonCount++
 		}
 	}
 	kind := SymbolKindMethod
