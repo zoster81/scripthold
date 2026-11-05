@@ -865,6 +865,10 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			}
 		}
 		if p.policy.language == "groovy" && members {
+			if next, consumed := p.parseGroovyContainerField(i, end, parent); consumed {
+				i = next
+				continue
+			}
 			if next, consumed := p.parseGroovySimpleField(i, end, parent); consumed {
 				i = next
 				continue
@@ -949,6 +953,34 @@ func (p *braceLanguageParser) parseDartGetter(start, end int, parent *SymbolPare
 		if token.Nesting == depth+1 && token.Text == "{" {
 			break
 		}
+	}
+	return 0, false
+}
+
+// parseGroovyContainerField skips balanced closure/map/list initializers as
+// class-field values. Their internal calls and nested closures are not methods,
+// and the next class declaration must remain visible to the symbol index.
+func (p *braceLanguageParser) parseGroovyContainerField(start, end int, parent *SymbolParent) (int, bool) {
+	depth := p.tokens[start].Nesting
+	lineEnd := min(p.lineEnd(start), end)
+	for i := start + 1; i < lineEnd; i++ {
+		if p.tokens[i].Nesting != depth || p.tokens[i].Text != "=" {
+			continue
+		}
+		open := nextStructuralToken(p.tokens, i+1, end)
+		if open >= end || (p.tokens[open].Text != "{" && p.tokens[open].Text != "[") ||
+			p.tokens[open].Nesting != depth+1 {
+			return 0, false
+		}
+		close := p.pairs[open]
+		if close <= open || close >= end {
+			p.builder.MarkIncomplete()
+			return open + 1, true
+		}
+		if _, added := p.parseVariable(start, close, parent, true); !added {
+			p.builder.MarkIncomplete()
+		}
+		return close + 1, true
 	}
 	return 0, false
 }

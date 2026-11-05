@@ -220,6 +220,6 @@ func (GroovyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		typeNative:    map[string]string{"class": "class", "interface": "interface", "trait": "trait", "enum": "enum"},
 		modifiers:     setOf("abstract", "final", "private", "protected", "public", "static"),
 		moduleKeyword: "package", moduleKind: SymbolKindPackage, lineTerminatedModule: true, importKeywords: setOf("import"),
-		maskText: maskGroovySlashyStrings,
+		maskText: maskGroovySlashyStrings, supportsAnnotations: true,
 	})
 }
