@@ -42,11 +42,15 @@ func (AnsibleYAMLAnalyzer) ID() AnalyzerID   { return AnalyzerAnsibleYAML }
 func (AnsibleYAMLAnalyzer) Language() string { return "ansible-yaml" }
 
 var (
-	markupTag        = regexp.MustCompile(`(?is)<([A-Za-z_][A-Za-z0-9_.:-]*)\b[^>]*>`)
-	markupDoubleID   = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*"([^"]+)"`)
-	markupSingleID   = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*'([^']+)'`)
-	markupBareID     = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*([^\s>"']+)`)
-	htmlRawTextClose = map[string]*regexp.Regexp{
+	markupTag               = regexp.MustCompile(`(?is)<([A-Za-z_][A-Za-z0-9_.:-]*)\b[^>]*>`)
+	markupDoubleID          = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*"([^"]+)"`)
+	markupSingleID          = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*'([^']+)'`)
+	markupBareID            = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*([^\s>"']+)`)
+	xmlAndroidResourceRoot  = regexp.MustCompile(`(?is)^\s*(?:<\?xml\b[^>]*>\s*)?<resources\b[^>]*>`)
+	xmlAndroidResourceClose = regexp.MustCompile(`(?i)</resources\s*>`)
+	xmlResourceDoubleName   = regexp.MustCompile(`(?i)(?:^|[ \t\r\n])name[ \t\r\n]*=[ \t\r\n]*"([^"]+)"`)
+	xmlResourceSingleName   = regexp.MustCompile(`(?i)(?:^|[ \t\r\n])name[ \t\r\n]*=[ \t\r\n]*'([^']+)'`)
+	htmlRawTextClose        = map[string]*regexp.Regexp{
 		"script":   regexp.MustCompile(`(?i)</script\s*>`),
 		"style":    regexp.MustCompile(`(?i)</style\s*>`),
 		"textarea": regexp.MustCompile(`(?i)</textarea\s*>`),
@@ -76,6 +80,17 @@ func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, option
 		regions = append(regions, [2]string{"<![CDATA[", "]]>"})
 	}
 	source := maskDelimitedSourceRegions(document.Text, regions)
+	resourceStart, resourceEnd := -1, -1
+	if language == "xml" {
+		if root := xmlAndroidResourceRoot.FindStringIndex(source); root != nil {
+			resourceStart = root[1]
+			if closeTag := xmlAndroidResourceClose.FindStringIndex(source[resourceStart:]); closeTag != nil {
+				resourceEnd = resourceStart + closeTag[0]
+			} else {
+				builder.MarkIncomplete()
+			}
+		}
+	}
 	for cursor := 0; cursor < len(source); {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -97,6 +112,17 @@ func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, option
 			break
 		}
 		tagName := strings.ToLower(source[cursor+tag[2] : cursor+tag[3]])
+		if language == "xml" && tagName == "string" && start >= resourceStart && resourceEnd >= end && resourceStart >= 0 {
+			for _, pattern := range []*regexp.Regexp{xmlResourceDoubleName, xmlResourceSingleName} {
+				nameMatch := pattern.FindStringSubmatchIndex(raw)
+				if nameMatch == nil {
+					continue
+				}
+				addDocumentDataHardwareSymbol(builder, SymbolKindResource, "android-string", raw[nameMatch[2]:nameMatch[3]], nil,
+					OffsetRange{Start: start, End: end}, OffsetRange{Start: start + nameMatch[2], End: start + nameMatch[3]})
+				break
+			}
+		}
 		cursor = end
 		if language != "html" {
 			continue
