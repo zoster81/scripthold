@@ -63,7 +63,7 @@ The shared implementations below identify useful regression boundaries, not a co
 | Gate | Verified | Remaining | Meaning |
 |---|---:|---:|---|
 | Initial task-oriented navigation | **50 / 100 providers** | 50 providers | Two independent original-project maintenance scenarios per qualified provider (100 selected provider/project cases). |
-| Midpoint independent-project audit | **34 / 100 additional cases** | 66 cases | Two *further* independent projects for each of the first 50 providers. So far, 17 providers have passed both additional cases. |
+| Midpoint independent-project audit | **36 / 100 additional cases** | 64 cases | Two *further* independent projects for each of the first 50 providers. So far, 18 providers have passed both additional cases. |
 | Standalone MCP / cross-platform promotion | Deferred | Not assessed | Requires a separate authorized verification stage after the source-level qualification. |
 
 **The original 50-provider milestone is frozen.** Ordinary qualification pauses before provider 51 until all 100 additional audit cases have been reviewed. Additional cases must use independent original project origins, not recycled examples from the first two projects. An acquired project, a successful symbol lookup, a complete bounded scan and a navigation PASS are different evidence levels. Pending does not mean failed.
@@ -76,7 +76,7 @@ The shared implementations below identify useful regression boundaries, not a co
 - `d`, `c`, `cpp`, `ruby`, `clojure`, `emacs-lisp`, `common-lisp`, `mql4`, `mql5`, `html`
 - `xml`, `css`, `scss`, `less`, `sass`, `powershell`, `vue`, `fortran`, `svelte`, `astro`
 
-**Additional audit completed for both new projects:** `vba`, `vb6`, `vbscript`, `qbasic`, `classic-basic`, `freebasic`, `purebasic`, `pascal`, `delphi`, `shell`, `bash`, `typescript`, `javascript`, `flow`, `java`, `kotlin`, `astro`. These 34 PASS results were checked against independently read source and the current development Go MCP handlers. The exact selected projects, revisions and individual results are retained in the private qualification evidence; testable behavior is represented by the original-project handler tests under `filetoolsserver/handler`. Do not copy private workspace state or handoff details into tracked documentation.
+**Additional audit completed for both new projects:** `vba`, `vb6`, `vbscript`, `qbasic`, `classic-basic`, `freebasic`, `purebasic`, `pascal`, `delphi`, `shell`, `bash`, `typescript`, `javascript`, `flow`, `java`, `kotlin`, `astro`, `jsp`. These 36 PASS results were checked against independently read source and the current development Go MCP handlers. The exact selected projects, revisions and individual results are retained in the private qualification evidence; testable behavior is represented by the original-project handler tests under `filetoolsserver/handler`. Do not copy private workspace state or handoff details into tracked documentation.
 
 ### Audit method and evidence boundary
 
@@ -86,14 +86,14 @@ Mark an additional case **navigation PASS** only when the supported tools provid
 
 **Important remaining limitations:**
 
-- **Mixed template files:** JSP and other composite hosts need careful source verification. Preliminary JSP samples have produced plausible HTML IDs but also misleading names from nested markup in the connected runtime. Check the current development handler and reproduce a material false positive before changing an analyzer or marking a new JSP case PASS.
+- **Mixed template files:** The current development branch now excludes false HTML/JSP IDs arising from URL query parameters and nested template fragments inside quoted attributes; focused RED/GREEN tests and independent JSP project tests protect the corrected behavior. Dynamic attributes, script execution and complete template semantics remain outside the structural navigation guarantee.
 - **Shell scripts without declarations:** A complete scan may legitimately return zero function symbols for a command-only script; that is not an executable-command map.
 - **Macro and dynamic semantics:** Preprocessor expansion, dynamic dispatch, compiler/type resolution, and complete transitive call graphs are not navigation guarantees. Historical C/C++ file inventories include explicitly partial results; do not reinterpret these as full-project semantic certification.
 - **Development versus installed runtime:** Post-release fixes on the current branch do not update an already running connector. Confirm a reported discrepancy on development HEAD before classifying it as a product defect.
 
 ### Next work
 
-1. **Finish the midpoint audit (active):** Start with JSP, then continue the untested providers using their independent original projects. Revalidate the observed JSP markup ambiguities on current HEAD; fix demonstrated misleading declarations with focused RED/GREEN tests and affected-family regression. If a candidate offers no meaningful navigable source, choose another independent accepted project and preserve the replacement rationale in private evidence instead of forcing a PASS.
+1. **Finish the midpoint audit (active):** Continue with Lua, Luau and the remaining untested providers using independent original projects. Validate source-first navigation against current development HEAD, and correct misleading declarations through focused RED/GREEN tests and affected-family regression. If a candidate offers no meaningful navigable source, choose another independent accepted project and preserve the replacement rationale in private evidence rather than forcing a PASS.
 2. **Resume provider qualification at 51 / 100** only after the first 50 providers have completed their two additional independent-project cases. Select the next language or shared analyzer using observed defects, impact and evidence availability, not a permanently fixed alphabetical queue. Reuse historical corpus inventories rather than recrawling entire projects without need.
 3. **Escalate defects by user impact:** P0 misleading or invented symbols, owners, excerpts or relationships; P1 missing important edit targets, incorrect locations or deceptive completeness; P2 overly large first responses or other bounded-efficiency gaps; P3 compiler-exact semantics without demonstrated navigation benefit. Protect encoding, path authorization, fingerprints and public schema compatibility for every fix.
 4. **Qualify the standalone server separately when authorized:** After source and handler evidence is sufficient, run the deferred transport and cross-platform promotion/release checks. Ordinary repository work must not restart a deployed server or execute third-party projects.

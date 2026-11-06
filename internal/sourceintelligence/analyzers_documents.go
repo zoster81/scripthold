@@ -62,6 +62,83 @@ var (
 	}
 )
 
+// markupIDAttribute only recognizes an id attribute in the opening tag, not
+// query parameters or template code inside another attribute's quoted value.
+// It walks the tag once and keeps offsets relative to the original source.
+func markupIDAttribute(tag string) (string, int, int, bool) {
+	if len(tag) < 2 || tag[0] != '<' {
+		return "", 0, 0, false
+	}
+	i := 1
+	for i < len(tag) && !markupAttributeSpace(tag[i]) && tag[i] != '>' && tag[i] != '/' {
+		i++
+	}
+	for i < len(tag) {
+		for i < len(tag) && markupAttributeSpace(tag[i]) {
+			i++
+		}
+		if i >= len(tag) || tag[i] == '>' {
+			break
+		}
+		if tag[i] == '/' {
+			i++
+			continue
+		}
+		nameStart := i
+		for i < len(tag) && !markupAttributeSpace(tag[i]) && tag[i] != '=' && tag[i] != '>' && tag[i] != '/' {
+			i++
+		}
+		if nameStart == i {
+			i++
+			continue
+		}
+		name := tag[nameStart:i]
+		for i < len(tag) && markupAttributeSpace(tag[i]) {
+			i++
+		}
+		if i >= len(tag) || tag[i] != '=' {
+			continue
+		}
+		i++
+		for i < len(tag) && markupAttributeSpace(tag[i]) {
+			i++
+		}
+		if i >= len(tag) {
+			break
+		}
+		valueStart, valueEnd := i, i
+		if tag[i] == '"' || tag[i] == '\'' {
+			quote := tag[i]
+			i++
+			valueStart = i
+			for i < len(tag) && tag[i] != quote {
+				i++
+			}
+			if i == len(tag) {
+				break // unterminated attribute value; subsequent bytes are not attributes
+			}
+			valueEnd = i
+			i++
+		} else {
+			for i < len(tag) && !markupAttributeSpace(tag[i]) && tag[i] != '>' {
+				if tag[i] == '/' && i+1 < len(tag) && tag[i+1] == '>' {
+					break
+				}
+				i++
+			}
+			valueEnd = i
+		}
+		if strings.EqualFold(name, "id") && valueStart < valueEnd {
+			return tag[valueStart:valueEnd], valueStart, valueEnd, true
+		}
+	}
+	return "", 0, 0, false
+}
+
+func markupAttributeSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
+}
+
 func (HTMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	return analyzeMarkupDocument(ctx, document, options, "html", AnalyzerHTML)
 }
@@ -101,15 +178,9 @@ func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, option
 		}
 		start, end := cursor+tag[0], cursor+tag[1]
 		raw := document.Text[start:end]
-		for _, pattern := range []*regexp.Regexp{markupDoubleID, markupSingleID, markupBareID} {
-			id := pattern.FindStringSubmatchIndex(raw)
-			if id == nil {
-				continue
-			}
-			name := raw[id[2]:id[3]]
+		if name, idStart, idEnd, ok := markupIDAttribute(raw); ok {
 			addDocumentDataHardwareSymbol(builder, SymbolKindEntity, "id-element", name, nil,
-				OffsetRange{Start: start, End: end}, OffsetRange{Start: start + id[2], End: start + id[3]})
-			break
+				OffsetRange{Start: start, End: end}, OffsetRange{Start: start + idStart, End: start + idEnd})
 		}
 		tagName := strings.ToLower(source[cursor+tag[2] : cursor+tag[3]])
 		if language == "xml" && tagName == "string" && start >= resourceStart && resourceEnd >= end && resourceStart >= 0 {
