@@ -12,7 +12,7 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | Adopt, update, check, or recover a standalone binary | [Verified Self-update](SELF_UPDATE.md) |
 | Find an MCP tool, parameter, example, or error code | [Tool Reference](../TOOLS.md) |
 | Understand the supported source languages and analysis capabilities | [Language Capabilities](LANGUAGE_CAPABILITIES.md) |
-| Check which source providers have passed current real-project navigation tests | [Current original-project qualification](ROADMAP.md#current-original-project-qualification) |
+| Check the development-only navigation tests and independent project rechecks | [Current original-project qualification](ROADMAP.md#current-original-project-qualification) |
 | Inspect or safely edit Markdown documents | [Markdown Intelligence](MARKDOWN_INTELLIGENCE.md) and the [Markdown tools](../TOOLS.md#markdown_read) |
 | Configure tasks that outlive an MCP request | [Durable Tasks](DURABLE_TASKS.md) |
 | Run the server over HTTP or through a trusted proxy | [HTTP Security](HTTP_SECURITY.md) |
@@ -34,4 +34,4 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 
 This page is a navigation aid, not a replacement for the detailed contracts. The [Tool Reference](../TOOLS.md) defines tool behavior; [Architecture](ARCHITECTURE.md) and the focused security/task guides define operational boundaries. Keep release history in the [Changelog](../CHANGELOG.md) and future work in the [Roadmap](ROADMAP.md) rather than repeating either elsewhere.
 
-The [Language Capabilities](LANGUAGE_CAPABILITIES.md) matrix is generated from the source-provider registry, not edited by hand. Migration guides describe their named historical versions, which may differ from today's release. Repository [AGENTS.md](../AGENTS.md) files contain contributor instructions, not end-user guidance.
+The [Language Capabilities](LANGUAGE_CAPABILITIES.md) matrix is generated from the source-provider registry, not edited by hand. Registration describes available analysis, not proof of complete project navigation; the [Roadmap](ROADMAP.md#current-original-project-qualification) tracks those development-only checks separately. Migration guides describe their named historical versions, which may differ from today's release. Repository [AGENTS.md](../AGENTS.md) files contain contributor instructions, not end-user guidance.
