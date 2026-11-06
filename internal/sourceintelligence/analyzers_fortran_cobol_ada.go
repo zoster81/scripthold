@@ -696,7 +696,25 @@ func parseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens
 			*scopes = append(*scopes, structuralAnalyzerScope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
 	case "type":
-		if len(tokens) > 1 && (tokens[1].Text == "(" || tokens[1].Text == "=" || tokens[1].Text == "=>" || strings.EqualFold(tokens[1].Text, "is")) {
+		if len(tokens) > 2 && tokens[1].Text == "(" {
+			depth := 1
+			for index := 2; index < len(tokens); index++ {
+				switch tokens[index].Text {
+				case "(":
+					depth++
+				case ")":
+					depth--
+				}
+				if depth == 0 {
+					if index+1 < len(tokens) && fortranProcedureKeyword(tokens[index+1].Text) == "function" {
+						parseFortranProcedure(builder, tokens, start, end, index+1, parent, scopes)
+					}
+					break
+				}
+			}
+			return
+		}
+		if len(tokens) > 1 && (tokens[1].Text == "=" || tokens[1].Text == "=>" || strings.EqualFold(tokens[1].Text, "is")) {
 			return
 		}
 		nameIndex := -1
