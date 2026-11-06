@@ -812,6 +812,11 @@ func analyzeScriptStyleHost(ctx context.Context, document *SourceDocument, optio
 		return AnalyzerResult{}, err
 	}
 	retainedRegions, _ := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
+	if language == "vue" {
+		if err := appendVueOptionsMethods(ctx, document, options, retainedRegions, &result); err != nil {
+			return AnalyzerResult{}, err
+		}
+	}
 	appendCompositeDependencies(&result, scriptSourceDependencies(document, retainedRegions), options.Limits)
 	if !complete {
 		markCompositePartial(&result.Analysis, options.Limits, false, language+"-unterminated-region", "script/style region is not terminated")
