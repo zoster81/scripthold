@@ -75,7 +75,9 @@ type bladeAnonymousClass struct {
 }
 
 var (
-	scriptTagPattern              = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
+	scriptTagPattern = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
+	// Svelte's generics attribute may contain quoted > characters in type constraints.
+	svelteScriptTagPattern        = regexp.MustCompile(`(?is)<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</script\s*>`)
 	styleTagPattern               = regexp.MustCompile(`(?is)<style\b([^>]*)>(.*?)</style\s*>`)
 	scriptOpenPattern             = regexp.MustCompile(`(?is)<script\b`)
 	styleOpenPattern              = regexp.MustCompile(`(?is)<style\b`)
@@ -803,7 +805,11 @@ func analyzeScriptStyleHost(ctx context.Context, document *SourceDocument, optio
 			}
 		}
 	}
-	regions = append(regions, tagEmbeddedRegions(probe, scriptTagPattern, "script", scriptLanguage)...)
+	scriptPattern := scriptTagPattern
+	if language == "svelte" {
+		scriptPattern = svelteScriptTagPattern
+	}
+	regions = append(regions, tagEmbeddedRegions(probe, scriptPattern, "script", scriptLanguage)...)
 	regions = append(regions, tagEmbeddedRegions(probe, styleTagPattern, "style", styleLanguage)...)
 	regions = orderedNonOverlappingEmbeddedRegions(regions)
 	complete := embeddedOpeningsCovered(probe, regions, scriptOpenPattern) && embeddedOpeningsCovered(probe, regions, styleOpenPattern)
