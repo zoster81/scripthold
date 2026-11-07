@@ -274,13 +274,14 @@ var (
 	svPackage     = regexp.MustCompile(`(?im)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
 	svInterface   = regexp.MustCompile(`(?im)^[ \t]*interface[ \t]+([A-Za-z_][A-Za-z0-9_$]*)\b`)
 	hdlSignal     = regexp.MustCompile(`(?i)\b(?:wire|reg|logic|bit)[ \t]+(?:signed[ \t]+|unsigned[ \t]+)?(?:\[[^\]\r\n]+\][ \t]+)?([A-Za-z_][A-Za-z0-9_$]*)\b`)
-	// Only explicitly introduced declarations are indexed; instance overrides
-	// and general assignments are not HDL parameter declarations.
-	hdlParameterDeclaration = regexp.MustCompile(`^[ \t]*(parameter|localparam)[ \t]+(?:(?:[A-Za-z_][A-Za-z0-9_$]*|\[[^\]\r\n]*\])[ \t]+)*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*=`)
-	svTypedefStruct         = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
-	hdlEndModulePattern     = regexp.MustCompile(`(?i)\bendmodule\b`)
-	hdlEndPackagePattern    = regexp.MustCompile(`(?i)\bendpackage\b`)
-	hdlEndInterfacePattern  = regexp.MustCompile(`(?i)\bendinterface\b`)
+	// Only declarations introduced by parameter/localparam (and their bounded
+	// header continuations) are indexed, never instance overrides or assignments.
+	hdlParameterDeclaration  = regexp.MustCompile(`^[ \t]*(parameter|localparam)[ \t]+(?:(?:[A-Za-z_][A-Za-z0-9_$]*|\[[^\]\r\n]*\])[ \t]+)*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*=`)
+	hdlParameterContinuation = regexp.MustCompile(`^[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*=`)
+	svTypedefStruct          = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	hdlEndModulePattern      = regexp.MustCompile(`(?i)\bendmodule\b`)
+	hdlEndPackagePattern     = regexp.MustCompile(`(?i)\bendpackage\b`)
+	hdlEndInterfacePattern   = regexp.MustCompile(`(?i)\bendinterface\b`)
 )
 
 func (VerilogAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -302,7 +303,10 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	source := maskSourceComments(document.Text, []string{"//"}, "/*", "*/")
+	// Verilog apostrophes introduce numeric literals, not quoted strings.
+	// Replace them only in the analysis copy before masking comments; when
+	// no apostrophe exists, ReplaceAll preserves the original allocation.
+	source := maskSourceComments(strings.ReplaceAll(document.Text, "'", " "), []string{"//"}, "/*", "*/")
 	source = maskSourceStrings(source, false, true, false)
 	if systemVerilog {
 		for _, match := range svPackage.FindAllStringSubmatchIndex(source, -1) {
@@ -314,12 +318,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			}
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
-				parent := &symbol
-				body := source[match[1]:end]
-				for _, typeMatch := range svTypedefStruct.FindAllStringSubmatchIndex(body, -1) {
-					value := document.Text[match[1]+typeMatch[2] : match[1]+typeMatch[3]]
-					addDocumentDataHardwareSymbol(builder, SymbolKindType, "typedef-struct", value, parent, OffsetRange{Start: match[1] + typeMatch[0], End: match[1] + typeMatch[1]}, OffsetRange{Start: match[1] + typeMatch[2], End: match[1] + typeMatch[3]})
-				}
+				hdlSVStructTypes(builder, document, source, match[1], end, &symbol)
 			}
 		}
 		for _, match := range svInterface.FindAllStringSubmatchIndex(source, -1) {
@@ -331,6 +330,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			}
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindInterface, "interface", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
+				hdlSVStructTypes(builder, document, source, match[1], end, &symbol)
 				hdlSignals(builder, document, source, match[1], end, &symbol)
 			}
 		}
@@ -356,11 +356,27 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 		}
 		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindModule, "module", name, nil, OffsetRange{Start: matchStart, End: end}, OffsetRange{Start: nameStart, End: nameEnd})
 		if ok {
+			if systemVerilog {
+				hdlSVStructTypes(builder, document, source, matchEnd, end, &symbol)
+			}
 			hdlSignals(builder, document, source, matchEnd, end, &symbol)
 		}
 		search = matchEnd
 	}
 	return AnalyzerResult{Analysis: builder.takeResult()}, nil
+}
+
+// A recognized packed struct is a named type, not a collection of
+// independently declared interface/module signals.
+func hdlSVStructTypes(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent) {
+	body := source[start:end]
+	for _, match := range svTypedefStruct.FindAllStringSubmatchIndex(body, -1) {
+		nameStart, nameEnd := start+match[2], start+match[3]
+		addDocumentDataHardwareSymbol(builder, SymbolKindType, "typedef-struct",
+			document.Text[nameStart:nameEnd], parent,
+			OffsetRange{Start: start + match[0], End: start + match[1]},
+			OffsetRange{Start: nameStart, End: nameEnd})
+	}
 }
 
 func hdlEnd(text string, start int, terminator string) int {
@@ -384,11 +400,126 @@ func hdlEnd(text string, start int, terminator string) int {
 	return -1
 }
 
+// A module/interface header can declare multiple parameters after a single
+// "parameter" keyword. Scan only its #(...) list: scanning arbitrary commas
+// would misclassify instance overrides and ordinary expressions as declarations.
+func hdlHeaderParameters(builder *SymbolBuilder, document *SourceDocument, body string, base int, parent *SymbolParent) string {
+	hash := 0
+	for hash < len(body) && (body[hash] == ' ' || body[hash] == '\t' || body[hash] == '\r' || body[hash] == '\n') {
+		hash++
+	}
+	if hash >= len(body) || body[hash] != '#' {
+		return body
+	}
+	open := hash + 1
+	for open < len(body) && (body[open] == ' ' || body[open] == '\t' || body[open] == '\r' || body[open] == '\n') {
+		open++
+	}
+	if open >= len(body) || body[open] != '(' {
+		return body
+	}
+	closing, depth := -1, 1
+	for i := open + 1; i < len(body); i++ {
+		switch body[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				closing = i
+			}
+		}
+		if closing >= 0 {
+			break
+		}
+	}
+	if closing < 0 {
+		return body
+	}
+
+	// Mask the parsed header before the ordinary line-based parameter/signal
+	// scanner. Preserve CR/LF and byte offsets for exact source ranges.
+	masked := []byte(body)
+	for i := hash; i <= closing; i++ {
+		if masked[i] != '\r' && masked[i] != '\n' {
+			masked[i] = ' '
+		}
+	}
+
+	segmentStart := open + 1
+	paren, bracket, brace := 0, 0, 0
+	inDeclaration := false
+	kind := SymbolKindConstant
+	declarationKind := "parameter"
+	for i := segmentStart; i <= closing; i++ {
+		if i != closing {
+			switch body[i] {
+			case '(':
+				paren++
+			case ')':
+				paren--
+			case '[':
+				bracket++
+			case ']':
+				bracket--
+			case '{':
+				brace++
+			case '}':
+				brace--
+			}
+			if body[i] != ',' || paren != 0 || bracket != 0 || brace != 0 {
+				continue
+			}
+		}
+
+		segment := body[segmentStart:i]
+		trimmed := strings.TrimLeft(segment, " \t\r\n")
+		offset := base + segmentStart + len(segment) - len(trimmed)
+		match := hdlParameterDeclaration.FindStringSubmatchIndex(trimmed)
+		nameStart, nameEnd := -1, -1
+		if match != nil {
+			inDeclaration = true
+			kind = SymbolKindConstant
+			if fields := strings.Fields(trimmed[match[3]:match[4]]); len(fields) > 0 && fields[0] == "type" {
+				kind = SymbolKindType
+			}
+			declarationKind = trimmed[match[2]:match[3]]
+			nameStart, nameEnd = match[4], match[5]
+		} else if inDeclaration {
+			if continuation := hdlParameterContinuation.FindStringSubmatchIndex(trimmed); continuation != nil {
+				nameStart, nameEnd = continuation[2], continuation[3]
+			} else {
+				inDeclaration = false
+			}
+		}
+		if nameStart >= 0 {
+			addDocumentDataHardwareSymbol(builder, kind, declarationKind,
+				document.Text[offset+nameStart:offset+nameEnd], parent,
+				OffsetRange{Start: offset, End: base + i},
+				OffsetRange{Start: offset + nameStart, End: offset + nameEnd})
+		}
+		segmentStart = i + 1
+	}
+	return string(masked)
+}
+
 func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent) {
 	if end <= start || end > len(document.Text) || len(source) != len(document.Text) {
 		return
 	}
-	body := source[start:end]
+	body := hdlHeaderParameters(builder, document, source[start:end], start, parent)
+	// Struct members are not module/interface signals; preserve line offsets.
+	if matches := svTypedefStruct.FindAllStringIndex(body, -1); len(matches) > 0 {
+		masked := []byte(body)
+		for _, match := range matches {
+			for i := match[0]; i < match[1]; i++ {
+				if masked[i] != '\r' && masked[i] != '\n' {
+					masked[i] = ' '
+				}
+			}
+		}
+		body = string(masked)
+	}
 	// A typed SystemVerilog parameter may contain "logic" or "bit". Mask
 	// recognized parameter lines before scanning signals so that a parameter
 	// is not also misreported as a signal.
