@@ -273,8 +273,14 @@ func objectiveCMethodHeaderEnded(tokens []Token) bool {
 }
 
 func objectiveCSelectorContinuation(tokens []Token) bool {
-	return len(tokens) >= 3 && tokens[0].Kind == TokenIdentifier &&
+	return len(tokens) >= 3 && objectiveCSelectorLabel(tokens[0]) &&
 		tokens[1].Text == ":" && tokens[2].Text == "("
+}
+
+// A selector label is lexical identifier text even when the C++ profile
+// classifies the same spelling (for example "and") as a keyword.
+func objectiveCSelectorLabel(token Token) bool {
+	return token.Kind == TokenIdentifier || token.Kind == TokenKeyword
 }
 
 func objectiveCDirective(tokens []Token) (int, string) {
@@ -419,7 +425,7 @@ func (p *objectiveCParser) method(line LogicalLine) {
 			// use an implicit (id) argument type. Exclude C++ scope
 			// resolution and any labels inside parameter types.
 			if depth == 0 && i > first && i+1 < len(line.Tokens) &&
-				line.Tokens[i-1].Kind == TokenIdentifier && line.Tokens[i+1].Text != ":" {
+				objectiveCSelectorLabel(line.Tokens[i-1]) && line.Tokens[i+1].Text != ":" {
 				if colonCount == 0 && i-1 == first {
 					selector += ":"
 					colonCount++

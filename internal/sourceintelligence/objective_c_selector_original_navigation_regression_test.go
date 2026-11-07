@@ -64,6 +64,20 @@ func TestObjectiveCFamilyMultilineOriginalSelectors(t *testing.T) {
 			absent: "Bridge.configure:std:",
 		},
 		{
+			name: "objective-cpp-keyword-selector-continuation", language: "objective-cpp",
+			analyzer: ObjectiveCPPAnalyzer{},
+			source: `@implementation Bridge
+- (BOOL)setURLPattern:(const char *)allowPattern
+                 and:(const char *)denyPattern
+                 and:(const char *)hookPattern
+{
+  return YES;
+}
+@end`,
+			want:   "Bridge.setURLPattern:and:and:",
+			absent: "Bridge.setURLPattern:",
+		},
+		{
 			name: "objective-cpp-component-size", language: "objective-cpp",
 			analyzer: ObjectiveCPPAnalyzer{},
 			source: `@implementation Picture
