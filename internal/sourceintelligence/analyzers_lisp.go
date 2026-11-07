@@ -55,6 +55,8 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 	dependencies := []StructuralDependency{}
 	var currentParent *SymbolParent
 	packages := make(map[string]SymbolParent)
+	fiveAMPackages := make(map[string]bool)
+	fiveAMActive, fiveAMSuite := false, false
 	for open := 0; open < len(scan.Tokens); open++ {
 		if scan.Tokens[open].Text != "(" || scan.Tokens[open].Nesting != 1 {
 			continue
@@ -75,7 +77,19 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 		head := strings.ToLower(scan.Tokens[form].Text)
 		switch language {
 		case "common-lisp":
-			parseCommonLispForm(document, builder, scan.Tokens, form, close, head, &currentParent, packages, &dependencies)
+			switch head {
+			case "defpackage":
+				name := commonLispFormName(scan.Tokens, form+1, close)
+				if name != "" {
+					fiveAMPackages[name] = commonLispDefpackageUsesFiveAM(scan.Tokens, pairs, form, close)
+				}
+			case "in-package":
+				fiveAMActive = fiveAMPackages[commonLispFormName(scan.Tokens, form+1, close)]
+				fiveAMSuite = false
+			case "in-suite":
+				fiveAMSuite = fiveAMActive && commonLispFormName(scan.Tokens, form+1, close) != ""
+			}
+			parseCommonLispForm(document, builder, scan.Tokens, form, close, head, fiveAMActive, fiveAMSuite, &currentParent, packages, &dependencies)
 		case "clojure":
 			parseClojureForm(document, builder, scan.Tokens, pairs, form, close, head, &currentParent, &dependencies)
 		case "emacs-lisp":
@@ -266,7 +280,40 @@ func nextLispAtomToken(tokens []Token, start, end int) int {
 	return -1
 }
 
-func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
+func commonLispFormName(tokens []Token, start, close int) string {
+	index := nextLispFormToken(tokens, start, close)
+	if index < 0 || (tokens[index].Kind != TokenIdentifier && tokens[index].Kind != TokenKeyword) {
+		return ""
+	}
+	return strings.ToLower(cleanLispAtom(tokens[index].Text))
+}
+
+// Require an explicit direct (:use :fiveam) package clause. A similarly named
+// macro in another package is not evidence of a FiveAM test definition.
+func commonLispDefpackageUsesFiveAM(tokens []Token, pairs map[int]int, form, close int) bool {
+	for index := form + 1; index < close; index++ {
+		if tokens[index].Text != "(" || tokens[index].Nesting != 2 {
+			continue
+		}
+		end := pairs[index]
+		if end <= index || end >= close {
+			continue
+		}
+		clause := nextLispFormToken(tokens, index+1, end)
+		if clause >= 0 && strings.EqualFold(cleanLispAtom(tokens[clause].Text), "use") {
+			for member := clause + 1; member < end; member++ {
+				if (tokens[member].Kind == TokenIdentifier || tokens[member].Kind == TokenKeyword) &&
+					strings.EqualFold(cleanLispAtom(tokens[member].Text), "fiveam") {
+					return true
+				}
+			}
+		}
+		index = end
+	}
+	return false
+}
+
+func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, fiveAMActive, fiveAMSuite bool, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
 		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
@@ -303,6 +350,18 @@ func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, token
 	case "defstruct":
 		kind = SymbolKindStruct
 	case "defun", "defmacro":
+		kind = SymbolKindFunction
+	case "def-suite":
+		if !fiveAMActive || nameIndex != nextLispFormToken(tokens, form+1, close) ||
+			tokens[nameIndex].Kind != TokenIdentifier || strings.HasPrefix(tokens[nameIndex].Text, ":") {
+			return
+		}
+		kind = SymbolKindSection
+	case "test":
+		if !fiveAMSuite || nameIndex != nextLispFormToken(tokens, form+1, close) ||
+			tokens[nameIndex].Kind != TokenIdentifier || strings.HasPrefix(tokens[nameIndex].Text, ":") {
+			return
+		}
 		kind = SymbolKindFunction
 	case "defconstant":
 		kind = SymbolKindConstant
