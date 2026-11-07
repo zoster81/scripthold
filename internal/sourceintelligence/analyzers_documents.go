@@ -520,6 +520,16 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if trimmed == "" {
 			continue
 		}
+		if strings.HasPrefix(trimmed, "=") {
+			if name := sassMixinName(trimmed); name != "" {
+				nameStart := line.start + strings.Index(line.text, name)
+				addDocumentDataHardwareSymbol(builder, SymbolKindFunction, "mixin", name, nil, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
+			} else {
+				addDocumentDataHardwareDiagnostic(builder, "sass-malformed-mixin", "Sass mixin declaration has no valid name or parameter list", line.start, line.end)
+				builder.MarkIncomplete()
+			}
+			continue
+		}
 		if strings.HasPrefix(trimmed, "$") {
 			if colon := strings.Index(trimmed, ":"); colon > 1 {
 				name := strings.TrimSpace(trimmed[1:colon])
@@ -564,6 +574,52 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+// sassMixinName accepts indented Sass =name and =name(...) definitions,
+// not +name(...) mixin calls. It does not evaluate default arguments.
+func sassMixinName(trimmed string) string {
+	definition := strings.TrimPrefix(trimmed, "=")
+	nameEnd := strings.IndexAny(definition, " (\t")
+	if nameEnd < 0 {
+		nameEnd = len(definition)
+	}
+	name := definition[:nameEnd]
+	if !sassBareElementName(name) {
+		return ""
+	}
+	rest := strings.TrimSpace(definition[nameEnd:])
+	if rest == "" {
+		return name
+	}
+	if !strings.HasPrefix(rest, "(") {
+		return ""
+	}
+	depth := 0
+	var quoted byte
+	for index := 0; index < len(rest); index++ {
+		switch char := rest[index]; {
+		case quoted != 0:
+			if char == '\\' && index+1 < len(rest) {
+				index++
+			} else if char == quoted {
+				quoted = 0
+			}
+		case char == '\'' || char == '"':
+			quoted = char
+		case char == '(':
+			depth++
+		case char == ')':
+			depth--
+			if depth < 0 || (depth == 0 && index != len(rest)-1) {
+				return ""
+			}
+		}
+	}
+	if depth != 0 || quoted != 0 {
+		return ""
+	}
+	return name
 }
 
 func sassBareElementName(name string) bool {
