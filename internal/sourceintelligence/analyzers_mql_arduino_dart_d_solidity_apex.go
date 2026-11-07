@@ -797,6 +797,22 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i++
 			continue
 		}
+		// Groovy package and import headers are already indexed. They do not
+		// declare callables: scanning through them can mislabel a later
+		// parameterized annotation and swallow its entire class.
+		if p.policy.lineTerminatedModule && p.tokens[i].Nesting == 0 {
+			word := p.lower(p.tokens[i].Text)
+			_, imported := p.policy.importKeywords[word]
+			if p.eq(word, p.policy.moduleKeyword) || imported {
+				lineEnd := p.lineEnd(i)
+				if semi := p.findSameDepth(i+1, lineEnd, ";", 0); semi >= 0 {
+					i = semi + 1
+				} else {
+					i = lineEnd
+				}
+				continue
+			}
+		}
 		if p.policy.language == "d" {
 			if next, consumed := p.skipDStructuralPrelude(i, end, parent, members, owner); consumed {
 				i = next
