@@ -340,6 +340,7 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 	declaration := OffsetRange{Start: tokens[form-1].StartOffset, End: tokens[close].EndOffset}
 	signature := OffsetRange{Start: declaration.Start, End: tokens[nameIndex].EndOffset}
 	kind := SymbolKind("")
+	native := head
 	switch head {
 	case "ns":
 		kind = SymbolKindNamespace
@@ -351,6 +352,12 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 		kind = SymbolKindInterface
 	case "defn", "defn-", "defmacro":
 		kind = SymbolKindFunction
+	case "deftest", "clojure.test/deftest":
+		if tokens[form].Text != head || tokens[nameIndex].Kind != TokenIdentifier {
+			return
+		}
+		kind = SymbolKindFunction
+		native = "deftest"
 	case "def":
 		kind = SymbolKindVariable
 	}
@@ -361,7 +368,7 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 	if head == "ns" {
 		parent = nil
 	}
-	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: head, Name: name, Parent: parent,
+	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
 		Declaration: declaration, NameRange: nameRange, Signature: &signature, Evidence: SymbolEvidenceStructural})
 	if ok && head == "ns" {
 		value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
