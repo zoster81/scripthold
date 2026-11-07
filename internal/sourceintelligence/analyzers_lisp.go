@@ -429,6 +429,14 @@ func parseEmacsLispForm(document *SourceDocument, builder *SymbolBuilder, tokens
 		kind = SymbolKindClass
 	case "defun", "defmacro":
 		kind = SymbolKindFunction
+	case "ert-deftest":
+		if tokens[form].Text != "ert-deftest" ||
+			nameIndex != nextLispFormToken(tokens, form+1, close) ||
+			tokens[nameIndex].Kind != TokenIdentifier ||
+			strings.HasPrefix(name, ":") {
+			return
+		}
+		kind = SymbolKindFunction
 	case "defconst":
 		kind = SymbolKindConstant
 	case "defcustom", "defvar":
