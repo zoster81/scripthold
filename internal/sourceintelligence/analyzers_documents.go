@@ -2,6 +2,8 @@ package sourceintelligence
 
 import (
 	"context"
+	"encoding/xml"
+	"io"
 	"regexp"
 	"strings"
 )
@@ -216,7 +218,94 @@ func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, option
 		}
 		cursor += closeTag[1]
 	}
+	if language == "xml" {
+		properties, complete, err := msbuildPropertyElements(ctx, document.Text)
+		if err != nil {
+			return AnalyzerResult{}, err
+		}
+		if !complete {
+			builder.MarkIncomplete()
+		}
+		for _, property := range properties {
+			addDocumentDataHardwareSymbol(builder, SymbolKindProperty, "msbuild-property", property.name, nil,
+				OffsetRange{Start: property.start, End: property.end},
+				OffsetRange{Start: property.nameStart, End: property.nameEnd})
+		}
+	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+// MSBuild property values are only navigable when their XML document is
+// well-formed and the element is a leaf directly inside Project/PropertyGroup.
+// The decoder provides exact source offsets; no MSBuild evaluation is attempted.
+type msbuildPropertyElement struct {
+	name                           string
+	start, end, nameStart, nameEnd int
+}
+
+func msbuildPropertyElements(ctx context.Context, source string) ([]msbuildPropertyElement, bool, error) {
+	type frame struct {
+		name                      xml.Name
+		start, nameStart, nameEnd int
+		property, nested          bool
+	}
+	decoder := xml.NewDecoder(strings.NewReader(source))
+	var stack []frame
+	var properties []msbuildPropertyElement
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		start := int(decoder.InputOffset())
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return properties, true, nil
+		}
+		if err != nil {
+			return nil, false, nil // Never expose candidate properties from malformed XML.
+		}
+		end := int(decoder.InputOffset())
+		switch element := token.(type) {
+		case xml.StartElement:
+			if len(stack) == 0 {
+				if element.Name.Local != "Project" ||
+					(element.Name.Space != "" && element.Name.Space != "http://schemas.microsoft.com/developer/msbuild/2003") {
+					return nil, true, nil // Other XML documents retain their existing contract.
+				}
+			}
+			if len(stack) >= 96 {
+				return nil, false, nil
+			}
+			if len(stack) > 0 {
+				stack[len(stack)-1].nested = true
+			}
+			current := frame{name: element.Name, start: start}
+			if len(stack) == 2 && stack[1].name.Local == "PropertyGroup" &&
+				stack[1].name.Space == stack[0].name.Space && element.Name.Space == stack[0].name.Space {
+				tag := markupTag.FindStringSubmatchIndex(source[start:end])
+				if tag != nil && tag[0] == 0 {
+					name := source[start+tag[2] : start+tag[3]]
+					prefix := strings.LastIndexByte(name, ':')
+					current.property = true
+					current.nameStart = start + tag[2] + prefix + 1
+					current.nameEnd = start + tag[3]
+				}
+			}
+			stack = append(stack, current)
+		case xml.EndElement:
+			if len(stack) == 0 {
+				return nil, false, nil
+			}
+			current := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if current.property && !current.nested {
+				properties = append(properties, msbuildPropertyElement{
+					name: element.Name.Local, start: current.start, end: end,
+					nameStart: current.nameStart, nameEnd: current.nameEnd,
+				})
+			}
+		}
+	}
 }
 
 var (

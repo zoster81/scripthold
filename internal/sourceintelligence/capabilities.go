@@ -330,8 +330,10 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 				descriptor.KnownLimitations = []string{"module/interface/package/signal structure is bounded and macro-free; preprocessing, generate/elaboration, parameter/type/net binding, simulation semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "assembly":
 				descriptor.KnownLimitations = []string{"GAS/NASM-style labels, numeric local labels, MASM PROC declarations, MASM/Motorola EQU constants, named MASM/NASM DB/DW data, and named Motorola FCB/FCC/FDB/RMB data outside recognized macro/structure blocks are structural only; FDB words and RMB storage sizes use operand-shape checks without expression evaluation, and FCC delimiters have shape checks; other assignments/data directives, macro expansion, assembler END semantics, instruction decoding, control-flow/symbol/linker resolution, architecture semantics, semantic relations, and incremental indexing are not implemented"}
-			case "html", "xml":
+			case "html":
 				descriptor.KnownLimitations = []string{"only elements with explicit id attributes are navigation symbols; DOM/schema/namespace validation, template/runtime semantics, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
+			case "xml":
+				descriptor.KnownLimitations = []string{"explicit id elements, supported Android string resources and direct leaf Project/PropertyGroup MSBuild properties are indexed; MSBuild parsing requires well-formed XML and does not evaluate conditions or imports; general XML schema/namespace validation, runtime semantics, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
 			case "css", "scss", "sass", "less":
 				descriptor.KnownLimitations = []string{"selector and supported variable structure is lexical/structural only; nesting expansion, mixins/functions, imports/modules, cascade/style computation, semantic relations, and incremental indexing are not implemented"}
 			case "json":
