@@ -24,6 +24,9 @@ var (
 	vhdlEntity       = regexp.MustCompile(`(?im)^[ \t]*entity[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
 	vhdlArchitecture = regexp.MustCompile(`(?im)^[ \t]*architecture[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+of[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
 	vhdlSignal       = regexp.MustCompile(`(?im)^[ \t]*signal[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:`)
+	vhdlRangeType    = regexp.MustCompile(`(?im)^[ \t]*type[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is[ \t]+range[ \t]+[^;\r\n]+;`)
+	vhdlBegin        = regexp.MustCompile(`(?im)^[ \t]*begin\b`)
+	vhdlSubprogram   = regexp.MustCompile(`(?im)^[ \t]*(?:(?:pure|impure)[ \t]+)?(?:function|procedure)[ \t]+[A-Za-z_]`)
 	vhdlComponent    = regexp.MustCompile(`(?im)^[ \t]*component[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	vhdlUse          = regexp.MustCompile(`(?im)^[ \t]*use[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
 	vhdlGenericOpen  = regexp.MustCompile(`(?im)^[ \t]*generic[ \t\r\n]*\(`)
@@ -84,6 +87,7 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 		archParent := &symbol
 		bodyEnd := end
+		vhdlArchitectureRangeTypes(builder, document, source, match[1], bodyEnd, archParent)
 		for _, component := range vhdlComponent.FindAllStringSubmatchIndex(source[match[1]:bodyEnd], -1) {
 			if err := ctx.Err(); err != nil {
 				return AnalyzerResult{}, err
@@ -108,6 +112,33 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
+}
+
+// vhdlArchitectureRangeTypes recognizes simple, complete single-line range
+// type declarations in an architecture's declarative prefix. Stop at the
+// first begin or nested subprogram: a process/function-local type cannot
+// truthfully be assigned to the architecture by a flat text matcher.
+func vhdlArchitectureRangeTypes(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent) {
+	if start >= end || end > len(source) {
+		return
+	}
+	body := source[start:end]
+	declarationEnd := len(body)
+	if begin := vhdlBegin.FindStringIndex(body); begin != nil {
+		declarationEnd = begin[0]
+	} else {
+		return
+	}
+	if nested := vhdlSubprogram.FindStringIndex(body[:declarationEnd]); nested != nil {
+		declarationEnd = nested[0]
+	}
+	for _, match := range vhdlRangeType.FindAllStringSubmatchIndex(body[:declarationEnd], -1) {
+		nameStart, nameEnd := start+match[2], start+match[3]
+		addDocumentDataHardwareSymbol(builder, SymbolKindType, "range-type",
+			document.Text[nameStart:nameEnd], parent,
+			OffsetRange{Start: start + match[0], End: start + match[1]},
+			OffsetRange{Start: nameStart, End: nameEnd})
+	}
 }
 
 // vhdlEntityGenerics indexes explicit scalar interface constants only inside
