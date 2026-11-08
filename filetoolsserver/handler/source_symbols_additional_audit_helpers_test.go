@@ -23,6 +23,7 @@ type extraAuditScenario struct {
 	paths                                                           []string
 	oracles                                                         []extraAuditEvidence
 	targets                                                         []extraAuditSymbol
+	showAsWritten                                                   map[string]string
 }
 
 func checkAdditionalOriginalNavigation(t *testing.T, corpus string, sc extraAuditScenario) {
@@ -82,8 +83,12 @@ func checkAdditionalOriginalNavigation(t *testing.T, corpus string, sc extraAudi
 				SourceFingerprint: found.Files[0].SourceFingerprint,
 				Language:          sc.language, Encoding: "utf-8", MaxBytes: 16384,
 			})
-			if err != nil || failed != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, target.name) {
-				t.Fatalf("fingerprint-bound show for %s err=%v failed=%+v output=%+v", target.name, err, failed, shown.Show)
+			wantText := sc.showAsWritten[target.name]
+			if wantText == "" {
+				wantText = target.name
+			}
+			if err != nil || failed != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, wantText) {
+				t.Fatalf("fingerprint-bound show for %s expected %q err=%v failed=%+v output=%+v", target.name, wantText, err, failed, shown.Show)
 			}
 		}
 		failedQuery, query, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
