@@ -795,7 +795,80 @@ The following **proposed JSON projections** use source-verified example names/lo
 
 Search results shown are abbreviated. A page cursor is server-issued, bound to the query/index and must work through the *public* MCP schema. Adding `hasMore: true` next to `nextCursor` would be redundant. Safe symbol-selection data must be obtainable when a subsequent `show` or `context` call needs it, without forcing hashes into ordinary overviews.
 
-**Proposed `show` / `context` behavior:** `show` should let the caller request an exact declaration, proven definition or available body; it must clearly say if the analyzer supplies only a signature or the budget prevents a complete body. For instance `CEfnControl.AddChild` is defined at `Core/Control.mqh:155`. `context` should retain a selected `CEfnUi.ChartEvent` excerpt around the wheel-event branch at `Core/Ui.mqh:528-537` when those lines are the explicit target, rather than appending the entire enclosing `CEfnUi` class by default. `bodyPolicy: "signatures-only"` must return signatures, and `"prefer"` must provide complete source bodies only when available and within budget. No inferred relevance, invented call graph or guessed excerpt.
+**Proposed `show` / `context` behavior:** `show` must return an exact declaration, verified definition, or available body chosen by the caller, with its location and an explicit complete/partial representation. It must not silently substitute a header for a requested body. `context` must return the explicitly selected target and only source-justified related excerpts. A targeted line/range is a caller selection, **not** a claim that Scripthold understood the maintenance question. `bodyPolicy: "signatures-only"` returns signatures; `"prefer"` returns complete bodies only when supported and within budget, otherwise a clearly labeled fallback or bounded failure. Neither mode automatically includes the entire enclosing class, invents call-graph edges or truncates code invisibly.
+
+**Proposed `show` JSON — complete verified method body.** This is the complete decoded source for the MQL5 `CEfnControl.AddChild` definition at lines 155–161; the JSON shows escaped newline characters for illustration. Implementation must preserve actual decoded line-ending content and the existing Unicode-scalar range semantics.
+
+```json
+{
+  "symbol": "CEfnControl.AddChild",
+  "file": "Core/Control.mqh",
+  "lines": [
+    155,
+    161
+  ],
+  "representation": "body",
+  "complete": true,
+  "code": "bool CEfnControl::AddChild(CEfnControl &child)\n  {\n   int total=::ArraySize(m_children);\n   if(::ArrayResize(m_children,total+1)!=total+1) return(false);\n   m_children[total]=::GetPointer(child);\n   return(true);\n  }"
+}
+```
+
+**Proposed `context` JSON — deliberately selected lines, not the whole class.** `CEfnUi.ChartEvent` contains the shown code at lines 534–535 inside the mouse-wheel branch. `completeBody: false` is intentional: this is a *selected excerpt*, not the complete method, and the caller must not treat it as one.
+
+```json
+{
+  "target": "CEfnUi.ChartEvent",
+  "items": [
+    {
+      "file": "Core/Ui.mqh",
+      "lines": [
+        534,
+        535
+      ],
+      "representation": "excerpt",
+      "completeBody": false,
+      "code": "         SEfnAction action; CEfnControl *receiver=target;\n         while(receiver!=NULL) { receiver.PointerWheel(delta,action); if(action.handled) { ApplyAction(receiver,action); break; } receiver=receiver.Parent(); }"
+    }
+  ]
+}
+```
+
+**Proposed `context` JSON — signatures-only.** The MQL5 declaration is at line 71. An implementation must return only a bounded signature in this mode, not an enclosing class body.
+
+```json
+{
+  "target": "CEfnUi.ChartEvent",
+  "items": [
+    {
+      "file": "Core/Ui.mqh",
+      "line": 71,
+      "representation": "signature",
+      "text": "void              ChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)"
+    }
+  ]
+}
+```
+
+**Safe `find`/`search` → `show`/`context` handoff.** After locating a target, a successful follow-up must not require re-scanning the whole project solely to discover technical identifiers. When the result is intended for safe drilldown, expose *one self-contained selection record for each independently selectable match*; do not add IDs to the project overview or every outline member. The initial rollout keeps the existing full-length SHA-256 `symbolId` and `sourceFingerprint` for compatibility. There is no approved shorter-reference scheme.
+
+A safe selected symbol needs its authorized absolute file `path`, `symbolId`, `sourceFingerprint`, `language` and `encoding` to satisfy **the current `source_symbols.show` input schema**. A compact display can show a relative path once while holding the full selection fields in a `showInput` object available *only for that requested candidate*. The example is schematic: placeholders are not valid selectors or captured fingerprints.
+
+```json
+{
+  "symbol": "CEfnControl.AddChild",
+  "at": "Core/Control.mqh:155",
+  "showInput": {
+    "operation": "show",
+    "path": "/allowed-project/Core/Control.mqh",
+    "symbolId": "<64-lowercase-hex-symbol-id>",
+    "sourceFingerprint": "<64-lowercase-hex-source-fingerprint>",
+    "language": "mql5",
+    "encoding": "utf-16-le"
+  }
+}
+```
+
+Pass the five validated selector fields unchanged to `show` and continue only if fingerprint validation succeeds. For `source_query.context`, its *different* current `targets[]` schema needs `kind: "symbol"`, `path`, `symbolId` and `sourceFingerprint`; a selected source position instead requires `kind: "position"`, an authorized `path`, `position: {line, column}` and its `sourceFingerprint`. In both cases the project `paths[]` scope remains required. Do not conflate a proposed display object with a currently registered MCP request, infer missing hashes or invent an owner from the name. A multi-root response must carry enough root identity to resolve a relative file without collisions; the authorized absolute path is retained internally for the actual selector. If selection evidence is stale, unavailable, ambiguous or mismatched, return the corresponding typed failure/ambiguity rather than opening a similarly named symbol. A requested declaration must not silently resolve to an implementation or a different overload.
 
 **Proposed `relations` example (selected direct includes only):**
 
@@ -812,7 +885,94 @@ Search results shown are abbreviated. A page cursor is server-issued, bound to t
 
 The line refers to the source include site. For other relation kinds, distinguish a reference *site* from an enclosing declaration range and retain `evidence` and `resolution` whenever their omission would mislead. `references` / `impact` are limited to indexed structural evidence, not a proven exhaustive call graph.
 
-**Empty, partial and failure responses:** Keep `matches: []` explicit for a complete bounded empty search; include the searched evidence scope. Return a concise incomplete-coverage indicator and reason for skipped/unsupported files, truncated analysis or result-budget limits. Report `CONFLICT` for stale fingerprint/index evidence instead of stale excerpts. Preserve existing typed error codes; do not silently introduce replacement error enums. Paged hits and analysis completeness must have distinct states. Results remain bounded and deterministic; huge overview/outline responses require honest pagination or explicit incomplete-state reporting, not an arbitrary silent cutoff.
+**Empty, partial, ambiguous and error results — proposed concise JSON (not current output schemas).** Return only what is supported by the scope and evidence. **No matches** means no recorded match in the analyzed structural scope, not proof that the source or all call sites lack the requested behavior.
+
+*Complete scoped search, no matches:*
+
+```json
+{
+  "matches": [],
+  "scope": "indexed structural declarations",
+  "coverage": {
+    "analysisComplete": true,
+    "fileSelectionTruncated": false,
+    "resultsTruncated": false
+  }
+}
+```
+
+*Ambiguous same-name declaration search:* The two `CEfnLabel.Text` overload declarations at lines 26 and 27 are distinct despite a common qualified name. The caller must select an overload by signature and source position; the tool must never invent a winner or silently merge definitions.
+
+```json
+{
+  "query": "Text",
+  "matches": [
+    {
+      "symbol": "CEfnLabel.Text",
+      "signature": "void Text(const string value)",
+      "at": "Controls/Basic.mqh:26"
+    },
+    {
+      "symbol": "CEfnLabel.Text",
+      "signature": "string Text(void) const",
+      "at": "Controls/Basic.mqh:27"
+    }
+  ],
+  "ambiguous": true
+}
+```
+
+*Partial file selection, no matches:* The selected files may be fully analyzed while additional eligible files were excluded. These are independent coverage states.
+
+```json
+{
+  "matches": [],
+  "coverage": {
+    "analysisComplete": true,
+    "fileSelectionTruncated": true,
+    "resultsTruncated": false
+  },
+  "warning": "Additional eligible files were omitted by maxFiles; absence is not established."
+}
+```
+
+*Stale selector:* This is a **failed MCP call**, not a successful empty `show`. The schematic object uses the existing `CONFLICT` category and must preserve the MCP error indication and typed error mapping.
+
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Selected source changed. Repeat the lookup."
+  }
+}
+```
+
+*Invalid selector:* An invalid input is not a successful empty result. Public schema validation may return an SDK-level error rather than the illustrative object below.
+
+```json
+{
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "The supplied selector is not valid for this operation."
+  }
+}
+```
+
+When language recognition is ambiguous, an analyzer is unsupported, an access check fails, a source changes, a result budget prevents inclusion, or the caller cancels, report the actual status/error with the affected scope. Never replace missing data with empty success. For a valid next page, expose `nextCursor` without treating pagination as incomplete analysis; separately disclose skipped files, partial parsing and result-limit truncation. Sort all records deterministically. For very large overviews/outlines use a continuation or an explicit incomplete-state warning, never a silent cutoff. Example field names such as `warning`, `representation` and `complete` are **illustrative**, not approved replacements for current public JSON schemas or error codes.
+
+**Per-operation acceptance contract (to implement and verify):**
+
+| Operation | A correct, useful response MUST allow | Unacceptable response / negative test |
+| --- | --- | --- |
+| `source_symbols.digest` | From an unfamiliar project root, identify real top-level classes/types/functions by relative file, including supported non-public declarations; represent classless languages and composite scopes honestly. | Only file paths with counts; invented "main" importance; no classes because they are not marked public; full hashes or member inventories by default. |
+| `source_symbols.outline` | For a selected owner, return **all** recognized methods (public/private, constructors/destructors), location and signatures for overloads, with honest limits. | Default internal field dump; lost overload; duplicated owner prefix in every nested member; entire project hierarchy for one class. |
+| `source_symbols.find` | For a name/qualified query, identify each distinct declaration/definition with exact kind/file/line and enough evidence to request the specific one; join only with verified matching. | Silently choose one homonym; repeat full file inventories; infer signature identity from only a qualified name. |
+| `source_symbols.show` | With a safe selector, return the *requested* symbol's exact decoded source declaration, verified definition or body, location and complete/partial representation, with stale-fingerprint rejection. | Return a header when the body was requested without explanation; silent clipping; stale text; normalized newlines claimed original; wrong homonym. |
+| `source_query.search` | Return correct, stably ordered structural hits, evidence scope and usable public-MCP continuation cursor for additional pages. | Public schema rejects cursor; gaps/duplicates across pages; pagination conflated with partial parsing; unsupported claim of exhaustive text/call search. |
+| `source_query.relations` | For all nine supported relations (dependencies, dependents, references, definitions, inheritance, implementations, trace, impact, cycles), return only source-supported links/chains with exact reference *sites*, material evidence, resolution and scope limits. | Fabricated caller/callee relation; complete refactor safety inferred from impact; class range substituted for reference site; empty indexed hits claimed exhaustive. |
+| `source_query.context` | For caller-selected symbol/position scope, return bounded source-exact target excerpts and justified neighbors. `signatures-only` yields signatures; `prefer` yields complete supported bodies within budget or explicitly labeled fallback. | Full enclosing class for a narrow target; inferred relevance; partial body labeled complete; silently collapsed targets; exceeded byte/item budget. |
+
+**Comparative test rule:** For each of the seven operations, define an independent source/grep oracle **before** comparing old/new output for the *same* task and project scope. Assert correct discovery, overload and relation identity, safe drilldown, truthful partial/empty/errors and stable pagination before measuring payload size. Measure SDK payload bytes, actually LLM-consumed bytes/tokens where accessible, and number of follow-up calls. Reject smaller answers that drop important evidence or require avoidable extra calls. Use two independent original projects per affected provider plus representative classless, composite, multi-root, overloaded, large and partial cases. See [the response-contract checklist](docs/DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-planned).
 
 **Compatibility sequence:** (1) add a separately selectable concise projection to the existing tools without deleting legacy responses; (2) verify caller schemas, symbol selection and MCP `content` versus `structuredContent` behavior on actual clients; (3) validate per-operation source facts and output costs on independent original projects and across language families; (4) only after verified compatibility consider changing defaults or retiring historical layouts through a deliberate migration. Neither a new tool family nor disabling fingerprints is approved. The exact opt-in field names, default transition, page sizing and quantitative byte/token thresholds are implementation details to be decided from measured evidence.
 
