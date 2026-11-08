@@ -723,6 +723,99 @@ The preview token is one-shot. Success, cancellation, conflict, write failure, o
 
 ## Source Intelligence
 
+### Approved future Source Intelligence response contract (not implemented)
+
+**Status: design approved; implementation and migration are pending.** This section specifies the intended LLM-facing responses for `source_symbols` and `source_query`. It does **not** describe the currently available JSON fields, defaults, or MCP schemas. The operational reference immediately below remains authoritative until an implementation is verified and released. See [the active roadmap](docs/ROADMAP.md#active-milestone--source-intelligence-structural-reliability) and [response qualification checklist](docs/DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-planned).
+
+**Goal:** Deliver the smallest *sufficient, source-verifiable* answer to the caller's concrete navigation question. An analyzer may retain extensive facts internally; the response must not replay its entire index. Scripthold reports evidence, not an inferred maintenance plan; the LLM selects what to inspect next. Never trade away important declarations, identity safety, exact source text, ambiguity or incomplete-coverage warnings merely to reduce bytes.
+
+**Approved initial behavior:**
+
+- **Project overview (`digest`):** Show file paths and actual top-level class/type/function names, including recognized non-public declarations. Exclude field/method totals, individual symbol hashes, raw dependencies, encoding and other diagnostics by default. "Main" means an objectively identified top-level declaration, not an importance score inferred from names. Support languages without classes and mixed/composite sources without inventing nonexistent structures.
+- **Selected component outline (`outline`):** Show **all methods**, regardless of visibility, including constructors/destructors when recognized; omit internal fields by default. Preserve nested ownership, operators and overloaded signatures when needed to distinguish entries. List additional data members only when explicitly requested. Do not dump whole-project members as the normal first answer.
+- **Safe navigation:** Use one unqualified `name` inside an unambiguous owner and one `qualifiedName` (or equivalent) for independent hits; do not repeat both without a reason. `symbolId` and `sourceFingerprint` remain authoritative and available for fingerprint-bound `show`/`context` selectors, but are not repeated throughout overview/outline output. Keep the existing full-length IDs for the initial compatible rollout; shorter opaque references are a separate, unapproved optimization.
+- **Paths and locations:** Prefer relative paths within the selected root, with explicit root identity when multiple roots could collide. Return simple 1-based lines for navigation and exact ranges for source retrieval or ambiguity resolution. Do not change the underlying Unicode-scalar coordinate contract.
+- **Exactness:** Merge declaration and definition only with justified matching evidence, *not* merely identical qualified names. Different overloads remain distinct. Unsupported, unresolved or ambiguous links never become proven links by formatting.
+- **Freshness and scope:** Preserve fingerprint conflict checking; express partial analysis, omitted files, bounded results, ambiguous language and unsupported relations truthfully. A next-page cursor is *not* an analysis failure; an empty result is never proof of semantic absence outside the indexed scope.
+- **Minimal transport payload:** Keep the MCP structured/text client contract compatible. Avoid duplicate information in the LLM-consumed representation when client capabilities permit; measure actual SDK payload bytes and separately measure what the client places into model context.
+
+The following **proposed JSON projections** use source-verified example names/locations from an MQL5 GUI library, but display only selected records for readability. They are **illustrative future response shapes, not current tool output or a promised exact final schema**:
+
+| Request | Intended result, without unrelated metadata |
+| --- | --- |
+| `source_symbols.digest` | File-to-top-level declarations map; explicit paging/coverage only when required |
+| `source_symbols.outline` | Targeted owner, all its methods and distinguishing signatures; no internal fields |
+| `source_symbols.find` | Independent matching declarations/definitions with kind, file and line; verified joins only |
+| `source_symbols.show` | Exact requested declaration/definition/body excerpt, location and honest truncation |
+| `source_query.search` | Scoped structural hits in stable pages; `nextCursor` only when another page exists |
+| `source_query.relations` | Requested dependencies/dependents/references/definitions/inheritance/implementations/trace/impact/cycles, retaining evidence/resolution limits |
+| `source_query.context` | Requested target and directly justified related snippets, bounded to task scope; no automatic full enclosing class |
+
+**Proposed `digest` example (selected files only):**
+
+```json
+{
+  "files": [
+    {"path": "Core/Ui.mqh", "classes": ["CEfnUi"]},
+    {"path": "Core/Control.mqh", "classes": ["CEfnControl"]},
+    {"path": "Controls/Basic.mqh", "classes": ["CEfnPanel", "CEfnLabel", "CEfnButton", "CEfnCheckBox", "CEfnProgressBar"]}
+  ]
+}
+```
+
+**Proposed `outline` example (selected methods only):** An owner qualifies its members once. Both `CEfnLabel.Text` overloads remain distinguishable by signature. Declaration/definition pairs below are source-observed examples; a future implementation must establish each match, not assume it.
+
+```json
+{
+  "file": "Controls/Basic.mqh",
+  "class": "CEfnLabel",
+  "methods": [
+    {"name": "Text", "signature": "void Text(const string value)", "declaration": 26, "definition": 105},
+    {"name": "Text", "signature": "string Text(void) const", "declaration": 27, "definition": 109},
+    {"name": "Color", "line": 28}
+  ]
+}
+```
+
+**Proposed `find` / `search` examples:**
+
+```json
+{
+  "query": "ChartEvent",
+  "matches": [{"symbol": "CEfnUi.ChartEvent", "file": "Core/Ui.mqh", "declaration": 71, "definition": 508}]
+}
+```
+
+```json
+{
+  "matches": [{"symbol": "CEfnWindow.MaxScrollX", "at": "Controls/Containers.mqh:24"}],
+  "nextCursor": "<opaque-cursor>"
+}
+```
+
+Search results shown are abbreviated. A page cursor is server-issued, bound to the query/index and must work through the *public* MCP schema. Adding `hasMore: true` next to `nextCursor` would be redundant. Safe symbol-selection data must be obtainable when a subsequent `show` or `context` call needs it, without forcing hashes into ordinary overviews.
+
+**Proposed `show` / `context` behavior:** `show` should let the caller request an exact declaration, proven definition or available body; it must clearly say if the analyzer supplies only a signature or the budget prevents a complete body. For instance `CEfnControl.AddChild` is defined at `Core/Control.mqh:155`. `context` should retain a selected `CEfnUi.ChartEvent` excerpt around the wheel-event branch at `Core/Ui.mqh:528-537` when those lines are the explicit target, rather than appending the entire enclosing `CEfnUi` class by default. `bodyPolicy: "signatures-only"` must return signatures, and `"prefer"` must provide complete source bodies only when available and within budget. No inferred relevance, invented call graph or guessed excerpt.
+
+**Proposed `relations` example (selected direct includes only):**
+
+```json
+{
+  "relation": "dependencies",
+  "subject": "EasyAndFastGUI_Next.mqh",
+  "results": [
+    {"file": "Controls/Basic.mqh", "line": 12},
+    {"file": "Controls/Charts.mqh", "line": 21}
+  ]
+}
+```
+
+The line refers to the source include site. For other relation kinds, distinguish a reference *site* from an enclosing declaration range and retain `evidence` and `resolution` whenever their omission would mislead. `references` / `impact` are limited to indexed structural evidence, not a proven exhaustive call graph.
+
+**Empty, partial and failure responses:** Keep `matches: []` explicit for a complete bounded empty search; include the searched evidence scope. Return a concise incomplete-coverage indicator and reason for skipped/unsupported files, truncated analysis or result-budget limits. Report `CONFLICT` for stale fingerprint/index evidence instead of stale excerpts. Preserve existing typed error codes; do not silently introduce replacement error enums. Paged hits and analysis completeness must have distinct states. Results remain bounded and deterministic; huge overview/outline responses require honest pagination or explicit incomplete-state reporting, not an arbitrary silent cutoff.
+
+**Compatibility sequence:** (1) add a separately selectable concise projection to the existing tools without deleting legacy responses; (2) verify caller schemas, symbol selection and MCP `content` versus `structuredContent` behavior on actual clients; (3) validate per-operation source facts and output costs on independent original projects and across language families; (4) only after verified compatibility consider changing defaults or retiring historical layouts through a deliberate migration. Neither a new tool family nor disabling fingerprints is approved. The exact opt-in field names, default transition, page sizing and quantitative byte/token thresholds are implementation details to be decided from measured evidence.
+
 ### source_symbols
 
 Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.
@@ -799,6 +892,8 @@ The single-tool surface was selected instead of three near-duplicate `source_sea
 Selectors are fingerprint-bound and use `kind: "path" | "symbol" | "position"`. Every selector carries `path` plus the current lowercase SHA-256 `sourceFingerprint`; a `symbol` selector additionally requires lowercase SHA-256 `symbolId`, while a `position` selector requires positive 1-based `line` and `column`. Invalid combinations are rejected rather than guessed.
 
 **`search`:** requires non-empty `query` and `mode: "structural"`; optional `match` is `exact`, `prefix`, or `contains`. Search operates over normalized symbols, dependencies, and resolved structural relationships without rescanning raw source. Exact structural queries also accept retained original type-suffixed callable spellings in QBasic and classic BASIC, without changing the normalized names returned. Unsupported modes are rejected as invalid input; use `grep_text_files` for decoded text search. `kinds`, `evidence`, and `maxResults` are search-specific. Evidence strength uses only analyzer-proven `structural`, `scope-resolved`, and `project-resolved` grades; a result may never claim a stronger level than the native analyzer proves. Declaration matches also include `name`, `kind`, and `qualifiedName` when present in analyzer facts, so clients need not separately outline a file just to identify a result. Dependency and structural-reference matches omit these declaration-only fields rather than inventing an identity. When results exceed `maxResults`, `search.nextCursor` provides the next page. Repeat the same search parameters with `cursor` set to that value; `search.matches` then contains the next bounded page, in stable order, until `nextCursor` is absent. Search cursors expire after 10 minutes, are authenticated and bound to the query, filters, effective limits and current index generation/fingerprint. Invalid or cross-query tokens return `INVALID_INPUT`; expired, stale-generation or unavailable anchors return `CONFLICT`. Cursors are local to the current server instance and are not supported for `relations` or `context`. Existing searches without `cursor` retain their original result shape except for the optional new `nextCursor`. File-selection and analyzer coverage limits remain independent of pagination.
+
+**Known development-HEAD pagination defect (pending fix):** The public `source_query` input schema currently rejects the `cursor` field even though the handler supports it and `search` can return `nextCursor`. Consequently page 2 cannot be requested through a normal schema-validating MCP client. The continuation behavior above is the intended contract, **not a passing public integration path** until the schema and an MCP-client regression test are corrected. This note does not imply the installed/released server has been updated.
 
 **`relations`:** requires `relation`, whose vocabulary is `dependencies`, `dependents`, `references`, `definitions`, `inheritance`, `implementations`, `trace`, `impact`, or `cycles`. The supported relations include dependency/dependent adjacency, resolved structural references/definitions, inheritance, proven implementations, bounded dependency trace/impact, and dependency cycles. Requests for unavailable relation kinds are rejected as invalid input. `trace` requires both `subject` and `target`; `cycles` accepts neither selector and does not accept `maxDepth`; the other relation kinds require `subject` and reject `target`. Relation queries may use `evidence`, `maxResults`, `maxNodes`, `maxEdges`, and—where meaningful—`maxDepth`.
 
