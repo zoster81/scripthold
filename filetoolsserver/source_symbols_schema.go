@@ -19,7 +19,7 @@ func sourceSymbolsCatalogTool() *mcp.Tool {
 			sourceSymbolsBranchSchema("outline", []string{"operation", "paths"}, []string{"paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "presentation", "owner", "maxSymbols", "maxFiles"}),
 			sourceSymbolsBranchSchema("digest", []string{"operation", "paths"}, []string{"paths", "language", "encoding", "includes", "excludes", "respectGitignore", "presentation", "maxFiles"}),
 			sourceSymbolsBranchSchema("find", []string{"operation", "paths", "query"}, []string{"paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "presentation", "maxSymbols", "maxFiles"}),
-			sourceSymbolsBranchSchema("show", []string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"}, []string{"path", "symbolId", "sourceFingerprint", "language", "encoding", "maxBytes"}),
+			sourceSymbolsBranchSchema("show", []string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"}, []string{"path", "symbolId", "sourceFingerprint", "language", "encoding", "presentation", "part", "maxBytes"}),
 		},
 	}
 	return tool
@@ -45,6 +45,7 @@ func sourceSymbolsProperties() map[string]any {
 		"fileDetails":       map[string]any{"type": "string", "enum": []string{"all", "relevant"}},
 		"presentation":      map[string]any{"type": "string", "enum": []string{"detailed", "compact", "tree", "concise"}},
 		"owner":             map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		"part":              map[string]any{"type": "string", "enum": []string{"declaration", "signature", "body"}},
 		"maxSymbols":        sourceSymbolsBoundedIntegerSchema(sourceSymbolsMaxSymbols),
 		"maxFiles":          sourceSymbolsBoundedIntegerSchema(sourceSymbolsMaxFiles),
 		"symbolId":          map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -63,7 +64,7 @@ func sourceSymbolsBranchSchema(operation string, required, legal []string) map[s
 		properties["presentation"] = map[string]any{"enum": []string{"detailed", "compact", "concise"}}
 	} else if operation == "outline" {
 		properties["presentation"] = map[string]any{"enum": []string{"detailed", "compact", "tree", "concise"}}
-	} else if operation == "find" {
+	} else if operation == "find" || operation == "show" {
 		properties["presentation"] = map[string]any{"enum": []string{"concise"}}
 	}
 	return map[string]any{

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
@@ -32,6 +33,7 @@ type SourceSymbolsInput struct {
 	SourceFingerprint string   `json:"sourceFingerprint,omitempty"`
 	MaxBytes          int      `json:"maxBytes,omitempty"`
 	Owner             string   `json:"owner,omitempty"`
+	Part              string   `json:"part,omitempty"`
 }
 
 type SourceSymbolsFile struct {
@@ -74,6 +76,16 @@ type SourceShow struct {
 	Encoding          string                   `json:"encoding"`
 	Range             sourceintelligence.Range `json:"range"`
 	Text              string                   `json:"text"`
+}
+
+// SourceConciseShow is the exact selected source range, without repeating
+// input selectors. Complete means the displayed range was returned in full.
+type SourceConciseShow struct {
+	File           string                   `json:"file"`
+	Range          sourceintelligence.Range `json:"range"`
+	Representation string                   `json:"representation"`
+	Complete       bool                     `json:"complete"`
+	Code           string                   `json:"code"`
 }
 
 type SourceOutlineNode struct {
@@ -181,6 +193,7 @@ type SourceSymbolsOutput struct {
 	Digests                   []SourceDigest                        `json:"digests,omitempty"`
 	OverviewFiles             []SourceOverviewFile                  `json:"overviewFiles,omitempty"`
 	ConciseFiles              []SourceConciseFile                   `json:"-"`
+	ConciseShow               *SourceConciseShow                    `json:"-"`
 	ConciseAnalysisComplete   bool                                  `json:"-"`
 	ConciseSelectionTruncated bool                                  `json:"-"`
 	ConciseResultsTruncated   bool                                  `json:"-"`
@@ -200,6 +213,22 @@ func (out SourceSymbolsOutput) MarshalJSON() ([]byte, error) {
 	if out.Presentation != "concise" {
 		type legacy SourceSymbolsOutput
 		return json.Marshal(legacy(out))
+	}
+	if out.Operation == "show" {
+		if out.ConciseShow == nil {
+			return nil, fmt.Errorf("concise show requires an exact source selection")
+		}
+		type showCoverage struct {
+			AnalysisComplete bool `json:"analysisComplete"`
+		}
+		var coverage *showCoverage
+		if !out.CoverageComplete {
+			coverage = &showCoverage{AnalysisComplete: false}
+		}
+		return json.Marshal(struct {
+			*SourceConciseShow
+			Coverage *showCoverage `json:"coverage,omitempty"`
+		}{SourceConciseShow: out.ConciseShow, Coverage: coverage})
 	}
 	type coverage struct {
 		AnalysisComplete   bool `json:"analysisComplete"`

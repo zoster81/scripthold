@@ -189,6 +189,15 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 }
 
 func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInput) (*mcp.CallToolResult, SourceSymbolsOutput, error) {
+	if input.Presentation != "" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "show presentation must be concise when specified"), SourceSymbolsOutput{}, nil
+	}
+	if input.Part != "" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "part requires concise show"), SourceSymbolsOutput{}, nil
+	}
+	if input.Part != "" && input.Part != "declaration" && input.Part != "signature" && input.Part != "body" {
+		return errorResultWithCode(ErrCodeInvalidInput, "part must be declaration, signature, or body"), SourceSymbolsOutput{}, nil
+	}
 	limits := h.sourceLimits()
 	if input.Path == "" || input.SymbolID == "" || input.SourceFingerprint == "" || input.Language == "" || input.Encoding == "" {
 		return errorResultWithCode(ErrCodeInvalidInput, "show requires path, symbolId, sourceFingerprint, language, and encoding"), SourceSymbolsOutput{}, nil
@@ -239,8 +248,27 @@ func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInpu
 		if symbol.ID != input.SymbolID {
 			continue
 		}
-		declaration, _, _, _ := symbol.SourceOffsets()
-		text, rangeValue, sliceErr := document.SliceUTF8Offsets(declaration.Start, declaration.End, maxBytes)
+		declaration, _, signature, body := symbol.SourceOffsets()
+		selected := declaration
+		part := input.Part
+		if part == "" {
+			part = "declaration"
+		}
+		if input.Presentation == "concise" {
+			switch part {
+			case "signature":
+				if signature == nil {
+					return errorResultWithCode(ErrCodeUnsupported, "selected symbol has no verified signature range"), SourceSymbolsOutput{}, nil
+				}
+				selected = *signature
+			case "body":
+				if body == nil {
+					return errorResultWithCode(ErrCodeUnsupported, "selected symbol has no verified body range"), SourceSymbolsOutput{}, nil
+				}
+				selected = *body
+			}
+		}
+		text, rangeValue, sliceErr := document.SliceUTF8Offsets(selected.Start, selected.End, maxBytes)
 		if sliceErr != nil {
 			return errorResultFromError(sliceErr), SourceSymbolsOutput{}, nil
 		}
@@ -248,6 +276,13 @@ func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInpu
 			Operation: "show", CoordinateSystem: sourceCoordinateSystem,
 			FilesConsidered: 1, FilesParsed: 1, SymbolCount: 1, CoverageComplete: analysis.Analysis.CoverageComplete,
 			Show: &SourceShow{Path: validated.Path, SymbolID: symbol.ID, SourceFingerprint: document.SourceFingerprint, Language: descriptor.ID, Encoding: document.Encoding, Range: rangeValue, Text: text},
+		}
+		if input.Presentation == "concise" {
+			output.Presentation = "concise"
+			output.ConciseShow = &SourceConciseShow{
+				File: validated.Path, Range: rangeValue, Representation: part,
+				Complete: true, Code: text,
+			}
 		}
 		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
 			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil

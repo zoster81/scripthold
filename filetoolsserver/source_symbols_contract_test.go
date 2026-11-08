@@ -3,6 +3,7 @@ package filetoolsserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -61,7 +62,7 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "show",
 		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"},
-		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding", "maxBytes"},
+		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding", "presentation", "part", "maxBytes"},
 	)
 
 	for _, operation := range []string{"outline", "digest", "find"} {
@@ -358,6 +359,135 @@ func TestSourceSymbolsConciseFindSafeShow(t *testing.T) {
 	}))
 	if legacy["symbols"] == nil || legacy["files"] == nil {
 		t.Fatal("original find contract changed")
+	}
+}
+
+func TestSourceSymbolsConciseShowPublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "source.go")
+	const source = "package demo\r\nfunc Work(value int) int {\r\n\treturn value + 1\r\n}\r\nfunc NoBody() int\r\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-concise-show")
+	found := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "presentation": "concise", "paths": []string{path},
+		"query": "Work", "match": "exact", "language": "go", "encoding": "utf-8",
+	}))
+	files := contractObjectSlice(t, found["files"])
+	if len(files) != 1 {
+		t.Fatalf("no source file selection: %#v", files)
+	}
+	matches := contractObjectSlice(t, files[0]["matches"])
+	if len(matches) != 1 {
+		t.Fatalf("no unambiguous Work selection: %#v", matches)
+	}
+	showArgs := map[string]any{
+		"operation": "show", "path": path,
+		"symbolId":          matches[0]["symbolId"],
+		"sourceFingerprint": files[0]["sourceFingerprint"],
+		"language":          "go", "encoding": "utf-8", "maxBytes": 4096,
+		"presentation": "concise", "part": "body",
+	}
+	result := callSourceSymbolsContract(t, ctx, session, showArgs)
+	payload := contractStructuredMap(t, result)
+	for _, forbidden := range []string{"files", "symbolCount", "filesConsidered", "symbolId", "sourceFingerprint", "show"} {
+		if _, exists := payload[forbidden]; exists {
+			t.Fatalf("redundant concise show property %s: %#v", forbidden, payload)
+		}
+	}
+	if payload["representation"] != "body" || payload["complete"] != true || payload["file"] != path {
+		t.Fatalf("missing truthful complete body representation: %#v", payload)
+	}
+	if _, present := payload["coverage"]; present {
+		t.Fatalf("complete selected analysis should omit coverage metadata: %#v", payload)
+	}
+	body, _ := payload["code"].(string)
+	if !strings.HasPrefix(body, "{") || !strings.HasSuffix(body, "}") ||
+		!strings.Contains(body, "\r\n\treturn value + 1\r\n") {
+		t.Fatalf("decoded source body changed or incomplete: %q", body)
+	}
+	coordinate := contractSchemaMap(t, payload["range"])
+	if contractSchemaMap(t, coordinate["start"])["line"] == nil {
+		t.Fatalf("source range not provided: %#v", coordinate)
+	}
+	legacyArgs := map[string]any{}
+	for k, v := range showArgs {
+		if k != "presentation" && k != "part" {
+			legacyArgs[k] = v
+		}
+	}
+	legacy := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, legacyArgs))
+	if contractSchemaMap(t, legacy["show"])["text"] == nil {
+		t.Fatal("historical show layout changed")
+	}
+	showArgs["part"] = "signature"
+	signature := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, showArgs))
+	if signature["representation"] != "signature" || !strings.Contains(fmt.Sprint(signature["code"]), "func Work(") ||
+		strings.Contains(fmt.Sprint(signature["code"]), "return value") {
+		t.Fatalf("signature-only request returned body or lost signature: %#v", signature)
+	}
+	// The text fallback must describe the same exact source evidence as the
+	// structured result for MCP consumers that do not read structuredContent.
+	textMatches := false
+	for _, item := range result.Content {
+		if content, ok := item.(*mcp.TextContent); ok {
+			var fallback map[string]any
+			if json.Unmarshal([]byte(content.Text), &fallback) == nil && reflect.DeepEqual(fallback, payload) {
+				textMatches = true
+			}
+		}
+	}
+	if !textMatches {
+		t.Fatal("MCP text fallback differs from the concise structured response")
+	}
+
+	// The caller can request the whole declaration or the verified body.
+	showArgs["part"] = "declaration"
+	full := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, showArgs))
+	if full["representation"] != "declaration" ||
+		!strings.Contains(fmt.Sprint(full["code"]), "func Work(value int) int {") {
+		t.Fatalf("declaration content missing: %#v", full)
+	}
+
+	// A header-only declaration must not be silently presented as a full body.
+	missing := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "presentation": "concise", "paths": []string{path},
+		"query": "NoBody", "match": "exact", "language": "go", "encoding": "utf-8",
+	}))
+	missingFiles := contractObjectSlice(t, missing["files"])
+	if len(missingFiles) != 1 || len(contractObjectSlice(t, missingFiles[0]["matches"])) != 1 {
+		t.Fatalf("no header-only symbol found: %#v", missing)
+	}
+	showArgs["symbolId"] = contractObjectSlice(t, missingFiles[0]["matches"])[0]["symbolId"]
+	showArgs["part"] = "body"
+	unavailable, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err != nil || unavailable == nil || !unavailable.IsError || unavailable.Meta[handler.ErrorCodeMetaKey] != handler.ErrCodeUnsupported {
+		t.Fatalf("unavailable body was not a typed error: %#v err=%v", unavailable, err)
+	}
+	showArgs["symbolId"] = matches[0]["symbolId"]
+	showArgs["maxBytes"] = 2
+	overLimit, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err != nil || overLimit == nil || !overLimit.IsError || overLimit.Meta[handler.ErrorCodeMetaKey] != handler.ErrCodeLimit {
+		t.Fatalf("truncated body was silently emitted: %#v err=%v", overLimit, err)
+	}
+	showArgs["maxBytes"] = 4096
+
+	// Fingerprint freshness precedes source selection; no stale source is shown.
+	if err := os.WriteFile(path, []byte(source+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err != nil || stale == nil || !stale.IsError || stale.Meta[handler.ErrorCodeMetaKey] != handler.ErrCodeConflict {
+		t.Fatalf("stale source accepted: %#v err=%v", stale, err)
+	}
+
+	showArgs["part"] = "unknown"
+	rejected, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err == nil && (rejected == nil || !rejected.IsError) {
+		t.Fatalf("unknown representation accepted: %#v", rejected)
 	}
 }
 
