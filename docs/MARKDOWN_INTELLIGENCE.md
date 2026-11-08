@@ -332,7 +332,7 @@ Preview replay, expired tokens, evicted tokens, restart-invalidated tokens, conc
 
 ## Test strategy
 
-R30 is implemented incrementally with focused failing tests before each behavior where practical.
+The following areas define regression coverage for the implemented Markdown tools. Run the relevant focused checks when behavior changes; passing one check does not establish that every listed scenario was executed in the current session.
 
 ### Authority and regression tests
 
