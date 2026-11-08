@@ -1,6 +1,10 @@
 package handler
 
-import "github.com/zoster81/scripthold/internal/sourceintelligence"
+import (
+	"encoding/json"
+
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
+)
 
 const sourceCoordinateSystem = "unicode-scalar-1-based-half-open"
 
@@ -27,6 +31,7 @@ type SourceSymbolsInput struct {
 	SymbolID          string   `json:"symbolId,omitempty"`
 	SourceFingerprint string   `json:"sourceFingerprint,omitempty"`
 	MaxBytes          int      `json:"maxBytes,omitempty"`
+	Owner             string   `json:"owner,omitempty"`
 }
 
 type SourceSymbolsFile struct {
@@ -118,23 +123,89 @@ type SourceOverviewFile struct {
 	EntryPointsTruncated bool                     `json:"entryPointsTruncated,omitempty"`
 }
 
+// SourceConciseFile contains only source-recognized top-level declarations.
+// root disambiguates identically named relative paths in multi-root requests.
+type SourceConciseFile struct {
+	Path      string               `json:"path"`
+	Root      string               `json:"root,omitempty"`
+	Classes   []string             `json:"classes,omitempty"`
+	Types     []string             `json:"types,omitempty"`
+	Functions []string             `json:"functions,omitempty"`
+	Owners    []SourceConciseOwner `json:"owners,omitempty"`
+	Status    string               `json:"status,omitempty"`
+	ErrorCode string               `json:"errorCode,omitempty"`
+	Error     string               `json:"error,omitempty"`
+}
+
+// SourceConciseMember is a source-positioned member, never a guessed match.
+type SourceConciseMember struct {
+	Name      string                        `json:"name"`
+	Kind      sourceintelligence.SymbolKind `json:"kind"`
+	Line      int                           `json:"line"`
+	Signature string                        `json:"signature,omitempty"`
+}
+
+// SourceConciseOwner retains unique file/line/qualified owner identity while
+// omitting technical selection IDs from the visible outline.
+type SourceConciseOwner struct {
+	Name          string                        `json:"name"`
+	QualifiedName string                        `json:"qualifiedName,omitempty"`
+	Kind          sourceintelligence.SymbolKind `json:"kind"`
+	Line          int                           `json:"line"`
+	Methods       []SourceConciseMember         `json:"methods,omitempty"`
+	Fields        []SourceConciseMember         `json:"fields,omitempty"`
+}
+
 type SourceSymbolsOutput struct {
-	Operation        string                                `json:"operation"`
-	CoordinateSystem string                                `json:"coordinateSystem"`
-	Files            []SourceSymbolsFile                   `json:"files,omitempty"`
-	Symbols          []sourceintelligence.NormalizedSymbol `json:"symbols,omitempty"`
-	Presentation     string                                `json:"presentation,omitempty"`
-	OutlineFiles     []SourceOutlineFile                   `json:"outlineFiles,omitempty"`
-	Digests          []SourceDigest                        `json:"digests,omitempty"`
-	OverviewFiles    []SourceOverviewFile                  `json:"overviewFiles,omitempty"`
-	Show             *SourceShow                           `json:"show,omitempty"`
-	FilesConsidered  int                                   `json:"filesConsidered"`
-	FilesParsed      int                                   `json:"filesParsed"`
-	FilesSkipped     int                                   `json:"filesSkipped"`
-	SymbolCount      int                                   `json:"symbolCount"`
-	CoverageComplete bool                                  `json:"coverageComplete"`
-	Truncated        bool                                  `json:"truncated,omitempty"`
-	Ambiguous        bool                                  `json:"ambiguous,omitempty"`
+	Operation                 string                                `json:"operation"`
+	CoordinateSystem          string                                `json:"coordinateSystem"`
+	Files                     []SourceSymbolsFile                   `json:"files,omitempty"`
+	Symbols                   []sourceintelligence.NormalizedSymbol `json:"symbols,omitempty"`
+	Presentation              string                                `json:"presentation,omitempty"`
+	OutlineFiles              []SourceOutlineFile                   `json:"outlineFiles,omitempty"`
+	Digests                   []SourceDigest                        `json:"digests,omitempty"`
+	OverviewFiles             []SourceOverviewFile                  `json:"overviewFiles,omitempty"`
+	ConciseFiles              []SourceConciseFile                   `json:"-"`
+	ConciseAnalysisComplete   bool                                  `json:"-"`
+	ConciseSelectionTruncated bool                                  `json:"-"`
+	ConciseResultsTruncated   bool                                  `json:"-"`
+	Show                      *SourceShow                           `json:"show,omitempty"`
+	FilesConsidered           int                                   `json:"filesConsidered"`
+	FilesParsed               int                                   `json:"filesParsed"`
+	FilesSkipped              int                                   `json:"filesSkipped"`
+	SymbolCount               int                                   `json:"symbolCount"`
+	CoverageComplete          bool                                  `json:"coverageComplete"`
+	Truncated                 bool                                  `json:"truncated,omitempty"`
+	Ambiguous                 bool                                  `json:"ambiguous,omitempty"`
+}
+
+// MarshalJSON leaves every legacy projection unchanged. Only the explicit
+// concise projections suppress counts, hashes, and diagnostic inventories.
+func (out SourceSymbolsOutput) MarshalJSON() ([]byte, error) {
+	if out.Presentation != "concise" {
+		type legacy SourceSymbolsOutput
+		return json.Marshal(legacy(out))
+	}
+	type coverage struct {
+		AnalysisComplete   bool `json:"analysisComplete"`
+		SelectionTruncated bool `json:"fileSelectionTruncated"`
+		ResultsTruncated   bool `json:"resultsTruncated"`
+		FilesSkipped       int  `json:"filesSkipped,omitempty"`
+	}
+	var state *coverage
+	if !out.CoverageComplete || out.Truncated || out.FilesSkipped != 0 {
+		state = &coverage{
+			AnalysisComplete:   out.ConciseAnalysisComplete,
+			SelectionTruncated: out.ConciseSelectionTruncated,
+			ResultsTruncated:   out.ConciseResultsTruncated,
+			FilesSkipped:       out.FilesSkipped,
+		}
+	}
+	return json.Marshal(struct {
+		Files     []SourceConciseFile `json:"files"`
+		Coverage  *coverage           `json:"coverage,omitempty"`
+		Ambiguous bool                `json:"ambiguous,omitempty"`
+	}{Files: out.ConciseFiles, Coverage: state, Ambiguous: out.Ambiguous})
 }
 
 type sourceFileAnalysis struct {

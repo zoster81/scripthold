@@ -40,7 +40,7 @@ func TestSourceQueryPublicContract(t *testing.T) {
 	assertSourceQueryStrictSchema(t, "source_query", schema,
 		[]string{"operation", "paths"},
 		[]string{
-			"operation", "paths", "query", "mode", "match", "relation", "subject", "target", "targets", "budgetBytes", "bodyPolicy",
+			"operation", "paths", "query", "mode", "match", "cursor", "relation", "subject", "target", "targets", "budgetBytes", "bodyPolicy",
 			"language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "evidence", "maxFiles", "maxResults",
 			"maxNodes", "maxEdges", "maxDepth", "maxItems", "index",
 		},
@@ -201,6 +201,47 @@ func TestSourceQueryPublicContract(t *testing.T) {
 		"operation": "search", "paths": []string{root}, "query": "Box", "mode": "structural",
 		"index": map[string]any{"fingerprint": sourceQueryContractZeroDigest()},
 	}, handler.ErrCodeConflict)
+}
+
+// TestSourceQueryPublicCursorPages verifies pagination through a real MCP client.
+func TestSourceQueryPublicCursorPages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	for _, name := range []string{"ItemAlpha", "ItemBeta", "ItemGamma"} {
+		if err := os.WriteFile(filepath.Join(root, name+".java"), []byte("package demo; public class "+name+" {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-query-public-cursor")
+	args := map[string]any{"operation": "search", "paths": []string{root}, "query": "Item", "mode": "structural", "match": "prefix", "language": "java", "encoding": "utf-8", "maxResults": 1}
+	var names []string
+	for page := 0; page < 3; page++ {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+		if err != nil || result == nil || result.IsError {
+			t.Fatalf("public cursor page %d: result=%#v err=%v", page, result, err)
+		}
+		payload := contractSchemaMap(t, contractStructuredMap(t, result)["search"])
+		matches := contractObjectSlice(t, payload["matches"])
+		if len(matches) != 1 {
+			t.Fatalf("public page %d matches=%#v", page, matches)
+		}
+		name, _ := matches[0]["name"].(string)
+		names = append(names, name)
+		cursor, _ := payload["nextCursor"].(string)
+		if page < 2 && cursor == "" {
+			t.Fatalf("public page %d has no continuation", page)
+		}
+		if page == 2 && cursor != "" {
+			t.Fatal("last page unexpectedly continued")
+		}
+		args["cursor"] = cursor
+	}
+	if !reflect.DeepEqual(names, []string{"ItemAlpha", "ItemBeta", "ItemGamma"}) {
+		t.Fatalf("public cursor pages=%v", names)
+	}
+	args["cursor"] = "invalid!"
+	assertSourceQueryCallErrorCode(t, ctx, session, args, handler.ErrCodeInvalidInput)
 }
 
 func sourceQueryToolContract(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string) *mcp.Tool {

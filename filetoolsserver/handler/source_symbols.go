@@ -52,12 +52,16 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 			return errorResultWithCode(ErrCodeInvalidInput, "match must be exact, prefix, or qualified"), SourceSymbolsOutput{}, nil
 		}
 	}
-	if operationName == "digest" && input.Presentation != "" && input.Presentation != "detailed" && input.Presentation != "compact" {
-		return errorResultWithCode(ErrCodeInvalidInput, "digest presentation must be detailed or compact"), SourceSymbolsOutput{}, nil
+	if operationName == "digest" && input.Presentation != "" && input.Presentation != "detailed" && input.Presentation != "compact" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "digest presentation must be detailed, compact, or concise"), SourceSymbolsOutput{}, nil
 	}
 	if operationName == "outline" && input.Presentation != "" && input.Presentation != "detailed" &&
-		input.Presentation != "compact" && input.Presentation != "tree" {
-		return errorResultWithCode(ErrCodeInvalidInput, "presentation must be detailed, compact, or tree"), SourceSymbolsOutput{}, nil
+		input.Presentation != "compact" && input.Presentation != "tree" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "presentation must be detailed, compact, tree, or concise"), SourceSymbolsOutput{}, nil
+	}
+	if input.Owner != "" && (operationName != "outline" || input.Presentation != "concise" ||
+		strings.TrimSpace(input.Owner) == "" || utf8.RuneCountInString(input.Owner) > 512) {
+		return errorResultWithCode(ErrCodeInvalidInput, "owner requires a concise outline and a non-empty name up to 512 Unicode scalars"), SourceSymbolsOutput{}, nil
 	}
 	if len(input.Kinds) > 32 {
 		return errorResultWithCode(ErrCodeLimit, "kinds exceeds the 32-item limit"), SourceSymbolsOutput{}, nil
@@ -79,16 +83,17 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	if registryErr != nil {
 		return errorResultWithCode(ErrCodeInternal, registryErr.Error()), SourceSymbolsOutput{}, nil
 	}
-	includeSignatures := input.IncludeSignatures && operationName != "digest"
+	conciseOutline := operationName == "outline" && input.Presentation == "concise"
+	includeSignatures := (input.IncludeSignatures || conciseOutline) && operationName != "digest"
 	perFileSymbols := maxSymbols
-	if operationName == "digest" || operationName == "find" || (operationName == "outline" && len(input.Kinds) > 0) {
+	if operationName == "digest" || operationName == "find" || conciseOutline || (operationName == "outline" && len(input.Kinds) > 0) {
 		perFileSymbols = limits.MaxSymbols
 	}
 	// A kind-filtered outline may inspect more symbols than it returns.
 	// Retain only matching declarations plus one truncation sentinel per file,
 	// avoiding a large result slice for each selected source file.
 	var outlineKinds map[string]struct{}
-	if operationName == "outline" && len(input.Kinds) > 0 {
+	if operationName == "outline" && !conciseOutline && len(input.Kinds) > 0 {
 		outlineKinds = make(map[string]struct{}, len(input.Kinds))
 		for _, kind := range input.Kinds {
 			outlineKinds[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
@@ -119,6 +124,21 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	)
 	if requestCtx.Err() != nil || stats.Cancelled {
 		return errorResultWithCode(ErrCodeCancelled, "source analysis cancelled"), SourceSymbolsOutput{}, nil
+	}
+
+	if conciseOutline {
+		output := buildSourceConciseOutline(analyses, input.Paths, input.Owner, input.Kinds, selectionTruncated, maxSymbols)
+		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
+			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
+		}
+		return nil, output, nil
+	}
+	if operationName == "digest" && input.Presentation == "concise" {
+		output := buildSourceConciseDigest(analyses, input.Paths, selectionTruncated)
+		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
+			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
+		}
+		return nil, output, nil
 	}
 
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
