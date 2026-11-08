@@ -249,8 +249,52 @@ func (p *zigParser) parseFunction(start, keyword, end int, parent *SymbolParent,
 		kind = SymbolKindMethod
 		native = "method"
 	}
-	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Evidence: SymbolEvidenceStructural, Disambiguator: tokenRangeText(p.tokens, paren, closeParen+1)})
+	symbol, added := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Evidence: SymbolEvidenceStructural, Disambiguator: tokenRangeText(p.tokens, paren, closeParen+1)})
+	if added && open >= 0 {
+		// Only type factories returning a direct anonymous struct expose
+		// its declarations as members of the factory's result.
+		for i := closeParen + 1; i < open; i++ {
+			if p.tokens[i].Text == "type" {
+				p.parseReturnedStructMembers(open+1, p.pairs[open], &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName})
+				break
+			}
+		}
+	}
 	return next
+}
+
+func (p *zigParser) parseReturnedStructMembers(start, end int, parent *SymbolParent) {
+	for i := start; i < end && !p.stopped; i++ {
+		if p.ctx.Err() != nil {
+			return
+		}
+		// Nested blocks can contain local types, not declarations of the
+		// returned type; never index their members as the factory's API.
+		if p.tokens[i].Text == "{" {
+			if close := p.pairs[i]; close > i && close < end {
+				i = close
+			}
+			continue
+		}
+		if p.tokens[i].Text != "return" {
+			continue
+		}
+		kind := nextStructuralToken(p.tokens, i+1, end)
+		if kind >= end || p.tokens[kind].Text != "struct" {
+			continue
+		}
+		open := nextStructuralToken(p.tokens, kind+1, end)
+		if open >= end || p.tokens[open].Text != "{" {
+			continue
+		}
+		close := p.pairs[open]
+		if close <= open || close >= end {
+			p.builder.MarkIncomplete()
+			return
+		}
+		p.parseScope(open+1, close, parent, true)
+		i = close
+	}
 }
 
 func (p *zigParser) parseField(start, end int, parent *SymbolParent) int {

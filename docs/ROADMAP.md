@@ -62,11 +62,11 @@ The shared implementations above identify useful regression boundaries, not a co
 
 | Gate | Verified | Remaining | Meaning |
 |---|---:|---:|---|
-| Initial task-oriented navigation | **62 / 100 providers** | 38 providers | Two independent original-project maintenance scenarios per qualified provider (124 selected provider/project cases). |
+| Initial task-oriented navigation | **63 / 100 providers** | 37 providers | Two independent original-project maintenance scenarios per qualified provider (126 selected provider/project cases). |
 | Midpoint independent-project audit | **100 / 100 additional cases** | 0 cases | Two *further* independent original projects for each of the first 50 providers; all 50 pairs passed bounded source navigation. |
 | Standalone MCP / cross-platform promotion | Deferred | Not assessed | Requires a separate authorized verification stage after the source-level qualification. |
 
-**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; new initial qualifications resume from provider 63. These results do not certify complete grammars, runtime behavior, or the installed server.
+**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; new initial qualifications resume from provider 64. These results do not certify complete grammars, runtime behavior, or the installed server.
 
 **Original first 50 providers with initial two-project navigation PASS** (canonical registry IDs, grouped only for readability):
 
@@ -76,7 +76,7 @@ The shared implementations above identify useful regression boundaries, not a co
 - `d`, `c`, `cpp`, `ruby`, `clojure`, `emacs-lisp`, `common-lisp`, `mql4`, `mql5`, `html`
 - `xml`, `css`, `scss`, `less`, `sass`, `powershell`, `vue`, `fortran`, `svelte`, `astro`
 
-**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r` — two independent original-project tasks each. Initial source-navigation qualification now covers 62 providers; the separate 100-case midpoint audit applies only to the first 50.
+**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r`, `zig` — two independent original-project tasks each. Initial source-navigation qualification now covers 63 providers; the separate 100-case midpoint audit applies only to the first 50.
 
 ### Audit method and evidence boundary
 
@@ -89,6 +89,7 @@ Mark an additional case **navigation PASS** only when the supported tools provid
 These caveats describe **current development-tree behavior and unresolved work**, not a list of completed language campaigns. Resolved parser changes belong in the [Unreleased changelog](../CHANGELOG.md#unreleased); the [capability matrix](LANGUAGE_CAPABILITIES.md) and [tool reference](../TOOLS.md#source_symbols) describe supported navigation.
 
 - **Selected scope is not full grammar coverage.** A successful `coverageComplete` result means the requested files were processed within the analyzer's declared scope, not that all declarations, call sites, or dependencies were found. Some larger original Lua and D files, MQL4 server scripts, and complex VHDL forms remain partially supported. A shell script with no function declarations can legitimately return no symbols. Keep partial or excluded files distinct from passing maintenance scenarios.
+- **Large Zig source files may remain partially indexed.** In the original zmx project, `src/main.zig` reports incomplete selected-file coverage. The qualified navigation task uses the narrower configuration, POSIX helper, test-entry, and unrelated-label scope, with an independent direct read of the main entry point; it does not claim complete indexing of the larger file.
 - **Malformed MQL5 can conceal an important declaration (open investigation).** In the original `TheMarket.mq5`, a top-level array initializer appears to lack a terminating semicolon. The development handler did not locate the subsequent `OnInit` despite reporting the file parsed; an older connected server also returned a misleading `INIT_SUCCEEDED` variable. This alternative was **not** credited as a complete navigation case. Reproduce the defect independently on current HEAD before a focused repair.
 - **Swift symbolic operators need a separate check.** A selected `Deque+Equatable.swift` scan did not index the `==` declaration despite reporting complete analysis. The qualifying Swift navigation task covered encoding and decoding instead. Verify this operator behavior on current development HEAD with an independent positive/negative regression before attributing or fixing a parser defect.
 - **Vue 2 and Svelte 5 expose incomplete component declarations.** Vue 2 Options API methods and computed properties (for example `sortgroupcity`) and Svelte 5 destructured `$props` fields (for example `copyCode`) are not individually indexed in the previously inspected cases. The credited Vue/Svelte tasks cover selected navigation; they do not prove complete component APIs or browser behavior.
@@ -98,7 +99,7 @@ These caveats describe **current development-tree behavior and unresolved work**
 
 ### Next work
 
-1. **Continue with provider 63 of 100:** Choose the next provider or shared-analyzer issue by user impact, verified defects, available independent original projects, and verification cost—not alphabetical order. Require two independent source-first maintenance scenarios per new provider, using the [qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
+1. **Continue with provider 64 of 100:** Choose the next provider or shared-analyzer issue by user impact, verified defects, available independent original projects, and verification cost—not alphabetical order. Require two independent source-first maintenance scenarios per new provider, using the [qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
 2. **Investigate the open navigation gaps:** Independently reproduce the malformed MQL5 `OnInit` omission, Swift symbolic operator indexing, Vue 2 Options API members, and Svelte 5 destructured props against current HEAD. Fix confirmed defects with focused RED/GREEN and affected-provider regression checks; do not reclassify partial cases as full language coverage.
 3. **Escalate defects by user impact:** P0 misleading or invented symbols, owners, excerpts or relationships; P1 missing important edit targets, incorrect locations or deceptive completeness; P2 overly large first responses or other bounded-efficiency gaps; P3 compiler-exact semantics without demonstrated navigation benefit. Protect encoding, path authorization, fingerprints and public schema compatibility for every fix.
 4. **Qualify the standalone server separately when authorized:** After source and handler evidence is sufficient, run the deferred transport and cross-platform promotion/release checks. Ordinary repository work must not restart a deployed server or execute third-party projects.
