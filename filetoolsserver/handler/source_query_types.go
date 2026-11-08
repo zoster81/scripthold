@@ -1,6 +1,11 @@
 package handler
 
-import "github.com/zoster81/scripthold/internal/sourceintelligence"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
+)
 
 type SourceIndexBindingInput struct {
 	Generation  *uint64 `json:"generation,omitempty"`
@@ -31,6 +36,7 @@ type SourceQueryInput struct {
 	Mode             string                   `json:"mode,omitempty"`
 	Match            string                   `json:"match,omitempty"`
 	Cursor           string                   `json:"cursor,omitempty"`
+	Presentation     string                   `json:"presentation,omitempty"`
 	Relation         string                   `json:"relation,omitempty"`
 	Subject          *SourceSelectorInput     `json:"subject,omitempty"`
 	Target           *SourceSelectorInput     `json:"target,omitempty"`
@@ -94,11 +100,94 @@ type SourceContextResult struct {
 }
 
 type SourceQueryOutput struct {
-	Operation        string                           `json:"operation"`
-	CoordinateSystem string                           `json:"coordinateSystem"`
-	Index            sourceintelligence.IndexEvidence `json:"index"`
-	Search           *SourceSearchResult              `json:"search,omitempty"`
-	Relations        *SourceRelationsResult           `json:"relations,omitempty"`
-	Context          *SourceContextResult             `json:"context,omitempty"`
-	Coverage         SourceQueryCoverage              `json:"coverage"`
+	Presentation      string                           `json:"-"`
+	RequestedEncoding string                           `json:"-"`
+	Operation         string                           `json:"operation"`
+	CoordinateSystem  string                           `json:"coordinateSystem"`
+	Index             sourceintelligence.IndexEvidence `json:"index"`
+	Search            *SourceSearchResult              `json:"search,omitempty"`
+	Relations         *SourceRelationsResult           `json:"relations,omitempty"`
+	Context           *SourceContextResult             `json:"context,omitempty"`
+	Coverage          SourceQueryCoverage              `json:"coverage"`
+}
+
+// SourceSearchConciseMatch includes evidence and an exact selector only when
+// independently available; other references remain source-site observations.
+type SourceSearchConciseMatch struct {
+	Symbol   string                            `json:"symbol,omitempty"`
+	Kind     sourceintelligence.SymbolKind     `json:"kind,omitempty"`
+	Range    sourceintelligence.Range          `json:"range"`
+	SymbolID string                            `json:"symbolId,omitempty"`
+	Evidence sourceintelligence.SymbolEvidence `json:"evidence"`
+}
+
+type SourceSearchConciseFile struct {
+	Path              string                     `json:"path"`
+	Language          string                     `json:"language,omitempty"`
+	Encoding          string                     `json:"encoding,omitempty"`
+	SourceFingerprint string                     `json:"sourceFingerprint"`
+	Matches           []SourceSearchConciseMatch `json:"matches"`
+}
+
+// MarshalJSON keeps default results byte-schema-compatible. The explicit
+// concise search representation is derived from the same indexed matches,
+// without changing ordering, analysis, cursor binding, or source identities.
+func (out SourceQueryOutput) MarshalJSON() ([]byte, error) {
+	if out.Presentation != "concise" {
+		type legacy SourceQueryOutput
+		return json.Marshal(legacy(out))
+	}
+	if out.Operation != "search" || out.Search == nil {
+		return nil, fmt.Errorf("concise source query requires search results")
+	}
+	type identity struct{ path, language, fingerprint string }
+	files := make([]SourceSearchConciseFile, 0)
+	byIdentity := make(map[identity]int)
+	for _, match := range out.Search.Matches {
+		id := identity{match.Path, match.Language, match.SourceFingerprint}
+		index, ok := byIdentity[id]
+		if !ok {
+			index = len(files)
+			byIdentity[id] = index
+			files = append(files, SourceSearchConciseFile{
+				Path: match.Path, Language: match.Language, Encoding: out.RequestedEncoding,
+				SourceFingerprint: match.SourceFingerprint,
+				Matches:           make([]SourceSearchConciseMatch, 0, 1),
+			})
+		}
+		name := match.QualifiedName
+		if name == "" {
+			name = match.Name
+		}
+		files[index].Matches = append(files[index].Matches, SourceSearchConciseMatch{
+			Symbol: name, Kind: match.Kind, Range: match.Range,
+			SymbolID: match.SymbolID, Evidence: match.Evidence,
+		})
+	}
+	coverage := struct {
+		AnalysisComplete       bool `json:"analysisComplete"`
+		FileSelectionTruncated bool `json:"fileSelectionTruncated"`
+		ResultsTruncated       bool `json:"resultsTruncated"`
+		FilesSkipped           int  `json:"filesSkipped,omitempty"`
+	}{
+		AnalysisComplete:       out.Coverage.AnalysisComplete,
+		FileSelectionTruncated: out.Coverage.FileSelectionTruncated,
+		ResultsTruncated:       out.Coverage.ResultsTruncated && out.Search.NextCursor == "",
+		FilesSkipped:           out.Coverage.FilesSkipped,
+	}
+	compact := struct {
+		Search struct {
+			Files      []SourceSearchConciseFile `json:"files"`
+			NextCursor string                    `json:"nextCursor,omitempty"`
+		} `json:"search"`
+		Scope    string                            `json:"scope"`
+		Coverage any                               `json:"coverage"`
+		Index    *sourceintelligence.IndexEvidence `json:"index,omitempty"`
+	}{Scope: "indexed-structural", Coverage: coverage}
+	compact.Search.Files = files
+	compact.Search.NextCursor = out.Search.NextCursor
+	if out.Index.Staleness != sourceintelligence.IndexCurrent {
+		compact.Index = &out.Index
+	}
+	return json.Marshal(compact)
 }

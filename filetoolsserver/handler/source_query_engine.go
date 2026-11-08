@@ -35,10 +35,12 @@ func (h *Handler) executeSourceQuery(ctx context.Context, input SourceQueryInput
 	}
 
 	output := SourceQueryOutput{
-		Operation:        strings.ToLower(strings.TrimSpace(input.Operation)),
-		CoordinateSystem: sourceCoordinateSystem,
-		Index:            selection.Evidence,
-		Coverage:         coverage,
+		Presentation:      input.Presentation,
+		RequestedEncoding: input.Encoding,
+		Operation:         strings.ToLower(strings.TrimSpace(input.Operation)),
+		CoordinateSystem:  sourceCoordinateSystem,
+		Index:             selection.Evidence,
+		Coverage:          coverage,
 	}
 	switch output.Operation {
 	case "search":

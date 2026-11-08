@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
 // Original source and test fixtures are read-only; no third-party Java is run.
@@ -140,6 +142,68 @@ func TestSourceSymbolsConciseOriginalJavaProjects(t *testing.T) {
 			if err != nil || failed != nil || shown.Show == nil ||
 				!strings.Contains(shown.Show.Text, target) {
 				t.Fatalf("fingerprint-bound original show failed for %s: err=%v", target, err)
+			}
+			// Qualify the query projection independently against the original
+			// declaration, then drill down using its unchanged selector.
+			queryArgs := SourceQueryInput{
+				Operation: "search", Presentation: "concise", Mode: "structural",
+				Paths: []string{path}, Query: target, Match: "exact",
+				Language: "java", Encoding: "utf-8", MaxFiles: 1, MaxResults: 20,
+			}
+			failed, compactSearch, err := h.SourceQuery(context.Background(), nil, queryArgs)
+			if err != nil || failed != nil || compactSearch.Search == nil || len(compactSearch.Search.Matches) == 0 {
+				t.Fatalf("concise search %s failed: err=%v failed=%+v output=%+v", target, err, failed, compactSearch)
+			}
+			sourceHit := false
+			for _, hit := range compactSearch.Search.Matches {
+				if hit.Name == target && hit.Path == path &&
+					hit.SourceFingerprint == selected.SourceFingerprint && hit.SymbolID == symbolID &&
+					hit.Range.Start.Line > 0 && hit.Evidence == sourceintelligence.SymbolEvidenceStructural {
+					sourceHit = true
+				}
+			}
+			if !sourceHit {
+				t.Fatalf("original target %s missing from index search: %+v", target, compactSearch.Search.Matches)
+			}
+			compactBytes, err := json.Marshal(compactSearch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var compactShape struct {
+				Search struct {
+					Files []struct {
+						Path    string `json:"path"`
+						Matches []struct {
+							SymbolID string `json:"symbolId"`
+						} `json:"matches"`
+					} `json:"files"`
+				} `json:"search"`
+			}
+			if err := json.Unmarshal(compactBytes, &compactShape); err != nil ||
+				len(compactShape.Search.Files) != 1 || compactShape.Search.Files[0].Path != path {
+				t.Fatalf("original query compact projection missing scoped file: %s err=%v", compactBytes, err)
+			}
+			queryArgs.Presentation = ""
+			_, originalSearch, err := h.SourceQuery(context.Background(), nil, queryArgs)
+			if err != nil || originalSearch.Search == nil {
+				t.Fatalf("historical query failed: %v", err)
+			}
+			originalBytes, err := json.Marshal(originalSearch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("source_query search bytes: concise=%d legacy=%d", len(compactBytes), len(originalBytes))
+
+			failed, selectedBody, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Presentation: "concise", Part: "declaration",
+				Path: selected.Path, SymbolID: symbolID, SourceFingerprint: selected.SourceFingerprint,
+				Language: selected.Language, Encoding: selected.Encoding, MaxBytes: 8192,
+			})
+			if err != nil || failed != nil || selectedBody.ConciseShow == nil ||
+				selectedBody.ConciseShow.Representation != "declaration" ||
+				!selectedBody.ConciseShow.Complete ||
+				!strings.Contains(selectedBody.ConciseShow.Code, target) {
+				t.Fatalf("concise show did not retrieve original declaration: err=%v failed=%+v", err, failed)
 			}
 			concisely, err := json.Marshal(out)
 			if err != nil {

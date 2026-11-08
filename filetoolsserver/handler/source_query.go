@@ -12,6 +12,9 @@ import (
 func (h *Handler) SourceQuery(ctx context.Context, _ *mcp.CallToolRequest, input SourceQueryInput) (*mcp.CallToolResult, SourceQueryOutput, error) {
 	operation := strings.ToLower(strings.TrimSpace(input.Operation))
 	limits := h.sourceLimits()
+	if input.Presentation != "" && (operation != "search" || input.Presentation != "concise") {
+		return errorResultWithCode(ErrCodeInvalidInput, "presentation concise is supported only for structural search"), SourceQueryOutput{}, nil
+	}
 	if result := validateSourceQueryCommon(input, limits); result != nil {
 		return result, SourceQueryOutput{}, nil
 	}

@@ -23,6 +23,7 @@ func sourceQueryCatalogTool() *mcp.Tool {
 			"mode":             map[string]any{"enum": []string{"structural"}},
 			"match":            map[string]any{"enum": []string{"exact", "prefix", "contains"}},
 			"cursor":           map[string]any{},
+			"presentation":     map[string]any{"enum": []string{"concise"}},
 			"relation":         map[string]any{"enum": sourceQueryRelationKinds()},
 			"subject":          map[string]any{"$ref": "#/$defs/s"},
 			"target":           map[string]any{"$ref": "#/$defs/s"},
