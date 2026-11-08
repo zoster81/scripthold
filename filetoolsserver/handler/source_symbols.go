@@ -39,8 +39,14 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		}
 	}
 	if operationName == "find" {
+		if input.Presentation != "" && input.Presentation != "concise" {
+			return errorResultWithCode(ErrCodeInvalidInput, "find presentation must be concise when specified"), SourceSymbolsOutput{}, nil
+		}
 		if input.FileDetails != "" && input.FileDetails != "all" && input.FileDetails != "relevant" {
 			return errorResultWithCode(ErrCodeInvalidInput, "fileDetails must be all or relevant"), SourceSymbolsOutput{}, nil
+		}
+		if input.Presentation == "concise" {
+			input.FileDetails = "relevant"
 		}
 		if strings.TrimSpace(input.Query) == "" || utf8.RuneCountInString(input.Query) > 512 {
 			return errorResultWithCode(ErrCodeInvalidInput, "query must be a non-empty string up to 512 Unicode scalar values"), SourceSymbolsOutput{}, nil
@@ -84,7 +90,8 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		return errorResultWithCode(ErrCodeInternal, registryErr.Error()), SourceSymbolsOutput{}, nil
 	}
 	conciseOutline := operationName == "outline" && input.Presentation == "concise"
-	includeSignatures := (input.IncludeSignatures || conciseOutline) && operationName != "digest"
+	conciseFind := operationName == "find" && input.Presentation == "concise"
+	includeSignatures := (input.IncludeSignatures || conciseOutline || conciseFind) && operationName != "digest"
 	perFileSymbols := maxSymbols
 	if operationName == "digest" || operationName == "find" || conciseOutline || (operationName == "outline" && len(input.Kinds) > 0) {
 		perFileSymbols = limits.MaxSymbols
@@ -142,6 +149,23 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	}
 
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
+	if conciseFind {
+		output.ConciseFiles = presentSourceConciseFind(output.Files, output.Symbols)
+		output.ConciseAnalysisComplete = true
+		for _, current := range analyses {
+			if current.file.Status != "parsed" || !current.file.CoverageComplete {
+				output.ConciseAnalysisComplete = false
+				break
+			}
+		}
+		output.ConciseSelectionTruncated = selectionTruncated
+		output.ConciseResultsTruncated = output.Truncated && !selectionTruncated
+		output.Presentation = "concise"
+		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
+			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
+		}
+		return nil, output, nil
+	}
 	if operationName == "digest" && input.Presentation == "compact" {
 		output.OverviewFiles = presentSourceDigestOverview(analyses, output.Digests)
 		output.Presentation = "compact"

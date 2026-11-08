@@ -123,18 +123,22 @@ type SourceOverviewFile struct {
 	EntryPointsTruncated bool                     `json:"entryPointsTruncated,omitempty"`
 }
 
-// SourceConciseFile contains only source-recognized top-level declarations.
-// root disambiguates identically named relative paths in multi-root requests.
+// SourceConciseFile is the file-level concise projection. Overview and outline
+// use relative paths; find keeps the absolute path and fingerprint for safe show.
 type SourceConciseFile struct {
-	Path      string               `json:"path"`
-	Root      string               `json:"root,omitempty"`
-	Classes   []string             `json:"classes,omitempty"`
-	Types     []string             `json:"types,omitempty"`
-	Functions []string             `json:"functions,omitempty"`
-	Owners    []SourceConciseOwner `json:"owners,omitempty"`
-	Status    string               `json:"status,omitempty"`
-	ErrorCode string               `json:"errorCode,omitempty"`
-	Error     string               `json:"error,omitempty"`
+	Path              string               `json:"path"`
+	Root              string               `json:"root,omitempty"`
+	Classes           []string             `json:"classes,omitempty"`
+	Types             []string             `json:"types,omitempty"`
+	Functions         []string             `json:"functions,omitempty"`
+	Owners            []SourceConciseOwner `json:"owners,omitempty"`
+	Matches           []SourceConciseMatch `json:"matches,omitempty"`
+	Language          string               `json:"language,omitempty"`
+	Encoding          string               `json:"encoding,omitempty"`
+	SourceFingerprint string               `json:"sourceFingerprint,omitempty"`
+	Status            string               `json:"status,omitempty"`
+	ErrorCode         string               `json:"errorCode,omitempty"`
+	Error             string               `json:"error,omitempty"`
 }
 
 // SourceConciseMember is a source-positioned member, never a guessed match.
@@ -154,6 +158,17 @@ type SourceConciseOwner struct {
 	Line          int                           `json:"line"`
 	Methods       []SourceConciseMember         `json:"methods,omitempty"`
 	Fields        []SourceConciseMember         `json:"fields,omitempty"`
+}
+
+// SourceConciseMatch retains the exact identifier required for a safe show call.
+// The containing file carries its fingerprint, absolute path and decoding facts.
+type SourceConciseMatch struct {
+	Name      string                        `json:"name"`
+	Owner     string                        `json:"owner,omitempty"`
+	Kind      sourceintelligence.SymbolKind `json:"kind"`
+	Line      int                           `json:"line"`
+	Signature string                        `json:"signature,omitempty"`
+	SymbolID  string                        `json:"symbolId"`
 }
 
 type SourceSymbolsOutput struct {

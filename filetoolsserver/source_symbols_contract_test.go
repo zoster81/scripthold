@@ -57,7 +57,7 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "find",
 		[]string{"operation", "paths", "query"},
-		[]string{"operation", "paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "maxSymbols", "maxFiles"},
+		[]string{"operation", "paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "presentation", "maxSymbols", "maxFiles"},
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "show",
 		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"},
@@ -287,6 +287,77 @@ func TestSourceSymbolsConciseOutlineCoverageAndAmbiguity(t *testing.T) {
 	rejected, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: invalid})
 	if err == nil && (rejected == nil || !rejected.IsError) {
 		t.Fatalf("owner filter leaked into legacy tree: %#v", rejected)
+	}
+}
+
+func TestSourceSymbolsConciseFindSafeShow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "Service.java")
+	source := "package demo;\nclass Service {\n" +
+		" private int field;\n" +
+		" void Work(int value) {}\n" +
+		" private void Work(String value) {}\n" +
+		"}\nclass Other { void Work() {} }\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-concise-find")
+	args := map[string]any{
+		"operation": "find", "paths": []string{path}, "presentation": "concise",
+		"language": "java", "encoding": "utf-8", "query": "Work",
+		"match": "exact", "maxSymbols": 8,
+	}
+	payload := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, args))
+	if payload["ambiguous"] != true || payload["symbols"] != nil || payload["symbolCount"] != nil {
+		t.Fatalf("concise find missing ambiguity or exposing historical symbol inventory: %#v", payload)
+	}
+	files := contractObjectSlice(t, payload["files"])
+	if len(files) != 1 || files[0]["path"] != path {
+		t.Fatalf("usable source path not returned: %#v", files)
+	}
+	file := files[0]
+	assertSourceSymbolsHexDigest(t, "file.sourceFingerprint", file["sourceFingerprint"])
+	matches := contractObjectSlice(t, file["matches"])
+	if len(matches) != 3 {
+		t.Fatalf("overloads or unrelated owner lost: %#v", matches)
+	}
+	owners, sigs := map[string]int{}, map[string]bool{}
+	for _, match := range matches {
+		if match["name"] != "Work" || match["kind"] != "method" {
+			t.Fatalf("unexpected match: %#v", match)
+		}
+		owner, _ := match["owner"].(string)
+		owners[owner]++
+		sig, _ := match["signature"].(string)
+		if sig == "" || sigs[sig] && owner == "demo.Service" {
+			t.Fatalf("missing/distinct overload signatures: %#v", matches)
+		}
+		sigs[sig] = true
+		assertSourceSymbolsHexDigest(t, "match.symbolId", match["symbolId"])
+		if match["line"] == nil || match["path"] != nil || match["sourceFingerprint"] != nil {
+			t.Fatalf("redundant or missing navigation data: %#v", match)
+		}
+	}
+	if owners["demo.Service"] != 2 || owners["demo.Other"] != 1 {
+		t.Fatalf("same-name owner identity lost: %#v", owners)
+	}
+	shown := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "show", "path": path, "language": file["language"],
+		"encoding": file["encoding"], "sourceFingerprint": file["sourceFingerprint"],
+		"symbolId": matches[0]["symbolId"], "maxBytes": 4096,
+	}))
+	body := contractSchemaMap(t, shown["show"])
+	if snippet, _ := body["text"].(string); !strings.Contains(snippet, "Work(") {
+		t.Fatalf("concise find cannot navigate to exact source: %#v", body)
+	}
+	legacy := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "paths": []string{path}, "query": "Work",
+		"match": "exact", "language": "java", "encoding": "utf-8",
+	}))
+	if legacy["symbols"] == nil || legacy["files"] == nil {
+		t.Fatal("original find contract changed")
 	}
 }
 

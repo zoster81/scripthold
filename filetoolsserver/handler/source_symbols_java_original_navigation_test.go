@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -11,6 +12,161 @@ import (
 
 // Original source and test fixtures are read-only; no third-party Java is run.
 // Expectations follow independently inspected project sources, not tool output.
+// Two independent original projects check that the opt-in overview/outline is
+// useful against source-derived declarations, not just synthetic fixtures.
+// Original sources are read, never built, executed or modified.
+func TestSourceSymbolsConciseOriginalJavaProjects(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("private original project corpus not configured")
+	}
+	cases := []struct {
+		project, relative, owner   string
+		sourceOracles, wantMethods []string
+	}{
+		{
+			project:  "project-java-greenrobot-eventbus",
+			relative: "EventBus/src/org/greenrobot/eventbus/SubscriberMethodFinder.java",
+			owner:    "SubscriberMethodFinder",
+			sourceOracles: []string{
+				"class SubscriberMethodFinder {",
+				"SubscriberMethodFinder(List<SubscriberInfoIndex> subscriberInfoIndexes",
+				"List<SubscriberMethod> findSubscriberMethods(Class<?> subscriberClass)",
+				"private List<SubscriberMethod> findUsingInfo(Class<?> subscriberClass)",
+			},
+			wantMethods: []string{"SubscriberMethodFinder", "findSubscriberMethods", "findUsingInfo", "clearCaches"},
+		},
+		{
+			project:  "project-java-thealgorithms-java",
+			relative: "src/main/java/com/thealgorithms/ciphers/Caesar.java",
+			owner:    "Caesar",
+			sourceOracles: []string{
+				"public class Caesar {",
+				"private static int normalizeShift(final int shift)",
+				"public String encode(String message, int shift)",
+				"public String decode(String encryptedMessage, int shift)",
+			},
+			wantMethods: []string{"normalizeShift", "encode", "decode", "bruteforce"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.relative))
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, phrase := range tc.sourceOracles {
+				if !strings.Contains(string(before), phrase) {
+					t.Fatalf("original source oracle missing %q", phrase)
+				}
+			}
+			h := NewHandler([]string{root})
+			call := func(operation, view, owner string) SourceSymbolsOutput {
+				t.Helper()
+				failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+					Operation: operation, Presentation: view, Paths: []string{path},
+					Owner: owner, Language: "java", Encoding: "utf-8",
+					MaxFiles: 1, MaxSymbols: 256,
+				})
+				if err != nil || failed != nil || !out.CoverageComplete || out.Truncated {
+					t.Fatalf("%s %s: error=%v failed=%#v complete=%v truncated=%v", operation, view, err, failed, out.CoverageComplete, out.Truncated)
+				}
+				return out
+			}
+			digest := call("digest", "concise", "")
+			if len(digest.ConciseFiles) != 1 || len(digest.ConciseFiles[0].Classes) == 0 {
+				t.Fatalf("concise file map omitted real class: %#v", digest.ConciseFiles)
+			}
+			hasClass := false
+			for _, name := range digest.ConciseFiles[0].Classes {
+				if name == tc.owner {
+					hasClass = true
+				}
+			}
+			if !hasClass {
+				t.Fatalf("real class %s missing: %#v", tc.owner, digest.ConciseFiles)
+			}
+			out := call("outline", "concise", tc.owner)
+			if len(out.ConciseFiles) != 1 || len(out.ConciseFiles[0].Owners) != 1 {
+				t.Fatalf("selected owner missing or duplicated: %#v", out.ConciseFiles)
+			}
+			class := out.ConciseFiles[0].Owners[0]
+			if class.Name != tc.owner || len(class.Fields) != 0 {
+				t.Fatalf("class mismatch or default fields leaked: %#v", class)
+			}
+			seen := make(map[string]bool)
+			for _, member := range class.Methods {
+				if member.Line <= 0 {
+					t.Fatalf("member has no source line: %#v", member)
+				}
+				seen[member.Name] = true
+			}
+			for _, want := range tc.wantMethods {
+				if !seen[want] {
+					t.Fatalf("missing original method %s from %s: %#v", want, tc.owner, class.Methods)
+				}
+			}
+			// Safe drilldown is checked against the original method in the same file,
+			// without relying on a synthetic ID or repeated per-match fingerprints.
+			target := tc.wantMethods[1]
+			failed, located, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "find", Presentation: "concise", Paths: []string{path},
+				Query: target, Match: "exact", Language: "java", Encoding: "utf-8",
+				MaxFiles: 1, MaxSymbols: 20,
+			})
+			if err != nil || failed != nil || len(located.ConciseFiles) != 1 ||
+				len(located.ConciseFiles[0].Matches) == 0 {
+				t.Fatalf("concise find %s failed: err=%v result=%+v", target, err, located)
+			}
+			selected := located.ConciseFiles[0]
+			symbolID := ""
+			for _, match := range selected.Matches {
+				if match.Name == target && match.Owner != "" {
+					symbolID = match.SymbolID
+					break
+				}
+			}
+			if symbolID == "" || selected.SourceFingerprint == "" ||
+				selected.Language != "java" || selected.Encoding != "utf-8" || selected.Path != path {
+				t.Fatalf("unsafe concise find selection: %+v", selected)
+			}
+			failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: selected.Path,
+				SymbolID: symbolID, SourceFingerprint: selected.SourceFingerprint,
+				Language: selected.Language, Encoding: selected.Encoding, MaxBytes: 8192,
+			})
+			if err != nil || failed != nil || shown.Show == nil ||
+				!strings.Contains(shown.Show.Text, target) {
+				t.Fatalf("fingerprint-bound original show failed for %s: err=%v", target, err)
+			}
+			concisely, err := json.Marshal(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{`"symbolId"`, `"sourceFingerprint"`, `"filesConsidered"`} {
+				if strings.Contains(string(concisely), forbidden) {
+					t.Fatalf("concise payload still includes %s", forbidden)
+				}
+			}
+			legacy := call("outline", "tree", "")
+			legacyBytes, err := json.Marshal(legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(concisely) >= len(legacyBytes) {
+				t.Fatalf("no response reduction: concise=%d tree=%d", len(concisely), len(legacyBytes))
+			}
+			t.Logf("selected overview and owner verified, concise=%d legacyTree=%d bytes", len(concisely), len(legacyBytes))
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("original source changed during read-only qualification")
+			}
+		})
+	}
+}
+
 func TestSourceSymbolsOriginalJavaTaskNavigation(t *testing.T) {
 	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if corpus == "" {

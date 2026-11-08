@@ -363,6 +363,39 @@ func presentSourceDigestOverview(analyses []sourceFileAnalysis, digests []Source
 	return out
 }
 
+// presentSourceConciseFind retains one verified file identity for each group of
+// matching declarations so clients can pass its path, encoding and fingerprint
+// with a single member symbolId to source_symbols show.
+func presentSourceConciseFind(files []SourceSymbolsFile, symbols []sourceintelligence.NormalizedSymbol) []SourceConciseFile {
+	out := make([]SourceConciseFile, 0, len(files))
+	byPath := make(map[string]int, len(files))
+	for _, file := range files {
+		entry := SourceConciseFile{
+			Path: file.Path, Language: file.Language, Encoding: file.Encoding,
+			SourceFingerprint: file.SourceFingerprint,
+		}
+		if file.Status != "parsed" || !file.CoverageComplete {
+			entry.Status = file.Status
+			if file.Status == "parsed" {
+				entry.Status = "partial"
+			}
+			entry.Error, entry.ErrorCode = file.Error, file.ErrorCode
+		}
+		byPath[file.Path] = len(out)
+		out = append(out, entry)
+	}
+	for _, symbol := range symbols {
+		if index, exists := byPath[symbol.Path]; exists {
+			out[index].Matches = append(out[index].Matches, SourceConciseMatch{
+				Name: symbol.Name, Owner: symbol.ParentQualifiedName,
+				Kind: symbol.Kind, Line: symbol.DeclarationRange.Start.Line,
+				Signature: symbol.Signature, SymbolID: symbol.ID,
+			})
+		}
+	}
+	return out
+}
+
 // buildSourceConciseDigest walks the bounded analyzer facts once, without
 // constructing the legacy dependency inventories or exposing selection hashes.
 func buildSourceConciseDigest(analyses []sourceFileAnalysis, roots []string, selectionTruncated bool) SourceSymbolsOutput {
