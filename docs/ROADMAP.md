@@ -62,11 +62,11 @@ The shared implementations above identify useful regression boundaries, not a co
 
 | Gate | Verified | Remaining | Meaning |
 |---|---:|---:|---|
-| Initial task-oriented navigation | **61 / 100 providers** | 39 providers | Two independent original-project maintenance scenarios per qualified provider (122 selected provider/project cases). |
+| Initial task-oriented navigation | **62 / 100 providers** | 38 providers | Two independent original-project maintenance scenarios per qualified provider (124 selected provider/project cases). |
 | Midpoint independent-project audit | **100 / 100 additional cases** | 0 cases | Two *further* independent original projects for each of the first 50 providers; all 50 pairs passed bounded source navigation. |
 | Standalone MCP / cross-platform promotion | Deferred | Not assessed | Requires a separate authorized verification stage after the source-level qualification. |
 
-**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; new initial qualifications resume from provider 62. These results do not certify complete grammars, runtime behavior, or the installed server.
+**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; new initial qualifications resume from provider 63. These results do not certify complete grammars, runtime behavior, or the installed server.
 
 **Original first 50 providers with initial two-project navigation PASS** (canonical registry IDs, grouped only for readability):
 
@@ -76,7 +76,7 @@ The shared implementations above identify useful regression boundaries, not a co
 - `d`, `c`, `cpp`, `ruby`, `clojure`, `emacs-lisp`, `common-lisp`, `mql4`, `mql5`, `html`
 - `xml`, `css`, `scss`, `less`, `sass`, `powershell`, `vue`, `fortran`, `svelte`, `astro`
 
-**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala` — two independent original-project tasks each. Initial source-navigation qualification now covers 61 providers; the separate 100-case midpoint audit applies only to the first 50.
+**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r` — two independent original-project tasks each. Initial source-navigation qualification now covers 62 providers; the separate 100-case midpoint audit applies only to the first 50.
 
 ### Audit method and evidence boundary
 
@@ -98,7 +98,7 @@ These caveats describe **current development-tree behavior and unresolved work**
 
 ### Next work
 
-1. **Continue with provider 62 of 100:** Choose the next provider or shared-analyzer issue by user impact, verified defects, available independent original projects, and verification cost—not alphabetical order. Require two independent source-first maintenance scenarios per new provider, using the [qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
+1. **Continue with provider 63 of 100:** Choose the next provider or shared-analyzer issue by user impact, verified defects, available independent original projects, and verification cost—not alphabetical order. Require two independent source-first maintenance scenarios per new provider, using the [qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
 2. **Investigate the open navigation gaps:** Independently reproduce the malformed MQL5 `OnInit` omission, Swift symbolic operator indexing, Vue 2 Options API members, and Svelte 5 destructured props against current HEAD. Fix confirmed defects with focused RED/GREEN and affected-provider regression checks; do not reclassify partial cases as full language coverage.
 3. **Escalate defects by user impact:** P0 misleading or invented symbols, owners, excerpts or relationships; P1 missing important edit targets, incorrect locations or deceptive completeness; P2 overly large first responses or other bounded-efficiency gaps; P3 compiler-exact semantics without demonstrated navigation benefit. Protect encoding, path authorization, fingerprints and public schema compatibility for every fix.
 4. **Qualify the standalone server separately when authorized:** After source and handler evidence is sufficient, run the deferred transport and cross-platform promotion/release checks. Ordinary repository work must not restart a deployed server or execute third-party projects.
