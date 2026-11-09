@@ -29,11 +29,11 @@ This file tracks **current and future work only**. Completed changes belong in [
 
 | Gate | Verified | Remaining | Meaning |
 |---|---:|---:|---|
-| Initial task-oriented navigation | **65 / 100 providers** | 35 providers | Two independent original-project maintenance scenarios per qualified provider (130 selected provider/project cases). |
+| Initial task-oriented navigation | **66 / 100 providers** | 34 providers | Two independent original-project maintenance scenarios per qualified provider (132 selected provider/project cases). |
 | Midpoint independent-project audit | **100 / 100 additional cases** | 0 cases | Two *further* independent original projects for each of the first 50 providers; all 50 pairs passed bounded source navigation. |
 | Standalone MCP / cross-platform promotion | Deferred | Not assessed | Requires a separate authorized verification stage after the source-level qualification. |
 
-**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; after Rust and Erlang, new initial qualifications resume from provider 66. These results do not certify complete grammars, runtime behavior, or the installed server.
+**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; after Rust, Erlang, and F#, new initial qualifications resume from provider 67. These results do not certify complete grammars, runtime behavior, or the installed server.
 
 **Original first 50 providers with initial two-project navigation PASS** (canonical registry IDs, grouped only for readability):
 
@@ -43,7 +43,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - `d`, `c`, `cpp`, `ruby`, `clojure`, `emacs-lisp`, `common-lisp`, `mql4`, `mql5`, `html`
 - `xml`, `css`, `scss`, `less`, `sass`, `powershell`, `vue`, `fortran`, `svelte`, `astro`
 
-**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r`, `zig`, `rust`, `erlang` — two independent original-project tasks each. Initial source-navigation qualification now covers 65 providers; the separate 100-case midpoint audit applies only to the first 50.
+**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r`, `zig`, `rust`, `erlang`, `fsharp` — two independent original-project tasks each. Initial source-navigation qualification now covers 66 providers; the separate 100-case midpoint audit applies only to the first 50.
 
 ### Qualification method and evidence limits
 
@@ -98,7 +98,7 @@ These caveats describe **current development-tree behavior and unresolved work**
 
 ### Next work
 
-1. **Continue source navigation from provider 66 of 100:** Prioritize providers by maintenance relevance, independently available original projects, shared-parser reach, and verification cost. Require two task-first original-project scenarios per provider using the [project-first checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
+1. **Continue source navigation from provider 67 of 100:** Prioritize providers by maintenance relevance, independently available original projects, shared-parser reach, and verification cost. Require two task-first original-project scenarios per provider using the [project-first checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
 2. **Repair proven navigation defects:** Reproduce misleading or missing edit targets on development HEAD before changing a parser. Prioritize fabricated symbols or links (P0), missed significant declarations and misleading completeness (P1), then inefficient but correct navigation (P2); do not chase unsupported compiler semantics without a demonstrated need. The MQL5, Swift, Vue 2 and Svelte 5 cases above remain candidates, not confirmed new regressions.
 3. **Keep response and release gates separate:** Recheck concise output only when behavior or compatibility changes, using the [on-demand checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-on-demand). Standalone MCP, transport, cross-platform and release qualification require separate authorization. Do not execute original third-party projects.
 
