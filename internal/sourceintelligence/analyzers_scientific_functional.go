@@ -1346,6 +1346,10 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 		case "type":
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
+			for nameIndex > 0 && line.Tokens[nameIndex-1].Text == "'" {
+				// OCaml type variables precede the declared type, including in tuples.
+				nameIndex = firstIdentifierToken(line.Tokens, nameIndex+1)
+			}
 			if nameIndex >= 0 {
 				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
@@ -1363,15 +1367,38 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 			nameIndex := firstIdentifierToken(line.Tokens, start)
 			if nameIndex >= 0 {
+				name := line.Tokens[nameIndex].Text
+				nameRange := OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}
+				bindingEnd := nameIndex
+				if start < len(line.Tokens) && line.Tokens[start].Text == "(" {
+					for index := start + 1; index < len(line.Tokens); index++ {
+						if line.Tokens[index].Text != ")" {
+							continue
+						}
+						openEnd, closeStart := line.Tokens[start].EndOffset, line.Tokens[index].StartOffset
+						if openEnd <= closeStart && closeStart <= len(document.Text) {
+							raw := document.Text[openEnd:closeStart]
+							candidate := strings.TrimSpace(raw)
+							switch candidate {
+							case "let*", "let+", "and*", "and+":
+								name = candidate
+								nameRange.Start = openEnd + strings.Index(raw, candidate)
+								nameRange.End = nameRange.Start + len(candidate)
+								bindingEnd = index
+							}
+						}
+						break
+					}
+				}
 				kind := SymbolKindVariable
 				native := "value-binding"
-				equals := tokenIndexEqualFold(line.Tokens, "=", nameIndex+1)
-				if equals > nameIndex+1 && line.Tokens[nameIndex+1].Text != ":" || tokenIndexEqualFold(line.Tokens, "fun", nameIndex+1) >= 0 || tokenIndexEqualFold(line.Tokens, "function", nameIndex+1) >= 0 {
+				equals := tokenIndexEqualFold(line.Tokens, "=", bindingEnd+1)
+				if equals > bindingEnd+1 && line.Tokens[bindingEnd+1].Text != ":" || tokenIndexEqualFold(line.Tokens, "fun", bindingEnd+1) >= 0 || tokenIndexEqualFold(line.Tokens, "function", bindingEnd+1) >= 0 {
 					kind = SymbolKindFunction
 					native = "function-binding"
 				}
-				addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: line.Tokens[nameIndex].Text, Parent: parent,
-					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
+					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			}
 		}
 	}
