@@ -175,6 +175,28 @@ func (parser *vbnetParser) parseRange(start, end int, parent *SymbolParent, owne
 				parser.builder.MarkIncomplete()
 				_ = parser.builder.AddDiagnostic(DiagnosticSpec{Code: "vbnet-missing-end", Message: "declaration is missing End " + keyword, Severity: DiagnosticWarning, Range: &OffsetRange{Start: statement.startOffset, End: statement.endOffset}, AffectsCoverage: true})
 			}
+			if keyword == "namespace" {
+				name, _, _, absolute, valid := vbQualifiedNamespaceName(statement, keywordIndex)
+				if !valid || (absolute && parent != nil) {
+					parser.builder.MarkIncomplete()
+					if hasClose {
+						index = closeIndex + 1
+					} else {
+						return
+					}
+					continue
+				}
+				if absolute && name == "" {
+					if hasClose {
+						parser.parseRange(index+1, closeIndex, nil, "", "")
+						index = closeIndex + 1
+					} else {
+						parser.parseRange(index+1, end, nil, "", "")
+						return
+					}
+					continue
+				}
+			}
 			symbol, added := parser.addType(statement, keywordIndex, keyword, closeIndex, parent)
 			if !added {
 				index++
@@ -236,6 +258,17 @@ func (parser *vbnetParser) addType(statement vbStatement, keywordIndex int, keyw
 		parser.builder.MarkIncomplete()
 		return NormalizedSymbol{}, false
 	}
+	name := statement.tokens[nameIndex].Text
+	nameStart := statement.tokens[nameIndex].StartOffset
+	nameEnd := statement.tokens[nameIndex].EndOffset
+	if keyword == "namespace" {
+		var valid bool
+		name, nameStart, nameEnd, _, valid = vbQualifiedNamespaceName(statement, keywordIndex)
+		if !valid || name == "" {
+			parser.builder.MarkIncomplete()
+			return NormalizedSymbol{}, false
+		}
+	}
 	kind := map[string]SymbolKind{"namespace": SymbolKindNamespace, "module": SymbolKindModule, "class": SymbolKindClass, "structure": SymbolKindStruct, "interface": SymbolKindInterface, "enum": SymbolKindEnum}[keyword]
 	declarationEnd := statement.endOffset
 	var body *OffsetRange
@@ -246,9 +279,9 @@ func (parser *vbnetParser) addType(statement vbStatement, keywordIndex int, keyw
 	}
 	modifiers := vbCollectModifiers(statement, keywordIndex)
 	symbol, err := parser.builder.Add(SymbolSpec{
-		Kind: kind, NativeKind: keyword, Name: statement.tokens[nameIndex].Text, Parent: parent,
+		Kind: kind, NativeKind: keyword, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: statement.startOffset, End: declarationEnd},
-		NameRange:   OffsetRange{Start: statement.tokens[nameIndex].StartOffset, End: statement.tokens[nameIndex].EndOffset},
+		NameRange:   OffsetRange{Start: nameStart, End: nameEnd},
 		Signature:   &OffsetRange{Start: statement.startOffset, End: statement.endOffset}, Body: body,
 		Visibility: vbVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
 	})
@@ -519,6 +552,61 @@ func (parser *vbnetParser) parseRelation(statement vbStatement, parent *SymbolPa
 	if err == nil {
 		parser.relations = append(parser.relations, StructuralRelation{Kind: strings.ToLower(statement.tokens[0].Text), Source: parent.QualifiedName, Target: target, Range: rangeValue, Evidence: SymbolEvidenceStructural})
 	}
+}
+
+// A dotted VB namespace denotes one qualified scope. Global is only a root
+// qualifier; parsing must reject incomplete names rather than invent owners.
+func vbQualifiedNamespaceName(statement vbStatement, keywordIndex int) (string, int, int, bool, bool) {
+	tokens := statement.tokens
+	name, at, next, escaped, ok := vbNamespacePart(tokens, keywordIndex+1, false)
+	if !ok {
+		return "", 0, 0, false, false
+	}
+	absolute := !escaped && strings.EqualFold(name, "global")
+	if absolute && next == len(tokens) {
+		return "", 0, 0, true, true
+	}
+	parts := make([]string, 0, 4)
+	first, last := 0, 0
+	if !absolute {
+		parts = append(parts, name)
+		first, last = tokens[at].StartOffset, tokens[at].EndOffset
+	}
+	for next < len(tokens) {
+		if tokens[next].Text != "." {
+			return "", 0, 0, absolute, false
+		}
+		part, at, after, _, valid := vbNamespacePart(tokens, next+1, true)
+		if !valid {
+			return "", 0, 0, absolute, false
+		}
+		if len(parts) == 0 {
+			first = tokens[at].StartOffset
+		}
+		parts = append(parts, part)
+		last, next = tokens[at].EndOffset, after
+	}
+	if len(parts) == 0 {
+		return "", 0, 0, absolute, false
+	}
+	return strings.Join(parts, "."), first, last, absolute, true
+}
+
+func vbNamespacePart(tokens []Token, index int, afterDot bool) (string, int, int, bool, bool) {
+	if index >= len(tokens) {
+		return "", 0, 0, false, false
+	}
+	if tokens[index].Text == "[" && index+2 < len(tokens) && tokens[index+2].Text == "]" {
+		if tokens[index+1].Kind == TokenIdentifier || tokens[index+1].Kind == TokenKeyword {
+			return tokens[index+1].Text, index + 1, index + 3, true, true
+		}
+	}
+	token := tokens[index]
+	if token.Kind == TokenIdentifier || (afterDot && token.Kind == TokenKeyword) ||
+		strings.EqualFold(token.Text, "global") {
+		return token.Text, index, index + 1, false, true
+	}
+	return "", 0, 0, false, false
 }
 
 func vbNextIdentifier(statement vbStatement, start int) int {
