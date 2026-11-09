@@ -672,9 +672,25 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			idx := nextIdentifierOrKeywordToken(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
 				tok := scan.Tokens[idx]
-				state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "fn", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
+				declaration := OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}
+				signature := declaration
+				var body *OffsetRange
+				if open, close, ok := gleamFunctionBody(scan.Tokens, pairs, idx); ok {
+					signature.End = scan.Tokens[open].EndOffset
+					declaration.End = scan.Tokens[close].EndOffset
+					value := OffsetRange{Start: scan.Tokens[open].EndOffset, End: scan.Tokens[close].StartOffset}
+					if value.End > value.Start {
+						body = &value
+					}
+					i = close + 1
+				} else {
+					// Gleam @external declarations legitimately have no local body.
+					i++
+				}
+				state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "fn", Name: tok.Text, Declaration: declaration, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &signature, Body: body, Evidence: SymbolEvidenceStructural})
+			} else {
+				i++
 			}
-			i++
 		case "const":
 			idx := nextIdentifierOrKeywordToken(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
@@ -687,6 +703,50 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		}
 	}
 	return state.result()
+}
+
+// Recognize only a paired top-level function block. Body-less external
+// declarations must not borrow a later function's body.
+func gleamFunctionBody(tokens []Token, pairs map[int]int, nameIndex int) (int, int, bool) {
+	for index := nameIndex + 1; index < len(tokens); index++ {
+		token := tokens[index]
+		if token.Kind == TokenEOF {
+			break
+		}
+		if token.Text == "{" && token.Nesting == 1 {
+			close, ok := pairs[index]
+			return index, close, ok && close > index
+		}
+		if token.Kind == TokenNewline && token.Nesting == 0 {
+			next := index + 1
+			for next < len(tokens) && tokens[next].Kind == TokenNewline {
+				next++
+			}
+			if next >= len(tokens) {
+				break
+			}
+			if tokens[next].Nesting == 0 && gleamTopLevelDeclarationStart(tokens, next) {
+				break
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func gleamTopLevelDeclarationStart(tokens []Token, index int) bool {
+	if index >= len(tokens) {
+		return false
+	}
+	word := tokens[index].Text
+	if word == "pub" && index+1 < len(tokens) {
+		word = tokens[index+1].Text
+	}
+	switch word {
+	case "fn", "type", "const", "import", "opaque":
+		return true
+	default:
+		return false
+	}
 }
 
 func gleamTypeBody(tokens []Token, pairs map[int]int, nameIndex int) (int, int, bool) {
