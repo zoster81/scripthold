@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -174,6 +176,50 @@ func TestSourceQueryOriginalCrossFileDependencies(t *testing.T) {
 			if resolved != 1 {
 				t.Errorf("resolved edges=%d want=1", resolved)
 			}
+			failed, concise, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "relations", Presentation: "concise", Relation: "dependencies",
+				Paths: []string{source, target}, Language: tc.language, Encoding: "utf-8",
+				Subject:  &SourceSelectorInput{Kind: "path", Path: source, SourceFingerprint: fingerprints[source]},
+				MaxFiles: 2, MaxResults: 32, MaxNodes: 32, MaxEdges: 64, MaxDepth: 2,
+			})
+			if err != nil || failed != nil || concise.Relations == nil || !concise.Coverage.CoverageComplete {
+				t.Fatalf("original concise dependencies failed: %v %+v %+v", err, failed, concise)
+			}
+			payload, err := json.Marshal(concise)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var projected struct {
+				Relations struct {
+					EvidenceScope string `json:"evidenceScope"`
+					Edges         []struct {
+						Source     sourceintelligence.RelationEntity  `json:"source"`
+						Target     sourceintelligence.RelationEntity  `json:"target"`
+						Evidence   sourceintelligence.SymbolEvidence  `json:"evidence"`
+						Resolution sourceintelligence.ResolutionState `json:"resolution"`
+					} `json:"edges"`
+				} `json:"relations"`
+			}
+			if err := json.Unmarshal(payload, &projected); err != nil {
+				t.Fatal(err)
+			}
+			if projected.Relations.EvidenceScope != "indexed-relations-only" ||
+				len(projected.Relations.Edges) != len(result.Relations.Relations) {
+				t.Fatalf("source scope or edges lost: %s", payload)
+			}
+			for i, edge := range projected.Relations.Edges {
+				original := result.Relations.Relations[i]
+				if !reflect.DeepEqual(edge.Source, original.Source) ||
+					!reflect.DeepEqual(edge.Target, original.Target) ||
+					edge.Evidence != original.Evidence || edge.Resolution != original.Resolution {
+					t.Fatalf("original relation changed at %d: %+v vs %+v", i, edge, original)
+				}
+			}
+			legacyBytes, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("original source relation JSON bytes concise=%d legacy=%d", len(payload), len(legacyBytes))
 		})
 	}
 }

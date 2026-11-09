@@ -10,6 +10,66 @@ import (
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
+func TestSourceQueryConciseRelationsPartialAmbiguityAndStale(t *testing.T) {
+	output := SourceQueryOutput{
+		Presentation: "concise", Operation: "relations",
+		Index: sourceintelligence.IndexEvidence{
+			Generation:  7,
+			Fingerprint: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			Staleness:   sourceintelligence.IndexStale,
+		},
+		Relations: &SourceRelationsResult{
+			Relation:      sourceintelligence.RelationDependencies,
+			EvidenceScope: "indexed-relations-only",
+			Relations: []sourceintelligence.RelationRecord{{
+				Kind:       sourceintelligence.RelationDefinitions,
+				Source:     sourceintelligence.RelationEntity{Path: "source.cpp", QualifiedName: "Widget::work"},
+				Target:     sourceintelligence.RelationEntity{Path: "include/widget.h", QualifiedName: "Widget::work"},
+				Evidence:   sourceintelligence.SymbolEvidenceStructural,
+				Resolution: sourceintelligence.ResolutionAmbiguous,
+			}},
+		},
+		Coverage: SourceQueryCoverage{
+			AnalysisComplete: false, FileSelectionTruncated: true,
+			ResultsTruncated: true, FilesSkipped: 2,
+		},
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Relations struct {
+			EvidenceScope string                              `json:"evidenceScope"`
+			Edges         []sourceintelligence.RelationRecord `json:"edges"`
+		} `json:"relations"`
+		Coverage struct {
+			AnalysisComplete       bool `json:"analysisComplete"`
+			FileSelectionTruncated bool `json:"fileSelectionTruncated"`
+			ResultsTruncated       bool `json:"resultsTruncated"`
+			FilesSkipped           int  `json:"filesSkipped"`
+		} `json:"coverage"`
+		Index sourceintelligence.IndexEvidence `json:"index"`
+	}
+	if err := json.Unmarshal(encoded, &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Relations.Edges) != 1 ||
+		data.Relations.Edges[0].Kind != sourceintelligence.RelationDefinitions ||
+		data.Relations.Edges[0].Resolution != sourceintelligence.ResolutionAmbiguous ||
+		data.Relations.Edges[0].Evidence != sourceintelligence.SymbolEvidenceStructural ||
+		data.Relations.Edges[0].Source.Path != "source.cpp" ||
+		data.Relations.Edges[0].Target.Path != "include/widget.h" ||
+		data.Relations.EvidenceScope != "indexed-relations-only" ||
+		data.Index.Staleness != sourceintelligence.IndexStale ||
+		data.Index.Fingerprint != output.Index.Fingerprint ||
+		data.Coverage.AnalysisComplete ||
+		!data.Coverage.FileSelectionTruncated || !data.Coverage.ResultsTruncated ||
+		data.Coverage.FilesSkipped != 2 {
+		t.Fatalf("concise relations lost critical uncertainty, kind or stale index evidence: %s", encoded)
+	}
+}
+
 func TestSourceQueryStructuredResultContract(t *testing.T) {
 	output := SourceQueryOutput{
 		Operation:        "relations",

@@ -129,6 +129,61 @@ type SourceSearchConciseFile struct {
 	Matches           []SourceSearchConciseMatch `json:"matches"`
 }
 
+// SourceConciseRelationEdge preserves verified endpoints and reference-site
+// locations. Kind is emitted only when it differs from the requested relation.
+type SourceConciseRelationEdge struct {
+	Kind       sourceintelligence.RelationKind    `json:"kind,omitempty"`
+	Source     sourceintelligence.RelationEntity  `json:"source"`
+	Target     sourceintelligence.RelationEntity  `json:"target"`
+	Evidence   sourceintelligence.SymbolEvidence  `json:"evidence"`
+	Resolution sourceintelligence.ResolutionState `json:"resolution"`
+}
+
+// Relations do not infer links: only already-indexed, bounded records are projected.
+func (out SourceQueryOutput) marshalConciseRelations() ([]byte, error) {
+	if out.Relations == nil {
+		return nil, fmt.Errorf("concise relations require indexed records")
+	}
+	edges := make([]SourceConciseRelationEdge, 0, len(out.Relations.Relations))
+	for _, record := range out.Relations.Relations {
+		edge := SourceConciseRelationEdge{
+			Source: record.Source, Target: record.Target,
+			Evidence: record.Evidence, Resolution: record.Resolution,
+		}
+		if record.Kind != out.Relations.Relation {
+			edge.Kind = record.Kind
+		}
+		edges = append(edges, edge)
+	}
+	coverage := struct {
+		AnalysisComplete       bool `json:"analysisComplete"`
+		FileSelectionTruncated bool `json:"fileSelectionTruncated"`
+		ResultsTruncated       bool `json:"resultsTruncated"`
+		FilesSkipped           int  `json:"filesSkipped,omitempty"`
+	}{
+		AnalysisComplete:       out.Coverage.AnalysisComplete,
+		FileSelectionTruncated: out.Coverage.FileSelectionTruncated,
+		ResultsTruncated:       out.Coverage.ResultsTruncated,
+		FilesSkipped:           out.Coverage.FilesSkipped,
+	}
+	compact := struct {
+		Relations struct {
+			Relation      sourceintelligence.RelationKind `json:"relation"`
+			EvidenceScope string                          `json:"evidenceScope"`
+			Edges         []SourceConciseRelationEdge     `json:"edges"`
+		} `json:"relations"`
+		Coverage any                               `json:"coverage"`
+		Index    *sourceintelligence.IndexEvidence `json:"index,omitempty"`
+	}{Coverage: coverage}
+	compact.Relations.Relation = out.Relations.Relation
+	compact.Relations.EvidenceScope = out.Relations.EvidenceScope
+	compact.Relations.Edges = edges
+	if out.Index.Staleness != sourceintelligence.IndexCurrent {
+		compact.Index = &out.Index
+	}
+	return json.Marshal(compact)
+}
+
 // MarshalJSON keeps default results byte-schema-compatible. The explicit
 // concise search representation is derived from the same indexed matches,
 // without changing ordering, analysis, cursor binding, or source identities.
@@ -137,8 +192,11 @@ func (out SourceQueryOutput) MarshalJSON() ([]byte, error) {
 		type legacy SourceQueryOutput
 		return json.Marshal(legacy(out))
 	}
+	if out.Operation == "relations" {
+		return out.marshalConciseRelations()
+	}
 	if out.Operation != "search" || out.Search == nil {
-		return nil, fmt.Errorf("concise source query requires search results")
+		return nil, fmt.Errorf("concise source query requires search or relations results")
 	}
 	type identity struct{ path, language, fingerprint string }
 	files := make([]SourceSearchConciseFile, 0)
