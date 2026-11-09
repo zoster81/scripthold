@@ -23,26 +23,33 @@ This file tracks **current and future work only**. Completed changes belong in [
 
 **Released baseline (4.0.1):** `source_symbols` provides `digest`, `outline`, `find`, and fingerprint-verified `show`; `source_query` provides supported structural search, relationships, and context. `outline` defaults to `presentation: "tree"`; callers needing the historical top-level `files` and `symbols` request `presentation: "detailed"`. The separate filesystem `tree` tool describes paths, not source-symbol ownership. See the [tool reference](../TOOLS.md#source_symbols) and [capability matrix](LANGUAGE_CAPABILITIES.md) for the actual contracts. Post-release parser fixes in Git are not proof that an already running connector has been updated.
 
-### Source Intelligence concise response contract — selected qualification
+### Current original-project qualification
 
-The seven opt-in concise response projections are implemented in the development tree. **Primary development work has returned to original-project source navigation across the remaining providers and corrections for proven defects.** Routine seven-operation concise-versus-legacy comparisons are deferred; retain targeted compatibility checks for response changes and before any default migration. The approved design is in [the response contract and examples](../TOOLS.md#source-intelligence-response-contract-development-opt-in). The development tree now supports opt-in `presentation: "concise"` for `source_symbols.digest` (top-level file declarations), `source_symbols.outline` (owner-scoped methods without default fields or hashes), `source_symbols.find` (file-grouped matches with verified selectors), and `source_symbols.show` (exact selected declaration, signature or verified body with truthful availability and source positions). Existing defaults and historical output formats remain intact. Development-tree `source_query.search`, `source_query.relations` and `source_query.context` all support opt-in concise responses, with cursor continuity, source-bound relation endpoints and exact decoded context excerpts. The public MCP continuation-cursor schema is corrected and regression-tested. No remaining operation-level concise projection is pending. Cross-provider qualification remains incomplete; two independent original projects each for Java, Go and Python have passed selected-scope, source-verified, public-MCP concise-versus-legacy checks for all seven operations, including exact drilldown, text/structured parity and indexed relation evidence. The Go cases also cover classless top-level function discovery and safe selection across two original roots; the Python cases cover top-level functions, class methods, same-name methods in distinct owners and related test/source files. These selected scopes and earlier Solidity/Groovy cross-file checks do not establish full provider certification. Installed releases have not changed.
+**Progress in the development tree (not the installed 4.0.1 release):**
 
-- **`digest`:** Map files to recognized top-level classes, types and functions, including non-public declarations; no default field/method counts or identifiers.
-- **`outline`:** Show every method of a selected class, including non-public methods, constructors and destructors; omit internal fields unless requested.
-- **`show`:** Return exact selected declaration/signature/body when source offsets support it, or a typed error instead of silently substituting a header. Keep stale-fingerprint protection and code/range fidelity.
-- **`source_query search`:** Return bounded source-backed structural hits grouped by file, with verified selectors, evidence and a valid public continuation cursor.
-- **`source_query relations`:** Return indexed structural edges with exact source/target evidence, uncertainty and compact limits for all nine supported relation kinds.
-- **`source_query context`:** Return exact, fingerprint-bound and budget-accounted code excerpts in source-justified priority order, with explicit body/signature, evidence and resolution. Preserve overload distinctions; join declaration/definition only when justified. Avoid unrelated enclosing code.
-- **Safety and limits:** Full symbol IDs/fingerprints remain available for safe lookup; show incomplete, ambiguous and unsupported coverage honestly. Scripthold never infers the LLM's edit choice.
+| Gate | Verified | Remaining | Meaning |
+|---|---:|---:|---|
+| Initial task-oriented navigation | **65 / 100 providers** | 35 providers | Two independent original-project maintenance scenarios per qualified provider (130 selected provider/project cases). |
+| Midpoint independent-project audit | **100 / 100 additional cases** | 0 cases | Two *further* independent original projects for each of the first 50 providers; all 50 pairs passed bounded source navigation. |
+| Standalone MCP / cross-platform promotion | Deferred | Not assessed | Requires a separate authorized verification stage after the source-level qualification. |
 
-**Qualification and compatibility sequence:** Preserve seven-operation baseline evidence on real projects. Exercise all implemented opt-in projections through real MCP clients and independent original-source oracles without breaking legacy responses. The public `source_query` pagination-schema omission for `cursor` has been fixed with a real MCP-client RED/GREEN test. Validate actual client handling of `content`/`structuredContent`, overloads, multiple roots, encoding, bounded output and stale-source conflicts. For response-affecting changes and before a default migration, compare independent source oracles, missed/wrong findings, tool calls and response bytes/tokens on available original projects from each affected provider; change defaults only after demonstrated compatibility. Existing provider navigation qualifications do **not** certify the new concise response projections. Follow [response-contract qualification](DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-in-progress).
+**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; after Rust and Erlang, new initial qualifications resume from provider 66. These results do not certify complete grammars, runtime behavior, or the installed server.
 
-**Milestone acceptance:** Use the [project-first qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification) for the complete repeatable workflow. The active gate requires:
+**Original first 50 providers with initial two-project navigation PASS** (canonical registry IDs, grouped only for readability):
 
-1. **Independent original-project evidence.** Start from a real maintenance question and source-first oracle on each of two different projects per provider. The historical corpus is a source of candidates, not current PASS evidence.
-2. **Useful, bounded navigation.** Verify compact source maps, targeted declarations, exact fingerprint-bound excerpts, directly evidenced neighbors/tests and at least one plausible distractor against independent grep/read results. Scripthold supplies evidence; the LLM decides relevance.
-3. **Truthful coverage and corrections.** Keep missing, partial, unsupported and misleading findings visible. Fix confirmed development-HEAD defects with targeted failing tests, a minimal shared-safe change and affected-family regressions. Selected navigation PASS is not proof of complete grammar or correct future edits.
-4. **Separate final qualification.** Standalone MCP, transport, cross-platform and release checks remain deferred until explicitly authorized; do not execute third-party original projects.
+- `vba`, `vb6`, `vbscript`, `qbasic`, `classic-basic`, `freebasic`, `purebasic`, `pascal`, `delphi`, `shell`
+- `bash`, `typescript`, `javascript`, `flow`, `java`, `kotlin`, `jsp`, `lua`, `luau`, `matlab`
+- `octave`, `verilog`, `systemverilog`, `vhdl`, `objective-c`, `objective-cpp`, `solidity`, `apex`, `groovy`, `dart`
+- `d`, `c`, `cpp`, `ruby`, `clojure`, `emacs-lisp`, `common-lisp`, `mql4`, `mql5`, `html`
+- `xml`, `css`, `scss`, `less`, `sass`, `powershell`, `vue`, `fortran`, `svelte`, `astro`
+
+**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r`, `zig`, `rust`, `erlang` — two independent original-project tasks each. Initial source-navigation qualification now covers 65 providers; the separate 100-case midpoint audit applies only to the first 50.
+
+### Qualification method and evidence limits
+
+For each new provider, begin with a real maintenance question and independently inspect relevant original source, tests, neighboring components, and a plausible distractor. Then verify bounded `source_symbols`/`source_query` navigation and fingerprint-bound source excerpts against direct reads and `grep_text_files`. A selected PASS does not certify a whole grammar, hidden dependencies, or the LLM's eventual edit. Keep missing original fixtures and partial coverage separate from passing cases. Use the [project-first qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification) for the procedure and acceptance rules.
+
+### Shared parser families for targeted repairs
 
 Prioritize **shared implementations across the full provider registry**, not an alphabetical language list or a fixed C-then-BASIC queue. Compare the reach of common decoder, scanner, logical-line, symbol-builder, conditional, and handler/index code before choosing where to work. A shared repair requires independent defects and regression checks in its affected consumers; similar syntax alone is not sufficient evidence. Choose the next family by demonstrated severity, reuse potential, available original projects, and verification cost.
 
@@ -70,33 +77,11 @@ The source tree currently contains these **confirmed shared implementation seams
 
 The shared implementations above identify useful regression boundaries, not a complete dependency graph. Confirm affected callers and provider composition against the current source before applying a family-wide change.
 
-### Current original-project qualification
+### Source Intelligence concise response contract — on-demand qualification
 
-**Progress in the development tree (not the installed 4.0.1 release):**
+All seven opt-in `presentation: "concise"` projections are implemented in the development tree: `source_symbols` (`digest`, `outline`, `find`, `show`) and `source_query` (`search`, `relations`, `context`). Legacy defaults and public formats are unchanged. The installed 4.0.1 server does not automatically include these unreleased changes. For inputs, exact output behavior, limits and examples, use the [source response contract](../TOOLS.md#source-intelligence-response-contract-development-opt-in).
 
-| Gate | Verified | Remaining | Meaning |
-|---|---:|---:|---|
-| Initial task-oriented navigation | **65 / 100 providers** | 35 providers | Two independent original-project maintenance scenarios per qualified provider (130 selected provider/project cases). |
-| Midpoint independent-project audit | **100 / 100 additional cases** | 0 cases | Two *further* independent original projects for each of the first 50 providers; all 50 pairs passed bounded source navigation. |
-| Standalone MCP / cross-platform promotion | Deferred | Not assessed | Requires a separate authorized verification stage after the source-level qualification. |
-
-**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; after Rust and Erlang, new initial qualifications resume from provider 66. These results do not certify complete grammars, runtime behavior, or the installed server.
-
-**Original first 50 providers with initial two-project navigation PASS** (canonical registry IDs, grouped only for readability):
-
-- `vba`, `vb6`, `vbscript`, `qbasic`, `classic-basic`, `freebasic`, `purebasic`, `pascal`, `delphi`, `shell`
-- `bash`, `typescript`, `javascript`, `flow`, `java`, `kotlin`, `jsp`, `lua`, `luau`, `matlab`
-- `octave`, `verilog`, `systemverilog`, `vhdl`, `objective-c`, `objective-cpp`, `solidity`, `apex`, `groovy`, `dart`
-- `d`, `c`, `cpp`, `ruby`, `clojure`, `emacs-lisp`, `common-lisp`, `mql4`, `mql5`, `html`
-- `xml`, `css`, `scss`, `less`, `sass`, `powershell`, `vue`, `fortran`, `svelte`, `astro`
-
-**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r`, `zig`, `rust`, `erlang` — two independent original-project tasks each. Initial source-navigation qualification now covers 65 providers; the separate 100-case midpoint audit applies only to the first 50.
-
-### Audit method and evidence boundary
-
-For each new project, select a realistic maintenance question **before** querying `source_*`. Independently inspect source and relevant tests or configuration, identify the likely primary edit area and a plausible unrelated alternative, then check a bounded compact `source_symbols digest`, targeted `find` / structural `source_query`, and fingerprint-bound `show`. Compare the answers with `grep_text_files` and direct reads. Record correct and misleading findings, omissions, partial/truncated coverage and measured costs only when actually collected. A provider's reported symbol count or `coverageComplete: true` is **not** an independent declaration inventory or a guarantee about unindexed callers.
-
-Mark an additional case **navigation PASS** only when the supported tools provide useful, source-verifiable evidence for the selected edit region, adjacent implementation/tests and a distinguishable distractor. Keep `not tested`, `screening only`, `FAIL` and `blocked/unsupported` separate. A qualified scenario does not certify the whole project's behavior, complete grammar, every dependency, or the LLM's eventual edit. Never execute third-party original projects. The reusable [project-first qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification) is the procedural authority; do not maintain a parallel test diary here.
+Selected public-MCP client checks have passed on two independent original projects each for Java, Go and Python, including safe source drilldown; this is **not cross-provider certification**. Further seven-format comparisons are **deferred during normal navigation qualification** and required only for a response-affecting change, demonstrated usability issue, compatibility decision, or proposed default migration. Preserve correct evidence, honest partial/unsupported states, full safe selectors, and historical-client compatibility; follow the [on-demand response checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-on-demand).
 
 ### Known limitations and verification boundaries
 
@@ -113,10 +98,8 @@ These caveats describe **current development-tree behavior and unresolved work**
 
 ### Next work
 
-1. **Continue source navigation from provider 66 of 100:** Choose the next provider or shared-analyzer issue by user impact, verified defects, available independent original projects, and verification cost—not alphabetical order. Require two independent source-first maintenance scenarios per new provider, using the [qualification checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification). Avoid repeating seven-format output comparisons when no response contract changed.
-2. **Repair defects discovered during normal work:** Independently reproduce material missing/misleading edit targets on current HEAD before changes. Known candidates include the malformed MQL5 `OnInit` omission, Swift symbolic operators, Vue 2 Options API members, and Svelte 5 destructured props. Apply focused RED/GREEN and affected-family checks, without chasing unsupported grammar for its own sake.
-3. **Defer broad concise-response qualification:** Keep existing selected Java, Go and Python public-MCP acceptance evidence and compatibility tests. Run additional cross-provider format comparisons when a response-affecting defect/change or a future opt-in default migration justifies them. Missing source fixtures are setup blockers, not analyzer failures. See the [response-contract checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-in-progress).
-4. **Escalate defects by user impact:** P0 misleading or invented symbols, owners, excerpts or relationships; P1 missing important edit targets, incorrect locations or deceptive completeness; P2 overly large first responses or other bounded-efficiency gaps; P3 compiler-exact semantics without demonstrated navigation benefit. Protect encoding, path authorization, fingerprints and public schema compatibility for every fix.
-5. **Qualify the standalone server separately when authorized:** After source and handler evidence is sufficient, run the deferred transport and cross-platform promotion/release checks. Ordinary repository work must not restart a deployed server or execute third-party projects.
+1. **Continue source navigation from provider 66 of 100:** Prioritize providers by maintenance relevance, independently available original projects, shared-parser reach, and verification cost. Require two task-first original-project scenarios per provider using the [project-first checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
+2. **Repair proven navigation defects:** Reproduce misleading or missing edit targets on development HEAD before changing a parser. Prioritize fabricated symbols or links (P0), missed significant declarations and misleading completeness (P1), then inefficient but correct navigation (P2); do not chase unsupported compiler semantics without a demonstrated need. The MQL5, Swift, Vue 2 and Svelte 5 cases above remain candidates, not confirmed new regressions.
+3. **Keep response and release gates separate:** Recheck concise output only when behavior or compatibility changes, using the [on-demand checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-on-demand). Standalone MCP, transport, cross-platform and release qualification require separate authorization. Do not execute original third-party projects.
 
 The published contract is defined by the [4.0.1 changelog](../CHANGELOG.md#401---2026-10-26), [tool reference](../TOOLS.md#source_symbols), and generated [language capability matrix](LANGUAGE_CAPABILITIES.md). For release authority and cross-platform checks use [Publishing](PUBLISHING.md); source navigation tests alone are not release certification.
