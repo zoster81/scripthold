@@ -923,11 +923,85 @@ func analyzeTemplateHost(ctx context.Context, document *SourceDocument, options 
 	return result, nil
 }
 
+// templateMatchedScopes pairs balanced declaration tags before symbols are
+// normalized. A symbol's deterministic identity includes its final end offset,
+// so extending a previously added symbol would invalidate its parent selectors.
+type templateMatchedScope struct {
+	declarationEnd int
+	bodyStart      int
+	bodyEnd        int
+}
+
+func templateMatchedScopes(text string, ranges []OffsetRange, maxNesting, maxSymbols int) map[int]templateMatchedScope {
+	type opening struct {
+		kind, name string
+		tag        OffsetRange
+		retained   bool
+	}
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
+	stack := make([]opening, 0, min(maxNesting, 8))
+	pairs := make(map[int]templateMatchedScope)
+	declarations := 0
+	overflow := 0
+	for _, span := range ranges {
+		if span.Start < 0 || span.End <= span.Start || span.End > len(text) {
+			continue
+		}
+		tag := text[span.Start:span.End]
+		if !strings.HasPrefix(tag, "{%") {
+			continue
+		}
+		match := templateScopeDirectivePattern.FindStringSubmatchIndex(tag)
+		if len(match) < 4 || match[2] < 0 {
+			continue
+		}
+		directive := strings.ToLower(tag[match[2]:match[3]])
+		switch directive {
+		case "block", "macro":
+			if len(match) < 6 || match[4] < 0 {
+				continue
+			}
+			if overflow != 0 || len(stack) >= maxNesting {
+				overflow++
+				continue
+			}
+			stack = append(stack, opening{kind: directive, name: tag[match[4]:match[5]], tag: span, retained: declarations < maxSymbols})
+			declarations++
+		case "endblock", "endmacro":
+			if overflow != 0 {
+				overflow--
+				continue
+			}
+			if len(stack) == 0 {
+				continue
+			}
+			top := stack[len(stack)-1]
+			if top.kind != strings.TrimPrefix(directive, "end") {
+				continue
+			}
+			if directive == "endblock" && len(match) >= 6 && match[4] >= 0 &&
+				tag[match[4]:match[5]] != top.name {
+				continue
+			}
+			stack = stack[:len(stack)-1]
+			if top.retained {
+				pairs[top.tag.Start] = templateMatchedScope{
+					declarationEnd: span.End, bodyStart: top.tag.End, bodyEnd: span.Start,
+				}
+			}
+		}
+	}
+	return pairs
+}
+
 func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, ranges []OffsetRange, language string, maxNesting int) error {
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
 	scopes := make([]templateScope, 0, min(8, maxNesting))
+	matched := templateMatchedScopes(document.Text, ranges, maxNesting, builder.options.Limits.MaxSymbols)
 	for _, value := range ranges {
 		if value.Start < 0 || value.End <= value.Start || value.End > len(document.Text) {
 			continue
@@ -964,7 +1038,12 @@ func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, r
 				parent = &value
 			}
 			declaration := OffsetRange{Start: value.Start, End: nameEnd}
-			symbol, err := builder.Add(SymbolSpec{Kind: kind, NativeKind: directive, Name: name, Parent: parent, Declaration: declaration, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Evidence: SymbolEvidenceStructural})
+			var body *OffsetRange
+			if bounds, paired := matched[value.Start]; paired {
+				declaration.End = bounds.declarationEnd
+				body = &OffsetRange{Start: bounds.bodyStart, End: bounds.bodyEnd}
+			}
+			symbol, err := builder.Add(SymbolSpec{Kind: kind, NativeKind: directive, Name: name, Parent: parent, Declaration: declaration, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Body: body, Evidence: SymbolEvidenceStructural})
 			if err != nil {
 				if operation.KindOf(err) == operation.KindLimit {
 					return nil
