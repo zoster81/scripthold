@@ -686,9 +686,10 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		case "function", "macro":
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
-					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				if !juliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
+				name, nameRange, afterName := juliaCallableName(line.Tokens, nameIndex)
+				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: name, Parent: parent,
+					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				if !juliaLineClosesOwnScope(line.Tokens, afterName) {
 					scope := structuralAnalyzerScope{label: "function"}
 					if ok {
 						scope.parent = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
@@ -697,10 +698,13 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 				}
 			}
 		default:
-			if line.Tokens[0].Kind == TokenIdentifier && juliaCompactFunction(line.Tokens) {
-				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "compact-function", Name: line.Tokens[0].Text, Parent: parent,
-					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				continue
+			if line.Tokens[0].Kind == TokenIdentifier {
+				name, nameRange, afterName := juliaCallableName(line.Tokens, 0)
+				if juliaCompactFunctionAt(line.Tokens, afterName) {
+					addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "compact-function", Name: name, Parent: parent,
+						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+					continue
+				}
 			}
 			if first == "if" || first == "for" || first == "while" || first == "begin" || first == "let" || first == "try" || first == "quote" {
 				if !juliaLineClosesOwnScope(line.Tokens, 1) {
@@ -755,13 +759,23 @@ func juliaInlineBlockOpener(tokens []Token, index, base int) bool {
 	}
 }
 
-func juliaCompactFunction(tokens []Token) bool {
-	if len(tokens) < 4 || tokens[1].Text != "(" {
+func juliaCallableName(tokens []Token, start int) (string, OffsetRange, int) {
+	name := tokens[start].Text
+	last := start
+	for last+2 < len(tokens) && tokens[last+1].Text == "." && tokens[last+2].Kind == TokenIdentifier {
+		name += "." + tokens[last+2].Text
+		last += 2
+	}
+	return name, OffsetRange{Start: tokens[start].StartOffset, End: tokens[last].EndOffset}, last + 1
+}
+
+func juliaCompactFunctionAt(tokens []Token, paren int) bool {
+	if paren < 0 || paren >= len(tokens) || tokens[paren].Text != "(" {
 		return false
 	}
 	pairs := PairDelimiterTokens(tokens, nil)
-	close := pairs[1]
-	return close > 1 && close+1 < len(tokens) && tokens[close+1].Text == "="
+	close := pairs[paren]
+	return close > paren && close+1 < len(tokens) && tokens[close+1].Text == "="
 }
 
 func addJuliaType(builder *SymbolBuilder, line LogicalLine, parent *SymbolParent, mutable bool, scopes *[]structuralAnalyzerScope) {
