@@ -70,6 +70,106 @@ func TestSourceQueryConciseRelationsPartialAmbiguityAndStale(t *testing.T) {
 	}
 }
 
+func TestSourceQueryConciseContextPartialAmbiguousAndStale(t *testing.T) {
+	const code = "é\r\nreturn value;"
+	output := SourceQueryOutput{
+		Operation: "context", Presentation: "concise",
+		Index: sourceintelligence.IndexEvidence{
+			Generation: 9, Staleness: sourceintelligence.IndexStale,
+			Fingerprint: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		},
+		Context: &SourceContextResult{
+			Items: []sourceintelligence.ContextItem{{
+				Entity: sourceintelligence.RelationEntity{
+					Path: "a.cpp", QualifiedName: "Widget::run",
+					SourceFingerprint: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+					Range: &sourceintelligence.Range{
+						Start: sourceintelligence.Position{Line: 4, Column: 1},
+						End:   sourceintelligence.Position{Line: 5, Column: 14},
+					},
+				},
+				Reason:         sourceintelligence.ContextTarget,
+				Representation: sourceintelligence.ContextSignature,
+				Priority:       4, Text: code,
+				Evidence:   sourceintelligence.SymbolEvidenceStructural,
+				Resolution: sourceintelligence.ResolutionAmbiguous,
+			}},
+			UsedBytes: len(code), BudgetBytes: 1024,
+		},
+		Coverage: SourceQueryCoverage{
+			AnalysisComplete: false, FileSelectionTruncated: true,
+			ResultsTruncated: true, FilesSkipped: 2,
+		},
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Context struct {
+			Items []struct {
+				Entity         sourceintelligence.RelationEntity        `json:"entity"`
+				Reason         sourceintelligence.ContextReason         `json:"reason"`
+				Representation sourceintelligence.ContextRepresentation `json:"representation"`
+				Code           string                                   `json:"code"`
+				Evidence       sourceintelligence.SymbolEvidence        `json:"evidence"`
+				Resolution     sourceintelligence.ResolutionState       `json:"resolution"`
+			} `json:"items"`
+			UsedBytes   int `json:"usedBytes"`
+			BudgetBytes int `json:"budgetBytes"`
+		} `json:"context"`
+		Coverage struct {
+			AnalysisComplete       bool `json:"analysisComplete"`
+			FileSelectionTruncated bool `json:"fileSelectionTruncated"`
+			ResultsTruncated       bool `json:"resultsTruncated"`
+			FilesSkipped           int  `json:"filesSkipped"`
+		} `json:"coverage"`
+		Index sourceintelligence.IndexEvidence `json:"index"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Context.Items) != 1 ||
+		payload.Context.Items[0].Code != code ||
+		payload.Context.Items[0].Resolution != sourceintelligence.ResolutionAmbiguous ||
+		payload.Context.Items[0].Evidence != sourceintelligence.SymbolEvidenceStructural ||
+		payload.Context.Items[0].Entity.Path != "a.cpp" ||
+		payload.Context.Items[0].Entity.Range.Start.Line != 4 ||
+		payload.Context.Items[0].Representation != sourceintelligence.ContextSignature ||
+		payload.Context.UsedBytes != len(code) || payload.Context.BudgetBytes != 1024 ||
+		payload.Coverage.AnalysisComplete || !payload.Coverage.FileSelectionTruncated ||
+		!payload.Coverage.ResultsTruncated || payload.Coverage.FilesSkipped != 2 ||
+		payload.Index.Staleness != sourceintelligence.IndexStale ||
+		payload.Index.Fingerprint != output.Index.Fingerprint {
+		t.Fatalf("concise context omitted source uncertainty or byte accounting: %s", encoded)
+	}
+	var general map[string]any
+	if err := json.Unmarshal(encoded, &general); err != nil {
+		t.Fatal(err)
+	}
+	item := general["context"].(map[string]any)["items"].([]any)[0].(map[string]any)
+	if _, ok := item["priority"]; ok {
+		t.Fatal("internal context priority leaked")
+	}
+	if _, ok := item["text"]; ok {
+		t.Fatal("duplicate context text leaked")
+	}
+	empty := output
+	empty.Context = &SourceContextResult{Items: nil, UsedBytes: 0, BudgetBytes: 1024}
+	emptyBytes, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var emptyData map[string]any
+	if err := json.Unmarshal(emptyBytes, &emptyData); err != nil {
+		t.Fatal(err)
+	}
+	items := emptyData["context"].(map[string]any)["items"].([]any)
+	if len(items) != 0 {
+		t.Fatalf("empty context invented snippets: %s", emptyBytes)
+	}
+}
+
 func TestSourceQueryStructuredResultContract(t *testing.T) {
 	output := SourceQueryOutput{
 		Operation:        "relations",

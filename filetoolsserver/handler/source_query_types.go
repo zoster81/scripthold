@@ -184,6 +184,61 @@ func (out SourceQueryOutput) marshalConciseRelations() ([]byte, error) {
 	return json.Marshal(compact)
 }
 
+// SourceConciseContextItem keeps the original candidate order and all source
+// verification facts. Priority is not repeated: order and reason express the
+// selected context plan without exposing an internal ranking.
+type SourceConciseContextItem struct {
+	Entity         sourceintelligence.RelationEntity        `json:"entity"`
+	Reason         sourceintelligence.ContextReason         `json:"reason"`
+	Representation sourceintelligence.ContextRepresentation `json:"representation"`
+	Code           string                                   `json:"code"`
+	Evidence       sourceintelligence.SymbolEvidence        `json:"evidence"`
+	Resolution     sourceintelligence.ResolutionState       `json:"resolution"`
+}
+
+// marshalConciseContext projects only already fingerprint-verified decoded
+// excerpts; never slices or reorders source text to reduce the response.
+func (out SourceQueryOutput) marshalConciseContext() ([]byte, error) {
+	if out.Context == nil {
+		return nil, fmt.Errorf("concise context requires verified excerpts")
+	}
+	items := make([]SourceConciseContextItem, 0, len(out.Context.Items))
+	for _, item := range out.Context.Items {
+		items = append(items, SourceConciseContextItem{
+			Entity: item.Entity, Reason: item.Reason,
+			Representation: item.Representation, Code: item.Text,
+			Evidence: item.Evidence, Resolution: item.Resolution,
+		})
+	}
+	coverage := struct {
+		AnalysisComplete       bool `json:"analysisComplete"`
+		FileSelectionTruncated bool `json:"fileSelectionTruncated"`
+		ResultsTruncated       bool `json:"resultsTruncated"`
+		FilesSkipped           int  `json:"filesSkipped,omitempty"`
+	}{
+		AnalysisComplete:       out.Coverage.AnalysisComplete,
+		FileSelectionTruncated: out.Coverage.FileSelectionTruncated,
+		ResultsTruncated:       out.Coverage.ResultsTruncated,
+		FilesSkipped:           out.Coverage.FilesSkipped,
+	}
+	compact := struct {
+		Context struct {
+			Items       []SourceConciseContextItem `json:"items"`
+			UsedBytes   int                        `json:"usedBytes"`
+			BudgetBytes int                        `json:"budgetBytes"`
+		} `json:"context"`
+		Coverage any                               `json:"coverage"`
+		Index    *sourceintelligence.IndexEvidence `json:"index,omitempty"`
+	}{Coverage: coverage}
+	compact.Context.Items = items
+	compact.Context.UsedBytes = out.Context.UsedBytes
+	compact.Context.BudgetBytes = out.Context.BudgetBytes
+	if out.Index.Staleness != sourceintelligence.IndexCurrent {
+		compact.Index = &out.Index
+	}
+	return json.Marshal(compact)
+}
+
 // MarshalJSON keeps default results byte-schema-compatible. The explicit
 // concise search representation is derived from the same indexed matches,
 // without changing ordering, analysis, cursor binding, or source identities.
@@ -195,8 +250,11 @@ func (out SourceQueryOutput) MarshalJSON() ([]byte, error) {
 	if out.Operation == "relations" {
 		return out.marshalConciseRelations()
 	}
+	if out.Operation == "context" {
+		return out.marshalConciseContext()
+	}
 	if out.Operation != "search" || out.Search == nil {
-		return nil, fmt.Errorf("concise source query requires search or relations results")
+		return nil, fmt.Errorf("concise source query requires search, relations, or context results")
 	}
 	type identity struct{ path, language, fingerprint string }
 	files := make([]SourceSearchConciseFile, 0)

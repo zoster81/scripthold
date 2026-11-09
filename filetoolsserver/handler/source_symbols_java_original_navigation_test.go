@@ -205,6 +205,74 @@ func TestSourceSymbolsConciseOriginalJavaProjects(t *testing.T) {
 				!strings.Contains(selectedBody.ConciseShow.Code, target) {
 				t.Fatalf("concise show did not retrieve original declaration: err=%v failed=%+v", err, failed)
 			}
+			// One explicit original method is an independently source-verified
+			// context selection; no unrelated enclosing class is required.
+			contextArgs := SourceQueryInput{
+				Operation: "context", Presentation: "concise",
+				Paths: []string{path}, Language: "java", Encoding: "utf-8",
+				Targets: []SourceSelectorInput{{
+					Kind: "symbol", Path: path, SymbolID: symbolID,
+					SourceFingerprint: selected.SourceFingerprint,
+				}},
+				BudgetBytes: 4096, BodyPolicy: "signatures-only",
+				MaxItems: 1, MaxDepth: 1, MaxFiles: 1,
+			}
+			failed, conciseContext, err := h.SourceQuery(context.Background(), nil, contextArgs)
+			if err != nil || failed != nil || conciseContext.Context == nil ||
+				len(conciseContext.Context.Items) != 1 {
+				t.Fatalf("source-verified compact context: err=%v fail=%+v context=%+v",
+					err, failed, conciseContext)
+			}
+			excerpt := conciseContext.Context.Items[0]
+			if excerpt.Entity.Path != path || excerpt.Entity.SymbolID != symbolID ||
+				excerpt.Entity.SourceFingerprint != selected.SourceFingerprint ||
+				excerpt.Reason != sourceintelligence.ContextTarget ||
+				excerpt.Representation != sourceintelligence.ContextSignature ||
+				!strings.Contains(string(before), excerpt.Text) ||
+				!strings.Contains(excerpt.Text, target) ||
+				conciseContext.Context.UsedBytes != len(excerpt.Text) ||
+				conciseContext.Context.UsedBytes > 4096 {
+				t.Fatalf("original context not exact or correctly budgeted: %+v", conciseContext.Context)
+			}
+			conciseContextBytes, err := json.Marshal(conciseContext)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var projected struct {
+				Context struct {
+					Items []struct {
+						Entity         sourceintelligence.RelationEntity        `json:"entity"`
+						Code           string                                   `json:"code"`
+						Reason         sourceintelligence.ContextReason         `json:"reason"`
+						Representation sourceintelligence.ContextRepresentation `json:"representation"`
+					} `json:"items"`
+					UsedBytes int `json:"usedBytes"`
+				} `json:"context"`
+			}
+			if err := json.Unmarshal(conciseContextBytes, &projected); err != nil ||
+				len(projected.Context.Items) != 1 ||
+				projected.Context.Items[0].Code != excerpt.Text ||
+				projected.Context.Items[0].Entity.SymbolID != symbolID ||
+				projected.Context.UsedBytes != len(excerpt.Text) {
+				t.Fatalf("original context projection lost exact source: %s err=%v", conciseContextBytes, err)
+			}
+			contextArgs.Presentation = ""
+			failed, legacyContext, err := h.SourceQuery(context.Background(), nil, contextArgs)
+			if err != nil || failed != nil || legacyContext.Context == nil ||
+				len(legacyContext.Context.Items) != 1 ||
+				legacyContext.Context.Items[0].Text != excerpt.Text {
+				t.Fatalf("original context legacy divergence: err=%v fail=%+v", err, failed)
+			}
+			legacyContextBytes, err := json.Marshal(legacyContext)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(conciseContextBytes) >= len(legacyContextBytes) {
+				t.Fatalf("no context byte reduction concise=%d legacy=%d",
+					len(conciseContextBytes), len(legacyContextBytes))
+			}
+			t.Logf("original context JSON bytes: concise=%d legacy=%d",
+				len(conciseContextBytes), len(legacyContextBytes))
 			concisely, err := json.Marshal(out)
 			if err != nil {
 				t.Fatal(err)

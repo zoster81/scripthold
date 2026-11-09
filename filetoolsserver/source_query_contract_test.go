@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -574,8 +575,142 @@ func TestSourceQueryConciseRelationsPublicMCP(t *testing.T) {
 	}
 	assertSourceQueryCallErrorCode(t, ctx, session, map[string]any{
 		"operation": "context", "presentation": "concise", "paths": []string{source},
-		"targets": []any{sourceSelector}, "budgetBytes": 4096,
+		"targets": []any{sourceSelector}, "budgetBytes": 4096, "relation": "dependencies",
 	}, handler.ErrCodeInvalidInput)
+}
+
+func TestSourceQueryConciseContextPublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "Service.java")
+	const source = "package demo;\r\npublic class Service {\r\n    public int run(int value) { return value + 1; }\r\n}\r\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-query-concise-context")
+	located := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "presentation": "concise", "paths": []string{path},
+		"query": "run", "match": "exact", "language": "java", "encoding": "utf-8",
+		"maxSymbols": 8, "maxFiles": 1,
+	}))
+	files := contractObjectSlice(t, located["files"])
+	if len(files) != 1 {
+		t.Fatalf("cannot locate source with verified selector: %#v", located)
+	}
+	matches := contractObjectSlice(t, files[0]["matches"])
+	if len(matches) != 1 {
+		t.Fatalf("run declaration ambiguous: %#v", matches)
+	}
+	selector := map[string]any{
+		"kind": "symbol", "path": path, "symbolId": matches[0]["symbolId"],
+		"sourceFingerprint": files[0]["sourceFingerprint"],
+	}
+	args := map[string]any{
+		"operation": "context", "presentation": "concise", "paths": []string{root},
+		"targets": []any{selector}, "budgetBytes": 4096,
+		"bodyPolicy": "prefer", "language": "java", "encoding": "utf-8",
+		"maxItems": 8, "maxDepth": 2,
+	}
+	compactResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+	if err != nil || compactResult == nil || compactResult.IsError {
+		t.Fatalf("concise context failed: %#v err=%v", compactResult, err)
+	}
+	data := contractStructuredMap(t, compactResult)
+	if data["operation"] != nil || data["coordinateSystem"] != nil || data["index"] != nil {
+		t.Fatalf("repetitive context inventory: %#v", data)
+	}
+	contextData := contractSchemaMap(t, data["context"])
+	items := contractObjectSlice(t, contextData["items"])
+	if len(items) < 2 {
+		t.Fatalf("missing target or source-justified context: %#v", items)
+	}
+	sum := 0
+	for i, item := range items {
+		entity := contractSchemaMap(t, item["entity"])
+		code, ok := item["code"].(string)
+		if !ok || code == "" || entity["path"] != path ||
+			entity["sourceFingerprint"] != files[0]["sourceFingerprint"] ||
+			item["representation"] == nil || item["reason"] == nil ||
+			item["evidence"] == nil || item["resolution"] == nil ||
+			item["priority"] != nil || item["text"] != nil {
+			t.Fatalf("context item %d lost verified source evidence: %#v", i, item)
+		}
+		if !strings.Contains(source, code) {
+			t.Fatalf("context item %d not exact original decoded substring: %q", i, code)
+		}
+		sum += len(code)
+	}
+	if items[0]["reason"] != "target" || items[0]["representation"] != "body" ||
+		!strings.Contains(fmt.Sprint(items[0]["code"]), "return value + 1;") {
+		t.Fatalf("requested implementation missing: %#v", items[0])
+	}
+	if contextData["usedBytes"] != float64(sum) || contextData["budgetBytes"] != float64(4096) ||
+		sum > 4096 {
+		t.Fatalf("incorrect source UTF-8 byte accounting: %#v; sum=%d", contextData, sum)
+	}
+	coverage := contractSchemaMap(t, data["coverage"])
+	if coverage["analysisComplete"] != true || coverage["fileSelectionTruncated"] != false ||
+		coverage["resultsTruncated"] != false {
+		t.Fatalf("incorrect complete context coverage: %#v", coverage)
+	}
+	var fallback map[string]any
+	parity := false
+	for _, part := range compactResult.Content {
+		if content, ok := part.(*mcp.TextContent); ok &&
+			json.Unmarshal([]byte(content.Text), &fallback) == nil && reflect.DeepEqual(fallback, data) {
+			parity = true
+		}
+	}
+	if !parity {
+		t.Fatal("context content diverged from structuredContent")
+	}
+	legacyArgs := make(map[string]any, len(args))
+	for k, v := range args {
+		if k != "presentation" {
+			legacyArgs[k] = v
+		}
+	}
+	legacyResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: legacyArgs})
+	if err != nil || legacyResult == nil || legacyResult.IsError {
+		t.Fatalf("historical context unavailable: %#v err=%v", legacyResult, err)
+	}
+	legacy := contractStructuredMap(t, legacyResult)
+	legacyItems := contractObjectSlice(t, contractSchemaMap(t, legacy["context"])["items"])
+	if len(legacyItems) != len(items) || legacy["index"] == nil {
+		t.Fatalf("legacy result layout changed: %#v", legacy)
+	}
+	for i, item := range items {
+		if item["code"] != legacyItems[i]["text"] ||
+			!reflect.DeepEqual(item["entity"], legacyItems[i]["entity"]) ||
+			item["reason"] != legacyItems[i]["reason"] ||
+			item["representation"] != legacyItems[i]["representation"] ||
+			item["evidence"] != legacyItems[i]["evidence"] ||
+			item["resolution"] != legacyItems[i]["resolution"] {
+			t.Fatalf("concise context item %d differs from legacy evidence: %#v vs %#v", i, item, legacyItems[i])
+		}
+	}
+	args["bodyPolicy"] = "signatures-only"
+	args["maxItems"] = 1
+	signatureResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+	if err != nil || signatureResult == nil || signatureResult.IsError {
+		t.Fatalf("signatures-only context failed: %#v err=%v", signatureResult, err)
+	}
+	signature := contractStructuredMap(t, signatureResult)
+	signatureContext := contractSchemaMap(t, signature["context"])
+	signatureItems := contractObjectSlice(t, signatureContext["items"])
+	if len(signatureItems) != 1 || signatureItems[0]["representation"] != "signature" ||
+		strings.Contains(fmt.Sprint(signatureItems[0]["code"]), "return value + 1") {
+		t.Fatalf("signature was silently presented as complete body: %#v", signatureItems)
+	}
+	signatureCoverage := contractSchemaMap(t, signature["coverage"])
+	if signatureCoverage["resultsTruncated"] != true || signatureCoverage["analysisComplete"] != true {
+		t.Fatalf("bounded context truncation was hidden: %#v", signatureCoverage)
+	}
+	if err := os.WriteFile(path, []byte(source+"// changed\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertSourceQueryCallErrorCode(t, ctx, session, args, handler.ErrCodeConflict)
 }
 
 func sourceQueryToolContract(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string) *mcp.Tool {
