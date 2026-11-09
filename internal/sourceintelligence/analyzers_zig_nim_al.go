@@ -817,13 +817,69 @@ func (p *alParser) procedure(start, keyword, end int, parent *SymbolParent, memb
 	if members {
 		kind = SymbolKindMethod
 	}
+	signatureEnd := declarationEnd
+	var body *OffsetRange
+	if begin, close, ok := p.procedureBody(next, end, p.tokens[keyword].Nesting); ok {
+		endToken := close
+		if close+1 < end && p.tokens[close+1].Text == ";" {
+			endToken++
+		}
+		declarationEnd = p.tokens[endToken].EndOffset
+		value := OffsetRange{Start: p.tokens[begin].StartOffset, End: p.tokens[endToken].EndOffset}
+		body = &value
+		next = endToken + 1
+	}
 	p.add(SymbolSpec{
 		Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
-		Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, Evidence: SymbolEvidenceStructural,
+		Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd},
+		Body:        body, Evidence: SymbolEvidenceStructural,
 	})
 	return next
+}
+
+// AL procedures may have local variable declarations between their header
+// and begin/end block. A case statement has its own end; repeat/until does not.
+// Stop at another member to avoid borrowing an interface method's successor.
+func (p *alParser) procedureBody(start, end, nesting int) (int, int, bool) {
+	vars := false
+	for i := start; i < end; i++ {
+		tok := p.tokens[i]
+		if tok.Nesting != nesting {
+			continue
+		}
+		switch strings.ToLower(tok.Text) {
+		case "var":
+			vars = true
+		case "procedure", "trigger":
+			return 0, 0, false
+		case ";":
+			if !vars {
+				return 0, 0, false
+			}
+		case "begin":
+			depth := 0
+			for j := i; j < end; j++ {
+				inner := p.tokens[j]
+				if inner.Nesting != nesting {
+					continue
+				}
+				switch strings.ToLower(inner.Text) {
+				case "begin", "case":
+					depth++
+				case "end":
+					depth--
+					if depth == 0 {
+						return i, j, true
+					}
+				}
+			}
+			p.builder.MarkIncomplete()
+			return 0, 0, false
+		}
+	}
+	return 0, 0, false
 }
 
 func (p *alParser) field(start, end int, parent *SymbolParent) (int, bool) {
