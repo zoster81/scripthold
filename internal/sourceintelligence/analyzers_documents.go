@@ -68,6 +68,10 @@ var (
 // query parameters or template code inside another attribute's quoted value.
 // It walks the tag once and keeps offsets relative to the original source.
 func markupIDAttribute(tag string) (string, int, int, bool) {
+	return markupAttributeValue(tag, "id")
+}
+
+func markupAttributeValue(tag, target string) (string, int, int, bool) {
 	if len(tag) < 2 || tag[0] != '<' {
 		return "", 0, 0, false
 	}
@@ -130,7 +134,7 @@ func markupIDAttribute(tag string) (string, int, int, bool) {
 			}
 			valueEnd = i
 		}
-		if strings.EqualFold(name, "id") && valueStart < valueEnd {
+		if strings.EqualFold(name, target) && valueStart < valueEnd {
 			return tag[valueStart:valueEnd], valueStart, valueEnd, true
 		}
 	}
@@ -215,6 +219,14 @@ func analyzeMarkupDocument(ctx context.Context, document *SourceDocument, option
 		if closeTag == nil {
 			builder.MarkIncomplete()
 			break // An unterminated raw-text element cannot safely expose later tags.
+		}
+		if name == "script" {
+			if scriptType, _, _, found := markupAttributeValue(raw, "type"); found &&
+				strings.EqualFold(strings.TrimSpace(scriptType), "text/x-template") {
+				// Vue-style templates author real markup inside script raw-text.
+				// Ordinary JavaScript and arbitrary other MIME types remain opaque.
+				continue
+			}
 		}
 		cursor += closeTag[1]
 	}
