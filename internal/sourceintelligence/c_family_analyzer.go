@@ -1799,6 +1799,20 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 					parser.builder.MarkIncomplete()
 					return end, false
 				}
+				// An '= { ... }' initializer must be followed by a
+				// declaration delimiter. If the semicolon is missing,
+				// do not swallow a following function or invent a variable
+				// from its return statement. This does not affect braced
+				// expressions such as lambdas or typed temporaries.
+				previous := previousStructuralToken(parser.tokens, index-1, start)
+				if previous >= start && parser.token(previous, "=") {
+					following := nextStructuralToken(parser.tokens, close+1, end)
+					if following >= end || (parser.tokens[following].Nesting == depth &&
+						!parser.token(following, ";") && !parser.token(following, ",")) {
+						parser.builder.MarkIncomplete()
+						return close + 1, true
+					}
+				}
 				index = close
 				continue
 			}
