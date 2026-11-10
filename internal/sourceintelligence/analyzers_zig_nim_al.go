@@ -403,7 +403,13 @@ type nimParser struct {
 	inTypeSection     bool
 	currentType       *SymbolParent
 	currentTypeIndent int
+	callableScopes    []nimCallableScope
 	stopped           bool
+}
+
+type nimCallableScope struct {
+	indent int
+	parent SymbolParent
 }
 
 func (p *nimParser) parse(lines []LogicalLine) {
@@ -413,6 +419,9 @@ func (p *nimParser) parse(lines []LogicalLine) {
 		}
 		if p.currentType != nil && line.Indent <= p.currentTypeIndent {
 			p.currentType = nil
+		}
+		for len(p.callableScopes) > 0 && line.Indent <= p.callableScopes[len(p.callableScopes)-1].indent {
+			p.callableScopes = p.callableScopes[:len(p.callableScopes)-1]
 		}
 		first := strings.ToLower(strings.TrimSuffix(line.Tokens[0].Text, "*"))
 		if first == "type" && len(line.Tokens) == 1 {
@@ -544,7 +553,16 @@ func (p *nimParser) callable(line LogicalLine, native string) {
 	if name == "" {
 		return
 	}
-	p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+	var parent *SymbolParent
+	if len(p.callableScopes) > 0 {
+		parent = &p.callableScopes[len(p.callableScopes)-1].parent
+	}
+	if symbol, ok := p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: name, Parent: parent,
+		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr,
+		Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
+		p.callableScopes = append(p.callableScopes, nimCallableScope{indent: line.Indent,
+			parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+	}
 }
 func (p *nimParser) binding(line LogicalLine, native string) {
 	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
@@ -559,8 +577,29 @@ func (p *nimParser) binding(line LogicalLine, native string) {
 	if native == "const" {
 		kind = SymbolKindConstant
 	}
-	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr, Evidence: SymbolEvidenceStructural})
+	var parent *SymbolParent
+	if len(p.callableScopes) > 0 {
+		parent = &p.callableScopes[len(p.callableScopes)-1].parent
+	}
+	if symbol, ok := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
+		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr, Evidence: SymbolEvidenceStructural}); ok && nimBlockInitializer(line.Tokens) {
+		p.callableScopes = append(p.callableScopes, nimCallableScope{indent: line.Indent,
+			parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+	}
 }
+
+func nimBlockInitializer(tokens []Token) bool {
+	if len(tokens) < 4 || tokens[len(tokens)-1].Text != ":" {
+		return false
+	}
+	for index := 0; index+1 < len(tokens); index++ {
+		if tokens[index].Text == "=" && strings.EqualFold(tokens[index+1].Text, "block") {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *nimParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	symbol, err := p.builder.Add(spec)
 	if operation.KindOf(err) == operation.KindLimit {
