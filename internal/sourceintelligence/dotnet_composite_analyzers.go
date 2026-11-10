@@ -176,19 +176,94 @@ func normalizeDotNetScriptLanguage(value string) string {
 	}
 }
 
-var aspNetCodeFileRE = regexp.MustCompile(`(?is)<%@\s*(?:Page|Control|Master)\b[^%>]*\b(?:CodeFile|CodeBehind)\s*=\s*["']([^"']+)["']`)
+// aspNetDirectiveEnd recognizes the terminating %> outside quoted attributes.
+func aspNetDirectiveEnd(source string, afterOpen int) int {
+	var quote byte
+	for cursor := afterOpen; cursor+1 < len(source); cursor++ {
+		switch source[cursor] {
+		case '\'', '"':
+			if quote == 0 {
+				quote = source[cursor]
+			} else if quote == source[cursor] {
+				quote = 0
+			}
+		case '%':
+			if quote == 0 && source[cursor+1] == '>' {
+				return cursor + 2
+			}
+		}
+	}
+	return -1
+}
 
 func aspNetDirectiveDependencies(document *SourceDocument) []StructuralDependency {
-	matches := aspNetCodeFileRE.FindAllStringSubmatchIndex(document.Text, -1)
-	result := make([]StructuralDependency, 0, len(matches))
-	for _, m := range matches {
-		if len(m) < 4 || m[2] < 0 {
+	// Comments must not introduce fake code-behind links. The masks preserve
+	// source-byte offsets for fingerprint-bound selection.
+	masked, _ := maskSimpleDelimited(document.Text, "<%--", "--%>")
+	masked, _ = maskSimpleDelimited(masked, "<!--", "-->")
+	lower := asciiLowerPreservingBytes(masked)
+	var result []StructuralDependency
+	for cursor := 0; cursor < len(masked); {
+		next := strings.IndexByte(masked[cursor:], '<')
+		if next < 0 {
+			break
+		}
+		at := cursor + next
+		if strings.HasPrefix(masked[at:], "<%@") {
+			end := aspNetDirectiveEnd(masked, at+3)
+			if end < 0 {
+				break // An unfinished directive cannot provide a safe link.
+			}
+			header := strings.TrimLeft(masked[at+3:end-2], " \t\r\n")
+			kindEnd := strings.IndexAny(header, " \t\r\n")
+			if kindEnd > 0 {
+				kind := header[:kindEnd]
+				if strings.EqualFold(kind, "Page") || strings.EqualFold(kind, "Control") || strings.EqualFold(kind, "Master") {
+					tag := document.Text[at:end]
+					bestStart, bestEnd := -1, -1
+					for _, key := range []string{"CodeFile", "CodeBehind"} {
+						_, start, stop, found := markupAttributeValue(tag, key)
+						if !found || start < 1 || stop >= len(tag) {
+							continue
+						}
+						quote := tag[start-1]
+						if (quote != '"' && quote != '\'') || tag[stop] != quote {
+							continue // The legacy include contract requires a quoted path.
+						}
+						if bestStart < 0 || start < bestStart {
+							bestStart, bestEnd = start, stop
+						}
+					}
+					if bestStart >= 0 {
+						start, stop := at+bestStart, at+bestEnd
+						if r, err := document.RangeFromUTF8Offsets(start, stop); err == nil {
+							result = append(result, StructuralDependency{
+								Kind: StructuralDependencyInclude, Value: document.Text[start:stop],
+								Range: r, Evidence: SymbolEvidenceStructural,
+							})
+						}
+					}
+				}
+			}
+			cursor = end
 			continue
 		}
-		r, err := document.RangeFromUTF8Offsets(m[2], m[3])
-		if err == nil {
-			result = append(result, StructuralDependency{Kind: StructuralDependencyInclude, Value: document.Text[m[2]:m[3]], Range: r, Evidence: SymbolEvidenceStructural})
+		name, end, closing, _, valid := razorMarkupTagAt(masked, at)
+		if !valid {
+			cursor = at + 1
+			continue
 		}
+		if !closing && (strings.EqualFold(name, "script") || strings.EqualFold(name, "style")) {
+			// Literal examples inside client script/style bodies are not ASP.NET directives.
+			closingName := "</" + strings.ToLower(name)
+			if closeAt := strings.Index(lower[end:], closingName); closeAt >= 0 {
+				if closeEnd := strings.IndexByte(masked[end+closeAt:], '>'); closeEnd >= 0 {
+					cursor = end + closeAt + closeEnd + 1
+					continue
+				}
+			}
+		}
+		cursor = end // Skip quoted attributes of ordinary markup tags.
 	}
 	return result
 }
