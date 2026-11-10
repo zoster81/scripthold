@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"io"
 	"regexp"
@@ -764,20 +765,24 @@ func jsonString(text string, index int) (string, int, int, int, bool) {
 	}
 	start := index
 	index++
-	var value strings.Builder
 	for index < len(text) {
 		if text[index] == '\\' {
 			if index+1 >= len(text) {
 				return "", start, index, index, false
 			}
-			value.WriteByte(text[index+1])
 			index += 2
 			continue
 		}
 		if text[index] == '"' {
-			return value.String(), start, index + 1, index + 1, true
+			end := index + 1
+			var value string
+			// JSON escapes (including surrogate pairs) are not Go string escapes.
+			// Decode the source spelling before assigning a navigable key name.
+			if err := json.Unmarshal([]byte(text[start:end]), &value); err != nil {
+				return "", start, end, end, false
+			}
+			return value, start, end, end, true
 		}
-		value.WriteByte(text[index])
 		index++
 	}
 	return "", start, index, index, false
