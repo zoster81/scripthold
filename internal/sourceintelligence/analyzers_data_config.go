@@ -59,6 +59,7 @@ var (
 		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:unique[ \t\r\n]+)?(index)[ \t\r\n]+(?:if[ \t]+not[ \t]+exists[ \t\r\n]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "postgresql", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(materialized[ \t]+view)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "sqlserver", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+or[ \t]+alter[ \t]+(view|function|procedure)[ \t]+(` + sqlQualifiedNamePattern + `)`)},
+		{name: "oracle", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:or[ \t\r\n]+replace[ \t\r\n]+)?(?:force|noforce)[ \t\r\n]+(view)[ \t\r\n]+(` + sqlQualifiedNamePattern + `)`)},
 	}
 )
 
