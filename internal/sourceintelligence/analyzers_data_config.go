@@ -528,11 +528,19 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		return AnalyzerResult{}, err
 	}
 	inLet := false
+	rootSeen := false
 	for _, line := range sourceTextLines(document.Text) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
 		trimmed := strings.TrimSpace(stripLineComment(line.text, "#"))
+		if !rootSeen && trimmed != "" {
+			rootSeen = true
+			if trimmed != "let" && !strings.HasPrefix(trimmed, "let ") {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-root-structure",
+					"Nix root expressions outside a let binding are not indexed", line.start, line.end)
+			}
+		}
 		if trimmed == "let" || strings.HasPrefix(trimmed, "let ") {
 			inLet = true
 			continue
