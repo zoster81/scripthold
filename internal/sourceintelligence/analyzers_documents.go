@@ -964,13 +964,29 @@ func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if trimmed == "" || trimmed == "---" || trimmed == "..." {
 			continue
 		}
-		for len(scopes) > 0 && line.indent <= scopes[len(scopes)-1].indent {
+		sequenceItem := trimmed == "-" || strings.HasPrefix(trimmed, "- ")
+		for len(scopes) > 0 &&
+			(line.indent < scopes[len(scopes)-1].indent ||
+				(line.indent == scopes[len(scopes)-1].indent && !sequenceItem)) {
+			// YAML permits an indentless sequence at its mapping key's
+			// indentation. Preserve that key as the parent of each item.
 			scopes = scopes[:len(scopes)-1]
 		}
 		if trimmed == "-" || strings.HasPrefix(trimmed, "- ") {
 			addDocumentDataHardwareDiagnostic(builder, "yaml-unmodeled-sequence", "YAML sequence mapping relationships are not modeled", line.start, line.end)
-			skipSequenceIndent = line.indent
-			continue
+			// A mapping on a sequence item has an exact authored key, but not
+			// a uniquely modeled item owner. Keep the incomplete-coverage
+			// diagnostic and expose only keys with a provable source range.
+			if trimmed == "-" {
+				skipSequenceIndent = line.indent
+				continue
+			}
+			entry := strings.TrimSpace(trimmed[2:])
+			if _, _, _, valid := yamlMappingEntry(entry); !valid {
+				skipSequenceIndent = line.indent
+				continue
+			}
+			trimmed = entry
 		}
 		if strings.HasPrefix(trimmed, "? ") || strings.HasPrefix(trimmed, ": ") || trimmed == "?" || trimmed == ":" {
 			addDocumentDataHardwareDiagnostic(builder, "yaml-unmodeled-complex-key", "YAML complex mapping keys are not modeled", line.start, line.end)
