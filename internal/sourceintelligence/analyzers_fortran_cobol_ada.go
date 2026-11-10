@@ -1336,8 +1336,19 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		}
 		if first == "procedure" || first == "function" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
-			if nameIndex >= 0 {
-				symbol, added := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
+			name := ""
+			if len(line.Tokens) > 1 && line.Tokens[1].Kind == TokenString {
+				// An Ada operator function has a quoted designator immediately
+				// after "function"; later identifiers are its parameters.
+				if first == "function" {
+					name = adaOperatorDesignator(line.Tokens[1])
+				}
+				nameIndex = 1
+			} else if nameIndex == 1 {
+				name = line.Tokens[nameIndex].Text
+			}
+			if name != "" {
+				symbol, added := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: name, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 				if added && adaSubprogramOpensScope(line.Tokens, nameIndex, adaNextTokens(lines, lineIndex+1)) {
 					scopes = append(scopes, structuralAnalyzerScope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
@@ -1419,7 +1430,28 @@ func maskAdaCharacterLiterals(ctx context.Context, document *SourceDocument) (*S
 	return &clone, nil
 }
 
+// Only Ada's overloadable operator designators are callable names. Reject
+// arbitrary quoted text instead of indexing an unrelated parameter identifier.
+func adaOperatorDesignator(token Token) string {
+	value := quotedTokenStringValue(token)
+	if !strings.HasPrefix(token.Text, "\"") {
+		return ""
+	}
+	switch value {
+	case "and", "or", "xor", "=", "/=", "<", "<=", ">", ">=", "+", "-", "&", "*", "/", "mod", "rem", "**", "abs", "not":
+		return value
+	default:
+		return ""
+	}
+}
+
 func adaSelectedName(tokens []Token, start int) (string, int, int, bool) {
+	if start < len(tokens) && tokens[start].Kind == TokenString {
+		if name := adaOperatorDesignator(tokens[start]); name != "" {
+			return name, start, start + 1, true
+		}
+		return "", 0, 0, false
+	}
 	nameStart := firstIdentifierToken(tokens, start)
 	if nameStart < 0 {
 		return "", 0, 0, false
