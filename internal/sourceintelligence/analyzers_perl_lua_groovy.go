@@ -34,8 +34,35 @@ func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		_ = state.builder.AddDiagnostic(DiagnosticSpec{Code: "perl-unterminated-heredoc", Message: "Perl source contains an unterminated quoted heredoc", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
 	var currentPackage *SymbolParent
+	// Perl package declarations are lexically scoped to an enclosing block.
+	// Track braces from scanner-owned code tokens, never from strings or POD.
+	type packageScope struct {
+		depth    int
+		previous *SymbolParent
+	}
+	var packageScopes []packageScope
+	braceDepth, tokenIndex := 0, 0
 	lines := BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{";"}})
 	for _, line := range lines {
+		for tokenIndex < len(scan.Tokens) && scan.Tokens[tokenIndex].StartOffset < line.StartOffset {
+			token := scan.Tokens[tokenIndex]
+			tokenIndex++
+			if token.Kind != TokenPunctuation && token.Kind != TokenOperator {
+				continue
+			}
+			switch token.Text {
+			case "{":
+				braceDepth++
+			case "}":
+				if braceDepth > 0 {
+					braceDepth--
+				}
+				for len(packageScopes) > 0 && packageScopes[len(packageScopes)-1].depth > braceDepth {
+					currentPackage = packageScopes[len(packageScopes)-1].previous
+					packageScopes = packageScopes[:len(packageScopes)-1]
+				}
+			}
+		}
 		if state.stopped || len(line.Tokens) == 0 {
 			continue
 		}
@@ -61,6 +88,9 @@ func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			}
 			symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "package", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameStart].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 			if ok {
+				if braceDepth > 0 {
+					packageScopes = append(packageScopes, packageScope{depth: braceDepth, previous: currentPackage})
+				}
 				parent := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 				currentPackage = &parent
 			}
