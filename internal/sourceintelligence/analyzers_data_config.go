@@ -296,9 +296,15 @@ func sqlCanonicalIdentifier(raw string) string {
 }
 
 var (
-	plsqlPackage = regexp.MustCompile(`(?im)\bcreate[ \t]+(?:or[ \t]+replace[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)[ \t]+(?:as|is)\b`)
-	plsqlRoutine = regexp.MustCompile(`(?im)^[ \t]*(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
+	plsqlPackage  = regexp.MustCompile(`(?im)\bcreate[ \t]+(?:or[ \t]+replace[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)[ \t]+(?:as|is)\b`)
+	plsqlRoutine  = regexp.MustCompile(`(?im)^[ \t]*(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
+	plsqlBatchEnd = regexp.MustCompile(`(?m)^[ \t]*/[ \t]*\r?$`)
 )
+
+type plsqlPackageScope struct {
+	start, end int
+	parent     *SymbolParent
+}
 
 func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "plsql", AnalyzerPLSQL)
@@ -307,19 +313,56 @@ func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	source := maskSourceComments(document.Text, []string{"--"}, "/*", "*/")
 	source = maskSourceStrings(source, true, false, false)
-	packageMatch := plsqlPackage.FindStringSubmatchIndex(source)
-	var parent *SymbolParent
-	if packageMatch != nil {
-		name := document.Text[packageMatch[2]:packageMatch[3]]
-		declEnd := packageMatch[1]
-		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: packageMatch[0], End: declEnd}, OffsetRange{Start: packageMatch[2], End: packageMatch[3]})
-		if ok {
-			parent = &symbol
+	packages := plsqlPackage.FindAllStringSubmatchIndex(source, -1)
+	batchEnds := plsqlBatchEnd.FindAllStringIndex(source, -1)
+	scopes := make([]plsqlPackageScope, 0, len(packages))
+	parents := make(map[string]SymbolParent)
+	batch := 0
+	for i, match := range packages {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
 		}
+		for batch < len(batchEnds) && batchEnds[batch][0] < match[0] {
+			batch++
+		}
+		end := len(source)
+		if i+1 < len(packages) {
+			end = packages[i+1][0]
+		}
+		if batch < len(batchEnds) && batchEnds[batch][0] < end {
+			end = batchEnds[batch][0]
+		}
+		name := document.Text[match[2]:match[3]]
+		key := strings.ToLower(name)
+		parent, exists := parents[key]
+		if !exists {
+			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil,
+				OffsetRange{Start: match[0], End: match[1]},
+				OffsetRange{Start: match[2], End: match[3]})
+			if ok {
+				parent = symbol
+				parents[key] = parent
+				exists = true
+			}
+		}
+		scope := plsqlPackageScope{start: match[0], end: end}
+		if exists {
+			scope.parent = &parent
+		}
+		scopes = append(scopes, scope)
 	}
+	scopeIndex := 0
 	for _, match := range plsqlRoutine.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		for scopeIndex+1 < len(scopes) && scopes[scopeIndex+1].start < match[0] {
+			scopeIndex++
+		}
+		var parent *SymbolParent
+		if len(scopes) > 0 && scopes[scopeIndex].start < match[0] &&
+			match[0] < scopes[scopeIndex].end {
+			parent = scopes[scopeIndex].parent
 		}
 		kindWord := strings.ToLower(document.Text[match[2]:match[3]])
 		name := document.Text[match[4]:match[5]]
@@ -327,7 +370,8 @@ func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		if semi := strings.Index(document.Text[end:], ";"); semi >= 0 {
 			end += semi + 1
 		}
-		addDocumentDataHardwareSymbol(builder, SymbolKindFunction, kindWord, name, parent, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[4], End: match[5]})
+		addDocumentDataHardwareSymbol(builder, SymbolKindFunction, kindWord, name, parent,
+			OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[4], End: match[5]})
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
