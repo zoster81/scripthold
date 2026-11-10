@@ -372,6 +372,17 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 			}
 		}
 	}
+	patternOpen := parser.skipTrivia(keyword+1, terminator+1)
+	if parser.token(patternOpen, "{") {
+		return parser.parseObjectDestructuring(declarationStart, keyword, patternOpen, terminator, end, parent)
+	}
+	if parser.token(patternOpen, "[") {
+		// An array binding pattern has no single declared variable name.
+		// Its current elements are unsupported; never index the first one
+		// and misleadingly claim a complete declaration inventory.
+		parser.builder.MarkIncomplete()
+		return min(terminator+1, end)
+	}
 	kind := SymbolKindVariable
 	nativeKind := parser.tokens[keyword].Text
 	if parser.token(keyword, "const") {
@@ -402,6 +413,85 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		Modifiers: parser.modifiers(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
 		Disambiguator: tokenRangeText(parser.tokens, nameIndex, min(terminator+1, end)),
 	})
+	return min(terminator+1, end)
+}
+
+// parseObjectDestructuring indexes local binding names rather than object
+// property keys. Types and initializer expressions are never declarations.
+// Unsupported nested/computed patterns are reported as partial, not guessed.
+func (parser *ecmaParser) parseObjectDestructuring(declarationStart, keyword, open, terminator, end int, parent *SymbolParent) int {
+	close, paired := parser.pairs[open]
+	if !paired || close <= open || close > terminator {
+		parser.builder.MarkIncomplete()
+		return min(terminator+1, end)
+	}
+	depth := parser.tokens[open].Nesting
+	for index := close + 1; index < terminator; index++ {
+		if parser.token(index, ",") && parser.tokens[index].Nesting == parser.tokens[keyword].Nesting {
+			// Mixed declaration lists after a destructured first binding
+			// need a separate declarator pass. Report that limitation.
+			parser.builder.MarkIncomplete()
+			break
+		}
+	}
+	kind := SymbolKindVariable
+	if parser.token(keyword, "const") {
+		kind = SymbolKindConstant
+	}
+	declarationEnd := parser.tokens[terminator].EndOffset
+	if parser.tokens[terminator].Kind == TokenEOF {
+		declarationEnd = parser.tokens[close].EndOffset
+	}
+	for entry := open + 1; entry < close && !parser.stopped; {
+		entry = parser.skipTrivia(entry, close)
+		if entry >= close {
+			break
+		}
+		segmentEnd := entry
+		for segmentEnd < close {
+			if parser.token(segmentEnd, ",") && parser.tokens[segmentEnd].Nesting == depth {
+				break
+			}
+			segmentEnd++
+		}
+		nameIndex := -1
+		first := entry
+		if parser.token(first, "...") {
+			first++
+		} else if parser.token(first, ".") && parser.token(first+1, ".") && parser.token(first+2, ".") {
+			first += 3
+		}
+		if first != entry {
+			if first < segmentEnd && parser.tokens[first].Kind == TokenIdentifier {
+				nameIndex = first
+			}
+		} else if first < segmentEnd && parser.tokens[first].Kind == TokenIdentifier {
+			if first+1 == segmentEnd || parser.token(first+1, "=") {
+				nameIndex = first
+			}
+		}
+		if first == entry && nameIndex < 0 && first+2 < segmentEnd && parser.token(first+1, ":") {
+			alias := parser.skipTrivia(first+2, segmentEnd)
+			if alias < segmentEnd && parser.tokens[alias].Kind == TokenIdentifier &&
+				(alias+1 == segmentEnd || parser.token(alias+1, "=")) {
+				nameIndex = alias
+			}
+		}
+		if nameIndex < 0 {
+			parser.builder.MarkIncomplete()
+		} else {
+			parser.add(SymbolSpec{
+				Kind: kind, NativeKind: parser.tokens[keyword].Text,
+				Name: parser.tokens[nameIndex].Text, Parent: parent,
+				Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: declarationEnd},
+				NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
+				Visibility:  parser.visibility(declarationStart, keyword),
+				Modifiers:   parser.modifiers(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
+				Disambiguator: tokenRangeText(parser.tokens, entry, segmentEnd),
+			})
+		}
+		entry = segmentEnd + 1
+	}
 	return min(terminator+1, end)
 }
 
