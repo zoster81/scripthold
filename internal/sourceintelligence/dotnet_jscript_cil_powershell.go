@@ -263,11 +263,15 @@ func (p *cilParser) parse(lines []LogicalLine) {
 				p.member(line, SymbolKindField, "field")
 			}
 		case ".method":
-			if p.class != nil {
+			if p.class != nil || depth == 0 {
 				header, through := cilMethodHeader(lines, index)
-				p.member(header, SymbolKindMethod, "method")
-				index = through
-				line = header
+				// Global methods require an observed body; a trailing header
+				// alone is not enough to prove a declaration.
+				if p.class != nil || cilGlobalMethodBodyStarts(lines, through) {
+					p.member(header, SymbolKindMethod, "method")
+					index = through
+					line = header
+				}
 			}
 		}
 		for _, token := range line.Tokens {
@@ -291,14 +295,13 @@ func (p *cilParser) parse(lines []LogicalLine) {
 	}
 }
 
-// CIL method signatures may place the method name on a later line.
-// Only join a short header up to its first parameter list, never IL body lines.
+// CIL method signatures may place the method name on a later line or
+// contain modopt/modreq argument lists before the method's own parameter list.
+// Join only a bounded header, never IL body lines.
 func cilMethodHeader(lines []LogicalLine, start int) (LogicalLine, int) {
 	header := lines[start]
-	for _, token := range header.Tokens {
-		if token.Text == "(" {
-			return header, start
-		}
+	if cilMethodNameIndex(header.Tokens) >= 0 {
+		return header, start
 	}
 	candidate := header
 	for next := start + 1; next < len(lines) && next <= start+8; next++ {
@@ -313,22 +316,77 @@ func cilMethodHeader(lines []LogicalLine, start int) (LogicalLine, int) {
 		if strings.HasPrefix(first, ".") || first == "{" || first == "}" {
 			break
 		}
-		foundParen := false
 		for _, token := range line.Tokens {
 			if token.Text == "{" || token.Text == "}" {
 				return header, start
 			}
-			if token.Text == "(" {
-				foundParen = true
-			}
 		}
 		candidate.Tokens = append(candidate.Tokens, line.Tokens...)
 		candidate.EndOffset = line.EndOffset
-		if foundParen {
+		if cilMethodNameIndex(candidate.Tokens) >= 0 {
 			return candidate, next
 		}
 	}
 	return header, start
+}
+
+func cilGlobalMethodBodyStarts(lines []LogicalLine, headerEnd int) bool {
+	if headerEnd >= len(lines) || headerEnd < 0 {
+		return false
+	}
+	for _, token := range lines[headerEnd].Tokens {
+		if token.Text == "{" {
+			return true
+		}
+	}
+	for next := headerEnd + 1; next < len(lines) && next <= headerEnd+8; next++ {
+		if len(lines[next].Tokens) > 0 {
+			return lines[next].Tokens[0].Text == "{"
+		}
+	}
+	return false
+}
+
+// Find the name immediately preceding the method parameter list. Metadata
+// modifiers have their own parentheses, and generic method names end in >.
+func cilMethodNameIndex(tokens []Token) int {
+	for i := 1; i < len(tokens); i++ {
+		if tokens[i].Text != "(" {
+			continue
+		}
+		before := i - 1
+		if before >= 1 && tokens[before].Text == ">" {
+			depth := 0
+			matched := false
+			for j := before; j >= 1; j-- {
+				switch tokens[j].Text {
+				case ">":
+					depth++
+				case "<":
+					depth--
+					if depth == 0 {
+						before = j - 1
+						matched = true
+					}
+				}
+				if matched {
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		if before < 1 || tokens[before].Kind != TokenIdentifier {
+			continue
+		}
+		switch strings.ToLower(tokens[before].Text) {
+		case "modopt", "modreq", "marshal", "pinvokeimpl":
+			continue
+		}
+		return before
+	}
+	return -1
 }
 
 func (p *cilParser) assembly(line LogicalLine) {
@@ -421,12 +479,7 @@ func (p *cilParser) classDecl(line LogicalLine) {
 func (p *cilParser) member(line LogicalLine, kind SymbolKind, native string) {
 	name := -1
 	if kind == SymbolKindMethod {
-		for i, t := range line.Tokens {
-			if t.Text == "(" {
-				name = previousIdentifierToken(line.Tokens, i-1, 1)
-				break
-			}
-		}
+		name = cilMethodNameIndex(line.Tokens)
 	} else {
 		name = previousIdentifierToken(line.Tokens, len(line.Tokens)-1, 1)
 		if name >= 0 && line.Tokens[name].Text == "}" {
