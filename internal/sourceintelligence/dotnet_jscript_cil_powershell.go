@@ -70,16 +70,55 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 	}
 	parent := &SymbolParent{ID: pkg.ID, QualifiedName: pkg.QualifiedName}
 	remaining := options
-	if remaining.Limits.MaxSymbols > 0 {
-		remaining.Limits.MaxSymbols--
+	bodyAvailable := options.Limits.MaxSymbols - 1
+	if options.Limits.MaxSymbols > 0 {
+		// A zero limit is invalid for the nested builder. Scan one bounded
+		// symbol to prove whether declarations were omitted.
+		remaining.Limits.MaxSymbols = max(1, bodyAvailable)
 	}
 	body, err := analyzeJScriptNetBody(ctx, document, remaining, masked, scan.Tokens[open].EndOffset, scan.Tokens[close].StartOffset, parent)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	base := builder.Result()
+	if options.Limits.MaxSymbols > 0 && len(body.Analysis.Symbols) > max(0, bodyAvailable) {
+		body.Analysis.Symbols = body.Analysis.Symbols[:max(0, bodyAvailable)]
+		body.Analysis.Truncated = true
+		body.Analysis.CoverageComplete = false
+	}
 	mergeAnalysisSymbols(&base, body.Analysis)
-	return AnalyzerResult{Analysis: base, Dependencies: body.Dependencies, Relations: body.Relations}, nil
+	// A JScript.NET package is not necessarily the whole script. Retain
+	// declarations before and after it without parsing its body twice.
+	outside := []byte(masked)
+	maskByteRangePreservingLines(outside, scan.Tokens[packageKeyword].StartOffset, scan.Tokens[close].EndOffset)
+	globalOptions := options
+	available := options.Limits.MaxSymbols - len(base.Symbols)
+	if options.Limits.MaxSymbols > 0 {
+		globalOptions.Limits.MaxSymbols = max(1, available)
+	}
+	globals, err := analyzeJScriptNetBody(ctx, document, globalOptions, string(outside), 0, len(outside), nil)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	if options.Limits.MaxSymbols > 0 {
+		if available <= 0 {
+			if len(globals.Analysis.Symbols) > 0 {
+				base.Truncated = true
+				base.CoverageComplete = false
+			}
+			globals.Analysis.Symbols = nil
+		} else if len(globals.Analysis.Symbols) > available {
+			globals.Analysis.Symbols = globals.Analysis.Symbols[:available]
+			globals.Analysis.Truncated = true
+			globals.Analysis.CoverageComplete = false
+		}
+	}
+	mergeAnalysisSymbols(&base, globals.Analysis)
+	return AnalyzerResult{
+		Analysis:     base,
+		Dependencies: append(body.Dependencies, globals.Dependencies...),
+		Relations:    append(body.Relations, globals.Relations...),
+	}, nil
 }
 
 func analyzeJScriptNetBody(ctx context.Context, host *SourceDocument, options AnalyzeOptions, masked string, start, end int, parent *SymbolParent) (AnalyzerResult, error) {
@@ -96,8 +135,8 @@ func analyzeJScriptNetBody(ctx context.Context, host *SourceDocument, options An
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	dependencies := jscriptNetDependencies(host, start, end)
-	relations := jscriptNetRelations(host, start, end, parent)
+	dependencies := jscriptNetDependencies(host, text, start)
+	relations := jscriptNetRelations(host, text, start, parent)
 	return AnalyzerResult{Analysis: analysis, Dependencies: dependencies, Relations: relations}, nil
 }
 
@@ -127,11 +166,10 @@ func maskJScriptNetModifiers(text string) string {
 var jscriptNetImportRE = regexp.MustCompile(`(?im)^[ \t]*import[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
 var jscriptNetInheritanceRE = regexp.MustCompile(`(?im)\bclass[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+(?:extends|implements)[ \t]+([A-Za-z_][A-Za-z0-9_.]*)`)
 
-func jscriptNetDependencies(document *SourceDocument, start, end int) []StructuralDependency {
-	if document == nil || start < 0 || end < start || end > len(document.Text) {
+func jscriptNetDependencies(document *SourceDocument, text string, start int) []StructuralDependency {
+	if document == nil || start < 0 || start > len(document.Text) || len(text) > len(document.Text)-start {
 		return nil
 	}
-	text := document.Text[start:end]
 	matches := jscriptNetImportRE.FindAllStringSubmatchIndex(text, -1)
 	result := make([]StructuralDependency, 0, len(matches))
 	for _, match := range matches {
@@ -148,11 +186,10 @@ func jscriptNetDependencies(document *SourceDocument, start, end int) []Structur
 	return result
 }
 
-func jscriptNetRelations(document *SourceDocument, start, end int, parent *SymbolParent) []StructuralRelation {
-	if document == nil || start < 0 || end < start || end > len(document.Text) {
+func jscriptNetRelations(document *SourceDocument, text string, start int, parent *SymbolParent) []StructuralRelation {
+	if document == nil || start < 0 || start > len(document.Text) || len(text) > len(document.Text)-start {
 		return nil
 	}
-	text := document.Text[start:end]
 	matches := jscriptNetInheritanceRE.FindAllStringSubmatchIndex(text, -1)
 	result := make([]StructuralRelation, 0, len(matches))
 	for _, match := range matches {
