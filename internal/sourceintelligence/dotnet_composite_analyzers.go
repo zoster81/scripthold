@@ -628,8 +628,6 @@ type XAMLAnalyzer struct{}
 func (XAMLAnalyzer) ID() AnalyzerID   { return AnalyzerXAML }
 func (XAMLAnalyzer) Language() string { return "xaml" }
 
-var xamlClassRE = regexp.MustCompile(`(?is)\bx:Class\s*=\s*(?:"([^"'\s=<>]+)"|'([^"'\s=<>]+)')`)
-var xamlNameRE = regexp.MustCompile(`(?is)\bx:Name\s*=\s*(?:"([^"'\s=<>]+)"|'([^"'\s=<>]+)')`)
 var xamlXMLNSRE = regexp.MustCompile(`(?is)\bxmlns(?::[A-Za-z_][A-Za-z0-9_.-]*)?\s*=\s*(?:"([^"'\s<>]+)"|'([^"'\s<>]+)')`)
 
 func xamlCapturedValueRange(match []int) (int, int, bool) {
@@ -640,6 +638,47 @@ func xamlCapturedValueRange(match []int) (int, int, bool) {
 		return match[4], match[5], true
 	}
 	return 0, 0, false
+}
+
+// xamlQuotedTagAttribute uses the shared quote-aware attribute scanner, then
+// verifies the authored case-sensitive XML name and exact source spans.
+func xamlQuotedTagAttribute(tag, candidate string) (value string, attributeStart, attributeEnd, nameStart, nameEnd int, ok bool) {
+	value, start, end, found := markupAttributeValue(tag, candidate)
+	if !found || start < 2 || end >= len(tag) || strings.ContainsAny(value, "'\" \t\r\n=<>") {
+		return "", 0, 0, 0, 0, false
+	}
+	quote := tag[start-1]
+	if (quote != '"' && quote != '\'') || tag[end] != quote {
+		return "", 0, 0, 0, 0, false
+	}
+	cursor := start - 2
+	for cursor >= 0 && markupAttributeSpace(tag[cursor]) {
+		cursor--
+	}
+	if cursor < 0 || tag[cursor] != '=' {
+		return "", 0, 0, 0, 0, false
+	}
+	cursor--
+	for cursor >= 0 && markupAttributeSpace(tag[cursor]) {
+		cursor--
+	}
+	keyEnd := cursor + 1
+	keyStart := keyEnd - len(candidate)
+	if keyStart < 0 || tag[keyStart:keyEnd] != candidate ||
+		(keyStart > 0 && !markupAttributeSpace(tag[keyStart-1]) && tag[keyStart-1] != '<') {
+		return "", 0, 0, 0, 0, false
+	}
+	return value, keyStart, end + 1, start, end, true
+}
+
+func xamlNamedAttribute(tag string) (kind, name string, attributeStart, attributeEnd, nameStart, nameEnd int, ok bool) {
+	for _, candidate := range []string{"x:Name", "Name"} {
+		value, attrStart, attrEnd, start, end, found := xamlQuotedTagAttribute(tag, candidate)
+		if found {
+			return candidate, value, attrStart, attrEnd, start, end, true
+		}
+	}
+	return "", "", 0, 0, 0, 0, false
 }
 
 func (XAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -658,38 +697,79 @@ func (XAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{Code: "xaml-unterminated-comment", Message: "XAML comment is not terminated", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
-	classMatches := xamlClassRE.FindAllStringSubmatchIndex(masked, -1)
-	var parent *SymbolParent
-	if len(classMatches) > 0 {
-		m := classMatches[0]
-		nameStart, nameEnd, ok := xamlCapturedValueRange(m)
-		if ok {
-			s, err := builder.Add(SymbolSpec{Kind: SymbolKindClass, NativeKind: "x:Class", Name: document.Text[nameStart:nameEnd], QualifiedName: document.Text[nameStart:nameEnd], Declaration: OffsetRange{Start: m[0], End: m[1]}, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Evidence: SymbolEvidenceStructural})
-			if operation.KindOf(err) == operation.KindLimit {
-				builder.MarkTruncated()
-			} else if err == nil {
-				v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
-				parent = &v
-			} else {
-				builder.MarkIncomplete()
-			}
-		}
+	// XAML CDATA is opaque to element/attribute discovery, like comments.
+	maskedCDATA, cdataComplete := maskSimpleDelimited(masked, "<![CDATA[", "]]>")
+	if !cdataComplete {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{Code: "xaml-unterminated-cdata", Message: "XAML CDATA is not terminated", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
-	if parent != nil {
-		for _, m := range xamlNameRE.FindAllStringSubmatchIndex(masked, -1) {
-			nameStart, nameEnd, ok := xamlCapturedValueRange(m)
-			if !ok {
-				continue
-			}
-			_, err := builder.Add(SymbolSpec{Kind: SymbolKindField, NativeKind: "x:Name", Name: document.Text[nameStart:nameEnd], Parent: parent, Declaration: OffsetRange{Start: m[0], End: m[1]}, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Evidence: SymbolEvidenceStructural})
-			if operation.KindOf(err) == operation.KindLimit {
-				builder.MarkTruncated()
-				break
-			}
-			if err != nil {
+	masked = maskedCDATA
+	var parent *SymbolParent
+	rootSeen := false
+	for cursor := 0; cursor < len(masked); {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		next := strings.IndexByte(masked[cursor:], '<')
+		if next < 0 {
+			break
+		}
+		cursor += next
+		_, end, closing, _, valid := razorMarkupTagAt(masked, cursor)
+		if !valid {
+			if cursor+1 < len(masked) &&
+				(razorMarkupTagNameStart(masked[cursor+1]) || masked[cursor+1] == '/') {
 				builder.MarkIncomplete()
+				_ = builder.AddDiagnostic(DiagnosticSpec{
+					Code: "xaml-malformed-tag", Message: "XAML element opening tag is not terminated",
+					Severity: DiagnosticWarning, AffectsCoverage: true,
+				})
+				break // A malformed tag must not scan the rest of the file repeatedly.
+			}
+			cursor++
+			continue // Processing instructions and directives are not elements.
+		}
+		if !closing {
+			tag := document.Text[cursor:end]
+			if !rootSeen {
+				rootSeen = true
+				if name, attrStart, attrEnd, nameStart, nameEnd, ok := xamlQuotedTagAttribute(tag, "x:Class"); ok {
+					s, err := builder.Add(SymbolSpec{
+						Kind: SymbolKindClass, NativeKind: "x:Class", Name: name, QualifiedName: name,
+						Declaration: OffsetRange{Start: cursor + attrStart, End: cursor + attrEnd},
+						NameRange:   OffsetRange{Start: cursor + nameStart, End: cursor + nameEnd},
+						Evidence:    SymbolEvidenceStructural,
+					})
+					if operation.KindOf(err) == operation.KindLimit {
+						builder.MarkTruncated()
+					} else if err == nil {
+						v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
+						parent = &v
+					} else {
+						builder.MarkIncomplete()
+					}
+				}
+			}
+			if parent != nil {
+				kind, name, attrStart, attrEnd, nameStart, nameEnd, ok := xamlNamedAttribute(tag)
+				if ok {
+					_, err := builder.Add(SymbolSpec{
+						Kind: SymbolKindField, NativeKind: kind, Name: name, Parent: parent,
+						Declaration: OffsetRange{Start: cursor + attrStart, End: cursor + attrEnd},
+						NameRange:   OffsetRange{Start: cursor + nameStart, End: cursor + nameEnd},
+						Evidence:    SymbolEvidenceStructural,
+					})
+					if operation.KindOf(err) == operation.KindLimit {
+						builder.MarkTruncated()
+						break
+					}
+					if err != nil {
+						builder.MarkIncomplete()
+					}
+				}
 			}
 		}
+		cursor = end
 	}
 	deps := make([]StructuralDependency, 0)
 	for _, m := range xamlXMLNSRE.FindAllStringSubmatchIndex(masked, -1) {
