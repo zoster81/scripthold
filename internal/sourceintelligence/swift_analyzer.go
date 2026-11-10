@@ -319,7 +319,20 @@ func swiftSplitTypeList(tokens []Token, start, end, nesting int) [][2]int {
 }
 
 func (p *swiftParser) parseFunction(declarationStart, keyword, end int, parent *SymbolParent, member bool) int {
-	nameIndex := nextIdentifierToken(p.tokens, keyword+1, end)
+	nameIndex := p.skipTrivia(keyword+1, end)
+	if nameIndex < end && p.tokens[nameIndex].Kind == TokenOperator {
+		// Swift operators are callable declarations too. Do not scan past
+		// their parameter list and mistake an argument name for a method.
+		paren := p.skipTrivia(nameIndex+1, end)
+		if p.tokens[nameIndex].Text != "=" && p.tokens[nameIndex].Text != "->" &&
+			paren < end && p.token(paren, "(") &&
+			p.tokens[paren].Nesting == p.tokens[keyword].Nesting+1 {
+			return p.addCallable(declarationStart, nameIndex, paren, end, parent, member, p.tokens[nameIndex].Text, "func")
+		}
+		p.builder.MarkIncomplete()
+		return p.skipStatement(declarationStart, end)
+	}
+	nameIndex = nextIdentifierToken(p.tokens, keyword+1, end)
 	if nameIndex < 0 {
 		return keyword + 1
 	}
