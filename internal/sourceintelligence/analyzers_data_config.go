@@ -642,41 +642,87 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		value := document.Text[match[2]:match[3]]
 		dependencies.add(document, StructuralDependencyImport, value, match[2], match[3])
 	}
+	// Collect all brace-bounded declarations first, so fields in nested
+	// messages cannot be duplicated under an enclosing message.
+	type protoScope struct {
+		match       []int
+		word        string
+		open, close int
+		parent      int
+		children    []OffsetRange
+		owner       SymbolParent
+	}
+	var scopes []protoScope
+	var stack []int
 	for _, match := range protoBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
-		word := document.Text[match[2]:match[3]]
-		name := document.Text[match[4]:match[5]]
 		open := match[1] - 1
 		close := matchingBraceOffset(source, open)
 		if close < 0 {
 			addDocumentDataHardwareDiagnostic(builder, "proto-unclosed-block", "Protocol Buffers declaration has an unclosed block", match[0], match[1])
-			continue
+			break // Do not promote descendants of a malformed outer declaration.
+		}
+		for len(stack) > 0 && match[0] >= scopes[stack[len(stack)-1]].close {
+			stack = stack[:len(stack)-1]
+		}
+		parent := -1
+		if len(stack) > 0 {
+			parent = stack[len(stack)-1]
+			scopes[parent].children = append(scopes[parent].children, OffsetRange{Start: match[0], End: close + 1})
+		}
+		scopes = append(scopes, protoScope{match: match, word: document.Text[match[2]:match[3]], open: open, close: close, parent: parent})
+		stack = append(stack, len(scopes)-1)
+	}
+	for index := range scopes {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		scope := &scopes[index]
+		match := scope.match
+		name := document.Text[match[4]:match[5]]
+		parent := packageParent
+		if scope.parent >= 0 {
+			parent = &scopes[scope.parent].owner
 		}
 		kind := SymbolKindType
-		if word == "enum" {
+		if scope.word == "enum" {
 			kind = SymbolKindEnum
-		} else if word == "service" {
+		} else if scope.word == "service" {
 			kind = SymbolKindInterface
 		}
-		symbol, ok := addDocumentDataHardwareSymbol(builder, kind, word, name, packageParent, OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: match[4], End: match[5]})
+		owner, ok := addDocumentDataHardwareSymbol(builder, kind, scope.word, name, parent, OffsetRange{Start: match[0], End: scope.close + 1}, OffsetRange{Start: match[4], End: match[5]})
 		if !ok {
+			break
+		}
+		scope.owner = owner
+		bodyStart := scope.open + 1
+		body := source[bodyStart:scope.close]
+		var kindMatches [][]int
+		var memberKind SymbolKind
+		var native string
+		switch scope.word {
+		case "message":
+			kindMatches = protoField.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindField, "field"
+		case "service":
+			kindMatches = protoRPC.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindOperation, "rpc"
+		default:
 			continue
 		}
-		parent := &symbol
-		bodyStart := open + 1
-		body := source[bodyStart:close]
-		if word == "service" {
-			for _, rpc := range protoRPC.FindAllStringSubmatchIndex(body, -1) {
-				name := document.Text[bodyStart+rpc[2] : bodyStart+rpc[3]]
-				addDocumentDataHardwareSymbol(builder, SymbolKindOperation, "rpc", name, parent, OffsetRange{Start: bodyStart + rpc[0], End: bodyStart + rpc[1]}, OffsetRange{Start: bodyStart + rpc[2], End: bodyStart + rpc[3]})
+		for _, member := range kindMatches {
+			memberStart := bodyStart + member[0]
+			// Direct children are ordered and contain their own nested scopes.
+			child := sort.Search(len(scope.children), func(i int) bool {
+				return scope.children[i].Start > memberStart
+			})
+			if child > 0 && memberStart < scope.children[child-1].End {
+				continue
 			}
-		} else if word == "message" {
-			for _, field := range protoField.FindAllStringSubmatchIndex(body, -1) {
-				name := document.Text[bodyStart+field[2] : bodyStart+field[3]]
-				addDocumentDataHardwareSymbol(builder, SymbolKindField, "field", name, parent, OffsetRange{Start: bodyStart + field[0], End: bodyStart + field[1]}, OffsetRange{Start: bodyStart + field[2], End: bodyStart + field[3]})
-			}
+			memberName := document.Text[bodyStart+member[2] : bodyStart+member[3]]
+			addDocumentDataHardwareSymbol(builder, memberKind, native, memberName, &scope.owner, OffsetRange{Start: memberStart, End: bodyStart + member[1]}, OffsetRange{Start: bodyStart + member[2], End: bodyStart + member[3]})
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil

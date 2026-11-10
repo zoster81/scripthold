@@ -29,11 +29,11 @@ This file tracks **current and future work only**. Completed changes belong in [
 
 | Gate | Verified | Remaining | Meaning |
 |---|---:|---:|---|
-| Initial task-oriented navigation | **87 / 100 providers** | 13 providers | At least two independent original-project maintenance scenarios per qualified provider (175 selected provider/project cases, including a third Classic ASP case). |
+| Initial task-oriented navigation | **88 / 100 providers** | 12 providers | At least two independent original-project maintenance scenarios per qualified provider (177 selected provider/project cases, including a third Classic ASP case). |
 | Midpoint independent-project audit | **100 / 100 additional cases** | 0 cases | Two *further* independent original projects for each of the first 50 providers; all 50 pairs passed bounded source navigation. |
 | Standalone MCP / cross-platform promotion | Deferred | Not assessed | Requires a separate authorized verification stage after the source-level qualification. |
 
-**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; after Rust, Erlang, F#, VB.NET, Gleam, AL, Blazor, Razor, Twig, Jinja, EJS, Blade, Arduino, OpenAPI, Ansible YAML, OCaml, AutoHotkey, Julia, Nim, Nix, XAML, ASP.NET WebForms, PL/SQL, and Classic ASP, new initial qualifications resume from provider 88. These results do not certify complete grammars, runtime behavior, or the installed server.
+**Midpoint audit completed:** All 100 additional cases passed bounded navigation on independent original project origins distinct from each provider's initial two projects. The first 50 providers remain the qualified baseline; after Rust, Erlang, F#, VB.NET, Gleam, AL, Blazor, Razor, Twig, Jinja, EJS, Blade, Arduino, OpenAPI, Ansible YAML, OCaml, AutoHotkey, Julia, Nim, Nix, XAML, ASP.NET WebForms, PL/SQL, Classic ASP, and Protocol Buffers, new initial qualifications resume from provider 89. These results do not certify complete grammars, runtime behavior, or the installed server.
 
 **Original first 50 providers with initial two-project navigation PASS** (canonical registry IDs, grouped only for readability):
 
@@ -43,7 +43,7 @@ This file tracks **current and future work only**. Completed changes belong in [
 - `d`, `c`, `cpp`, `ruby`, `clojure`, `emacs-lisp`, `common-lisp`, `mql4`, `mql5`, `html`
 - `xml`, `css`, `scss`, `less`, `sass`, `powershell`, `vue`, `fortran`, `svelte`, `astro`
 
-**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r`, `zig`, `rust`, `erlang`, `fsharp`, `vbnet`, `gleam`, `al`, `blazor`, `razor`, `twig`, `jinja`, `ejs`, `blade`, `arduino`, `openapi`, `ansible-yaml`, `ocaml`, `autohotkey`, `julia`, `nim`, `nix`, `xaml`, `aspnet-webforms`, `plsql`, `classic-asp` — at least two independent original-project tasks each (three for Classic ASP). Initial source-navigation qualification now covers 87 providers; the separate 100-case midpoint audit applies only to the first 50.
+**Post-midpoint providers qualified:** `python`, `go`, `csharp`, `php`, `swift`, `sql`, `graphql`, `terraform`, `haskell`, `toml`, `scala`, `r`, `zig`, `rust`, `erlang`, `fsharp`, `vbnet`, `gleam`, `al`, `blazor`, `razor`, `twig`, `jinja`, `ejs`, `blade`, `arduino`, `openapi`, `ansible-yaml`, `ocaml`, `autohotkey`, `julia`, `nim`, `nix`, `xaml`, `aspnet-webforms`, `plsql`, `classic-asp`, `proto` — at least two independent original-project tasks each (three for Classic ASP). Initial source-navigation qualification now covers 88 providers; the separate 100-case midpoint audit applies only to the first 50.
 
 ### Qualification method and evidence limits
 
@@ -98,7 +98,7 @@ These caveats describe **current development-tree behavior and unresolved work**
 
 ### Next work
 
-1. **Continue source navigation from provider 88 of 100:** Prioritize providers by maintenance relevance, independently available original projects, shared-parser reach, and verification cost. Require two task-first original-project scenarios per provider using the [project-first checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
+1. **Continue source navigation from provider 89 of 100:** Prioritize providers by maintenance relevance, independently available original projects, shared-parser reach, and verification cost. Require two task-first original-project scenarios per provider using the [project-first checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-project-first-qualification).
 2. **Repair proven navigation defects:** Reproduce misleading or missing edit targets on development HEAD before changing a parser. Prioritize fabricated symbols or links (P0), missed significant declarations and misleading completeness (P1), then inefficient but correct navigation (P2); do not chase unsupported compiler semantics without a demonstrated need. The MQL5, Swift, Vue 2 and Svelte 5 cases above remain candidates, not confirmed new regressions.
 3. **Keep response and release gates separate:** Recheck concise output only when behavior or compatibility changes, using the [on-demand checklist](DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-on-demand). Standalone MCP, transport, cross-platform and release qualification require separate authorization. Do not execute original third-party projects.
 
