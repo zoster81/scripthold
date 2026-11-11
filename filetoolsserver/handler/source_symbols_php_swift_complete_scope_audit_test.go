@@ -12,8 +12,9 @@ import (
 // Original CodeIgniter and Swift sources were read in full before independently
 // enumerating recognized declarations. These are structural inventories, not
 // runtime, Swift conditional-compilation, or full grammar certifications.
-// Swift local functions and enum case members remain outside the current parser
-// projection; their presence in the originals must not be called full support.
+// Swift nested function declarations and enum case members are individually
+// inventoried; closure literals, local value bindings and compiler conditions
+// are not treated as independently indexed declarations in this selected scope.
 func TestPHPAndSwiftOriginalCompleteSupportedDeclarationInventories(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {
@@ -65,7 +66,9 @@ func TestPHPAndSwiftOriginalCompleteSupportedDeclarationInventories(t *testing.T
 			{"exercises/concept/high-score-board/.meta/Sources/HighScoreBoard/HighScoreBoardExemplar.swift", 13, "resetScore", "function", "func-definition", ""},
 			{"exercises/concept/high-score-board/.meta/Sources/HighScoreBoard/HighScoreBoardExemplar.swift", 19, "updateScore", "function", "func-definition", ""},
 			{"exercises/concept/high-score-board/.meta/Sources/HighScoreBoard/HighScoreBoardExemplar.swift", 25, "orderByPlayers", "function", "func-definition", ""},
+			{"exercises/concept/high-score-board/.meta/Sources/HighScoreBoard/HighScoreBoardExemplar.swift", 26, "ascendingKeys", "function", "func-definition", "orderByPlayers"},
 			{"exercises/concept/high-score-board/.meta/Sources/HighScoreBoard/HighScoreBoardExemplar.swift", 32, "orderByScores", "function", "func-definition", ""},
+			{"exercises/concept/high-score-board/.meta/Sources/HighScoreBoard/HighScoreBoardExemplar.swift", 33, "descendingValues", "function", "func-definition", "orderByScores"},
 			{"exercises/concept/high-score-board/Sources/HighScoreBoard/HighScoreBoard.swift", 1, "newScoreBoard", "function", "func-definition", ""},
 			{"exercises/concept/high-score-board/Sources/HighScoreBoard/HighScoreBoard.swift", 5, "addPlayer", "function", "func-definition", ""},
 			{"exercises/concept/high-score-board/Sources/HighScoreBoard/HighScoreBoard.swift", 9, "removePlayer", "function", "func-definition", ""},
@@ -106,6 +109,8 @@ func TestPHPAndSwiftOriginalCompleteSupportedDeclarationInventories(t *testing.T
 			{"stdlib/public/core/CommandLine.swift", 146, "_withExecutablePath", "method", "func-declaration", "CommandLine"},
 			{"stdlib/public/core/CommandLine.swift", 150, "_executablePathCString", "property", "let", "CommandLine"},
 			{"stdlib/public/core/ByteOrder.swift", 16, "ByteOrder", "enum", "enum", ""},
+			{"stdlib/public/core/ByteOrder.swift", 19, "bigEndian", "field", "case", "ByteOrder"},
+			{"stdlib/public/core/ByteOrder.swift", 23, "littleEndian", "field", "case", "ByteOrder"},
 			{"stdlib/public/core/ByteOrder.swift", 27, "native", "property", "var", "ByteOrder"},
 			{"validation-test/StdlibUnittest/CommandLine.swift", 13, "CommandLineArguments", "variable", "var", ""},
 		}},
