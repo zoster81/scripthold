@@ -158,8 +158,18 @@ func (p *swiftParser) skipAttributes(index, end int) int {
 
 func (p *swiftParser) skipModifiers(index, end int) int {
 	for index < end {
-		if _, ok := swiftModifiers[strings.ToLower(p.tokens[index].Text)]; ok {
+		modifier := strings.ToLower(p.tokens[index].Text)
+		if _, ok := swiftModifiers[modifier]; ok {
 			index++
+			if modifier == "nonisolated" && p.token(index, "(") {
+				close := p.pairs[index]
+				if close != index+2 || close >= end ||
+					(p.tokens[index+1].Text != "unsafe" && p.tokens[index+1].Text != "nonsending") {
+					p.builder.MarkIncomplete()
+					return index
+				}
+				index = close + 1
+			}
 			continue
 		}
 		return index
