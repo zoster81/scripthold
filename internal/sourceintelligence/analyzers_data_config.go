@@ -381,6 +381,7 @@ var (
 	graphqlSchema    = regexp.MustCompile(`(?m)\bschema[ \t]*\{`)
 	graphqlContainer = regexp.MustCompile(`(?m)\b(type|interface|input|enum)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[^\{]*\{`)
 	graphqlOperation = regexp.MustCompile(`(?m)\b(query|mutation|subscription)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	graphqlNamedLeaf = regexp.MustCompile(`(?m)^[ \t]*(union|scalar)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	graphqlField     = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
 )
 
@@ -425,6 +426,15 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			end := bodyStart + field[1]
 			addDocumentDataHardwareSymbol(builder, SymbolKindField, "field", fieldName, parent, OffsetRange{Start: start, End: end}, OffsetRange{Start: bodyStart + field[2], End: bodyStart + field[3]})
 		}
+	}
+	for _, match := range graphqlNamedLeaf.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		word := document.Text[match[2]:match[3]]
+		name := document.Text[match[4]:match[5]]
+		addDocumentDataHardwareSymbol(builder, SymbolKindType, word, name, nil,
+			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[4], End: match[5]})
 	}
 	for _, match := range graphqlOperation.FindAllStringSubmatchIndex(source, -1) {
 		word := strings.ToLower(document.Text[match[2]:match[3]])
