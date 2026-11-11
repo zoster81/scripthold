@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestHaskellModuleReexportsAreNotDeclarations(t *testing.T) {
+	const source = "module Example (\n" +
+		"  module Other,\n" +
+		"  module Another.Core,\n" +
+		"  main\n" +
+		"  ) where\n" +
+		"import Other\n" +
+		"import Another.Core\n" +
+		"main :: Int\n" +
+		"main = 1\n"
+	result, err := (HaskellAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("reexport scope unexpectedly partial: %+v", result.Analysis)
+	}
+	if len(result.Analysis.Symbols) != 2 {
+		t.Fatalf("module reexports are not new modules: got %+v", result.Analysis.Symbols)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if module, ok := byName["Example"]; !ok || module.Kind != SymbolKindModule {
+		t.Errorf("expected original declared module Example: %+v", byName)
+	}
+	if main, ok := byName["Example.main"]; !ok || main.Kind != SymbolKindFunction {
+		t.Errorf("expected top-level function Example.main: %+v", byName)
+	}
+}
+
 func TestHaskellLayoutScopeRegression(t *testing.T) {
 	tests := []struct {
 		name   string

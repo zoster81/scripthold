@@ -1131,6 +1131,11 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			memberOwnerIndent, memberIndent = indent, -1
 		}
 		if first == "module" {
+			// A module may reexport other modules in its export list; only the
+			// first module header declares this source file's own module.
+			if module != nil {
+				continue
+			}
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
 				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: line.Tokens[nameIndex].Text,
