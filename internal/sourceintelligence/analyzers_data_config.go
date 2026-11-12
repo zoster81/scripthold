@@ -297,9 +297,10 @@ func sqlCanonicalIdentifier(raw string) string {
 }
 
 var (
-	plsqlPackage  = regexp.MustCompile(`(?im)\bcreate[ \t]+(?:or[ \t]+replace[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)[ \t]+(?:as|is)\b`)
-	plsqlRoutine  = regexp.MustCompile(`(?im)^[ \t]*(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
-	plsqlBatchEnd = regexp.MustCompile(`(?m)^[ \t]*/[ \t]*\r?$`)
+	plsqlPackage           = regexp.MustCompile(`(?im)\bcreate[ \t]+(?:or[ \t]+replace[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)[ \t]+(?:as|is)\b`)
+	plsqlStandaloneRoutine = regexp.MustCompile(`(?im)^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
+	plsqlRoutine           = regexp.MustCompile(`(?im)^[ \t]*(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
+	plsqlBatchEnd          = regexp.MustCompile(`(?m)^[ \t]*/[ \t]*\r?$`)
 )
 
 type plsqlPackageScope struct {
@@ -351,6 +352,15 @@ func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			scope.parent = &parent
 		}
 		scopes = append(scopes, scope)
+	}
+	for _, match := range plsqlStandaloneRoutine.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		kindWord := strings.ToLower(document.Text[match[2]:match[3]])
+		name := document.Text[match[4]:match[5]]
+		addDocumentDataHardwareSymbol(builder, SymbolKindFunction, kindWord, name, nil,
+			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[4], End: match[5]})
 	}
 	scopeIndex := 0
 	for _, match := range plsqlRoutine.FindAllStringSubmatchIndex(source, -1) {
