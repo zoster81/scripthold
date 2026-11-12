@@ -480,6 +480,9 @@ func (p *cilParser) moduleDecl(line LogicalLine) {
 	}
 	p.assembly(LogicalLine{Tokens: []Token{line.Tokens[0], line.Tokens[idx]}, StartOffset: line.StartOffset, EndOffset: line.EndOffset})
 }
+
+var cilGenericClassArity = regexp.MustCompile("`[0-9]+$")
+
 func (p *cilParser) classDecl(line LogicalLine) {
 	end := len(line.Tokens)
 	marker := end
@@ -490,6 +493,30 @@ func (p *cilParser) classDecl(line LogicalLine) {
 		}
 	}
 	idx := previousIdentifierToken(line.Tokens, marker-1, 1)
+	// For a generic IL class, the name precedes its <...> parameters.
+	// The last token before "extends" can otherwise be a type parameter.
+	for i := 2; i < marker; i++ {
+		if line.Tokens[i].Text != "<" {
+			continue
+		}
+		candidate := previousIdentifierToken(line.Tokens, i-1, 1)
+		if candidate < 0 || !cilGenericClassArity.MatchString(line.Tokens[candidate].Text) {
+			continue
+		}
+		closed := false
+		for j := i + 1; j < marker; j++ {
+			if line.Tokens[j].Text == ">" {
+				closed = true
+				break
+			}
+		}
+		if !closed {
+			p.builder.MarkIncomplete()
+			return
+		}
+		idx = candidate
+		break
+	}
 	if idx < 0 {
 		return
 	}
