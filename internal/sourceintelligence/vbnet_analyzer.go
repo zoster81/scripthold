@@ -230,7 +230,37 @@ func (parser *vbnetParser) parseRange(start, end int, parent *SymbolParent, owne
 }
 
 func vbDeclarationKeyword(statement vbStatement) (int, string) {
-	for index, token := range statement.tokens {
+	start := 0
+	// Explicit VB line continuation can place an attribute and the following
+	// declaration in one logical statement. Ignore only balanced leading
+	// attribute blocks; tokens inside them are not declaration keywords.
+	for start < len(statement.tokens) && statement.tokens[start].Text == "<" {
+		depth := 0
+		end := -1
+		for index := start; index < len(statement.tokens); index++ {
+			switch statement.tokens[index].Text {
+			case "<":
+				depth++
+			case ">":
+				depth--
+				if depth == 0 {
+					end = index + 1
+				}
+			}
+			if end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			return start, "<"
+		}
+		start = end
+		if start < len(statement.tokens) && statement.tokens[start].Text == "_" {
+			start++
+		}
+	}
+	for index := start; index < len(statement.tokens); index++ {
+		token := statement.tokens[index]
 		if keyword := vbCanonicalStatementKeyword(token.Text); keyword != "" {
 			return index, keyword
 		}
