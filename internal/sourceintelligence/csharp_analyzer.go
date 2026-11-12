@@ -326,7 +326,7 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 	segmentEnd := terminator
 	modifiers := parser.collectModifiers(start, segmentEnd)
 	visibility := csharpVisibility(modifiers)
-	paren := parser.findTopOpening(start, segmentEnd, "(", depth+1)
+	paren := parser.findMethodParameterOpening(start, segmentEnd, depth+1)
 	if paren >= 0 && (parser.findToken(start, paren, "=", depth) >= 0 || parser.findToken(start, paren, "=>", depth) >= 0) {
 		// An initializer invocation is not the member's parameter list.
 		paren = -1
@@ -529,9 +529,19 @@ func (parser *csharpParser) findMemberTerminator(start, end, depth int) int {
 	return -1
 }
 
-func (parser *csharpParser) findTopOpening(start, end int, text string, nesting int) int {
+// A tuple return type can introduce parentheses before the actual method
+// parameters. The parameter list must close at a valid declaration suffix.
+func (parser *csharpParser) findMethodParameterOpening(start, end, nesting int) int {
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == text && parser.tokens[index].Nesting == nesting {
+		if parser.tokens[index].Text != "(" || parser.tokens[index].Nesting != nesting {
+			continue
+		}
+		closeIndex := parser.pairs[index]
+		if closeIndex <= index || closeIndex >= end {
+			continue
+		}
+		next := parser.nextUseful(closeIndex+1, end)
+		if next == end || parser.tokenEqual(next, "=>") || parser.tokenEqual(next, "where") || parser.tokenEqual(next, ":") {
 			return index
 		}
 	}
