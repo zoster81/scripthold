@@ -781,6 +781,7 @@ func (XAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	masked = maskedCDATA
 	var parent *SymbolParent
 	rootSeen := false
+elements:
 	for cursor := 0; cursor < len(masked); {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -826,8 +827,20 @@ func (XAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 				}
 			}
 			if parent != nil {
-				kind, name, attrStart, attrEnd, nameStart, nameEnd, ok := xamlNamedAttribute(tag)
-				if ok {
+				// A resource element may have both a named control and an x:Key.
+				for attribute := 0; attribute < 2; attribute++ {
+					var kind, name string
+					var attrStart, attrEnd, nameStart, nameEnd int
+					var ok bool
+					if attribute == 0 {
+						kind, name, attrStart, attrEnd, nameStart, nameEnd, ok = xamlNamedAttribute(tag)
+					} else {
+						kind = "x:Key"
+						name, attrStart, attrEnd, nameStart, nameEnd, ok = xamlQuotedTagAttribute(tag, kind)
+					}
+					if !ok {
+						continue
+					}
 					_, err := builder.Add(SymbolSpec{
 						Kind: SymbolKindField, NativeKind: kind, Name: name, Parent: parent,
 						Declaration: OffsetRange{Start: cursor + attrStart, End: cursor + attrEnd},
@@ -836,7 +849,7 @@ func (XAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 					})
 					if operation.KindOf(err) == operation.KindLimit {
 						builder.MarkTruncated()
-						break
+						break elements
 					}
 					if err != nil {
 						builder.MarkIncomplete()
