@@ -1367,11 +1367,29 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	applyStructuralScanDiagnostics(builder, scan, "ocaml")
 	dependencies := []StructuralDependency{}
 	var scopes []structuralAnalyzerScope
+	declarationGroup := ""
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		atColumnZero := line.StartOffset == 0 || document.Text[line.StartOffset-1] == '\n'
+		if atColumnZero {
+			switch first {
+			case "let", "type":
+				declarationGroup = first
+			case "and":
+				// Continue only a known root binding group; never infer a free-standing declaration.
+				if declarationGroup == "" {
+					continue
+				}
+				first = declarationGroup
+			case "module", "class", "open", "include", "end", "exception", "external", "val":
+				declarationGroup = ""
+			}
+		} else if first == "and" {
+			continue
+		}
 		if first == "open" || first == "include" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
