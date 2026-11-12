@@ -1354,7 +1354,7 @@ func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument
 			play = nil
 			tasksIndent = -1
 			// A play has a sibling hosts or task-list key, not a nested variable with that name.
-			childIndent, hostsIndent, taskListIndent := -1, -1, -1
+			childIndent, hostsIndent, taskListIndent, importIndent := -1, -1, -1, -1
 			for _, next := range lines[i+1:] {
 				nextText := strings.TrimSpace(stripLineComment(next.text, "#"))
 				if nextText == "" {
@@ -1372,6 +1372,13 @@ func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument
 				if (nextText == "tasks:" || nextText == "pre_tasks:" || nextText == "post_tasks:" || nextText == "handlers:") && (taskListIndent < 0 || next.indent < taskListIndent) {
 					taskListIndent = next.indent
 				}
+				if strings.HasPrefix(nextText, "import_playbook:") && (importIndent < 0 || next.indent < importIndent) {
+					importIndent = next.indent
+				}
+			}
+			// Named playbook imports are references, not runnable tasks.
+			if importIndent >= 0 && importIndent == childIndent {
+				continue
 			}
 			isPlay = (hostsIndent >= 0 && hostsIndent == childIndent) || (taskListIndent >= 0 && taskListIndent == childIndent)
 		}
