@@ -2,7 +2,9 @@ package sourceintelligence
 
 import (
 	"context"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -1104,7 +1106,11 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	applyStructuralScanDiagnostics(builder, scan, "haskell")
 	dependencies := []StructuralDependency{}
 	var module *SymbolParent
-	seenFunctions := make(map[string]struct{})
+	// Preserve independent declarations from mutually exclusive CPP branches.
+	seenFunctions := make(map[string]map[string]struct{})
+	cppEvents := haskellCPPBranchEvents(scanDocument.Text)
+	cppEventIndex := 0
+	cppScope := ""
 	// Module-level bindings share one layout column. Class and instance members
 	// use a deeper column and are handled separately below.
 	moduleIndent := -1
@@ -1118,17 +1124,28 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		}
 	}
 	memberOwnerIndent, memberIndent := -1, -1
+	memberScope := ""
 	for _, line := range lines {
+		for cppEventIndex < len(cppEvents) && cppEvents[cppEventIndex].offset <= line.StartOffset {
+			cppScope = cppEvents[cppEventIndex].scope
+			cppEventIndex++
+		}
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		// CPP directives do not close the surrounding Haskell layout block.
+		if haskellCPPDirectiveAt(scanDocument.Text, line.StartOffset) {
+			continue
+		}
 		indent := haskellLineIndent(scanDocument.Text, line.StartOffset)
 		if memberOwnerIndent >= 0 && indent <= memberOwnerIndent {
 			memberOwnerIndent, memberIndent = -1, -1
+			memberScope = ""
 		}
 		if (first == "class" || first == "instance") && indent == moduleIndent {
 			memberOwnerIndent, memberIndent = indent, -1
+			memberScope = strconv.Itoa(line.StartOffset)
 		}
 		if first == "module" {
 			// A module may reexport other modules in its export list; only the
@@ -1181,18 +1198,26 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		}
 		if line.Tokens[0].Kind == TokenIdentifier && hasDoubleColon(line.Tokens, 1) {
 			name := line.Tokens[0].Text
-			if _, exists := seenFunctions[name]; !exists {
+			seenName := name
+			if indent != moduleIndent {
+				seenName += "\x00" + memberScope
+			}
+			if !haskellSeenInCPPAncestor(seenFunctions, seenName, cppScope) {
 				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "type-signature", Name: name, Parent: module,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				seenFunctions[name] = struct{}{}
+				haskellRememberCPPBinding(seenFunctions, seenName, cppScope)
 			}
 			continue
 		}
-		if line.Tokens[0].Kind == TokenIdentifier {
+		if line.Tokens[0].Kind == TokenIdentifier && haskellValueBinderName(line.Tokens[0].Text) {
 			equals := tokenIndexEqualFold(line.Tokens, "=", 1)
 			if equals > 0 {
 				name := line.Tokens[0].Text
-				if _, exists := seenFunctions[name]; !exists {
+				seenName := name
+				if indent != moduleIndent {
+					seenName += "\x00" + memberScope
+				}
+				if !haskellSeenInCPPAncestor(seenFunctions, seenName, cppScope) {
 					kind := SymbolKindVariable
 					native := "value-binding"
 					if equals > 1 {
@@ -1201,7 +1226,7 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 					}
 					addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: module,
 						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-					seenFunctions[name] = struct{}{}
+					haskellRememberCPPBinding(seenFunctions, seenName, cppScope)
 				}
 			}
 		}
@@ -1217,8 +1242,16 @@ func haskellDeclarationCandidate(line LogicalLine) bool {
 	case "data", "newtype", "type", "class", "instance":
 		return true
 	}
-	return line.Tokens[0].Kind == TokenIdentifier &&
+	return line.Tokens[0].Kind == TokenIdentifier && haskellValueBinderName(line.Tokens[0].Text) &&
 		(hasDoubleColon(line.Tokens, 1) || tokenIndexEqualFold(line.Tokens, "=", 1) > 0)
+}
+
+func haskellValueBinderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	first, _ := utf8.DecodeRuneInString(name)
+	return first == '_' || unicode.IsLower(first)
 }
 
 // haskellLineIndent returns a layout column without allocating per-line text.
