@@ -331,7 +331,10 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 							kind = SymbolKindMethod
 						}
 						name := p.tokens[i]
-						p.state.add(SymbolSpec{Kind: kind, NativeKind: "function", Name: name.Text, Parent: parent, Declaration: OffsetRange{Start: name.StartOffset, End: p.tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: name.StartOffset, End: p.tokens[open].StartOffset}, Body: &OffsetRange{Start: p.tokens[open].StartOffset, End: p.tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
+						symbol, ok := p.state.add(SymbolSpec{Kind: kind, NativeKind: "function", Name: name.Text, Parent: parent, Declaration: OffsetRange{Start: name.StartOffset, End: p.tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: name.StartOffset, End: p.tokens[open].StartOffset}, Body: &OffsetRange{Start: p.tokens[open].StartOffset, End: p.tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
+						if ok {
+							p.scanDirectLocalFunctions(open+1, close, nesting+1, &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName})
+						}
 						i = close + 1
 						continue
 					}
@@ -339,5 +342,55 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 			}
 		}
 		i++
+	}
+}
+
+func autoHotkeyBlockKeyword(name string) bool {
+	switch strings.ToLower(name) {
+	case "if", "else", "for", "loop", "while", "until", "switch", "case", "default",
+		"try", "catch", "finally", "class", "return", "throw", "break", "continue":
+		return true
+	}
+	return false
+}
+
+// scanDirectLocalFunctions recognizes only immediately nested named functions.
+// Ordinary control-flow blocks are not recursively interpreted as declarations.
+func (p *autoHotkeyParser) scanDirectLocalFunctions(start, end, nesting int, parent *SymbolParent) {
+	for i := start; i < end && !p.state.stopped; i++ {
+		i = nextStructuralToken(p.tokens, i, end)
+		if i >= end || p.tokens[i].Kind == TokenEOF {
+			return
+		}
+		name := p.tokens[i]
+		if name.Kind != TokenIdentifier || name.Nesting != nesting ||
+			autoHotkeyBlockKeyword(name.Text) || !autoHotkeyFunctionCanStart(p.tokens, i, false) {
+			continue
+		}
+		paren := nextStructuralToken(p.tokens, i+1, end)
+		if paren >= end || p.tokens[paren].Text != "(" {
+			continue
+		}
+		closeParen := p.pairs[paren]
+		if closeParen <= paren || closeParen >= end {
+			continue
+		}
+		open := nextStructuralToken(p.tokens, closeParen+1, end)
+		if open >= end || p.tokens[open].Text != "{" || p.tokens[open].Nesting != nesting+1 {
+			continue
+		}
+		close := p.pairs[open]
+		if close <= open || close >= end {
+			continue
+		}
+		p.state.add(SymbolSpec{
+			Kind: SymbolKindFunction, NativeKind: "local-function", Name: name.Text, Parent: parent,
+			Declaration: OffsetRange{Start: name.StartOffset, End: p.tokens[close].EndOffset},
+			NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			Signature:   &OffsetRange{Start: name.StartOffset, End: p.tokens[open].StartOffset},
+			Body:        &OffsetRange{Start: p.tokens[open].StartOffset, End: p.tokens[close].EndOffset},
+			Evidence:    SymbolEvidenceStructural,
+		})
+		i = close
 	}
 }
