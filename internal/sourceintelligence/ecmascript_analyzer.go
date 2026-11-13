@@ -97,6 +97,11 @@ func analyzeECMAScriptDialect(ctx context.Context, document *SourceDocument, opt
 		builder: builder, typescript: typescript, memberFunctionKeyword: memberFunctionKeyword,
 	}
 	parser.parseScope(0, len(scan.Tokens), nil, false, "")
+	if memberFunctionKeyword {
+		// Only the JScript.NET dialect uses this flag. Shared JavaScript,
+		// TypeScript, and Flow declaration behavior remains unchanged.
+		parser.collectJScriptNetReturnedObjectMethods()
+	}
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_ecmascript_source", document.Path, err)
 	}
