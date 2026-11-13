@@ -29,6 +29,7 @@ type tclSourceParser struct {
 	text             string
 	maxNesting       int
 	nextContextCheck int
+	classIDs         map[string]struct{}
 }
 
 func newTclSourceParser(state *structuralAnalyzerState, maxNesting int) *tclSourceParser {
@@ -277,6 +278,11 @@ func (p *tclSourceParser) processCommand(start, end int, words []tclWord, depth 
 	command := strings.ToLower(words[0].value)
 	switch command {
 	case "proc":
+		if parent != nil {
+			if _, inClass := p.classIDs[parent.ID]; inClass {
+				return nil // A Tcl proc is not a TclOO method of the containing class.
+			}
+		}
 		if len(words) != 4 || !words[1].static || words[1].value == "" {
 			return nil
 		}
@@ -284,6 +290,67 @@ func (p *tclSourceParser) processCommand(start, end int, words []tclWord, depth 
 		body := words[3]
 		p.state.add(SymbolSpec{
 			Kind: SymbolKindFunction, NativeKind: "proc", Name: name.value, Parent: parent,
+			Declaration: OffsetRange{Start: start, End: max(end, body.end)},
+			NameRange:   OffsetRange{Start: name.contentStart, End: name.contentEnd},
+			Signature:   &OffsetRange{Start: start, End: body.start},
+			Body:        &OffsetRange{Start: body.start, End: body.end},
+			Evidence:    SymbolEvidenceStructural,
+		})
+	case "oo::class":
+		if words[0].value != "oo::class" || len(words) != 4 || !words[1].static || words[1].value != "create" || !words[2].static || words[2].value == "" || words[3].form != tclWordBraced {
+			return nil
+		}
+		name, body := words[2], words[3]
+		symbol, ok := p.state.add(SymbolSpec{
+			Kind: SymbolKindClass, NativeKind: "tcloo-class", Name: name.value, Parent: parent,
+			Declaration: OffsetRange{Start: start, End: max(end, body.end)},
+			NameRange:   OffsetRange{Start: name.contentStart, End: name.contentEnd},
+			Signature:   &OffsetRange{Start: start, End: body.start},
+			Body:        &OffsetRange{Start: body.start, End: body.end},
+			Evidence:    SymbolEvidenceStructural,
+		})
+		if ok && !p.state.stopped {
+			if p.classIDs == nil {
+				p.classIDs = make(map[string]struct{})
+			}
+			p.classIDs[symbol.ID] = struct{}{}
+			child := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+			_, _, err := p.parseScript(body.contentStart, body.contentEnd, depth+1, child, false, true)
+			return err
+		}
+	case "method", "constructor", "destructor":
+		if words[0].value != command || parent == nil {
+			return nil
+		}
+		if _, ok := p.classIDs[parent.ID]; !ok {
+			return nil // A global command with this spelling is not a TclOO member.
+		}
+		var name, body tclWord
+		kind, native := SymbolKindMethod, "tcloo-method"
+		switch command {
+		case "method":
+			if len(words) != 4 || !words[1].static || words[1].value == "" || !words[2].static {
+				return nil
+			}
+			name, body = words[1], words[3]
+		case "constructor":
+			if len(words) != 3 || !words[1].static {
+				return nil
+			}
+			name, body = words[0], words[2]
+			kind, native = SymbolKindConstructor, "tcloo-constructor"
+		case "destructor":
+			if len(words) != 2 {
+				return nil
+			}
+			name, body = words[0], words[1]
+			native = "tcloo-destructor"
+		}
+		if body.form != tclWordBraced {
+			return nil
+		}
+		p.state.add(SymbolSpec{
+			Kind: kind, NativeKind: native, Name: name.value, Parent: parent,
 			Declaration: OffsetRange{Start: start, End: max(end, body.end)},
 			NameRange:   OffsetRange{Start: name.contentStart, End: name.contentEnd},
 			Signature:   &OffsetRange{Start: start, End: body.start},
