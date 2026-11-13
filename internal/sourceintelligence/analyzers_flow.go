@@ -40,15 +40,22 @@ func (FlowAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			continue
 		}
 		if symbol.NativeKind == "module" {
-			declaration, _, _, _ := symbol.SourceOffsets()
-			if declaration.Start < 0 || declaration.End > len(document.Text) || declaration.Start >= declaration.End {
+			// Only explicitly declared, quoted ambient Flow modules own
+			// declarations. Inspect the parsed modifier and original name
+			// token rather than depending on formatting between keywords.
+			_, name, _, _ := symbol.SourceOffsets()
+			if name.Start < 0 || name.End > len(document.Text) || name.End <= name.Start ||
+				ecmaStringLiteralValue(document.Text[name.Start:name.End]) == "" {
 				continue
 			}
-			prefix := strings.TrimLeft(document.Text[declaration.Start:declaration.End], " \t\r\n")
-			// Quoted ambient Flow module declarations are real scopes;
-			// ordinary JavaScript module.exports is not a module declaration.
-			if !strings.HasPrefix(prefix, "declare module '") &&
-				!strings.HasPrefix(prefix, "declare module \"") {
+			declared := false
+			for _, modifier := range symbol.Modifiers {
+				if modifier == "declare" {
+					declared = true
+					break
+				}
+			}
+			if !declared {
 				continue
 			}
 		}

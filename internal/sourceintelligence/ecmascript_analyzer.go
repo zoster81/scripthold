@@ -200,7 +200,16 @@ func (parser *ecmaParser) token(index int, text string) bool {
 func (parser *ecmaParser) skipDeclarationPrefixes(index, end int) int {
 	for index < end {
 		if _, ok := ecmaModifiers[parser.tokens[index].Text]; ok {
+			declared := parser.tokens[index].Text == "declare"
 			index++
+			// Ambient type declarations may split "declare" and their
+			// declaration keyword across a line break. Other modifiers
+			// (notably async) retain their ordinary ASI boundary.
+			if declared {
+				for index < end && parser.tokens[index].Kind == TokenNewline {
+					index++
+				}
+			}
 			continue
 		}
 		return index
@@ -735,6 +744,7 @@ func (parser *ecmaParser) parseNamespace(declarationStart, keyword, end int, par
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[open].StartOffset},
 		Body:        &OffsetRange{Start: parser.tokens[open].StartOffset, End: parser.tokens[close].EndOffset},
+		Modifiers:   parser.modifiers(declarationStart, keyword),
 		Evidence:    SymbolEvidenceStructural,
 	})
 	if added {
