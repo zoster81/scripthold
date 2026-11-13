@@ -447,7 +447,7 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 var (
 	cppCLIAssemblyAttribute     = regexp.MustCompile(`(?mi)^[ \t]*\[assembly[ \t]*:[^\r\n]*\]`)
 	cppCLIStandaloneAttribute   = regexp.MustCompile(`(?m)^[ \t]*\[[A-Za-z_][A-Za-z0-9_:]*(?:\([^\]\r\n]*\))?\][ \t]*\r?$`)
-	cppCLITrailingClassModifier = regexp.MustCompile(`(?i)\bclass[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+(sealed|abstract)\b`)
+	cppCLITrailingClassModifier = regexp.MustCompile(`(?i)\bclass[ \t]+[A-Za-z_][A-Za-z0-9_]*((?:[ \t]+(?:sealed|abstract))+)\b`)
 )
 
 func maskCPPCLIModifiers(text string) string {
@@ -485,8 +485,9 @@ func maskCPPCLIModifiers(text string) string {
 	for _, match := range cppCLIStandaloneAttribute.FindAllStringIndex(text, -1) {
 		maskByteRangePreservingLines(result, match[0], match[1])
 	}
-	// A trailing managed type modifier is valid after the name, but C++
-	// treats it as an unrelated identifier and loses the class scope.
+	// One or more trailing managed type modifiers (e.g. abstract sealed)
+	// follow the name. Mask the entire suffix; otherwise the C++ parser
+	// treats the remaining modifier as a variable and loses the class scope.
 	for _, match := range cppCLITrailingClassModifier.FindAllStringSubmatchIndex(text, -1) {
 		maskByteRangePreservingLines(result, match[2], match[3])
 	}
