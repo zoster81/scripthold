@@ -141,3 +141,70 @@ func TestProtoMalformedOuterBlockDoesNotInventTopLevelNestedType(t *testing.T) {
 		}
 	}
 }
+
+func TestProtoQualifiedExtendTargetDoesNotCreateDottedTypeDeclarations(t *testing.T) {
+	source := strings.Join([]string{
+		"syntax = \"proto2\";",
+		"package demo;",
+		"message Good {",
+		"  string name = 1;",
+		"}",
+		"message Invalid.Name {",
+		"  message Phantom {",
+		"    string ghost = 1;",
+		"  }",
+		"}",
+		"enum Invalid.Kind {",
+		"  GHOST = 0;",
+		"}",
+		"service Invalid.Api {",
+		"  rpc Ghost(Request) returns(Response);",
+		"}",
+		"extend .google.protobuf.MethodOptions {",
+		"  optional string http = 72295728;",
+		"}",
+		"",
+	}, "\n")
+	for _, tc := range []struct{ name, source string }{
+		{"lf", source},
+		{"crlf", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (ProtoAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated {
+				t.Fatalf("small proto source unexpectedly truncated: %+v", result.Analysis)
+			}
+			if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) == 0 {
+				t.Fatalf("invalid qualified declarations require explicit partial coverage: %+v", result.Analysis)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, wanted := range []struct {
+				name, native string
+				kind         SymbolKind
+			}{
+				{"demo.Good", "message", SymbolKindType},
+				{"demo.Good.name", "field", SymbolKindField},
+				{"demo.extend .google.protobuf.MethodOptions", "extend-block", SymbolKindNamespace},
+				{"demo.extend .google.protobuf.MethodOptions.http", "extension-field", SymbolKindField},
+			} {
+				symbol, ok := got[wanted.name]
+				if !ok || symbol.Kind != wanted.kind || symbol.NativeKind != wanted.native || symbol.ID == "" {
+					t.Errorf("valid Proto declaration omitted or incorrectly owned %s: %+v", wanted.name, symbol)
+				}
+			}
+			for _, forbidden := range []string{
+				"demo.Invalid.Name", "demo.Invalid.Kind", "demo.Invalid.Api",
+				"demo.Phantom", "demo.Phantom.ghost", "demo.Invalid.Name.Phantom",
+				"demo.GHOST", "demo.Ghost",
+			} {
+				if symbol, exists := got[forbidden]; exists {
+					t.Errorf("invalid dotted Proto declaration or nested child invented: %s %+v", forbidden, symbol)
+				}
+			}
+		})
+	}
+}

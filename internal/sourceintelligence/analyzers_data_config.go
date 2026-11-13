@@ -676,9 +676,13 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	var scopes []protoScope
 	var stack []int
+	skippedUntil := 0
 	for _, match := range protoBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		if match[0] < skippedUntil {
+			continue // Never promote declarations inside an invalid outer type.
 		}
 		open := match[1] - 1
 		close := matchingBraceOffset(source, open)
@@ -692,9 +696,23 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		parent := -1
 		if len(stack) > 0 {
 			parent = stack[len(stack)-1]
+		}
+		word := document.Text[match[2]:match[3]]
+		name := document.Text[match[4]:match[5]]
+		if word != "extend" && strings.Contains(name, ".") {
+			// Only extend targets may have qualified names in Proto syntax.
+			// Hide the entire invalid block, including its nested declarations.
+			addDocumentDataHardwareDiagnostic(builder, "proto-invalid-declaration-name", "Protocol Buffers message, enum, and service names must be simple identifiers", match[4], match[5])
+			if parent >= 0 {
+				scopes[parent].children = append(scopes[parent].children, OffsetRange{Start: match[0], End: close + 1})
+			}
+			skippedUntil = close + 1
+			continue
+		}
+		if parent >= 0 {
 			scopes[parent].children = append(scopes[parent].children, OffsetRange{Start: match[0], End: close + 1})
 		}
-		scopes = append(scopes, protoScope{match: match, word: document.Text[match[2]:match[3]], open: open, close: close, parent: parent})
+		scopes = append(scopes, protoScope{match: match, word: word, open: open, close: close, parent: parent})
 		stack = append(stack, len(scopes)-1)
 	}
 	for index := range scopes {
