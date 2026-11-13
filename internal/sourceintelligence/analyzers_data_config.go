@@ -637,11 +637,12 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 }
 
 var (
-	protoPackage = regexp.MustCompile(`(?m)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
-	protoImport  = regexp.MustCompile(`(?m)^[ \t]*import(?:[ \t]+(?:public|weak))?[ \t]+"([^"]+)"[ \t]*;`)
-	protoBlock   = regexp.MustCompile(`(?m)^[ \t]*(message|enum|service)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\{`)
-	protoField   = regexp.MustCompile(`(?m)^[ \t]*(?:optional[ \t]+|required[ \t]+|repeated[ \t]+)?[A-Za-z_.][A-Za-z0-9_.<> ,]*[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*[0-9]+`)
-	protoRPC     = regexp.MustCompile(`(?m)^[ \t]*rpc[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
+	protoPackage   = regexp.MustCompile(`(?m)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
+	protoImport    = regexp.MustCompile(`(?m)^[ \t]*import(?:[ \t]+(?:public|weak))?[ \t]+"([^"]+)"[ \t]*;`)
+	protoBlock     = regexp.MustCompile(`(?m)^[ \t]*(message|enum|service)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\{`)
+	protoField     = regexp.MustCompile(`(?m)^[ \t]*(?:optional[ \t]+|required[ \t]+|repeated[ \t]+)?[A-Za-z_.][A-Za-z0-9_.<> ,]*[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*[0-9]+`)
+	protoEnumValue = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*-?[0-9]+[ \t]*;`)
+	protoRPC       = regexp.MustCompile(`(?m)^[ \t]*rpc[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
 )
 
 func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -730,6 +731,9 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		case "service":
 			kindMatches = protoRPC.FindAllStringSubmatchIndex(body, -1)
 			memberKind, native = SymbolKindOperation, "rpc"
+		case "enum":
+			kindMatches = protoEnumValue.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindConstant, "enum-value"
 		default:
 			continue
 		}
