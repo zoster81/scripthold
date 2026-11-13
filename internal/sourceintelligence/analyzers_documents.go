@@ -1316,6 +1316,9 @@ func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			}
 		}
 	}
+	if err := appendOpenAPIPathMethods(ctx, document, lines, builder); err != nil {
+		return AnalyzerResult{}, err
+	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
 
