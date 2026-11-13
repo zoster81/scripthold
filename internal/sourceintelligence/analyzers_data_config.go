@@ -639,7 +639,7 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 var (
 	protoPackage   = regexp.MustCompile(`(?m)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
 	protoImport    = regexp.MustCompile(`(?m)^[ \t]*import(?:[ \t]+(?:public|weak))?[ \t]+"([^"]+)"[ \t]*;`)
-	protoBlock     = regexp.MustCompile(`(?m)^[ \t]*(message|enum|service)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\{`)
+	protoBlock     = regexp.MustCompile(`(?m)^[ \t]*(message|enum|service|extend)[ \t]+([.]?[A-Za-z_][A-Za-z0-9_.]*)[ \t]*\{`)
 	protoField     = regexp.MustCompile(`(?m)^[ \t]*(?:optional[ \t]+|required[ \t]+|repeated[ \t]+)?[A-Za-z_.][A-Za-z0-9_.<> ,]*[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*[0-9]+`)
 	protoEnumValue = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*-?[0-9]+[ \t]*;`)
 	protoRPC       = regexp.MustCompile(`(?m)^[ \t]*rpc[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
@@ -704,6 +704,11 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		scope := &scopes[index]
 		match := scope.match
 		name := document.Text[match[4]:match[5]]
+		scopeNative := scope.word
+		if scope.word == "extend" {
+			name = "extend " + name // Lexical scope, not the external target's definition.
+			scopeNative = "extend-block"
+		}
 		parent := packageParent
 		if scope.parent >= 0 {
 			parent = &scopes[scope.parent].owner
@@ -713,8 +718,10 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			kind = SymbolKindEnum
 		} else if scope.word == "service" {
 			kind = SymbolKindInterface
+		} else if scope.word == "extend" {
+			kind = SymbolKindNamespace // A grouping for extension declarations, not a type definition.
 		}
-		owner, ok := addDocumentDataHardwareSymbol(builder, kind, scope.word, name, parent, OffsetRange{Start: match[0], End: scope.close + 1}, OffsetRange{Start: match[4], End: match[5]})
+		owner, ok := addDocumentDataHardwareSymbol(builder, kind, scopeNative, name, parent, OffsetRange{Start: match[0], End: scope.close + 1}, OffsetRange{Start: match[4], End: match[5]})
 		if !ok {
 			break
 		}
@@ -734,6 +741,9 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		case "enum":
 			kindMatches = protoEnumValue.FindAllStringSubmatchIndex(body, -1)
 			memberKind, native = SymbolKindConstant, "enum-value"
+		case "extend":
+			kindMatches = protoField.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindField, "extension-field"
 		default:
 			continue
 		}
