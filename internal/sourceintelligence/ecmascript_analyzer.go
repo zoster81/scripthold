@@ -706,8 +706,18 @@ func (parser *ecmaParser) parseEnum(declarationStart, keyword, end int, parent *
 }
 
 func (parser *ecmaParser) parseNamespace(declarationStart, keyword, end int, parent *SymbolParent) int {
-	nameIndex := parser.nextIdentifier(keyword+1, end)
-	if nameIndex < 0 {
+	nameIndex := parser.skipTrivia(keyword+1, end)
+	if nameIndex >= end {
+		return keyword + 1
+	}
+	name := parser.tokens[nameIndex].Text
+	if parser.tokens[nameIndex].Kind == TokenString {
+		name = ecmaStringLiteralValue(name)
+		if name == "" {
+			parser.builder.MarkIncomplete()
+			return nameIndex + 1
+		}
+	} else if parser.tokens[nameIndex].Kind != TokenIdentifier {
 		return keyword + 1
 	}
 	open := parser.findBodyOpen(nameIndex+1, end, parser.tokens[keyword].Nesting)
@@ -720,7 +730,7 @@ func (parser *ecmaParser) parseNamespace(declarationStart, keyword, end int, par
 		return end
 	}
 	symbol, added := parser.add(SymbolSpec{
-		Kind: SymbolKindNamespace, NativeKind: parser.tokens[keyword].Text, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Kind: SymbolKindNamespace, NativeKind: parser.tokens[keyword].Text, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[close].EndOffset},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[open].StartOffset},

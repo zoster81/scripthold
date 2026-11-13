@@ -36,8 +36,21 @@ func (FlowAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	filtered := source
 	filtered.Analysis.Symbols = filtered.Analysis.Symbols[:0]
 	for _, symbol := range source.Analysis.Symbols {
-		if symbol.NativeKind == "namespace" || symbol.NativeKind == "module" {
+		if symbol.NativeKind == "namespace" {
 			continue
+		}
+		if symbol.NativeKind == "module" {
+			declaration, _, _, _ := symbol.SourceOffsets()
+			if declaration.Start < 0 || declaration.End > len(document.Text) || declaration.Start >= declaration.End {
+				continue
+			}
+			prefix := strings.TrimLeft(document.Text[declaration.Start:declaration.End], " \t\r\n")
+			// Quoted ambient Flow module declarations are real scopes;
+			// ordinary JavaScript module.exports is not a module declaration.
+			if !strings.HasPrefix(prefix, "declare module '") &&
+				!strings.HasPrefix(prefix, "declare module \"") {
+				continue
+			}
 		}
 		filtered.Analysis.Symbols = append(filtered.Analysis.Symbols, symbol)
 	}
