@@ -466,7 +466,7 @@ func (parser *ecmaParser) directArrowExpression(start, end, base int) bool {
 					return false
 				}
 			}
-			if close == end-1 {
+			if close == end-1 || (parser.typescript && parser.simpleTypeAssertionSuffix(close+1, end, base)) {
 				base = parser.tokens[start].Nesting
 				start = parser.skipTrivia(start+1, close)
 				end = close
@@ -496,6 +496,33 @@ func (parser *ecmaParser) directArrowExpression(start, end, base int) bool {
 		return false
 	}
 	return false
+}
+
+// A narrow, source-proven assertion after a complete grouped expression
+// preserves that expression's arrow kind. Type operators and compound
+// expressions remain conservative rather than borrowing nested arrows.
+func (parser *ecmaParser) simpleTypeAssertionSuffix(start, end, base int) bool {
+	cursor := parser.skipTrivia(start, end)
+	if cursor >= end || parser.tokens[cursor].Nesting != base ||
+		(!parser.token(cursor, "as") && !parser.token(cursor, "satisfies")) {
+		return false
+	}
+	cursor = parser.skipTrivia(cursor+1, end)
+	if cursor >= end || parser.tokens[cursor].Nesting != base || parser.tokens[cursor].Kind != TokenIdentifier {
+		return false
+	}
+	cursor = parser.skipTrivia(cursor+1, end)
+	for cursor < end {
+		if parser.tokens[cursor].Nesting != base || !parser.token(cursor, ".") {
+			return false
+		}
+		cursor = parser.skipTrivia(cursor+1, end)
+		if cursor >= end || parser.tokens[cursor].Nesting != base || parser.tokens[cursor].Kind != TokenIdentifier {
+			return false
+		}
+		cursor = parser.skipTrivia(cursor+1, end)
+	}
+	return true
 }
 
 // parseObjectDestructuring indexes local binding names rather than object
