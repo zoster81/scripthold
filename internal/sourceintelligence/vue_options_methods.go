@@ -8,8 +8,8 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-// appendVueOptionsMethods indexes shorthand methods under an exported Vue 2
-// options object's "methods" key. It does not infer dynamic option spreads,
+// appendVueOptionsMethods indexes shorthand methods and computed getters under
+// an exported Vue Options object. It does not infer dynamic option spreads,
 // properties initialized with functions, or nested object members.
 func appendVueOptionsMethods(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion, result *AnalyzerResult) error {
 	maxNesting := options.MaxNesting
@@ -104,12 +104,16 @@ func collectVueOptionsMethods(ctx context.Context, tokens []Token, pairs map[int
 		if i >= end {
 			break
 		}
-		if tokens[i].Text == "methods" {
+		if tokens[i].Text == "methods" || tokens[i].Text == "computed" {
+			kind, nativeKind := SymbolKindMethod, "vue-options-method"
+			if tokens[i].Text == "computed" {
+				kind, nativeKind = SymbolKindProperty, "vue-options-computed"
+			}
 			colon := vueNextCodeToken(tokens, i+1, end)
 			open := vueNextCodeToken(tokens, colon+1, end)
 			if colon < end && tokens[colon].Text == ":" && open < end && tokens[open].Text == "{" {
 				if close, ok := pairs[open]; ok && close < end {
-					collectVueShorthandMethods(ctx, tokens, pairs, open+1, close, builder)
+					collectVueShorthandMethods(ctx, tokens, pairs, open+1, close, builder, kind, nativeKind)
 					i = close + 1
 					continue
 				}
@@ -124,7 +128,7 @@ func collectVueOptionsMethods(ctx context.Context, tokens []Token, pairs map[int
 	}
 }
 
-func collectVueShorthandMethods(ctx context.Context, tokens []Token, pairs map[int]int, start, end int, builder *SymbolBuilder) {
+func collectVueShorthandMethods(ctx context.Context, tokens []Token, pairs map[int]int, start, end int, builder *SymbolBuilder, kind SymbolKind, nativeKind string) {
 	for i := start; i < end; {
 		if ctx.Err() != nil {
 			return
@@ -145,7 +149,7 @@ func collectVueShorthandMethods(ctx context.Context, tokens []Token, pairs map[i
 					if body < end && tokens[body].Text == "{" {
 						if closeBody, ok := pairs[body]; ok && closeBody < end {
 							_, err := builder.Add(SymbolSpec{
-								Kind: SymbolKindMethod, NativeKind: "vue-options-method", Name: tokens[name].Text,
+								Kind: kind, NativeKind: nativeKind, Name: tokens[name].Text,
 								Declaration:   OffsetRange{Start: tokens[i].StartOffset, End: tokens[closeBody].EndOffset},
 								NameRange:     OffsetRange{Start: tokens[name].StartOffset, End: tokens[name].EndOffset},
 								Signature:     &OffsetRange{Start: tokens[i].StartOffset, End: tokens[body].StartOffset},

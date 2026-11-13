@@ -100,3 +100,61 @@ const text = "methods: { fake() {} }"
 		})
 	}
 }
+
+func TestVueOptionsComputedGetterBoundaries(t *testing.T) {
+	source := strings.Join([]string{
+		"<script>",
+		"const decoy = { computed: { notExported() { return 0 } } }",
+		"const prose = \"export default { computed: { fake() {} } }\"",
+		"export default {",
+		"  props: { config: { computed: { nestedProp() {} } } },",
+		"  data() { return { computed: { nestedData() {} } } },",
+		"  computed: {",
+		"    displayName() { return this.user.name },",
+		"    nestedObject: { get() { return 'not-indexed' }, set(value) { this.name = value } },",
+		"    functionValue: function() { return 1 },",
+		"  },",
+		"  methods: {",
+		"    save() { return this.displayName },",
+		"    complex: { nestedMethod() {} },",
+		"  },",
+		"}",
+		"</script>",
+	}, "\n")
+	for _, tc := range []struct {
+		name, text string
+	}{
+		{"lf", source},
+		{"crlf", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (VueAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("options.vue", tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, expected := range []struct {
+				name, native string
+				kind         SymbolKind
+			}{
+				{"displayName", "vue-options-computed", SymbolKindProperty},
+				{"save", "vue-options-method", SymbolKindMethod},
+			} {
+				got, ok := symbols[expected.name]
+				if !ok || got.Kind != expected.kind || got.NativeKind != expected.native ||
+					got.BodyRange == nil || got.RegionID == "" {
+					t.Fatalf("expected supported Vue Options declaration %q: %+v", expected.name, got)
+				}
+			}
+			for _, forbidden := range []string{
+				"notExported", "fake", "nestedProp", "nestedData",
+				"nestedObject", "get", "set", "functionValue", "complex", "nestedMethod",
+			} {
+				if got, ok := symbols[forbidden]; ok {
+					t.Fatalf("nested/unsupported Vue Options declaration invented: %q %+v", forbidden, got)
+				}
+			}
+		})
+	}
+}
