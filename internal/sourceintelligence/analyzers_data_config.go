@@ -594,7 +594,7 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	}
 	inLet := false
 	rootSeen := false
-	for _, line := range sourceTextLines(document.Text) {
+	for _, line := range sourceTextLines(maskNixIndentedStrings(document.Text)) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
