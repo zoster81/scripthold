@@ -358,11 +358,7 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 	if nameIndex < 0 {
 		return min(terminator+1, end)
 	}
-	arrow := false
 	for index := nameIndex + 1; index <= terminator && index < end; index++ {
-		if parser.tokens[index].Text == "=>" {
-			arrow = true
-		}
 		if parser.tokens[index].Text == "require" && index+1 <= terminator {
 			open := parser.skipTrivia(index+1, terminator+1)
 			if open <= terminator && parser.tokens[open].Text == "(" {
@@ -397,6 +393,7 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		parser.builder.MarkIncomplete()
 		return min(terminator+1, end)
 	}
+	arrow := parser.directArrowInitializer(keyword, nameIndex, terminator)
 	kind := SymbolKindVariable
 	nativeKind := parser.tokens[keyword].Text
 	if parser.token(keyword, "const") {
@@ -428,6 +425,77 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		Disambiguator: tokenRangeText(parser.tokens, nameIndex, min(terminator+1, end)),
 	})
 	return min(terminator+1, end)
+}
+
+// An arrow callback within an object, call, conditional or type annotation
+// cannot change the declaring variable into a direct arrow function.
+// Inspect only the initializer expression, without interpreting its runtime value.
+func (parser *ecmaParser) directArrowInitializer(keyword, nameIndex, end int) bool {
+	base := parser.tokens[keyword].Nesting
+	for index := nameIndex + 1; index < end; index++ {
+		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == base {
+			return parser.directArrowExpression(parser.skipTrivia(index+1, end), end, base)
+		}
+	}
+	return false
+}
+
+func (parser *ecmaParser) directArrowExpression(start, end, base int) bool {
+	// Unwrap only complete parenthesized expressions. Calls or conditional
+	// expressions must not inherit their nested callback's arrow kind.
+	for depth := 0; depth < 32 && start < end; depth++ {
+		if parser.token(start, "async") {
+			start = parser.skipTrivia(start+1, end)
+		}
+		if start >= end {
+			return false
+		}
+		if parser.token(start, "(") {
+			close, ok := parser.pairs[start]
+			if !ok || close <= start || close >= end {
+				return false
+			}
+			for index := close + 1; index < end; index++ {
+				if parser.tokens[index].Nesting != base {
+					continue
+				}
+				if parser.token(index, "=>") {
+					return true
+				}
+				if parser.token(index, "?") || parser.token(index, ",") || parser.token(index, "=") || parser.token(index, "+") {
+					return false
+				}
+			}
+			if close == end-1 {
+				base = parser.tokens[start].Nesting
+				start = parser.skipTrivia(start+1, close)
+				end = close
+				continue
+			}
+			return false
+		}
+		if parser.tokens[start].Kind == TokenIdentifier {
+			next := parser.skipTrivia(start+1, end)
+			return next < end && parser.token(next, "=>") && parser.tokens[next].Nesting == base
+		}
+		if parser.token(start, "<") {
+			// TypeScript and Flow generic arrow parameter lists start with
+			// a type-parameter header, not a nested object/call expression.
+			for index := start + 1; index < end; index++ {
+				if parser.tokens[index].Nesting != base {
+					continue
+				}
+				if parser.token(index, "=>") {
+					return true
+				}
+				if parser.token(index, "?") || parser.token(index, ";") {
+					return false
+				}
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // parseObjectDestructuring indexes local binding names rather than object
