@@ -242,6 +242,36 @@ func (parser *ecmaParser) statementEnd(start, end int) int {
 	return end - 1
 }
 
+// A variable initializer can begin on the next line after '=' or continue
+// after a direct arrow. Only these incomplete variable lines bypass ASI;
+// ordinary statements retain the conservative newline boundary.
+func (parser *ecmaParser) variableStatementEnd(start, end int) int {
+	if start >= end {
+		return end
+	}
+	base := parser.tokens[start].Nesting
+	lastCode := -1
+	for index := start; index < end; index++ {
+		token := parser.tokens[index]
+		if token.Kind == TokenEOF {
+			return index
+		}
+		if token.Text == ";" && token.Nesting == base {
+			return index
+		}
+		if token.Kind == TokenNewline && token.Nesting == base {
+			if lastCode >= start && (parser.token(lastCode, "=") || parser.token(lastCode, "=>")) {
+				continue
+			}
+			return index
+		}
+		if token.Kind != TokenNewline && token.Kind != TokenDirective {
+			lastCode = index
+		}
+	}
+	return end - 1
+}
+
 func (parser *ecmaParser) skipUnknownStatement(start, end int) int {
 	terminator := parser.statementEnd(start, end)
 	if terminator < start {
@@ -353,7 +383,7 @@ func ecmaStringLiteralValue(value string) string {
 }
 
 func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, parent *SymbolParent) int {
-	terminator := parser.statementEnd(keyword, end)
+	terminator := parser.variableStatementEnd(keyword, end)
 	nameIndex := parser.nextIdentifier(keyword+1, terminator+1)
 	if nameIndex < 0 {
 		return min(terminator+1, end)
