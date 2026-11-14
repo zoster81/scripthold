@@ -30,6 +30,86 @@ func TestNixTopLevelAttributeSetReportsIncompleteCoverage(t *testing.T) {
 	}
 }
 
+// Only bindings of the outer let are safe top-level edit targets. Nested
+// attrsets and function-local let expressions are not the same declarations.
+func TestNixOuterLetDoesNotInventNestedBindings(t *testing.T) {
+	const source = `let
+  outer = {
+    name = "inside";
+    nested = {
+      option = true;
+    };
+  };
+  builder = value:
+    let
+      local = 1;
+    in local;
+  after = 42;
+in
+{
+  result = outer;
+}
+`
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (NixAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 40))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]int{"outer": 2, "builder": 8, "after": 12}
+			for _, symbol := range result.Analysis.Symbols {
+				line, ok := want[symbol.Name]
+				if !ok {
+					t.Errorf("nested Nix binding misreported at top level: %+v", symbol)
+				} else if symbol.NameRange.Start.Line != line {
+					t.Errorf("top-level Nix binding misplaced: %+v", symbol)
+				} else {
+					delete(want, symbol.Name)
+				}
+			}
+			if len(want) != 0 {
+				t.Errorf("real top-level let bindings missing: %+v", want)
+			}
+			if result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Errorf("Nix result attrset must still report partial coverage: %+v", result.Analysis)
+			}
+		})
+	}
+}
+
+// Nix indentation is only formatting: an inner attribute can be written
+// at the same column as the surrounding let bindings.
+func TestNixNestedAttributeAtSameIndentIsNotTopLevel(t *testing.T) {
+	const source = "let\n" +
+		"  container = {\n" +
+		"  decoy = true;\n" +
+		"  };\n" +
+		"  selected = 42;\n" +
+		"in selected\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (NixAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 20))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := map[string]bool{}
+			for _, sym := range result.Analysis.Symbols {
+				if sym.Name == "decoy" {
+					t.Fatalf("nested Nix key falsely classified by indentation: %+v", sym)
+				}
+				found[sym.Name] = true
+			}
+			if !found["container"] || !found["selected"] {
+				t.Fatalf("top-level Nix bindings missing: %+v", result.Analysis.Symbols)
+			}
+		})
+	}
+}
+
 func TestNixPlainLetExpressionRemainsComplete(t *testing.T) {
 	source := "let\n  answer = 42;\nin answer\n"
 	result, err := (NixAnalyzer{}).Analyze(context.Background(),

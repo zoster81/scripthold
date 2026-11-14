@@ -668,10 +668,26 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		return AnalyzerResult{}, err
 	}
 	inLet := false
-	rootSeen := false
-	for _, line := range sourceTextLines(maskNixIndentedStrings(document.Text)) {
+	letIndent, bindingIndent, letBraceDepth := -1, -1, 0
+	rootSeen, nestedReported := false, false
+	source := maskNixIndentedStrings(document.Text)
+	// Use existing source-preserving masks so braces inside Nix strings and
+	// comments never change the lexical depth of a let binding.
+	braces := maskSourceComments(strings.ReplaceAll(maskSourceStrings(source, false, true, false), "'", " "),
+		[]string{"#"}, "/*", "*/")
+	braceLines := sourceTextLines(braces)
+	braceDepth := 0
+	for index, line := range sourceTextLines(source) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		lineDepth := braceDepth
+		for _, c := range braceLines[index].text {
+			if c == '{' {
+				braceDepth++
+			} else if c == '}' && braceDepth > 0 {
+				braceDepth--
+			}
 		}
 		trimmed := strings.TrimSpace(stripLineComment(line.text, "#"))
 		if !rootSeen && trimmed != "" {
@@ -682,10 +698,15 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			}
 		}
 		if trimmed == "let" || strings.HasPrefix(trimmed, "let ") {
-			inLet = true
+			if !inLet && lineDepth == 0 {
+				inLet = true
+				letIndent, bindingIndent, letBraceDepth = line.indent, -1, lineDepth
+			}
+			// An inner let expression must not restart the outer binding list.
 			continue
 		}
-		if inLet && (trimmed == "in" || strings.HasPrefix(trimmed, "in ")) {
+		if inLet && lineDepth == letBraceDepth && line.indent <= letIndent &&
+			(trimmed == "in" || strings.HasPrefix(trimmed, "in ")) {
 			// Only let bindings are indexed; attributes returned by the Nix
 			// expression must not silently count as completely navigable.
 			value := strings.TrimSpace(strings.TrimPrefix(trimmed, "in"))
@@ -702,6 +723,19 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		match := nixBinding.FindStringSubmatchIndex(trimmed)
 		if match == nil {
 			continue
+		}
+		// Indentation alone is not syntax in Nix: even a same-column key
+		// inside a nested attrset cannot be promoted to a top-level binding.
+		if lineDepth != letBraceDepth || (bindingIndent >= 0 && line.indent != bindingIndent) {
+			if !nestedReported {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-nested-binding",
+					"Nested Nix attributes and local bindings require direct source inspection", line.start, line.end)
+				nestedReported = true
+			}
+			continue
+		}
+		if bindingIndent < 0 {
+			bindingIndent = line.indent
 		}
 		name := trimmed[match[2]:match[3]]
 		trimOffset := strings.Index(line.text, trimmed)
