@@ -395,6 +395,7 @@ var (
 	graphqlFragment  = regexp.MustCompile(`(?m)^[ \t]*fragment[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+on[ \t]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\{`)
 	graphqlDirective = regexp.MustCompile(`(?m)^[ \t]*directive[ \t]+@([A-Za-z_][A-Za-z0-9_]*)(?:[ \t\r\n]*\([^()]*\))?[ \t\r\n]*(?:repeatable[ \t\r\n]+)?on[ \t\r\n]+\|?[ \t\r\n]*[A-Z_]+(?:[ \t\r\n]*\|[ \t\r\n]*[A-Z_]+)*`)
 	graphqlField     = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
+	graphqlEnumValue = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\r?$`)
 )
 
 func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -426,12 +427,27 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			kind = SymbolKindEnum
 		}
 		symbol, ok := addDocumentDataHardwareSymbol(builder, kind, word, name, nil, OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: match[4], End: match[5]})
-		if !ok || word == "enum" {
+		if !ok {
 			continue
 		}
 		parent := &symbol
 		bodyStart := open + 1
 		body := source[bodyStart:close]
+		if word == "enum" {
+			// Enum members are declarations owned by their enum, not unowned
+			// identifiers or ordinary fields. Only complete line-form values
+			// (and simple directive annotations) are supported lexically.
+			for _, value := range graphqlEnumValue.FindAllStringSubmatchIndex(body, -1) {
+				member := document.Text[bodyStart+value[2] : bodyStart+value[3]]
+				if member == "true" || member == "false" || member == "null" {
+					continue
+				}
+				addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "enum-value", member, parent,
+					OffsetRange{Start: bodyStart + value[0], End: bodyStart + value[1]},
+					OffsetRange{Start: bodyStart + value[2], End: bodyStart + value[3]})
+			}
+			continue
+		}
 		for _, field := range graphqlField.FindAllStringSubmatchIndex(body, -1) {
 			fieldName := document.Text[bodyStart+field[2] : bodyStart+field[3]]
 			start := bodyStart + field[0]

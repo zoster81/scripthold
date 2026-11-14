@@ -11,8 +11,8 @@ import (
 // Independently inventoried declarations from five complete original GraphQL files
 // in two repositories. Current supported scope: schema, named operations,
 // reusable named fragments, schema directive definitions,
-// object/interface/input/enum types, scalar/union types, and typed fields.
-// Enum values, anonymous operations, field arguments and query selections
+// object/interface/input/enum types, scalar/union types, direct enum values,
+// and typed fields. Anonymous operations, field arguments, and query selections
 // remain outside this inventory.
 func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
@@ -69,7 +69,11 @@ func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 				{34, "CustomScalar", "type", "scalar", ""},
 				{36, "AnnotatedScalar", "type", "scalar", ""},
 				{38, "Site", "enum", "enum", ""},
+				{39, "DESKTOP", "constant", "enum-value", "Site"},
+				{40, "MOBILE", "constant", "enum-value", "Site"},
 				{43, "AnnotatedEnum", "enum", "enum", ""},
+				{44, "ANNOTATED_VALUE", "constant", "enum-value", "AnnotatedEnum"},
+				{45, "OTHER_VALUE", "constant", "enum-value", "AnnotatedEnum"},
 				{48, "InputType", "type", "input", ""},
 				{49, "key", "field", "field", "InputType"},
 				{50, "answer", "field", "field", "InputType"},
@@ -104,7 +108,12 @@ func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 				{88, "UnionSingleLine", "type", "union", ""},
 				{95, "UnionSingleLine", "type", "union", ""},
 				{98, "EnumSingleLine", "enum", "enum", ""},
+				{99, "no_description", "constant", "enum-value", "EnumSingleLine"},
+				{102, "single_line", "constant", "enum-value", "EnumSingleLine"},
+				{109, "multi_line", "constant", "enum-value", "EnumSingleLine"},
+				{110, "again_no_description", "constant", "enum-value", "EnumSingleLine"},
 				{118, "EnumMultiLine", "enum", "enum", ""},
+				{119, "foo", "constant", "enum-value", "EnumMultiLine"},
 				{123, "InputSingleLine", "type", "input", ""},
 				{124, "a", "field", "field", "InputSingleLine"},
 				{127, "b", "field", "field", "InputSingleLine"},
