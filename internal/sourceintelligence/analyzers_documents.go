@@ -662,6 +662,11 @@ func (JSONAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	}
 	if _, ok := parser.object(index, nil); !ok {
 		addDocumentDataHardwareDiagnostic(builder, "json-malformed", "JSON object is malformed or truncated", index, len(document.Text))
+	} else if !json.Valid([]byte(document.Text)) {
+		// Lexical key recovery does not prove the complete input is strict JSON.
+		// Preserve existing partial symbol navigation while exposing invalid syntax.
+		addDocumentDataHardwareDiagnostic(builder, "json-invalid-document",
+			"Source contains invalid strict JSON syntax; recovered keys may be incomplete", 0, len(document.Text))
 	}
 	return AnalyzerResult{Analysis: builder.takeResult()}, nil
 }

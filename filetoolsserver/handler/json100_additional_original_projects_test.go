@@ -27,6 +27,7 @@ func TestJSON100AdditionalOriginalProjectNavigation(t *testing.T) {
 	}
 	cases := []struct {
 		name, root, packageFile, distractorEvidence, rootEvidence, packageEvidence, absent string
+		editorStrictJSON                                                                   bool
 		targets                                                                            []json100Target
 	}{
 		{
@@ -50,6 +51,7 @@ func TestJSON100AdditionalOriginalProjectNavigation(t *testing.T) {
 			rootEvidence:       "\"build\": \"pnpm -r --filter=./packages/* build\"",
 			packageEvidence:    "\"prepublishOnly\": \"pnpm build\"",
 			absent:             "test-e2e",
+			editorStrictJSON:   true,
 			targets: []json100Target{
 				{file: "package.json", name: "check", owner: "scripts", line: 18, excerpt: "\"check\": \"cd packages/svelte && pnpm build"},
 				{file: filepath.Join("packages", "svelte", "package.json"), name: "worker", ownerPrefix: "exports.", line: 25, excerpt: "\"worker\": \"./src/index-server.js\""},
@@ -92,6 +94,16 @@ func TestJSON100AdditionalOriginalProjectNavigation(t *testing.T) {
 				}
 			}
 			ctx, h := context.Background(), NewHandler([]string{tc.root})
+			editorFile := filepath.Join(".vscode", "launch.json")
+			if strict := json.Valid([]byte(original[editorFile])); strict != tc.editorStrictJSON {
+				t.Fatalf("editor configuration strict JSON oracle mismatch: got=%v want=%v", strict, tc.editorStrictJSON)
+			}
+			_, editorDigest, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "digest", Paths: []string{filepath.Join(tc.root, editorFile)}, Language: "json", MaxFiles: 1,
+			})
+			if err != nil || editorDigest.FilesParsed != 1 || editorDigest.CoverageComplete {
+				t.Fatalf("editor JSONC or unmodeled array objects falsely reported complete: %v %+v", err, editorDigest)
+			}
 			outlined := map[string]map[string]bool{}
 			for _, relative := range []string{"package.json", tc.packageFile} {
 				path := filepath.Join(tc.root, relative)
