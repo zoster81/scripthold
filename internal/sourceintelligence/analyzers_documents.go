@@ -1119,6 +1119,27 @@ func tomlAssignmentKey(text string) ([]tomlSectionSegment, int, bool) {
 	return nil, -1, false
 }
 
+// tomlMultilineClose finds the lexical closing delimiter after an opener.
+// Escaped triple quotes inside basic strings do not terminate the value.
+func tomlMultilineClose(text string, quote byte, start int) int {
+	for at := start; at+2 < len(text); at++ {
+		if text[at] != quote || text[at+1] != quote || text[at+2] != quote {
+			continue
+		}
+		if quote == '"' {
+			backslashes := 0
+			for previous := at - 1; previous >= start && text[previous] == '\\'; previous-- {
+				backslashes++
+			}
+			if backslashes%2 != 0 {
+				continue
+			}
+		}
+		return at + 3
+	}
+	return -1
+}
+
 func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "toml", AnalyzerTOML)
 	if err != nil {
@@ -1163,7 +1184,9 @@ func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			current = &value
 		}
 	}
-	for _, line := range sourceTextLines(document.Text) {
+	lines := sourceTextLines(document.Text)
+	for lineIndex := 0; lineIndex < len(lines); lineIndex++ {
+		line := lines[lineIndex]
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
@@ -1208,10 +1231,34 @@ func (TOMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			}
 			name := strings.Join(names, ".")
 			trimStart := line.start + strings.Index(line.text, trimmed)
-			addDocumentDataHardwareSymbol(builder, SymbolKindKey, "key", name, current,
-				OffsetRange{Start: trimStart, End: line.end},
-				OffsetRange{Start: trimStart + parts[0].start, End: trimStart + parts[len(parts)-1].end})
 			value := strings.TrimSpace(trimmed[equals+1:])
+			declarationEnd := line.end
+			if len(value) >= 3 && (strings.HasPrefix(value, `"""`) || strings.HasPrefix(value, "'''")) {
+				quote := value[0]
+				if tomlMultilineClose(value, quote, 3) < 0 {
+					closed := false
+					for next := lineIndex + 1; next < len(lines); next++ {
+						if err := ctx.Err(); err != nil {
+							return AnalyzerResult{}, err
+						}
+						if tomlMultilineClose(lines[next].text, quote, 0) >= 0 {
+							declarationEnd = lines[next].end
+							lineIndex = next
+							closed = true
+							break
+						}
+					}
+					if !closed {
+						addDocumentDataHardwareDiagnostic(builder, "toml-unclosed-multiline-string",
+							"TOML multiline string is unterminated", trimStart, line.end)
+						declarationEnd = lines[len(lines)-1].end
+						lineIndex = len(lines)
+					}
+				}
+			}
+			addDocumentDataHardwareSymbol(builder, SymbolKindKey, "key", name, current,
+				OffsetRange{Start: trimStart, End: declarationEnd},
+				OffsetRange{Start: trimStart + parts[0].start, End: trimStart + parts[len(parts)-1].end})
 			if strings.HasPrefix(value, "[") {
 				multilineArrayDepth = tomlBracketDelta(value)
 				if multilineArrayDepth < 0 {
