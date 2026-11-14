@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -102,5 +103,110 @@ func TestYAMLIndentlessSequenceKeepsStepOwner(t *testing.T) {
 	}
 	if len(want) > 0 {
 		t.Fatalf("YAML indentless sequence declarations missing: %+v", want)
+	}
+}
+
+// Multi-line workflow commands must be readable through their mapping-key
+// selectors, without hiding a following field of the same sequence item.
+func TestYAMLBlockScalarRangesAndSequenceSiblings(t *testing.T) {
+	const source = "jobs:\n" +
+		"  release:\n" +
+		"    steps:\n" +
+		"      - run: |\n" +
+		"          echo package\n" +
+		"          name: not-a-step\n" +
+		"\n" +
+		"        env:\n" +
+		"          CI: true\n" +
+		"      - name: Publish\n" +
+		"        run: >-\n" +
+		"          echo first\n" +
+		"          echo second\n" +
+		"    timeout-minutes: 20\n" +
+		"followup: ok\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (YAMLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[int]struct {
+				qualified string
+				end       int
+			}{
+				4:  {"jobs.release.steps.run", 6},
+				8:  {"jobs.release.steps.env", 8},
+				9:  {"jobs.release.steps.env.CI", 9},
+				11: {"jobs.release.steps.run", 13},
+				14: {"jobs.release.timeout-minutes", 14},
+				15: {"followup", 15},
+			}
+			for _, sym := range result.Analysis.Symbols {
+				if sym.Name == "not-a-step" {
+					t.Fatalf("block content fabricated YAML key: %+v", sym)
+				}
+				at := sym.NameRange.Start.Line
+				if expected, ok := want[at]; ok {
+					if sym.QualifiedName != expected.qualified || sym.DeclarationRange.End.Line != expected.end {
+						t.Errorf("bad multiline workflow mapping at line %d: %+v", at, sym)
+					}
+					delete(want, at)
+				}
+			}
+			if len(want) != 0 {
+				t.Errorf("missing multiline workflow keys: %+v", want)
+			}
+			if result.Analysis.CoverageComplete {
+				t.Fatal("sequence item ownership still must be marked partial")
+			}
+		})
+	}
+}
+
+func TestYAMLExplicitBlockIndentAndEmptyBlock(t *testing.T) {
+	const source = "jobs:\n" +
+		"  build:\n" +
+		"    steps:\n" +
+		"      - run: |2\n" +
+		"            echo first\n" +
+		"          echo second\n" +
+		"        env:\n" +
+		"          OK: true\n" +
+		"empty: |\n" +
+		"after: true\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (YAMLAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[int]struct {
+				name string
+				end  int
+			}{
+				4:  {"jobs.build.steps.run", 6},
+				7:  {"jobs.build.steps.env", 7},
+				8:  {"jobs.build.steps.env.OK", 8},
+				9:  {"empty", 9},
+				10: {"after", 10},
+			}
+			for _, sym := range result.Analysis.Symbols {
+				line := sym.NameRange.Start.Line
+				if expected, ok := want[line]; ok {
+					if sym.QualifiedName != expected.name || sym.DeclarationRange.End.Line != expected.end {
+						t.Errorf("explicit/empty YAML block wrong at %d: %+v", line, sym)
+					}
+					delete(want, line)
+				}
+			}
+			if len(want) > 0 {
+				t.Errorf("missing YAML block neighbors: %+v", want)
+			}
+		})
 	}
 }

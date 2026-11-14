@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -128,6 +129,97 @@ func TestYAMLOriginalWorkflowSequenceNavigation(t *testing.T) {
 			})
 			if err != nil || len(negative.Symbols) != 0 {
 				t.Fatalf("YAML unrelated cross-project key fabricated: err=%v symbols=%+v", err, negative.Symbols)
+			}
+		})
+	}
+}
+
+func TestYAMLOriginalWorkflowMultilineCommandShow(t *testing.T) {
+	cases := []struct {
+		name, env, relative, owner, marker, nextStep string
+		start, end                                   int
+	}{
+		{
+			name:     "zoxide release packaging script",
+			env:      "SCRIPTHOLD_REAL_YAML_BLOCK_ZOXIDE_ROOT",
+			relative: filepath.Join(".github", "workflows", "release.yml"),
+			owner:    "jobs.release.steps", start: 95, end: 100,
+			marker: "gzip --best >", nextStep: "Upload artifact",
+		},
+		{
+			name:     "ripgrep cross compilation setup",
+			env:      "SCRIPTHOLD_REAL_YAML_BLOCK_RIPGREP_ROOT",
+			relative: filepath.Join(".github", "workflows", "ci.yml"),
+			owner:    "jobs.test.steps", start: 134, end: 146,
+			marker: "echo \"TARGET_DIR=./target/", nextStep: "Show command used for Cargo",
+		},
+	}
+	configured := 0
+	for _, tc := range cases {
+		if os.Getenv(tc.env) != "" {
+			configured++
+		}
+	}
+	if configured == 0 {
+		t.Skip("original YAML block-scalar projects not configured")
+	}
+	if configured != len(cases) {
+		t.Fatal("both independent YAML block-scalar roots must be configured")
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := os.Getenv(tc.env)
+			path := filepath.Join(root, tc.relative)
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("original workflow source unavailable: %v %v", info, err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if len(lines) <= tc.end || strings.TrimSpace(lines[tc.start-1]) != "run: |" ||
+				!strings.Contains(strings.Join(lines[tc.start-1:tc.end], "\n"), tc.marker) ||
+				!strings.Contains(strings.Join(lines[tc.end:], "\n"), tc.nextStep) {
+				t.Fatal("original workflow maintenance oracle differs from independently reviewed source")
+			}
+			ctx, h := context.Background(), NewHandler([]string{root})
+			_, digest, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "digest", Paths: []string{path}, Language: "yaml", MaxFiles: 1,
+			})
+			if err != nil || digest.FilesParsed != 1 || len(digest.Digests) != 1 ||
+				digest.Digests[0].SourceFingerprint == "" || digest.CoverageComplete {
+				t.Fatalf("original workflow digest or incomplete YAML coverage: %v %+v", err, digest)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "yaml", Query: "run",
+				Match: "exact", MaxFiles: 1, MaxSymbols: 256, FileDetails: "relevant",
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("YAML original find failed: %v %+v", err, found)
+			}
+			id := ""
+			for _, symbol := range found.Symbols {
+				if symbol.Name == "run" && symbol.ParentQualifiedName == tc.owner &&
+					symbol.NameRange.Start.Line == tc.start &&
+					symbol.DeclarationRange.End.Line == tc.end {
+					id = symbol.ID
+				}
+			}
+			file := found.Files[0]
+			if id == "" || file.Encoding == "" ||
+				file.SourceFingerprint != digest.Digests[0].SourceFingerprint {
+				t.Fatalf("YAML full block selector unavailable: %+v", found.Symbols)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "yaml", Encoding: file.Encoding,
+				SymbolID: id, SourceFingerprint: file.SourceFingerprint, MaxBytes: 4096,
+			})
+			if err != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, tc.marker) ||
+				!strings.HasPrefix(shown.Show.Text, "run: |") ||
+				strings.Contains(shown.Show.Text, tc.nextStep) {
+				t.Fatalf("YAML command source show did not isolate full scalar: %v %+v", err, shown.Show)
 			}
 		})
 	}

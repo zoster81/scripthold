@@ -931,6 +931,43 @@ func yamlBlockScalarValue(value string) bool {
 	return true
 }
 
+// yamlBlockScalarSpan keeps the complete authored block attached to its key.
+// An explicit YAML indentation indicator is relative to the key column; with
+// implicit indentation, the first nonempty content line establishes the depth.
+func yamlBlockScalarSpan(ctx context.Context, lines []sourceTextLine, at int, value string, keyIndent int) (int, int, error) {
+	end, contentIndent := lines[at].end, -1
+	fields := strings.Fields(value)
+	indicator := fields[len(fields)-1]
+	for index := 1; index < len(indicator); index++ {
+		if indicator[index] >= '1' && indicator[index] <= '9' {
+			contentIndent = keyIndent + int(indicator[index]-'0')
+			break
+		}
+	}
+	for index := at + 1; index < len(lines); index++ {
+		if index%256 == 0 {
+			if err := ctx.Err(); err != nil {
+				return 0, -1, err
+			}
+		}
+		line := lines[index]
+		if line.trimmed == "" {
+			continue
+		}
+		if contentIndent < 0 {
+			if line.indent <= lines[at].indent {
+				break
+			}
+			contentIndent = line.indent
+		}
+		if line.indent < contentIndent {
+			break
+		}
+		end = line.end
+	}
+	return end, contentIndent, nil
+}
+
 func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "yaml", AnalyzerYAML)
 	if err != nil {
@@ -939,13 +976,14 @@ func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	var scopes []yamlScope
 	blockScalarIndent := -1
 	skipSequenceIndent := -1
-	for _, line := range sourceTextLines(document.Text) {
+	lines := sourceTextLines(document.Text)
+	for lineIndex, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
 		trimmed := strings.TrimSpace(stripLineComment(line.text, "#"))
 		if blockScalarIndent >= 0 {
-			if trimmed == "" || line.indent > blockScalarIndent {
+			if trimmed == "" || line.indent >= blockScalarIndent {
 				continue
 			}
 			blockScalarIndent = -1
@@ -1003,13 +1041,20 @@ func (YAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			parent = &v
 		}
 		trimStart := line.start + strings.Index(line.text, trimmed)
+		declarationEnd, scalarIndent := line.end, -1
+		if yamlBlockScalarValue(value) {
+			declarationEnd, scalarIndent, err = yamlBlockScalarSpan(ctx, lines, lineIndex, value, trimStart-line.start)
+			if err != nil {
+				return AnalyzerResult{}, err
+			}
+		}
 		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindKey, "key", name, parent,
-			OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart, End: trimStart + nameEnd})
+			OffsetRange{Start: trimStart, End: declarationEnd}, OffsetRange{Start: trimStart, End: trimStart + nameEnd})
 		if ok && value == "" {
 			scopes = append(scopes, yamlScope{indent: line.indent, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
-		if ok && yamlBlockScalarValue(value) {
-			blockScalarIndent = line.indent
+		if scalarIndent >= 0 {
+			blockScalarIndent = scalarIndent
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
