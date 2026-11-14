@@ -558,9 +558,13 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 	source := maskSourceComments(document.Text, []string{"#", "//"}, "/*", "*/")
 	source = maskSourceHeredocs(source)
 	candidates := make([]hclBlockCandidate, 0)
+	invalidBlockRanges := make([]OffsetRange, 0)
 	for _, match := range hclBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		if len(invalidBlockRanges) > 0 && match[0] < invalidBlockRanges[len(invalidBlockRanges)-1].End {
+			continue // A nested block cannot escape an invalid enclosing declaration.
 		}
 		word := document.Text[match[4]:match[5]]
 		first := document.Text[match[6]:match[7]]
@@ -579,6 +583,12 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 		nameStart, nameEnd := match[6], match[7]
 		switch word {
 		case "resource", "data":
+			if match[8] < 0 {
+				addDocumentDataHardwareDiagnostic(builder, "terraform-missing-block-label",
+					"Terraform resource and data blocks require a type and a local name", match[0], match[1])
+				invalidBlockRanges = append(invalidBlockRanges, OffsetRange{Start: match[0], End: close + 1})
+				continue
+			}
 			kind = SymbolKindResource
 			name = first + "." + second
 			nameStart, nameEnd = match[6], match[9]
@@ -595,6 +605,12 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 	for _, match := range hclGenericBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		nextInvalid := sort.Search(len(invalidBlockRanges), func(i int) bool {
+			return invalidBlockRanges[i].Start > match[0]
+		})
+		if nextInvalid > 0 && match[0] < invalidBlockRanges[nextInvalid-1].End {
+			continue // Never elevate nested HCL scopes under an invalid outer block.
 		}
 		word := document.Text[match[4]:match[5]]
 		switch word {
