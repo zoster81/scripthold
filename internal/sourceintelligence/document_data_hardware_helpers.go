@@ -187,12 +187,31 @@ func maskSourceStrings(text string, single, double, tripleDouble bool) string {
 			if masked == nil {
 				masked = []byte(text)
 			}
-			end := strings.Index(text[index+3:], "\"\"\"")
-			if end < 0 {
+			// GraphQL block strings may contain an escaped triple quote.
+			// A delimiter preceded by an odd number of backslashes is data,
+			// not the end of the block string.
+			close := index + 3
+			for close < len(text) {
+				next := strings.Index(text[close:], "\"\"\"")
+				if next < 0 {
+					close = -1
+					break
+				}
+				close += next
+				backslashes := 0
+				for prior := close - 1; prior >= index+3 && text[prior] == '\\'; prior-- {
+					backslashes++
+				}
+				if backslashes%2 == 0 {
+					break
+				}
+				close += 3
+			}
+			if close < 0 || close == len(text) {
 				maskByteRangePreservingLines(masked, index, len(text))
 				break
 			}
-			end += index + 6
+			end := close + 3
 			maskByteRangePreservingLines(masked, index, end)
 			index = end
 			continue

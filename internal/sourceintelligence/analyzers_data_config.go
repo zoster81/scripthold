@@ -392,6 +392,7 @@ var (
 	graphqlContainer = regexp.MustCompile(`(?m)\b(type|interface|input|enum)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[^\{]*\{`)
 	graphqlOperation = regexp.MustCompile(`(?m)\b(query|mutation|subscription)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	graphqlNamedLeaf = regexp.MustCompile(`(?m)^[ \t]*(union|scalar)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	graphqlFragment  = regexp.MustCompile(`(?m)^[ \t]*fragment[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+on[ \t]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\{`)
 	graphqlField     = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
 )
 
@@ -445,6 +446,38 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		name := document.Text[match[4]:match[5]]
 		addDocumentDataHardwareSymbol(builder, SymbolKindType, word, name, nil,
 			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[4], End: match[5]})
+	}
+	// A fragment is a named, reusable selection, not an executable operation.
+	// Walk the already masked bytes once to reject declarations nested inside
+	// a query or another selection block; nested decoys are not top-level names.
+	depth, scanned := 0, 0
+	for _, match := range graphqlFragment.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		for ; scanned < match[0]; scanned++ {
+			switch source[scanned] {
+			case '{':
+				depth++
+			case '}':
+				if depth > 0 {
+					depth--
+				}
+			}
+		}
+		if depth != 0 {
+			continue
+		}
+		open := match[1] - 1
+		close := matchingBraceOffset(source, open)
+		if close < 0 {
+			addDocumentDataHardwareDiagnostic(builder, "graphql-unclosed-fragment",
+				"GraphQL fragment definition has an unclosed selection block", match[0], match[1])
+			continue
+		}
+		name := document.Text[match[2]:match[3]]
+		addDocumentDataHardwareSymbol(builder, SymbolKindSection, "fragment", name, nil,
+			OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: match[2], End: match[3]})
 	}
 	for _, match := range graphqlOperation.FindAllStringSubmatchIndex(source, -1) {
 		word := strings.ToLower(document.Text[match[2]:match[3]])

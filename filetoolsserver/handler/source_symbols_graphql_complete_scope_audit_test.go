@@ -10,9 +10,9 @@ import (
 
 // Independently inventoried declarations from five complete original GraphQL files
 // in two repositories. Current supported scope: schema, named operations,
-// object/interface/input/enum types, scalar/union types, and typed fields.
-// Directive definitions, enum values, fragments, anonymous operations, field
-// arguments and query selections are explicitly outside this inventory.
+// reusable named fragments, object/interface/input/enum types, scalar/union
+// types, and typed fields. Directive definitions, enum values, anonymous
+// operations, field arguments and query selections remain outside this inventory.
 func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {
@@ -118,7 +118,8 @@ func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 				{3, "namedQuery", "operation", "query", ""},
 				{24, "favPost", "operation", "mutation", ""},
 				{32, "PostFavSubscription", "operation", "subscription", ""},
-			}, // Fragments, anonymous operations, selections are outside current analyzer declaration scope.
+				{45, "frag", "section", "fragment", ""},
+			}, // Anonymous operations and selections remain outside the declaration scope.
 		},
 	}
 	type original struct {
