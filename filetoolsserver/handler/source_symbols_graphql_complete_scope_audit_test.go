@@ -10,9 +10,10 @@ import (
 
 // Independently inventoried declarations from five complete original GraphQL files
 // in two repositories. Current supported scope: schema, named operations,
-// reusable named fragments, object/interface/input/enum types, scalar/union
-// types, and typed fields. Directive definitions, enum values, anonymous
-// operations, field arguments and query selections remain outside this inventory.
+// reusable named fragments, schema directive definitions,
+// object/interface/input/enum types, scalar/union types, and typed fields.
+// Enum values, anonymous operations, field arguments and query selections
+// remain outside this inventory.
 func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if root == "" {
@@ -78,6 +79,8 @@ func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 				{58, "seven", "field", "field", "Foo"},
 				{61, "Foo", "type", "type", ""},
 				{63, "NoFields", "type", "type", ""},
+				{65, "skip", "section", "directive", ""},
+				{67, "include", "section", "directive", ""},
 			},
 		},
 		{
@@ -109,6 +112,8 @@ func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 				{135, "d", "field", "field", "InputSingleLine"},
 				{143, "InputMultiLine", "type", "input", ""},
 				{144, "foo", "field", "field", "InputMultiLine"},
+				{148, "DirectiveSingleLine", "section", "directive", ""},
+				{168, "DirectiveMultiLine", "section", "directive", ""},
 			},
 		},
 		{
