@@ -424,6 +424,7 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		return min(terminator+1, end)
 	}
 	arrow := parser.directArrowInitializer(keyword, nameIndex, terminator)
+	functionExpression := !arrow && parser.directFunctionExpressionInitializer(keyword, nameIndex, terminator)
 	kind := SymbolKindVariable
 	nativeKind := parser.tokens[keyword].Text
 	if parser.token(keyword, "const") {
@@ -433,6 +434,9 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 	if arrow {
 		kind = SymbolKindFunction
 		nativeKind = "arrow-function"
+	} else if functionExpression {
+		kind = SymbolKindFunction
+		nativeKind = "function-expression"
 	}
 	last := parser.previousCodeToken(terminator-1, nameIndex)
 	if parser.tokens[terminator].Text == ";" {
@@ -442,7 +446,7 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		last = nameIndex
 	}
 	var signature *OffsetRange
-	if arrow {
+	if arrow || functionExpression {
 		value := OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[last].EndOffset}
 		signature = &value
 	}
@@ -455,6 +459,59 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		Disambiguator: tokenRangeText(parser.tokens, nameIndex, min(terminator+1, end)),
 	})
 	return min(terminator+1, end)
+}
+
+// Only a complete function expression directly assigned to a binding is a
+// callable declaration. Nested callbacks, IIFEs and compound expressions are
+// values, not declarations of the enclosing variable as a function.
+func (parser *ecmaParser) directFunctionExpressionInitializer(keyword, nameIndex, end int) bool {
+	base := parser.tokens[keyword].Nesting
+	for index := nameIndex + 1; index < end; index++ {
+		if !parser.token(index, "=") || parser.tokens[index].Nesting != base {
+			continue
+		}
+		start := parser.skipTrivia(index+1, end)
+		if parser.token(start, "async") {
+			start = parser.skipTrivia(start+1, end)
+		}
+		if !parser.token(start, "function") {
+			return false
+		}
+		cursor := parser.skipTrivia(start+1, end)
+		if parser.token(cursor, "*") {
+			cursor = parser.skipTrivia(cursor+1, end)
+		}
+		if cursor < end && parser.tokens[cursor].Kind == TokenIdentifier && !parser.token(cursor, "(") {
+			cursor = parser.skipTrivia(cursor+1, end)
+		}
+		if !parser.token(cursor, "(") {
+			return false
+		}
+		closeParameters, paired := parser.pairs[cursor]
+		if !paired || closeParameters <= cursor || closeParameters >= end {
+			return false
+		}
+		last := parser.previousCodeToken(end-1, start)
+		if last <= closeParameters || !parser.token(last, "}") {
+			return false
+		}
+		for open := closeParameters + 1; open < last; open++ {
+			if !parser.token(open, "{") || parser.tokens[open].Nesting != base+1 || parser.pairs[open] != last {
+				continue
+			}
+			// An object return type has its own braces before the body;
+			// do not mistake that type annotation for a function body.
+			if parser.typescript {
+				annotation := parser.skipTrivia(closeParameters+1, open)
+				if parser.token(annotation, ":") && parser.skipTrivia(annotation+1, open) == open {
+					return false
+				}
+			}
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 // An arrow callback within an object, call, conditional or type annotation
