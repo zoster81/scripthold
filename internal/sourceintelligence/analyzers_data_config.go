@@ -754,6 +754,61 @@ var (
 	protoRPC       = regexp.MustCompile(`(?m)^[ \t]*rpc[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
 )
 
+// protoFieldDeclarationEnd extends a recognized field through its authored
+// same-line terminator. Inline option brackets may contain quoted semicolons
+// and closing brackets; neither may prematurely end the field.
+func protoFieldDeclarationEnd(source string, numberEnd int) (int, bool) {
+	index := numberEnd
+	skipSpaces := func() {
+		for index < len(source) && (source[index] == ' ' || source[index] == '\t') {
+			index++
+		}
+	}
+	skipSpaces()
+	if index < len(source) && source[index] == '[' {
+		depth := 0
+		quoted, escaped := false, false
+		for index < len(source) {
+			c := source[index]
+			if c == '\r' || c == '\n' {
+				return numberEnd, false
+			}
+			if quoted {
+				if escaped {
+					escaped = false
+				} else if c == '\\' {
+					escaped = true
+				} else if c == '"' {
+					quoted = false
+				}
+			} else {
+				switch c {
+				case '"':
+					quoted = true
+				case '[':
+					depth++
+				case ']':
+					depth--
+					if depth == 0 {
+						index++
+						skipSpaces()
+						if index < len(source) && source[index] == ';' {
+							return index + 1, true
+						}
+						return numberEnd, false
+					}
+				}
+			}
+			index++
+		}
+		return numberEnd, false
+	}
+	if index < len(source) && source[index] == ';' {
+		return index + 1, true
+	}
+	return numberEnd, false
+}
+
 func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "proto", AnalyzerProto)
 	if err != nil {
@@ -884,7 +939,16 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 				continue
 			}
 			memberName := document.Text[bodyStart+member[2] : bodyStart+member[3]]
-			addDocumentDataHardwareSymbol(builder, memberKind, native, memberName, &scope.owner, OffsetRange{Start: memberStart, End: bodyStart + member[1]}, OffsetRange{Start: bodyStart + member[2], End: bodyStart + member[3]})
+			declarationEnd := bodyStart + member[1]
+			if scope.word == "message" || scope.word == "extend" {
+				if end, ok := protoFieldDeclarationEnd(source, declarationEnd); ok {
+					declarationEnd = end
+				} else {
+					addDocumentDataHardwareDiagnostic(builder, "proto-unmodeled-field-suffix",
+						"Protocol Buffers field terminator or options cannot be verified on the declaration line", memberStart, declarationEnd)
+				}
+			}
+			addDocumentDataHardwareSymbol(builder, memberKind, native, memberName, &scope.owner, OffsetRange{Start: memberStart, End: declarationEnd}, OffsetRange{Start: bodyStart + member[2], End: bodyStart + member[3]})
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil

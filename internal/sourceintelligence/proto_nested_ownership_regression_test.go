@@ -6,6 +6,83 @@ import (
 	"testing"
 )
 
+// A safe field edit needs the entire authored declaration, including inline
+// options and its terminator, not only the number after '='.
+func TestProtoFieldDeclarationRetainsOptionsAndSemicolon(t *testing.T) {
+	const source = "syntax = \"proto3\";\n" +
+		"package demo;\n" +
+		"message Route {\n" +
+		"  string selector = 1 [json_name = \"url;selector\", deprecated = true]; // neighbor note\n" +
+		"  string body = 2;\n" +
+		"}\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (ProtoAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 30))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("supported protobuf field snippet unexpectedly partial: %+v", result.Analysis)
+			}
+			expected := map[string]string{
+				"demo.Route.selector": "string selector = 1 [json_name = \"url;selector\", deprecated = true];",
+				"demo.Route.body":     "string body = 2;",
+			}
+			for _, sym := range result.Analysis.Symbols {
+				if want, found := expected[sym.QualifiedName]; found {
+					actual := strings.TrimSpace(tc.text[sym.declarationOffsets.Start:sym.declarationOffsets.End])
+					if actual != want {
+						t.Errorf("field declaration truncated or expanded %s: got %q want %q", sym.QualifiedName, actual, want)
+					}
+					delete(expected, sym.QualifiedName)
+				}
+			}
+			if len(expected) != 0 {
+				t.Fatalf("supported fields not indexed: %+v", expected)
+			}
+		})
+	}
+}
+
+// An unterminated field option must not be advertised as fully understood.
+// A later valid sibling remains findable even when a preceding field is partial.
+func TestProtoUnclosedFieldOptionsReportIncompleteWithoutHidingSibling(t *testing.T) {
+	const source = "package demo;\nmessage Route {\n" +
+		"  string partial = 1 [deprecated = true;\n" +
+		"  string healthy = 2;\n}\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (ProtoAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 30))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("unclosed Proto field options need partial coverage: %+v", result.Analysis)
+			}
+			hasDiagnostic, hasHealthy := false, false
+			for _, d := range result.Analysis.Diagnostics {
+				if d.Code == "proto-unmodeled-field-suffix" {
+					hasDiagnostic = true
+				}
+			}
+			for _, s := range result.Analysis.Symbols {
+				if s.QualifiedName == "demo.Route.healthy" &&
+					strings.TrimSpace(tc.text[s.declarationOffsets.Start:s.declarationOffsets.End]) == "string healthy = 2;" {
+					hasHealthy = true
+				}
+			}
+			if !hasDiagnostic || !hasHealthy {
+				t.Fatalf("partial field warning or independent healthy sibling missing: %+v", result.Analysis)
+			}
+		})
+	}
+}
+
 // A protobuf message can nest types with identical short names. Fields within
 // those types must not be exposed as fields of the enclosing message.
 func TestProtoNestedMessageDeclarationsOwnTheirFields(t *testing.T) {

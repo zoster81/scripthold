@@ -8,6 +8,99 @@ import (
 	"testing"
 )
 
+// Both independently reviewed original schemas need complete field statements
+// for safe editor-facing drilldown, not just the numeric field identifiers.
+func TestProtoOriginalFieldShowIncludesTerminator(t *testing.T) {
+	cases := []struct {
+		name, env, filename, owner, field, declaration, neighbor string
+		line                                                     int
+	}{
+		{
+			name:     "Google APIs HTTP selector",
+			env:      "SCRIPTHOLD_REAL_PROTO_FIELD_GOOGLE_ROOT",
+			filename: "http.proto",
+			owner:    "google.api.HttpRule", field: "selector", line: 312,
+			declaration: "string selector = 1;",
+			neighbor:    "string body = 7;",
+		},
+		{
+			name:     "gRPC health serving status",
+			env:      "SCRIPTHOLD_REAL_PROTO_FIELD_GRPC_ROOT",
+			filename: "health.proto",
+			owner:    "grpc.health.v1.HealthCheckResponse", field: "status", line: 40,
+			declaration: "ServingStatus status = 1;",
+			neighbor:    "map<string, HealthCheckResponse> statuses = 1;",
+		},
+	}
+	configured := 0
+	for _, tc := range cases {
+		if os.Getenv(tc.env) != "" {
+			configured++
+		}
+	}
+	if configured == 0 {
+		t.Skip("independent protobuf original schemas not configured")
+	}
+	if configured != len(cases) {
+		t.Fatal("both independent protobuf original roots must be supplied")
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := os.Getenv(tc.env)
+			path := filepath.Join(root, tc.filename)
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("independent original protobuf unavailable: info=%v err=%v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+			if len(lines) <= tc.line || strings.TrimSpace(lines[tc.line-1]) != tc.declaration ||
+				!strings.Contains(string(data), tc.neighbor) {
+				t.Fatal("independently reviewed original protobuf schema changed")
+			}
+			ctx, h := context.Background(), NewHandler([]string{root})
+			_, digest, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "digest", Paths: []string{path}, Language: "proto", MaxFiles: 1,
+			})
+			if err != nil || digest.FilesParsed != 1 || digest.Truncated || !digest.CoverageComplete ||
+				len(digest.Digests) != 1 || digest.Digests[0].SourceFingerprint == "" {
+				t.Fatalf("original protobuf digest inaccurate: %v %+v", err, digest)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "proto",
+				Query: tc.field, Match: "exact", MaxFiles: 1, MaxSymbols: 64,
+				FileDetails: "relevant",
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 ||
+				found.Files[0].SourceFingerprint != digest.Digests[0].SourceFingerprint ||
+				found.Files[0].Encoding == "" {
+				t.Fatalf("original protobuf selector missing: %v %+v", err, found)
+			}
+			id := ""
+			for _, sym := range found.Symbols {
+				if sym.Name == tc.field && sym.ParentQualifiedName == tc.owner &&
+					sym.NameRange.Start.Line == tc.line && sym.NativeKind == "field" {
+					id = sym.ID
+				}
+			}
+			if id == "" {
+				t.Fatalf("protobuf field owner/source position missing: %+v", found.Symbols)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "proto", Encoding: found.Files[0].Encoding,
+				SymbolID: id, SourceFingerprint: found.Files[0].SourceFingerprint,
+				MaxBytes: 4096,
+			})
+			if err != nil || shown.Show == nil || strings.TrimSpace(shown.Show.Text) != tc.declaration {
+				t.Fatalf("protobuf complete original field source missing: %v %+v", err, shown.Show)
+			}
+		})
+	}
+}
+
 // The gRPC health enum is a maintenance location: an LLM must distinguish
 // individual serving statuses from the enclosing enum and from the status field.
 func TestProtoEnumValuesOriginalGRPCNavigation(t *testing.T) {
