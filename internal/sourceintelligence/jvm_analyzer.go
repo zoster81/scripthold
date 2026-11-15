@@ -329,6 +329,43 @@ func containsLower(values []string, value string) bool {
 	return false
 }
 
+// kotlinTypeHeaderContinues recognizes a narrowly bounded primary-constructor
+// header continuation instead of attaching unrelated declarations after a class.
+func (parser *jvmParser) kotlinTypeHeaderContinues(nameIndex, newline, end, depth int, continued bool) bool {
+	next := nextStructuralToken(parser.tokens, newline+1, end)
+	if next >= end {
+		return false
+	}
+	source := parser.document.Text
+	startOffset := parser.tokens[nameIndex].EndOffset
+	stopOffset := parser.tokens[next].StartOffset
+	if stopOffset < startOffset || stopOffset-startOffset > 4096 ||
+		strings.Count(source[startOffset:stopOffset], "\n") > 8 {
+		return false
+	}
+	if continued && parser.token(next, "{") && parser.tokens[next].Nesting == depth+1 {
+		return true
+	}
+	if parser.tokens[next].Nesting != depth {
+		return false
+	}
+	if parser.token(next, ":") || (continued && parser.token(next, "where")) {
+		return true
+	}
+	cursor := next
+	if parser.token(cursor, "@") {
+		cursor = parser.skipKotlinAnnotations(cursor, end)
+	}
+	for count := 0; count < 4 && cursor < end; count++ {
+		if _, modifier := kotlinModifiers[strings.ToLower(parser.tokens[cursor].Text)]; !modifier {
+			break
+		}
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	return parser.token(cursor, "constructor") &&
+		parser.token(nextStructuralToken(parser.tokens, cursor+1, end), "(")
+}
+
 func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end int, parent *SymbolParent) int {
 	depth := parser.tokens[keyword].Nesting
 	nameIndex := nextIdentifierToken(parser.tokens, keyword+1, end)
@@ -338,12 +375,18 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 	}
 	open := -1
 	lineEnd := -1
+	continuedHeader := false
 	for index := nameIndex + 1; index < end; index++ {
 		if parser.tokens[index].Text == "{" && parser.tokens[index].Nesting == depth+1 {
 			open = index
 			break
 		}
 		if parser.kotlin && (parser.tokens[index].Kind == TokenNewline || parser.tokens[index].Kind == TokenEOF) && parser.tokens[index].Nesting == depth {
+			if parser.tokens[index].Kind == TokenNewline &&
+				parser.kotlinTypeHeaderContinues(nameIndex, index, end, depth, continuedHeader) {
+				continuedHeader = true
+				continue
+			}
 			lineEnd = index
 			break
 		}

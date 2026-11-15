@@ -450,3 +450,90 @@ func TestKotlinOriginalPropertySetterNavigation(t *testing.T) {
 		})
 	}
 }
+
+func TestKotlinOriginalMultilineClassOwnerNavigation(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	cases := []struct {
+		project, source, class, owner, member, memberKind string
+		start, end, memberLine                            int
+	}{
+		{"project-kotlin-lysine-dev-okio", "okio/src/appleMain/kotlin/okio/ByteString.kt",
+			"ByteString", "okio", "utf8", "property", 61, 229, 72},
+		{"project-kotlin-square-moshi", "moshi-adapters/src/main/java/com/squareup/moshi/adapters/EnumJsonAdapter.kt",
+			"EnumJsonAdapter", "com.squareup.moshi.adapters", "withUnknownFallback", "method", 38, 96, 59},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			stat, err := os.Lstat(path)
+			if err != nil || !stat.Mode().IsRegular() || stat.Size() > 1<<20 {
+				t.Fatalf("original Kotlin class unavailable/unsafe: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.start <= 0 || tc.end > len(lines) || tc.memberLine > len(lines) ||
+				!strings.Contains(lines[tc.start-1], "class "+tc.class) ||
+				!strings.Contains(lines[tc.memberLine-1], tc.member) ||
+				strings.TrimSpace(lines[tc.end-1]) != "}" {
+				t.Fatalf("original Kotlin multiline class oracle drift: %s:%d-%d", tc.source, tc.start, tc.end)
+			}
+			expected := strings.TrimLeft(strings.Join(lines[tc.start-1:tc.end], "\n"), " \t")
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 1024,
+			})
+			if err != nil || outline.Truncated {
+				t.Fatalf("original Kotlin multiline class outline: %v %+v", err, outline)
+			}
+			qualified := tc.owner + "." + tc.class
+			classID, memberFound := "", false
+			for _, sym := range outline.Symbols {
+				if sym.Name == tc.class && string(sym.Kind) == "class" &&
+					sym.ParentQualifiedName == tc.owner &&
+					sym.DeclarationRange.Start.Line == tc.start && sym.DeclarationRange.End.Line == tc.end {
+					classID = sym.ID
+				}
+				if sym.Name == tc.member && string(sym.Kind) == tc.memberKind &&
+					sym.ParentQualifiedName == qualified && sym.DeclarationRange.Start.Line == tc.memberLine {
+					memberFound = true
+				}
+			}
+			if classID == "" || !memberFound {
+				t.Fatalf("original Kotlin class/member ownership: class=%s member=%t symbols=%+v", classID, memberFound, outline.Symbols)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: tc.class, Match: "exact", FileDetails: "relevant", MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("original Kotlin class find: %v %+v", err, found)
+			}
+			foundID := false
+			for _, sym := range found.Symbols {
+				if sym.ID == classID {
+					foundID = true
+				}
+			}
+			if !foundID {
+				t.Fatalf("original Kotlin class not navigable by find: %s %+v", tc.class, found.Symbols)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "kotlin", Encoding: found.Files[0].Encoding,
+				SymbolID: classID, SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 16384,
+			})
+			if err != nil || shown.Show == nil ||
+				strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != expected {
+				t.Fatalf("original Kotlin multiline class excerpt %s:%d error=%v shown=%+v", tc.source, tc.start, err, shown.Show)
+			}
+		})
+	}
+}

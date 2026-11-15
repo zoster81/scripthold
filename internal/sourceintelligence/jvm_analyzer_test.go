@@ -62,6 +62,63 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinMultilinePrimaryConstructorClassOwners(t *testing.T) {
+	cases := []struct {
+		name, source, class, member, sibling string
+		classEnd, memberLine, siblingLine    int
+	}{
+		{
+			name:   "class header followed by qualified primary constructor",
+			source: "package demo\nactual open class ByteString\ninternal actual constructor(\n  internal actual val data: ByteArray,\n) : Comparable<ByteString> {\n  var utf8: String? = null\n  fun decode() {}\n}\nfun following() {}\n",
+			class:  "demo.ByteString", member: "demo.ByteString.utf8", sibling: "demo.following",
+			classEnd: 8, memberLine: 6, siblingLine: 9,
+		},
+		{
+			name:   "annotation before multiline primary constructor",
+			source: "package demo\ninternal class JsonValueSource\n@JvmOverloads\nconstructor(\n  val source: String,\n) : Source {\n  fun read() {}\n}\nfun following() {}\n",
+			class:  "demo.JsonValueSource", member: "demo.JsonValueSource.read", sibling: "demo.following",
+			classEnd: 8, memberLine: 7, siblingLine: 9,
+		},
+		{
+			name:   "bodyless class must not absorb next function",
+			source: "package demo\nclass Empty\nfun following() {}\n",
+			class:  "demo.Empty", member: "", sibling: "demo.following",
+			classEnd: 2, siblingLine: 3,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+					sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol)), testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+					t.Errorf("Kotlin class header unexpectedly partial for %q: %+v", eol, result.Analysis.Diagnostics)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				class, ok := symbols[tc.class]
+				if !ok || class.Kind != SymbolKindClass || class.DeclarationRange.Start.Line != 2 ||
+					class.DeclarationRange.End.Line != tc.classEnd {
+					t.Errorf("class range/owner %q: %+v exists=%t", eol, class, ok)
+				}
+				if tc.member != "" {
+					member, ok := symbols[tc.member]
+					if !ok || member.DeclarationRange.Start.Line != tc.memberLine ||
+						member.ParentQualifiedName != tc.class {
+						t.Errorf("class member %q: %+v exists=%t", eol, member, ok)
+					}
+				}
+				sibling, ok := symbols[tc.sibling]
+				if !ok || sibling.Kind != SymbolKindFunction || sibling.DeclarationRange.Start.Line != tc.siblingLine {
+					t.Errorf("following sibling %q: %+v exists=%t", eol, sibling, ok)
+				}
+			}
+		})
+	}
+}
+
 func TestKotlinPropertyNamesAndGetterScopes(t *testing.T) {
 	cases := []struct {
 		name   string
