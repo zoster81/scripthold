@@ -133,6 +133,9 @@ func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, member
 					if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting &&
 						parser.kotlinAnnotatedPropertyAt(candidate, end) {
 						index = parser.parseKotlinProperty(index, end, currentParent)
+					} else if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting &&
+						parser.kotlinAnnotatedFunctionAt(candidate, end) {
+						index = parser.parseKotlinFunction(index, end, currentParent, members)
 					} else {
 						index = next
 					}
@@ -1200,6 +1203,22 @@ func (parser *jvmParser) kotlinPropertySetter(propertyStart, from, end, depth in
 		return 0, 0, true, false
 	}
 	return parser.tokens[closeBody].EndOffset, closeBody + 1, true, true
+}
+
+// kotlinAnnotatedFunctionAt accepts only declaration modifiers before fun.
+// A class annotation or file annotation must never become a method prefix.
+func (parser *jvmParser) kotlinAnnotatedFunctionAt(start, end int) bool {
+	cursor := start
+	for count := 0; cursor < end && count < 12; count++ {
+		if parser.token(cursor, "fun") {
+			return true
+		}
+		if _, ok := kotlinModifiers[strings.ToLower(parser.tokens[cursor].Text)]; !ok {
+			return false
+		}
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	return false
 }
 
 // kotlinAnnotatedPropertyAt accepts only property modifiers before val/var.

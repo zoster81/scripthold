@@ -62,6 +62,60 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinAnnotatedFunctionExcerptsAndSiblings(t *testing.T) {
+	cases := []struct {
+		name, source, target, sibling string
+		start, end, siblingLine       int
+		kind                          SymbolKind
+	}{
+		{
+			name:   "member function with separate throws annotation",
+			source: "package demo\nclass Bridge {\n  @Throws(IOException::class)\n  open fun read(): Long = 0L\n  fun next() {}\n}\n",
+			target: "demo.Bridge.read", sibling: "demo.Bridge.next",
+			start: 3, end: 4, siblingLine: 5, kind: SymbolKindMethod,
+		},
+		{
+			name:   "extension methods after file level annotation",
+			source: "@file:Suppress(\"unused\")\npackage demo\nobject Codec {\n  @JvmStatic\n  fun ByteArray.decode(): Int = 1\n  @JvmStatic\n  fun String.encode(): Int = 2\n}\n",
+			target: "demo.Codec.decode", sibling: "demo.Codec.encode",
+			start: 4, end: 5, siblingLine: 6, kind: SymbolKindMethod,
+		},
+		{
+			name:   "top-level annotated function",
+			source: "package demo\n@Deprecated(\"old\")\nfun parse(): Int = 1\nfun next(): Int = 2\n",
+			target: "demo.parse", sibling: "demo.next",
+			start: 2, end: 3, siblingLine: 4, kind: SymbolKindFunction,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+					sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol)),
+					testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+					t.Errorf("annotated function unexpectedly partial %q: %+v", eol, result.Analysis.Diagnostics)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				target, ok := symbols[tc.target]
+				if !ok || target.Kind != tc.kind ||
+					target.DeclarationRange.Start.Line != tc.start ||
+					target.DeclarationRange.End.Line != tc.end {
+					t.Errorf("annotated function excerpt %q: %+v exists=%t", eol, target, ok)
+				}
+				sibling, ok := symbols[tc.sibling]
+				if !ok || sibling.Kind != tc.kind ||
+					sibling.DeclarationRange.Start.Line != tc.siblingLine {
+					t.Errorf("following function ownership %q: %+v exists=%t", eol, sibling, ok)
+				}
+			}
+		})
+	}
+}
+
 func TestKotlinAccessorAnnotationsInPropertySourceRanges(t *testing.T) {
 	cases := []struct {
 		name, source, property, sibling string

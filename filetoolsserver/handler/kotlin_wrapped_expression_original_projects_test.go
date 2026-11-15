@@ -538,6 +538,110 @@ func TestKotlinOriginalMultilineClassOwnerNavigation(t *testing.T) {
 	}
 }
 
+func TestKotlinOriginalAnnotatedFunctionNavigation(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	cases := []struct {
+		project, source, owner, member, sibling string
+		start, end, siblingLine                 int
+	}{
+		{
+			project: "project-kotlin-lysine-dev-okio",
+			source:  "okio/jvm/jmh/src/jmh/java/com/squareup/okio/benchmarks/BenchmarkUtils.kt",
+			owner:   "com.squareup.okio.benchmarks.BenchmarkUtils",
+			member:  "decodeUtf8", sibling: "encodeUtf8",
+			start: 29, end: 32, siblingLine: 34,
+		},
+		{
+			project: "project-kotlin-zhanghai-materialfiles",
+			source:  "app/src/main/java/me/zhanghai/android/files/compat/ProxyFileDescriptorCallbackCompat.kt",
+			owner:   "me.zhanghai.android.files.compat.ProxyFileDescriptorCallbackCompat",
+			member:  "onGetSize", sibling: "onRead",
+			start: 15, end: 18, siblingLine: 20,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			stat, err := os.Lstat(path)
+			if err != nil || !stat.Mode().IsRegular() || stat.Size() > 1<<20 {
+				t.Fatalf("annotated original unavailable or unsafe: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.start < 1 || tc.end > len(lines) || tc.siblingLine > len(lines) ||
+				!strings.HasPrefix(strings.TrimSpace(lines[tc.start-1]), "@") ||
+				!strings.Contains(lines[tc.start], "fun ") ||
+				!strings.Contains(lines[tc.start], tc.member+"(") ||
+				!strings.HasPrefix(strings.TrimSpace(lines[tc.siblingLine-1]), "@") ||
+				strings.TrimSpace(lines[tc.end-1]) != "}" {
+				t.Fatalf("annotated function original oracle changed: %s", tc.source)
+			}
+			expected := strings.TrimLeft(strings.Join(lines[tc.start-1:tc.end], "\n"), " \t")
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 512,
+			})
+			if err != nil || outline.Truncated {
+				t.Fatalf("original annotated function outline: %v %+v", err, outline)
+			}
+			memberID, siblingOK := "", false
+			for _, sym := range outline.Symbols {
+				if sym.Name == tc.member && string(sym.Kind) == "method" &&
+					sym.ParentQualifiedName == tc.owner &&
+					sym.DeclarationRange.Start.Line == tc.start &&
+					sym.DeclarationRange.End.Line == tc.end {
+					memberID = sym.ID
+				}
+				if sym.Name == tc.sibling && string(sym.Kind) == "method" &&
+					sym.ParentQualifiedName == tc.owner &&
+					sym.DeclarationRange.Start.Line == tc.siblingLine {
+					siblingOK = true
+				}
+			}
+			if memberID == "" || !siblingOK {
+				t.Fatalf("original annotated function or sibling missing: %s member=%t sibling=%t",
+					tc.source, memberID != "", siblingOK)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: tc.member, Match: "exact", FileDetails: "relevant",
+				MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("original annotated method find failed: %v %+v", err, found)
+			}
+			matched := false
+			for _, sym := range found.Symbols {
+				if sym.ID == memberID {
+					matched = true
+				}
+			}
+			if !matched {
+				t.Fatalf("annotated original method absent from find: %s", tc.member)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "kotlin",
+				Encoding: found.Files[0].Encoding, SymbolID: memberID,
+				SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 8192,
+			})
+			if err != nil || shown.Show == nil ||
+				strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != expected {
+				t.Fatalf("original annotated function excerpt mismatch: %s err=%v shown=%+v expected=%q",
+					tc.source, err, shown.Show, expected)
+			}
+		})
+	}
+}
+
 func TestKotlinOriginalAccessorAnnotationPropertyExcerpts(t *testing.T) {
 	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if corpus == "" {
