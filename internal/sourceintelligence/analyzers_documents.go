@@ -426,10 +426,37 @@ func maskSCSSModuleDirectives(structural, stringMasked string, builder *SymbolBu
 	return string(masked)
 }
 
+// cssRuleClosures pairs real braces in the source with strings and comments
+// already masked. A single pass avoids quadratic nested-rule rescanning.
+func cssRuleClosures(source string) (map[int]int, bool) {
+	closed := make(map[int]int)
+	open := make([]int, 0, 16)
+	complete := true
+	for i := 0; i < len(source); i++ {
+		switch source[i] {
+		case '{':
+			open = append(open, i)
+		case '}':
+			if len(open) == 0 {
+				complete = false
+				continue
+			}
+			last := len(open) - 1
+			closed[open[last]] = i + 1
+			open = open[:last]
+		}
+	}
+	return closed, complete && len(open) == 0
+}
+
 func cssSelectors(ctx context.Context, builder *SymbolBuilder, document *SourceDocument, source string) {
 	if len(source) != len(document.Text) {
 		builder.MarkIncomplete()
 		return
+	}
+	closures, balanced := cssRuleClosures(source)
+	if !balanced {
+		builder.MarkIncomplete()
 	}
 	start := 0
 	for start < len(source) {
@@ -445,7 +472,23 @@ func cssSelectors(ctx context.Context, builder *SymbolBuilder, document *SourceD
 		segmentStart++
 		raw := strings.TrimSpace(source[segmentStart:open])
 		if raw != "" && !strings.HasPrefix(raw, "@") && !strings.Contains(raw, ": ") {
-			for _, span := range cssSelectorSpans(source[segmentStart:open]) {
+			spans := cssSelectorSpans(source[segmentStart:open])
+			ruleEnd := closures[open]
+			if ruleEnd == 0 {
+				// A source selector without a closing brace remains partial.
+				builder.MarkIncomplete()
+				ruleEnd = open
+			}
+			ruleStart := segmentStart
+			if len(spans) > 0 {
+				ruleStart += spans[0].Start
+			}
+			signatureEnd := open
+			if ruleEnd > open {
+				signatureEnd++ // Include the opening brace, not the rule body, in outline signatures.
+			}
+			signature := OffsetRange{Start: ruleStart, End: signatureEnd}
+			for _, span := range spans {
 				selector := source[segmentStart+span.Start : segmentStart+span.End]
 				if strings.Contains(selector, "\n") && strings.Contains(selector, ":") {
 					continue
@@ -453,7 +496,12 @@ func cssSelectors(ctx context.Context, builder *SymbolBuilder, document *SourceD
 				nameStart := segmentStart + span.Start
 				nameEnd := segmentStart + span.End
 				name := document.Text[nameStart:nameEnd]
-				addDocumentDataHardwareSymbol(builder, SymbolKindSelector, "selector", name, nil, OffsetRange{Start: nameStart, End: open}, OffsetRange{Start: nameStart, End: nameEnd})
+				addStructuralSymbol(builder, SymbolSpec{
+					Kind: SymbolKindSelector, NativeKind: "selector", Name: name,
+					Declaration: OffsetRange{Start: ruleStart, End: ruleEnd},
+					NameRange:   OffsetRange{Start: nameStart, End: nameEnd},
+					Signature:   &signature, Evidence: SymbolEvidenceStructural,
+				})
 			}
 		}
 		if err := ctx.Err(); err != nil {
