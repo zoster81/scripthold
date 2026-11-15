@@ -598,7 +598,7 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		return AnalyzerResult{}, err
 	}
 	lines := sourceTextLines(document.Text)
-	selectorEnds := sassIndentedSubtreeEnds(lines)
+	subtreeEnds := sassIndentedSubtreeEnds(lines)
 	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -610,7 +610,13 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if strings.HasPrefix(trimmed, "=") {
 			if name := sassMixinName(trimmed); name != "" {
 				nameStart := line.start + strings.Index(line.text, name)
-				addDocumentDataHardwareSymbol(builder, SymbolKindFunction, "mixin", name, nil, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
+				signature := OffsetRange{Start: line.start, End: line.end}
+				addStructuralSymbol(builder, SymbolSpec{
+					Kind: SymbolKindFunction, NativeKind: "mixin", Name: name,
+					Declaration: OffsetRange{Start: line.start, End: subtreeEnds[index]},
+					NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(name)},
+					Signature:   &signature, Evidence: SymbolEvidenceStructural,
+				})
 			} else {
 				addDocumentDataHardwareDiagnostic(builder, "sass-malformed-mixin", "Sass mixin declaration has no valid name or parameter list", line.start, line.end)
 				builder.MarkIncomplete()
@@ -637,7 +643,13 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 				continue
 			}
 			nameStart := line.start + strings.Index(line.text, name)
-			addDocumentDataHardwareSymbol(builder, SymbolKindFunction, "function", name, nil, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
+			signature := OffsetRange{Start: line.start, End: line.end}
+			addStructuralSymbol(builder, SymbolSpec{
+				Kind: SymbolKindFunction, NativeKind: "function", Name: name,
+				Declaration: OffsetRange{Start: line.start, End: subtreeEnds[index]},
+				NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(name)},
+				Signature:   &signature, Evidence: SymbolEvidenceStructural,
+			})
 			continue
 		}
 		if strings.Contains(trimmed, ": ") || strings.HasPrefix(trimmed, "@") {
@@ -660,7 +672,7 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			signature := OffsetRange{Start: line.start, End: line.end}
 			addStructuralSymbol(builder, SymbolSpec{
 				Kind: SymbolKindSelector, NativeKind: "selector", Name: trimmed,
-				Declaration: OffsetRange{Start: line.start, End: selectorEnds[index]},
+				Declaration: OffsetRange{Start: line.start, End: subtreeEnds[index]},
 				NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(trimmed)},
 				Signature:   &signature, Evidence: SymbolEvidenceStructural,
 			})
