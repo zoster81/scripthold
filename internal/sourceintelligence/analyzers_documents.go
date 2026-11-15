@@ -1419,6 +1419,24 @@ func (OpenAPIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
 
+// ansibleTaskDeclarationEnd keeps one authored YAML sequence item together.
+// Peer tasks and enclosing play keys end the item; blank and comment-only
+// lines do not imply an early end to its nested action or condition fields.
+func ansibleTaskDeclarationEnd(lines []sourceTextLine, index int) int {
+	end := lines[index].end
+	for _, next := range lines[index+1:] {
+		text := strings.TrimSpace(next.text)
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		if next.indent <= lines[index].indent {
+			break
+		}
+		end = next.end
+	}
+	return end
+}
+
 func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "ansible-yaml", AnalyzerAnsibleYAML)
 	if err != nil {
@@ -1493,7 +1511,7 @@ func (AnsibleYAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument
 		if play != nil && tasksIndent >= 0 && line.indent >= tasksIndent {
 			parent = play
 		}
-		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, "task", name, parent, OffsetRange{Start: trimStart, End: line.end}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
+		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, "task", name, parent, OffsetRange{Start: trimStart, End: ansibleTaskDeclarationEnd(lines, i)}, OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
