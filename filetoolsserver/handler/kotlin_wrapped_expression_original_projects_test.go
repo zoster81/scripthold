@@ -538,6 +538,147 @@ func TestKotlinOriginalMultilineClassOwnerNavigation(t *testing.T) {
 	}
 }
 
+func TestKotlinOriginalImplicitCompanionNavigation(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	type member struct {
+		name, kind string
+		line       int
+	}
+	cases := []struct {
+		project, source, owner string
+		start, end             int
+		members                []member
+		outer                  member
+	}{
+		{
+			project: "project-kotlin-square-moshi",
+			source:  "moshi/src/main/java/com/squareup/moshi/Json.kt",
+			owner:   "com.squareup.moshi.Json", start: 45, end: 48,
+			members: []member{{name: "UNSET_NAME", kind: "constant", line: 47}},
+			outer:   member{name: "name", kind: "property", line: 36},
+		},
+		{
+			project: "project-kotlin-lysine-dev-okio",
+			source:  "okio/src/commonMain/kotlin/okio/Options.kt",
+			owner:   "okio.Options", start: 35, end: 236,
+			members: []member{
+				{name: "of", kind: "method", line: 36},
+				{name: "buildTrieRecursive", kind: "method", line: 109},
+				{name: "intCount", kind: "property", line: 235},
+			},
+			outer: member{name: "size", kind: "property", line: 30},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			stat, err := os.Lstat(path)
+			if err != nil || !stat.Mode().IsRegular() || stat.Size() > 1<<20 {
+				t.Fatalf("original companion fixture unavailable or unsafe: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.start < 1 || tc.end > len(lines) ||
+				!strings.Contains(lines[tc.start-1], "companion object {") ||
+				strings.TrimSpace(lines[tc.end-1]) != "}" ||
+				!strings.Contains(lines[tc.outer.line-1], tc.outer.name) {
+				t.Fatalf("original companion fixture oracle drift: %s:%d-%d", tc.source, tc.start, tc.end)
+			}
+			for _, expected := range tc.members {
+				if expected.line > len(lines) ||
+					(!strings.Contains(lines[expected.line-1], expected.name) &&
+						(expected.line == len(lines) || !strings.Contains(lines[expected.line], expected.name))) {
+					t.Fatalf("original member oracle drift: %s:%d %s", tc.source, expected.line, expected.name)
+				}
+			}
+			expectedSource := strings.TrimLeft(strings.Join(lines[tc.start-1:tc.end], "\n"), " \t")
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 512,
+			})
+			if err != nil || outline.Truncated {
+				t.Fatalf("original companion outline failed: %v %+v", err, outline)
+			}
+			qualified := tc.owner + ".Companion"
+			companionID := ""
+			for _, symbol := range outline.Symbols {
+				if symbol.QualifiedName == qualified && symbol.Name == "Companion" &&
+					string(symbol.Kind) == "class" && symbol.NativeKind == "companion-object" &&
+					symbol.ParentQualifiedName == tc.owner &&
+					symbol.DeclarationRange.Start.Line == tc.start &&
+					symbol.DeclarationRange.End.Line == tc.end {
+					companionID = symbol.ID
+				}
+			}
+			if companionID == "" {
+				t.Fatalf("original implicit companion not indexed: %s", tc.source)
+			}
+			for _, member := range tc.members {
+				found := false
+				for _, sym := range outline.Symbols {
+					if sym.QualifiedName == qualified+"."+member.name &&
+						string(sym.Kind) == member.kind &&
+						sym.ParentQualifiedName == qualified &&
+						sym.DeclarationRange.Start.Line == member.line {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("original companion member missing: %s %s", tc.source, member.name)
+				}
+			}
+			outerFound := false
+			for _, symbol := range outline.Symbols {
+				if symbol.QualifiedName == tc.owner+"."+tc.outer.name &&
+					symbol.ParentQualifiedName == tc.owner &&
+					string(symbol.Kind) == tc.outer.kind &&
+					symbol.DeclarationRange.Start.Line == tc.outer.line {
+					outerFound = true
+				}
+			}
+			if !outerFound {
+				t.Fatalf("outer class declaration incorrectly owned: %s %s", tc.source, tc.outer.name)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: "Companion", Match: "exact", FileDetails: "relevant",
+				MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("companion exact find failed: %v %+v", err, found)
+			}
+			matched := false
+			for _, symbol := range found.Symbols {
+				if symbol.ID == companionID {
+					matched = true
+				}
+			}
+			if !matched {
+				t.Fatalf("implicit companion absent from exact find: %s", tc.source)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "kotlin",
+				Encoding: found.Files[0].Encoding, SymbolID: companionID,
+				SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 16384,
+			})
+			if err != nil || shown.Show == nil ||
+				strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != expectedSource {
+				t.Fatalf("original companion excerpt mismatch: %s err=%v shown=%+v expected=%q",
+					tc.source, err, shown.Show, expectedSource)
+			}
+		})
+	}
+}
+
 func TestKotlinOriginalAnnotatedTypeNavigation(t *testing.T) {
 	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if corpus == "" {

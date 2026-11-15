@@ -338,10 +338,17 @@ func (parser *jvmParser) typeDeclarationAt(start, end int) (keyword, declaration
 				return 0, start, "", false
 			}
 		}
+		implicitCompanion := parser.kotlin && text == "object" && containsLower(prefixes, "companion") &&
+			cursor+1 < end && parser.token(cursor+1, "{") &&
+			parser.tokens[cursor+1].Nesting == parser.tokens[cursor].Nesting+1
 		if text == "class" || text == "interface" ||
-			(parser.kotlin && text == "object" && cursor+1 < end && parser.tokens[cursor+1].Kind == TokenIdentifier) ||
+			(parser.kotlin && text == "object" && cursor+1 < end &&
+				(parser.tokens[cursor+1].Kind == TokenIdentifier || implicitCompanion)) ||
 			(!parser.kotlin && (text == "enum" || text == "record")) {
 			nativeKind = text
+			if implicitCompanion {
+				nativeKind = "companion-object"
+			}
 			if parser.kotlin && text == "class" {
 				if containsLower(prefixes, "value") {
 					nativeKind = "value-class"
@@ -406,10 +413,16 @@ func (parser *jvmParser) kotlinTypeHeaderContinues(nameIndex, newline, end, dept
 
 func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end int, parent *SymbolParent) int {
 	depth := parser.tokens[keyword].Nesting
-	nameIndex := nextIdentifierToken(parser.tokens, keyword+1, end)
-	if nameIndex < 0 {
-		parser.builder.MarkIncomplete()
-		return keyword + 1
+	implicitCompanion := parser.kotlin && nativeKind == "companion-object"
+	nameIndex := keyword
+	name := "Companion" // Kotlin's implicit name, anchored to the authored object keyword.
+	if !implicitCompanion {
+		nameIndex = nextIdentifierToken(parser.tokens, keyword+1, end)
+		if nameIndex < 0 {
+			parser.builder.MarkIncomplete()
+			return keyword + 1
+		}
+		name = parser.tokens[nameIndex].Text
 	}
 	open := -1
 	lineEnd := -1
@@ -472,7 +485,7 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 		}
 	}
 	symbol, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: signatureEnd}, Body: body,

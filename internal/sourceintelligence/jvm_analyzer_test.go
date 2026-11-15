@@ -62,6 +62,80 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinImplicitCompanionObjectOwners(t *testing.T) {
+	source := "package demo\nclass Options {\n  companion object {\n    const val FLAG: Int = 7\n    fun of(): Options = Options()\n  }\n  fun instance() {}\n}\nclass Next {}\n"
+	for _, eol := range []string{"\n", "\r\n"} {
+		t.Run(strings.ReplaceAll(eol, "\r", "CR"), func(t *testing.T) {
+			document := sourceDocumentForScanner(strings.ReplaceAll(source, "\n", eol))
+			result, err := (KotlinAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Errorf("implicit companion unexpectedly partial: %+v", result.Analysis.Diagnostics)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			companion, ok := symbols["demo.Options.Companion"]
+			if !ok || companion.Kind != SymbolKindClass || companion.NativeKind != "companion-object" ||
+				companion.ParentQualifiedName != "demo.Options" ||
+				companion.DeclarationRange.Start.Line != 3 || companion.DeclarationRange.End.Line != 6 ||
+				companion.NameRange.Start.Line != 3 {
+				t.Errorf("implicit companion owner incorrect: %+v exists=%t, all=%v",
+					companion, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if ok && document.Text[companion.nameOffsets.Start:companion.nameOffsets.End] != "object" {
+				t.Errorf("synthetic companion name must be anchored at actual object keyword: %+v", companion)
+			}
+			for name, parent := range map[string]string{
+				"demo.Options.Companion.FLAG": "demo.Options.Companion",
+				"demo.Options.Companion.of":   "demo.Options.Companion",
+				"demo.Options.instance":       "demo.Options",
+				"demo.Next":                   "demo",
+			} {
+				symbol, exists := symbols[name]
+				if !exists || symbol.ParentQualifiedName != parent {
+					t.Errorf("%s has parent %q, expected %q, exists=%t", name, symbol.ParentQualifiedName, parent, exists)
+				}
+			}
+			for _, fake := range []string{"demo.Options.FLAG", "demo.Options.of", "demo.Options.Companion.instance"} {
+				if _, exists := symbols[fake]; exists {
+					t.Errorf("incorrect flattened member %q", fake)
+				}
+			}
+		})
+	}
+}
+
+func TestKotlinCompanionNamesAndAnonymousObjectNegatives(t *testing.T) {
+	source := "package demo\nclass Api {\n  public companion object Factory {\n    fun make() {}\n  }\n  val runner = object : Runnable { override fun run() {} }\n}\nobject Named { fun ping() {} }\nclass After {}\n"
+	for _, eol := range []string{"\n", "\r\n"} {
+		result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+			sourceDocumentForScanner(strings.ReplaceAll(source, "\n", eol)),
+			testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+		for name, parent := range map[string]string{
+			"demo.Api.Factory":      "demo.Api",
+			"demo.Api.Factory.make": "demo.Api.Factory",
+			"demo.Named":            "demo",
+			"demo.Named.ping":       "demo.Named",
+			"demo.After":            "demo",
+		} {
+			symbol, exists := symbols[name]
+			if !exists || symbol.ParentQualifiedName != parent {
+				t.Errorf("%q: %s has parent %q expected %q exists=%t", eol, name, symbol.ParentQualifiedName, parent, exists)
+			}
+		}
+		for _, fake := range []string{"demo.Api.Companion", "demo.Api.runner.Companion", "demo.Companion"} {
+			if _, exists := symbols[fake]; exists {
+				t.Errorf("invented companion symbol %q", fake)
+			}
+		}
+	}
+}
+
 func TestKotlinAnnotatedTypeSourceRangesAndOwners(t *testing.T) {
 	cases := []struct {
 		name, source, className, classNative, member, sibling string
