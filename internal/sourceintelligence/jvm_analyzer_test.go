@@ -62,6 +62,59 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinAccessorAnnotationsInPropertySourceRanges(t *testing.T) {
+	cases := []struct {
+		name, source, property, sibling string
+		start, end, siblingLine         int
+	}{
+		{
+			name:     "member getter use-site annotation",
+			source:   "package demo\nclass Navigation {\n  @get:DrawableRes\n  protected abstract val iconRes: Int?\n  fun title() {}\n}\n",
+			property: "demo.Navigation.iconRes", sibling: "demo.Navigation.title",
+			start: 3, end: 4, siblingLine: 5,
+		},
+		{
+			name:     "constructor property getter and setter annotations",
+			source:   "package demo\nclass Forwarder(\n  @get:JvmName(\"delegate\")\n  @set:JvmSynthetic\n  var delegate: Timeout,\n) {\n  fun setDelegate() {}\n}\n",
+			property: "demo.Forwarder.delegate", sibling: "demo.Forwarder.setDelegate",
+			start: 3, end: 5, siblingLine: 7,
+		},
+		{
+			name:     "annotation on method is not part of next property",
+			source:   "package demo\nclass Navigation {\n  @Deprecated(\"old\")\n  fun old() {}\n  val title: Int = 0\n  fun after() {}\n}\n",
+			property: "demo.Navigation.title", sibling: "demo.Navigation.after",
+			start: 5, end: 5, siblingLine: 6,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+					sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol)),
+					testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+					t.Errorf("annotated property coverage unexpectedly partial %q: %+v", eol, result.Analysis.Diagnostics)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				property, ok := symbols[tc.property]
+				if !ok || property.Kind != SymbolKindProperty ||
+					property.DeclarationRange.Start.Line != tc.start ||
+					property.DeclarationRange.End.Line != tc.end {
+					t.Errorf("annotated property excerpt %q: %+v exists=%t", eol, property, ok)
+				}
+				sibling, ok := symbols[tc.sibling]
+				if !ok || sibling.Kind != SymbolKindMethod ||
+					sibling.DeclarationRange.Start.Line != tc.siblingLine {
+					t.Errorf("adjacent method corrupted %q: %+v exists=%t", eol, sibling, ok)
+				}
+			}
+		})
+	}
+}
+
 func TestKotlinPackageKeywordSegmentsAndMalformedNames(t *testing.T) {
 	cases := []struct {
 		name, source, packageName, className, memberName string

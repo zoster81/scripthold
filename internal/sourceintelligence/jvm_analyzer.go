@@ -129,7 +129,13 @@ func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, member
 		if parser.token(index, "@") {
 			if parser.kotlin {
 				if next := parser.skipKotlinAnnotations(index, end); next > index {
-					index = next
+					candidate := nextStructuralToken(parser.tokens, next, end)
+					if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting &&
+						parser.kotlinAnnotatedPropertyAt(candidate, end) {
+						index = parser.parseKotlinProperty(index, end, currentParent)
+					} else {
+						index = next
+					}
 					continue
 				}
 			} else if !members {
@@ -640,9 +646,14 @@ func (parser *jvmParser) addKotlinPrimaryProperties(parent *SymbolParent, start,
 		if nameIndex < 0 {
 			continue
 		}
+		declarationStart := marker
+		if annotation := nextStructuralToken(parser.tokens, part[0], marker); annotation < marker &&
+			parser.token(annotation, "@") && parser.skipKotlinAnnotations(annotation, part[1]) == marker {
+			declarationStart = annotation
+		}
 		parser.add(SymbolSpec{
 			Kind: SymbolKindProperty, NativeKind: parser.tokens[marker].Text + "-parameter", Name: parser.tokens[nameIndex].Text, Parent: parent,
-			Declaration: OffsetRange{Start: parser.tokens[marker].StartOffset, End: parser.tokens[part[1]-1].EndOffset},
+			Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[part[1]-1].EndOffset},
 			NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset}, Evidence: SymbolEvidenceStructural,
 		})
 	}
@@ -1189,6 +1200,22 @@ func (parser *jvmParser) kotlinPropertySetter(propertyStart, from, end, depth in
 		return 0, 0, true, false
 	}
 	return parser.tokens[closeBody].EndOffset, closeBody + 1, true, true
+}
+
+// kotlinAnnotatedPropertyAt accepts only property modifiers before val/var.
+// It must not scan into a value class constructor and misattach class annotations.
+func (parser *jvmParser) kotlinAnnotatedPropertyAt(start, end int) bool {
+	cursor := start
+	for count := 0; cursor < end && count < 12; count++ {
+		if parser.token(cursor, "val") || parser.token(cursor, "var") {
+			return true
+		}
+		if _, ok := kotlinModifiers[strings.ToLower(parser.tokens[cursor].Text)]; !ok {
+			return false
+		}
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	return false
 }
 
 func (parser *jvmParser) kotlinPropertyWithModifiers(start, end int) bool {
