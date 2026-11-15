@@ -47,6 +47,69 @@ func TestProtoFieldDeclarationRetainsOptionsAndSemicolon(t *testing.T) {
 	}
 }
 
+// Proto2 groups introduce their own nested message scope. A conservative
+// navigator must not attribute group-only fields to the enclosing message.
+func TestProtoGroupMembersNotPromotedAsDirectMessageFields(t *testing.T) {
+	source := "syntax = \"proto2\";\npackage demo;\n" +
+		"message Request {\n" +
+		"  string direct = 1;\n" +
+		"  optional group SomeGroup = 8 {\n" +
+		"    optional int32 group_field = 9;\n" +
+		"  }\n" +
+		"  string after = 10;\n" +
+		"}\n" +
+		"message Communique {\n" +
+		"  oneof union {\n" +
+		"    string selected = 1;\n" +
+		"    group Nested = 14 {\n" +
+		"      optional string member = 15;\n" +
+		"    }\n" +
+		"  }\n" +
+		"  int32 last = 16;\n" +
+		"}\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (ProtoAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("unsupported nested proto2 groups must be partial, not truncated: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, name := range []string{
+				"demo.Request", "demo.Request.direct", "demo.Request.after",
+				"demo.Communique", "demo.Communique.selected", "demo.Communique.last",
+			} {
+				if _, ok := symbols[name]; !ok {
+					t.Errorf("supported declaration omitted after group masking: %s", name)
+				}
+			}
+			for _, name := range []string{
+				"demo.Request.SomeGroup", "demo.Request.group_field",
+				"demo.Communique.Nested", "demo.Communique.member",
+			} {
+				if symbol, ok := symbols[name]; ok {
+					t.Errorf("group declaration incorrectly promoted to direct member %s: %+v", name, symbol)
+				}
+			}
+			foundDiagnostic := false
+			for _, diagnostic := range result.Analysis.Diagnostics {
+				if diagnostic.Code == "proto-unmodeled-group" {
+					foundDiagnostic = true
+				}
+			}
+			if !foundDiagnostic {
+				t.Error("unmodeled group must report a diagnostic")
+			}
+		})
+	}
+}
+
 // An unterminated field option must not be advertised as fully understood.
 // A later valid sibling remains findable even when a preceding field is partial.
 func TestProtoUnclosedFieldOptionsReportIncompleteWithoutHidingSibling(t *testing.T) {

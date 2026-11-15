@@ -113,3 +113,93 @@ func TestProtoOriginalExtensionFieldNavigation(t *testing.T) {
 		})
 	}
 }
+
+// Unsupported proto2 group bodies must not invent fields under their enclosing
+// message. Original ctags sources also prove unaffected siblings remain navigable.
+func TestProtoOriginalGroupFieldsRemainPartialWithoutFalseOwners(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_PROTO_GROUP_CTAGS_ROOT")
+	if root == "" {
+		t.Skip("original Proto2 group source not configured")
+	}
+	path := filepath.Join(root, "Units", "parser-protobuf.r", "protobuf-group.d", "input.proto")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		t.Fatalf("original group source missing or invalid: %v", err)
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.ReplaceAll(string(source), "\r\n", "\n"), "\n")
+	for _, want := range []struct {
+		line     int
+		fragment string
+	}{
+		{68, "optional group SomeGroup = 8 {"},
+		{69, "optional int32 group_field = 9;"},
+		{85, "optional string get_key = 16;"},
+		{149, "group SomeGroup = 14 {"},
+		{150, "optional string member = 15;"},
+		{154, "message Delta {}"},
+	} {
+		if want.line > len(lines) || !strings.Contains(lines[want.line-1], want.fragment) {
+			t.Fatalf("independent original Proto2 oracle changed at %d: %s", want.line, want.fragment)
+		}
+	}
+	ctx, h := context.Background(), NewHandler([]string{root})
+	fail, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "proto", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 160,
+	})
+	if err != nil || fail != nil || outline.Truncated || outline.FilesParsed != 1 ||
+		outline.CoverageComplete {
+		t.Fatalf("unmodeled original groups must return a bounded partial outline: %v fail=%+v result=%+v", err, fail, outline)
+	}
+	present := map[string]bool{}
+	for _, symbol := range outline.Symbols {
+		present[symbol.QualifiedName] = true
+	}
+	for _, name := range []string{
+		"my.test.Request.key", "my.test.Request.get_key",
+		"my.test.Request.hue", "my.test.Communique.maybe",
+		"my.test.Communique.Delta",
+	} {
+		if !present[name] {
+			t.Errorf("supported original member missing after group exclusion: %s", name)
+		}
+	}
+	for _, name := range []string{
+		"my.test.Request.SomeGroup", "my.test.Request.group_field",
+		"my.test.Communique.SomeGroup", "my.test.Communique.member",
+	} {
+		if present[name] {
+			t.Errorf("unmodeled original group falsely exposed as direct member: %s", name)
+		}
+	}
+	fail, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "find", Paths: []string{path}, Query: "get_key", Match: "exact",
+		Language: "proto", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 10,
+	})
+	if err != nil || fail != nil || len(found.Files) != 1 || len(found.Symbols) != 1 ||
+		found.Symbols[0].QualifiedName != "my.test.Request.get_key" ||
+		found.Files[0].SourceFingerprint == "" {
+		t.Fatalf("supported original direct field unavailable: %v fail=%+v result=%+v", err, fail, found)
+	}
+	fail, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "show", Path: path, Language: "proto", Encoding: "utf-8",
+		SymbolID: found.Symbols[0].ID, SourceFingerprint: found.Files[0].SourceFingerprint,
+		MaxBytes: 4096,
+	})
+	if err != nil || fail != nil || shown.Show == nil ||
+		strings.TrimSpace(shown.Show.Text) != "optional string get_key = 16;" {
+		t.Fatalf("fingerprint-bound direct field excerpt incorrect: %v fail=%+v", err, fail)
+	}
+	fail, query, err := h.SourceQuery(ctx, nil, SourceQueryInput{
+		Operation: "search", Mode: "structural", Paths: []string{path},
+		Query: "group_field", Match: "exact", Language: "proto",
+		Encoding: "utf-8", MaxFiles: 1, MaxResults: 20,
+	})
+	if err != nil || fail != nil || query.Search == nil || len(query.Search.Matches) != 0 {
+		t.Fatalf("group field falsely exposed via structural search: %v fail=%+v result=%+v", err, fail, query)
+	}
+}

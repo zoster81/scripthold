@@ -788,6 +788,8 @@ var (
 	protoRPC       = regexp.MustCompile(`(?m)^[ \t]*rpc[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
 )
 
+var protoGroupBlock = regexp.MustCompile(`(?m)^[ \t]*(?:(?:optional|required|repeated)[ \t]+)?group[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*[0-9]+[ \t]*\{`)
+
 // protoFieldDeclarationEnd extends a recognized field through its authored
 // same-line terminator. Inline option brackets may contain quoted semicolons
 // and closing brackets; neither may prematurely end the field.
@@ -862,6 +864,28 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		value := document.Text[match[2]:match[3]]
 		dependencies.add(document, StructuralDependencyImport, value, match[2], match[3])
 	}
+	// Proto2 group bodies introduce nested scopes that this lexical index does
+	// not model. Hide their entire balanced regions rather than falsely assigning
+	// their fields to the enclosing message; keep offsets and following members.
+	masked := []byte(source)
+	for _, group := range protoGroupBlock.FindAllStringIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		open := group[1] - 1
+		if masked[open] != '{' { // Nested group already hidden by an outer group.
+			continue
+		}
+		close := matchingBraceOffset(source, open)
+		addDocumentDataHardwareDiagnostic(builder, "proto-unmodeled-group",
+			"Protocol Buffers group scope is not indexed; inspect its fields directly", group[0], open+1)
+		if close < 0 {
+			maskByteRangePreservingLines(masked, group[0], len(masked))
+			break
+		}
+		maskByteRangePreservingLines(masked, group[0], close+1)
+	}
+	source = string(masked)
 	// Collect all brace-bounded declarations first, so fields in nested
 	// messages cannot be duplicated under an enclosing message.
 	type protoScope struct {
