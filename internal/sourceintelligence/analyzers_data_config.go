@@ -71,6 +71,14 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	source := maskSourceComments(document.Text, []string{"--"}, "/*", "*/")
 	source = maskSourceStrings(source, true, false, false)
 	candidates, unsupportedHeaders, unsupportedIndexes := sqlDeclarations(document, source)
+	// A standalone slash is SQL*Plus's statement terminator, not part of
+	// the view body. Comments and quoted strings are already masked.
+	var sqlSlashLineStarts []int
+	for _, line := range sourceTextLines(source) {
+		if line.trimmed == "/" {
+			sqlSlashLineStarts = append(sqlSlashLineStarts, line.start)
+		}
+	}
 	for _, header := range unsupportedHeaders {
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{
@@ -113,8 +121,18 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			}
 		}
 		declEnd := candidate.headerEnd
-		if semi := strings.Index(source[declEnd:], ";"); semi >= 0 {
+		semi := strings.IndexByte(source[declEnd:], ';')
+		if semi >= 0 {
 			declEnd += semi + 1
+		}
+		if candidate.kindWord == "view" {
+			index := sort.SearchInts(sqlSlashLineStarts, candidate.headerEnd)
+			if index < len(sqlSlashLineStarts) && (semi < 0 || sqlSlashLineStarts[index] < declEnd) {
+				declEnd = sqlSlashLineStarts[index]
+				for declEnd > candidate.headerEnd && strings.ContainsRune(" \t\r\n", rune(document.Text[declEnd-1])) {
+					declEnd--
+				}
+			}
 		}
 		native := candidate.kindWord
 		if candidate.profile != "common" {
