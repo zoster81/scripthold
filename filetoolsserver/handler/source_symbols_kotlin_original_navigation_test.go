@@ -172,3 +172,117 @@ func TestSourceSymbolsOriginalKotlinTaskNavigation(t *testing.T) {
 		})
 	}
 }
+
+func TestSourceSymbolsOriginalKotlinConstructorEnumEntries(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original Kotlin corpus not configured")
+	}
+	cases := []struct {
+		project, file, owner, sample, excerpt, method string
+		firstLine                                     int
+		entries                                       []string
+	}{
+		{
+			project: "project-kotlin-zhanghai-materialfiles",
+			file:    "app/src/main/java/me/zhanghai/android/files/file/MimeTypeIcon.kt",
+			owner:   "me.zhanghai.android.files.file.MimeTypeIcon",
+			sample:  "APK", excerpt: "APK(R.drawable.file_apk_icon)", firstLine: 11,
+			entries: []string{
+				"APK", "ARCHIVE", "AUDIO", "CALENDAR", "CERTIFICATE", "CODE",
+				"CONTACT", "DIRECTORY", "DOCUMENT", "EBOOK", "EMAIL", "FONT",
+				"GENERIC", "IMAGE", "PDF", "PRESENTATION", "SPREADSHEET",
+				"TEXT", "VIDEO", "WORD", "EXCEL", "POWERPOINT",
+			},
+		},
+		{
+			project: "project-kotlin-lysine-dev-okio",
+			file:    "okio/src/jvmTest/kotlin/okio/CipherAlgorithm.kt",
+			owner:   "okio.CipherAlgorithm", firstLine: 28,
+			sample:  "AesCbcNopadding",
+			excerpt: "AesCbcNopadding(\"AES/CBC/NoPadding\", false, 16, 16)",
+			method:  "createCipherFactory",
+			entries: []string{
+				"AesCbcNopadding", "AesCbcPkcs5padding", "AesEcbNopadding",
+				"AesEcbPkcs5padding", "DesCbcNopadding", "DesCbcPkcs5padding",
+				"DesEcbNopadding", "DesEcbPkcs5padding", "DesedeCbcNopadding",
+				"DesedeCbcPkcs5padding", "DesedeEcbNopadding", "DesedeEcbPkcs5padding",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.file))
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("original source missing or not regular: %v", err)
+			}
+			original, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(original), tc.excerpt) {
+				t.Fatalf("original source oracle changed or unreadable: %v", err)
+			}
+			h := NewHandler([]string{root})
+			fail, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path},
+				Language: "kotlin", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || fail != nil || outline.Truncated || outline.FilesParsed != 1 {
+				t.Fatalf("original Kotlin outline: %v fail=%+v result=%+v", err, fail, outline)
+			}
+			byName := map[string]int{}
+			for i, symbol := range outline.Symbols {
+				byName[symbol.QualifiedName] = i
+			}
+			for i, entry := range tc.entries {
+				qualified := tc.owner + "." + entry
+				index, ok := byName[qualified]
+				if !ok {
+					t.Errorf("missing original enum entry %s", qualified)
+					continue
+				}
+				symbol := outline.Symbols[index]
+				if symbol.Kind != "constant" || symbol.NativeKind != "enum-value" ||
+					symbol.ParentQualifiedName != tc.owner ||
+					symbol.DeclarationRange.Start.Line != tc.firstLine+i ||
+					symbol.DeclarationRange.End.Line != tc.firstLine+i ||
+					symbol.DeclarationRange.End.Column <= symbol.NameRange.End.Column {
+					t.Errorf("incorrect original enum entry %s: %+v", qualified, symbol)
+				}
+			}
+			if tc.method != "" {
+				index, ok := byName[tc.owner+"."+tc.method]
+				if !ok {
+					t.Error("method after enum semicolon missing")
+				} else if method := outline.Symbols[index]; method.Kind != "method" ||
+					method.ParentQualifiedName != tc.owner || method.DeclarationRange.Start.Line != 42 {
+					t.Errorf("incorrect method after enum semicolon: %+v", method)
+				}
+			}
+			fail, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Query: tc.sample, Match: "exact",
+				Language: "kotlin", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 8,
+			})
+			if err != nil || fail != nil || len(found.Files) != 1 || len(found.Symbols) != 1 ||
+				found.Symbols[0].QualifiedName != tc.owner+"."+tc.sample {
+				t.Fatalf("find original enum %s: %v fail=%+v result=%+v", tc.sample, err, fail, found)
+			}
+			fail, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: path, SymbolID: found.Symbols[0].ID,
+				SourceFingerprint: found.Files[0].SourceFingerprint,
+				Language:          "kotlin", Encoding: "utf-8", MaxBytes: 4096,
+			})
+			if err != nil || fail != nil || shown.Show == nil ||
+				!strings.Contains(shown.Show.Text, tc.excerpt) {
+				t.Fatalf("source-exact original enum excerpt: %v fail=%+v", err, fail)
+			}
+			fail, q, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Paths: []string{path}, Query: tc.sample, Match: "exact",
+				Mode: "structural", Language: "kotlin", Encoding: "utf-8", MaxResults: 8,
+			})
+			if err != nil || fail != nil || q.Search == nil || len(q.Search.Matches) == 0 {
+				t.Fatalf("structural search %s: %v fail=%+v", tc.sample, err, fail)
+			}
+		})
+	}
+}

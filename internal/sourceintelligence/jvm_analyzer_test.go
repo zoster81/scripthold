@@ -62,8 +62,85 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinConstructorEnumEntriesAndMemberContinuation(t *testing.T) {
+	cases := []struct {
+		name, source, owner string
+		entries             map[string]int
+		method              string
+		methodLine          int
+		nextLine            int
+	}{
+		{
+			name:     "Material Files argument-bearing entries",
+			source:   "package demo\nenum class MimeTypeIcon(val resourceId: Int) {\n  APK(R.drawable.file_apk_icon),\n  IMAGE(R.drawable.file_image_icon),\n  PDF(R.drawable.file_pdf_icon)\n}\nclass After {}\n",
+			owner:    "demo.MimeTypeIcon",
+			entries:  map[string]int{"APK": 3, "IMAGE": 4, "PDF": 5},
+			nextLine: 7,
+		},
+		{
+			name:       "Okio multiline header and method after entries",
+			source:     "package demo\nenum class CipherAlgorithm(\n  val transformation: String,\n  val padding: Boolean,\n) {\n  AesCbcNopadding(\"AES/CBC/NoPadding\", false),\n  AesEcbNopadding(\"AES/ECB/NoPadding\", false),\n  ;\n  fun createCipherFactory() {}\n}\nclass After {}\n",
+			owner:      "demo.CipherAlgorithm",
+			entries:    map[string]int{"AesCbcNopadding": 6, "AesEcbNopadding": 7},
+			method:     "demo.CipherAlgorithm.createCipherFactory",
+			methodLine: 9,
+			nextLine:   11,
+		},
+		{
+			name:       "balanced nested call arguments",
+			source:     "package demo\nenum class Nested(val value: Int) {\n  FIRST(compute(1, 2)),\n  SECOND(3);\n  fun after() {}\n}\nclass After {}\n",
+			owner:      "demo.Nested",
+			entries:    map[string]int{"FIRST": 3, "SECOND": 4},
+			method:     "demo.Nested.after",
+			methodLine: 5,
+			nextLine:   7,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				source := strings.ReplaceAll(tc.source, "\n", eol)
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+					t.Errorf("%q supported constructor entries must be complete: %+v", eol, result.Analysis)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if enum, ok := symbols[tc.owner]; !ok || enum.Kind != SymbolKindEnum {
+					t.Errorf("%q missing owning enum %s: %+v", eol, tc.owner, enum)
+				}
+				for name, line := range tc.entries {
+					sym, ok := symbols[tc.owner+"."+name]
+					if !ok || sym.Kind != SymbolKindConstant || sym.NativeKind != "enum-value" ||
+						sym.ParentQualifiedName != tc.owner || sym.DeclarationRange.Start.Line != line ||
+						sym.DeclarationRange.End.Line != line || sym.DeclarationRange.End.Column <= sym.NameRange.End.Column {
+						t.Errorf("%q entry %s: %+v exists=%t", eol, name, sym, ok)
+					}
+				}
+				if tc.method != "" {
+					if sym, ok := symbols[tc.method]; !ok || sym.Kind != SymbolKindMethod ||
+						sym.ParentQualifiedName != tc.owner || sym.DeclarationRange.Start.Line != tc.methodLine {
+						t.Errorf("%q following method: %+v exists=%t", eol, sym, ok)
+					}
+				}
+				if sym, ok := symbols["demo.After"]; !ok || sym.ParentQualifiedName != "demo" ||
+					sym.DeclarationRange.Start.Line != tc.nextLine {
+					t.Errorf("%q following class: %+v exists=%t", eol, sym, ok)
+				}
+				for _, fake := range []string{tc.owner + ".1", tc.owner + ".false", tc.owner + ".fun"} {
+					if _, ok := symbols[fake]; ok {
+						t.Errorf("%q fabricated symbol %s", eol, fake)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestKotlinComplexEnumEntriesStayPartial(t *testing.T) {
-	source := "package demo\nenum class Complex(val code: Int) {\n  FIRST(1),\n  SECOND(2);\n  fun label() {}\n}\nclass After {}\n"
+	source := "package demo\nenum class Complex(val code: Int) {\n  FIRST(1) { override fun label() = 1 },\n  SECOND(2);\n  fun label() {}\n}\nclass After {}\n"
 	for _, eol := range []string{"\n", "\r\n"} {
 		result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
 			sourceDocumentForScanner(strings.ReplaceAll(source, "\n", eol)), testAnalyzeOptions(true, 128))

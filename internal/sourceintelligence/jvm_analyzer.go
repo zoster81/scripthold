@@ -510,9 +510,9 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 	return terminator + 1
 }
 
-// parseKotlinEnumEntries indexes only direct, unadorned enum entry names.
-// Constructor calls and per-entry bodies remain incomplete rather than
-// inventing members. A semicolon starts the ordinary enum member scope.
+// parseKotlinEnumEntries indexes direct enum names and balanced constructor
+// calls. Annotated entries and per-entry class bodies remain unsupported.
+// A semicolon starts the ordinary enum member scope.
 func (parser *jvmParser) parseKotlinEnumEntries(open, close int, parent *SymbolParent, owner string) {
 	depth := parser.tokens[open].Nesting
 	for index := nextStructuralToken(parser.tokens, open+1, close); index < close; {
@@ -532,15 +532,27 @@ func (parser *jvmParser) parseKotlinEnumEntries(open, close int, parent *SymbolP
 			return
 		}
 		after := nextStructuralToken(parser.tokens, index+1, close)
+		name := parser.tokens[index]
+		entryEnd := name.EndOffset
+		if after < close && parser.token(after, "(") {
+			argsClose := parser.pairs[after]
+			if parser.tokens[after].Nesting != depth+1 || argsClose <= after ||
+				argsClose >= close || !parser.token(argsClose, ")") ||
+				parser.tokens[argsClose].Nesting != depth {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			entryEnd = parser.tokens[argsClose].EndOffset
+			after = nextStructuralToken(parser.tokens, argsClose+1, close)
+		}
 		if after < close && (parser.tokens[after].Nesting != depth ||
 			(!parser.token(after, ",") && !parser.token(after, ";"))) {
 			parser.builder.MarkIncomplete()
 			return
 		}
-		name := parser.tokens[index]
 		parser.add(SymbolSpec{
 			Kind: SymbolKindConstant, NativeKind: "enum-value", Name: name.Text, Parent: parent,
-			Declaration: OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			Declaration: OffsetRange{Start: name.StartOffset, End: entryEnd},
 			NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
 			Evidence:    SymbolEvidenceStructural,
 		})
