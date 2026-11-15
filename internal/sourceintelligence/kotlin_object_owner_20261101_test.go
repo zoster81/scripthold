@@ -66,3 +66,61 @@ func TestKotlinOriginalCoilObjectOwnership(t *testing.T) {
 		t.Fatalf("original Factory wrong parent: %+v, all=%v", child, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 	}
 }
+
+func TestKotlinValueClassNestedOwners(t *testing.T) {
+	const source = "package demo\n" +
+		"interface Base {\n" +
+		"  val key: String\n" +
+		"  @JvmInline\n" +
+		"  value class First(val value: String) : Base {\n" +
+		"    override val key: String\n" +
+		"      get() = value\n" +
+		"    fun read(): String = key\n" +
+		"  }\n" +
+		"  @JvmInline\n" +
+		"  value class Second(val value: String) : Base {\n" +
+		"    override val key: String\n" +
+		"      get() = value\n" +
+		"  }\n" +
+		"}\n" +
+		"@JvmInline\n" +
+		"value class Top(val value: Int) {\n" +
+		"  fun plusOne(): Int = value + 1\n" +
+		"}\n"
+	for _, variant := range []struct{ name, eol string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(variant.name, func(t *testing.T) {
+			result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(strings.ReplaceAll(source, "\n", variant.eol)),
+				testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Fatalf("supported Kotlin declarations reported partial: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, tc := range []struct {
+				name, parent, native string
+				kind                 SymbolKind
+				line                 int
+			}{
+				{"demo.Base.First", "demo.Base", "value-class", SymbolKindClass, 5},
+				{"demo.Base.Second", "demo.Base", "value-class", SymbolKindClass, 11},
+				{"demo.Top", "demo", "value-class", SymbolKindClass, 17},
+				{"demo.Base.First.key", "demo.Base.First", "val", SymbolKindProperty, 6},
+				{"demo.Base.Second.key", "demo.Base.Second", "val", SymbolKindProperty, 12},
+				{"demo.Base.First.read", "demo.Base.First", "method", SymbolKindMethod, 8},
+				{"demo.Top.plusOne", "demo.Top", "method", SymbolKindMethod, 18},
+			} {
+				sym, ok := symbols[tc.name]
+				if !ok || sym.Kind != tc.kind || sym.NativeKind != tc.native ||
+					sym.ParentQualifiedName != tc.parent || sym.NameRange.Start.Line != tc.line {
+					t.Errorf("wrong Kotlin value-class symbol %s: %+v (exists=%t)", tc.name, sym, ok)
+				}
+			}
+			if _, wrong := symbols["demo.Base.read"]; wrong {
+				t.Error("nested value-class method escaped to interface")
+			}
+		})
+	}
+}

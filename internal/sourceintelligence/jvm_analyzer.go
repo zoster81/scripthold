@@ -36,7 +36,7 @@ var kotlinModifiers = map[string]struct{}{
 	"abstract": {}, "actual": {}, "annotation": {}, "companion": {}, "const": {}, "crossinline": {}, "data": {}, "enum": {},
 	"expect": {}, "external": {}, "final": {}, "infix": {}, "inline": {}, "inner": {}, "internal": {}, "lateinit": {},
 	"noinline": {}, "open": {}, "operator": {}, "out": {}, "override": {}, "private": {}, "protected": {}, "public": {},
-	"reified": {}, "sealed": {}, "suspend": {}, "tailrec": {}, "vararg": {},
+	"reified": {}, "sealed": {}, "suspend": {}, "tailrec": {}, "value": {}, "vararg": {},
 }
 
 func analyzeJVMFamily(ctx context.Context, document *SourceDocument, options AnalyzeOptions, kotlin bool) (AnalyzerResult, error) {
@@ -305,7 +305,9 @@ func (parser *jvmParser) typeDeclarationAt(start, end int) (keyword, declaration
 			(!parser.kotlin && (text == "enum" || text == "record")) {
 			nativeKind = text
 			if parser.kotlin && text == "class" {
-				if containsLower(prefixes, "data") {
+				if containsLower(prefixes, "value") {
+					nativeKind = "value-class"
+				} else if containsLower(prefixes, "data") {
 					nativeKind = "data-class"
 				} else if containsLower(prefixes, "sealed") {
 					nativeKind = "sealed-class"
