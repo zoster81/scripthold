@@ -78,7 +78,7 @@ The mapping below covers the public non-rendering v1.2.0 API. Optional third-par
 
 `markdown_edit` always prepares a preview. It never writes a file directly. A request contains one authorized document target and one or more declarative operations evaluated against the same immutable source snapshot. Independent prepared changes are combined with `Document.ComposeChanges`; overlap or semantic interaction rejected by Marksplice rejects the entire preview.
 
-The table below is the R30 target mapping, not a claim that every Marksplice preparation API is registered publicly. The exact currently exposed operation forms are authoritative in [`TOOLS.md`](../TOOLS.md) and the runtime schema. Table content/row/column editing remains planned; alignment-only table mutation is exposed because it changes only Marksplice-owned delimiter syntax. Existing-document targetless construction remains limited to the closed `create/*` edit forms described below, while complete new-document construction is exposed separately through `markdown_create`.
+The table below identifies the Marksplice preparation APIs behind the Markdown editing model; **it is not a list of registered public operations**. The authoritative supported operation forms are in [`TOOLS.md`](../TOOLS.md#markdown_edit) and the runtime schema. Table content/row/column editing remains unavailable; alignment-only table mutation is supported because it changes Marksplice-owned delimiter syntax. Existing-document targetless construction is limited to the closed `create/*` edit forms described below, while complete new-document construction uses `markdown_create`.
 
 Existing-document operation mapping:
 
@@ -143,8 +143,8 @@ Workspace cardinality has dedicated Scripthold policy rather than borrowing batc
 | `Workspace.Validate` / `ValidateWorkspace` | `validate` |
 | Workspace diagnostics | `validate` structured diagnostics: missing/ambiguous/invalid fragment, missing document, unresolved reference, orphan document, plus stale/unrecognized generated indexes for explicitly managed TOCs |
 | `WorkspaceRepairPlan` / `WorkspaceRepair.Change` | Repair count/document projection from `validate`; bounded source-bound `repairPreview` capabilities whose internal `ChangeSet` values are never exposed |
-| `BuildKnowledgeIndex` | Deferred; not exposed by the initial read-only workspace registration |
-| Knowledge aliases/tags/references/related/reachable queries | Deferred; not exposed by the initial read-only workspace registration |
+| `BuildKnowledgeIndex` | Deferred; not exposed by the current workspace tool |
+| Knowledge aliases/tags/references/related/reachable queries | Deferred; not exposed by the current workspace tool |
 
 R30 does not invent repair heuristics. Workspace repair planning is limited to repairs produced by Marksplice's conservative repair plan, currently explicitly managed TOC synchronization. The caller names each managed TOC by document key and fragment; Scripthold accepts it only when Marksplice resolves that fragment uniquely to a heading. `repairPreview` must expose every affected target and rejects rather than truncates an approvable plan; zero repairs return no token. `markdown_workspace` never writes files directly: the returned capability is consumed only by `confirm_verified_operation`, which revalidates all targets and reports committed/unchanged/unknown state without automatic rollback.
 
