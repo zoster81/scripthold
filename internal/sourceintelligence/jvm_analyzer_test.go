@@ -62,6 +62,70 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinAnnotatedTypeSourceRangesAndOwners(t *testing.T) {
+	cases := []struct {
+		name, source, className, classNative, member, sibling string
+		start, end, memberLine, siblingLine                   int
+	}{
+		{
+			name:      "stacked annotations before class",
+			source:    "package demo\n@Suppress(\"unused\")\n@AutoService(value = [Registry::class])\nclass Registry {\n  fun run() {}\n}\nfun after() {}\n",
+			className: "demo.Registry", classNative: "class", member: "demo.Registry.run", sibling: "demo.after",
+			start: 2, end: 6, memberLine: 5, siblingLine: 7,
+		},
+		{
+			name:      "value class with annotated constructor parameter",
+			source:    "package demo\n@Parcelize\n@JvmInline\nvalue class DocumentUri(val value: @WriteWith<Parceler> Uri) {\n  fun id() {}\n}\nfun after() {}\n",
+			className: "demo.DocumentUri", classNative: "value-class", member: "demo.DocumentUri.id", sibling: "demo.after",
+			start: 2, end: 6, memberLine: 5, siblingLine: 7,
+		},
+		{
+			name:      "file annotation does not attach to next class",
+			source:    "@file:Suppress(\"unused\")\npackage demo\nclass Plain { fun go() {} }\nfun after() {}\n",
+			className: "demo.Plain", classNative: "class", member: "demo.Plain.go", sibling: "demo.after",
+			start: 3, end: 3, memberLine: 3, siblingLine: 4,
+		},
+		{
+			name:      "annotated function does not attach to next class",
+			source:    "package demo\n@Deprecated(\"old\")\nfun parse() {}\nclass Following { fun run() {} }\nfun after() {}\n",
+			className: "demo.Following", classNative: "class", member: "demo.Following.run", sibling: "demo.after",
+			start: 4, end: 4, memberLine: 4, siblingLine: 5,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+					sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol)),
+					testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+					t.Errorf("annotated class coverage unexpectedly partial %q: %+v", eol, result.Analysis.Diagnostics)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				class, ok := symbols[tc.className]
+				if !ok || class.Kind != SymbolKindClass || class.NativeKind != tc.classNative ||
+					class.DeclarationRange.Start.Line != tc.start || class.DeclarationRange.End.Line != tc.end {
+					t.Errorf("annotated class range %q: %+v exists=%t", eol, class, ok)
+				}
+				member, ok := symbols[tc.member]
+				if !ok || member.Kind != SymbolKindMethod ||
+					member.ParentQualifiedName != tc.className ||
+					member.DeclarationRange.Start.Line != tc.memberLine {
+					t.Errorf("annotated class member %q: %+v exists=%t", eol, member, ok)
+				}
+				sibling, ok := symbols[tc.sibling]
+				if !ok || sibling.Kind != SymbolKindFunction ||
+					sibling.DeclarationRange.Start.Line != tc.siblingLine {
+					t.Errorf("next top-level sibling corrupted %q: %+v exists=%t", eol, sibling, ok)
+				}
+			}
+		})
+	}
+}
+
 func TestKotlinAnnotatedFunctionExcerptsAndSiblings(t *testing.T) {
 	cases := []struct {
 		name, source, target, sibling string

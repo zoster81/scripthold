@@ -538,6 +538,119 @@ func TestKotlinOriginalMultilineClassOwnerNavigation(t *testing.T) {
 	}
 }
 
+func TestKotlinOriginalAnnotatedTypeNavigation(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	cases := []struct {
+		project, source, name, owner, nativeKind, member, sibling string
+		start, end, memberLine, siblingLine                       int
+	}{
+		{
+			project: "project-kotlin-jakewharton-timber",
+			source:  "timber-lint/src/main/java/timber/lint/TimberIssueRegistry.kt",
+			name:    "TimberIssueRegistry", owner: "timber.lint", nativeKind: "class",
+			member: "issues", start: 9, end: 28, memberLine: 12,
+		},
+		{
+			project: "project-kotlin-zhanghai-materialfiles",
+			source:  "app/src/main/java/me/zhanghai/android/files/file/DocumentUri.kt",
+			name:    "DocumentUri", owner: "me.zhanghai.android.files.file", nativeKind: "value-class",
+			member: "treeDocumentId", sibling: "asDocumentUriOrNull",
+			start: 17, end: 25, memberLine: 20, siblingLine: 27,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			stat, err := os.Lstat(path)
+			if err != nil || !stat.Mode().IsRegular() || stat.Size() > 1<<20 {
+				t.Fatalf("original annotated type fixture missing or unsafe: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.start < 1 || tc.end > len(lines) || tc.memberLine > len(lines) ||
+				!strings.HasPrefix(strings.TrimSpace(lines[tc.start-1]), "@") ||
+				!strings.Contains(lines[tc.start+1-1], "@") ||
+				!strings.Contains(lines[tc.start+2-1], tc.name) ||
+				!strings.Contains(lines[tc.memberLine-1], tc.member) ||
+				strings.TrimSpace(lines[tc.end-1]) != "}" {
+				t.Fatalf("original annotated class oracle changed: %s", tc.source)
+			}
+			if tc.sibling != "" && (tc.siblingLine > len(lines) ||
+				!strings.Contains(lines[tc.siblingLine-1], tc.sibling+"(")) {
+				t.Fatalf("original following function oracle changed: %s", tc.source)
+			}
+			expected := strings.Join(lines[tc.start-1:tc.end], "\n")
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 512,
+			})
+			if err != nil || outline.Truncated {
+				t.Fatalf("annotated original class outline failed: %v %+v", err, outline)
+			}
+			fullName := tc.owner + "." + tc.name
+			classID, memberFound, siblingFound := "", false, tc.sibling == ""
+			for _, symbol := range outline.Symbols {
+				if symbol.Name == tc.name && string(symbol.Kind) == "class" &&
+					symbol.NativeKind == tc.nativeKind && symbol.ParentQualifiedName == tc.owner &&
+					symbol.DeclarationRange.Start.Line == tc.start &&
+					symbol.DeclarationRange.End.Line == tc.end {
+					classID = symbol.ID
+				}
+				if symbol.Name == tc.member && string(symbol.Kind) == "property" &&
+					symbol.ParentQualifiedName == fullName &&
+					symbol.DeclarationRange.Start.Line == tc.memberLine {
+					memberFound = true
+				}
+				if symbol.Name == tc.sibling && tc.sibling != "" && string(symbol.Kind) == "function" &&
+					symbol.ParentQualifiedName == tc.owner &&
+					symbol.DeclarationRange.Start.Line == tc.siblingLine {
+					siblingFound = true
+				}
+			}
+			if classID == "" || !memberFound || !siblingFound {
+				t.Fatalf("original annotated class/member/sibling missing: %s class=%t member=%t sibling=%t",
+					tc.source, classID != "", memberFound, siblingFound)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: tc.name, Match: "exact", FileDetails: "relevant",
+				MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("original annotated class find failed: %v %+v", err, found)
+			}
+			matched := false
+			for _, symbol := range found.Symbols {
+				if symbol.ID == classID {
+					matched = true
+				}
+			}
+			if !matched {
+				t.Fatalf("annotated class missing from exact find: %s", tc.name)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "kotlin",
+				Encoding: found.Files[0].Encoding, SymbolID: classID,
+				SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 16384,
+			})
+			if err != nil || shown.Show == nil ||
+				strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != expected {
+				t.Fatalf("original annotated class excerpt mismatched: %s err=%v shown=%+v expected=%q",
+					tc.source, err, shown.Show, expected)
+			}
+		})
+	}
+}
+
 func TestKotlinOriginalAnnotatedFunctionNavigation(t *testing.T) {
 	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if corpus == "" {

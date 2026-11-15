@@ -136,6 +136,14 @@ func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, member
 					} else if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting &&
 						parser.kotlinAnnotatedFunctionAt(candidate, end) {
 						index = parser.parseKotlinFunction(index, end, currentParent, members)
+					} else if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting {
+						if keyword, _, nativeKind, ok := parser.typeDeclarationAt(candidate, end); ok &&
+							keyword-candidate < 12 {
+							// Keep a validated type's annotations in the existing class excerpt.
+							index = parser.parseType(index, keyword, nativeKind, end, currentParent)
+						} else {
+							index = next
+						}
 					} else {
 						index = next
 					}
