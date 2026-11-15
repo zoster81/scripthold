@@ -413,7 +413,7 @@ var (
 	graphqlFragment      = regexp.MustCompile(`(?m)^[ \t]*fragment[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+on[ \t]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\{`)
 	graphqlDirective     = regexp.MustCompile(`(?m)^[ \t]*directive[ \t]+@([A-Za-z_][A-Za-z0-9_]*)(?:[ \t\r\n]*\([^()]*\))?[ \t\r\n]*(?:repeatable[ \t\r\n]+)?on[ \t\r\n]+\|?[ \t\r\n]*[A-Z_]+(?:[ \t\r\n]*\|[ \t\r\n]*[A-Z_]+)*`)
 	graphqlField         = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
-	graphqlDirectiveCall = regexp.MustCompile(`@[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^()]*\)`)
+	graphqlDirectiveCall = regexp.MustCompile(`@[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:\r?\n[ \t]*)?\([^()]*\)`)
 	graphqlEnumValue     = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\r?$`)
 )
 

@@ -108,3 +108,54 @@ func TestGraphQLFieldSourceRangeRetainsTypeReference(t *testing.T) {
 		})
 	}
 }
+
+// Based on gqlgen's original Todo / TodoInput schema: GraphQL permits
+// ignored line endings between a directive name and its argument list.
+// Those argument keys are not fields of the surrounding type.
+func TestGraphQLDirectiveArgumentsFollowingLineBreakStayOutOfFields(t *testing.T) {
+	const fixture = "type Todo {\n" +
+		"  done: Boolean! @hasRole\n" +
+		"    (role: OWNER)\n" +
+		"  next: String!\n" +
+		"}\n" +
+		"input TodoInput {\n" +
+		"  number: Int! @goField\n" +
+		"    (type: \"github.com/99designs/gqlgen/_examples/todo.Number(int)\")\n" +
+		"  enabled: Boolean!\n" +
+		"}\n"
+	for _, ending := range []string{"\n", "\r\n"} {
+		t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[ending], func(t *testing.T) {
+			text := strings.ReplaceAll(fixture, "\n", ending)
+			result, err := (GraphQLAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(text), testAnalyzeOptions(true, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid directive argument formatting must not make source partial: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, want := range map[string]string{
+				"Todo.done":         "done: Boolean!",
+				"Todo.next":         "next: String!",
+				"TodoInput.number":  "number: Int!",
+				"TodoInput.enabled": "enabled: Boolean!",
+			} {
+				field, ok := symbols[name]
+				if !ok || field.Kind != SymbolKindField {
+					t.Errorf("missing authored field %s: %+v", name, field)
+					continue
+				}
+				got := text[field.declarationOffsets.Start:field.declarationOffsets.End]
+				if got != want {
+					t.Errorf("%s source range = %q, want %q", name, got, want)
+				}
+			}
+			for _, ghost := range []string{"Todo.role", "TodoInput.type"} {
+				if s, exists := symbols[ghost]; exists {
+					t.Errorf("directive argument was invented as a field: %+v", s)
+				}
+			}
+		})
+	}
+}
