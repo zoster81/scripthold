@@ -148,6 +148,65 @@ func TestSassOriginalCallableBodyNavigation(t *testing.T) {
 				t.Fatalf("original Sass show must exactly match authored body, without peers: %s:%d err=%v show=%+v",
 					tc.source, tc.start, err, shown.Show)
 			}
+
+			// Verify lexical variable ownership through the real handler API,
+			// including exact find, detailed outline and fingerprint-bound show.
+			var variables []struct {
+				name   string
+				line   int
+				parent string
+			}
+			switch tc.symbol {
+			case "rem":
+				variables = []struct {
+					name   string
+					line   int
+					parent string
+				}{{"browser-context", 2, ""}, {"pixels", 5, id}, {"context", 8, id}}
+			case "round-top-corners":
+				variables = []struct {
+					name   string
+					line   int
+					parent string
+				}{{"default-rounded-corner", 1, ""}}
+			}
+			for _, want := range variables {
+				_, varsFound, findErr := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+					Operation: "find", Paths: []string{path}, Language: "sass",
+					Query: want.name, Match: "exact", FileDetails: "relevant",
+					MaxFiles: 1, MaxSymbols: 128,
+				})
+				if findErr != nil || !varsFound.CoverageComplete || varsFound.Truncated ||
+					len(varsFound.Symbols) != 1 || len(varsFound.Files) != 1 {
+					t.Fatalf("original Sass variable lookup failed for %s: %v %+v", want.name, findErr, varsFound)
+				}
+				v := varsFound.Symbols[0]
+				if v.Name != want.name || v.NativeKind != "variable" ||
+					v.ParentID != want.parent || v.DeclarationRange.Start.Line != want.line {
+					t.Errorf("wrong original Sass variable owner or position for %s: %+v", want.name, v)
+				}
+				inOutline := false
+				for _, outlined := range outline.Symbols {
+					if outlined.ID == v.ID {
+						inOutline = true
+						if outlined.ParentID != want.parent {
+							t.Errorf("original variable outline parent for %s: %+v", want.name, outlined)
+						}
+					}
+				}
+				if !inOutline {
+					t.Errorf("original Sass variable missing from outline: %s", want.name)
+				}
+				vFile := varsFound.Files[0]
+				_, varShow, showErr := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+					Operation: "show", Path: path, Language: "sass", Encoding: vFile.Encoding,
+					SymbolID: v.ID, SourceFingerprint: vFile.SourceFingerprint, MaxBytes: 2048,
+				})
+				if showErr != nil || varShow.Show == nil ||
+					strings.ReplaceAll(varShow.Show.Text, "\r\n", "\n") != lines[want.line-1] {
+					t.Errorf("original Sass variable show mismatch for %s: %v %+v", want.name, showErr, varShow.Show)
+				}
+			}
 		})
 	}
 }

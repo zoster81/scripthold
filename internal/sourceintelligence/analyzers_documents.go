@@ -599,6 +599,18 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	}
 	lines := sourceTextLines(document.Text)
 	subtreeEnds := sassIndentedSubtreeEnds(lines)
+	// Retain the nearest recognized lexical owner for assignments without
+	// inferring Sass flow-control or runtime variable scope.
+	type lexicalOwner struct {
+		end    int
+		parent SymbolParent
+	}
+	owners := make([]lexicalOwner, 0, 8)
+	retainOwner := func(symbol NormalizedSymbol, ok bool, end int) {
+		if ok {
+			owners = append(owners, lexicalOwner{end: end, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+		}
+	}
 	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -607,16 +619,20 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if trimmed == "" {
 			continue
 		}
+		for len(owners) > 0 && line.start >= owners[len(owners)-1].end {
+			owners = owners[:len(owners)-1]
+		}
 		if strings.HasPrefix(trimmed, "=") {
 			if name := sassMixinName(trimmed); name != "" {
 				nameStart := line.start + strings.Index(line.text, name)
 				signature := OffsetRange{Start: line.start, End: line.end}
-				addStructuralSymbol(builder, SymbolSpec{
+				symbol, ok := addStructuralSymbol(builder, SymbolSpec{
 					Kind: SymbolKindFunction, NativeKind: "mixin", Name: name,
 					Declaration: OffsetRange{Start: line.start, End: subtreeEnds[index]},
 					NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(name)},
 					Signature:   &signature, Evidence: SymbolEvidenceStructural,
 				})
+				retainOwner(symbol, ok, subtreeEnds[index])
 			} else {
 				addDocumentDataHardwareDiagnostic(builder, "sass-malformed-mixin", "Sass mixin declaration has no valid name or parameter list", line.start, line.end)
 				builder.MarkIncomplete()
@@ -627,7 +643,11 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			if colon := strings.Index(trimmed, ":"); colon > 1 {
 				name := strings.TrimSpace(trimmed[1:colon])
 				nameStart := line.start + strings.Index(line.text, name)
-				addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "variable", name, nil, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
+				var parent *SymbolParent
+				if len(owners) > 0 {
+					parent = &owners[len(owners)-1].parent
+				}
+				addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "variable", name, parent, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(name)})
 			}
 			continue
 		}
@@ -644,12 +664,13 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			}
 			nameStart := line.start + strings.Index(line.text, name)
 			signature := OffsetRange{Start: line.start, End: line.end}
-			addStructuralSymbol(builder, SymbolSpec{
+			symbol, ok := addStructuralSymbol(builder, SymbolSpec{
 				Kind: SymbolKindFunction, NativeKind: "function", Name: name,
 				Declaration: OffsetRange{Start: line.start, End: subtreeEnds[index]},
 				NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(name)},
 				Signature:   &signature, Evidence: SymbolEvidenceStructural,
 			})
+			retainOwner(symbol, ok, subtreeEnds[index])
 			continue
 		}
 		if strings.Contains(trimmed, ": ") || strings.HasPrefix(trimmed, "@") {
@@ -670,12 +691,13 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if isSelector {
 			nameStart := line.start + strings.Index(line.text, trimmed)
 			signature := OffsetRange{Start: line.start, End: line.end}
-			addStructuralSymbol(builder, SymbolSpec{
+			symbol, ok := addStructuralSymbol(builder, SymbolSpec{
 				Kind: SymbolKindSelector, NativeKind: "selector", Name: trimmed,
 				Declaration: OffsetRange{Start: line.start, End: subtreeEnds[index]},
 				NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(trimmed)},
 				Signature:   &signature, Evidence: SymbolEvidenceStructural,
 			})
+			retainOwner(symbol, ok, subtreeEnds[index])
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
