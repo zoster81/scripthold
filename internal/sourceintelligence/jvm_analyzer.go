@@ -500,10 +500,59 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 	} else {
 		parser.collectJavaTypeRelations(symbol.QualifiedName, nameIndex+1, chooseHeaderEnd(open, terminator), depth)
 	}
-	if open >= 0 && kind != SymbolKindEnum {
-		parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+	if open >= 0 {
+		if parser.kotlin && kind == SymbolKindEnum {
+			parser.parseKotlinEnumEntries(open, close, typeParent, symbol.Name)
+		} else if kind != SymbolKindEnum {
+			parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+		}
 	}
 	return terminator + 1
+}
+
+// parseKotlinEnumEntries indexes only direct, unadorned enum entry names.
+// Constructor calls and per-entry bodies remain incomplete rather than
+// inventing members. A semicolon starts the ordinary enum member scope.
+func (parser *jvmParser) parseKotlinEnumEntries(open, close int, parent *SymbolParent, owner string) {
+	depth := parser.tokens[open].Nesting
+	for index := nextStructuralToken(parser.tokens, open+1, close); index < close; {
+		if parser.ctx.Err() != nil || parser.stopped {
+			return
+		}
+		if parser.tokens[index].Nesting != depth {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		if parser.token(index, ";") {
+			parser.parseScope(index+1, close, parent, true, owner)
+			return
+		}
+		if parser.tokens[index].Kind != TokenIdentifier {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		after := nextStructuralToken(parser.tokens, index+1, close)
+		if after < close && (parser.tokens[after].Nesting != depth ||
+			(!parser.token(after, ",") && !parser.token(after, ";"))) {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		name := parser.tokens[index]
+		parser.add(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-value", Name: name.Text, Parent: parent,
+			Declaration: OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			Evidence:    SymbolEvidenceStructural,
+		})
+		if after >= close {
+			return
+		}
+		if parser.token(after, ";") {
+			parser.parseScope(after+1, close, parent, true, owner)
+			return
+		}
+		index = nextStructuralToken(parser.tokens, after+1, close)
+	}
 }
 
 func chooseHeaderEnd(open, terminator int) int {

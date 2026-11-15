@@ -62,6 +62,100 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinComplexEnumEntriesStayPartial(t *testing.T) {
+	source := "package demo\nenum class Complex(val code: Int) {\n  FIRST(1),\n  SECOND(2);\n  fun label() {}\n}\nclass After {}\n"
+	for _, eol := range []string{"\n", "\r\n"} {
+		result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+			sourceDocumentForScanner(strings.ReplaceAll(source, "\n", eol)), testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.CoverageComplete {
+			t.Errorf("%q complex enum syntax must not claim complete coverage", eol)
+		}
+		symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+		if _, ok := symbols["demo.Complex"]; !ok {
+			t.Errorf("%q owning enum disappeared", eol)
+		}
+		for _, fake := range []string{"demo.Complex.FIRST", "demo.Complex.SECOND", "demo.Complex.1", "demo.Complex.2"} {
+			if _, exists := symbols[fake]; exists {
+				t.Errorf("%q fabricated unsupported enum member %s", eol, fake)
+			}
+		}
+		if next, ok := symbols["demo.After"]; !ok || next.ParentQualifiedName != "demo" ||
+			next.DeclarationRange.Start.Line != 7 {
+			t.Errorf("%q following class was swallowed: %+v exists=%t", eol, next, ok)
+		}
+	}
+}
+
+func TestKotlinSimpleEnumEntriesAndBoundaries(t *testing.T) {
+	cases := []struct {
+		name, source, owner string
+		entries             map[string]int
+		sibling             string
+		siblingLine         int
+		method              string
+		methodLine          int
+	}{
+		{
+			name:   "ordinary enum values",
+			source: "package demo\nenum class Action {\n  POSITIVE,\n  NEGATIVE,\n  NEUTRAL,\n  CANCELED\n}\nclass After {}\n",
+			owner:  "demo.Action", entries: map[string]int{"POSITIVE": 3, "NEGATIVE": 4, "NEUTRAL": 5, "CANCELED": 6},
+			sibling: "demo.After", siblingLine: 8,
+		},
+		{
+			name:   "trailing comma and method after semicolon",
+			source: "package demo\nenum class Close {\n  Closes,\n  DoesNothing,\n  Unsupported,\n  ;\n  fun explain() {}\n}\nclass After {}\n",
+			owner:  "demo.Close", entries: map[string]int{"Closes": 3, "DoesNothing": 4, "Unsupported": 5},
+			method: "demo.Close.explain", methodLine: 7, sibling: "demo.After", siblingLine: 9,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+					sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol)), testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+					t.Errorf("simple enum unexpectedly partial %q: %+v", eol, result.Analysis.Diagnostics)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if enum, ok := symbols[tc.owner]; !ok || enum.Kind != SymbolKindEnum || enum.NativeKind != "enum-class" {
+					t.Errorf("missing Kotlin enum %q: %+v exists=%t", tc.owner, enum, ok)
+				}
+				for name, line := range tc.entries {
+					sym, ok := symbols[tc.owner+"."+name]
+					if !ok || sym.Kind != SymbolKindConstant || sym.NativeKind != "enum-value" ||
+						sym.ParentQualifiedName != tc.owner || sym.DeclarationRange.Start.Line != line ||
+						sym.DeclarationRange.End.Line != line {
+						t.Errorf("%q enum entry %s: %+v exists=%t", eol, name, sym, ok)
+					}
+				}
+				if tc.method != "" {
+					sym, ok := symbols[tc.method]
+					if !ok || sym.Kind != SymbolKindMethod || sym.ParentQualifiedName != tc.owner ||
+						sym.DeclarationRange.Start.Line != tc.methodLine {
+						t.Errorf("%q enum method: %+v exists=%t", eol, sym, ok)
+					}
+				}
+				sym, ok := symbols[tc.sibling]
+				if !ok || sym.Kind != SymbolKindClass || sym.DeclarationRange.Start.Line != tc.siblingLine ||
+					sym.ParentQualifiedName != "demo" {
+					t.Errorf("%q following class: %+v exists=%t", eol, sym, ok)
+				}
+				for _, fake := range []string{tc.owner + ".fun", tc.owner + ".class"} {
+					if _, exists := symbols[fake]; exists {
+						t.Errorf("false declaration %q", fake)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestKotlinImplicitCompanionObjectOwners(t *testing.T) {
 	source := "package demo\nclass Options {\n  companion object {\n    const val FLAG: Int = 7\n    fun of(): Options = Options()\n  }\n  fun instance() {}\n}\nclass Next {}\n"
 	for _, eol := range []string{"\n", "\r\n"} {

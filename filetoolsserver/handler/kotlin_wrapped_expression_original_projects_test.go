@@ -538,6 +538,121 @@ func TestKotlinOriginalMultilineClassOwnerNavigation(t *testing.T) {
 	}
 }
 
+func TestKotlinOriginalSimpleEnumEntryNavigation(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	cases := []struct {
+		project, source, name, owner string
+		start, end                   int
+		entries                      []string
+	}{
+		{
+			project: "project-kotlin-zhanghai-materialfiles",
+			source:  "app/src/main/java/me/zhanghai/android/files/filejob/FileJobErrorAction.kt",
+			name:    "FileJobErrorAction", owner: "me.zhanghai.android.files.filejob",
+			start: 8, end: 13,
+			entries: []string{"POSITIVE", "NEGATIVE", "NEUTRAL", "CANCELED"},
+		},
+		{
+			project: "project-kotlin-lysine-dev-okio",
+			source:  "okio-testing-support/src/commonMain/kotlin/okio/CloseBehavior.kt",
+			name:    "CloseBehavior", owner: "okio",
+			start: 18, end: 22,
+			entries: []string{"Closes", "DoesNothing", "Unsupported"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			stat, err := os.Lstat(path)
+			if err != nil || !stat.Mode().IsRegular() || stat.Size() > 1<<20 {
+				t.Fatalf("original enum unavailable or unsafe: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.end > len(lines) || !strings.Contains(lines[tc.start-1], "enum class "+tc.name) ||
+				strings.TrimSpace(lines[tc.end-1]) != "}" ||
+				tc.end-tc.start-1 != len(tc.entries) {
+				t.Fatalf("original enum oracle changed: %s", tc.source)
+			}
+			for i, entry := range tc.entries {
+				if strings.TrimSuffix(strings.TrimSpace(lines[tc.start+i]), ",") != entry {
+					t.Fatalf("original enum entry drift %s:%d: want %s", tc.source, tc.start+i+1, entry)
+				}
+			}
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || outline.Truncated {
+				t.Fatalf("original enum outline failed: %v %+v", err, outline)
+			}
+			qualified := tc.owner + "." + tc.name
+			enumFound := false
+			for _, sym := range outline.Symbols {
+				if sym.QualifiedName == qualified && string(sym.Kind) == "enum" &&
+					sym.NativeKind == "enum-class" && sym.ParentQualifiedName == tc.owner &&
+					sym.DeclarationRange.Start.Line == tc.start && sym.DeclarationRange.End.Line == tc.end {
+					enumFound = true
+				}
+			}
+			if !enumFound {
+				t.Fatalf("original enum class missing: %s", tc.source)
+			}
+			for i, entry := range tc.entries {
+				seen := false
+				for _, sym := range outline.Symbols {
+					if sym.Name == entry && string(sym.Kind) == "constant" &&
+						sym.NativeKind == "enum-value" && sym.ParentQualifiedName == qualified &&
+						sym.DeclarationRange.Start.Line == tc.start+i+1 &&
+						sym.DeclarationRange.End.Line == tc.start+i+1 {
+						seen = true
+					}
+				}
+				if !seen {
+					t.Fatalf("original enum entry missing: %s:%d %s", tc.source, tc.start+i+1, entry)
+				}
+			}
+			last := tc.entries[len(tc.entries)-1]
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: last, Match: "exact", FileDetails: "relevant",
+				MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("original enum value find failed: %v %+v", err, found)
+			}
+			symbolID := ""
+			for _, sym := range found.Symbols {
+				if sym.Name == last && sym.ParentQualifiedName == qualified &&
+					sym.NativeKind == "enum-value" {
+					symbolID = sym.ID
+				}
+			}
+			if symbolID == "" {
+				t.Fatalf("original enum value absent from exact find: %s", last)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "kotlin",
+				Encoding: found.Files[0].Encoding, SymbolID: symbolID,
+				SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 4096,
+			})
+			if err != nil || shown.Show == nil ||
+				strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != last {
+				t.Fatalf("original enum show mismatch: %s %s err=%v shown=%+v", tc.source, last, err, shown.Show)
+			}
+		})
+	}
+}
+
 func TestKotlinOriginalImplicitCompanionNavigation(t *testing.T) {
 	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if corpus == "" {
