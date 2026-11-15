@@ -843,6 +843,16 @@ func (parser *jvmParser) parseKotlinFunction(start, end int, parent *SymbolParen
 			signatureEnd = declarationEnd
 		}
 		next = terminator + 1
+		if parser.token(previous, "=") && strings.TrimSpace(parser.document.Text[parser.tokens[previous].EndOffset:parser.tokens[terminator].StartOffset]) == "" {
+			if expression, after, ok := parser.kotlinWrappedExpressionLine(start, terminator, end, depth); ok {
+				declarationEnd = expression.End
+				body = &expression
+				next = after
+			} else {
+				// A wrapped expression we cannot bound safely needs direct inspection.
+				parser.builder.MarkIncomplete()
+			}
+		}
 	}
 	kind := SymbolKindFunction
 	if members {
@@ -858,6 +868,50 @@ func (parser *jvmParser) parseKotlinFunction(start, end int, parent *SymbolParen
 		Disambiguator: tokenRangeText(parser.tokens, paren, closeParen+1),
 	})
 	return next
+}
+
+// A trailing '=' can introduce a complete, single-physical-line Kotlin
+// expression on the next indented line. Do not promote an unrelated peer or
+// claim to parse a multi-line expression, chained call, or flow semantics.
+func (parser *jvmParser) kotlinWrappedExpressionLine(start, newline, end, depth int) (OffsetRange, int, bool) {
+	first := nextStructuralToken(parser.tokens, newline+1, end)
+	if first >= end || parser.tokens[first].Kind == TokenEOF {
+		return OffsetRange{}, 0, false
+	}
+	text := parser.document.Text
+	indent := func(offset int) int {
+		lineStart := strings.LastIndexByte(text[:offset], '\n') + 1
+		value := 0
+		for lineStart+value < offset && (text[lineStart+value] == ' ' || text[lineStart+value] == '\t') {
+			value++
+		}
+		return value
+	}
+	if indent(parser.tokens[first].StartOffset) <= indent(parser.tokens[start].StartOffset) {
+		return OffsetRange{}, 0, false
+	}
+	lineEnd := len(text)
+	if at := strings.IndexByte(text[parser.tokens[first].StartOffset:], '\n'); at >= 0 {
+		lineEnd = parser.tokens[first].StartOffset + at
+	}
+	for index := first; index < end && parser.tokens[index].StartOffset <= lineEnd; index++ {
+		if parser.tokens[index].Kind != TokenNewline {
+			continue
+		}
+		if parser.tokens[index].Nesting != depth {
+			return OffsetRange{}, 0, false
+		}
+		last := previousStructuralToken(parser.tokens, index-1, first)
+		if last < first {
+			return OffsetRange{}, 0, false
+		}
+		switch parser.tokens[last].Text {
+		case "=", ".", ",", "+", "-", "?", ":", "&&", "||", "?:", "->":
+			return OffsetRange{}, 0, false
+		}
+		return OffsetRange{Start: parser.tokens[first].StartOffset, End: parser.tokens[last].EndOffset}, index + 1, true
+	}
+	return OffsetRange{}, 0, false
 }
 
 func (parser *jvmParser) kotlinPropertyWithModifiers(start, end int) bool {
