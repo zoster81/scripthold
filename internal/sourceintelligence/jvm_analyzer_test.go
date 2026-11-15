@@ -62,6 +62,87 @@ record Pair(int left, int right) implements Serializable {}
 	}
 }
 
+func TestKotlinPackageKeywordSegmentsAndMalformedNames(t *testing.T) {
+	cases := []struct {
+		name, source, packageName, className, memberName string
+		complete                                         bool
+	}{
+		{
+			name:        "keyword at end of dotted package",
+			source:      "package demo.internal\nclass Service { fun execute() {} }\n",
+			packageName: "demo.internal", className: "demo.internal.Service", memberName: "demo.internal.Service.execute",
+			complete: true,
+		},
+		{
+			name:        "single soft-keyword package",
+			source:      "package internal\nclass Service { fun execute() {} }\n",
+			packageName: "internal", className: "internal.Service", memberName: "internal.Service.execute",
+			complete: true,
+		},
+		{
+			name:        "soft keyword in middle of package",
+			source:      "package demo.internal.api\nclass Service { fun execute() {} }\n",
+			packageName: "demo.internal.api", className: "demo.internal.api.Service", memberName: "demo.internal.api.Service.execute",
+			complete: true,
+		},
+		{
+			name:        "ordinary package is unchanged",
+			source:      "package demo.core\nclass Service { fun execute() {} }\n",
+			packageName: "demo.core", className: "demo.core.Service", memberName: "demo.core.Service.execute",
+			complete: true,
+		},
+		{
+			name:   "trailing dot is not a complete package",
+			source: "package demo.internal.\nclass Service {}\n",
+		},
+		{
+			name:   "expression is not a package",
+			source: "package demo.internal + extra\nclass Service {}\n",
+		},
+		{
+			name:   "hard keyword is not a valid bare segment",
+			source: "package demo.class\nclass Service {}\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				document := sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol))
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if result.Analysis.CoverageComplete != tc.complete || result.Analysis.Truncated {
+					t.Errorf("unexpected package coverage %q: complete=%t diagnostics=%+v",
+						eol, result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
+				}
+				if !tc.complete {
+					for _, symbol := range result.Analysis.Symbols {
+						if symbol.Kind == SymbolKindPackage {
+							t.Errorf("malformed package unexpectedly indexed: %+v", symbol)
+						}
+					}
+					return
+				}
+				pkg, ok := symbols[tc.packageName]
+				if !ok || pkg.Kind != SymbolKindPackage || pkg.Name != tc.packageName ||
+					pkg.DeclarationRange.Start.Line != 1 || pkg.DeclarationRange.End.Line != 1 {
+					t.Errorf("missing full package %q: %+v exists=%t", eol, pkg, ok)
+				}
+				cl, ok := symbols[tc.className]
+				if !ok || cl.Kind != SymbolKindClass || cl.ParentQualifiedName != tc.packageName {
+					t.Errorf("incorrect class owner %q: %+v exists=%t", eol, cl, ok)
+				}
+				member, ok := symbols[tc.memberName]
+				if !ok || member.Kind != SymbolKindMethod || member.ParentQualifiedName != tc.className {
+					t.Errorf("incorrect method owner %q: %+v exists=%t", eol, member, ok)
+				}
+			}
+		})
+	}
+}
+
 func TestKotlinMultilinePrimaryConstructorClassOwners(t *testing.T) {
 	cases := []struct {
 		name, source, class, member, sibling string

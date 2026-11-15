@@ -199,6 +199,27 @@ func (parser *jvmParser) parsePackage(start, end int) (int, *SymbolParent) {
 	}
 	first := nextIdentifierToken(parser.tokens, start+1, valueEnd)
 	last := previousIdentifierToken(parser.tokens, valueEnd-1, start+1)
+	if parser.kotlin {
+		// Kotlin's soft "internal" modifier is also valid as a package segment.
+		// Validate each separator rather than truncating a partially parsed name.
+		first, last = start+1, valueEnd-1
+		expectSegment := true
+		valid := first <= last
+		for index := first; index <= last && valid; index++ {
+			token := parser.tokens[index]
+			if expectSegment {
+				valid = token.Kind == TokenIdentifier ||
+					(token.Kind == TokenKeyword && token.Text == "internal")
+			} else {
+				valid = token.Text == "."
+			}
+			expectSegment = !expectSegment
+		}
+		if !valid || expectSegment {
+			parser.builder.MarkIncomplete()
+			return terminator + 1, nil
+		}
+	}
 	if first < 0 || last < first {
 		return terminator + 1, nil
 	}

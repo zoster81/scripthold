@@ -537,3 +537,118 @@ func TestKotlinOriginalMultilineClassOwnerNavigation(t *testing.T) {
 		})
 	}
 }
+
+func TestKotlinOriginalKeywordPackageOwners(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	cases := []struct {
+		project, source, packageName, typeName, typeKind, member string
+		packageLine, typeLine, typeEnd, memberLine               int
+	}{
+		{
+			project:     "project-kotlin-lysine-dev-okio",
+			source:      "okio/src/hashFunctions/kotlin/okio/internal/HashFunction.kt",
+			packageName: "okio.internal", typeName: "HashFunction",
+			typeKind: "interface", member: "digest",
+			packageLine: 16, typeLine: 19, typeEnd: 27, memberLine: 26,
+		},
+		{
+			project:     "project-kotlin-square-moshi",
+			source:      "moshi/src/main/java/com/squareup/moshi/internal/JsonScope.kt",
+			packageName: "com.squareup.moshi.internal", typeName: "JsonScope",
+			typeKind: "class", member: "getPath",
+			packageLine: 16, typeLine: 19, typeEnd: 85, memberLine: 56,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			stat, err := os.Lstat(path)
+			if err != nil || !stat.Mode().IsRegular() || stat.Size() > 1<<20 {
+				t.Fatalf("original Kotlin package fixture unavailable or unsafe: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.packageLine < 1 || tc.typeEnd > len(lines) ||
+				tc.memberLine > len(lines) ||
+				strings.TrimSpace(lines[tc.packageLine-1]) != "package "+tc.packageName ||
+				!strings.Contains(lines[tc.typeLine-1], tc.typeName) ||
+				!strings.Contains(lines[tc.memberLine-1], tc.member+"(") ||
+				strings.TrimSpace(lines[tc.typeEnd-1]) != "}" {
+				t.Fatalf("independent Kotlin package oracle changed: %s", tc.source)
+			}
+			expectedClass := strings.TrimLeft(strings.Join(lines[tc.typeLine-1:tc.typeEnd], "\n"), " \t")
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outlined, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 512,
+			})
+			if err != nil || outlined.Truncated {
+				t.Fatalf("original Kotlin keyword package outline: %v %+v", err, outlined)
+			}
+			fullType := tc.packageName + "." + tc.typeName
+			pkgID, typeID, memberPresent := "", "", false
+			for _, sym := range outlined.Symbols {
+				if string(sym.Kind) == "package" && sym.Name == tc.packageName &&
+					sym.DeclarationRange.Start.Line == tc.packageLine &&
+					sym.DeclarationRange.End.Line == tc.packageLine {
+					pkgID = sym.ID
+				}
+				if sym.Name == tc.typeName && string(sym.Kind) == tc.typeKind &&
+					sym.ParentQualifiedName == tc.packageName &&
+					sym.DeclarationRange.Start.Line == tc.typeLine &&
+					sym.DeclarationRange.End.Line == tc.typeEnd {
+					typeID = sym.ID
+				}
+				if sym.Name == tc.member && string(sym.Kind) == "method" &&
+					sym.ParentQualifiedName == fullType &&
+					sym.DeclarationRange.Start.Line == tc.memberLine {
+					memberPresent = true
+				}
+			}
+			if pkgID == "" || typeID == "" || !memberPresent {
+				t.Fatalf("original keyword package symbols missing: pkg=%t type=%t member=%t",
+					pkgID != "", typeID != "", memberPresent)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: tc.typeName, Match: "exact", FileDetails: "relevant",
+				MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("original Kotlin type find failed: %v %+v", err, found)
+			}
+			typeFound := false
+			for _, sym := range found.Symbols {
+				if sym.ID == typeID {
+					typeFound = true
+				}
+			}
+			if !typeFound {
+				t.Fatalf("keyword package type not findable: %s", fullType)
+			}
+			for _, excerpt := range []struct{ id, expected string }{
+				{pkgID, "package " + tc.packageName},
+				{typeID, expectedClass},
+			} {
+				_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+					Operation: "show", Path: path, Language: "kotlin",
+					Encoding: found.Files[0].Encoding, SymbolID: excerpt.id,
+					SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 16384,
+				})
+				if err != nil || shown.Show == nil ||
+					strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != excerpt.expected {
+					t.Fatalf("original keyword package excerpt mismatch: %s err=%v shown=%+v",
+						tc.source, err, shown.Show)
+				}
+			}
+		})
+	}
+}
