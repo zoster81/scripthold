@@ -567,12 +567,38 @@ func cssWhitespace(value byte) bool {
 	}
 }
 
+// sassIndentedSubtreeEnds records each non-comment line's last directly or
+// transitively indented source line. A stack makes nested Sass ranges linear
+// in the number of lines, without including the next sibling declaration.
+func sassIndentedSubtreeEnds(lines []sourceTextLine) []int {
+	ends := make([]int, len(lines))
+	stack := make([]int, 0, 16)
+	lastContent := -1
+	for index, line := range lines {
+		if strings.TrimSpace(stripLineComment(line.text, "//")) == "" {
+			continue
+		}
+		for len(stack) > 0 && lines[stack[len(stack)-1]].indent >= line.indent {
+			previous := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			ends[previous] = lines[lastContent].end
+		}
+		stack = append(stack, index)
+		lastContent = index
+	}
+	for _, previous := range stack {
+		ends[previous] = lines[lastContent].end
+	}
+	return ends
+}
+
 func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "sass", AnalyzerSass)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	lines := sourceTextLines(document.Text)
+	selectorEnds := sassIndentedSubtreeEnds(lines)
 	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -631,7 +657,13 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 		if isSelector {
 			nameStart := line.start + strings.Index(line.text, trimmed)
-			addDocumentDataHardwareSymbol(builder, SymbolKindSelector, "selector", trimmed, nil, OffsetRange{Start: line.start, End: line.end}, OffsetRange{Start: nameStart, End: nameStart + len(trimmed)})
+			signature := OffsetRange{Start: line.start, End: line.end}
+			addStructuralSymbol(builder, SymbolSpec{
+				Kind: SymbolKindSelector, NativeKind: "selector", Name: trimmed,
+				Declaration: OffsetRange{Start: line.start, End: selectorEnds[index]},
+				NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(trimmed)},
+				Signature:   &signature, Evidence: SymbolEvidenceStructural,
+			})
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
