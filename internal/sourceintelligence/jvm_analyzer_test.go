@@ -511,3 +511,82 @@ public class Service {
 		}
 	}
 }
+
+func TestKotlinExplicitGetterPropertyRanges(t *testing.T) {
+	const source = "package demo\n" +
+		"class Container {\n" +
+		"  val first: String\n" +
+		"    get() = \"yes\"\n" +
+		"  fun next(): String = \"ok\"\n" +
+		"  val second: String\n" +
+		"    get() {\n" +
+		"      val local = \"no\"\n" +
+		"      return local\n" +
+		"    }\n" +
+		"  fun last(): String = \"ok\"\n" +
+		"}\n"
+	for _, variant := range []struct{ name, eol string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(variant.name, func(t *testing.T) {
+			result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(strings.ReplaceAll(source, "\n", variant.eol)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Fatalf("supported explicit getters reported partial: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for _, tc := range []struct {
+				name       string
+				kind       SymbolKind
+				start, end int
+			}{
+				{"demo.Container.first", SymbolKindProperty, 3, 4},
+				{"demo.Container.next", SymbolKindMethod, 5, 5},
+				{"demo.Container.second", SymbolKindProperty, 6, 10},
+				{"demo.Container.last", SymbolKindMethod, 11, 11},
+			} {
+				sym, ok := symbols[tc.name]
+				if !ok || sym.Kind != tc.kind || sym.DeclarationRange.Start.Line != tc.start || sym.DeclarationRange.End.Line != tc.end {
+					t.Errorf("%s: got %+v exists=%v, want lines %d-%d", tc.name, sym, ok, tc.start, tc.end)
+				}
+			}
+			if _, wrong := symbols["demo.Container.local"]; wrong {
+				t.Error("getter-local binding leaked into class scope")
+			}
+		})
+	}
+}
+
+func TestKotlinUnsupportedAccessorContinuationsRemainPartial(t *testing.T) {
+	for _, tc := range []struct {
+		name, accessor string
+	}{
+		{"chained-member-at-getter-indent", "    get() = \"hello\"\n    .uppercase()\n"},
+		{"unbounded-wrapped-expression", "    get() =\n      \"hello\"\n"},
+		{"paired-getter-and-setter", "    get() = \"hello\"\n    set(value) { field = value }\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "package demo\nclass Store {\n  var key: String\n" +
+				tc.accessor + "  fun after(): String = \"ok\"\n}\n"
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+					sourceDocumentForScanner(strings.ReplaceAll(source, "\n", eol)),
+					testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.CoverageComplete {
+					t.Errorf("unsupported Kotlin accessor %q claimed complete with EOL %q", tc.name, eol)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if sibling, ok := symbols["demo.Store.after"]; !ok || sibling.Kind != SymbolKindMethod {
+					t.Errorf("following declaration lost for %q EOL %q", tc.name, eol)
+				}
+				if key, ok := symbols["demo.Store.key"]; !ok || key.DeclarationRange.End.Line > 5 {
+					t.Errorf("unsupported accessor absorbed subsequent declaration: %+v", key)
+				}
+			}
+		})
+	}
+}
