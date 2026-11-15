@@ -76,8 +76,8 @@ type bladeAnonymousClass struct {
 
 var (
 	scriptTagPattern = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
-	// Svelte's generics attribute may contain quoted > characters in type constraints.
-	svelteScriptTagPattern        = regexp.MustCompile(`(?is)<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</script\s*>`)
+	// Generic constraints in quoted Vue or Svelte script attributes can contain >.
+	quotedScriptTagPattern        = regexp.MustCompile(`(?is)<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</script\s*>`)
 	styleTagPattern               = regexp.MustCompile(`(?is)<style\b([^>]*)>(.*?)</style\s*>`)
 	scriptOpenPattern             = regexp.MustCompile(`(?is)<script\b`)
 	styleOpenPattern              = regexp.MustCompile(`(?is)<style\b`)
@@ -806,8 +806,8 @@ func analyzeScriptStyleHost(ctx context.Context, document *SourceDocument, optio
 		}
 	}
 	scriptPattern := scriptTagPattern
-	if language == "svelte" {
-		scriptPattern = svelteScriptTagPattern
+	if language == "svelte" || language == "vue" {
+		scriptPattern = quotedScriptTagPattern
 	}
 	regions = append(regions, tagEmbeddedRegions(probe, scriptPattern, "script", scriptLanguage)...)
 	regions = append(regions, tagEmbeddedRegions(probe, styleTagPattern, "style", styleLanguage)...)
