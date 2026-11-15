@@ -275,3 +275,89 @@ func TestKotlinOriginalExplicitGetterNavigation(t *testing.T) {
 		})
 	}
 }
+
+func TestKotlinOriginalMultilineGetterNavigation(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	cases := []struct {
+		project, source, property, owner, sibling string
+		start, end, siblingLine                   int
+	}{
+		{"project-kotlin-jakewharton-timber", "timber/src/androidMain/kotlin/timber/log/Timber.kt",
+			"tag", "timber.log.Timber.DebugTree", "createStackElementTag", 207, 213, 221},
+		{"project-kotlin-zhanghai-materialfiles", "app/src/main/java/me/zhanghai/android/files/compat/StorageVolumeCompat.kt",
+			"directoryCompat", "me.zhanghai.android.files.compat", "getDescriptionCompat", 32, 41, 44},
+	}
+	for _, tc := range cases {
+		t.Run(tc.property+"-"+tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("unsafe or missing original Kotlin source: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.start < 1 || tc.end > len(lines) || tc.siblingLine > len(lines) ||
+				!strings.Contains(lines[tc.start-1], tc.property+":") ||
+				strings.TrimSpace(lines[tc.start]) != "get() =" ||
+				!strings.Contains(lines[tc.siblingLine-1], tc.sibling+"(") {
+				t.Fatalf("independent original getter oracle changed: %s:%d-%d", tc.source, tc.start, tc.end)
+			}
+			expected := strings.TrimLeft(strings.Join(lines[tc.start-1:tc.end], "\n"), " \t")
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 512,
+			})
+			if err != nil || outline.Truncated {
+				t.Fatalf("original Kotlin multiline outline failed: %v %+v", err, outline)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: tc.property, Match: "exact", FileDetails: "relevant", MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("original Kotlin multiline find failed: %v %+v", err, found)
+			}
+			id := ""
+			for _, s := range found.Symbols {
+				if s.Name == tc.property && string(s.Kind) == "property" &&
+					s.ParentQualifiedName == tc.owner &&
+					s.DeclarationRange.Start.Line == tc.start && s.DeclarationRange.End.Line == tc.end {
+					id = s.ID
+				}
+			}
+			if id == "" {
+				t.Fatalf("original Kotlin multiline getter missing/partial: %+v", found.Symbols)
+			}
+			hasProperty, hasSibling := false, false
+			for _, s := range outline.Symbols {
+				if s.ID == id {
+					hasProperty = true
+				}
+				if s.Name == tc.sibling && s.ParentQualifiedName == tc.owner &&
+					s.DeclarationRange.Start.Line == tc.siblingLine {
+					hasSibling = true
+				}
+			}
+			if !hasProperty || !hasSibling {
+				t.Fatalf("original Kotlin getter or sibling lost: property=%t sibling=%t", hasProperty, hasSibling)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "kotlin", Encoding: found.Files[0].Encoding,
+				SymbolID: id, SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 8192,
+			})
+			if err != nil || shown.Show == nil ||
+				strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != expected {
+				t.Fatalf("original Kotlin multiline source mismatch: %s:%d err=%v shown=%+v", tc.source, tc.start, err, shown.Show)
+			}
+		})
+	}
+}

@@ -563,7 +563,7 @@ func TestKotlinUnsupportedAccessorContinuationsRemainPartial(t *testing.T) {
 		name, accessor string
 	}{
 		{"chained-member-at-getter-indent", "    get() = \"hello\"\n    .uppercase()\n"},
-		{"unbounded-wrapped-expression", "    get() =\n      \"hello\"\n"},
+		{"unfinished-wrapped-expression", "    get() =\n      \"hello\" +\n"},
 		{"paired-getter-and-setter", "    get() = \"hello\"\n    set(value) { field = value }\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -586,6 +586,51 @@ func TestKotlinUnsupportedAccessorContinuationsRemainPartial(t *testing.T) {
 				if key, ok := symbols["demo.Store.key"]; !ok || key.DeclarationRange.End.Line > 5 {
 					t.Errorf("unsupported accessor absorbed subsequent declaration: %+v", key)
 				}
+			}
+		})
+	}
+}
+
+func TestKotlinIndentedMultilineGetterRanges(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, property, sibling string
+		end, siblingLine                int
+	}{
+		{
+			name:     "elvis chain and trailing lambda",
+			source:   "package demo\nclass Logger {\n  val tag: String?\n    get() =\n      originalTag\n        ?: Throwable()\n          .stackTrace\n          .first { it.className != \"skip\" }\n          .let(::makeTag)\n  fun after() {}\n}\n",
+			property: "demo.Logger.tag", sibling: "demo.Logger.after", end: 9, siblingLine: 10,
+		},
+		{
+			name:     "if else with nested when",
+			source:   "package demo\nclass Compat {\n  val directory: String?\n    get() =\n      if (level > 1) {\n        \"new\"\n      } else {\n        when (mode) {\n          0 -> \"old\"\n          else -> null\n        }\n      }\n  fun after() {}\n}\n",
+			property: "demo.Compat.directory", sibling: "demo.Compat.after", end: 12, siblingLine: 13,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[eol], func(t *testing.T) {
+					result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+						sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol)),
+						testAnalyzeOptions(true, 128))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+						t.Fatalf("bounded Kotlin multiline getter partial: %+v", result.Analysis.Diagnostics)
+					}
+					symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+					property, ok := symbols[tc.property]
+					if !ok || property.Kind != SymbolKindProperty ||
+						property.DeclarationRange.Start.Line != 3 || property.DeclarationRange.End.Line != tc.end {
+						t.Errorf("getter range invalid: %+v exists=%t want 3-%d", property, ok, tc.end)
+					}
+					sibling, ok := symbols[tc.sibling]
+					if !ok || sibling.Kind != SymbolKindMethod ||
+						sibling.DeclarationRange.Start.Line != tc.siblingLine {
+						t.Errorf("following sibling corrupted: %+v exists=%t", sibling, ok)
+					}
+				})
 			}
 		})
 	}

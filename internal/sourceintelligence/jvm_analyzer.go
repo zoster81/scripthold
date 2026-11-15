@@ -918,6 +918,108 @@ func kotlinSourceIndent(source string, offset int) int {
 	return indent
 }
 
+// kotlinMultilineGetterExpression accepts only a bounded next-line expression:
+// a chain with explicit continuation prefixes or a balanced if/when block.
+// Raw-line limits prevent scanning an unrelated tail of an oversized source.
+func (parser *jvmParser) kotlinMultilineGetterExpression(getter, equals, newline, end int) (int, int, bool) {
+	source := parser.document.Text
+	if strings.TrimSpace(source[parser.tokens[equals].EndOffset:parser.tokens[newline].StartOffset]) != "" {
+		return 0, 0, false
+	}
+	getterIndent := kotlinSourceIndent(source, parser.tokens[getter].StartOffset)
+	lineStart := parser.tokens[newline].EndOffset
+	firstLine, lastLineEnd := -1, -1
+	control := false
+	previousContinuation := false
+	bounded := false
+	for lines := 0; lineStart < len(source) && lines < 96; lines++ {
+		lineEnd := len(source)
+		if at := strings.IndexByte(source[lineStart:], '\n'); at >= 0 {
+			lineEnd = lineStart + at
+		}
+		line := source[lineStart:lineEnd]
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			indent := len(line) - len(strings.TrimLeft(line, " \t"))
+			if indent <= getterIndent {
+				bounded = true
+				break
+			}
+			if lineEnd-parser.tokens[equals].EndOffset > 16384 ||
+				strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "val ") ||
+				strings.HasPrefix(trimmed, "var ") || strings.HasPrefix(trimmed, "class ") ||
+				strings.HasPrefix(trimmed, "get(") || strings.HasPrefix(trimmed, "set(") {
+				return 0, 0, false
+			}
+			if firstLine < 0 {
+				firstLine = lineStart + indent
+				control = strings.HasPrefix(trimmed, "if ") || strings.HasPrefix(trimmed, "if(") ||
+					strings.HasPrefix(trimmed, "when ") || strings.HasPrefix(trimmed, "when(")
+			} else if !control && !previousContinuation &&
+				!strings.HasPrefix(trimmed, ".") && !strings.HasPrefix(trimmed, "?:") &&
+				!strings.HasPrefix(trimmed, "!!") && !strings.HasPrefix(trimmed, "::") &&
+				!strings.HasPrefix(trimmed, "&&") && !strings.HasPrefix(trimmed, "||") {
+				return 0, 0, false
+			}
+			previousContinuation = false
+			for _, suffix := range []string{".", ",", "+", "-", "?:", "&&", "||", "->"} {
+				if strings.HasSuffix(trimmed, suffix) {
+					previousContinuation = true
+					break
+				}
+			}
+			lastLineEnd = lineEnd
+		}
+		if lineEnd == len(source) {
+			bounded = true
+			break
+		}
+		lineStart = lineEnd + 1
+	}
+	if (!bounded && lineStart < len(source)) || firstLine < 0 || lastLineEnd <= firstLine {
+		return 0, 0, false
+	}
+	first, last := -1, -1
+	hasBodyBraces := false
+	for index := equals + 1; index < end && parser.tokens[index].StartOffset < lastLineEnd; index++ {
+		token := parser.tokens[index]
+		if token.Kind == TokenNewline || token.Kind == TokenDirective {
+			continue
+		}
+		if token.Kind == TokenEOF || token.EndOffset > lastLineEnd ||
+			strings.Contains(source[token.StartOffset:token.EndOffset], "\n") {
+			return 0, 0, false
+		}
+		if first < 0 {
+			first = index
+		}
+		last = index
+	}
+	if first < 0 || parser.tokens[first].StartOffset < firstLine || last < first {
+		return 0, 0, false
+	}
+	switch parser.tokens[last].Text {
+	case "=", ".", ",", "+", "-", "?", ":", "&&", "||", "?:", "->":
+		return 0, 0, false
+	}
+	for index := first; index <= last; index++ {
+		switch parser.tokens[index].Text {
+		case "{", "(", "[":
+			close := parser.pairs[index]
+			if close <= index || close > last {
+				return 0, 0, false
+			}
+			if parser.tokens[index].Text == "{" {
+				hasBodyBraces = true
+			}
+		}
+	}
+	if control && !hasBodyBraces {
+		return 0, 0, false
+	}
+	return parser.tokens[last].EndOffset, last + 1, true
+}
+
 // kotlinPropertyGetter bounds only an explicitly indented, parameterless getter
 // with a single physical expression line or a balanced brace body. It does not
 // infer Kotlin expression continuations or standalone get() calls as accessors.
@@ -947,6 +1049,11 @@ func (parser *jvmParser) kotlinPropertyGetter(propertyStart, from, end, depth in
 	}
 	if !parser.token(bodyStart, "=") || parser.tokens[bodyStart].Nesting != depth {
 		return 0, 0, true, false
+	}
+	if bodyStart+1 < end && parser.tokens[bodyStart+1].Kind == TokenNewline &&
+		parser.tokens[bodyStart+1].Nesting == depth {
+		last, after, ok := parser.kotlinMultilineGetterExpression(getter, bodyStart, bodyStart+1, end)
+		return last, after, true, ok
 	}
 	for index := bodyStart + 1; index < end; index++ {
 		if parser.tokens[index].Kind != TokenNewline {
