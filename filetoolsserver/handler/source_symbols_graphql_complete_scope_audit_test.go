@@ -204,3 +204,70 @@ func TestGraphQLSelectedOriginalCompleteDeclarationInventories(t *testing.T) {
 		})
 	}
 }
+
+// The original Hasura mutation schema needs its authored type references
+// available in fingerprint-bound show, not merely field names in an outline.
+func TestGraphQLOriginalFieldTypeSourceDrilldown(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original GraphQL source corpus not configured")
+	}
+	root := filepath.Join(corpus, "graphql57-hasura-audit-selected")
+	path := filepath.Join(root, "cli", "commands", "testdata", "config-v3-test-project", "metadata", "actions.graphql")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		t.Fatalf("original Hasura GraphQL source unavailable: %v", err)
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []struct {
+		name, owner, excerpt string
+		line                 int
+	}{
+		{"actionName", "Mutation", "actionName(\n    arg1: SampleInput!\n  ): SampleOutput", 2},
+		{"username", "SampleInput", "username: String!", 8},
+		{"accessToken", "SampleOutput", "accessToken: String!", 13},
+	}
+	lines := strings.Split(strings.ReplaceAll(string(source), "\r\n", "\n"), "\n")
+	for _, want := range targets {
+		if want.line > len(lines) || !strings.Contains(lines[want.line-1], want.name) ||
+			!strings.Contains(string(source), want.excerpt) {
+			t.Fatalf("independent Hasura source oracle changed for %s:%d", want.name, want.line)
+		}
+	}
+	ctx, handler := context.Background(), NewHandler([]string{root})
+	fail, outline, err := handler.SourceSymbols(ctx, nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "graphql", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 48,
+	})
+	if err != nil || fail != nil || outline.Truncated || !outline.CoverageComplete || outline.FilesParsed != 1 {
+		t.Fatalf("original GraphQL outline unavailable: %v fail=%+v result=%+v", err, fail, outline)
+	}
+	for _, want := range targets {
+		t.Run(want.name, func(t *testing.T) {
+			fail, found, err := handler.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Query: want.name, Match: "exact",
+				Language: "graphql", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 12,
+			})
+			if err != nil || fail != nil || len(found.Files) != 1 || len(found.Symbols) != 1 {
+				t.Fatalf("original GraphQL find %s: %v fail=%+v found=%+v", want.name, err, fail, found)
+			}
+			symbol := found.Symbols[0]
+			if symbol.ParentQualifiedName != want.owner || symbol.NameRange.Start.Line != want.line ||
+				symbol.Kind != "field" || found.Files[0].SourceFingerprint == "" {
+				t.Fatalf("incorrect original field identity %s: %+v", want.name, symbol)
+			}
+			fail, shown, err := handler.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, SymbolID: symbol.ID,
+				SourceFingerprint: found.Files[0].SourceFingerprint,
+				Language:          "graphql", Encoding: "utf-8", MaxBytes: 4096,
+			})
+			if err != nil || fail != nil || shown.Show == nil ||
+				strings.TrimSpace(shown.Show.Text) != want.excerpt {
+				t.Fatalf("original GraphQL field show %s: %v fail=%+v show=%+v", want.name, err, fail, shown.Show)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,58 @@ scalar CustomScalar @onScalar
 				"Feed": 30, "AnnotatedUnion": 32,
 				"CustomScalar": 34, "AnnotatedScalar": 36,
 			})
+		})
+	}
+}
+
+// A field selector needs the authored type, not only the colon.
+func TestGraphQLFieldSourceRangeRetainsTypeReference(t *testing.T) {
+	const fixture = "type Mutation {\n" +
+		"  actionName(\n" +
+		"    arg1: SampleInput!\n" +
+		"  ): SampleOutput\n" +
+		"}\n" +
+		"input SampleInput {\n" +
+		"  username: String!\n" +
+		"}\n" +
+		"type SampleOutput {\n" +
+		"  accessToken: String!\n" +
+		"  statuses: [String!]!\n" +
+		"  next: ID\n" +
+		"}\n"
+	for _, ending := range []string{"\n", "\r\n"} {
+		t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[ending], func(t *testing.T) {
+			text := strings.ReplaceAll(fixture, "\n", ending)
+			result, err := (GraphQLAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(text), testAnalyzeOptions(true, 40))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Fatalf("supported GraphQL fields unexpectedly partial: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, want := range map[string]string{
+				"Mutation.actionName":      "actionName(\n    arg1: SampleInput!\n  ): SampleOutput",
+				"SampleInput.username":     "username: String!",
+				"SampleOutput.accessToken": "accessToken: String!",
+				"SampleOutput.statuses":    "statuses: [String!]!",
+				"SampleOutput.next":        "next: ID",
+			} {
+				symbol, ok := symbols[name]
+				if !ok || symbol.Kind != SymbolKindField {
+					t.Errorf("missing qualified GraphQL field %s: %+v", name, symbol)
+					continue
+				}
+				got := text[symbol.declarationOffsets.Start:symbol.declarationOffsets.End]
+				want = strings.ReplaceAll(want, "\n", ending)
+				if got != want {
+					t.Errorf("%s declaration = %q, want %q", name, got, want)
+				}
+			}
+			if _, falseField := symbols["Mutation.arg1"]; falseField {
+				t.Error("argument falsely promoted to a Mutation field")
+			}
 		})
 	}
 }

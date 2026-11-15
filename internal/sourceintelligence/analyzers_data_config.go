@@ -406,15 +406,88 @@ func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 }
 
 var (
-	graphqlSchema    = regexp.MustCompile(`(?m)\bschema[ \t]*\{`)
-	graphqlContainer = regexp.MustCompile(`(?m)\b(type|interface|input|enum)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[^\{]*\{`)
-	graphqlOperation = regexp.MustCompile(`(?m)\b(query|mutation|subscription)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
-	graphqlNamedLeaf = regexp.MustCompile(`(?m)^[ \t]*(union|scalar)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
-	graphqlFragment  = regexp.MustCompile(`(?m)^[ \t]*fragment[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+on[ \t]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\{`)
-	graphqlDirective = regexp.MustCompile(`(?m)^[ \t]*directive[ \t]+@([A-Za-z_][A-Za-z0-9_]*)(?:[ \t\r\n]*\([^()]*\))?[ \t\r\n]*(?:repeatable[ \t\r\n]+)?on[ \t\r\n]+\|?[ \t\r\n]*[A-Z_]+(?:[ \t\r\n]*\|[ \t\r\n]*[A-Z_]+)*`)
-	graphqlField     = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
-	graphqlEnumValue = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\r?$`)
+	graphqlSchema        = regexp.MustCompile(`(?m)\bschema[ \t]*\{`)
+	graphqlContainer     = regexp.MustCompile(`(?m)\b(type|interface|input|enum)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[^\{]*\{`)
+	graphqlOperation     = regexp.MustCompile(`(?m)\b(query|mutation|subscription)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	graphqlNamedLeaf     = regexp.MustCompile(`(?m)^[ \t]*(union|scalar)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	graphqlFragment      = regexp.MustCompile(`(?m)^[ \t]*fragment[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+on[ \t]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\{`)
+	graphqlDirective     = regexp.MustCompile(`(?m)^[ \t]*directive[ \t]+@([A-Za-z_][A-Za-z0-9_]*)(?:[ \t\r\n]*\([^()]*\))?[ \t\r\n]*(?:repeatable[ \t\r\n]+)?on[ \t\r\n]+\|?[ \t\r\n]*[A-Z_]+(?:[ \t\r\n]*\|[ \t\r\n]*[A-Z_]+)*`)
+	graphqlField         = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
+	graphqlDirectiveCall = regexp.MustCompile(`@[A-Za-z_][A-Za-z0-9_]*[ \t]*\([^()]*\)`)
+	graphqlEnumValue     = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\r?$`)
 )
+
+// graphqlTypeReferenceEnd recognizes a bounded, same-line GraphQL type token.
+// A type is a name or nested list, each optionally followed by '!'. It never
+// borrows a following field or directive when the type grammar is unsupported.
+func graphqlTypeReferenceEnd(source string, afterColon, bodyEnd int) (int, bool) {
+	if afterColon < 0 || afterColon >= bodyEnd || bodyEnd > len(source) {
+		return afterColon, false
+	}
+	limit := min(bodyEnd, afterColon+256)
+	start := afterColon
+	for start < limit && (source[start] == ' ' || source[start] == '\t') {
+		start++
+	}
+	end, ok := graphqlParseTypeReference(source, start, limit, 0)
+	if !ok {
+		return afterColon, false
+	}
+	if end < bodyEnd {
+		switch source[end] {
+		case ':', '!', '[', ']', '_':
+			return afterColon, false
+		}
+		if source[end] >= '0' && source[end] <= '9' ||
+			source[end] >= 'A' && source[end] <= 'Z' ||
+			source[end] >= 'a' && source[end] <= 'z' {
+			return afterColon, false
+		}
+	}
+	return end, true
+}
+
+func graphqlParseTypeReference(source string, pos, limit, depth int) (int, bool) {
+	if depth >= 8 || pos >= limit {
+		return pos, false
+	}
+	if source[pos] == '[' {
+		pos++
+		for pos < limit && (source[pos] == ' ' || source[pos] == '\t') {
+			pos++
+		}
+		var ok bool
+		pos, ok = graphqlParseTypeReference(source, pos, limit, depth+1)
+		if !ok {
+			return pos, false
+		}
+		for pos < limit && (source[pos] == ' ' || source[pos] == '\t') {
+			pos++
+		}
+		if pos >= limit || source[pos] != ']' {
+			return pos, false
+		}
+		pos++
+	} else {
+		c := source[pos]
+		if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return pos, false
+		}
+		pos++
+		for pos < limit {
+			c = source[pos]
+			if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') {
+				break
+			}
+			pos++
+		}
+	}
+	if pos < limit && source[pos] == '!' {
+		pos++
+	}
+	return pos, true
+}
 
 func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "graphql", AnalyzerGraphQL)
@@ -466,10 +539,22 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			}
 			continue
 		}
-		for _, field := range graphqlField.FindAllStringSubmatchIndex(body, -1) {
+		// Directive argument keys are not fields of the containing type.
+		// Mask simple balanced calls while retaining original byte offsets.
+		fieldBody := []byte(body)
+		for _, call := range graphqlDirectiveCall.FindAllStringIndex(body, -1) {
+			maskByteRangePreservingLines(fieldBody, call[0], call[1])
+		}
+		for _, field := range graphqlField.FindAllStringSubmatchIndex(string(fieldBody), -1) {
 			fieldName := document.Text[bodyStart+field[2] : bodyStart+field[3]]
 			start := bodyStart + field[0]
 			end := bodyStart + field[1]
+			if typedEnd, ok := graphqlTypeReferenceEnd(source, end, close); ok {
+				end = typedEnd
+			} else {
+				addDocumentDataHardwareDiagnostic(builder, "graphql-unmodeled-field-type",
+					"GraphQL field type reference could not be safely determined", start, end)
+			}
 			addDocumentDataHardwareSymbol(builder, SymbolKindField, "field", fieldName, parent, OffsetRange{Start: start, End: end}, OffsetRange{Start: bodyStart + field[2], End: bodyStart + field[3]})
 		}
 	}
