@@ -361,3 +361,92 @@ func TestKotlinOriginalMultilineGetterNavigation(t *testing.T) {
 		})
 	}
 }
+
+func TestKotlinOriginalPropertySetterNavigation(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("original projects not configured")
+	}
+	cases := []struct {
+		project, source, name, owner, sibling, siblingKind string
+		start, end, siblingLine                            int
+	}{
+		{"project-kotlin-zhanghai-materialfiles",
+			"app/src/main/java/me/zhanghai/android/files/compat/DrawableCompat.kt",
+			"layoutDirectionCompat", "me.zhanghai.android.files.compat", "setTintCompat", "function", 12, 16, 18},
+		{"project-kotlin-lysine-dev-okio", "okio-testing-support/src/nonWasmMain/kotlin/okio/TestingNonWasm.kt",
+			"workingDirectory", "okio", "allowReadsWhileWriting", "property", 29, 43, 26},
+	}
+	for _, tc := range cases {
+		t.Run(tc.project, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			path := filepath.Join(root, filepath.FromSlash(tc.source))
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("original Kotlin setter fixture unavailable or unsafe: %v", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+			if tc.start < 1 || tc.end > len(lines) || tc.siblingLine > len(lines) ||
+				!strings.Contains(lines[tc.start-1], "var ") ||
+				!strings.Contains(lines[tc.start-1], tc.name+":") ||
+				!strings.Contains(strings.Join(lines[tc.start:tc.end], "\n"), "set(value) {") ||
+				!strings.Contains(lines[tc.siblingLine-1], tc.sibling) {
+				t.Fatalf("original setter independent oracle changed: %s:%d-%d", tc.source, tc.start, tc.end)
+			}
+			expected := strings.TrimLeft(strings.Join(lines[tc.start-1:tc.end], "\n"), " \t")
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			_, outline, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "outline", Paths: []string{path}, Language: "kotlin",
+				Presentation: "detailed", MaxFiles: 1, MaxSymbols: 512,
+			})
+			if err != nil || outline.Truncated {
+				t.Fatalf("original Kotlin setter outline failed: %v %+v", err, outline)
+			}
+			_, found, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "kotlin",
+				Query: tc.name, Match: "exact", FileDetails: "relevant", MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || found.Truncated || len(found.Files) != 1 {
+				t.Fatalf("original Kotlin setter find failed: %v %+v", err, found)
+			}
+			id := ""
+			for _, sym := range found.Symbols {
+				if sym.Name == tc.name && string(sym.Kind) == "property" &&
+					sym.ParentQualifiedName == tc.owner &&
+					sym.DeclarationRange.Start.Line == tc.start && sym.DeclarationRange.End.Line == tc.end {
+					id = sym.ID
+				}
+			}
+			if id == "" {
+				t.Fatalf("original Kotlin setter property range missing: %s %+v", tc.source, found.Symbols)
+			}
+			hasProperty, hasSibling := false, false
+			for _, sym := range outline.Symbols {
+				if sym.ID == id {
+					hasProperty = true
+				}
+				if sym.Name == tc.sibling && string(sym.Kind) == tc.siblingKind &&
+					sym.ParentQualifiedName == tc.owner &&
+					sym.DeclarationRange.Start.Line == tc.siblingLine {
+					hasSibling = true
+				}
+			}
+			if !hasProperty || !hasSibling {
+				t.Fatalf("original Kotlin setter/sibling ownership failed: property=%t sibling=%t", hasProperty, hasSibling)
+			}
+			_, shown, err := h.SourceSymbols(ctx, nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "kotlin", Encoding: found.Files[0].Encoding,
+				SymbolID: id, SourceFingerprint: found.Files[0].SourceFingerprint, MaxBytes: 8192,
+			})
+			if err != nil || shown.Show == nil ||
+				strings.ReplaceAll(shown.Show.Text, "\r\n", "\n") != expected {
+				t.Fatalf("original Kotlin setter source mismatch: %s:%d err=%v shown=%+v", tc.source, tc.start, err, shown.Show)
+			}
+		})
+	}
+}

@@ -564,7 +564,7 @@ func TestKotlinUnsupportedAccessorContinuationsRemainPartial(t *testing.T) {
 	}{
 		{"chained-member-at-getter-indent", "    get() = \"hello\"\n    .uppercase()\n"},
 		{"unfinished-wrapped-expression", "    get() =\n      \"hello\" +\n"},
-		{"paired-getter-and-setter", "    get() = \"hello\"\n    set(value) { field = value }\n"},
+		{"unsupported-expression-setter", "    get() = \"hello\"\n    set(value) = value\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := "package demo\nclass Store {\n  var key: String\n" +
@@ -631,6 +631,54 @@ func TestKotlinIndentedMultilineGetterRanges(t *testing.T) {
 						t.Errorf("following sibling corrupted: %+v exists=%t", sibling, ok)
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestKotlinPropertySetterOwnedSourceRanges(t *testing.T) {
+	cases := []struct {
+		name, source, property, sibling string
+		propertyEnd, siblingLine        int
+	}{
+		{
+			name:     "getter and setter",
+			source:   "package demo\nclass Wrapper {\n  var direction: Int\n    get() = readDirection()\n    set(value) {\n      applyDirection(value)\n    }\n  fun after() {}\n}\n",
+			property: "demo.Wrapper.direction", sibling: "demo.Wrapper.after", propertyEnd: 7, siblingLine: 8,
+		},
+		{
+			name:     "initialized setter only",
+			source:   "package demo\nclass Data {\n  var utf8: String? = null\n    set(value) {\n      cache(value)\n    }\n  fun after() {}\n}\n",
+			property: "demo.Data.utf8", sibling: "demo.Data.after", propertyEnd: 6, siblingLine: 7,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := (KotlinAnalyzer{}).Analyze(context.Background(),
+					sourceDocumentForScanner(strings.ReplaceAll(tc.source, "\n", eol)),
+					testAnalyzeOptions(true, 128))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+					t.Errorf("%s coverage unexpectedly partial for %q", tc.name, eol)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				property, ok := symbols[tc.property]
+				if !ok || property.Kind != SymbolKindProperty ||
+					property.DeclarationRange.Start.Line != 3 ||
+					property.DeclarationRange.End.Line != tc.propertyEnd {
+					t.Errorf("wrong property range for %q: %+v exists=%t", eol, property, ok)
+				}
+				sibling, ok := symbols[tc.sibling]
+				if !ok || sibling.Kind != SymbolKindMethod ||
+					sibling.DeclarationRange.Start.Line != tc.siblingLine {
+					t.Errorf("separate method missing for %q: %+v", eol, sibling)
+				}
+				if _, falseMethod := symbols["demo.Wrapper.set"]; falseMethod {
+					t.Error("property accessor leaked as separate method")
+				}
 			}
 		})
 	}

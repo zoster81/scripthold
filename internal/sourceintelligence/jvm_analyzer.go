@@ -1093,6 +1093,40 @@ func (parser *jvmParser) kotlinPropertyGetter(propertyStart, from, end, depth in
 	return 0, 0, true, false
 }
 
+// kotlinPropertySetter keeps a directly indented, one-parameter brace setter
+// within its owning property. Expression setters and malformed blocks remain partial.
+func (parser *jvmParser) kotlinPropertySetter(propertyStart, from, end, depth int) (int, int, bool, bool) {
+	setter := nextStructuralToken(parser.tokens, from, end)
+	if setter >= end || !parser.token(setter, "set") || parser.tokens[setter].Nesting != depth {
+		return 0, 0, false, false
+	}
+	if kotlinSourceIndent(parser.document.Text, parser.tokens[setter].StartOffset) <=
+		kotlinSourceIndent(parser.document.Text, parser.tokens[propertyStart].StartOffset) {
+		return 0, 0, false, false
+	}
+	open := nextStructuralToken(parser.tokens, setter+1, end)
+	if !parser.token(open, "(") {
+		return 0, 0, true, false
+	}
+	close := parser.pairs[open]
+	if close <= open+1 || close >= end {
+		return 0, 0, true, false
+	}
+	param := nextIdentifierToken(parser.tokens, open+1, close)
+	if param != open+1 || nextStructuralToken(parser.tokens, param+1, close) != close {
+		return 0, 0, true, false
+	}
+	body := nextStructuralToken(parser.tokens, close+1, end)
+	if !parser.token(body, "{") || parser.tokens[body].Nesting != depth+1 {
+		return 0, 0, true, false
+	}
+	closeBody := parser.pairs[body]
+	if closeBody <= body || closeBody >= end {
+		return 0, 0, true, false
+	}
+	return parser.tokens[closeBody].EndOffset, closeBody + 1, true, true
+}
+
 func (parser *jvmParser) kotlinPropertyWithModifiers(start, end int) bool {
 	for index := start; index < end && index < start+12; index++ {
 		if parser.token(index, "val") || parser.token(index, "var") {
@@ -1149,19 +1183,49 @@ func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParen
 	declarationEnd := parser.tokens[last].EndOffset
 	next := terminator + 1
 	if terminator < end && parser.tokens[terminator].Kind == TokenNewline {
-		if getterEnd, after, recognized, complete := parser.kotlinPropertyGetter(start, terminator+1, end, depth); recognized {
-			if complete {
-				declarationEnd, next = getterEnd, after
-				following := nextStructuralToken(parser.tokens, next, end)
-				if following < end && parser.tokens[following].Nesting == depth &&
-					(parser.token(following, "set") || parser.token(following, "get")) &&
-					kotlinSourceIndent(parser.document.Text, parser.tokens[following].StartOffset) > kotlinSourceIndent(parser.document.Text, parser.tokens[start].StartOffset) {
-					// Additional accessors need direct inspection until both are bounded.
-					parser.builder.MarkIncomplete()
-				}
-			} else {
-				parser.builder.MarkIncomplete()
+		var seenGet, seenSet bool
+		for count := 0; count < 2; count++ {
+			following := nextStructuralToken(parser.tokens, next, end)
+			if following >= end || parser.tokens[following].Nesting != depth ||
+				kotlinSourceIndent(parser.document.Text, parser.tokens[following].StartOffset) <=
+					kotlinSourceIndent(parser.document.Text, parser.tokens[start].StartOffset) {
+				break
 			}
+			var accessorEnd, after int
+			var recognized, complete bool
+			switch {
+			case parser.token(following, "get"):
+				if seenGet {
+					parser.builder.MarkIncomplete()
+					break
+				}
+				seenGet = true
+				accessorEnd, after, recognized, complete = parser.kotlinPropertyGetter(start, next, end, depth)
+			case parser.token(following, "set") && parser.token(marker, "var"):
+				if seenSet {
+					parser.builder.MarkIncomplete()
+					break
+				}
+				seenSet = true
+				accessorEnd, after, recognized, complete = parser.kotlinPropertySetter(start, next, end, depth)
+			default:
+				break
+			}
+			if !recognized {
+				break
+			}
+			if !complete {
+				parser.builder.MarkIncomplete()
+				break
+			}
+			declarationEnd, next = accessorEnd, after
+		}
+		following := nextStructuralToken(parser.tokens, next, end)
+		if following < end && parser.tokens[following].Nesting == depth &&
+			(parser.token(following, "get") || parser.token(following, "set")) &&
+			kotlinSourceIndent(parser.document.Text, parser.tokens[following].StartOffset) >
+				kotlinSourceIndent(parser.document.Text, parser.tokens[start].StartOffset) {
+			parser.builder.MarkIncomplete()
 		}
 	}
 	kind := SymbolKindProperty
