@@ -24,7 +24,9 @@ func TestSystemVerilogOriginalPackageParameters(t *testing.T) {
 		}
 		got := make(map[string]bool)
 		for _, sym := range result.Analysis.Symbols {
-			if sym.Name == "Fake" || sym.Name == "Spoof" {
+			if sym.Name == "Fake" || sym.Name == "Spoof" ||
+				strings.HasPrefix(sym.Name, "ThisNameDoesNotMatter") ||
+				strings.HasPrefix(sym.Name, "assert_static_in_package_") {
 				t.Fatalf("comment or quoted content became a declaration: %+v", sym)
 			}
 			if line, ok := want[sym.QualifiedName]; ok {
@@ -77,6 +79,8 @@ func TestSystemVerilogOriginalPackageParameters(t *testing.T) {
 			"package my_pack;", map[string]int{"my_pack.MY_WIDTH": 3, "my_pack.MY_DEPTH": 4}},
 		{"opentitan", filepath.Join("sv-opentitan-selected", "files", "systemverilog", "alert_esc_agent_pkg.sv"),
 			"package alert_esc_agent_pkg;", map[string]int{"alert_esc_agent_pkg.ALERT_B2B_DELAY": 16}},
+		{"surelog", filepath.Join("sv-surelog-selected", "files", "systemverilog", "AllPackageSignal.sv"),
+			"package pkg_a;", map[string]int{"pkg_b.ParameterIntEqual4": 17, "pkg_a.ParameterIntInPkgA": 28}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(root, tc.relative)

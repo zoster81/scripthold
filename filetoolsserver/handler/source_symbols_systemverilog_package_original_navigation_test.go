@@ -38,6 +38,18 @@ func TestSourceSymbolsOriginalSystemVerilogPackageParameterDrilldown(t *testing.
 			anchor: "package alert_esc_agent_pkg;", query: "ALERT_B2B_DELAY",
 			owner: "alert_esc_agent_pkg", excerpt: "parameter uint ALERT_B2B_DELAY", line: 16,
 		},
+		{
+			name: "surelog-package-b", relative: filepath.Join("sv-surelog-selected",
+				"files", "systemverilog", "AllPackageSignal.sv"),
+			anchor: "package pkg_b;", query: "ParameterIntEqual4", owner: "pkg_b",
+			excerpt: "parameter int ParameterIntEqual4", line: 17,
+		},
+		{
+			name: "surelog-package-a", relative: filepath.Join("sv-surelog-selected",
+				"files", "systemverilog", "AllPackageSignal.sv"),
+			anchor: "package pkg_a;", query: "ParameterIntInPkgA", owner: "pkg_a",
+			excerpt: "parameter int ParameterIntInPkgA", line: 28,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(root, tc.relative)
