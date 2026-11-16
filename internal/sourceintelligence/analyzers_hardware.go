@@ -351,6 +351,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
 				hdlSVStructTypes(builder, document, source, match[1], end, &symbol)
+				hdlSignals(builder, document, source, match[1], end, &symbol, false)
 			}
 		}
 		for _, match := range svInterface.FindAllStringSubmatchIndex(source, -1) {
@@ -363,7 +364,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindInterface, "interface", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
 				hdlSVStructTypes(builder, document, source, match[1], end, &symbol)
-				hdlSignals(builder, document, source, match[1], end, &symbol)
+				hdlSignals(builder, document, source, match[1], end, &symbol, true)
 			}
 		}
 	}
@@ -391,7 +392,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			if systemVerilog {
 				hdlSVStructTypes(builder, document, source, matchEnd, end, &symbol)
 			}
-			hdlSignals(builder, document, source, matchEnd, end, &symbol)
+			hdlSignals(builder, document, source, matchEnd, end, &symbol, true)
 		}
 		search = matchEnd
 	}
@@ -540,7 +541,7 @@ func hdlHeaderParameters(builder *SymbolBuilder, document *SourceDocument, body 
 	return string(masked)
 }
 
-func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent) {
+func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent, includeSignals bool) {
 	if end <= start || end > len(document.Text) || len(source) != len(document.Text) {
 		return
 	}
@@ -591,6 +592,9 @@ func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string,
 		if masked != nil {
 			body = string(masked)
 		}
+	}
+	if !includeSignals {
+		return
 	}
 	for search := 0; search < len(body); {
 		match := hdlSignal.FindStringSubmatchIndex(body[search:])
