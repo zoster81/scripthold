@@ -1226,15 +1226,38 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	type adaLexicalFrame struct {
 		begun  bool
 		blocks int
-		opaque bool
 	}
 	var lexical []adaLexicalFrame
+	// Task/protected scopes have unsupported members. Suppress them until
+	// their named end (or simple task-body end;) instead of assigning them
+	// to the outer package.
+	var opaqueName string
+	var opaqueSimpleTaskBody, opaqueSawBegin, opaqueNested bool
 	for lineIndex := range lines {
 		line := lines[lineIndex]
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		if opaqueName != "" {
+			if first == "begin" {
+				if opaqueSawBegin {
+					opaqueNested = true
+				}
+				opaqueSawBegin = true
+			}
+			switch first {
+			case "declare", "procedure", "function", "task", "protected":
+				opaqueNested = true
+			}
+			if first == "end" && len(line.Tokens) > 1 {
+				if strings.EqualFold(line.Tokens[1].Text, opaqueName) ||
+					(line.Tokens[1].Text == ";" && opaqueSimpleTaskBody && opaqueSawBegin && !opaqueNested) {
+					opaqueName = ""
+				}
+			}
+			continue
+		}
 		if first == "with" {
 			end := logicalLineTokenEnd(line.Tokens)
 			for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, end, line.Tokens[0].Nesting) {
@@ -1253,14 +1276,18 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			continue
 		}
 		if first == "task" || first == "protected" {
-			for _, token := range line.Tokens[1:] {
-				if strings.EqualFold(token.Text, "is") {
-					builder.MarkIncomplete()
-					if len(lexical) > 0 {
-						lexical[len(lexical)-1].opaque = true
-					}
-					break
-				}
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
+			if nameIndex >= 0 && adaOpaqueHeaderOpens(lines, lineIndex, nameIndex) {
+				builder.MarkIncomplete()
+				opaqueName = line.Tokens[nameIndex].Text
+				opaqueSimpleTaskBody = first == "task" && len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "body")
+				opaqueSawBegin, opaqueNested = false, false
+			}
+			if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "body") {
+				// A body is not a second type declaration, even if its name
+				// matches a declared task or protected object in a spec.
+				builder.MarkIncomplete()
+				continue
 			}
 		}
 		if first == "end" {
@@ -1268,10 +1295,6 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 				closing := line.Tokens[1].Text
 				frame := &lexical[len(lexical)-1]
 				if closing == ";" {
-					if frame.opaque {
-						// Do not guess which unsupported task/protected body this ends.
-						continue
-					}
 					if frame.blocks > 0 {
 						frame.blocks--
 					} else {
@@ -1297,9 +1320,6 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if first == "begin" {
 			if len(lexical) > 0 {
 				frame := &lexical[len(lexical)-1]
-				if frame.opaque {
-					continue
-				}
 				if frame.begun {
 					frame.blocks++
 				} else {
@@ -1359,6 +1379,32 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	}
 	markUnclosedStructuralScopes(builder, "ada", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// Inspect only a bounded declaration header; a semicolon in a parameter list
+// is not the declaration terminator. Opaque scopes are never semantically parsed.
+func adaOpaqueHeaderOpens(lines []LogicalLine, start, nameIndex int) bool {
+	depth := lines[start].Tokens[nameIndex].Nesting
+	firstOffset := lines[start].StartOffset
+	for i := start; i < len(lines) && i < start+12 && lines[i].EndOffset-firstOffset <= 4096; i++ {
+		from := 0
+		if i == start {
+			from = nameIndex + 1
+		}
+		for j := from; j < logicalLineTokenEnd(lines[i].Tokens); j++ {
+			tok := lines[i].Tokens[j]
+			if tok.Nesting > depth {
+				continue
+			}
+			if strings.EqualFold(tok.Text, "is") {
+				return true
+			}
+			if tok.Text == ";" {
+				return false
+			}
+		}
+	}
+	return false
 }
 
 // Only subprogram bodies open a lexical declaration scope. Signatures and

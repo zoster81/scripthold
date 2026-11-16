@@ -16,6 +16,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Ada source navigation no longer reports `task body` or `protected body` definitions as package-owned types or promotes their nested procedures to package-level callables. A bounded lexical mask through the matching named `end` (or a simple task body's `end;`) also preserves following authored package declarations; direct task/protected specifications remain navigable. Original Universal Ctags Ada task/protected sources and an independent Ada GUI protected body verify this conservative subset with incomplete coverage retained for unsupported members. This is not Ada concurrency/type-semantic analysis.
+
 - Vue Options API source navigation now indexes the direct shorthand `data()` initializer in an exported component as a source-owned method (`nativeKind: vue-options-data`). Two independently read original Vue 2 components and LF/CRLF regressions verify the initializer's location without inventing methods in nested option objects; local MCP `find` and fingerprint-bound `show` retrieve the authored initializer. Returned state fields, function-valued `data` properties and Vue runtime behavior are not inferred.
 
 - Vue Options API source navigation now recognizes directly declared shorthand lifecycle hooks such as `created()` and `mounted()` in exported component objects as source-owned methods (`nativeKind: vue-options-lifecycle`). Source-first LF/CRLF and two original Vue 2 component regressions verify exact hook locations without promoting nested or template decoys; local MCP `find` and fingerprint-bound `show` retrieve both originals. Function-valued hook properties, dynamic option spreads and Vue runtime execution are not interpreted.
