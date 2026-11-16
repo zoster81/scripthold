@@ -16,6 +16,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Dart Source Intelligence now preserves the local prefix from an authored `import 'uri' as prefix` or `import 'uri' deferred as prefix` directive as distinct dependency `Alias` evidence while keeping the URI and its exact quoted source range unchanged. Two independent original Dart projects, LF/CRLF cases, ordinary imports and local MCP `digest` checks verify the bounded result. `export` and `part` directives, URI resolution, deferred loading and Dart runtime semantics are not inferred.
+
 - Groovy source dependencies now retain the authored target and the local `as` alias as separate structural evidence (`Value` and `Alias`). Ordinary and static aliased imports exclude the alias from the dependency target and its source range; behavior in other brace-language providers remains unchanged. Original independent jyreport and Alipsa Matrix `.groovy` sources, LF/CRLF cases and local MCP `digest` tests verify the correction without interpreting Groovy runtime binding or executing third-party code.
 
 - Perl Source Intelligence no longer promotes quoted strings embedded in computed `require File::Spec->catfile(...)` expressions to definite import dependencies. Only a directly authored single- or double-quoted literal argument, optionally parenthesized, is linked; concatenation, interpolation, escaped spellings, computed module paths and code-evaluating forms remain unproven. Two independently read original Perl projects, LF/CRLF regressions and local MCP `digest` checks verify the boundary while retaining existing `use` imports. No Perl code is executed.

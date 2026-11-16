@@ -755,6 +755,31 @@ func (p *braceLanguageParser) collectImport(start int) {
 		}
 		value := quotedStringValue(p.tokens[i].Text)
 		if value != "" {
+			if p.policy.language == "dart" && p.tokens[start].Text == "import" {
+				// Dart's optional prefix belongs to the local binding, not
+				// to the imported URI. Only adjacent directive tokens count.
+				next := i + 1
+				for next < end && p.tokens[next].Kind == TokenNewline {
+					next++
+				}
+				if next < end && p.tokens[next].Text == "deferred" {
+					next++
+					for next < end && p.tokens[next].Kind == TokenNewline {
+						next++
+					}
+				}
+				if next+1 < end && p.tokens[next].Text == "as" &&
+					p.tokens[next+1].Kind == TokenIdentifier {
+					rangeValue, err := p.document.RangeFromUTF8Offsets(p.tokens[i].StartOffset, p.tokens[i].EndOffset)
+					if err == nil {
+						p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+							Kind: StructuralDependencyImport, Value: value, Alias: p.tokens[next+1].Text,
+							Range: rangeValue, Evidence: SymbolEvidenceStructural,
+						}})
+					}
+					return
+				}
+			}
 			p.addDependency(StructuralDependencyImport, value, p.tokens[i].StartOffset, p.tokens[i].EndOffset)
 			return
 		}
