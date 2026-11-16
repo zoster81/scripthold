@@ -738,21 +738,41 @@ func (p *nimParser) fromImportLine(line LogicalLine) {
 	}
 	module := ""
 	if valid {
-		module = tokenRangeText(tokens, 1, delimiter)
-		// Never merge whitespace-separated names or opaque syntax into a
-		// fabricated source-unit path.
-		start, end := tokens[1].StartOffset, tokens[delimiter-1].EndOffset
-		if module == "" || start < 0 || end > len(p.document.Text) ||
-			start >= end || p.document.Text[start:end] != module {
-			valid = false
-		}
-		for i := 0; i < len(module); i++ {
-			c := module[i]
-			if c != '_' && c != '.' && c != '/' &&
-				(c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
-				(c < '0' || c > '9') {
+		if tokens[1].Kind == TokenString {
+			// Nim also permits "quoted-root" / module/path. Preserve the
+			// authored full range, but never resolve the symbolic "$nim" root.
+			module, valid = p.nimComposedFromModule(tokens, delimiter)
+			if valid {
+				for i := delimiter + 1; i < len(tokens); i++ {
+					if (i-delimiter)%2 == 1 {
+						if tokens[i].Kind != TokenIdentifier {
+							valid = false
+						}
+					} else if tokens[i].Text != "," {
+						valid = false
+					}
+				}
+				if (len(tokens)-delimiter)%2 != 0 {
+					valid = false
+				}
+			}
+		} else {
+			module = tokenRangeText(tokens, 1, delimiter)
+			// Never merge whitespace-separated names or opaque syntax into a
+			// fabricated source-unit path.
+			start, end := tokens[1].StartOffset, tokens[delimiter-1].EndOffset
+			if module == "" || start < 0 || end > len(p.document.Text) ||
+				start >= end || p.document.Text[start:end] != module {
 				valid = false
-				break
+			}
+			for i := 0; i < len(module); i++ {
+				c := module[i]
+				if c != '_' && c != '.' && c != '/' &&
+					(c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+					(c < '0' || c > '9') {
+					valid = false
+					break
+				}
 			}
 		}
 	}
@@ -774,6 +794,39 @@ func (p *nimParser) fromImportLine(line LogicalLine) {
 	p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
 		Kind: StructuralDependencyImport, Value: module, Range: r, Evidence: SymbolEvidenceStructural,
 	}})
+}
+
+// The module path has an authored quoted root, slash separator and one
+// contiguous plain module suffix. $nim is an unresolved lexical root token,
+// not a filesystem path inferred from the user's environment.
+func (p *nimParser) nimComposedFromModule(tokens []Token, delimiter int) (string, bool) {
+	if delimiter < 4 || tokens[2].Text != "/" ||
+		tokens[2].Nesting != tokens[0].Nesting {
+		return "", false
+	}
+	quoted := tokens[1].Text
+	root := quotedTokenStringValue(tokens[1])
+	if len(quoted) < 2 || quoted != "\""+root+"\"" ||
+		root != "$nim" && !nimSimpleImportModule(root) {
+		return "", false
+	}
+	source := p.document.Text
+	if tokens[1].EndOffset > tokens[2].StartOffset ||
+		tokens[2].EndOffset > tokens[3].StartOffset ||
+		tokens[1].EndOffset < 0 || tokens[3].StartOffset > len(source) {
+		return "", false
+	}
+	if strings.TrimSpace(source[tokens[1].EndOffset:tokens[2].StartOffset]) != "" ||
+		strings.TrimSpace(source[tokens[2].EndOffset:tokens[3].StartOffset]) != "" {
+		return "", false
+	}
+	suffix := tokenRangeText(tokens, 3, delimiter)
+	start, end := tokens[3].StartOffset, tokens[delimiter-1].EndOffset
+	if start < 0 || end > len(source) || start >= end ||
+		!nimSimpleImportModule(suffix) || source[start:end] != suffix {
+		return "", false
+	}
+	return root + "/" + suffix, true
 }
 
 func (p *nimParser) typeDecl(line LogicalLine) bool {
