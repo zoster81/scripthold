@@ -749,6 +749,10 @@ func (p *braceLanguageParser) collectImport(start int) {
 	if end <= start+1 {
 		return
 	}
+	if p.policy.language == "d" {
+		p.collectDImports(start, end, depth)
+		return
+	}
 	if p.policy.language == "dart" &&
 		(p.tokens[start].Text == "import" || p.tokens[start].Text == "export") {
 		for i := start + 1; i < end; i++ {
@@ -829,6 +833,129 @@ func (p *braceLanguageParser) collectImport(start int) {
 	if value != "" {
 		p.addDependency(StructuralDependencyImport, value, p.tokens[first].StartOffset, p.tokens[last-1].EndOffset)
 	}
+}
+
+func (p *braceLanguageParser) collectDImports(start, end, depth int) {
+	// Only module names before the first selective ':' are dependencies.
+	// A comma before that ':' separates modules; commas after it separate members.
+	selector := end
+	for i := start + 1; i < end; i++ {
+		if p.tokens[i].Nesting == depth && p.tokens[i].Text == ":" {
+			selector = i
+			break
+		}
+	}
+	invalid := false
+	for first := start + 1; first < selector; {
+		last := selector
+		for i := first; i < selector; i++ {
+			if p.tokens[i].Nesting == depth && p.tokens[i].Text == "," {
+				last = i
+				break
+			}
+		}
+		if !p.collectDImportModule(first, last) {
+			invalid = true
+		}
+		first = last + 1
+	}
+	if selector == start+1 || selector < end && !p.dImportSelectorsSupported(selector+1, end, depth) {
+		invalid = true
+	}
+	if invalid {
+		p.builder.MarkIncomplete()
+		span := OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[end-1].EndOffset}
+		_ = p.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "d-unsupported-import-form",
+			Message:  "D import has unsupported module or selector syntax; inspect the authored directive",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+}
+
+func (p *braceLanguageParser) collectDImportModule(first, end int) bool {
+	next := func(i int) int {
+		for i < end && p.tokens[i].Kind == TokenNewline {
+			i++
+		}
+		return i
+	}
+	i := next(first)
+	if i == end || p.tokens[i].Kind != TokenIdentifier {
+		return false
+	}
+	alias := ""
+	if at := next(i + 1); at < end && p.tokens[at].Text == "=" {
+		alias = p.tokens[i].Text
+		i = next(at + 1)
+	}
+	moduleStart := i
+	wantIdentifier := true
+	lastIdentifier := -1
+	for i = next(i); i < end; i = next(i + 1) {
+		token := p.tokens[i]
+		if wantIdentifier {
+			if token.Kind != TokenIdentifier {
+				return false
+			}
+			lastIdentifier = i
+		} else if token.Text != "." {
+			return false
+		}
+		wantIdentifier = !wantIdentifier
+	}
+	if wantIdentifier || lastIdentifier < 0 {
+		return false
+	}
+	value := tokenRangeText(p.tokens, moduleStart, lastIdentifier+1)
+	rangeValue, err := p.document.RangeFromUTF8Offsets(p.tokens[moduleStart].StartOffset, p.tokens[lastIdentifier].EndOffset)
+	if err != nil || value == "" {
+		return false
+	}
+	p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+		Kind: StructuralDependencyImport, Value: value, Alias: alias,
+		Range: rangeValue, Evidence: SymbolEvidenceStructural,
+	}})
+	return true
+}
+
+func (p *braceLanguageParser) dImportSelectorsSupported(first, end, depth int) bool {
+	// Member selectors are not modeled as independent module dependencies.
+	// Only simple identifiers and local aliases are accepted as understood syntax.
+	for first < end {
+		if p.tokens[first].Kind == TokenNewline {
+			first++
+			continue
+		}
+		if p.tokens[first].Nesting != depth || p.tokens[first].Kind != TokenIdentifier {
+			return false
+		}
+		first++
+		for first < end && p.tokens[first].Kind == TokenNewline {
+			first++
+		}
+		if first < end && p.tokens[first].Text == "=" {
+			first++
+			for first < end && p.tokens[first].Kind == TokenNewline {
+				first++
+			}
+			if first == end || p.tokens[first].Nesting != depth || p.tokens[first].Kind != TokenIdentifier {
+				return false
+			}
+			first++
+		}
+		for first < end && p.tokens[first].Kind == TokenNewline {
+			first++
+		}
+		if first == end {
+			return true
+		}
+		if p.tokens[first].Nesting != depth || p.tokens[first].Text != "," {
+			return false
+		}
+		first++
+	}
+	return false
 }
 
 func quotedStringValue(value string) string {
