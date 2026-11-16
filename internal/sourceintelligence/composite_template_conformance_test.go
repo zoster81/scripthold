@@ -355,6 +355,85 @@ func TestVueQuotedGreaterThanInStyleTag(t *testing.T) {
 	}
 }
 
+func TestDotNetClientHostsQuotedGreaterThanInStyleTag(t *testing.T) {
+	check := func(t *testing.T, analyzer SourceAnalyzer, source string, want map[string]int) {
+		t.Helper()
+		result, err := analyzer.Analyze(context.Background(), testSourceDocument("Login.cshtml", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		styleFound := false
+		for _, region := range result.Regions {
+			if region.Kind == "style" && region.Language == "css" && region.Supported {
+				styleFound = true
+			}
+		}
+		if !styleFound {
+			t.Fatalf("style region missing: %+v", result.Regions)
+		}
+		byName := symbolsByQualifiedName(result.Analysis.Symbols)
+		for name, line := range want {
+			symbol, ok := byName[name]
+			if !ok || symbol.NameRange.Start.Line != line {
+				t.Errorf("CSS selector %s:%d missing or displaced: %+v; symbols=%v",
+					name, line, symbol, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+	}
+	for _, host := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{{"razor", RazorAnalyzer{}}, {"blazor", BlazorAnalyzer{}}, {"aspnet-webforms", ASPNetWebFormsAnalyzer{}}} {
+		t.Run(host.name, func(t *testing.T) {
+			check(t, host.analyzer, "<style>\n.card { display: flex; }\n.tail { color: red; }\n</style>\n",
+				map[string]int{".card": 2, ".tail": 3})
+			for _, quote := range []string{"\"", "'"} {
+				for _, ending := range []string{"\n", "\r\n"} {
+					quoteName, endingName := "double", "LF"
+					if quote == "'" {
+						quoteName = "single"
+					}
+					if ending == "\r\n" {
+						endingName = "CRLF"
+					}
+					t.Run(quoteName+"-"+endingName, func(t *testing.T) {
+						fixture := "<style media=" + quote + "screen and (width > 0)" + quote +
+							">\n.card { display: flex; }\n.tail { color: red; }\n</style>\n" +
+							"<main id=\"hero\"></main>\n"
+						check(t, host.analyzer, strings.ReplaceAll(fixture, "\n", ending),
+							map[string]int{".card": 2, ".tail": 3})
+					})
+				}
+			}
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_RAZOR_UMBRACO_ROOT"); root != "" {
+		t.Run("original-Umbraco-derived-style-attribute", func(t *testing.T) {
+			path := filepath.Join(root, "Login.cshtml")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Umbraco source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "<style>") != 1 ||
+				!strings.Contains(source, ".login-container {") ||
+				!strings.Contains(source, ".error-message {") {
+				t.Fatal("original Umbraco stylesheet oracle changed")
+			}
+			want := map[string]int{".login-container": 24, ".btn": 64,
+				".error-message": 95, ".divider": 104}
+			check(t, RazorAnalyzer{}, source, want)
+			derived := strings.Replace(source, "<style>",
+				"<style media=\"screen and (width > 0)\">", 1)
+			check(t, RazorAnalyzer{}, derived, want)
+		})
+	}
+}
+
 func TestAstroAndSvelteQuotedGreaterThanInStyleTag(t *testing.T) {
 	for _, host := range []struct {
 		name     string
