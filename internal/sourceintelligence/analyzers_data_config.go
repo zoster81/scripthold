@@ -417,6 +417,44 @@ var (
 	graphqlEnumValue     = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\r?$`)
 )
 
+// GraphQL ignores commas between name tokens. This intentionally covers only
+// simple, same-physical-line enum bodies: directive calls, nested punctuation
+// and oversized inputs fail closed instead of inventing enum members.
+func graphqlSimpleInlineEnumMembers(body string) ([]OffsetRange, bool) {
+	if len(body) > 4096 || strings.ContainsAny(body, "\r\n") {
+		return nil, false
+	}
+	members := make([]OffsetRange, 0, 4)
+	for i := 0; i < len(body); {
+		c := body[i]
+		if c == ' ' || c == '\t' || c == ',' {
+			i++
+			continue
+		}
+		if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return nil, false
+		}
+		start := i
+		for i < len(body) {
+			c = body[i]
+			if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') {
+				break
+			}
+			i++
+		}
+		switch body[start:i] {
+		case "true", "false", "null":
+			return nil, false
+		}
+		members = append(members, OffsetRange{Start: start, End: i})
+		if len(members) > 128 {
+			return nil, false
+		}
+	}
+	return members, true
+}
+
 // graphqlTypeReferenceEnd recognizes a bounded, same-line GraphQL type token.
 // A type is a name or nested list, each optionally followed by '!'. It never
 // borrows a following field or directive when the type grammar is unsupported.
@@ -525,9 +563,26 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		bodyStart := open + 1
 		body := source[bodyStart:close]
 		if word == "enum" {
-			// Enum members are declarations owned by their enum, not unowned
-			// identifiers or ordinary fields. Only complete line-form values
-			// (and simple directive annotations) are supported lexically.
+			// Preserve the line-form grammar and its source ranges. The
+			// compact one-line subset has its own bounded, fail-closed path.
+			if !strings.ContainsAny(body, "\r\n") {
+				members, valid := graphqlSimpleInlineEnumMembers(body)
+				if !valid {
+					addDocumentDataHardwareDiagnostic(builder, "graphql-unsupported-inline-enum",
+						"GraphQL inline enum contains unsupported syntax", bodyStart, close)
+				} else {
+					for _, memberRange := range members {
+						start, end := bodyStart+memberRange.Start, bodyStart+memberRange.End
+						addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "enum-value",
+							document.Text[start:end], parent,
+							OffsetRange{Start: start, End: end},
+							OffsetRange{Start: start, End: end})
+					}
+				}
+				continue
+			}
+			// Multiline enum members retain their existing line-anchored
+			// declaration ranges and supported directive annotations.
 			for _, value := range graphqlEnumValue.FindAllStringSubmatchIndex(body, -1) {
 				member := document.Text[bodyStart+value[2] : bodyStart+value[3]]
 				if member == "true" || member == "false" || member == "null" {
