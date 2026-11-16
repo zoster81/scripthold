@@ -16,6 +16,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Lua and Luau source dependencies now include only directly authored literal module names in `require` calls, including bare-string and parenthesized forms. Dynamic format strings, string concatenation and unrelated object methods named `require` no longer create fabricated import targets. Independent original Overseer and Zenbones Lua modules, LF/CRLF cases and local MCP `digest` checks verify source-backed links; dynamic module resolution and Lua runtime semantics are not inferred.
+
 - Ada source navigation no longer reports `task body` or `protected body` definitions as package-owned types or promotes their nested procedures to package-level callables. A bounded lexical mask through the matching named `end` (or a simple task body's `end;`) also preserves following authored package declarations; direct task/protected specifications remain navigable. Original Universal Ctags Ada task/protected sources and an independent Ada GUI protected body verify this conservative subset with incomplete coverage retained for unsupported members. This is not Ada concurrency/type-semantic analysis.
 
 - Vue Options API source navigation now indexes the direct shorthand `data()` initializer in an exported component as a source-owned method (`nativeKind: vue-options-data`). Two independently read original Vue 2 components and LF/CRLF regressions verify the initializer's location without inventing methods in nested option objects; local MCP `find` and fingerprint-bound `show` retrieve the authored initializer. Returned state fields, function-valued `data` properties and Vue runtime behavior are not inferred.

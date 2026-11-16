@@ -204,17 +204,43 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 		if !strings.EqualFold(scan.Tokens[i].Text, "require") {
 			continue
 		}
-		end := min(len(scan.Tokens), i+8)
-		for j := i + 1; j < end; j++ {
-			if scan.Tokens[j].Kind == TokenString {
-				if value := quotedTokenStringValue(scan.Tokens[j]); value != "" {
-					state.addImportDependency(value, scan.Tokens[j].StartOffset, scan.Tokens[j].EndOffset)
-				}
-				break
+		// A method named require is not Lua's module loader.
+		previous := i - 1
+		previousLimit := max(0, i-12)
+		for previous >= previousLimit && scan.Tokens[previous].Kind == TokenNewline {
+			previous--
+		}
+		if previous >= previousLimit && (scan.Tokens[previous].Text == "." || scan.Tokens[previous].Text == ":") {
+			continue
+		}
+		// Keep lookahead bounded even for malformed inputs with many blank lines.
+		limit := min(len(scan.Tokens), i+12)
+		argument := i + 1
+		for argument < limit && scan.Tokens[argument].Kind == TokenNewline {
+			argument++
+		}
+		parenthesized := argument < limit && scan.Tokens[argument].Text == "("
+		if parenthesized {
+			argument++
+			for argument < limit && scan.Tokens[argument].Kind == TokenNewline {
+				argument++
 			}
-			if scan.Tokens[j].Kind == TokenNewline || scan.Tokens[j].Kind == TokenEOF {
-				break
+		}
+		if argument >= limit || scan.Tokens[argument].Kind != TokenString {
+			continue
+		}
+		if parenthesized {
+			closing := argument + 1
+			for closing < limit && scan.Tokens[closing].Kind == TokenNewline {
+				closing++
 			}
+			if closing >= limit || scan.Tokens[closing].Text != ")" {
+				// Concatenations and nested formatting are dynamic module names.
+				continue
+			}
+		}
+		if value := quotedTokenStringValue(scan.Tokens[argument]); value != "" {
+			state.addImportDependency(value, scan.Tokens[argument].StartOffset, scan.Tokens[argument].EndOffset)
 		}
 	}
 	return state.result()
