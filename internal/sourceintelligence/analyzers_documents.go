@@ -676,7 +676,7 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if strings.Contains(trimmed, ": ") || strings.HasPrefix(trimmed, "@") {
 			continue
 		}
-		isSelector := strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "&")
+		isSelector := strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "&") || sassSimpleChildSelector(trimmed)
 		if !isSelector && sassBareElementName(trimmed) {
 			indent := len(line.text) - len(strings.TrimLeft(line.text, " \t"))
 			for next := index + 1; next < len(lines); next++ {
@@ -753,6 +753,28 @@ func sassMixinName(trimmed string) string {
 		return ""
 	}
 	return name
+}
+
+// sassSimpleChildSelector recognizes an indented child combinator followed by
+// one unambiguous tag, class, ID, nesting reference, or universal selector.
+// More complex Sass selector expressions require direct source inspection.
+func sassSimpleChildSelector(value string) bool {
+	if len(value) < 3 || value[0] != '>' || (value[1] != ' ' && value[1] != '\t') {
+		return false
+	}
+	child := strings.TrimSpace(value[1:])
+	if child == "*" || sassBareElementName(child) {
+		return true
+	}
+	if len(child) < 2 {
+		return false
+	}
+	switch child[0] {
+	case '.', '#', '&':
+		return sassBareElementName(child[1:])
+	default:
+		return false
+	}
 }
 
 func sassBareElementName(name string) bool {

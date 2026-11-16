@@ -136,6 +136,69 @@ func TestSassNestedSelectorRetainsLexicalParent(t *testing.T) {
 	}
 }
 
+// Child-combinator selectors are declarations in indented Sass, not properties.
+// Keep the authored header and lexical owner even when the header begins with >.
+func TestSassChildCombinatorSelectorsFromOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("style.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		parents := make(map[string]NormalizedSymbol)
+		var h4 []NormalizedSymbol
+		var right []NormalizedSymbol
+		for _, symbol := range result.Analysis.Symbols {
+			switch symbol.Name {
+			case "#title", "#eth-info":
+				parents[symbol.Name] = symbol
+			case "> h4":
+				h4 = append(h4, symbol)
+			case "> #right":
+				right = append(right, symbol)
+			}
+		}
+		if len(parents) != 2 || len(h4) != 2 || len(right) != 1 {
+			t.Fatalf("authored Sass combinator declarations omitted: parents=%v h4=%+v right=%+v symbols=%v",
+				parents, h4, right, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		ownedBy := func(symbol NormalizedSymbol, parent NormalizedSymbol) bool {
+			return symbol.ParentID == parent.ID && symbol.ParentQualifiedName == parent.QualifiedName &&
+				symbol.QualifiedName == symbol.Name
+		}
+		if !ownedBy(h4[0], parents["#title"]) || !ownedBy(h4[1], parents["#eth-info"]) ||
+			!ownedBy(right[0], parents["#eth-info"]) || h4[0].ID == h4[1].ID {
+			t.Fatalf("Sass combinator parent/identity incorrect: h4=%+v right=%+v parents=%+v", h4, right, parents)
+		}
+	}
+	const fixture = "#title\n  > h4\n    margin: 0\n#eth-info\n  > h4\n    margin: 0\n  > #right\n    text-align: right\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_DANILO_ROOT"); root != "" {
+		t.Run("original-sass-danilo-style", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\n  > h4\n") != 2 ||
+				strings.Count(source, "\n  > #right\n") != 1 {
+				t.Fatal("original Sass combinator oracle changed")
+			}
+			check(t, source)
+		})
+	}
+}
+
 func TestSassSelectorBodyStopsBeforePeerAtSameIndentWithTabs(t *testing.T) {
 	const source = ".outer\n" +
 		"\tcolor: red\n" +
