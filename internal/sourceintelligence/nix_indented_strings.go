@@ -1,8 +1,8 @@
 package sourceintelligence
 
-// maskNixIndentedStrings blanks Nix indented and double-quoted string content
-// while preserving byte offsets and line endings for bounded let navigation.
-// Double-quote delimiters remain visible for unsupported-root detection.
+// maskNixIndentedStrings blanks Nix string and block-comment contents while
+// preserving byte offsets and line endings for bounded let navigation.
+// Quote and block-comment delimiters remain visible for unsupported-root detection.
 // It does not try to interpret interpolations or evaluate Nix expressions.
 func maskNixIndentedStrings(source string) string {
 	masked := []byte(source)
@@ -37,6 +37,7 @@ func maskNixIndentedStrings(source string) string {
 				i += 2
 				continue
 			}
+			blank(i)
 			i++
 			continue
 		}

@@ -100,6 +100,79 @@ func TestNixStandaloneDoubleQuotedRootRemainsIncomplete(t *testing.T) {
 	}
 }
 
+// A Nix block comment is not a let scope. Source-like text inside one must
+// never create edit targets or terminate the real enclosing let expression.
+func TestNixBlockCommentCannotInventBindings(t *testing.T) {
+	check := func(t *testing.T, source string) []string {
+		t.Helper()
+		masked := maskNixIndentedStrings(source)
+		if len(masked) != len(source) || strings.Count(masked, "\n") != strings.Count(source, "\n") ||
+			strings.Contains(masked, "phantom =") {
+			t.Fatalf("Nix block-comment masking changed source offsets or leaked comment text: %q", masked)
+		}
+		result, err := (NixAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("perSystem.nix", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		if slices.Contains(names, "phantom") {
+			t.Errorf("block comment invented a Nix binding: %v", names)
+		}
+		return names
+	}
+	const fixture = "let\n" +
+		"  before = \"/* quoted content */\";\n" +
+		"  /*\n" +
+		"  phantom = 123;\n" +
+		"in prematurely\n" +
+		"  \"a misleading double quote\"\n" +
+		"  */\n" +
+		"  after = 42;\n" +
+		"in after\n"
+	for _, ending := range []struct{ name, sep string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(ending.name, func(t *testing.T) {
+			names := check(t, strings.ReplaceAll(fixture, "\n", ending.sep))
+			if !slices.Equal(names, []string{"after", "before"}) {
+				t.Fatalf("real Nix let bindings were lost or fabricated: %v", names)
+			}
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_NIX_FLAKE_PARTS_ROOT"); root != "" {
+		t.Run("source-derived-original-perSystem", func(t *testing.T) {
+			path := filepath.Join(root, "perSystem.nix")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Nix source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			const anchor = "    doesn't extend to arbitrary `system`s.\n"
+			if strings.Count(source, anchor) != 1 ||
+				!strings.Contains(source, "  otherMemoizedSystems = flake-parts-lib.memoizeStr config.perSystem;") {
+				t.Fatal("original flake-parts block-comment oracle changed")
+			}
+			baseline := check(t, source)
+			for _, name := range []string{"rootConfig", "throwAliasError'", "throwAliasError", "otherMemoizedSystems"} {
+				if !slices.Contains(baseline, name) {
+					t.Fatalf("original Nix let binding %q missing: %v", name, baseline)
+				}
+			}
+			derived := strings.Replace(source, anchor, anchor+
+				"  phantom = 123;\nin prematurely\n", 1)
+			names := check(t, derived)
+			if !slices.Equal(names, baseline) {
+				t.Fatalf("adding comments changed valid bindings: baseline=%v derived=%v", baseline, names)
+			}
+		})
+	}
+}
+
 func TestNixTopLevelAttributeSetReportsIncompleteCoverage(t *testing.T) {
 	source := "# A flake-like root document\n{\n  description = \"demo\";\n  outputs = self: { package = \"example\"; };\n}\n"
 	result, err := (NixAnalyzer{}).Analyze(context.Background(),
