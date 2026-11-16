@@ -383,6 +383,136 @@ func TestSassBareElementGroupRejectsAmbiguousHeaders(t *testing.T) {
 	}
 }
 
+// A source-authored escaped pseudo-selector has a full indented Sass rule
+// body; it must remain an independent exact-name edit target.
+func TestSassEscapedPseudoSelectorOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string, startLine int) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("original.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pseudo, following *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case "\\::selection":
+				pseudo = symbol
+			case "#triangle":
+				following = symbol
+			}
+		}
+		if pseudo == nil || following == nil {
+			t.Fatalf("authored Sass escaped selector or following peer missing: %v",
+				sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		if pseudo.Kind != SymbolKindSelector || pseudo.ParentID != "" ||
+			pseudo.QualifiedName != pseudo.Name ||
+			pseudo.DeclarationRange.Start.Line != startLine ||
+			pseudo.DeclarationRange.End.Line != startLine+2 ||
+			following.ParentID != "" || pseudo.ID == following.ID {
+			t.Fatalf("escaped Sass pseudo-selector must retain its source range and peer boundary: pseudo=%+v peer=%+v", pseudo, following)
+		}
+	}
+	const fixture = "\\::selection\n  color: white\n  background: blue\n#triangle\n  width: 0\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source, 1) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_DANILO_ROOT"); root != "" {
+		t.Run("original-sass-danilo-selection", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\n\\::selection\n  color: white\n  background: rgba(170,170,170, 0.6)\n") != 1 {
+				t.Fatal("original escaped Sass pseudo-selector oracle changed")
+			}
+			check(t, source, 31)
+		})
+	}
+}
+
+// An escaped pseudo-selector is a bounded source-navigation form, not an
+// invitation to parse arbitrary escaped CSS expressions as declarations.
+func TestSassEscapedPseudoSelectorBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		valid  bool
+	}{
+		{"\\::selection", true},
+		{"\\::before", true},
+		{"\\::selection-alt", true},
+		{"\\::", false},
+		{"\\::9", false},
+		{"\\\\::selection", false},
+		{"\\:selection", false},
+		{"\\:::selection", false},
+		{"\\::selection:hover", false},
+		{"\\::selection .child", false},
+		{"\\::selection()", false},
+		{"\\::#{dynamic}", false},
+		{"\\::selection: red", false},
+	} {
+		t.Run(tc.header, func(t *testing.T) {
+			if got := sassEscapedPseudoSelector(tc.header); got != tc.valid {
+				t.Errorf("escaped Sass pseudo-selector %q recognized=%t want=%t", tc.header, got, tc.valid)
+			}
+		})
+	}
+	for _, tc := range []struct{ name, newline string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := strings.ReplaceAll("\\::selection\n#peer\n  color: red\n", "\n", tc.newline)
+			result, err := (SassAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("no-body.sass", source), testAnalyzeOptions(true, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Name == "\\::selection" {
+					t.Fatalf("header without an indented rule body became a selector: %+v", symbol)
+				}
+			}
+			source = strings.ReplaceAll(".outer\n  \\::selection\n    color: white\n.next\n  color: black\n", "\n", tc.newline)
+			result, err = (SassAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("nested-pseudo.sass", source), testAnalyzeOptions(true, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var outer, nested, next *NormalizedSymbol
+			for index := range result.Analysis.Symbols {
+				symbol := &result.Analysis.Symbols[index]
+				switch symbol.Name {
+				case ".outer":
+					outer = symbol
+				case "\\::selection":
+					nested = symbol
+				case ".next":
+					next = symbol
+				}
+			}
+			if outer == nil || nested == nil || next == nil {
+				t.Fatalf("nested escaped selector or adjacent peer missing: %+v", result.Analysis.Symbols)
+			}
+			if nested.ParentID != outer.ID || nested.ParentQualifiedName != outer.QualifiedName ||
+				nested.QualifiedName != nested.Name || nested.DeclarationRange.Start.Line != 2 ||
+				nested.DeclarationRange.End.Line != 3 || next.ParentID != "" {
+				t.Fatalf("Sass escaped selector owner/peer boundary incorrect: outer=%+v nested=%+v next=%+v", outer, nested, next)
+			}
+		})
+	}
+}
+
 func TestSassSelectorBodyStopsBeforePeerAtSameIndentWithTabs(t *testing.T) {
 	const source = ".outer\n" +
 		"\tcolor: red\n" +

@@ -677,7 +677,7 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			continue
 		}
 		isSelector := strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "&") || sassSimpleChildSelector(trimmed)
-		if !isSelector && (sassBareElementName(trimmed) || sassBareElementGroup(trimmed)) {
+		if !isSelector && (sassBareElementName(trimmed) || sassBareElementGroup(trimmed) || sassEscapedPseudoSelector(trimmed)) {
 			indent := len(line.text) - len(strings.TrimLeft(line.text, " \t"))
 			for next := index + 1; next < len(lines); next++ {
 				if strings.TrimSpace(stripLineComment(lines[next].text, "//")) == "" {
@@ -795,6 +795,13 @@ func sassBareElementGroup(value string) bool {
 		}
 	}
 	return true
+}
+
+// sassEscapedPseudoSelector only recognizes an escaped leading colon, a
+// literal second colon and a bare pseudo-element name. The caller also
+// requires an indented rule body before recording an authored selector.
+func sassEscapedPseudoSelector(value string) bool {
+	return strings.HasPrefix(value, "\\::") && sassBareElementName(value[3:])
 }
 
 func sassBareElementName(name string) bool {
