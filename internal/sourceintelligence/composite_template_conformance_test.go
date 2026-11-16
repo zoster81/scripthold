@@ -274,3 +274,121 @@ func TestAstroQuotedGreaterThanInScriptAttribute(t *testing.T) {
 		})
 	}
 }
+
+// Quoted '>' in a supported Vue style attribute is HTML attribute content,
+// not a boundary before the CSS. The original VersionSelect style block
+// provides independent adjacent-selector names and source-line oracles.
+func TestVueQuotedGreaterThanInStyleTag(t *testing.T) {
+	check := func(t *testing.T, source string, want map[string]int) AnalysisResult {
+		t.Helper()
+		result, err := (VueAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("VersionSelect.vue", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Errorf("valid Vue quoted style opening incorrectly partial: %+v",
+				result.Analysis.Diagnostics)
+		}
+		foundStyle := false
+		for _, region := range result.Regions {
+			if region.Kind == "style" && region.Language == "css" && region.Supported {
+				foundStyle = true
+			}
+		}
+		if !foundStyle {
+			t.Errorf("CSS style region not recognized: %+v", result.Regions)
+		}
+		symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+		for name, line := range want {
+			symbol, ok := symbols[name]
+			if !ok || symbol.NameRange.Start.Line != line {
+				t.Errorf("authored CSS selector %s:%d misindexed: %+v, all=%v",
+					name, line, symbol, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+		return result.Analysis
+	}
+	for _, quote := range []string{"\"", "'"} {
+		t.Run(map[string]string{"\"": "double", "'": "single"}[quote], func(t *testing.T) {
+			fixture := "<style media=" + quote + "screen and (width > 0)" + quote + ">\n" +
+				".card { display: flex; }\n" +
+				".tail { color: blue; }\n" +
+				"</style>\n"
+			for _, eol := range []string{"\n", "\r\n"} {
+				t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[eol], func(t *testing.T) {
+					check(t, strings.ReplaceAll(fixture, "\n", eol), map[string]int{
+						".card": 2, ".tail": 3,
+					})
+				})
+			}
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_VUE93_CORE_ROOT"); root != "" {
+		t.Run("source-derived-original-Vue-playground", func(t *testing.T) {
+			path := filepath.Join(root, "VersionSelect.vue")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Vue source unavailable: %v %v", info, err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(raw)
+			if strings.Count(source, "<style>") != 1 ||
+				!strings.Contains(source, ".version {\n") ||
+				!strings.Contains(source, ".active-version {\n") {
+				t.Fatal("original Vue style source oracle changed")
+			}
+			oracle := map[string]int{".version": 114, ".active-version": 120,
+				".active-version .number": 127, ".versions .active a": 142}
+			baseline := check(t, source, oracle)
+			derived := strings.Replace(source, "<style>",
+				"<style media=\"screen and (width > 0)\">", 1)
+			result := check(t, derived, oracle)
+			if baseline.CoverageComplete && !result.CoverageComplete {
+				t.Errorf("quoting a style media attribute unexpectedly reduced Vue coverage: %+v",
+					result.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestAstroAndSvelteQuotedGreaterThanInStyleTag(t *testing.T) {
+	for _, host := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{"astro", AstroAnalyzer{}},
+		{"svelte", SvelteAnalyzer{}},
+	} {
+		t.Run(host.name, func(t *testing.T) {
+			for _, quote := range []string{"\"", "'"} {
+				fixture := "<style media=" + quote + "screen and (width > 0)" + quote +
+					">\n.card { display: grid; }\n.tail { color: red; }\n</style>\n"
+				for _, ending := range []string{"\n", "\r\n"} {
+					t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[ending]+quote, func(t *testing.T) {
+						source := strings.ReplaceAll(fixture, "\n", ending)
+						result, err := host.analyzer.Analyze(context.Background(),
+							testSourceDocument("fixture", source), testAnalyzeOptions(true, 128))
+						if err != nil {
+							t.Fatal(err)
+						}
+						if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+							t.Fatalf("valid style attribute marked partial: %+v",
+								result.Analysis.Diagnostics)
+						}
+						symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+						for name, line := range map[string]int{".card": 2, ".tail": 3} {
+							symbol, ok := symbols[name]
+							if !ok || symbol.NameRange.Start.Line != line {
+								t.Errorf("CSS selector %s:%d lost: %+v", name, line, symbol)
+							}
+						}
+					})
+				}
+			}
+		})
+	}
+}
