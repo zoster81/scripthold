@@ -8,6 +8,149 @@ import (
 	"testing"
 )
 
+// Joomla's original nested and repeated attribute selector groups are source
+// declarations; quoted attribute values are not independent selectors.
+func TestSCSSJoomlaOriginalAttributeGroupsAndNestedRules(t *testing.T) {
+	type expected struct {
+		name              string
+		line, first, last int
+	}
+	check := func(t *testing.T, source string, wants []expected) {
+		t.Helper()
+		result, err := (SCSSAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("layout.scss", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+			t.Fatalf("supported original SCSS source marked partial: %+v", result.Analysis)
+		}
+		seen := make(map[int]bool, len(wants))
+		for _, symbol := range result.Analysis.Symbols {
+			if symbol.Kind != SymbolKindSelector {
+				continue
+			}
+			if symbol.Name == "media-col" || symbol.Name == "class" ||
+				strings.HasPrefix(symbol.Name, "margin:") || strings.HasPrefix(symbol.Name, "@media") {
+				t.Errorf("non-selector text indexed as SCSS selector: %+v", symbol)
+			}
+			for i, want := range wants {
+				if symbol.Name != want.name || symbol.NameRange.Start.Line != want.line {
+					continue
+				}
+				seen[i] = true
+				if symbol.DeclarationRange.Start.Line != want.first ||
+					symbol.DeclarationRange.End.Line != want.last ||
+					symbol.NameRange.End.Line != want.line {
+					t.Errorf("Joomla SCSS selector source range wrong: %+v want=%+v", symbol, want)
+				}
+			}
+		}
+		if len(seen) != len(wants) {
+			t.Fatalf("authored Joomla SCSS selectors omitted: matched=%v expected=%+v source symbols=%v",
+				seen, wants, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	const fixture = ".media-container {\n  .contentpane & { margin: 0; }\n}\n[class^=\"media-col\"], [class*=\" media-col\"] {\n  width: 100%;\n}\n@media (min-width: 768px) {\n  [class^=\"media-col\"], [class*=\" media-col\"] { width: 100%; }\n}\n"
+	wants := []expected{
+		{".media-container", 1, 1, 3},
+		{".contentpane &", 2, 2, 2},
+		{"[class^=\"media-col\"]", 4, 4, 6},
+		{"[class*=\" media-col\"]", 4, 4, 6},
+		{"[class^=\"media-col\"]", 8, 8, 8},
+		{"[class*=\" media-col\"]", 8, 8, 8},
+	}
+	for _, tc := range []struct{ name, eol string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			check(t, strings.ReplaceAll(fixture, "\n", tc.eol), wants)
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SCSS_JOOMLA_ROOT"); root != "" {
+		t.Run("original-joomla-layout", func(t *testing.T) {
+			path := filepath.Join(root, "layout.scss")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded Joomla source not available: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "[class^=\"media-col\"], [class*=\" media-col\"] {") != 2 ||
+				strings.Count(source, ".contentpane & {") != 1 {
+				t.Fatal("original Joomla SCSS attribute selector oracle changed")
+			}
+			check(t, source, []expected{
+				{".media-container", 2, 2, 14},
+				{".contentpane &", 10, 10, 13},
+				{"[class^=\"media-col\"]", 26, 26, 32},
+				{"[class*=\" media-col\"]", 26, 26, 32},
+				{"[class^=\"media-col\"]", 35, 35, 38},
+				{"[class*=\" media-col\"]", 35, 35, 38},
+				{".media-sidebar", 47, 47, 56},
+			})
+		})
+	}
+}
+
+// A WordPress @use with (...) clause configures a module; its $name: entries
+// are not independent variable declarations in the current stylesheet.
+func TestSCSSWordPressOriginalUseConfigurationHasNoPhantomVariables(t *testing.T) {
+	check := func(t *testing.T, source string) {
+		t.Helper()
+		result, err := (SCSSAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("colors.scss", source), testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+			t.Fatalf("supported SCSS module configuration was treated as partial: %+v", result.Analysis)
+		}
+		seenHighlight := 0
+		for _, symbol := range result.Analysis.Symbols {
+			if symbol.Kind == SymbolKindVariable {
+				if symbol.Name != "highlight-color" || symbol.NameRange.Start.Line != 1 {
+					t.Fatalf("SCSS @use with configuration created a variable declaration: %+v", symbol)
+				}
+				seenHighlight++
+			}
+			if symbol.Kind == SymbolKindSelector {
+				t.Fatalf("SCSS module configuration created a selector: %+v", symbol)
+			}
+		}
+		if seenHighlight != 1 {
+			t.Fatalf("expected one actual top-level SCSS variable, got %d: %+v", seenHighlight, result.Analysis.Symbols)
+		}
+	}
+	const fixture = "$highlight-color: #437aa8;\n\n@use \"../_admin.scss\" with (\n  $scheme-name: \"blue\",\n  $base-color: #245278,\n  $notification-color: #e1a948,\n  $dashboard-icon-background: $highlight-color\n);\n"
+	for _, tc := range []struct{ name, eol string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			check(t, strings.ReplaceAll(fixture, "\n", tc.eol))
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SCSS_WORDPRESS_ROOT"); root != "" {
+		t.Run("original-wordpress-colors", func(t *testing.T) {
+			path := filepath.Join(root, "colors.scss")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original WordPress SCSS unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "$highlight-color: #437aa8;") != 1 ||
+				strings.Count(source, "@use \"../_admin.scss\" with (") != 1 ||
+				strings.Count(source, "$dashboard-icon-background: $highlight-color") != 1 {
+				t.Fatal("original WordPress SCSS module configuration oracle changed")
+			}
+			check(t, source)
+		})
+	}
+}
+
 // A selector edit requires the whole authored rule, including its declarations.
 // Every member of a comma-separated group must reveal the same complete rule.
 func TestStylesheetSelectorRuleSpansAndGroupOwnership(t *testing.T) {
