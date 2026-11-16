@@ -196,3 +196,81 @@ func TestVueQuotedGreaterThanInGenericScriptTag(t *testing.T) {
 		})
 	}
 }
+
+// Quoted HTML attribute values may include '>'. Astro script attributes must
+// not leak the remainder of an opening tag into JavaScript/TypeScript analysis.
+// The optional Starlight case changes only one script tag in original source.
+func TestAstroQuotedGreaterThanInScriptAttribute(t *testing.T) {
+	check := func(t *testing.T, source string, want map[string]int) AnalyzerResult {
+		t.Helper()
+		result, err := (AstroAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("ThemeSelect.astro", source), testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+		for name, line := range want {
+			symbol, ok := symbols[name]
+			if !ok || symbol.NameRange.Start.Line != line {
+				t.Errorf("Astro script declaration %s:%d missing: %+v all=%v",
+					name, line, symbol, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+		return result
+	}
+	for _, quote := range []string{"\"", "'"} {
+		t.Run(map[string]string{"\"": "double", "'": "single"}[quote], func(t *testing.T) {
+			fixture := "<script data-note=" + quote + "source > fallback" + quote + ">\n" +
+				"function storeTheme() { return 'dark' }\n" +
+				"function onThemeChange() { return storeTheme() }\n" +
+				"</script>\n"
+			for _, eol := range []string{"\n", "\r\n"} {
+				t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[eol], func(t *testing.T) {
+					result := check(t, strings.ReplaceAll(fixture, "\n", eol),
+						map[string]int{"storeTheme": 2, "onThemeChange": 3})
+					if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+						t.Fatalf("valid quoted Astro script attribute marked partial: %+v",
+							result.Analysis.Diagnostics)
+					}
+					if len(result.Regions) != 1 || result.Regions[0].Kind != "script" ||
+						!result.Regions[0].Supported {
+						t.Fatalf("Astro script bounds incorrect: %+v", result.Regions)
+					}
+				})
+			}
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_ASTRO95_STARLIGHT_ROOT"); root != "" {
+		t.Run("source-derived-original-Starlight", func(t *testing.T) {
+			path := filepath.Join(root, "ThemeSelect.astro")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Starlight source unavailable: %v %v", info, err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(raw)
+			if strings.Count(source, "<script>") != 1 ||
+				!strings.Contains(source, "function storeTheme(theme: Theme): void {") ||
+				!strings.Contains(source, "function onThemeChange(theme: Theme): void {") {
+				t.Fatal("original Starlight theme source oracle changed")
+			}
+			want := map[string]int{"storeTheme": 39, "onThemeChange": 50}
+			baseline := check(t, source, want)
+			derived := strings.Replace(source, "<script>",
+				"<script data-note=\"source > fallback\">", 1)
+			result := check(t, derived, want)
+			if baseline.Analysis.CoverageComplete && !result.Analysis.CoverageComplete {
+				t.Fatalf("valid quote in Astro script tag reduced coverage: %+v",
+					result.Analysis.Diagnostics)
+			}
+			for _, diagnostic := range result.Analysis.Diagnostics {
+				if strings.Contains(diagnostic.Code, "unterminated-string") {
+					t.Fatalf("Astro header leaked into TypeScript as a string: %+v", diagnostic)
+				}
+			}
+		})
+	}
+}

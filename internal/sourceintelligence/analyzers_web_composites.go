@@ -76,7 +76,7 @@ type bladeAnonymousClass struct {
 
 var (
 	scriptTagPattern = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
-	// Generic constraints in quoted Vue or Svelte script attributes can contain >.
+	// Quoted script attributes can contain > in Astro, Vue, and Svelte.
 	quotedScriptTagPattern        = regexp.MustCompile(`(?is)<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</script\s*>`)
 	styleTagPattern               = regexp.MustCompile(`(?is)<style\b([^>]*)>(.*?)</style\s*>`)
 	scriptOpenPattern             = regexp.MustCompile(`(?is)<script\b`)
@@ -805,11 +805,7 @@ func analyzeScriptStyleHost(ctx context.Context, document *SourceDocument, optio
 			}
 		}
 	}
-	scriptPattern := scriptTagPattern
-	if language == "svelte" || language == "vue" {
-		scriptPattern = quotedScriptTagPattern
-	}
-	regions = append(regions, tagEmbeddedRegions(probe, scriptPattern, "script", scriptLanguage)...)
+	regions = append(regions, tagEmbeddedRegions(probe, quotedScriptTagPattern, "script", scriptLanguage)...)
 	regions = append(regions, tagEmbeddedRegions(probe, styleTagPattern, "style", styleLanguage)...)
 	regions = orderedNonOverlappingEmbeddedRegions(regions)
 	complete := embeddedOpeningsCovered(probe, regions, scriptOpenPattern) && embeddedOpeningsCovered(probe, regions, styleOpenPattern)
