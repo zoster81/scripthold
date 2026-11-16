@@ -16,6 +16,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Ruby source navigation no longer reports a quoted string nested in a computed `require` or `require_relative` expression as a definite module import. Only directly authored string-literal arguments (bare or parenthesized) are indexed; interpolation, escaped spellings and concatenated arguments are conservatively excluded. Tests over two independent original Ruby command-line projects and LF/CRLF regressions verify these boundaries through the analyzer and local MCP `digest`. Dynamic module names still require source inspection; Ruby code is not executed.
+
 - Lua and Luau source dependencies now include only directly authored literal module names in `require` calls, including bare-string and parenthesized forms. Dynamic format strings, string concatenation and unrelated object methods named `require` no longer create fabricated import targets. Independent original Overseer and Zenbones Lua modules, LF/CRLF cases and local MCP `digest` checks verify source-backed links; dynamic module resolution and Lua runtime semantics are not inferred.
 
 - Ada source navigation no longer reports `task body` or `protected body` definitions as package-owned types or promotes their nested procedures to package-level callables. A bounded lexical mask through the matching named `end` (or a simple task body's `end;`) also preserves following authored package declarations; direct task/protected specifications remain navigable. Original Universal Ctags Ada task/protected sources and an independent Ada GUI protected body verify this conservative subset with incomplete coverage retained for unsupported members. This is not Ada concurrency/type-semantic analysis.

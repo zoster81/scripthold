@@ -530,19 +530,39 @@ func (p *rubyParser) parseLine(line LogicalLine) {
 }
 
 func (p *rubyParser) parseRequire(tokens []Token) {
-	for _, token := range tokens[1:] {
-		if token.Kind != TokenString {
-			continue
-		}
-		value := rubyStringLiteral(token.Text)
-		if value == "" {
+	if len(tokens) < 2 {
+		return
+	}
+	argument := 1
+	parenthesized := tokens[argument].Text == "("
+	if parenthesized {
+		argument++
+	}
+	if argument >= len(tokens) || tokens[argument].Kind != TokenString {
+		// A string nested in File.join or another expression is not the
+		// require target. Never infer the evaluated module name.
+		return
+	}
+	next := argument + 1
+	if parenthesized {
+		if next >= len(tokens) || tokens[next].Text != ")" {
 			return
 		}
-		rangeValue, err := p.document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
-		if err == nil {
-			p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
-		}
+	} else if next < len(tokens) && (tokens[next].Kind == TokenOperator ||
+		tokens[next].Text == "." || tokens[next].Text == "[" || tokens[next].Text == "(") {
+		// Unparenthesized concatenations and method calls are dynamic.
 		return
+	}
+	token := tokens[argument]
+	value := rubyStringLiteral(token.Text)
+	if value == "" || strings.Contains(value, "#{") || strings.Contains(value, "\\") {
+		// Interpolation and escaped spellings need Ruby evaluation to know
+		// the actual module path, so they cannot be source-known imports.
+		return
+	}
+	rangeValue, err := p.document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
+	if err == nil {
+		p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
 	}
 }
 
