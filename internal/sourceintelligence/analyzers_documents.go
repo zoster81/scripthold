@@ -599,8 +599,8 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	}
 	lines := sourceTextLines(document.Text)
 	subtreeEnds := sassIndentedSubtreeEnds(lines)
-	// Retain the nearest recognized lexical owner for assignments without
-	// inferring Sass flow-control or runtime variable scope.
+	// Retain the nearest recognized lexical owner for variables and nested
+	// selectors without inferring Sass flow-control or runtime variable scope.
 	type lexicalOwner struct {
 		end    int
 		parent SymbolParent
@@ -691,8 +691,14 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		if isSelector {
 			nameStart := line.start + strings.Index(line.text, trimmed)
 			signature := OffsetRange{Start: line.start, End: line.end}
+			var parent *SymbolParent
+			if len(owners) > 0 {
+				parent = &owners[len(owners)-1].parent
+			}
+			// Preserve exact-name Sass queries while exposing lexical ownership
+			// separately through the parent fields.
 			symbol, ok := addStructuralSymbol(builder, SymbolSpec{
-				Kind: SymbolKindSelector, NativeKind: "selector", Name: trimmed,
+				Kind: SymbolKindSelector, NativeKind: "selector", Name: trimmed, QualifiedName: trimmed, Parent: parent,
 				Declaration: OffsetRange{Start: line.start, End: subtreeEnds[index]},
 				NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(trimmed)},
 				Signature:   &signature, Evidence: SymbolEvidenceStructural,

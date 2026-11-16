@@ -31,7 +31,13 @@ func reprojectAnalyzerSymbols(ctx context.Context, host *SourceDocument, source 
 				parent = &value
 			}
 		}
-		target, err := builder.Add(SymbolSpec{Kind: current.Kind, NativeKind: current.NativeKind, Name: current.Name, Parent: parent, RegionID: regionID, Declaration: declaration, NameRange: nameRange, Signature: signature, Body: body, Visibility: current.Visibility, Modifiers: current.Modifiers, Evidence: current.Evidence, Disambiguator: current.ID})
+		// Sass selector source names remain valid exact-match queries when
+		// reprojected into a composite style region; ownership is separate.
+		qualifiedName := ""
+		if language == "sass" && current.Kind == SymbolKindSelector && current.QualifiedName == current.Name {
+			qualifiedName = current.QualifiedName
+		}
+		target, err := builder.Add(SymbolSpec{Kind: current.Kind, NativeKind: current.NativeKind, Name: current.Name, QualifiedName: qualifiedName, Parent: parent, RegionID: regionID, Declaration: declaration, NameRange: nameRange, Signature: signature, Body: body, Visibility: current.Visibility, Modifiers: current.Modifiers, Evidence: current.Evidence, Disambiguator: current.ID})
 		if operation.KindOf(err) == operation.KindLimit {
 			builder.MarkTruncated()
 			break

@@ -2,6 +2,8 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -69,6 +71,71 @@ func TestSassIndentedSelectorDeclarationIncludesBody(t *testing.T) {
 	}
 }
 
+// Nested indented Sass selectors have a lexical owner. Their source identity
+// must not be presented as a peer of the enclosing selector.
+func TestSassNestedSelectorRetainsLexicalParent(t *testing.T) {
+	check := func(t *testing.T, result AnalyzerResult) {
+		t.Helper()
+		var outer, nested *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case ".v-alert--doc":
+				outer = symbol
+			case ".v-alert__content p:last-child":
+				nested = symbol
+			}
+		}
+		if outer == nil || nested == nil {
+			t.Fatalf("authored Sass selector missing: %+v", result.Analysis.Symbols)
+		}
+		if nested.ParentID != outer.ID || nested.ParentQualifiedName != outer.QualifiedName {
+			t.Fatalf("nested Sass selector has incorrect lexical owner: outer=%+v nested=%+v", outer, nested)
+		}
+		if nested.QualifiedName != nested.Name {
+			t.Fatalf("nested Sass exact-name queries must remain compatible: %+v", nested)
+		}
+	}
+	const sass = ".v-alert--doc\n  .v-alert__content p:last-child\n    margin-bottom: 0 !important\n"
+	for _, ending := range []struct{ name, sep string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(ending.name, func(t *testing.T) {
+			result, err := (SassAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("nested.sass", strings.ReplaceAll(sass, "\n", ending.sep)),
+				testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(t, result)
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_VUE_VUETIFY_TS_ROOT"); root != "" {
+		t.Run("source-original-vuetify-Alert-vue-sass", func(t *testing.T) {
+			path := filepath.Join(root, "Alert.vue")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Vue source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if !strings.Contains(source, "<style lang=\"sass\">") ||
+				!strings.Contains(source, "  .v-alert--doc\n    .v-alert__content p:last-child") {
+				t.Fatal("original Vuetify nested Sass selector oracle changed")
+			}
+			result, err := (VueAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("Alert.vue", source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(t, result)
+		})
+	}
+}
+
 func TestSassSelectorBodyStopsBeforePeerAtSameIndentWithTabs(t *testing.T) {
 	const source = ".outer\n" +
 		"\tcolor: red\n" +
@@ -86,9 +153,30 @@ func TestSassSelectorBodyStopsBeforePeerAtSameIndentWithTabs(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := map[string]int{".outer": 6, ".nested": 4, ".other": 6, ".next": 8}
+		seen := make(map[string]NormalizedSymbol, len(want))
 		for _, symbol := range result.Analysis.Symbols {
-			if end, ok := want[symbol.Name]; ok && symbol.DeclarationRange.End.Line != end {
-				t.Errorf("tab-indented peer should not leak into %s: %+v", symbol.Name, symbol)
+			if end, ok := want[symbol.Name]; ok {
+				seen[symbol.Name] = symbol
+				if symbol.DeclarationRange.End.Line != end {
+					t.Errorf("tab-indented peer should not leak into %s: %+v", symbol.Name, symbol)
+				}
+			}
+		}
+		if len(seen) != len(want) {
+			t.Fatalf("Sass tab-indented selectors missing: %+v", result.Analysis.Symbols)
+		}
+		for _, name := range []string{".nested", ".other"} {
+			if seen[name].QualifiedName != name {
+				t.Errorf("Sass selector exact-name query changed: %+v", seen[name])
+			}
+			if seen[name].ParentID != seen[".outer"].ID ||
+				seen[name].ParentQualifiedName != seen[".outer"].QualifiedName {
+				t.Errorf("%s must be owned by outer Sass selector: %+v", name, seen[name])
+			}
+		}
+		for _, name := range []string{".outer", ".next"} {
+			if seen[name].ParentID != "" || seen[name].ParentQualifiedName != "" {
+				t.Errorf("top-level Sass selector %s acquired a false parent: %+v", name, seen[name])
 			}
 		}
 	}
