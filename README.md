@@ -21,6 +21,14 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 **Start here:** [Quick start](#quick-start) · [Find a tool](TOOLS.md#find-the-right-tool) · [All documentation](docs/README.md) · [Security policy](SECURITY.md).
 
+## Project goal and documentation map
+
+Scripthold's goal is to let agents inspect and change files in **explicitly authorized local workspaces** without guessing encodings, crossing filesystem boundaries, or losing track of approved changes. Source Intelligence helps an agent locate source evidence; it does not compile code, infer every dependency, or decide which files should be edited. See [Project Direction](docs/PROJECT_DIRECTION.md) for the product scope and [Architecture](docs/ARCHITECTURE.md) for the security and durability boundaries.
+
+Use [Quick start](#quick-start) to run Scripthold, then the [Tool Reference](TOOLS.md) to choose operations. The [Documentation Guide](docs/README.md) organizes installation, security, recovery, development and release guides. To contribute or resume development, start with [Contributing](CONTRIBUTING.md) and the repository [Agent Guide](AGENTS.md), use the [Development Checklist](docs/DEVELOPMENT_CHECKLIST.md) to verify changes, and consult the [Roadmap](docs/ROADMAP.md) for the active milestone and remaining work. The [Changelog](CHANGELOG.md) distinguishes released behavior from unreleased fixes; a local commit does not update an installed server.
+
+Private operator checkpoints, local test task identifiers and machine-specific handoff notes are intentionally **not** part of the public repository documentation. They must be verified in the authorized operator workspace when resuming a supervised session; the public documents remain usable from a normal clone.
+
 ## What Scripthold provides
 
 Scripthold 4.x provides 36 tools and 3 guided prompts; see [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) for the latest published version. Clients upgrading from 3.x should follow the [4.0 migration guide](docs/MIGRATION_4.0.md) for the unified confirmation tool. In 4.0.1, the `source_symbols outline` response defaults to a compact tree; pass `presentation: "detailed"` to retain the earlier `files` and `symbols` fields.
