@@ -2,9 +2,103 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
+
+// Double-quoted Nix values can span physical lines. Their text must not
+// become sibling let bindings or terminate the enclosing let block.
+func TestNixDoubleQuotedMultilineStringCannotInventBindings(t *testing.T) {
+	check := func(t *testing.T, source string, forbidden []string) []string {
+		t.Helper()
+		result, err := (NixAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("transposition.nix", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+		for _, name := range forbidden {
+			if _, ok := symbolsByQualifiedName(result.Analysis.Symbols)[name]; ok {
+				t.Errorf("double-quoted Nix text invented declaration %q: %v", name, names)
+			}
+		}
+		return names
+	}
+	const simple = "let\n" +
+		"  # an unmatched \" quote in a comment must not hide code\n" +
+		"  message = \"first\n" +
+		"  phantom = 42;\n" +
+		"in prematurely\n" +
+		"  escaped \\\" tail\";\n" +
+		"  actual = 7;\n" +
+		"in actual\n"
+	for _, ending := range []struct{ name, sep string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(ending.name, func(t *testing.T) {
+			names := check(t, strings.ReplaceAll(simple, "\n", ending.sep), []string{"phantom"})
+			if !slices.Contains(names, "message") || !slices.Contains(names, "actual") {
+				t.Fatalf("Nix sibling let bindings were lost to quoted text: %v", names)
+			}
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_NIX_FLAKE_PARTS_ROOT"); root != "" {
+		t.Run("source-derived-original-flake-parts", func(t *testing.T) {
+			path := filepath.Join(root, "transposition.nix")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Nix source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if !strings.Contains(source, "  transpositionModule = {") ||
+				!strings.Contains(source, "  perInputAttributeError = {") ||
+				!strings.Contains(source, "\nlet\n") {
+				t.Fatal("original flake-parts let-binding oracle changed")
+			}
+			baseline := check(t, source, nil)
+			if !slices.Contains(baseline, "transpositionModule") ||
+				!slices.Contains(baseline, "perInputAttributeError") {
+				t.Fatalf("original Nix let binding baseline not navigable: %v", baseline)
+			}
+			derived := strings.Replace(source, "\nlet\n",
+				"\nlet\n  message = \"first\n  phantom = 42;\nin prematurely\n  tail\";\n", 1)
+			names := check(t, derived, []string{"phantom"})
+			if !slices.Contains(names, "transpositionModule") ||
+				!slices.Contains(names, "perInputAttributeError") ||
+				!slices.Contains(names, "message") {
+				t.Fatalf("valid original let bindings lost: baseline=%v derived=%v", baseline, names)
+			}
+		})
+	}
+}
+
+// A standalone string is a valid Nix expression but not an indexed let
+// binding. Masking its contents must not claim the whole file is covered.
+func TestNixStandaloneDoubleQuotedRootRemainsIncomplete(t *testing.T) {
+	for _, tc := range []struct{ name, source string }{
+		{"single-line", "\"hello\"\n"},
+		{"multi-line", "\"first\n  phantom = 1;\n  tail\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (NixAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("root.nix", tc.source), testAnalyzeOptions(true, 16))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete || result.Analysis.Truncated ||
+				len(result.Analysis.Symbols) != 0 {
+				t.Fatalf("unsupported Nix root string misclassified: %+v", result.Analysis)
+			}
+		})
+	}
+}
 
 func TestNixTopLevelAttributeSetReportsIncompleteCoverage(t *testing.T) {
 	source := "# A flake-like root document\n{\n  description = \"demo\";\n  outputs = self: { package = \"example\"; };\n}\n"
