@@ -767,6 +767,21 @@ func (p *braceLanguageParser) collectImport(start int) {
 	for last > first && (p.tokens[last-1].Text == "," || p.tokens[last-1].Text == ";") {
 		last--
 	}
+	if p.policy.language == "groovy" && last-first >= 3 &&
+		p.tokens[last-2].Text == "as" && p.tokens[last-1].Kind == TokenIdentifier {
+		// Groovy's local alias is not part of the imported type/member.
+		value := tokenRangeText(p.tokens, first, last-2)
+		if value != "" {
+			rangeValue, err := p.document.RangeFromUTF8Offsets(p.tokens[first].StartOffset, p.tokens[last-3].EndOffset)
+			if err == nil {
+				p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+					Kind: StructuralDependencyImport, Value: value, Alias: p.tokens[last-1].Text,
+					Range: rangeValue, Evidence: SymbolEvidenceStructural,
+				}})
+			}
+		}
+		return
+	}
 	value := tokenRangeText(p.tokens, first, last)
 	if value != "" {
 		p.addDependency(StructuralDependencyImport, value, p.tokens[first].StartOffset, p.tokens[last-1].EndOffset)
