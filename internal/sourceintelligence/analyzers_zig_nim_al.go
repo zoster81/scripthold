@@ -469,19 +469,85 @@ func nimNameToken(token Token) (string, OffsetRange) {
 	return name, OffsetRange{Start: token.StartOffset, End: end}
 }
 func (p *nimParser) importLine(line LogicalLine) {
-	for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, len(line.Tokens), line.Tokens[0].Nesting) {
-		if part[0] >= part[1] {
+	tokens := line.Tokens
+	depth := tokens[0].Nesting
+	for _, part := range splitCommaTokenRangeAt(tokens, 1, len(tokens), depth) {
+		start, end := part[0], part[1]
+		if start >= end {
 			continue
 		}
-		value := tokenRangeText(line.Tokens, part[0], part[1])
-		if value == "" {
+		moduleEnd := end
+		alias := ""
+		invalid := false
+		for i := start; i < end; i++ {
+			if tokens[i].Text != "as" || tokens[i].Nesting != depth {
+				continue
+			}
+			if i != end-2 || tokens[i+1].Kind != TokenIdentifier ||
+				tokens[i+1].Nesting != depth {
+				invalid = true
+			} else {
+				moduleEnd = i
+				alias = tokens[i+1].Text
+			}
+			break
+		}
+		module := tokenRangeText(tokens, start, moduleEnd)
+		if module == "" {
+			invalid = true
+		}
+		if alias != "" {
+			begin, finish := tokens[start].StartOffset, tokens[moduleEnd-1].EndOffset
+			if !nimSimpleImportModule(module) || begin < 0 ||
+				finish > len(p.document.Text) || begin >= finish ||
+				p.document.Text[begin:finish] != module {
+				invalid = true
+			}
+		}
+		if invalid {
+			p.builder.MarkIncomplete()
+			span := OffsetRange{Start: tokens[start].StartOffset, End: tokens[end-1].EndOffset}
+			_ = p.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "nim-unsupported-import-alias",
+				Message:  "Nim import alias has unsupported syntax; inspect the authored directive",
+				Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+			})
 			continue
 		}
-		r, err := p.document.RangeFromUTF8Offsets(line.Tokens[part[0]].StartOffset, line.Tokens[part[1]-1].EndOffset)
-		if err == nil {
-			p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{Kind: StructuralDependencyImport, Value: value, Range: r, Evidence: SymbolEvidenceStructural}})
+		r, err := p.document.RangeFromUTF8Offsets(tokens[start].StartOffset, tokens[moduleEnd-1].EndOffset)
+		if err != nil {
+			p.builder.MarkIncomplete()
+			continue
+		}
+		p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+			Kind: StructuralDependencyImport, Value: module, Alias: alias, Range: r,
+			Evidence: SymbolEvidenceStructural,
+		}})
+	}
+}
+
+// Aliased imports are indexed only when the module's lexical spelling is a
+// simple path; grouped and computed module expressions need separate parsing.
+func nimSimpleImportModule(module string) bool {
+	module = strings.TrimPrefix(strings.TrimPrefix(module, "../"), "./")
+	if module == "" {
+		return false
+	}
+	for _, segment := range strings.Split(module, "/") {
+		if segment == "" || segment[0] == '.' || segment[len(segment)-1] == '.' ||
+			strings.Contains(segment, "..") {
+			return false
+		}
+		for i := 0; i < len(segment); i++ {
+			c := segment[i]
+			letter := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+			digit := i > 0 && c >= '0' && c <= '9'
+			if c != '_' && c != '.' && !letter && !digit {
+				return false
+			}
 		}
 	}
+	return true
 }
 
 // Nim selective imports name one source module before the "import" keyword.
