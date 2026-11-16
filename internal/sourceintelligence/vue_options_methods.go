@@ -8,9 +8,9 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
-// appendVueOptionsMethods indexes shorthand methods and computed getters under
-// an exported Vue Options object. It does not infer dynamic option spreads,
-// properties initialized with functions, or nested object members.
+// appendVueOptionsMethods indexes direct shorthand methods, computed getters,
+// and watch callbacks under an exported Vue Options object. Dynamic spreads,
+// function-valued properties, and nested object members remain unsupported.
 func appendVueOptionsMethods(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion, result *AnalyzerResult) error {
 	maxNesting := options.MaxNesting
 	if maxNesting <= 0 {
@@ -104,10 +104,13 @@ func collectVueOptionsMethods(ctx context.Context, tokens []Token, pairs map[int
 		if i >= end {
 			break
 		}
-		if tokens[i].Text == "methods" || tokens[i].Text == "computed" {
+		if tokens[i].Text == "methods" || tokens[i].Text == "computed" || tokens[i].Text == "watch" {
 			kind, nativeKind := SymbolKindMethod, "vue-options-method"
-			if tokens[i].Text == "computed" {
+			switch tokens[i].Text {
+			case "computed":
 				kind, nativeKind = SymbolKindProperty, "vue-options-computed"
+			case "watch":
+				nativeKind = "vue-options-watch"
 			}
 			colon := vueNextCodeToken(tokens, i+1, end)
 			open := vueNextCodeToken(tokens, colon+1, end)
