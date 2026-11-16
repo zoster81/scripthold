@@ -471,6 +471,25 @@ func nimNameToken(token Token) (string, OffsetRange) {
 func (p *nimParser) importLine(line LogicalLine) {
 	tokens := line.Tokens
 	depth := tokens[0].Nesting
+	for i := 1; i < len(tokens); i++ {
+		if tokens[i].Text != "except" || tokens[i].Nesting != depth {
+			continue
+		}
+		// Preserve the existing grouped-import unsupported diagnostic for
+		// syntactically distinct bracketed source module expressions.
+		grouped := false
+		for _, token := range tokens[1:i] {
+			if token.Text == "[" || token.Text == "]" {
+				grouped = true
+				break
+			}
+		}
+		if !grouped {
+			p.exceptImportLine(tokens, i)
+			return
+		}
+		break
+	}
 	for _, part := range splitCommaTokenRangeAt(tokens, 1, len(tokens), depth) {
 		start, end := part[0], part[1]
 		if start >= end {
@@ -544,6 +563,66 @@ func (p *nimParser) importLine(line LogicalLine) {
 			Evidence: SymbolEvidenceStructural,
 		}})
 	}
+}
+
+// Except selectors filter member names imported from one source module.
+// Only the module itself forms a structural dependency. Unsupported directives
+// must not invent one module per selector or silently claim complete coverage.
+func (p *nimParser) exceptImportLine(tokens []Token, delimiter int) {
+	depth := tokens[0].Nesting
+	valid := delimiter > 1 && delimiter+1 < len(tokens)
+	module := ""
+	if valid {
+		start, end := tokens[1].StartOffset, tokens[delimiter-1].EndOffset
+		valid = start >= 0 && end <= len(p.document.Text) && start < end
+		if valid && delimiter == 2 && tokens[1].Kind == TokenString {
+			quoted := tokens[1].Text
+			module = quotedTokenStringValue(tokens[1])
+			valid = len(quoted) >= 2 && quoted[0] == '"' &&
+				quoted[len(quoted)-1] == '"' && quoted == "\""+module+"\"" &&
+				nimSimpleImportModule(module)
+		} else if valid {
+			module = tokenRangeText(tokens, 1, delimiter)
+			valid = nimSimpleImportModule(module) && p.document.Text[start:end] == module
+		}
+	}
+	for i := delimiter + 1; valid && i < len(tokens); i++ {
+		token := tokens[i]
+		if token.Nesting != depth {
+			valid = false
+		} else if (i-delimiter)%2 == 1 {
+			if token.Kind != TokenIdentifier || !nimSimpleImportModule(token.Text) ||
+				strings.ContainsAny(token.Text, "./") {
+				valid = false
+			}
+		} else if token.Text != "," {
+			valid = false
+		}
+	}
+	if (len(tokens)-delimiter)%2 != 0 {
+		valid = false
+	}
+	if !valid {
+		p.builder.MarkIncomplete()
+		if len(tokens) > 1 {
+			span := OffsetRange{Start: tokens[1].StartOffset, End: tokens[len(tokens)-1].EndOffset}
+			_ = p.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "nim-unsupported-import-except",
+				Message:  "Nim import except has unsupported syntax; inspect the authored directive",
+				Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+			})
+		}
+		return
+	}
+	r, err := p.document.RangeFromUTF8Offsets(tokens[1].StartOffset, tokens[delimiter-1].EndOffset)
+	if err != nil {
+		p.builder.MarkIncomplete()
+		return
+	}
+	p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+		Kind: StructuralDependencyImport, Value: module, Range: r,
+		Evidence: SymbolEvidenceStructural,
+	}})
 }
 
 // Grouped imports expand only simple member identifiers. The source range of
