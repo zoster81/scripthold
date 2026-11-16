@@ -16,6 +16,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Perl Source Intelligence no longer promotes quoted strings embedded in computed `require File::Spec->catfile(...)` expressions to definite import dependencies. Only a directly authored single- or double-quoted literal argument, optionally parenthesized, is linked; concatenation, interpolation, escaped spellings, computed module paths and code-evaluating forms remain unproven. Two independently read original Perl projects, LF/CRLF regressions and local MCP `digest` checks verify the boundary while retaining existing `use` imports. No Perl code is executed.
+
 - Ruby source navigation no longer reports a quoted string nested in a computed `require` or `require_relative` expression as a definite module import. Only directly authored string-literal arguments (bare or parenthesized) are indexed; interpolation, escaped spellings and concatenated arguments are conservatively excluded. Tests over two independent original Ruby command-line projects and LF/CRLF regressions verify these boundaries through the analyzer and local MCP `digest`. Dynamic module names still require source inspection; Ruby code is not executed.
 
 - Lua and Luau source dependencies now include only directly authored literal module names in `require` calls, including bare-string and parenthesized forms. Dynamic format strings, string concatenation and unrelated object methods named `require` no longer create fabricated import targets. Independent original Overseer and Zenbones Lua modules, LF/CRLF cases and local MCP `digest` checks verify source-backed links; dynamic module resolution and Lua runtime semantics are not inferred.

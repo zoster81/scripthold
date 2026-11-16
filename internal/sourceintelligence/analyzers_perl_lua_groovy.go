@@ -115,15 +115,52 @@ func (PerlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 				}
 			}
 		case "require":
-			for _, token := range line.Tokens[1:] {
-				if value := quotedTokenStringValue(token); value != "" {
-					state.addImportDependency(value, token.StartOffset, token.EndOffset)
-					break
-				}
+			if token, value, ok := perlDirectRequireLiteral(line.Tokens); ok {
+				state.addImportDependency(value, token.StartOffset, token.EndOffset)
 			}
 		}
 	}
 	return state.result()
+}
+
+// Perl's require argument must be the immediate authored string. Quoted
+// strings nested inside computed expressions are not known module targets.
+func perlDirectRequireLiteral(tokens []Token) (Token, string, bool) {
+	if len(tokens) < 2 {
+		return Token{}, "", false
+	}
+	argument := 1
+	parenthesized := tokens[argument].Text == "("
+	if parenthesized {
+		argument++
+	}
+	if argument >= len(tokens) || tokens[argument].Kind != TokenString {
+		return Token{}, "", false
+	}
+	token := tokens[argument]
+	if len(token.Text) < 2 || (token.Text[0] != '\'' && token.Text[0] != '"') ||
+		token.Text[len(token.Text)-1] != token.Text[0] {
+		return Token{}, "", false
+	}
+	next := argument + 1
+	if parenthesized {
+		if next >= len(tokens) || tokens[next].Text != ")" {
+			return Token{}, "", false
+		}
+	} else if next < len(tokens) &&
+		(tokens[next].Kind == TokenOperator || tokens[next].Text == "." ||
+			tokens[next].Text == "x" || tokens[next].Text == "?") {
+		// Perl concatenation, repetition and expression operators may change
+		// the value of the target despite its literal prefix.
+		return Token{}, "", false
+	}
+	value := quotedTokenStringValue(token)
+	if value == "" || strings.Contains(value, "\\") ||
+		(token.Text[0] == '"' && strings.ContainsAny(value, "$@")) {
+		// Avoid evaluating escaped or interpolated Perl string contents.
+		return Token{}, "", false
+	}
+	return token, value, true
 }
 
 func (LuaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
