@@ -9,7 +9,7 @@ import (
 )
 
 // appendVueOptionsMethods indexes direct shorthand methods, computed getters,
-// and watch callbacks under an exported Vue Options object. Dynamic spreads,
+// watch callbacks, and lifecycle hooks under an exported Vue Options object. Dynamic spreads,
 // function-valued properties, and nested object members remain unsupported.
 func appendVueOptionsMethods(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion, result *AnalyzerResult) error {
 	maxNesting := options.MaxNesting
@@ -123,12 +123,38 @@ func collectVueOptionsMethods(ctx context.Context, tokens []Token, pairs map[int
 				builder.MarkIncomplete()
 			}
 		}
+		if vueOptionsLifecycleHook(tokens[i].Text) {
+			paren := vueNextCodeToken(tokens, i+1, end)
+			if paren < end && tokens[paren].Text == "(" {
+				if closeParen, ok := pairs[paren]; ok && closeParen < end {
+					body := vueNextCodeToken(tokens, closeParen+1, end)
+					if body < end && tokens[body].Text == "{" {
+						if closeBody, ok := pairs[body]; ok && closeBody < end {
+							collectVueShorthandMethods(ctx, tokens, pairs, i, closeBody+1, builder, SymbolKindMethod, "vue-options-lifecycle")
+							i = closeBody + 1
+							continue
+						}
+						builder.MarkIncomplete()
+					}
+				}
+			}
+		}
 		if close, ok := pairs[i]; ok && close > i {
 			i = close + 1
 		} else {
 			i++
 		}
 	}
+}
+
+func vueOptionsLifecycleHook(name string) bool {
+	switch name {
+	case "beforeCreate", "created", "beforeMount", "mounted", "beforeUpdate", "updated",
+		"activated", "deactivated", "beforeDestroy", "destroyed", "beforeUnmount", "unmounted",
+		"errorCaptured", "renderTracked", "renderTriggered", "serverPrefetch":
+		return true
+	}
+	return false
 }
 
 func collectVueShorthandMethods(ctx context.Context, tokens []Token, pairs map[int]int, start, end int, builder *SymbolBuilder, kind SymbolKind, nativeKind string) {
