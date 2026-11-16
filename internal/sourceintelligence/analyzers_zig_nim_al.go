@@ -476,6 +476,26 @@ func (p *nimParser) importLine(line LogicalLine) {
 		if start >= end {
 			continue
 		}
+		// Keep the existing unsupported-alias diagnostic for a bracketed
+		// expression followed by a top-level "as" suffix.
+		aliasSuffix := end-start >= 2 && tokens[end-2].Text == "as" &&
+			tokens[end-2].Nesting == depth
+		if tokens[0].Text == "import" && !aliasSuffix {
+			if grouped, handled := p.nimGroupedImportPart(tokens, start, end); handled {
+				if grouped == nil {
+					span := OffsetRange{Start: tokens[start].StartOffset, End: tokens[end-1].EndOffset}
+					_ = p.builder.AddDiagnostic(DiagnosticSpec{
+						Code:     "nim-unsupported-grouped-import",
+						Message:  "Nim grouped import has unsupported syntax; inspect the authored directive",
+						Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+					})
+					p.builder.MarkIncomplete()
+				} else {
+					p.dependencies = appendUniqueDependencies(p.dependencies, grouped)
+				}
+				continue
+			}
+		}
 		moduleEnd := end
 		alias := ""
 		invalid := false
@@ -524,6 +544,73 @@ func (p *nimParser) importLine(line LogicalLine) {
 			Evidence: SymbolEvidenceStructural,
 		}})
 	}
+}
+
+// Grouped imports expand only simple member identifiers. The source range of
+// each logical module points to its authored member (the shared prefix is
+// outside that contiguous range), so navigation does not fabricate a span.
+func (p *nimParser) nimGroupedImportPart(tokens []Token, start, end int) ([]StructuralDependency, bool) {
+	open := -1
+	for i := start; i < end; i++ {
+		if tokens[i].Text == "[" || tokens[i].Text == "]" {
+			if open >= 0 {
+				if tokens[i].Text == "[" || i != end-1 {
+					return nil, true
+				}
+			} else if tokens[i].Text != "[" {
+				return nil, true
+			} else {
+				open = i
+			}
+		}
+	}
+	if open < 0 {
+		return nil, false
+	}
+	if open < start+2 || end < open+3 ||
+		tokens[open-1].Text != "/" || tokens[end-1].Text != "]" {
+		return nil, true
+	}
+	prefix := tokenRangeText(tokens, start, open-1)
+	if !nimSimpleImportModule(prefix) {
+		return nil, true
+	}
+	// Whitespace between two module-name tokens must not be collapsed into
+	// an invented prefix; spaces around slash separators are permitted.
+	for i := start + 1; i < open; i++ {
+		if tokens[i-1].Text == "/" || tokens[i].Text == "/" {
+			continue
+		}
+		if tokens[i].StartOffset != tokens[i-1].EndOffset {
+			return nil, true
+		}
+	}
+	members := make([]StructuralDependency, 0, (end-open)/2)
+	for i := open + 1; i < end-1; i++ {
+		token := tokens[i]
+		if (i-open)%2 == 0 {
+			if token.Text != "," {
+				return nil, true
+			}
+			continue
+		}
+		if token.Kind != TokenIdentifier || !nimSimpleImportModule(token.Text) ||
+			strings.ContainsAny(token.Text, "/.") {
+			return nil, true
+		}
+		r, err := p.document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
+		if err != nil {
+			return nil, true
+		}
+		members = append(members, StructuralDependency{
+			Kind: StructuralDependencyImport, Value: prefix + "/" + token.Text,
+			Range: r, Evidence: SymbolEvidenceStructural,
+		})
+	}
+	if len(members) == 0 || tokens[end-2].Text == "," {
+		return nil, true
+	}
+	return members, true
 }
 
 // Aliased imports are indexed only when the module's lexical spelling is a
