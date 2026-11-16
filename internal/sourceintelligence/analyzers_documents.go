@@ -348,6 +348,9 @@ func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options A
 	}
 	structural := maskSourceComments(document.Text, lineCommentMarkers, "/*", "*/")
 	selectorSource := maskSourceStrings(structural, true, true, false)
+	if scss {
+		selectorSource = maskSCSSInterpolationBraces(selectorSource, builder)
+	}
 	if less {
 		selectorSource = maskLessSelectorPunctuation(selectorSource)
 	}
@@ -366,6 +369,46 @@ func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options A
 	}
 	cssSelectors(ctx, builder, document, selectorSource)
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+// maskSCSSInterpolationBraces removes interpolation-only braces from the
+// structural view while preserving every byte offset and genuine rule braces.
+// The bounded single pass marks malformed expressions as incomplete.
+func maskSCSSInterpolationBraces(source string, builder *SymbolBuilder) string {
+	var masked []byte
+	depth := 0
+	for index := 0; index < len(source); index++ {
+		if depth == 0 {
+			if index+1 < len(source) && source[index] == '#' && source[index+1] == '{' {
+				if masked == nil {
+					masked = []byte(source)
+				}
+				masked[index+1] = ' '
+				depth = 1
+				index++
+			}
+			continue
+		}
+		switch source[index] {
+		case '{':
+			masked[index] = ' '
+			depth++
+		case '}':
+			masked[index] = ' '
+			depth--
+		case ';':
+			// A declaration terminator cannot occur in a supported interpolation.
+			builder.MarkIncomplete()
+			depth = 0
+		}
+	}
+	if depth != 0 {
+		builder.MarkIncomplete()
+	}
+	if masked == nil {
+		return source
+	}
+	return string(masked)
 }
 
 // maskLessSelectorPunctuation prevents Less interpolation braces and mixin

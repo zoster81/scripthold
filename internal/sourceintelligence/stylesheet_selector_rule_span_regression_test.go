@@ -156,6 +156,135 @@ func TestSCSSCommentInterleavedSelectorGroupsFromOriginalDart(t *testing.T) {
 	}
 }
 
+// Interpolation braces in SCSS property values are not CSS rule delimiters.
+// The original stylesheet has two interpolations separated by a slash.
+func TestSCSSValueInterpolationDoesNotInventSelectorsOriginalDart(t *testing.T) {
+	check := func(t *testing.T, source string, codeLine int) {
+		t.Helper()
+		result, err := (SCSSAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("interpolated.scss", source), testAnalyzeOptions(true, 512))
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundCode := false
+		for _, symbol := range result.Analysis.Symbols {
+			if symbol.Kind != SymbolKindSelector {
+				continue
+			}
+			if symbol.Name == "/#" || symbol.Name == "#" {
+				t.Fatalf("SCSS interpolation invented a selector: %+v", symbol)
+			}
+			if symbol.Name == "code" && symbol.NameRange.Start.Line == codeLine {
+				if symbol.DeclarationRange.Start.Line != codeLine ||
+					symbol.DeclarationRange.End.Line != codeLine+3 {
+					t.Errorf("interpolated SCSS source rule has incorrect bounds: %+v", symbol)
+				}
+				foundCode = true
+			}
+		}
+		if !foundCode {
+			t.Fatalf("SCSS authored code selector absent: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	const fixture = "code {\n  font: normal #{$code-font-size}/#{$code-line-height} $monospace;\n  color: red;\n}\n.next { color: blue; }\n"
+	for _, tc := range []struct{ name, newline string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			check(t, strings.ReplaceAll(fixture, "\n", tc.newline), 1)
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SCSS_DART_ROOT"); root != "" {
+		t.Run("original-dart-scss-interpolated-font", func(t *testing.T) {
+			path := filepath.Join(root, "style.scss")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded SCSS original unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "font: normal #{$code-font-size}/#{$code-line-height} $monospace;") != 1 ||
+				strings.Count(source, "font: normal #{$code-font-size * .9}/#{$code-line-height * .9} $monospace !important;") != 1 {
+				t.Fatal("original Dart SCSS interpolation source oracle changed")
+			}
+			check(t, source, 195)
+		})
+	}
+}
+
+// Malformed interpolations must not expose fake CSS rule boundaries or
+// claim complete source coverage; neighboring real selectors stay navigable.
+func TestSCSSMalformedInterpolationPreservesNeighboringRules(t *testing.T) {
+	const fixture = ".outer {\n  width: #{$width;\n  height: 2px;\n}\n.next { color: red; }\n"
+	for _, eol := range []struct{ name, newline string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(eol.name, func(t *testing.T) {
+			source := strings.ReplaceAll(fixture, "\n", eol.newline)
+			result, err := (SCSSAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("broken-interpolation.scss", source), testAnalyzeOptions(true, 48))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete {
+				t.Fatalf("unterminated interpolation marked complete: %+v", result.Analysis)
+			}
+			seen := map[string]bool{}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Kind != SymbolKindSelector {
+					continue
+				}
+				switch symbol.Name {
+				case ".outer", ".next":
+					seen[symbol.Name] = true
+				default:
+					t.Errorf("SCSS interpolation created unexpected selector: %+v", symbol)
+				}
+			}
+			if !seen[".outer"] || !seen[".next"] {
+				t.Fatalf("valid surrounding rules missing: seen=%v", seen)
+			}
+		})
+	}
+}
+
+// String and comment contents must be masked before interpolation scanning.
+func TestSCSSInterpolationMaskKeepsQuotedAndCommentBracesOpaque(t *testing.T) {
+	const fixture = ".real {\n  content: \"#{quoted}\";\n  /* #{comment} { } */\n  width: #{$size + 1}px;\n}\n.next { color: red; }\n"
+	for _, eol := range []struct{ name, newline string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(eol.name, func(t *testing.T) {
+			result, err := (SCSSAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("quoted-interpolation.scss", strings.ReplaceAll(fixture, "\n", eol.newline)),
+				testAnalyzeOptions(true, 48))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Fatalf("balanced SCSS quoted/comment interpolation became partial: %+v", result.Analysis)
+			}
+			seen := map[string]bool{}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Kind == SymbolKindSelector {
+					switch symbol.Name {
+					case ".real", ".next":
+						seen[symbol.Name] = true
+					default:
+						t.Errorf("quoted/comment interpolation generated false selector: %+v", symbol)
+					}
+				}
+			}
+			if !seen[".real"] || !seen[".next"] {
+				t.Fatalf("real selector lost with interpolation masking: %+v", result.Analysis.Symbols)
+			}
+		})
+	}
+}
+
 func TestStylesheetRuleBoundariesIgnoreQuotedAndCommentBraces(t *testing.T) {
 	const source = ".icon {\n" +
 		"  content: \"literal } brace\";\n" +
