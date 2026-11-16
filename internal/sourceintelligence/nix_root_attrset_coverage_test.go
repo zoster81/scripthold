@@ -247,6 +247,110 @@ func TestNixOuterLetMissingInReportsIncompleteCoverage(t *testing.T) {
 	}
 }
 
+// Existing direct Nix let bindings remain navigable, but unsupported inherit
+// clauses must not silently count toward complete source coverage.
+func TestNixOuterLetInheritCannotClaimCompleteCoverage(t *testing.T) {
+	const original = "let\n" +
+		"  inherit (lib)\n" +
+		"    filterAttrs\n" +
+		"    mapAttrs\n" +
+		"    mkOption\n" +
+		"    types\n" +
+		"    ;\n" +
+		"  inherit (lib.strings)\n" +
+		"    escapeNixIdentifier\n" +
+		"    ;\n" +
+		"  selected = filterAttrs;\n" +
+		"in selected\n"
+	cases := []struct{ name, source string }{
+		{"LF", original}, {"CRLF", strings.ReplaceAll(original, "\n", "\r\n")},
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_NIX_FLAKE_PARTS_ROOT"); root != "" {
+		path := filepath.Join(root, "transposition.nix")
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+			t.Fatalf("bounded original flake-parts source unavailable: %v %v", info, err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inheritFragment := strings.TrimSuffix(strings.TrimPrefix(original, "let\n"), "  selected = filterAttrs;\nin selected\n")
+		if strings.Count(string(data), inheritFragment) != 1 {
+			t.Fatal("original flake-parts inherit declarations changed")
+		}
+		cases = append(cases, struct{ name, source string }{"source-derived-original", "let\n" + inheritFragment + "  selected = filterAttrs;\nin selected\n"})
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (NixAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("transposition.nix", tc.source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("unindexed let inherit falsely reported complete: %+v", result.Analysis)
+			}
+			if !slices.Equal(sortedSymbolQualifiedNames(result.Analysis.Symbols), []string{"selected"}) {
+				t.Fatalf("Nix inherit fabricated names or direct binding lost: %+v", result.Analysis.Symbols)
+			}
+			found := false
+			for _, diagnostic := range result.Analysis.Diagnostics {
+				if diagnostic.Code == "nix-unmodeled-inherit" {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("missing Nix inherit limitation diagnostic: %+v", result.Analysis.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestNixInheritLexicalBoundaries(t *testing.T) {
+	cases := []struct {
+		name, source string
+		partial      bool
+	}{
+		{
+			name:    "nested-attribute-inherit",
+			source:  "let\n  selected = {\n    inherit (lib) filterAttrs;\n  };\nin selected\n",
+			partial: true,
+		},
+		{
+			name:   "quoted-and-commented-inherit",
+			source: "let\n  # inherit (lib) fake;\n  selected = \"inherit (lib) phantom\";\n  /* inherit (lib) decoy; */\nin selected\n",
+		},
+		{
+			name:   "different-identifier",
+			source: "let\n  inheritance = 42;\n  selected = inheritance;\nin selected\n",
+		},
+	}
+	for _, tc := range cases {
+		for _, ending := range []struct{ name, sep string }{
+			{"LF", "\n"}, {"CRLF", "\r\n"},
+		} {
+			t.Run(tc.name+"-"+ending.name, func(t *testing.T) {
+				result, err := (NixAnalyzer{}).Analyze(context.Background(),
+					testSourceDocument("lexical.nix", strings.ReplaceAll(tc.source, "\n", ending.sep)),
+					testAnalyzeOptions(true, 32))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Analysis.Truncated || result.Analysis.CoverageComplete == tc.partial {
+					t.Fatalf("Nix inherit lexical boundary coverage mismatch: %+v", result.Analysis)
+				}
+				names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+				if !slices.Contains(names, "selected") ||
+					slices.Contains(names, "fake") || slices.Contains(names, "phantom") ||
+					slices.Contains(names, "decoy") || slices.Contains(names, "filterAttrs") {
+					t.Fatalf("Nix inherit invented declarations or lost selected: %v", names)
+				}
+			})
+		}
+	}
+}
+
 func TestNixTopLevelAttributeSetReportsIncompleteCoverage(t *testing.T) {
 	source := "# A flake-like root document\n{\n  description = \"demo\";\n  outputs = self: { package = \"example\"; };\n}\n"
 	result, err := (NixAnalyzer{}).Analyze(context.Background(),

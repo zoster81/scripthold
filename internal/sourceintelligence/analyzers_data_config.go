@@ -823,7 +823,7 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	inLet := false
 	letStart := -1
 	letIndent, bindingIndent, letBraceDepth := -1, -1, 0
-	rootSeen, nestedReported := false, false
+	rootSeen, nestedReported, inheritReported := false, false, false
 	source := maskNixIndentedStrings(document.Text)
 	// Use existing source-preserving masks so braces inside Nix strings and
 	// comments never change the lexical depth of a let binding.
@@ -873,6 +873,16 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			continue
 		}
 		if !inLet {
+			continue
+		}
+		// Inherited names are declarations, but this bounded index currently
+		// handles only explicit name = bindings. Nested inherit also limits coverage.
+		if !inheritReported &&
+			(trimmed == "inherit" || strings.HasPrefix(trimmed, "inherit ") ||
+				strings.HasPrefix(trimmed, "inherit\t") || strings.HasPrefix(trimmed, "inherit(")) {
+			addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-inherit",
+				"Nix inherit declarations inside let expressions require direct source inspection", line.start, line.end)
+			inheritReported = true
 			continue
 		}
 		match := nixBinding.FindStringSubmatchIndex(trimmed)
