@@ -636,6 +636,41 @@ var hclBlock = regexp.MustCompile(`(?m)^([ \t]*)(variable|resource|data|module|o
 var hclGenericBlock = regexp.MustCompile(`(?m)^([ \t]*)([A-Za-z_][A-Za-z0-9_-]*)(?:[ \t]+"([^"]+)")?[ \t]*\{`)
 var hclSource = regexp.MustCompile(`(?m)^[ \t]*source[ \t]*=[ \t]*"([^"]+)"`)
 
+// hclDirectModuleSource returns only a module's direct source attribute.
+// Braces inside quoted values do not change lexical nesting.
+func hclDirectModuleSource(source string, open, close int) (OffsetRange, bool) {
+	if open < 0 || close > len(source) || open >= close {
+		return OffsetRange{}, false
+	}
+	bodyStart := open + 1
+	body := source[bodyStart:close]
+	structure := maskSourceStrings(body, false, true, false)
+	depth, scanned, cursor := 0, 0, 0
+	for cursor < len(body) {
+		match := hclSource.FindStringSubmatchIndex(body[cursor:])
+		if match == nil {
+			break
+		}
+		start := cursor + match[0]
+		for ; scanned < start; scanned++ {
+			switch structure[scanned] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+		}
+		if depth == 0 {
+			return OffsetRange{
+				Start: bodyStart + cursor + match[2],
+				End:   bodyStart + cursor + match[3],
+			}, true
+		}
+		cursor += match[1]
+	}
+	return OffsetRange{}, false
+}
+
 type hclBlockCandidate struct {
 	start     int
 	open      int
@@ -766,10 +801,9 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 		}
 		symbol, added := addDocumentDataHardwareSymbol(builder, candidate.kind, candidate.native, candidate.name, parent, OffsetRange{Start: candidate.start, End: candidate.close + 1}, candidate.nameRange)
 		if candidate.word == "module" {
-			bodyStart := candidate.open + 1
-			if sourceMatch := hclSource.FindStringSubmatchIndex(source[bodyStart:candidate.close]); sourceMatch != nil {
-				value := document.Text[bodyStart+sourceMatch[2] : bodyStart+sourceMatch[3]]
-				dependencies.add(document, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
+			if sourceRange, ok := hclDirectModuleSource(source, candidate.open, candidate.close); ok {
+				value := document.Text[sourceRange.Start:sourceRange.End]
+				dependencies.add(document, StructuralDependencyImport, value, sourceRange.Start, sourceRange.End)
 			}
 		}
 		if added {

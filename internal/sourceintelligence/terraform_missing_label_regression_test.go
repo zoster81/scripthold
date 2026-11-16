@@ -2,9 +2,94 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
+
+// A module's source is an attribute directly inside the module block. A
+// nested object with the same key must not create a fabricated dependency.
+func TestTerraformModuleSourceIgnoresNestedAttribute(t *testing.T) {
+	check := func(t *testing.T, source string, want []string) {
+		t.Helper()
+		result, err := (TerraformAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("create-infrastructure.tf", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		actual := make([]string, 0)
+		for _, dependency := range result.Dependencies {
+			if dependency.Kind == StructuralDependencyImport {
+				actual = append(actual, dependency.Value)
+			}
+		}
+		if !slices.Equal(actual, want) {
+			t.Fatalf("module sources = %v, want %v; all dependencies=%+v", actual, want, result.Dependencies)
+		}
+	}
+	cases := []struct {
+		name, source string
+		want         []string
+	}{
+		{
+			name: "nested-before-direct",
+			source: "module \"demo\" {\n" +
+				"  config = {\n    source = \"./nested-decoy\"\n  }\n" +
+				"  source = \"./correct\"\n}\n" +
+				"module \"second\" {\n  source = \"./second\"\n}\n",
+			want: []string{"./correct", "./second"},
+		},
+		{
+			name: "nested-depth-and-quoted-braces",
+			source: "module \"demo\" {\n  config = {\n" +
+				"    label = \"braces } and { inside a string\"\n" +
+				"    nested = {\n      source = \"./nested-decoy\"\n    }\n" +
+				"  }\n  source = \"./correct\"\n}\n",
+			want: []string{"./correct"},
+		},
+		{
+			name:   "nested-without-direct-source",
+			source: "module \"demo\" {\n  config = {\n    source = \"./nested-decoy\"\n  }\n}\n",
+			want:   []string{},
+		},
+	}
+	for _, tc := range cases {
+		for _, ending := range []struct{ name, sep string }{
+			{"LF", "\n"}, {"CRLF", "\r\n"},
+		} {
+			t.Run(tc.name+"/"+ending.name, func(t *testing.T) {
+				check(t, strings.ReplaceAll(tc.source, "\n", ending.sep), tc.want)
+			})
+		}
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_TERRAFORM_KUBESPRAY_AWS_ROOT"); root != "" {
+		t.Run("source-derived-original-Kubespray", func(t *testing.T) {
+			path := filepath.Join(root, "create-infrastructure.tf")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Kubespray source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			const original = "module \"aws-vpc\" {\n  source = \"./modules/vpc\""
+			if strings.Count(source, original) != 1 ||
+				!strings.Contains(source, "module \"aws-nlb\" {\n  source = \"./modules/nlb\"") ||
+				!strings.Contains(source, "module \"aws-iam\" {\n  source = \"./modules/iam\"") {
+				t.Fatal("original Kubespray module source oracle changed")
+			}
+			want := []string{"./modules/vpc", "./modules/nlb", "./modules/iam"}
+			check(t, source, want)
+			derived := strings.Replace(source, original,
+				"module \"aws-vpc\" {\n  options = {\n    source = \"./nested-decoy\"\n  }\n  source = \"./modules/vpc\"", 1)
+			check(t, derived, want)
+		})
+	}
+}
 
 // An invalid outer block must not promote nested generic blocks to the root.
 func TestTerraformMalformedOuterDoesNotInventNestedBlock(t *testing.T) {
