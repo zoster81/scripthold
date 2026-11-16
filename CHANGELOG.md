@@ -16,6 +16,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Dart conditional `import` and `export` directives now clearly report incomplete source-dependency coverage, with a warning located at the authored directive, because the structural dependency schema cannot describe platform guards. The already recognized default URI remains available as source evidence; guarded alternatives are not misrepresented as unconditional imports. Two independent original Hive and Dart Sass source files, LF/CRLF regressions and local MCP `digest` tests verify this bounded behavior. No platform selection or Dart execution is attempted.
+
 - Dart Source Intelligence now preserves the local prefix from an authored `import 'uri' as prefix` or `import 'uri' deferred as prefix` directive as distinct dependency `Alias` evidence while keeping the URI and its exact quoted source range unchanged. Two independent original Dart projects, LF/CRLF cases, ordinary imports and local MCP `digest` checks verify the bounded result. `export` and `part` directives, URI resolution, deferred loading and Dart runtime semantics are not inferred.
 
 - Groovy source dependencies now retain the authored target and the local `as` alias as separate structural evidence (`Value` and `Alias`). Ordinary and static aliased imports exclude the alias from the dependency target and its source range; behavior in other brace-language providers remains unchanged. Original independent jyreport and Alipsa Matrix `.groovy` sources, LF/CRLF cases and local MCP `digest` tests verify the correction without interpreting Groovy runtime binding or executing third-party code.

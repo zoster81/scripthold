@@ -749,6 +749,24 @@ func (p *braceLanguageParser) collectImport(start int) {
 	if end <= start+1 {
 		return
 	}
+	if p.policy.language == "dart" &&
+		(p.tokens[start].Text == "import" || p.tokens[start].Text == "export") {
+		for i := start + 1; i < end; i++ {
+			if p.tokens[i].Text != "if" || p.tokens[i].Nesting != depth {
+				continue
+			}
+			// The default URI is authored source evidence, but platform-guarded
+			// alternatives cannot be represented by an unconditional dependency.
+			p.builder.MarkIncomplete()
+			span := OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[end-1].EndOffset}
+			_ = p.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "dart-conditional-uri-alternatives",
+				Message:  "Dart conditional import/export alternatives are not indexed; inspect the authored platform guards",
+				Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+			})
+			break
+		}
+	}
 	for i := start + 1; i < end; i++ {
 		if p.tokens[i].Kind != TokenString {
 			continue
