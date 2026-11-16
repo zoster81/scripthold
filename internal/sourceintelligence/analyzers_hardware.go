@@ -311,6 +311,7 @@ var (
 	hdlParameterContinuation = regexp.MustCompile(`^[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*=`)
 	svTypedefStruct          = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
 	svTypedefLogic           = regexp.MustCompile(`(?m)^[ \t]*typedef[ \t]+logic[ \t]+(?:(?:signed|unsigned)[ \t]+)?(?:\[[^\]\r\n]+\][ \t]*)*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	svTypedefEnum            = regexp.MustCompile(`(?ms)^[ \t]*typedef[ \t]+enum(?:[ \t]+(?:logic|bit|reg|int|integer|byte|shortint|longint)(?:[ \t]*\[[^\]\r\n]+\])?)?[ \t\r\n]*\{[^{}]*\}[ \t\r\n]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
 	hdlEndModulePattern      = regexp.MustCompile(`(?i)\bendmodule\b`)
 	hdlEndPackagePattern     = regexp.MustCompile(`(?i)\bendpackage\b`)
 	hdlEndInterfacePattern   = regexp.MustCompile(`(?i)\bendinterface\b`)
@@ -351,7 +352,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			}
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
-				hdlSVStructTypes(builder, document, source, match[1], end, &symbol)
+				hdlSVStructTypes(builder, document, source, match[1], end, &symbol, true)
 				hdlSignals(builder, document, source, match[1], end, &symbol, false)
 			}
 		}
@@ -364,7 +365,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			}
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindInterface, "interface", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
-				hdlSVStructTypes(builder, document, source, match[1], end, &symbol)
+				hdlSVStructTypes(builder, document, source, match[1], end, &symbol, false)
 				hdlSignals(builder, document, source, match[1], end, &symbol, true)
 			}
 		}
@@ -391,7 +392,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindModule, "module", name, nil, OffsetRange{Start: matchStart, End: end}, OffsetRange{Start: nameStart, End: nameEnd})
 		if ok {
 			if systemVerilog {
-				hdlSVStructTypes(builder, document, source, matchEnd, end, &symbol)
+				hdlSVStructTypes(builder, document, source, matchEnd, end, &symbol, false)
 			}
 			hdlSignals(builder, document, source, matchEnd, end, &symbol, true)
 		}
@@ -400,14 +401,17 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 	return AnalyzerResult{Analysis: builder.takeResult()}, nil
 }
 
-// Recognized packed structs and direct logic aliases are named types,
+// Recognized packed structs, direct logic aliases and enums are named types,
 // not independently declared interface/module signals.
-func hdlSVStructTypes(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent) {
+func hdlSVStructTypes(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent, packageScope bool) {
 	body := source[start:end]
+	if packageScope {
+		body = hdlMaskPackageNestedBlocks(body)
+	}
 	for _, definition := range []struct {
 		pattern    *regexp.Regexp
 		nativeKind string
-	}{{svTypedefStruct, "typedef-struct"}, {svTypedefLogic, "typedef-logic"}} {
+	}{{svTypedefStruct, "typedef-struct"}, {svTypedefLogic, "typedef-logic"}, {svTypedefEnum, "typedef-enum"}} {
 		for _, match := range definition.pattern.FindAllStringSubmatchIndex(body, -1) {
 			nameStart, nameEnd := start+match[2], start+match[3]
 			addDocumentDataHardwareSymbol(builder, SymbolKindType, definition.nativeKind,
@@ -591,7 +595,7 @@ func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string,
 	body = hdlHeaderParameters(builder, document, body, start, parent)
 	// Named types are not module/interface signals; preserve line offsets.
 	var maskedTypes []byte
-	for _, pattern := range []*regexp.Regexp{svTypedefStruct, svTypedefLogic} {
+	for _, pattern := range []*regexp.Regexp{svTypedefStruct, svTypedefLogic, svTypedefEnum} {
 		for _, match := range pattern.FindAllStringIndex(body, -1) {
 			if maskedTypes == nil {
 				maskedTypes = []byte(body)
