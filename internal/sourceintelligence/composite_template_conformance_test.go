@@ -355,6 +355,97 @@ func TestVueQuotedGreaterThanInStyleTag(t *testing.T) {
 	}
 }
 
+func TestDotNetClientHostsQuotedGreaterThanInScriptTag(t *testing.T) {
+	check := func(t *testing.T, analyzer SourceAnalyzer, source string, want map[string]int) AnalyzerResult {
+		t.Helper()
+		result, err := analyzer.Analyze(context.Background(), testSourceDocument("Configure.cshtml", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundScript := false
+		for _, region := range result.Regions {
+			if region.Kind == "script" && region.Language == "javascript" && region.Supported {
+				foundScript = true
+			}
+		}
+		if !foundScript {
+			t.Fatalf("supported script region missing: %+v", result.Regions)
+		}
+		byName := symbolsByQualifiedName(result.Analysis.Symbols)
+		for name, line := range want {
+			symbol, ok := byName[name]
+			if !ok || symbol.NameRange.Start.Line != line {
+				t.Errorf("JavaScript declaration %s:%d missing or displaced: %+v; all=%v",
+					name, line, symbol, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+		return result
+	}
+	for _, host := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{{"razor", RazorAnalyzer{}}, {"blazor", BlazorAnalyzer{}}, {"aspnet-webforms", ASPNetWebFormsAnalyzer{}}} {
+		t.Run(host.name, func(t *testing.T) {
+			check(t, host.analyzer, "<script>\nfunction load() {}\nfunction save() {}\n</script>\n",
+				map[string]int{"load": 2, "save": 3})
+			for _, quote := range []string{"\"", "'"} {
+				for _, ending := range []string{"\n", "\r\n"} {
+					name := "double-LF"
+					if quote == "'" {
+						name = "single-LF"
+					}
+					if ending == "\r\n" {
+						name = strings.Replace(name, "LF", "CRLF", 1)
+					}
+					t.Run(name, func(t *testing.T) {
+						fixture := "<!-- <script>function ghost() {}</script> -->\n" +
+							"<script data-check=" + quote + "screen > 0" + quote +
+							">\nfunction load() {}\nfunction save() {}\n</script>\n" +
+							"<main id=\"hero\"></main>\n"
+						result := check(t, host.analyzer, strings.ReplaceAll(fixture, "\n", ending),
+							map[string]int{"load": 3, "save": 4})
+						if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+							t.Fatalf("valid quoted script attribute marked partial: %+v", result.Analysis.Diagnostics)
+						}
+						if _, exists := symbolsByQualifiedName(result.Analysis.Symbols)["ghost"]; exists {
+							t.Fatal("script declaration from HTML comment leaked")
+						}
+					})
+				}
+			}
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_RAZOR_NOPCOMMERCE_ROOT"); root != "" {
+		t.Run("source-derived-original-nopcommerce", func(t *testing.T) {
+			path := filepath.Join(root, "Configure.cshtml")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original NopCommerce source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "<script>") != 1 ||
+				!strings.Contains(source, "var postData = {") ||
+				!strings.Contains(source, "var requirementId = @Model.RequirementId;") {
+				t.Fatal("original NopCommerce script source oracle changed")
+			}
+			base := check(t, RazorAnalyzer{}, source, nil)
+			derived := strings.Replace(source, "<script>", "<script data-check=\"screen > 0\">", 1)
+			changed := check(t, RazorAnalyzer{}, derived, nil)
+			if strings.Join(sortedSymbolQualifiedNames(base.Analysis.Symbols), "|") !=
+				strings.Join(sortedSymbolQualifiedNames(changed.Analysis.Symbols), "|") ||
+				base.Analysis.CoverageComplete != changed.Analysis.CoverageComplete {
+				t.Fatalf("quoted script attribute changed original-source navigation: baseline=%v derived=%v",
+					sortedSymbolQualifiedNames(base.Analysis.Symbols),
+					sortedSymbolQualifiedNames(changed.Analysis.Symbols))
+			}
+		})
+	}
+}
+
 func TestDotNetClientHostsQuotedGreaterThanInStyleTag(t *testing.T) {
 	check := func(t *testing.T, analyzer SourceAnalyzer, source string, want map[string]int) {
 		t.Helper()

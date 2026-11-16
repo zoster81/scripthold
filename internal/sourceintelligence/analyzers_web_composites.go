@@ -75,8 +75,7 @@ type bladeAnonymousClass struct {
 }
 
 var (
-	scriptTagPattern = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
-	// Quoted script attributes can contain > in Astro, Vue, and Svelte.
+	// A quoted script attribute can contain > without ending the opening tag.
 	quotedScriptTagPattern = regexp.MustCompile(`(?is)<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</script\s*>`)
 	// Quoted style attributes can contain > without ending the opening tag.
 	quotedStyleTagPattern         = regexp.MustCompile(`(?is)<style\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</style\s*>`)
@@ -1810,7 +1809,7 @@ func analyzeClientWebRegions(ctx context.Context, document *SourceDocument, opti
 		}
 	}
 	regions := append(
-		tagEmbeddedRegions(probe, scriptTagPattern, "script", scriptLanguage),
+		tagEmbeddedRegions(probe, quotedScriptTagPattern, "script", scriptLanguage),
 		tagEmbeddedRegions(probe, quotedStyleTagPattern, "style", styleLanguage)...,
 	)
 	regions = orderedNonOverlappingEmbeddedRegions(regions)
