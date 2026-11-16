@@ -9,8 +9,9 @@ import (
 )
 
 // appendVueOptionsMethods indexes direct shorthand methods, computed getters,
-// watch callbacks, and lifecycle hooks under an exported Vue Options object. Dynamic spreads,
-// function-valued properties, and nested object members remain unsupported.
+// watch callbacks, lifecycle hooks and the shorthand data() initializer in an
+// exported Vue Options object. Dynamic spreads, function-valued properties,
+// and nested object members remain unsupported.
 func appendVueOptionsMethods(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion, result *AnalyzerResult) error {
 	maxNesting := options.MaxNesting
 	if maxNesting <= 0 {
@@ -123,14 +124,18 @@ func collectVueOptionsMethods(ctx context.Context, tokens []Token, pairs map[int
 				builder.MarkIncomplete()
 			}
 		}
-		if vueOptionsLifecycleHook(tokens[i].Text) {
+		if vueOptionsLifecycleHook(tokens[i].Text) || (tokens[i].Text == "data" && (tokens[i].Kind == TokenIdentifier || tokens[i].Kind == TokenKeyword)) {
+			nativeKind := "vue-options-lifecycle"
+			if tokens[i].Text == "data" {
+				nativeKind = "vue-options-data"
+			}
 			paren := vueNextCodeToken(tokens, i+1, end)
 			if paren < end && tokens[paren].Text == "(" {
 				if closeParen, ok := pairs[paren]; ok && closeParen < end {
 					body := vueNextCodeToken(tokens, closeParen+1, end)
 					if body < end && tokens[body].Text == "{" {
 						if closeBody, ok := pairs[body]; ok && closeBody < end {
-							collectVueShorthandMethods(ctx, tokens, pairs, i, closeBody+1, builder, SymbolKindMethod, "vue-options-lifecycle")
+							collectVueShorthandMethods(ctx, tokens, pairs, i, closeBody+1, builder, SymbolKindMethod, nativeKind)
 							i = closeBody + 1
 							continue
 						}
