@@ -199,6 +199,92 @@ func TestSassChildCombinatorSelectorsFromOriginalSource(t *testing.T) {
 	}
 }
 
+// Authored child-combinator chains remain an independent Sass source-navigation
+// case: recognizing a single > child does not prove multi-step chain support.
+func TestSassChainedChildCombinatorOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("akafael.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parent, chained *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case ".pres-timeline":
+				parent = symbol
+			case "> div > div":
+				chained = symbol
+			}
+		}
+		if parent == nil || chained == nil {
+			t.Fatalf("authored Sass chained child selector absent: parent=%+v chained=%+v", parent, chained)
+		}
+		if chained.ParentID != parent.ID || chained.ParentQualifiedName != parent.QualifiedName ||
+			chained.QualifiedName != chained.Name {
+			t.Fatalf("Sass chained selector source owner/name incorrect: parent=%+v chained=%+v", parent, chained)
+		}
+	}
+	const fixture = ".pres-timeline\n  > div > div\n    padding: 1em\n  .periods-container\n    overflow: hidden\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_AKAFAEL_ROOT"); root != "" {
+		t.Run("source-original-akafael-style", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\n  > div > div \n") != 1 {
+				t.Fatal("original Sass chained selector oracle changed")
+			}
+			check(t, source)
+		})
+	}
+}
+
+// A child-combinator chain must consist entirely of supported bare targets.
+// Rejecting ambiguous syntax avoids inventing selectors from source fragments.
+func TestSassSimpleChildSelectorMalformedAndSupportedChains(t *testing.T) {
+	for _, tc := range []struct {
+		source string
+		valid  bool
+	}{
+		{source: "> h4", valid: true},
+		{source: "> #right", valid: true},
+		{source: "> .card > #title", valid: true},
+		{source: "> div > div ", valid: true},
+		{source: ">\tdiv\t>\tspan", valid: true},
+		{source: "> * > a", valid: true},
+		{source: "> div >", valid: false},
+		{source: "> > div", valid: false},
+		{source: "> div >> span", valid: false},
+		{source: "> div>span", valid: false},
+		{source: ">div", valid: false},
+		{source: "> div > .card:hover", valid: false},
+		{source: "> #{variable}", valid: false},
+		{source: "> div > div, span", valid: false},
+		{source: ">", valid: false},
+		{source: "> ", valid: false},
+	} {
+		t.Run(tc.source, func(t *testing.T) {
+			if got := sassSimpleChildSelector(tc.source); got != tc.valid {
+				t.Errorf("simple Sass child selector %q: recognized=%t, want %t", tc.source, got, tc.valid)
+			}
+		})
+	}
+}
+
 func TestSassSelectorBodyStopsBeforePeerAtSameIndentWithTabs(t *testing.T) {
 	const source = ".outer\n" +
 		"\tcolor: red\n" +

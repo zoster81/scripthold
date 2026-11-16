@@ -755,26 +755,31 @@ func sassMixinName(trimmed string) string {
 	return name
 }
 
-// sassSimpleChildSelector recognizes an indented child combinator followed by
-// one unambiguous tag, class, ID, nesting reference, or universal selector.
-// More complex Sass selector expressions require direct source inspection.
+// sassSimpleChildSelector recognizes a whitespace-delimited sequence of
+// child combinators and simple tag, class, ID, nesting or universal targets.
+// Compound selectors and Sass interpolation require direct source inspection.
 func sassSimpleChildSelector(value string) bool {
 	if len(value) < 3 || value[0] != '>' || (value[1] != ' ' && value[1] != '\t') {
 		return false
 	}
-	child := strings.TrimSpace(value[1:])
-	if child == "*" || sassBareElementName(child) {
-		return true
-	}
-	if len(child) < 2 {
+	parts := strings.Fields(value)
+	if len(parts) < 2 || len(parts)%2 != 0 {
 		return false
 	}
-	switch child[0] {
-	case '.', '#', '&':
-		return sassBareElementName(child[1:])
-	default:
-		return false
+	for index := 0; index < len(parts); index += 2 {
+		if parts[index] != ">" {
+			return false
+		}
+		child := parts[index+1]
+		if child == "*" || sassBareElementName(child) {
+			continue
+		}
+		if len(child) < 2 || (child[0] != '.' && child[0] != '#' && child[0] != '&') ||
+			!sassBareElementName(child[1:]) {
+			return false
+		}
 	}
+	return true
 }
 
 func sassBareElementName(name string) bool {
