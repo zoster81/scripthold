@@ -25,6 +25,7 @@ func TestSystemVerilogOriginalPackageParameters(t *testing.T) {
 		got := make(map[string]bool)
 		for _, sym := range result.Analysis.Symbols {
 			if sym.Name == "Fake" || sym.Name == "Spoof" ||
+				sym.QualifiedName == "config_pkg.CLASS_ONLY" ||
 				strings.HasPrefix(sym.Name, "ThisNameDoesNotMatter") ||
 				strings.HasPrefix(sym.Name, "assert_static_in_package_") {
 				t.Fatalf("comment or quoted content became a declaration: %+v", sym)
@@ -57,14 +58,20 @@ func TestSystemVerilogOriginalPackageParameters(t *testing.T) {
 		"  typedef logic [WIDTH-1:0] config_t;\n" +
 		"  // localparam int Fake = 42;\n" +
 		"  string note = \"parameter int Spoof = 5;\";\n" +
+		"  class local_opts;\n" +
+		"    localparam int CLASS_ONLY = 9;\n" +
+		"  endclass\n" +
+		"  localparam int AFTER_CLASS = 6;\n" +
 		"  function automatic logic logic_returning();\n" +
 		"    return 1'b1;\n" +
 		"  endfunction\n" +
+		"  localparam int AFTER_FUNCTION = 3;\n" +
 		"endpackage\n"
 	for _, eol := range []struct{ name, delimiter string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
 		t.Run(eol.name, func(t *testing.T) {
 			check(t, strings.ReplaceAll(portable, "\n", eol.delimiter),
-				map[string]int{"config_pkg.WIDTH": 2, "config_pkg.DEPTH": 3})
+				map[string]int{"config_pkg.WIDTH": 2, "config_pkg.DEPTH": 3,
+					"config_pkg.AFTER_CLASS": 10, "config_pkg.AFTER_FUNCTION": 14})
 		})
 	}
 	root := os.Getenv("SCRIPTHOLD_REAL_SYSTEMVERILOG_ROOT")

@@ -314,6 +314,7 @@ var (
 	hdlEndModulePattern      = regexp.MustCompile(`(?i)\bendmodule\b`)
 	hdlEndPackagePattern     = regexp.MustCompile(`(?i)\bendpackage\b`)
 	hdlEndInterfacePattern   = regexp.MustCompile(`(?i)\bendinterface\b`)
+	hdlPackageBlockBoundary  = regexp.MustCompile(`(?i)^[ \t]*(?:(?:pure|virtual|static|automatic|extern|local|protected)[ \t]+)*(class|function|task|endclass|endfunction|endtask)\b`)
 )
 
 func (VerilogAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -541,11 +542,53 @@ func hdlHeaderParameters(builder *SymbolBuilder, document *SourceDocument, body 
 	return string(masked)
 }
 
+// A package parameter is not owned by the package when declared inside a
+// nested class, function or task. Keep byte offsets and line breaks unchanged.
+func hdlMaskPackageNestedBlocks(body string) string {
+	var masked []byte
+	depth := 0
+	for _, line := range sourceTextLines(body) {
+		match := hdlPackageBlockBoundary.FindStringSubmatch(line.text)
+		kind := ""
+		if len(match) > 1 {
+			kind = strings.ToLower(match[1])
+		}
+		switch kind {
+		case "class", "function", "task":
+			depth++
+		}
+		if depth > 0 {
+			if masked == nil {
+				masked = []byte(body)
+			}
+			for i := line.start; i < line.end; i++ {
+				if masked[i] != '\n' && masked[i] != '\r' {
+					masked[i] = ' '
+				}
+			}
+		}
+		switch kind {
+		case "endclass", "endfunction", "endtask":
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	if masked != nil {
+		return string(masked)
+	}
+	return body
+}
+
 func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent, includeSignals bool) {
 	if end <= start || end > len(document.Text) || len(source) != len(document.Text) {
 		return
 	}
-	body := hdlHeaderParameters(builder, document, source[start:end], start, parent)
+	body := source[start:end]
+	if !includeSignals {
+		body = hdlMaskPackageNestedBlocks(body)
+	}
+	body = hdlHeaderParameters(builder, document, body, start, parent)
 	// Named types are not module/interface signals; preserve line offsets.
 	var maskedTypes []byte
 	for _, pattern := range []*regexp.Regexp{svTypedefStruct, svTypedefLogic} {
