@@ -2,6 +2,8 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -82,6 +84,75 @@ func TestStylesheetSelectorRuleSpansAndGroupOwnership(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Multiline SCSS selector lists may contain comments between authored members.
+// Navigation must retain the real selector names and one shared rule body.
+func TestSCSSCommentInterleavedSelectorGroupsFromOriginalDart(t *testing.T) {
+	check := func(t *testing.T, source string, firstLine, firstEnd, secondLine, secondEnd int) {
+		t.Helper()
+		result, err := (SCSSAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("style.scss", source), testAnalyzeOptions(true, 512))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wants := map[string]struct{ nameLine, start, end int }{
+			"& .na": {firstLine, firstLine, firstEnd},
+			"& .nb": {firstLine + 1, firstLine, firstEnd},
+			"& .nt": {firstEnd - 2, firstLine, firstEnd},
+			"& .vc": {secondLine, secondLine, secondEnd},
+			"& .vg": {secondLine + 1, secondLine, secondEnd},
+		}
+		seen := make(map[string]bool, len(wants))
+		for _, symbol := range result.Analysis.Symbols {
+			if want, ok := wants[symbol.Name]; ok && symbol.Kind == SymbolKindSelector {
+				seen[symbol.Name] = true
+				if symbol.NameRange.Start.Line != want.nameLine ||
+					symbol.DeclarationRange.Start.Line != want.start ||
+					symbol.DeclarationRange.End.Line != want.end {
+					t.Errorf("SCSS original comment interleaved selector range %q: %+v", symbol.Name, symbol)
+				}
+			}
+			if symbol.Name == "& .n" || symbol.Name == "& .err" ||
+				strings.Contains(symbol.Name, "Name.Attribute") ||
+				strings.Contains(symbol.Name, "Name.Builtin") ||
+				strings.Contains(symbol.Name, "Name.Tag") {
+				t.Fatalf("comment-only text became SCSS symbol: %+v", symbol)
+			}
+		}
+		if len(seen) != len(wants) {
+			t.Fatalf("SCSS authored group names missing: seen=%v symbols=%v",
+				seen, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	const fixture = ".highlight {\n  pre {\n    /*& .n,*/ /* Name */\n    & .na, /* Name.Attribute */\n    & .nb, /* Name.Builtin */\n    & .nt /* Name.Tag */ {\n      color: red;\n    }\n    & .vc,\n    & .vg { color: blue; }\n  }\n}\n"
+	for _, eol := range []struct{ name, value string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(eol.name, func(t *testing.T) {
+			check(t, strings.ReplaceAll(fixture, "\n", eol.value), 4, 8, 9, 10)
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SCSS_DART_ROOT"); root != "" {
+		t.Run("original-dart-style", func(t *testing.T) {
+			path := filepath.Join(root, "style.scss")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded SCSS original unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "& .na, /* Name.Attribute */") != 1 ||
+				strings.Count(source, "& .nt /* Name.Tag */ {") != 1 ||
+				strings.Count(source, "& .vc,\n    & .vg,") != 1 {
+				t.Fatal("original Dart SCSS source oracle changed")
+			}
+			check(t, source, 255, 269, 271, 276)
+		})
 	}
 }
 
