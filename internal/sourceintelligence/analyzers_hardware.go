@@ -310,6 +310,7 @@ var (
 	hdlParameterDeclaration  = regexp.MustCompile(`^[ \t]*(parameter|localparam)[ \t]+(?:(?:[A-Za-z_][A-Za-z0-9_$]*|\[[^\]\r\n]*\])[ \t]+)*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*=`)
 	hdlParameterContinuation = regexp.MustCompile(`^[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*=`)
 	svTypedefStruct          = regexp.MustCompile(`(?is)typedef[ \t]+struct(?:[ \t]+packed)?[ \t]*\{.*?\}[ \t]*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
+	svTypedefLogic           = regexp.MustCompile(`(?m)^[ \t]*typedef[ \t]+logic[ \t]+(?:(?:signed|unsigned)[ \t]+)?(?:\[[^\]\r\n]+\][ \t]*)*([A-Za-z_][A-Za-z0-9_$]*)[ \t]*;`)
 	hdlEndModulePattern      = regexp.MustCompile(`(?i)\bendmodule\b`)
 	hdlEndPackagePattern     = regexp.MustCompile(`(?i)\bendpackage\b`)
 	hdlEndInterfacePattern   = regexp.MustCompile(`(?i)\bendinterface\b`)
@@ -397,16 +398,21 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 	return AnalyzerResult{Analysis: builder.takeResult()}, nil
 }
 
-// A recognized packed struct is a named type, not a collection of
-// independently declared interface/module signals.
+// Recognized packed structs and direct logic aliases are named types,
+// not independently declared interface/module signals.
 func hdlSVStructTypes(builder *SymbolBuilder, document *SourceDocument, source string, start, end int, parent *SymbolParent) {
 	body := source[start:end]
-	for _, match := range svTypedefStruct.FindAllStringSubmatchIndex(body, -1) {
-		nameStart, nameEnd := start+match[2], start+match[3]
-		addDocumentDataHardwareSymbol(builder, SymbolKindType, "typedef-struct",
-			document.Text[nameStart:nameEnd], parent,
-			OffsetRange{Start: start + match[0], End: start + match[1]},
-			OffsetRange{Start: nameStart, End: nameEnd})
+	for _, definition := range []struct {
+		pattern    *regexp.Regexp
+		nativeKind string
+	}{{svTypedefStruct, "typedef-struct"}, {svTypedefLogic, "typedef-logic"}} {
+		for _, match := range definition.pattern.FindAllStringSubmatchIndex(body, -1) {
+			nameStart, nameEnd := start+match[2], start+match[3]
+			addDocumentDataHardwareSymbol(builder, SymbolKindType, definition.nativeKind,
+				document.Text[nameStart:nameEnd], parent,
+				OffsetRange{Start: start + match[0], End: start + match[1]},
+				OffsetRange{Start: nameStart, End: nameEnd})
+		}
 	}
 }
 
@@ -539,17 +545,22 @@ func hdlSignals(builder *SymbolBuilder, document *SourceDocument, source string,
 		return
 	}
 	body := hdlHeaderParameters(builder, document, source[start:end], start, parent)
-	// Struct members are not module/interface signals; preserve line offsets.
-	if matches := svTypedefStruct.FindAllStringIndex(body, -1); len(matches) > 0 {
-		masked := []byte(body)
-		for _, match := range matches {
+	// Named types are not module/interface signals; preserve line offsets.
+	var maskedTypes []byte
+	for _, pattern := range []*regexp.Regexp{svTypedefStruct, svTypedefLogic} {
+		for _, match := range pattern.FindAllStringIndex(body, -1) {
+			if maskedTypes == nil {
+				maskedTypes = []byte(body)
+			}
 			for i := match[0]; i < match[1]; i++ {
-				if masked[i] != '\r' && masked[i] != '\n' {
-					masked[i] = ' '
+				if maskedTypes[i] != '\r' && maskedTypes[i] != '\n' {
+					maskedTypes[i] = ' '
 				}
 			}
 		}
-		body = string(masked)
+	}
+	if maskedTypes != nil {
+		body = string(maskedTypes)
 	}
 	// A typed SystemVerilog parameter may contain "logic" or "bit". Mask
 	// recognized parameter lines before scanning signals so that a parameter
