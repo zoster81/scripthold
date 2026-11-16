@@ -438,6 +438,10 @@ func (p *nimParser) parse(lines []LogicalLine) {
 			p.importLine(line)
 			continue
 		}
+		if first == "from" {
+			p.fromImportLine(line)
+			continue
+		}
 		if p.inTypeSection && line.Indent > p.typeSectionIndent {
 			if p.typeDecl(line) {
 				continue
@@ -479,6 +483,67 @@ func (p *nimParser) importLine(line LogicalLine) {
 		}
 	}
 }
+
+// Nim selective imports name one source module before the "import" keyword.
+// Imported member names do not form separate module dependencies.
+func (p *nimParser) fromImportLine(line LogicalLine) {
+	tokens := line.Tokens
+	delimiter := -1
+	for i := 2; i < len(tokens); i++ {
+		if tokens[i].Text == "import" && tokens[i].Nesting == tokens[0].Nesting {
+			delimiter = i
+			break
+		}
+	}
+	valid := delimiter > 1 && delimiter+1 < len(tokens)
+	if valid {
+		for i := 1; i < delimiter; i++ {
+			if tokens[i].Text == "as" {
+				valid = false
+				break
+			}
+		}
+	}
+	module := ""
+	if valid {
+		module = tokenRangeText(tokens, 1, delimiter)
+		// Never merge whitespace-separated names or opaque syntax into a
+		// fabricated source-unit path.
+		start, end := tokens[1].StartOffset, tokens[delimiter-1].EndOffset
+		if module == "" || start < 0 || end > len(p.document.Text) ||
+			start >= end || p.document.Text[start:end] != module {
+			valid = false
+		}
+		for i := 0; i < len(module); i++ {
+			c := module[i]
+			if c != '_' && c != '.' && c != '/' &&
+				(c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+				(c < '0' || c > '9') {
+				valid = false
+				break
+			}
+		}
+	}
+	if !valid {
+		span := OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}
+		_ = p.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "nim-unsupported-from-import",
+			Message:  "Nim selective import has unsupported module syntax; inspect the authored directive",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+		p.builder.MarkIncomplete()
+		return
+	}
+	r, err := p.document.RangeFromUTF8Offsets(tokens[1].StartOffset, tokens[delimiter-1].EndOffset)
+	if err != nil {
+		p.builder.MarkIncomplete()
+		return
+	}
+	p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+		Kind: StructuralDependencyImport, Value: module, Range: r, Evidence: SymbolEvidenceStructural,
+	}})
+}
+
 func (p *nimParser) typeDecl(line LogicalLine) bool {
 	if len(line.Tokens) < 3 || line.Tokens[0].Kind != TokenIdentifier {
 		return false
