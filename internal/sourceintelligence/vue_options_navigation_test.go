@@ -2,6 +2,8 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -97,6 +99,122 @@ const text = "methods: { fake() {} }"
 					t.Fatalf("phantom symbol %q: %+v", name, got)
 				}
 			}
+		})
+	}
+}
+
+// A component may have both a script-setup function and an Options API method
+// with the same name. Both authored declarations must remain independently
+// addressable in their respective script regions.
+func TestVueDualScriptDuplicateMethodNamesRetainRegions(t *testing.T) {
+	check := func(t *testing.T, source string, name string) {
+		t.Helper()
+		result, err := (VueAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("dual-script.vue", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := make([]NormalizedSymbol, 0, 2)
+		for _, symbol := range result.Analysis.Symbols {
+			if symbol.Name == name {
+				found = append(found, symbol)
+			}
+		}
+		if len(found) != 2 {
+			t.Fatalf("%q: want two authored declarations in distinct scripts, got %d: %+v", name, len(found), result.Analysis.Symbols)
+		}
+		if found[0].ID == found[1].ID || found[0].RegionID == found[1].RegionID ||
+			found[0].NameRange.Start.Line == found[1].NameRange.Start.Line {
+			t.Fatalf("%q declarations lack unique source identity: %+v", name, found)
+		}
+	}
+	const fixture = "<script setup>\nfunction save () { return true }\n</script>\n" +
+		"<script>\nexport default { methods: { save () { return false } } }\n</script>\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source, "save") })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_VUE_VUETIFY_OPTIONS_ROOT"); root != "" {
+		t.Run("source-original-vuetify-prop-filter", func(t *testing.T) {
+			path := filepath.Join(root, "prop-filter.vue")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Vue source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if !strings.Contains(source, "function customFilter (itemTitle, queryText, item)") ||
+				!strings.Contains(source, "      customFilter (itemTitle, queryText, item) {") {
+				t.Fatal("original Vuetify dual-script oracle changed")
+			}
+			check(t, source, "customFilter")
+			check(t, source, "save")
+		})
+	}
+}
+
+// A typed Vue script-setup binding and a nested callback local have distinct
+// navigation scopes; template text must not create source declarations.
+func TestVueTypedScriptSetupOriginalBindings(t *testing.T) {
+	check := func(t *testing.T, source string) {
+		t.Helper()
+		result, err := (VueAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("ApiTable.vue", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		byName := make(map[string][]NormalizedSymbol)
+		for _, symbol := range result.Analysis.Symbols {
+			byName[symbol.Name] = append(byName[symbol.Name], symbol)
+		}
+		for _, name := range []string{"props", "t", "filtered"} {
+			bindings := byName[name]
+			if len(bindings) == 0 {
+				t.Fatalf("authored Vue script-setup declaration %q missing: %v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		}
+		for _, name := range []string{"items", "query", "item"} {
+			for _, symbol := range byName[name] {
+				if symbol.ParentID == "" {
+					t.Fatalf("nested script-setup local %q promoted to top-level: %+v", name, symbol)
+				}
+			}
+		}
+	}
+	const fixture = "<script setup lang=\"ts\">\n" +
+		"import type { PropType } from 'vue'\n" +
+		"const props = defineProps({ headers: { type: Array as PropType<string[]> } })\n" +
+		"const { t } = useI18n()\n" +
+		"const filtered = computed(() => {\n" +
+		"  const items = props.headers.filter((item: string) => !!item)\n" +
+		"  return items\n" +
+		"})\n</script>\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_VUE_VUETIFY_TS_ROOT"); root != "" {
+		t.Run("source-original-vuetify-ApiTable", func(t *testing.T) {
+			path := filepath.Join(root, "ApiTable.vue")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Vue TypeScript source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if !strings.Contains(source, "const { t } = useI18n()") ||
+				!strings.Contains(source, "const filtered = computed(() => {") {
+				t.Fatal("original Vuetify script-setup oracle changed")
+			}
+			check(t, source)
 		})
 	}
 }
