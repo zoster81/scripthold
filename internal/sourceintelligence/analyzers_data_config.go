@@ -821,6 +821,7 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		return AnalyzerResult{}, err
 	}
 	inLet := false
+	letStart := -1
 	letIndent, bindingIndent, letBraceDepth := -1, -1, 0
 	rootSeen, nestedReported := false, false
 	source := maskNixIndentedStrings(document.Text)
@@ -853,6 +854,7 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if trimmed == "let" || strings.HasPrefix(trimmed, "let ") {
 			if !inLet && lineDepth == 0 {
 				inLet = true
+				letStart = line.start + strings.Index(line.text, trimmed)
 				letIndent, bindingIndent, letBraceDepth = line.indent, -1, lineDepth
 			}
 			// An inner let expression must not restart the outer binding list.
@@ -894,6 +896,10 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		trimOffset := strings.Index(line.text, trimmed)
 		start := line.start + trimOffset
 		addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "binding", name, nil, OffsetRange{Start: start, End: line.end}, OffsetRange{Start: start + match[2], End: start + match[3]})
+	}
+	if inLet && letStart >= 0 {
+		addDocumentDataHardwareDiagnostic(builder, "nix-unclosed-let",
+			"Nix outer let has no matching in terminator; inspect source directly", letStart, letStart+len("let"))
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }

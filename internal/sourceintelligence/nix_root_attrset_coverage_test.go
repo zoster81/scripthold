@@ -173,6 +173,80 @@ func TestNixBlockCommentCannotInventBindings(t *testing.T) {
 	}
 }
 
+// A missing outer `in` must not be reported as a completely indexed Nix
+// expression, even when its direct let bindings are still navigable.
+func TestNixOuterLetMissingInReportsIncompleteCoverage(t *testing.T) {
+	test := func(t *testing.T, source string, wantComplete bool) {
+		t.Helper()
+		result, err := (NixAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("home-manager.nix", source), testAnalyzeOptions(true, 40))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.Truncated || result.Analysis.CoverageComplete != wantComplete {
+			t.Fatalf("outer let coverage mismatch: complete=%t analysis=%+v", wantComplete, result.Analysis)
+		}
+		if !slices.Contains(sortedSymbolQualifiedNames(result.Analysis.Symbols), "cfg") {
+			t.Fatalf("authored Nix binding lost: %+v", result.Analysis.Symbols)
+		}
+		if !wantComplete {
+			found := false
+			for _, diagnostic := range result.Analysis.Diagnostics {
+				if diagnostic.Code == "nix-unclosed-let" {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("missing outer let diagnostic: %+v", result.Analysis.Diagnostics)
+			}
+		}
+	}
+	const valid = "let\n  cfg = config.programs.home-manager;\nin cfg\n"
+	const malformed = "let\n  cfg = config.programs.home-manager;\n"
+	for _, tc := range []struct {
+		name, source string
+		complete     bool
+	}{
+		{"LF-valid", valid, true},
+		{"LF-missing-in", malformed, false},
+		{"CRLF-valid", strings.ReplaceAll(valid, "\n", "\r\n"), true},
+		{"CRLF-missing-in", strings.ReplaceAll(malformed, "\n", "\r\n"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) { test(t, tc.source, tc.complete) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_NIX_HOME_MANAGER_ROOT"); root != "" {
+		t.Run("source-derived-home-manager", func(t *testing.T) {
+			path := filepath.Join(root, "home-manager.nix")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Nix source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			const authored = "let\n  cfg = config.programs.home-manager;\nin\n"
+			if strings.Count(source, authored) != 1 {
+				t.Fatal("original Home Manager let oracle changed")
+			}
+			standalone := strings.Replace(authored, "\nin\n", "\nin cfg\n", 1)
+			test(t, standalone, true)
+			test(t, strings.Replace(standalone, "\nin cfg\n", "", 1), false)
+			// Keep the original wrapped document as a distinct partial-coverage
+			// case; its outer lambda is outside this bounded let-only index.
+			result, err := (NixAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("home-manager.nix", source), testAnalyzeOptions(true, 40))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete {
+				t.Fatal("original lambda-wrapped source unexpectedly complete")
+			}
+		})
+	}
+}
+
 func TestNixTopLevelAttributeSetReportsIncompleteCoverage(t *testing.T) {
 	source := "# A flake-like root document\n{\n  description = \"demo\";\n  outputs = self: { package = \"example\"; };\n}\n"
 	result, err := (NixAnalyzer{}).Analyze(context.Background(),
