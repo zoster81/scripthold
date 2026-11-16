@@ -285,6 +285,104 @@ func TestSassSimpleChildSelectorMalformedAndSupportedChains(t *testing.T) {
 	}
 }
 
+// A comma-separated group of bare element names is one authored Sass selector
+// header, distinct from the subsequent ungrouped element selector.
+func TestSassBareElementGroupFromOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string, expectedLine int) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("danilo.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var group, single *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case "body, html":
+				group = symbol
+			case "body":
+				single = symbol
+			}
+		}
+		if group == nil || single == nil {
+			t.Fatalf("authored grouped or single Sass element selector missing: %v",
+				sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		if group.DeclarationRange.Start.Line != expectedLine ||
+			group.DeclarationRange.End.Line != expectedLine+2 ||
+			group.ParentID != "" || group.QualifiedName != "body, html" ||
+			group.ID == single.ID || single.ParentID != "" {
+			t.Fatalf("Sass bare element group/peer identity incorrect: group=%+v peer=%+v", group, single)
+		}
+	}
+	const fixture = "body, html\n  height: 100%\n  width: 100%\nbody\n  background: black\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source, 1) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_DANILO_ROOT"); root != "" {
+		t.Run("original-sass-danilo-group", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\nbody, html\n  height: 100%\n  width: 100%\n") != 1 {
+				t.Fatal("original Sass grouped selector oracle changed")
+			}
+			check(t, source, 17)
+		})
+	}
+}
+
+func TestSassBareElementGroupRejectsAmbiguousHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		valid  bool
+	}{
+		{"body, html", true},
+		{"body,html, main", true},
+		{"body,\tsection", true},
+		{"body", false},
+		{"body,", false},
+		{",body", false},
+		{"body, , html", false},
+		{"body, .card", false},
+		{"body, #app", false},
+		{"body, html:hover", false},
+		{"body, div > span", false},
+		{"body, #{interpolated}", false},
+		{"color: red, blue", false},
+		{"font-family: Arial, sans-serif", false},
+	} {
+		t.Run(tc.header, func(t *testing.T) {
+			if got := sassBareElementGroup(tc.header); got != tc.valid {
+				t.Errorf("Sass element group %q: recognized=%t want %t", tc.header, got, tc.valid)
+			}
+		})
+	}
+	for _, newline := range []string{"\n", "\r\n"} {
+		source := strings.Join([]string{"body, html", "body", "  color: black", ""}, newline)
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("no-group-body.sass", source), testAnalyzeOptions(true, 32))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, symbol := range result.Analysis.Symbols {
+			if symbol.Name == "body, html" {
+				t.Errorf("bare-element group without an indented body was indexed: %+v", symbol)
+			}
+		}
+	}
+}
+
 func TestSassSelectorBodyStopsBeforePeerAtSameIndentWithTabs(t *testing.T) {
 	const source = ".outer\n" +
 		"\tcolor: red\n" +

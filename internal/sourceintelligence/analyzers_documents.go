@@ -677,7 +677,7 @@ func (SassAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 			continue
 		}
 		isSelector := strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "&") || sassSimpleChildSelector(trimmed)
-		if !isSelector && sassBareElementName(trimmed) {
+		if !isSelector && (sassBareElementName(trimmed) || sassBareElementGroup(trimmed)) {
 			indent := len(line.text) - len(strings.TrimLeft(line.text, " \t"))
 			for next := index + 1; next < len(lines); next++ {
 				if strings.TrimSpace(stripLineComment(lines[next].text, "//")) == "" {
@@ -776,6 +776,21 @@ func sassSimpleChildSelector(value string) bool {
 		}
 		if len(child) < 2 || (child[0] != '.' && child[0] != '#' && child[0] != '&') ||
 			!sassBareElementName(child[1:]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sassBareElementGroup recognizes only comma-separated bare element names.
+// Their indentation is still checked by the caller before adding a selector.
+func sassBareElementGroup(value string) bool {
+	if !strings.Contains(value, ",") {
+		return false
+	}
+	for _, component := range strings.Split(value, ",") {
+		name := strings.TrimSpace(component)
+		if name == "" || !sassBareElementName(name) {
 			return false
 		}
 	}
