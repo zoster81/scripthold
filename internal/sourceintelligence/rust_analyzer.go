@@ -128,6 +128,8 @@ func (parser *rustParser) parseScope(start, end int, parent *SymbolParent, mode 
 			index = parser.parseUse(semantic, end)
 		case "struct":
 			index = parser.parseStruct(declarationStart, semantic, end, parent)
+		case "union":
+			index = parser.parseUnion(declarationStart, semantic, end, parent)
 		case "enum":
 			index = parser.parseEnum(declarationStart, semantic, end, parent)
 		case "trait":
@@ -420,6 +422,69 @@ func (parser *rustParser) parseStruct(declarationStart, keyword, end int, parent
 		parser.parseScope(open+1, close, structParent, rustScopeStruct)
 	}
 	return close + 1
+}
+
+// parseUnion indexes only authored named Rust union fields. It does not inspect
+// macro expansions, evaluate cfg attributes, or resolve the member types.
+func (parser *rustParser) parseUnion(declarationStart, keyword, end int, parent *SymbolParent) int {
+	incomplete := func() {
+		span := OffsetRange{Start: parser.tokens[keyword].StartOffset, End: parser.tokens[keyword].EndOffset}
+		_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "rust-unsupported-union",
+			Message:  "Malformed or unsupported Rust union declaration requires direct source inspection",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+	name := parser.skipTrivia(keyword+1, end)
+	if name >= end || parser.tokens[name].Kind != TokenIdentifier {
+		incomplete()
+		return parser.skipUnknown(keyword, end)
+	}
+	base := parser.tokens[keyword].Nesting
+	for index := name + 1; index < end && index < name+512; index++ {
+		if parser.tokens[index].StartOffset-parser.tokens[keyword].StartOffset > 16*1024 {
+			incomplete()
+			return parser.skipUnknown(keyword, end)
+		}
+		if parser.tokens[index].Nesting == base {
+			if parser.token(index, ";") {
+				incomplete()
+				return index + 1
+			}
+			switch parser.tokens[index].Text {
+			case "fn", "struct", "enum", "union", "impl", "trait", "mod", "const", "static", "type":
+				incomplete()
+				return index
+			}
+		}
+		if !parser.token(index, "{") || parser.tokens[index].Nesting != base+1 {
+			continue
+		}
+		close := parser.pairs[index]
+		if close <= index || close >= end {
+			incomplete()
+			return end
+		}
+		if close-index > 4096 || parser.tokens[close].EndOffset-parser.tokens[index].StartOffset > 64*1024 {
+			incomplete()
+			return close + 1
+		}
+		symbol, added := parser.add(SymbolSpec{
+			Kind: SymbolKindType, NativeKind: "union", Name: parser.tokens[name].Text, Parent: parent,
+			Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[close].EndOffset},
+			NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+			Signature:   &OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[index].StartOffset},
+			Body:        &OffsetRange{Start: parser.tokens[index].StartOffset, End: parser.tokens[close].EndOffset},
+			Visibility:  parser.visibility(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
+		})
+		if added {
+			unionParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+			parser.parseScope(index+1, close, unionParent, rustScopeStruct)
+		}
+		return close + 1
+	}
+	incomplete()
+	return parser.skipUnknown(keyword, end)
 }
 
 func (parser *rustParser) parseStructField(declarationStart, semantic, end int, parent *SymbolParent) (int, bool) {
