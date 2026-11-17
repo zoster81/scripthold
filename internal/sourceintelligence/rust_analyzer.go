@@ -100,9 +100,13 @@ func (parser *rustParser) parseScope(start, end int, parent *SymbolParent, mode 
 		if index >= end || parser.tokens[index].Kind == TokenEOF {
 			return
 		}
-		if next, ok := parser.skipMacro(index, end); ok {
-			index = next
-			continue
+		// A macro invocation remains opaque, but an authored macro_rules!
+		// definition is a navigable source declaration.
+		if !parser.token(index, "macro_rules") {
+			if next, ok := parser.skipMacro(index, end); ok {
+				index = next
+				continue
+			}
 		}
 		declarationStart := index
 		index = parser.skipAttributes(index, end)
@@ -136,6 +140,8 @@ func (parser *rustParser) parseScope(start, end int, parent *SymbolParent, mode 
 			index = parser.parseValue(declarationStart, semantic, end, parent)
 		case "type":
 			index = parser.parseTypeAlias(declarationStart, semantic, end, parent)
+		case "macro_rules":
+			index = parser.parseMacroRulesDefinition(declarationStart, semantic, end, parent)
 		default:
 			index = parser.skipUnknown(index, end)
 		}
@@ -251,6 +257,58 @@ func (parser *rustParser) skipMacro(start, end int) (int, bool) {
 		next++
 	}
 	return next, true
+}
+
+// parseMacroRulesDefinition indexes only the authored macro name and its exact
+// source block; no token inside the macro body is interpreted as a declaration.
+func (parser *rustParser) parseMacroRulesDefinition(declarationStart, keyword, end int, parent *SymbolParent) int {
+	unsupported := func() {
+		span := OffsetRange{Start: parser.tokens[keyword].StartOffset, End: parser.tokens[keyword].EndOffset}
+		_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "rust-unsupported-macro-rules",
+			Message:  "Unsupported or malformed macro_rules definition requires direct source inspection",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+	bang := parser.skipTrivia(keyword+1, end)
+	if !parser.token(bang, "!") {
+		unsupported()
+		return parser.skipUnknown(keyword, end)
+	}
+	name := parser.skipTrivia(bang+1, end)
+	if name >= end || parser.tokens[name].Kind != TokenIdentifier {
+		unsupported()
+		if next, ok := parser.skipMacro(keyword, end); ok {
+			return next
+		}
+		return parser.skipUnknown(keyword, end)
+	}
+	open := parser.skipTrivia(name+1, end)
+	if open >= end || (parser.tokens[open].Text != "{" &&
+		parser.tokens[open].Text != "(" && parser.tokens[open].Text != "[") {
+		unsupported()
+		return parser.skipUnknown(keyword, end)
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		unsupported()
+		return end
+	}
+	last := close
+	if parser.token(close+1, ";") {
+		last++
+	}
+	header := OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[open].StartOffset}
+	body := OffsetRange{Start: parser.tokens[open].StartOffset, End: parser.tokens[close].EndOffset}
+	parser.add(SymbolSpec{
+		Kind: SymbolKindEntity, NativeKind: "macro_rules",
+		Name: parser.tokens[name].Text, Parent: parent,
+		Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[last].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+		Signature:   &header, Body: &body,
+		Visibility: parser.visibility(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
+	})
+	return last + 1
 }
 
 func (parser *rustParser) parseModule(declarationStart, keyword, end int, parent *SymbolParent) int {
