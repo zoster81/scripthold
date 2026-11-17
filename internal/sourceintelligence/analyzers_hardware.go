@@ -368,6 +368,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			if ok {
 				hdlSVStructTypes(builder, document, source, match[1], end, &symbol, false)
 				hdlSVInterfaceModports(builder, document, source, match[1], end, &symbol)
+				hdlSVInterfaceClocking(builder, document, source, match[1], end, &symbol)
 				hdlSignals(builder, document, source, match[1], end, &symbol, true)
 			}
 		}
