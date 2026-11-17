@@ -726,6 +726,81 @@ func hclDirectModuleSource(source string, open, close int) (OffsetRange, bool) {
 	return OffsetRange{}, false
 }
 
+var hclDirectLocalAssignment = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=`)
+
+type hclLocalBinding struct {
+	name, declaration OffsetRange
+}
+
+// Only direct attributes in a Terraform locals block are declarations.
+// Reuse the quote mask and balanced nesting guard so object keys, list items,
+// template strings and other nested expressions cannot become local bindings.
+func hclDirectLocalBindings(source string, open, close int) ([]hclLocalBinding, bool) {
+	if open < 0 || close > len(source) || open >= close {
+		return nil, false
+	}
+	body := source[open+1 : close]
+	if len(body) > 65536 {
+		return nil, false
+	}
+	structure := maskSourceStrings(body, false, true, false)
+	matches := hclDirectLocalAssignment.FindAllStringSubmatchIndex(structure, -1)
+	bindings := make([]hclLocalBinding, 0, min(8, len(matches)))
+	curly, square, paren, scanned := 0, 0, 0, 0
+	for _, match := range matches {
+		for ; scanned < match[0]; scanned++ {
+			switch structure[scanned] {
+			case '{':
+				curly++
+			case '}':
+				curly--
+			case '[':
+				square++
+			case ']':
+				square--
+			case '(':
+				paren++
+			case ')':
+				paren--
+			}
+			if curly < 0 || square < 0 || paren < 0 {
+				return nil, false
+			}
+		}
+		if curly != 0 || square != 0 || paren != 0 {
+			continue
+		}
+		if match[1] < len(structure) && structure[match[1]] == '=' {
+			return nil, false
+		}
+		lineEnd := strings.IndexAny(body[match[1]:], "\r\n")
+		end := len(body)
+		if lineEnd >= 0 {
+			end = match[1] + lineEnd
+		}
+		valueStart := match[1]
+		for valueStart < len(body) && (body[valueStart] == ' ' || body[valueStart] == '\t') {
+			valueStart++
+		}
+		if valueStart == len(body) || body[valueStart] == '\r' || body[valueStart] == '\n' || body[valueStart] == '}' {
+			return nil, false
+		}
+		if structure[valueStart] == '{' {
+			if valueEnd := matchingBraceOffset(structure, valueStart); valueEnd >= 0 {
+				end = valueEnd + 1
+			}
+		}
+		bindings = append(bindings, hclLocalBinding{
+			name:        OffsetRange{Start: open + 1 + match[2], End: open + 1 + match[3]},
+			declaration: OffsetRange{Start: open + 1 + match[2], End: open + 1 + end},
+		})
+		if len(bindings) > 256 {
+			return nil, false
+		}
+	}
+	return bindings, true
+}
+
 type hclBlockCandidate struct {
 	start     int
 	open      int
@@ -855,6 +930,20 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 			parent = scopes[len(scopes)-1].parent
 		}
 		symbol, added := addDocumentDataHardwareSymbol(builder, candidate.kind, candidate.native, candidate.name, parent, OffsetRange{Start: candidate.start, End: candidate.close + 1}, candidate.nameRange)
+		if added && candidate.word == "locals" && parent == nil &&
+			strings.HasSuffix(strings.ToLower(document.Path), ".tf") {
+			bindings, valid := hclDirectLocalBindings(source, candidate.open, candidate.close)
+			if !valid {
+				addDocumentDataHardwareDiagnostic(builder, "terraform-unsupported-locals",
+					"Terraform direct locals exceed the lexical scope or have unsupported nesting", candidate.start, candidate.open+1)
+			} else {
+				for _, binding := range bindings {
+					addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "local-binding",
+						document.Text[binding.name.Start:binding.name.End], &symbol,
+						binding.declaration, binding.name)
+				}
+			}
+		}
 		if candidate.word == "module" {
 			if sourceRange, ok := hclDirectModuleSource(source, candidate.open, candidate.close); ok {
 				value := document.Text[sourceRange.Start:sourceRange.End]
