@@ -1583,12 +1583,96 @@ func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolP
 	symbol, added := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd}, Body: body, Visibility: braceLanguageVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	if added && open >= 0 {
 		p.collectTypeRelations(symbol.QualifiedName, nameIndex+1, open, depth)
-		if kind != SymbolKindEnum {
+		if kind == SymbolKindEnum {
+			if p.policy.language == "dart" {
+				p.parseDartEnumValues(open, close, symbol)
+			}
+		} else {
 			child := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 			p.parseScope(open+1, close, child, true, symbol.Name)
 		}
 	}
 	return terminator + 1
+}
+
+// parseDartEnumValues records plain directly authored enum entries under their
+// enum owner. Validate the whole bounded list before indexing any value: a
+// constructor argument, annotation or other enhanced enum syntax must never
+// become a fabricated constant.
+func (p *braceLanguageParser) parseDartEnumValues(open, close int, owner NormalizedSymbol) {
+	const maxEntries = 128
+	const maxListBytes = 16 * 1024
+	nesting := p.tokens[open].Nesting
+	listEnd := close
+	for i := open + 1; i < close; i++ {
+		if p.tokens[i].Nesting == nesting && p.tokens[i].Text == ";" {
+			listEnd = i
+			break
+		}
+	}
+	incomplete := func() {
+		spanEnd := p.tokens[listEnd].StartOffset
+		if spanEnd <= p.tokens[open].EndOffset {
+			spanEnd = p.tokens[close].EndOffset
+		}
+		addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-enum-values",
+			"Unsupported Dart enum value syntax requires direct source inspection",
+			p.tokens[open].StartOffset, spanEnd)
+	}
+	if p.tokens[listEnd].StartOffset-p.tokens[open].EndOffset > maxListBytes {
+		incomplete()
+		return
+	}
+	entries := make([]int, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	wantName := true
+	valid := true
+	for i := open + 1; i < listEnd; i++ {
+		token := p.tokens[i]
+		if token.Kind == TokenNewline {
+			continue
+		}
+		if token.Nesting != nesting {
+			valid = false
+			break
+		}
+		if wantName {
+			if token.Kind != TokenIdentifier || len(entries) >= maxEntries {
+				valid = false
+				break
+			}
+			if _, duplicate := seen[token.Text]; duplicate {
+				valid = false
+				break
+			}
+			seen[token.Text] = struct{}{}
+			entries = append(entries, i)
+		} else if token.Text != "," {
+			valid = false
+			break
+		}
+		wantName = !wantName
+	}
+	if !valid || len(entries) == 0 {
+		incomplete()
+		return
+	}
+	child := &SymbolParent{ID: owner.ID, QualifiedName: owner.QualifiedName}
+	for _, i := range entries {
+		token := p.tokens[i]
+		span := OffsetRange{Start: token.StartOffset, End: token.EndOffset}
+		p.add(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-value",
+			Name: token.Text, Parent: child, Declaration: span,
+			NameRange: span, Signature: &span, Evidence: SymbolEvidenceStructural,
+		})
+		if p.stopped {
+			return
+		}
+	}
+	if listEnd < close {
+		p.parseScope(listEnd+1, close, child, true, owner.Name)
+	}
 }
 
 // An unsupported extension type must not expose its representation or body
