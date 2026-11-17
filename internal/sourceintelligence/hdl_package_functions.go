@@ -2,15 +2,15 @@ package sourceintelligence
 
 import "strings"
 
-// hdlSVPackageFunctions indexes directly authored package functions only.
-// It does not elaborate macros, resolve types, or interpret function bodies.
-func hdlSVPackageFunctions(builder *SymbolBuilder, document *SourceDocument, masked string, start, end int, parent *SymbolParent) {
+// hdlSVPackageCallables indexes directly authored package functions and tasks.
+// It does not elaborate macros, resolve types, or interpret callable bodies.
+func hdlSVPackageCallables(builder *SymbolBuilder, document *SourceDocument, masked string, start, end int, parent *SymbolParent) {
 	if start < 0 || end > len(masked) || end <= start || len(document.Text) != len(masked) {
 		return
 	}
 	lines := sourceTextLines(masked[start:end])
 	nested, directive := 0, false
-	functionCandidates := 0
+	functionCandidates, taskCandidates := 0, 0
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line.text)
@@ -22,11 +22,11 @@ func hdlSVPackageFunctions(builder *SymbolBuilder, document *SourceDocument, mas
 			directive = strings.HasSuffix(trimmed, "\\")
 			continue
 		}
-		match := hdlPackageBlockBoundary.FindStringSubmatch(line.text)
-		if len(match) < 2 {
+		match := hdlPackageBlockBoundary.FindStringSubmatchIndex(line.text)
+		if len(match) < 4 {
 			continue
 		}
-		kind := strings.ToLower(match[1])
+		kind := strings.ToLower(line.text[match[2]:match[3]])
 		if nested > 0 {
 			switch kind {
 			case "class", "task":
@@ -37,26 +37,32 @@ func hdlSVPackageFunctions(builder *SymbolBuilder, document *SourceDocument, mas
 			continue
 		}
 		switch kind {
-		case "class", "task":
+		case "class":
 			nested++
-		case "function":
-			keyword := strings.Index(line.text, "function")
-			if keyword < 0 {
-				continue
+		case "function", "task":
+			functionStart := start + line.start + match[2]
+			if kind == "function" {
+				functionCandidates++
+			} else {
+				taskCandidates++
 			}
-			functionStart := start + line.start + keyword
-			functionCandidates++
-			if functionCandidates > 128 {
-				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unsupported-package-function", "Package exceeds the bounded function scan count", functionStart, functionStart+1)
+			if functionCandidates > 128 || taskCandidates > 128 {
+				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unsupported-package-"+kind, "Package exceeds the bounded callable scan count", functionStart, functionStart+1)
 				return
 			}
-			name, nameRange, signatureEnd, ok := hdlSVFunctionSignature(masked, functionStart, end)
+			name, nameRange, signatureEnd, ok := hdlSVCallableSignature(masked, functionStart, end)
 			if !ok {
-				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unsupported-package-function", "Unsupported or malformed package function signature", functionStart, functionStart+1)
+				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unsupported-package-"+kind, "Unsupported or malformed package callable signature", functionStart, functionStart+1)
+				if kind == "task" {
+					nested = 1 // Keep an invalid task body opaque until endtask.
+				}
 				continue
 			}
 			if signatureEnd-functionStart > 4096 {
-				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unsupported-package-function", "Package function header exceeds the supported size", functionStart, functionStart+1)
+				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unsupported-package-"+kind, "Package callable header exceeds the supported size", functionStart, functionStart+1)
+				if kind == "task" {
+					nested = 1
+				}
 				continue
 			}
 			signatureLine := i
@@ -74,10 +80,14 @@ func hdlSVPackageFunctions(builder *SymbolBuilder, document *SourceDocument, mas
 					continue
 				}
 				switch strings.ToLower(boundary[1]) {
-				case "endfunction":
-					closingLine = j
-				case "function", "class", "task", "endclass", "endtask":
-					// A nested or unclosed function is not a safe source range.
+				case "endfunction", "endtask":
+					if strings.EqualFold(boundary[1], "end"+kind) {
+						closingLine = j
+					} else {
+						j = len(lines)
+					}
+				case "function", "class", "task", "endclass":
+					// Nested or unclosed callable bodies are not safe source ranges.
 					j = len(lines)
 				}
 				if closingLine >= 0 {
@@ -85,18 +95,25 @@ func hdlSVPackageFunctions(builder *SymbolBuilder, document *SourceDocument, mas
 				}
 			}
 			if closingLine < 0 {
-				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unclosed-package-function", "Package function body is unclosed or exceeds its supported span", functionStart, functionStart+1)
+				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unclosed-package-"+kind, "Package callable body is unclosed or exceeds its supported span", functionStart, functionStart+1)
+				if kind == "task" {
+					nested = 1
+				}
 				continue
 			}
 			declarationEnd := start + lines[closingLine].end
 			if declarationEnd-functionStart > 65536 {
-				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unclosed-package-function", "Package function span exceeds the supported limit", functionStart, functionStart+1)
+				addDocumentDataHardwareDiagnostic(builder, "systemverilog-unclosed-package-"+kind, "Package callable span exceeds the supported limit", functionStart, functionStart+1)
+				if kind == "task" {
+					nested = 1
+				}
 				continue
 			}
 			signature := OffsetRange{Start: functionStart, End: signatureEnd}
 			body := OffsetRange{Start: signatureEnd, End: declarationEnd}
+			native := "package-" + kind
 			addStructuralSymbol(builder, SymbolSpec{
-				Kind: SymbolKindFunction, NativeKind: "package-function", Name: name, Parent: parent,
+				Kind: SymbolKindFunction, NativeKind: native, Name: name, Parent: parent,
 				Declaration: OffsetRange{Start: functionStart, End: declarationEnd},
 				NameRange:   nameRange, Signature: &signature, Body: &body,
 				Evidence: SymbolEvidenceStructural,
@@ -108,7 +125,7 @@ func hdlSVPackageFunctions(builder *SymbolBuilder, document *SourceDocument, mas
 
 // The supported subset requires a direct named declaration with one balanced
 // parenthesized argument list and a semicolon, within a bounded source span.
-func hdlSVFunctionSignature(masked string, begin, end int) (string, OffsetRange, int, bool) {
+func hdlSVCallableSignature(masked string, begin, end int) (string, OffsetRange, int, bool) {
 	const maxHeader = 4096
 	if begin < 0 || begin >= end || end > len(masked) {
 		return "", OffsetRange{}, 0, false
@@ -139,7 +156,7 @@ func hdlSVFunctionSignature(masked string, begin, end int) (string, OffsetRange,
 		return "", OffsetRange{}, 0, false
 	}
 	name := header[nameStart:nameEnd]
-	if name == "function" || name == "automatic" || name == "static" {
+	if name == "function" || name == "task" || name == "automatic" || name == "static" {
 		return "", OffsetRange{}, 0, false
 	}
 	depth, close := 0, -1
