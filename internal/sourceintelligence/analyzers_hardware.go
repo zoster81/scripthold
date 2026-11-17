@@ -404,6 +404,9 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 		}
 		search = matchEnd
 	}
+	if systemVerilog {
+		hdlSVTopLevelCheckers(builder, document, source)
+	}
 	return AnalyzerResult{Analysis: builder.takeResult()}, nil
 }
 
