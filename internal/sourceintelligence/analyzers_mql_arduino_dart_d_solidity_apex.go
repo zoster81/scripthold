@@ -1376,6 +1376,30 @@ func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolP
 		}
 	}
 	nameIndex := nextIdentifierToken(p.tokens, keyword+1, end)
+	dartExtensionType := false
+	if p.policy.language == "dart" && native == "extension" {
+		next := nextStructuralToken(p.tokens, keyword+1, end)
+		if next < end && p.tokens[next].Text == "type" {
+			dartExtensionType = true
+			next = nextStructuralToken(p.tokens, next+1, end)
+			if next < end && p.tokens[next].Text == "const" {
+				next = nextStructuralToken(p.tokens, next+1, end)
+			}
+			if next >= end || p.tokens[next].Kind != TokenIdentifier ||
+				p.tokens[next].Text == "on" || p.tokens[next].Text == "implements" ||
+				p.tokens[next].Text == "type" || p.tokens[next].Text == "const" {
+				return p.skipUnsupportedDartExtensionType(keyword, end)
+			}
+			nameIndex = next
+			afterName := nextStructuralToken(p.tokens, nameIndex+1, end)
+			if afterName >= end ||
+				(p.tokens[afterName].Text != "<" &&
+					p.tokens[afterName].Text != "." &&
+					p.tokens[afterName].Text != "(") {
+				return p.skipUnsupportedDartExtensionType(keyword, end)
+			}
+		}
+	}
 	if nameIndex < 0 {
 		p.builder.MarkIncomplete()
 		return keyword + 1
@@ -1407,7 +1431,9 @@ func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolP
 		return end
 	}
 	kind := p.policy.typeKinds[native]
-	if override := p.policy.typeNative[native]; override != "" {
+	if dartExtensionType {
+		native = "extension-type"
+	} else if override := p.policy.typeNative[native]; override != "" {
 		native = override
 	}
 	declarationEnd := p.tokens[terminator].EndOffset
@@ -1428,6 +1454,31 @@ func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolP
 		}
 	}
 	return terminator + 1
+}
+
+// An unsupported extension type must not expose its representation or body
+// as unrelated top-level declarations. Stop at the nearest complete authored
+// block, same-depth semicolon, or physical line boundary.
+func (p *braceLanguageParser) skipUnsupportedDartExtensionType(keyword, end int) int {
+	token := p.tokens[keyword]
+	addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-extension-type",
+		"Unsupported or incomplete Dart extension type name or representation", token.StartOffset, token.EndOffset)
+	for i := keyword + 1; i < end; i++ {
+		current := p.tokens[i]
+		if current.Kind == TokenNewline && current.Nesting == token.Nesting {
+			return i + 1
+		}
+		if current.Text == ";" && current.Nesting == token.Nesting {
+			return i + 1
+		}
+		if current.Text == "{" && current.Nesting == token.Nesting+1 {
+			if close := p.pairs[i]; close > i && close < end {
+				return close + 1
+			}
+			return end
+		}
+	}
+	return end
 }
 
 func (p *braceLanguageParser) collectTypeRelations(source string, start, end, depth int) {
