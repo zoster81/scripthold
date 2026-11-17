@@ -1661,6 +1661,46 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 	if terminator < 0 {
 		return start + 1, false
 	}
+	// A direct Dart collection literal is a variable initializer, not a body.
+	// Consume its paired braces and semicolon before scanning the next declaration.
+	if p.policy.language == "dart" && p.tokens[terminator].Text == "{" {
+		assignment := p.findSameDepth(start, terminator, "=", depth)
+		previous := terminator - 1
+		for previous > assignment && p.tokens[previous].Kind == TokenNewline {
+			previous--
+		}
+		if assignment >= 0 && previous > assignment &&
+			p.tokens[previous].Text == ">" {
+			callableHeader := false
+			for i := start; i < assignment; i++ {
+				if p.tokens[i].Text == "(" && p.tokens[i].Nesting == depth+1 {
+					callableHeader = true
+					break
+				}
+			}
+			if !callableHeader {
+				close := p.pairs[terminator]
+				if close <= terminator || close >= end {
+					addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-collection-initializer",
+						"Unclosed Dart collection initializer requires direct source inspection",
+						p.tokens[terminator].StartOffset, p.tokens[terminator].EndOffset)
+					return end, true
+				}
+				semi := nextStructuralToken(p.tokens, close+1, end)
+				if semi < end && p.tokens[semi].Text == ";" && p.tokens[semi].Nesting == depth {
+					return p.parseVariable(start, semi, parent, members)
+				}
+				addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-collection-initializer",
+					"Dart collection initializer has no direct semicolon terminator",
+					p.tokens[terminator].StartOffset, p.tokens[close].EndOffset)
+				lineEnd := min(end, p.lineEnd(close+1))
+				if tailSemi := p.findSameDepth(close+1, lineEnd, ";", depth); tailSemi >= 0 {
+					return tailSemi + 1, true
+				}
+				return lineEnd, true
+			}
+		}
+	}
 	// Dart initializers can contain calls or function types; neither declares a callable.
 	if p.policy.language == "dart" && p.tokens[terminator].Text == ";" {
 		for i := start; i < terminator; i++ {
