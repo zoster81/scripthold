@@ -1915,6 +1915,19 @@ func (p *braceLanguageParser) parseDartMultipleVariables(start, semi int, parent
 					header = false
 				}
 			}
+		} else if token.Text == "<" {
+			// A directly assigned typed collection has type-argument commas,
+			// not additional variable declarators. Require its literal opener.
+			previous := i - 1
+			for previous > start && p.tokens[previous].Kind == TokenNewline {
+				previous--
+			}
+			if previous > start && (p.tokens[previous].Text == "=" || p.tokens[previous].Text == "const") {
+				if close := p.dartTypedCollectionArgumentsClose(i, semi, depth); close > i {
+					i = close
+					continue
+				}
+			}
 		}
 		if token.Text == "," && angleDepth == 0 {
 			if len(commas) == 64 {
@@ -2001,6 +2014,45 @@ func (p *braceLanguageParser) parseDartMultipleVariables(start, semi int, parent
 		})
 	}
 	return semi + 1, true
+}
+
+// dartTypedCollectionArgumentsClose only recognizes a bounded type-argument
+// sequence immediately followed by a collection literal, never comparisons.
+func (p *braceLanguageParser) dartTypedCollectionArgumentsClose(open, end, depth int) int {
+	angleDepth := 0
+	for i := open; i < end && i-open <= 96; i++ {
+		token := p.tokens[i]
+		if token.Nesting != depth {
+			return -1
+		}
+		switch token.Text {
+		case "<":
+			angleDepth++
+		case ">":
+			angleDepth--
+		case ">>":
+			angleDepth -= 2
+		case ">>>":
+			angleDepth -= 3
+		case ",", ".", "?":
+		default:
+			if token.Kind != TokenIdentifier && token.Kind != TokenKeyword && token.Kind != TokenNewline {
+				return -1
+			}
+		}
+		if angleDepth < 0 {
+			return -1
+		}
+		if angleDepth == 0 {
+			next := nextStructuralToken(p.tokens, i+1, end)
+			if next < end && p.tokens[next].Nesting == depth+1 &&
+				(p.tokens[next].Text == "{" || p.tokens[next].Text == "[") {
+				return i
+			}
+			return -1
+		}
+	}
+	return -1
 }
 
 func (p *braceLanguageParser) collectModifiers(start, end int) []string {
