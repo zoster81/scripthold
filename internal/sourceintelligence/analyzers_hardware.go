@@ -398,6 +398,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 				hdlSVStructTypes(builder, document, source, matchEnd, end, &symbol, false)
 				hdlSVModuleProperties(builder, document, source, matchEnd, end, &symbol)
 				hdlSVModuleSequences(builder, document, source, matchEnd, end, &symbol)
+				hdlSVModuleCovergroups(builder, document, source, matchEnd, end, &symbol)
 			}
 			hdlSignals(builder, document, source, matchEnd, end, &symbol, true)
 		}
