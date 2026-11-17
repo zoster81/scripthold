@@ -414,11 +414,114 @@ func hdlSVStructTypes(builder *SymbolBuilder, document *SourceDocument, source s
 	}{{svTypedefStruct, "typedef-struct"}, {svTypedefLogic, "typedef-logic"}, {svTypedefEnum, "typedef-enum"}} {
 		for _, match := range definition.pattern.FindAllStringSubmatchIndex(body, -1) {
 			nameStart, nameEnd := start+match[2], start+match[3]
-			addDocumentDataHardwareSymbol(builder, SymbolKindType, definition.nativeKind,
+			typ, added := addDocumentDataHardwareSymbol(builder, SymbolKindType, definition.nativeKind,
 				document.Text[nameStart:nameEnd], parent,
 				OffsetRange{Start: start + match[0], End: start + match[1]},
 				OffsetRange{Start: nameStart, End: nameEnd})
+			if added && definition.nativeKind == "typedef-enum" {
+				hdlSVEnumMembers(builder, document, body, start, match[0], match[1], &typ)
+			}
 		}
+	}
+}
+
+// hdlSVEnumMembers indexes only authored names inside a bounded simple enum.
+// Verify the complete list before emitting members, so unsupported syntax does
+// not produce an apparently complete partial enumeration.
+func hdlSVEnumMembers(builder *SymbolBuilder, document *SourceDocument, body string, base, start, end int, parent *SymbolParent) {
+	incomplete := func(at int) {
+		addDocumentDataHardwareDiagnostic(builder, "systemverilog-unsupported-enum-members",
+			"Unsupported or malformed SystemVerilog enum members require direct source inspection", base+at, base+at+1)
+	}
+	if end <= start || end-start > 16*1024 {
+		incomplete(start)
+		return
+	}
+	span := body[start:end]
+	open, close := strings.IndexByte(span, '{'), strings.LastIndexByte(span, '}')
+	if open < 0 || close <= open {
+		incomplete(start)
+		return
+	}
+	type member struct {
+		name                   string
+		begin, finish, nameEnd int
+	}
+	members := make([]member, 0, 16)
+	seen := make(map[string]struct{})
+	segmentStart, parens, brackets := open+1, 0, 0
+	for i := open + 1; i <= close; i++ {
+		if i < close {
+			switch span[i] {
+			case '(':
+				parens++
+			case ')':
+				parens--
+			case '[':
+				brackets++
+			case ']':
+				brackets--
+			}
+			if parens < 0 || brackets < 0 {
+				incomplete(start + i)
+				return
+			}
+			if span[i] != ',' || parens != 0 || brackets != 0 {
+				continue
+			}
+		}
+		if parens != 0 || brackets != 0 {
+			incomplete(start + i)
+			return
+		}
+		segment := span[segmentStart:i]
+		entry := strings.TrimSpace(segment)
+		if entry == "" {
+			if i == close {
+				break // Empty body or trailing comma.
+			}
+			incomplete(start + i)
+			return
+		}
+		if len(members) >= 128 {
+			incomplete(start + segmentStart)
+			return
+		}
+		leading := len(segment) - len(strings.TrimLeft(segment, " \t\r\n"))
+		nameEnd := 0
+		for nameEnd < len(entry) {
+			c := entry[nameEnd]
+			if nameEnd == 0 {
+				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+					break
+				}
+			} else if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$') {
+				break
+			}
+			nameEnd++
+		}
+		if nameEnd == 0 {
+			incomplete(start + segmentStart + leading)
+			return
+		}
+		rest := strings.TrimSpace(entry[nameEnd:])
+		if rest != "" && (!strings.HasPrefix(rest, "=") || strings.TrimSpace(rest[1:]) == "") {
+			incomplete(start + segmentStart + leading + nameEnd)
+			return
+		}
+		name := entry[:nameEnd]
+		if _, exists := seen[name]; exists {
+			incomplete(start + segmentStart + leading)
+			return
+		}
+		seen[name] = struct{}{}
+		begin := base + start + segmentStart + leading
+		members = append(members, member{name: document.Text[begin : begin+nameEnd], begin: begin, finish: begin + len(entry), nameEnd: begin + nameEnd})
+		segmentStart = i + 1
+	}
+	for _, m := range members {
+		addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "enum-value", m.name, parent,
+			OffsetRange{Start: m.begin, End: m.finish}, OffsetRange{Start: m.begin, End: m.nameEnd})
 	}
 }
 
