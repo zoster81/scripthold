@@ -1107,6 +1107,14 @@ func (p *braceLanguageParser) parseDartGetter(start, end int, parent *SymbolPare
 			var declarationEnd int
 			var next int
 			switch p.tokens[bodyStart].Text {
+			case ";":
+				// A bodyless external getter is a declaration, not a field.
+				if p.tokens[start].Text != "external" || p.tokens[bodyStart].Nesting != depth {
+					return 0, false
+				}
+				signatureEnd = p.tokens[bodyStart].EndOffset
+				declarationEnd = signatureEnd
+				next = bodyStart + 1
 			case "{":
 				if p.tokens[bodyStart].Nesting != depth+1 {
 					return 0, false

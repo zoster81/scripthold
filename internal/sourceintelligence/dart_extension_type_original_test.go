@@ -79,7 +79,7 @@ func TestDartExtensionTypeOriginalSourceNavigation(t *testing.T) {
 			"dart-core", "SCRIPTHOLD_REAL_DART_EXTENSION_CORE",
 			"extension type Navigator(JSObject _) {",
 			[]dartExtensionTypeWant{{"Navigator", 11}},
-			map[string]SymbolKind{"Navigator.userAgent": SymbolKindField, "Navigator.appVersion": SymbolKindField},
+			map[string]SymbolKind{"Navigator.userAgent": SymbolKindProperty, "Navigator.appVersion": SymbolKindProperty},
 		},
 		{
 			"flutter-web-host", "SCRIPTHOLD_REAL_DART_EXTENSION_FLUTTER_HOST",
