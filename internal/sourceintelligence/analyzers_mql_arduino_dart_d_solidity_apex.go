@@ -1060,6 +1060,10 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			continue
 		}
 		if p.policy.language == "dart" {
+			if next, consumed := p.parseDartTypedef(i, end, parent, members); consumed {
+				i = next
+				continue
+			}
 			if next, consumed := p.parseDartGetter(i, end, parent); consumed {
 				i = next
 				continue
@@ -1164,6 +1168,129 @@ func (p *braceLanguageParser) parseDartGetter(start, end int, parent *SymbolPare
 		}
 	}
 	return 0, false
+}
+
+// parseDartTypedef indexes directly authored, semicolon-terminated type aliases
+// without mistaking their return types and Function signatures for callables.
+// Wider or malformed typedef grammar remains explicitly incomplete.
+func (p *braceLanguageParser) parseDartTypedef(start, end int, parent *SymbolParent, members bool) (int, bool) {
+	if p.tokens[start].Text != "typedef" {
+		return 0, false
+	}
+	limit := min(p.lineEnd(start), end)
+	depth := p.tokens[start].Nesting
+	semi := p.findSameDepth(start+1, limit, ";", depth)
+	diag := func(last, next int) (int, bool) {
+		finish := p.tokens[start].EndOffset
+		if last > start && last < end {
+			finish = p.tokens[last].EndOffset
+		}
+		addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-typedef",
+			"Unsupported or malformed Dart typedef requires direct source inspection",
+			p.tokens[start].StartOffset, finish)
+		return next, true
+	}
+	if members || semi < 0 {
+		return diag(limit-1, max(start+1, limit))
+	}
+	if semi-start > 192 {
+		return diag(semi, semi+1)
+	}
+	first := nextStructuralToken(p.tokens, start+1, semi)
+	if first >= semi {
+		return diag(semi, semi+1)
+	}
+	nameIndex := -1
+	if eq := p.findSameDepth(first, semi, "=", depth); eq >= 0 {
+		if p.tokens[first].Kind == TokenIdentifier &&
+			p.dartTypedefAliasHeader(first, eq, depth) &&
+			p.dartTypedefTypeRHS(eq+1, semi) {
+			nameIndex = first
+		}
+	} else {
+		// Legacy form: typedef ReturnType Name(Parameters);
+		for i := first + 1; i < semi; i++ {
+			if p.tokens[i].Nesting == depth+1 && p.tokens[i].Text == "(" {
+				if close := p.pairs[i]; close > i && nextStructuralToken(p.tokens, close+1, semi) == semi {
+					candidate := previousIdentifierToken(p.tokens, i-1, first+1)
+					if candidate > first && nextStructuralToken(p.tokens, candidate+1, i) == i {
+						nameIndex = candidate
+					}
+				}
+				break
+			}
+		}
+	}
+	if nameIndex < 0 {
+		return diag(semi, semi+1)
+	}
+	p.add(SymbolSpec{
+		Kind: SymbolKindAlias, NativeKind: "typedef", Name: p.tokens[nameIndex].Text,
+		Parent:      parent,
+		Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semi].EndOffset},
+		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
+		Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semi].StartOffset},
+		Evidence:    SymbolEvidenceStructural,
+	})
+	return semi + 1, true
+}
+
+// dartTypedefTypeRHS accepts source-spelled types, not runtime expressions.
+// Its deliberately small token vocabulary excludes numeric/string values and
+// executable operators; unsupported forms remain visible as diagnostics.
+func (p *braceLanguageParser) dartTypedefTypeRHS(start, end int) bool {
+	first := nextStructuralToken(p.tokens, start, end)
+	if first >= end || (p.tokens[first].Kind != TokenIdentifier && p.tokens[first].Kind != TokenKeyword) {
+		return false
+	}
+	for i := first; i < end; i++ {
+		token := p.tokens[i]
+		if token.Kind == TokenIdentifier || token.Kind == TokenKeyword || token.Kind == TokenNewline {
+			continue
+		}
+		switch token.Text {
+		case "<", ">", ">>", ">>>", "?", ",", ".", "(", ")", "[", "]":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (p *braceLanguageParser) dartTypedefAliasHeader(name, eq, depth int) bool {
+	next := nextStructuralToken(p.tokens, name+1, eq)
+	if next == eq {
+		return true
+	}
+	if next >= eq || p.tokens[next].Text != "<" {
+		return false
+	}
+	angles := 0
+	for i := next; i < eq; i++ {
+		token := p.tokens[i]
+		if token.Nesting != depth {
+			return false
+		}
+		switch token.Text {
+		case "<":
+			angles++
+		case ">":
+			angles--
+		case ">>":
+			angles -= 2
+		case ">>>":
+			angles -= 3
+		case ",", "?", ".":
+		default:
+			if token.Kind != TokenIdentifier && token.Kind != TokenKeyword && token.Kind != TokenNewline {
+				return false
+			}
+		}
+		if angles < 0 || angles == 0 && nextStructuralToken(p.tokens, i+1, eq) != eq {
+			return false
+		}
+	}
+	return angles == 0
 }
 
 // parseGroovyContainerField skips balanced closure/map/list initializers as
