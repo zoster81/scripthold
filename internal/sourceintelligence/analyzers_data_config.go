@@ -980,6 +980,76 @@ var (
 
 var protoGroupBlock = regexp.MustCompile(`(?m)^[ \t]*(?:(?:optional|required|repeated)[ \t]+)?group[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*[0-9]+[ \t]*\{`)
 
+// A complete single-physical-line protobuf enum may contain multiple
+// semicolon-terminated values. Scan only plain NAME = integer; statements;
+// unsupported options/reserved clauses must not invent partial member lists.
+type protoInlineEnumMember struct {
+	name, declaration OffsetRange
+}
+
+func protoSimpleInlineEnumMembers(body string) ([]protoInlineEnumMember, bool) {
+	if len(body) > 4096 || strings.ContainsAny(body, "\r\n") {
+		return nil, false
+	}
+	members := make([]protoInlineEnumMember, 0, 4)
+	i := 0
+	skipSpace := func() {
+		for i < len(body) && (body[i] == ' ' || body[i] == '\t') {
+			i++
+		}
+	}
+	for i < len(body) {
+		skipSpace()
+		if i == len(body) {
+			break
+		}
+		start := i
+		c := body[i]
+		if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return nil, false
+		}
+		i++
+		for i < len(body) {
+			c = body[i]
+			if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') {
+				break
+			}
+			i++
+		}
+		nameEnd := i
+		skipSpace()
+		if i == len(body) || body[i] != '=' {
+			return nil, false
+		}
+		i++
+		skipSpace()
+		if i < len(body) && body[i] == '-' {
+			i++
+		}
+		numberStart := i
+		for i < len(body) && body[i] >= '0' && body[i] <= '9' {
+			i++
+		}
+		if i == numberStart {
+			return nil, false
+		}
+		skipSpace()
+		if i == len(body) || body[i] != ';' {
+			return nil, false
+		}
+		i++
+		members = append(members, protoInlineEnumMember{
+			name:        OffsetRange{Start: start, End: nameEnd},
+			declaration: OffsetRange{Start: start, End: i},
+		})
+		if len(members) > 128 {
+			return nil, false
+		}
+	}
+	return members, true
+}
+
 // protoFieldDeclarationEnd extends a recognized field through its authored
 // same-line terminator. Inline option brackets may contain quoted semicolons
 // and closing brackets; neither may prematurely end the field.
@@ -1169,6 +1239,28 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			kindMatches = protoRPC.FindAllStringSubmatchIndex(body, -1)
 			memberKind, native = SymbolKindOperation, "rpc"
 		case "enum":
+			if !strings.ContainsAny(body, "\r\n") {
+				members, valid := protoSimpleInlineEnumMembers(body)
+				if !valid {
+					addDocumentDataHardwareDiagnostic(builder, "proto-unsupported-inline-enum",
+						"Protocol Buffers inline enum has unsupported syntax", bodyStart, scope.close)
+				} else {
+					for _, member := range members {
+						declaration := OffsetRange{
+							Start: bodyStart + member.declaration.Start,
+							End:   bodyStart + member.declaration.End,
+						}
+						nameRange := OffsetRange{
+							Start: bodyStart + member.name.Start,
+							End:   bodyStart + member.name.End,
+						}
+						addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "enum-value",
+							document.Text[nameRange.Start:nameRange.End], &scope.owner,
+							declaration, nameRange)
+					}
+				}
+				continue
+			}
 			kindMatches = protoEnumValue.FindAllStringSubmatchIndex(body, -1)
 			memberKind, native = SymbolKindConstant, "enum-value"
 		case "extend":
