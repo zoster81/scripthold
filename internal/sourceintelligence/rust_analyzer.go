@@ -529,7 +529,7 @@ func (parser *rustParser) parseEnum(declarationStart, keyword, end int, parent *
 		parser.builder.MarkIncomplete()
 		return end
 	}
-	parser.add(SymbolSpec{
+	symbol, added := parser.add(SymbolSpec{
 		Kind: SymbolKindEnum, NativeKind: "enum", Name: parser.tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[close].EndOffset},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
@@ -537,7 +537,106 @@ func (parser *rustParser) parseEnum(declarationStart, keyword, end int, parent *
 		Body:        &OffsetRange{Start: parser.tokens[open].StartOffset, End: parser.tokens[close].EndOffset},
 		Visibility:  parser.visibility(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
 	})
+	if added {
+		enumParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+		parser.parseEnumVariants(open, close, enumParent)
+	}
 	return close + 1
+}
+
+// parseEnumVariants indexes only directly authored lexical variants. It validates
+// the complete bounded list before adding any member, so malformed entries do
+// not fabricate an apparently authoritative partial list.
+func (parser *rustParser) parseEnumVariants(open, close int, parent *SymbolParent) {
+	incomplete := func(index int) {
+		if index < open || index >= close {
+			index = open
+		}
+		span := OffsetRange{Start: parser.tokens[index].StartOffset, End: parser.tokens[index].EndOffset}
+		_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "rust-unsupported-enum-variants",
+			Message:  "Malformed, oversized, or unsupported Rust enum entries require direct source inspection",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+	if close-open > 4096 || parser.tokens[close].EndOffset-parser.tokens[open].StartOffset > 16*1024 {
+		incomplete(open)
+		return
+	}
+	type entry struct {
+		start, name, last int
+		variantBody       *OffsetRange
+	}
+	entries := make([]entry, 0, 16)
+	seen := make(map[string]struct{})
+	base := parser.tokens[open].Nesting
+	segmentStart := open + 1
+	for i := open + 1; i <= close; i++ {
+		if i < close && (!parser.token(i, ",") || parser.tokens[i].Nesting != base) {
+			continue
+		}
+		start := parser.skipTrivia(segmentStart, i)
+		if start >= i {
+			if i == close { // trailing comma, blank lines, or empty enum
+				break
+			}
+			incomplete(segmentStart)
+			return
+		}
+		if len(entries) >= 128 {
+			incomplete(start)
+			return
+		}
+		last := parser.previousCode(i-1, start)
+		if last < start {
+			incomplete(start)
+			return
+		}
+		name := parser.skipAttributes(start, last+1)
+		name = parser.skipTrivia(name, last+1)
+		if name > last || parser.tokens[name].Kind != TokenIdentifier {
+			incomplete(start)
+			return
+		}
+		if _, exists := seen[parser.tokens[name].Text]; exists {
+			incomplete(name)
+			return
+		}
+		next := parser.skipTrivia(name+1, last+1)
+		var body *OffsetRange
+		if next <= last {
+			switch parser.tokens[next].Text {
+			case "(", "{":
+				end := parser.pairs[next]
+				if end != last {
+					incomplete(next)
+					return
+				}
+				body = &OffsetRange{Start: parser.tokens[next].StartOffset, End: parser.tokens[end].EndOffset}
+			case "=":
+				value := parser.skipTrivia(next+1, last+1)
+				if value != last || parser.tokens[value].Kind != TokenNumber {
+					incomplete(next)
+					return
+				}
+			default:
+				incomplete(next)
+				return
+			}
+		}
+		seen[parser.tokens[name].Text] = struct{}{}
+		entries = append(entries, entry{start: start, name: name, last: last, variantBody: body})
+		segmentStart = i + 1
+	}
+	for _, e := range entries {
+		signature := OffsetRange{Start: parser.tokens[e.start].StartOffset, End: parser.tokens[e.last].EndOffset}
+		parser.add(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-variant", Name: parser.tokens[e.name].Text, Parent: parent,
+			Declaration: signature,
+			NameRange:   OffsetRange{Start: parser.tokens[e.name].StartOffset, End: parser.tokens[e.name].EndOffset},
+			Signature:   &signature, Body: e.variantBody, Evidence: SymbolEvidenceStructural,
+		})
+	}
 }
 
 func (parser *rustParser) parseTrait(declarationStart, keyword, end int, parent *SymbolParent) int {
