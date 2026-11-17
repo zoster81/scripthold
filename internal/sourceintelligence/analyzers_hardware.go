@@ -367,6 +367,7 @@ func analyzeHDLSource(ctx context.Context, document *SourceDocument, options Ana
 			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindInterface, "interface", name, nil, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[2], End: match[3]})
 			if ok {
 				hdlSVStructTypes(builder, document, source, match[1], end, &symbol, false)
+				hdlSVInterfaceModports(builder, document, source, match[1], end, &symbol)
 				hdlSignals(builder, document, source, match[1], end, &symbol, true)
 			}
 		}
