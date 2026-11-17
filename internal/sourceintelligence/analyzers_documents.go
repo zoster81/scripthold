@@ -367,8 +367,58 @@ func analyzeCSSDocument(ctx context.Context, document *SourceDocument, options A
 			addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "variable", name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
 		}
 	}
+	if !scss && !less {
+		selectorSource = cssMaskNamedKeyframes(builder, selectorSource)
+	}
 	cssSelectors(ctx, builder, document, selectorSource)
 	return AnalyzerResult{Analysis: builder.Result()}, nil
+}
+
+var (
+	cssKeyframesBlockHeader = regexp.MustCompile(`(?m)^[ \t]*@(?:-(?:webkit|moz|o)-)?keyframes\b([^\r\n{}]*)\{`)
+	cssKeyframesName        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+)
+
+// Keyframe stops are animation offsets, not stylesheet selectors. Index only
+// a supported named, balanced at-rule and mask its bytes from the ordinary
+// selector pass without changing any surrounding source offsets.
+func cssMaskNamedKeyframes(builder *SymbolBuilder, source string) string {
+	matches := cssKeyframesBlockHeader.FindAllStringSubmatchIndex(source, -1)
+	if len(matches) == 0 {
+		return source
+	}
+	closures, _ := cssRuleClosures(source)
+	masked := []byte(source)
+	lastEnd := 0
+	for _, match := range matches {
+		if match[0] < lastEnd {
+			continue
+		}
+		open := match[1] - 1
+		end := closures[open]
+		if end <= open {
+			end = len(source)
+		}
+		namePart := source[match[2]:match[3]]
+		name := strings.TrimSpace(namePart)
+		if closures[open] <= open || end-match[0] > 65536 ||
+			len(name) > 128 || !cssKeyframesName.MatchString(name) {
+			addDocumentDataHardwareDiagnostic(builder, "css-unsupported-keyframes",
+				"CSS keyframes header or balanced body exceeds the supported lexical subset", match[0], match[1])
+		} else {
+			nameStart := match[2] + strings.Index(namePart, name)
+			signature := OffsetRange{Start: match[0], End: match[1]}
+			addStructuralSymbol(builder, SymbolSpec{
+				Kind: SymbolKindSection, NativeKind: "keyframes", Name: name,
+				Declaration: OffsetRange{Start: match[0], End: end},
+				NameRange:   OffsetRange{Start: nameStart, End: nameStart + len(name)},
+				Signature:   &signature, Evidence: SymbolEvidenceStructural,
+			})
+		}
+		maskByteRangePreservingLines(masked, match[0], end)
+		lastEnd = end
+	}
+	return string(masked)
 }
 
 // maskSCSSInterpolationBraces removes interpolation-only braces from the
