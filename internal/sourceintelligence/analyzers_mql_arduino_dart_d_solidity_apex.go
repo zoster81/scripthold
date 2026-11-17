@@ -1845,6 +1845,11 @@ func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *Symbol
 		(first == "package" && p.policy.language == "groovy") {
 		return semicolon + 1, true
 	}
+	if p.policy.language == "dart" {
+		if next, handled := p.parseDartMultipleVariables(start, semicolon, parent, members); handled {
+			return next, true
+		}
+	}
 	limit := semicolon
 	for i := start; i < semicolon; i++ {
 		if p.tokens[i].Text == "=" && p.tokens[i].Nesting == p.tokens[start].Nesting {
@@ -1878,6 +1883,124 @@ func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *Symbol
 	modifiers := p.collectModifiers(start, nameIndex)
 	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semicolon].EndOffset}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Visibility: braceLanguageVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	return semicolon + 1, true
+}
+
+// parseDartMultipleVariables indexes each directly authored declarator without
+// treating commas inside type parameters or initializer expressions as siblings.
+func (p *braceLanguageParser) parseDartMultipleVariables(start, semi int, parent *SymbolParent, members bool) (int, bool) {
+	switch p.tokens[start].Text {
+	case "const", "final", "var", "dynamic", "late", "static":
+	default:
+		return 0, false
+	}
+	depth := p.tokens[start].Nesting
+	commas := make([]int, 0, 4)
+	header := true
+	angleDepth := 0
+	for i := start + 1; i < semi; i++ {
+		token := p.tokens[i]
+		if token.Nesting != depth {
+			continue
+		}
+		if header {
+			switch token.Text {
+			case "<":
+				angleDepth++
+			case ">":
+				if angleDepth > 0 {
+					angleDepth--
+				}
+			case "=":
+				if angleDepth == 0 {
+					header = false
+				}
+			}
+		}
+		if token.Text == "," && angleDepth == 0 {
+			if len(commas) == 64 {
+				addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-multiple-declarators",
+					"More than 65 Dart declarators require direct source inspection",
+					p.tokens[start].StartOffset, p.tokens[semi].EndOffset)
+				return semi + 1, true
+			}
+			commas = append(commas, i)
+			header = false
+		}
+	}
+	if len(commas) == 0 {
+		return 0, false
+	}
+	type part struct{ name, begin, end int }
+	parts := make([]part, 0, len(commas)+1)
+	left := start
+	for index := 0; index <= len(commas); index++ {
+		right := semi
+		if index < len(commas) {
+			right = commas[index]
+		}
+		first := nextStructuralToken(p.tokens, left, right)
+		if first >= right {
+			break
+		}
+		nameIndex := first
+		if index == 0 {
+			limit := right
+			if assignment := p.findSameDepth(first, right, "=", depth); assignment >= 0 {
+				limit = assignment
+			}
+			nameIndex = previousIdentifierToken(p.tokens, limit-1, first)
+		}
+		if nameIndex < first || p.tokens[nameIndex].Kind != TokenIdentifier ||
+			p.tokens[nameIndex].Nesting != depth {
+			break
+		}
+		afterName := nextStructuralToken(p.tokens, nameIndex+1, right)
+		if afterName < right {
+			if p.tokens[afterName].Text != "=" || p.tokens[afterName].Nesting != depth ||
+				nextStructuralToken(p.tokens, afterName+1, right) >= right {
+				break
+			}
+		}
+		endOffset := p.tokens[right].StartOffset
+		if right == semi {
+			endOffset = p.tokens[semi].EndOffset
+		}
+		beginOffset := p.tokens[first].StartOffset
+		if index == 0 {
+			beginOffset = p.tokens[start].StartOffset
+		}
+		parts = append(parts, part{nameIndex, beginOffset, endOffset})
+		left = right + 1
+	}
+	if len(parts) != len(commas)+1 {
+		addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-multiple-declarators",
+			"Ambiguous Dart comma-separated declaration requires direct source inspection",
+			p.tokens[start].StartOffset, p.tokens[semi].EndOffset)
+		return semi + 1, true
+	}
+	kind, native := SymbolKindVariable, "variable"
+	if members {
+		kind, native = SymbolKindField, "field"
+	} else {
+		for i := start; i < parts[0].name; i++ {
+			if p.tokens[i].Text == "const" || p.tokens[i].Text == "final" {
+				kind, native = SymbolKindConstant, "constant"
+				break
+			}
+		}
+	}
+	modifiers := p.collectModifiers(start, parts[0].name)
+	for _, variable := range parts {
+		p.add(SymbolSpec{
+			Kind: kind, NativeKind: native, Name: p.tokens[variable.name].Text,
+			Parent:      parent,
+			Declaration: OffsetRange{Start: variable.begin, End: variable.end},
+			NameRange:   OffsetRange{Start: p.tokens[variable.name].StartOffset, End: p.tokens[variable.name].EndOffset},
+			Visibility:  braceLanguageVisibility(modifiers), Modifiers: modifiers,
+			Evidence: SymbolEvidenceStructural,
+		})
+	}
+	return semi + 1, true
 }
 
 func (p *braceLanguageParser) collectModifiers(start, end int) []string {
