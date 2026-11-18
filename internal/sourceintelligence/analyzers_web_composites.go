@@ -928,7 +928,19 @@ type templateMatchedScope struct {
 	bodyEnd        int
 }
 
-func templateMatchedScopes(text string, ranges []OffsetRange, maxNesting, maxSymbols int) map[int]templateMatchedScope {
+// Twig permits a block to contain its expression in the opening tag, without
+// a corresponding endblock. Such a declaration has no lexical child scope.
+func twigInlineBlockExpression(tag string, nameEnd int) bool {
+	close := strings.LastIndex(tag, "%}")
+	if nameEnd < 0 || close < nameEnd {
+		return false
+	}
+	tail := strings.TrimSpace(tag[nameEnd:close])
+	tail = strings.TrimSpace(strings.TrimRight(tail, "-+"))
+	return tail != ""
+}
+
+func templateMatchedScopes(text string, ranges []OffsetRange, language string, maxNesting, maxSymbols int) map[int]templateMatchedScope {
 	type opening struct {
 		kind, name string
 		tag        OffsetRange
@@ -957,6 +969,10 @@ func templateMatchedScopes(text string, ranges []OffsetRange, maxNesting, maxSym
 		switch directive {
 		case "block", "macro":
 			if len(match) < 6 || match[4] < 0 {
+				continue
+			}
+			if language == "twig" && directive == "block" &&
+				twigInlineBlockExpression(tag, match[5]) {
 				continue
 			}
 			if overflow != 0 || len(stack) >= maxNesting {
@@ -997,7 +1013,7 @@ func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, r
 		maxNesting = 2048
 	}
 	scopes := make([]templateScope, 0, min(8, maxNesting))
-	matched := templateMatchedScopes(document.Text, ranges, maxNesting, builder.options.Limits.MaxSymbols)
+	matched := templateMatchedScopes(document.Text, ranges, language, maxNesting, builder.options.Limits.MaxSymbols)
 	for _, value := range ranges {
 		if value.Start < 0 || value.End <= value.Start || value.End > len(document.Text) {
 			continue
@@ -1033,7 +1049,12 @@ func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, r
 				value := scopes[len(scopes)-1].parent
 				parent = &value
 			}
+			inline := language == "twig" && directive == "block" &&
+				twigInlineBlockExpression(statement, match[5])
 			declaration := OffsetRange{Start: value.Start, End: nameEnd}
+			if inline {
+				declaration.End = value.End
+			}
 			var body *OffsetRange
 			if bounds, paired := matched[value.Start]; paired {
 				declaration.End = bounds.declarationEnd
@@ -1046,7 +1067,9 @@ func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, r
 				}
 				return err
 			}
-			scopes = append(scopes, templateScope{kind: directive, name: name, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}, declaration: declaration})
+			if !inline {
+				scopes = append(scopes, templateScope{kind: directive, name: name, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}, declaration: declaration})
+			}
 		case "endblock", "endmacro":
 			expected := strings.TrimPrefix(directive, "end")
 			if len(scopes) == 0 {
