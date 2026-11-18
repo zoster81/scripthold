@@ -1074,6 +1074,10 @@ func cobolLooksFreeForm(text string) bool {
 			end++
 		}
 		line := text[start:end]
+		if start == 0 {
+			// A decoded UTF-8 BOM is metadata, not a fixed-format sequence column.
+			line = strings.TrimPrefix(line, "\uFEFF")
+		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" && !strings.HasPrefix(trimmed, "*>") && cobolFreeFormLineEvidence(line) {
 			return true
@@ -1133,10 +1137,11 @@ func cobolFixedPrefixCompatible(line string) bool {
 			return false
 		}
 	}
-	// Six-column sequence-only records are valid and carry no source code.
+	// Six-column sequence-only records (including all-digit counters)
+	// carry no source code and must not imply free format.
 	indicatorOffset := scalarColumnOffset(line, 7)
 	if indicatorOffset >= len(line) {
-		return hasSequenceLetter && hasSequenceDigit && !hasSequenceSpace
+		return hasSequenceDigit && !hasSequenceSpace
 	}
 	indicator, _ := utf8.DecodeRuneInString(line[indicatorOffset:])
 	// Historic sequences may be mixed letter/digit IDs or all-letter comment
