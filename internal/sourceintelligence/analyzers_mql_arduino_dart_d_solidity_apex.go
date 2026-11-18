@@ -1069,15 +1069,20 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 				continue
 			}
 		}
-		if p.policy.language == "groovy" && members {
-			if next, consumed := p.parseGroovyContainerField(i, end, parent); consumed {
+		if p.policy.language == "groovy" && (members || p.tokens[i].Text == "def") {
+			if next, consumed := p.parseGroovyContainerField(i, end, parent, members); consumed {
 				i = next
 				continue
 			}
-			if next, consumed := p.parseGroovySimpleField(i, end, parent); consumed {
+			if next, consumed := p.parseGroovySimpleField(i, end, parent, members); consumed {
 				i = next
 				continue
 			}
+		}
+		if p.policy.language == "groovy" &&
+			(p.tokens[i].Text == "}" || p.tokens[i].Text == "]") {
+			i++
+			continue
 		}
 		if next, consumed := p.parseCStyle(i, end, parent, members, owner); consumed {
 			i = next
@@ -1293,10 +1298,10 @@ func (p *braceLanguageParser) dartTypedefAliasHeader(name, eq, depth int) bool {
 	return angles == 0
 }
 
-// parseGroovyContainerField skips balanced closure/map/list initializers as
-// class-field values. Their internal calls and nested closures are not methods,
-// and the next class declaration must remain visible to the symbol index.
-func (p *braceLanguageParser) parseGroovyContainerField(start, end int, parent *SymbolParent) (int, bool) {
+// parseGroovyContainerField preserves explicit Groovy fields and script-level
+// def bindings with balanced closure/list initializers. Nested calls and closure
+// bodies are not declarations and cannot consume the next authored symbol.
+func (p *braceLanguageParser) parseGroovyContainerField(start, end int, parent *SymbolParent, members bool) (int, bool) {
 	depth := p.tokens[start].Nesting
 	lineEnd := min(p.lineEnd(start), end)
 	for i := start + 1; i < lineEnd; i++ {
@@ -1313,7 +1318,7 @@ func (p *braceLanguageParser) parseGroovyContainerField(start, end int, parent *
 			p.builder.MarkIncomplete()
 			return open + 1, true
 		}
-		if _, added := p.parseVariable(start, close, parent, true); !added {
+		if _, added := p.parseVariable(start, close, parent, members); !added {
 			p.builder.MarkIncomplete()
 		}
 		return close + 1, true
@@ -1321,10 +1326,10 @@ func (p *braceLanguageParser) parseGroovyContainerField(start, end int, parent *
 	return 0, false
 }
 
-// parseGroovySimpleField handles semicolon-free class fields without treating
-// the next line's method declaration as a continuation. Complex Groovy
-// declarations remain outside this deliberately narrow structural subset.
-func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *SymbolParent) (int, bool) {
+// parseGroovySimpleField handles semicolon-free class fields and explicit
+// script-level def bindings without consuming the following method. Complex
+// Groovy declarations remain outside this bounded structural subset.
+func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *SymbolParent, members bool) (int, bool) {
 	lineEnd := p.lineEnd(start)
 	if lineEnd >= end || p.tokens[lineEnd].Kind != TokenNewline {
 		return 0, false
@@ -1390,7 +1395,7 @@ func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *Sym
 	if genericDepth != 0 {
 		return 0, false
 	}
-	return p.parseVariable(start, lineEnd, parent, true)
+	return p.parseVariable(start, lineEnd, parent, members)
 }
 
 // skipDStructuralPrelude keeps annotations, imports and visibility groups
@@ -1950,6 +1955,16 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 			native = "constructor"
 		}
 		if name != "" {
+			if p.policy.language == "groovy" &&
+				!p.groovyCallableHeader(start, nameIndex, members, owner) {
+				if p.tokens[terminator].Text == "{" {
+					if close := p.pairs[terminator]; close > terminator && close < end {
+						return close + 1, true
+					}
+					p.builder.MarkIncomplete()
+				}
+				return terminator + 1, true
+			}
 			lowerName := strings.ToLower(name)
 			if lowerName != "if" && lowerName != "for" && lowerName != "while" && lowerName != "switch" && lowerName != "catch" && lowerName != "return" {
 				if members && kind == SymbolKindFunction {
@@ -2002,6 +2017,39 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 		return terminator + 1, false
 	}
 	return p.parseVariable(start, terminator, parent, members)
+}
+
+// groovyCallableHeader requires an authored method type/def prefix instead of
+// inferring a declaration from a call followed by a trailing closure block.
+// The constructor is the one supported implicit-type case inside a class.
+func (p *braceLanguageParser) groovyCallableHeader(start, nameIndex int, members bool, owner string) bool {
+	if nameIndex < start {
+		return false
+	}
+	if members && nameIndex == start && owner != "" && p.eq(p.tokens[nameIndex].Text, owner) {
+		return true
+	}
+	if nameIndex == start {
+		return false
+	}
+	prev := previousStructuralToken(p.tokens, nameIndex-1, start)
+	if prev < start {
+		return false
+	}
+	if p.tokens[prev].Kind != TokenIdentifier && p.tokens[prev].Text != "def" &&
+		p.tokens[prev].Text != ">" && p.tokens[prev].Text != "]" {
+		return false
+	}
+	for i := start; i < nameIndex; i++ {
+		switch p.tokens[i].Text {
+		case "=", "{", "}", "(", ")", ";", ":", "->":
+			return false
+		}
+		if p.tokens[i].Kind == TokenString {
+			return false
+		}
+	}
+	return p.tokens[start].Text != "new"
 }
 
 // parseApexAutoProperty recognizes only property bodies consisting of
