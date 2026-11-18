@@ -67,6 +67,87 @@ func TestSourceSymbolsOriginalClojureMaintenanceNavigation(t *testing.T) {
 	}
 }
 
+// Read-only, opt-in complete original files with source-first authored symbol counts.
+func TestClojurePinnedCompleteOriginalDetailedOutline(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_CLOJURE_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CLOJURE_OUTLINE_ROOT for both pinned full originals")
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		file  string
+		count int
+	}{
+		{"kde-clojure.clj", 17},
+		{"ctags-metadata.clj", 6},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join(root, tc.file)
+			original, err := os.ReadFile(path)
+			if err != nil || len(original) == 0 {
+				t.Fatalf("configured complete original missing or empty: %v", err)
+			}
+			failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path},
+				Language: "clojure", Encoding: "utf-8", IncludeSignatures: true,
+				MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || failed != nil || len(out.Files) != 1 ||
+				out.Truncated || !out.CoverageComplete || len(out.Symbols) != tc.count {
+				t.Fatalf("full original detailed outline: err=%v failed=%+v result=%+v", err, failed, out)
+			}
+			fp := out.Files[0].SourceFingerprint
+			if fp == "" {
+				t.Fatal("original source fingerprint unavailable")
+			}
+			if tc.file == "kde-clojure.clj" {
+				apostrophe := 0
+				for _, sym := range out.Symbols {
+					if sym.NameRange.Start.Line == 43 && sym.Name == "=" {
+						t.Errorf("expression under metadata invented direct binding: %+v", sym)
+					}
+					if sym.NameRange.Start.Line == 18 {
+						apostrophe++
+						if sym.Name != "fizz'" || sym.QualifiedName != "highlighting.fizz'" ||
+							sym.NameRange.Start.Column != 6 || sym.NameRange.End.Column != 11 ||
+							sym.Signature != "(def fizz'" {
+							t.Errorf("source-authored apostrophe identity and span: %+v", sym)
+						}
+					}
+				}
+				if apostrophe != 1 {
+					t.Fatalf("expected one declaration at authored line 18, got %d", apostrophe)
+				}
+				failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+					Operation: "find", Paths: []string{path}, Language: "clojure", Encoding: "utf-8",
+					Query: "fizz'", Match: "exact", MaxFiles: 1, MaxSymbols: 12,
+				})
+				if err != nil || failed != nil || len(found.Symbols) != 1 ||
+					found.Symbols[0].NameRange.Start.Line != 18 {
+					t.Fatalf("exact source-authorized name lookup: err=%v failed=%+v found=%+v", err, failed, found)
+				}
+				failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+					Operation: "show", Path: path, Language: "clojure", Encoding: "utf-8",
+					SymbolID: found.Symbols[0].ID, SourceFingerprint: fp, MaxBytes: 8192,
+				})
+				if err != nil || failed != nil || shown.Show == nil ||
+					!strings.Contains(shown.Show.Text, "(def fizz'") {
+					t.Fatalf("fingerprint-bound authored source excerpt: err=%v failed=%+v shown=%+v", err, failed, shown)
+				}
+				failed, search, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+					Operation: "search", Mode: "structural", Paths: []string{path},
+					Language: "clojure", Encoding: "utf-8", Query: "fizz'",
+					Match: "exact", MaxFiles: 1, MaxResults: 12,
+				})
+				if err != nil || failed != nil || search.Search == nil ||
+					len(search.Search.Matches) != 1 {
+					t.Fatalf("source-intelligence structural find: err=%v failed=%+v result=%+v", err, failed, search)
+				}
+			}
+		})
+	}
+}
+
 func checkOriginalClojureNavigation(t *testing.T, h *Handler, root string, paths []string, tc originalClojureCase) {
 	t.Helper()
 	for _, want := range tc.targets {

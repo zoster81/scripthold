@@ -137,7 +137,9 @@ func CommonLispScannerProfile() ScannerProfile {
 }
 
 func ClojureScannerProfile() ScannerProfile {
-	return lispScannerProfile("clojure", []string{"def", "defmacro", "defn", "defn-", "defprotocol", "defrecord", "deftype", "ns", "require"})
+	profile := lispScannerProfile("clojure", []string{"def", "defmacro", "defn", "defn-", "defprotocol", "defrecord", "deftype", "ns", "require"})
+	profile.Identifier.ExtraContinue += "'"
+	return profile
 }
 
 func EmacsLispScannerProfile() ScannerProfile {

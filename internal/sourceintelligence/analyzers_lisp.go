@@ -446,7 +446,11 @@ func clojureDeclarationNameToken(tokens []Token, pairs map[int]int, start, close
 			continue
 		}
 		if tokens[cursor].Text != "^" {
-			return nextLispAtomToken(tokens, cursor, close)
+			// A name must be the immediate atom, never an operator inside a later form.
+			if tokens[cursor].Kind == TokenIdentifier {
+				return cursor
+			}
+			return -1
 		}
 		cursor++
 		for cursor < close && tokens[cursor].Kind == TokenNewline {
