@@ -1137,7 +1137,7 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 			}
 		}
 		if parser.cpp {
-			if next, ok := parser.cppStandaloneUnresolvedMacro(index, end); ok {
+			if next, ok := parser.cppStandaloneUnresolvedMacro(index, end, members, owner); ok {
 				index = next
 				continue
 			}
@@ -1255,11 +1255,12 @@ func (parser *cFamilyParser) cppExplicitClassInstantiation(start, end int) (int,
 // declaration. Its expansion might introduce scopes, so preserve following
 // authored declarations but explicitly report incomplete structural coverage.
 // Do not assume any specific project macro expands to namespace braces.
-func (parser *cFamilyParser) cppStandaloneUnresolvedMacro(start, end int) (int, bool) {
+func (parser *cFamilyParser) cppStandaloneUnresolvedMacro(start, end int, members bool, owner string) (int, bool) {
 	token := parser.tokens[start]
 	name := token.Text
 	if token.Kind != TokenIdentifier || len(name) < 3 ||
-		name != strings.ToUpper(name) || !strings.Contains(name, "_") {
+		name != strings.ToUpper(name) || !strings.Contains(name, "_") ||
+		(members && name == owner) {
 		return start, false
 	}
 	open := nextStructuralToken(parser.tokens, start+1, end)
@@ -1274,16 +1275,29 @@ func (parser *cFamilyParser) cppStandaloneUnresolvedMacro(start, end int) (int, 
 		return start, false
 	}
 	after := close + 1
-	if after >= end || parser.tokens[after].Kind != TokenNewline && parser.tokens[after].Kind != TokenEOF {
+	if after >= end {
 		return start, false
 	}
-	rangeValue := OffsetRange{Start: token.StartOffset, End: parser.tokens[close].EndOffset}
+	next := after + 1
+	rangeEnd := parser.tokens[close].EndOffset
+	if parser.token(after, "{") {
+		blockClose := parser.pairs[after]
+		if blockClose <= after || blockClose >= end {
+			parser.builder.MarkIncomplete()
+			return start, false
+		}
+		rangeEnd = parser.tokens[blockClose].EndOffset
+		next = blockClose + 1
+	} else if parser.tokens[after].Kind != TokenNewline && parser.tokens[after].Kind != TokenEOF {
+		return start, false
+	}
+	rangeValue := OffsetRange{Start: token.StartOffset, End: rangeEnd}
 	_ = parser.builder.AddDiagnostic(DiagnosticSpec{
 		Code:     "cpp-unresolved-macro-invocation",
 		Message:  "standalone function-like macro expansion is unknown; following C++ declarations are preserved without inferring macro-generated scope",
 		Severity: DiagnosticWarning, Range: &rangeValue, AffectsCoverage: true,
 	})
-	return after + 1, true
+	return next, true
 }
 
 // A complete bounded template head is shared by template aliases and

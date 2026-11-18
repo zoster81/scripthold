@@ -11,6 +11,73 @@ import (
 
 // Original C++ task questions come from source reads and adjacent original tests.
 // Third-party projects remain immutable and are not executed.
+// Complete immutable GoogleTest and Catch2 sources guard C++ authored
+// declarations against function-like macro calls with a brace body.
+func TestCppPinnedWholeOriginalMacroIsNotSourceFunction(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("two complete original C++ snapshots not configured")
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		file  string
+		count int
+	}{
+		{"googletest-sample2.h", 11}, {"catch2-fixture.cpp", 9},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join(root, tc.file)
+			data, err := os.ReadFile(path)
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("complete original missing: %v", err)
+			}
+			failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path},
+				Language: "cpp", Encoding: "utf-8", IncludeSignatures: true, MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || failed != nil || out.Truncated || out.FilesParsed != 1 || len(out.Files) != 1 || len(out.Symbols) != tc.count {
+				t.Fatalf("full source navigation invalid: err=%v failed=%+v count=%d want=%d", err, failed, len(out.Symbols), tc.count)
+			}
+			if tc.file == "googletest-sample2.h" {
+				return
+			}
+			if out.CoverageComplete {
+				t.Error("unknown macro expansion incorrectly marked fully complete")
+			}
+			for _, sym := range out.Symbols {
+				if sym.Name == "TEST_CASE_METHOD" || sym.NameRange.Start.Line == 54 || sym.NameRange.Start.Line == 58 {
+					t.Errorf("Catch2 invocation invented callable: %+v", sym)
+				}
+			}
+			fp := out.Files[0].SourceFingerprint
+			if fp == "" {
+				t.Fatal("missing exact source fingerprint")
+			}
+			failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "cpp", Encoding: "utf-8",
+				Query: "getID", Match: "exact", MaxFiles: 1, MaxSymbols: 32,
+			})
+			if err != nil || failed != nil || len(found.Symbols) != 1 || found.Symbols[0].NameRange.Start.Line != 41 {
+				t.Fatalf("real authored method missing: err=%v failed=%+v", err, failed)
+			}
+			failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "cpp", Encoding: "utf-8",
+				SymbolID: found.Symbols[0].ID, SourceFingerprint: fp, MaxBytes: 8192,
+			})
+			if err != nil || failed != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, "++uniqueID") {
+				t.Fatalf("real authored method excerpt missing err=%v failed=%+v", err, failed)
+			}
+			failed, search, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Mode: "structural", Paths: []string{path}, Language: "cpp", Encoding: "utf-8",
+				Query: "getID", Match: "exact", MaxFiles: 1, MaxResults: 32,
+			})
+			if err != nil || failed != nil || search.Search == nil || len(search.Search.Matches) != 1 {
+				t.Fatalf("real authored method structural search failed: err=%v failed=%+v", err, failed)
+			}
+		})
+	}
+}
+
 func TestSourceSymbolsOriginalCppMaintenanceNavigation(t *testing.T) {
 	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
 	if corpus == "" {

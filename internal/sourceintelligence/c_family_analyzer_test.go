@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -14,6 +15,79 @@ import (
 
 var _ SourceAnalyzer = CAnalyzer{}
 var _ SourceAnalyzer = CPPAnalyzer{}
+
+// Complete pinned upstream files are inspected as source, not executed.
+func TestCPPPinnedOriginalFixtureMacroNotDirectFunction(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("two immutable original C++ files not configured")
+	}
+	for _, tc := range []struct {
+		file  string
+		count int
+	}{
+		{"googletest-sample2.h", 11},
+		{"catch2-fixture.cpp", 9},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, tc.file))
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("original missing/invalid: %v", err)
+			}
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(string(data)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Analysis.Symbols) != tc.count {
+				t.Errorf("complete original authored declarations: got %d want %d", len(result.Analysis.Symbols), tc.count)
+			}
+			if tc.file == "catch2-fixture.cpp" {
+				expected := map[string]bool{"DBConnection": false, "createConnection": false, "executeSQL": false,
+					"UniqueTestsFixture": false, "getID": false, "conn": false, "uniqueID": false}
+				for _, sym := range result.Analysis.Symbols {
+					if sym.Name == "TEST_CASE_METHOD" {
+						t.Errorf("source macro invocation fabricated function: %+v", sym)
+					}
+					if _, ok := expected[sym.Name]; ok {
+						expected[sym.Name] = true
+					}
+				}
+				for name, found := range expected {
+					if !found {
+						t.Errorf("missing authored C++ declaration %s", name)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCPPStandaloneMacroWithBodyLFCRLFPreservesFollowingDeclarations(t *testing.T) {
+	const source = "class TEST_FIXTURE { public: TEST_FIXTURE() {} };\n" +
+		"void authored() {}\n" +
+		"TEST_CASE_METHOD(TEST_FIXTURE, \"named\") {\n  REQUIRE(true);\n}\n" +
+		"void after() {}\n"
+	for _, tc := range []struct{ name, content string }{{"lf", source}, {"crlf", strings.ReplaceAll(source, "\n", "\r\n")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.content), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := map[string]bool{}
+			for _, sym := range result.Analysis.Symbols {
+				if sym.Name == "TEST_CASE_METHOD" || sym.Name == "REQUIRE" {
+					t.Errorf("unresolved macro reported as direct callable: %+v", sym)
+				}
+				seen[sym.Name] = true
+			}
+			for _, name := range []string{"TEST_FIXTURE", "authored", "after"} {
+				if !seen[name] {
+					t.Errorf("authored %s omitted", name)
+				}
+			}
+		})
+	}
+}
 
 func TestCPPRawStringStartRecognizesPrefixesAndIdentifierBoundaries(t *testing.T) {
 	cases := []struct {
