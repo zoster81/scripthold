@@ -3,12 +3,76 @@ package handler
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // Original Elixir and KDE sources are independently Git-verified.
 // The assertions cover navigation to a maintenance target, not code execution.
+// Pinned entire originals: quoted macro ASTs must not be direct module members.
+func TestElixirPinnedQuotedWholeOriginalMCPNavigation(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_ELIXIR_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("complete original Elixir fixtures not configured")
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		file  string
+		count int
+	}{{"phoenix-pipeline.ex", 24}, {"elixir-string-chars.ex", 9}} {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join(root, tc.file)
+			data, err := os.ReadFile(path)
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("configured original unavailable: %v", err)
+			}
+			failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path},
+				Language: "elixir", Encoding: "utf-8", IncludeSignatures: true, MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || failed != nil || outline.Truncated || outline.FilesParsed != 1 || len(outline.Symbols) != tc.count {
+				t.Fatalf("full original direct outline invalid: failed=%+v err=%v count=%d want=%d", failed, err, len(outline.Symbols), tc.count)
+			}
+			if tc.file != "phoenix-pipeline.ex" {
+				return
+			}
+			quoted := map[int]bool{17: true, 20: true, 30: true, 93: true, 109: true}
+			for _, sym := range outline.Symbols {
+				if quoted[sym.NameRange.Start.Line] {
+					t.Errorf("quoted AST function leaked into direct MCP symbols: %+v", sym)
+				}
+			}
+			fingerprint := outline.Files[0].SourceFingerprint
+			if fingerprint == "" {
+				t.Fatal("missing original fingerprint")
+			}
+			failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "elixir", Encoding: "utf-8",
+				Query: "__using__", Match: "exact", MaxFiles: 1, MaxSymbols: 32,
+			})
+			if err != nil || failed != nil || len(found.Symbols) != 1 || found.Symbols[0].NameRange.Start.Line != 5 {
+				t.Fatalf("real directly authored macro lookup wrong: err=%v failed=%+v symbols=%+v", err, failed, found.Symbols)
+			}
+			failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "elixir", Encoding: "utf-8",
+				SymbolID: found.Symbols[0].ID, SourceFingerprint: fingerprint, MaxBytes: 8192,
+			})
+			if err != nil || failed != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, "defmacro __using__") {
+				t.Fatalf("direct authored macro show failed: err=%v failed=%+v", err, failed)
+			}
+			failed, search, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Mode: "structural", Paths: []string{path},
+				Language: "elixir", Encoding: "utf-8", Query: "__using__", Match: "exact",
+				MaxFiles: 1, MaxResults: 32,
+			})
+			if err != nil || failed != nil || search.Search == nil || len(search.Search.Matches) != 1 {
+				t.Fatalf("real authored structural search wrong: err=%v failed=%+v", err, failed)
+			}
+		})
+	}
+}
+
 func TestElixirProvider97OriginalProjectNavigation(t *testing.T) {
 	cases := []struct {
 		name, env, target, owner, excerpt, oracle, neighbor, neighborOwner string

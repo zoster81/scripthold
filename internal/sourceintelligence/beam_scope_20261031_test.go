@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -40,6 +41,89 @@ func TestBEAMProtocolAndQuotedModuleOwnership(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestElixirPinnedQuoteGeneratedMembers(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_ELIXIR_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("originals not configured")
+	}
+	for _, tc := range []struct {
+		file string
+		want int
+	}{{"phoenix-pipeline.ex", 24}, {"elixir-string-chars.ex", 9}} {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, tc.file))
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("missing complete original: %v", err)
+			}
+			result, err := (ElixirAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(string(data)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Analysis.Symbols) != tc.want {
+				t.Errorf("complete original got %d direct symbols, want %d", len(result.Analysis.Symbols), tc.want)
+			}
+			if tc.file == "phoenix-pipeline.ex" {
+				negative := map[int]bool{17: true, 20: true, 30: true, 93: true, 109: true}
+				for _, sym := range result.Analysis.Symbols {
+					if negative[sym.NameRange.Start.Line] {
+						t.Errorf("quote AST misreported as direct member: %+v", sym)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestElixirQuotedScopesLFCRLF(t *testing.T) {
+	lines := []string{
+		"defmodule Demo do",
+		"  defmacro build do",
+		"    quote do",
+		"      def phantom, do: :ok",
+		"      if true do",
+		"        def nested_phantom, do: :ok",
+		"      end",
+		"    end",
+		"  end",
+		"  defp other do",
+		"    ast = quote bind_quoted: [value: 1] do",
+		"      def bound_phantom, do: value",
+		"    end",
+		"  end",
+		"  def direct, do: :ok",
+		"end",
+	}
+	for _, eol := range []struct{ name, value string }{{"lf", "\n"}, {"crlf", "\r\n"}} {
+		t.Run(eol.name, func(t *testing.T) {
+			doc := sourceDocumentForScanner(strings.Join(lines, eol.value) + eol.value)
+			result, err := (ElixirAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Errorf("properly closed quoted blocks marked partial: %+v", result.Analysis.Diagnostics)
+			}
+			names := map[string]int{}
+			for _, sym := range result.Analysis.Symbols {
+				names[sym.QualifiedName]++
+			}
+			for _, name := range []string{"Demo", "Demo.build", "Demo.other", "Demo.direct"} {
+				if names[name] != 1 {
+					t.Errorf("authored declaration %s count %d", name, names[name])
+				}
+			}
+			for _, name := range []string{"Demo.phantom", "Demo.nested_phantom", "Demo.bound_phantom"} {
+				if names[name] != 0 {
+					t.Errorf("quote-only declaration %s leaked: %+v", name, names)
+				}
+			}
+			if len(result.Analysis.Symbols) != 4 {
+				t.Errorf("expected four direct symbols, got %d: %+v", len(result.Analysis.Symbols), names)
+			}
+		})
 	}
 }
 

@@ -16,6 +16,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Elixir Source Intelligence now distinguishes directly authored module functions from functions inside `quote do` and `quote bind_quoted: ... do` macro AST blocks, avoiding invented direct module members without evaluating macros. Two complete independent Phoenix and Elixir originals, LF/CRLF nested-quote controls, and local MCP detailed `outline`, exact `find`, fingerprint-verified `show`, and structural search regressions cover the correction. Protocol implementation ownership (`defimpl`) remains a separate bounded capability question.
+
 - Clojure Source Intelligence now preserves trailing apostrophes in directly authored binding names and refuses to invent a binding from an expression following metadata in an unnamed `def` form. Direct symbolic binding names and ordinary metadata-decorated functions remain navigable. Two complete independent KDE and Ctags originals, LF/CRLF controls, and local MCP detailed `outline`, exact `find`, fingerprint-verified `show`, and structural search tests cover the bounded correction. Reader macros and runtime expressions are not evaluated.
 
 - Julia Source Intelligence now keeps declarations in their correct module when a macro-wrapped block function closes, without inventing symbols for macro expansions. It also includes the indented right-hand side of a multiline compact function in its source range and signature, without swallowing a subsequent declaration. Two complete independent upstream Julia sources, LF/CRLF boundary tests, and MCP `outline`/`find`/`show`/`digest`/structural-search checks cover the correction. This is bounded, read-only source navigation, not execution or evaluation of Julia macros.
