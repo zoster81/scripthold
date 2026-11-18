@@ -21,18 +21,19 @@ func (AssemblyAnalyzer) ID() AnalyzerID        { return AnalyzerAssembly }
 func (AssemblyAnalyzer) Language() string      { return "assembly" }
 
 var (
-	vhdlEntity       = regexp.MustCompile(`(?im)^[ \t]*entity[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
-	vhdlArchitecture = regexp.MustCompile(`(?im)^[ \t]*architecture[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+of[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
-	vhdlSignal       = regexp.MustCompile(`(?im)^[ \t]*signal[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:`)
-	vhdlRangeType    = regexp.MustCompile(`(?im)^[ \t]*type[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is[ \t]+range[ \t]+[^;\r\n]+;`)
-	vhdlBegin        = regexp.MustCompile(`(?im)^[ \t]*begin\b`)
-	vhdlSubprogram   = regexp.MustCompile(`(?im)^[ \t]*(?:(?:pure|impure)[ \t]+)?(?:function|procedure)[ \t]+[A-Za-z_]`)
-	vhdlComponent    = regexp.MustCompile(`(?im)^[ \t]*component[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
-	vhdlUse          = regexp.MustCompile(`(?im)^[ \t]*use[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
-	vhdlGenericOpen  = regexp.MustCompile(`(?im)^[ \t]*generic[ \t\r\n]*\(`)
-	vhdlGenericWord  = regexp.MustCompile(`(?im)^[ \t]*generic\b`)
-	vhdlGenericDecl  = regexp.MustCompile(`(?is)^\s*(?:constant\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*(?:in\s+)?[A-Za-z_][A-Za-z0-9_]*\b`)
-	vhdlGenericIdent = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+	vhdlEntity         = regexp.MustCompile(`(?im)^[ \t]*entity[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
+	vhdlArchitecture   = regexp.MustCompile(`(?im)^[ \t]*architecture[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+of[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is\b`)
+	vhdlSignal         = regexp.MustCompile(`(?im)^[ \t]*signal[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:`)
+	vhdlSignalBoundary = regexp.MustCompile(`(?i)^[ \t]*(?:begin|end|signal|architecture|entity|component|process|function|procedure|type|constant|variable)\b`)
+	vhdlRangeType      = regexp.MustCompile(`(?im)^[ \t]*type[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+is[ \t]+range[ \t]+[^;\r\n]+;`)
+	vhdlBegin          = regexp.MustCompile(`(?im)^[ \t]*begin\b`)
+	vhdlSubprogram     = regexp.MustCompile(`(?im)^[ \t]*(?:(?:pure|impure)[ \t]+)?(?:function|procedure)[ \t]+[A-Za-z_]`)
+	vhdlComponent      = regexp.MustCompile(`(?im)^[ \t]*component[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	vhdlUse            = regexp.MustCompile(`(?im)^[ \t]*use[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
+	vhdlGenericOpen    = regexp.MustCompile(`(?im)^[ \t]*generic[ \t\r\n]*\(`)
+	vhdlGenericWord    = regexp.MustCompile(`(?im)^[ \t]*generic\b`)
+	vhdlGenericDecl    = regexp.MustCompile(`(?is)^\s*(?:constant\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*(?:in\s+)?[A-Za-z_][A-Za-z0-9_]*\b`)
+	vhdlGenericIdent   = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 )
 
 func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -106,12 +107,64 @@ func (VHDLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		}
 		for _, signal := range vhdlSignal.FindAllStringSubmatchIndex(source[match[1]:bodyEnd], -1) {
 			value := document.Text[match[1]+signal[2] : match[1]+signal[3]]
+			declarationEnd, complete := vhdlSignalDeclarationEnd(source, match[1]+signal[1], bodyEnd)
+			if !complete {
+				addDocumentDataHardwareDiagnostic(builder, "vhdl-unclosed-signal",
+					"VHDL signal declaration has no bounded, unambiguous terminating semicolon",
+					match[1]+signal[0], match[1]+signal[1])
+				declarationEnd = match[1] + signal[1] // Preserve the known prefix only.
+			}
 			addDocumentDataHardwareSymbol(builder, SymbolKindSignal, "signal", value, archParent,
-				OffsetRange{Start: match[1] + signal[0], End: match[1] + signal[1]},
+				OffsetRange{Start: match[1] + signal[0], End: declarationEnd},
 				OffsetRange{Start: match[1] + signal[2], End: match[1] + signal[3]})
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
+}
+
+// vhdlSignalDeclarationEnd finds the authored semicolon of a VHDL signal
+// declaration. Source comments have already been masked without changing
+// offsets. Quoted strings and character literals may themselves contain ';'.
+// Unbounded or structurally ambiguous input keeps only the recognized prefix.
+func vhdlSignalDeclarationEnd(source string, afterColon, scopeEnd int) (int, bool) {
+	const maxBytes = 64 << 10
+	const maxLines = 1024
+	if afterColon < 0 || afterColon >= scopeEnd || scopeEnd > len(source) {
+		return 0, false
+	}
+	limit := min(scopeEnd, afterColon+maxBytes)
+	quoted, lines := false, 0
+	for i := afterColon; i < limit; i++ {
+		switch source[i] {
+		case '"':
+			if quoted && i+1 < limit && source[i+1] == '"' {
+				i++ // VHDL doubled quote inside a string.
+			} else {
+				quoted = !quoted
+			}
+		case '\'':
+			if !quoted && i+2 < limit && source[i+2] == '\'' {
+				i += 2 // A single-character literal, including ';'.
+			}
+		case ';':
+			if !quoted {
+				return i + 1, true
+			}
+		case '\n':
+			if quoted {
+				return 0, false // Multiline string content is not VHDL source.
+			}
+			lines++
+			if lines > maxLines {
+				return 0, false
+			}
+			next := i + 1
+			if next < limit && vhdlSignalBoundary.MatchString(source[next:min(limit, next+256)]) {
+				return 0, false // Do not absorb a following declaration or begin.
+			}
+		}
+	}
+	return 0, false
 }
 
 // vhdlArchitectureRangeTypes recognizes simple, complete single-line range
