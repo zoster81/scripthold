@@ -650,6 +650,17 @@ func (parser *ecmaParser) parseObjectDestructuring(declarationStart, keyword, op
 			}
 			segmentEnd++
 		}
+		// A final binding may be followed by line breaks before '}'.
+		// Trim only trivia for recognition; advance using the original
+		// segment end so commas and subsequent bindings are not lost.
+		contentEnd := segmentEnd
+		for contentEnd > entry {
+			kind := parser.tokens[contentEnd-1].Kind
+			if kind != TokenNewline && kind != TokenDirective {
+				break
+			}
+			contentEnd--
+		}
 		nameIndex := -1
 		first := entry
 		if parser.token(first, "...") {
@@ -658,18 +669,18 @@ func (parser *ecmaParser) parseObjectDestructuring(declarationStart, keyword, op
 			first += 3
 		}
 		if first != entry {
-			if first < segmentEnd && parser.tokens[first].Kind == TokenIdentifier {
+			if first < contentEnd && parser.tokens[first].Kind == TokenIdentifier {
 				nameIndex = first
 			}
-		} else if first < segmentEnd && parser.tokens[first].Kind == TokenIdentifier {
-			if first+1 == segmentEnd || parser.token(first+1, "=") {
+		} else if first < contentEnd && parser.tokens[first].Kind == TokenIdentifier {
+			if first+1 == contentEnd || parser.token(first+1, "=") {
 				nameIndex = first
 			}
 		}
-		if first == entry && nameIndex < 0 && first+2 < segmentEnd && parser.token(first+1, ":") {
-			alias := parser.skipTrivia(first+2, segmentEnd)
-			if alias < segmentEnd && parser.tokens[alias].Kind == TokenIdentifier &&
-				(alias+1 == segmentEnd || parser.token(alias+1, "=")) {
+		if first == entry && nameIndex < 0 && first+2 < contentEnd && parser.token(first+1, ":") {
+			alias := parser.skipTrivia(first+2, contentEnd)
+			if alias < contentEnd && parser.tokens[alias].Kind == TokenIdentifier &&
+				(alias+1 == contentEnd || parser.token(alias+1, "=")) {
 				nameIndex = alias
 			}
 		}
@@ -683,7 +694,7 @@ func (parser *ecmaParser) parseObjectDestructuring(declarationStart, keyword, op
 				NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 				Visibility:  parser.visibility(declarationStart, keyword),
 				Modifiers:   parser.modifiers(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
-				Disambiguator: tokenRangeText(parser.tokens, entry, segmentEnd),
+				Disambiguator: tokenRangeText(parser.tokens, entry, contentEnd),
 			})
 		}
 		entry = segmentEnd + 1
