@@ -10,6 +10,90 @@ import (
 
 // Original protobuf extension declarations must be navigable as lexical
 // scopes and fields, without claiming that the referenced type is resolved.
+func TestProtoPinnedFullOriginalRPCDetailedNavigation(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_PROTO_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("two complete pinned original Proto sources are not configured")
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		file  string
+		count int
+	}{
+		{"googleapis-annotations.proto", 3},
+		{"grpc-helloworld.proto", 9},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join(root, tc.file)
+			data, err := os.ReadFile(path)
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("pinned source missing/invalid: %v", err)
+			}
+			failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path},
+				Language: "proto", Encoding: "utf-8", IncludeSignatures: true, MaxFiles: 1, MaxSymbols: 32,
+			})
+			if err != nil || failed != nil || outline.Truncated || !outline.CoverageComplete ||
+				outline.FilesParsed != 1 || len(outline.Files) != 1 || len(outline.Symbols) != tc.count {
+				t.Fatalf("detailed original not complete: err=%v failure=%+v symbols=%d", err, failed, len(outline.Symbols))
+			}
+			if tc.file != "grpc-helloworld.proto" {
+				return
+			}
+			for _, target := range []struct {
+				name      string
+				line, col int
+				signature string
+			}{
+				{"SayHello", 27, 54, "  rpc SayHello (HelloRequest) returns (HelloReply) {}"},
+				{"SayHelloStreamReply", 29, 72, "  rpc SayHelloStreamReply (HelloRequest) returns (stream HelloReply) {}"},
+				{"SayHelloBidiStream", 31, 78, "  rpc SayHelloBidiStream (stream HelloRequest) returns (stream HelloReply) {}"},
+			} {
+				count := 0
+				for _, sym := range outline.Symbols {
+					if sym.Name != target.name {
+						continue
+					}
+					count++
+					if sym.Kind != "operation" || sym.NativeKind != "rpc" || sym.ParentQualifiedName != "helloworld.Greeter" ||
+						sym.DeclarationRange.End.Line != target.line || sym.DeclarationRange.End.Column != target.col ||
+						sym.SignatureRange.End.Column != target.col || sym.Signature != target.signature {
+						t.Errorf("full original detailed RPC wrong: %+v", sym)
+					}
+				}
+				if count != 1 {
+					t.Errorf("RPC %s count=%d", target.name, count)
+				}
+			}
+			fp := outline.Files[0].SourceFingerprint
+			if fp == "" {
+				t.Fatal("original fingerprint absent")
+			}
+			failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: "proto", Encoding: "utf-8",
+				Query: "SayHello", Match: "exact", MaxFiles: 1, MaxSymbols: 12,
+			})
+			if err != nil || failed != nil || len(found.Symbols) != 1 || found.Symbols[0].NameRange.Start.Line != 27 {
+				t.Fatalf("real original method find wrong err=%v failed=%+v count=%d", err, failed, len(found.Symbols))
+			}
+			failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: "proto", Encoding: "utf-8",
+				SymbolID: found.Symbols[0].ID, SourceFingerprint: fp, MaxBytes: 8192,
+			})
+			if err != nil || failed != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, "returns (HelloReply) {}") {
+				t.Fatalf("full RPC source excerpt absent err=%v failed=%+v", err, failed)
+			}
+			failed, search, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Mode: "structural", Paths: []string{path}, Language: "proto", Encoding: "utf-8",
+				Query: "SayHello", Match: "exact", MaxFiles: 1, MaxResults: 12,
+			})
+			if err != nil || failed != nil || search.Search == nil || len(search.Search.Matches) != 1 {
+				t.Fatalf("original structural search failed err=%v failed=%+v", err, failed)
+			}
+		})
+	}
+}
+
 func TestProtoOriginalExtensionFieldNavigation(t *testing.T) {
 	google := os.Getenv("SCRIPTHOLD_REAL_PROTO_EXT_GOOGLE_ROOT")
 	ctags := os.Getenv("SCRIPTHOLD_REAL_PROTO_EXT_CTAGS_ROOT")

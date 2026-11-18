@@ -2,12 +2,137 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // A safe field edit needs the entire authored declaration, including inline
 // options and its terminator, not only the number after '='.
+func TestProtoPinnedFullOriginalRPCDeclarationSpans(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_PROTO_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("set SCRIPTHOLD_REAL_PROTO_OUTLINE_ROOT to the two immutable full upstream originals")
+	}
+	for _, tc := range []struct {
+		file  string
+		count int
+		rpcs  map[string]string
+	}{
+		{"googleapis-annotations.proto", 3, nil},
+		{"grpc-helloworld.proto", 9, map[string]string{
+			"SayHello":            "rpc SayHello (HelloRequest) returns (HelloReply) {}",
+			"SayHelloStreamReply": "rpc SayHelloStreamReply (HelloRequest) returns (stream HelloReply) {}",
+			"SayHelloBidiStream":  "rpc SayHelloBidiStream (stream HelloRequest) returns (stream HelloReply) {}",
+		}},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, tc.file))
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("complete pinned original absent or invalid: %v", err)
+			}
+			result, err := (ProtoAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(string(data)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated ||
+				len(result.Analysis.Symbols) != tc.count {
+				t.Fatalf("whole original incomplete: got=%d want=%d", len(result.Analysis.Symbols), tc.count)
+			}
+			seen := make(map[string]bool)
+			for _, sym := range result.Analysis.Symbols {
+				if want, ok := tc.rpcs[sym.Name]; ok {
+					seen[sym.Name] = true
+					got := strings.TrimSpace(string(data)[sym.declarationOffsets.Start:sym.declarationOffsets.End])
+					if got != want {
+						t.Errorf("original authored %s truncated: got %q want %q", sym.Name, got, want)
+					}
+					if sym.ParentQualifiedName != "helloworld.Greeter" {
+						t.Errorf("original RPC owner wrong for %s: %q", sym.Name, sym.ParentQualifiedName)
+					}
+				}
+			}
+			for name := range tc.rpcs {
+				if !seen[name] {
+					t.Errorf("missing original RPC %s", name)
+				}
+			}
+		})
+	}
+}
+
+func TestProtoRPCSourceSpanLFCRLFAndSemicolon(t *testing.T) {
+	original := "package demo;\nservice API {\n" +
+		"  rpc Alpha (Req) returns (Res);\n" +
+		"  rpc Beta (stream Req) returns (stream Res) {}\n" +
+		"  rpc Gamma(\n    Req\n  ) returns (\n    Res\n  ) {}\n" +
+		"}\n"
+	want := map[string]string{
+		"Alpha": "rpc Alpha (Req) returns (Res);",
+		"Beta":  "rpc Beta (stream Req) returns (stream Res) {}",
+		"Gamma": "rpc Gamma(\n    Req\n  ) returns (\n    Res\n  ) {}",
+	}
+	for _, tc := range []struct{ name, eol string }{{"lf", "\n"}, {"crlf", "\r\n"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := strings.ReplaceAll(original, "\n", tc.eol)
+			result, err := (ProtoAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(content), testAnalyzeOptions(true, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := make(map[string]bool)
+			for _, sym := range result.Analysis.Symbols {
+				if expected, ok := want[sym.Name]; ok {
+					seen[sym.Name] = true
+					got := strings.TrimSpace(content[sym.declarationOffsets.Start:sym.declarationOffsets.End])
+					if strings.ReplaceAll(got, "\r\n", "\n") != expected {
+						t.Errorf("RPC %s got %q want %q", sym.Name, got, expected)
+					}
+					if sym.ParentQualifiedName != "demo.API" {
+						t.Errorf("unexpected parent %+v", sym)
+					}
+				}
+			}
+			for name := range want {
+				if !seen[name] {
+					t.Errorf("missing %s", name)
+				}
+			}
+		})
+	}
+}
+
+func TestProtoRPCSuffixRejectsMalformedAndOversizedBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+	}{
+		{"missing_semicolon", "rpc Broken (Req) returns (Res)\n rpc Good (Req) returns (Res);"},
+		{"missing_return_paren", "rpc Broken (Req) returns Res;"},
+		{"unbalanced_input", "rpc Broken (Req returns (Res);"},
+		{"unclosed_option_block", "rpc Broken (Req) returns (Res) { option (foo) = \"};\";"},
+		{"oversized_option_body", "rpc Broken (Req) returns (Res) {" + strings.Repeat(" ", 1<<16) + "}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			open := strings.IndexByte(tc.source, '(') + 1
+			if open <= 0 {
+				t.Fatal("invalid test input")
+			}
+			end, ok := protoRPCDeclarationEnd(tc.source, open, len(tc.source))
+			if ok || end != open {
+				t.Errorf("malformed RPC consumed another declaration: end=%d ok=%v", end, ok)
+			}
+		})
+	}
+	source := "rpc Valid (.demo.Request) returns (.demo.Reply) { option (custom) = \"not a } terminator\"; }"
+	open := strings.IndexByte(source, '(') + 1
+	end, ok := protoRPCDeclarationEnd(source, open, len(source))
+	if !ok || end != len(source) {
+		t.Errorf("valid qualified RPC with quoted brace not recognized: end=%d ok=%v", end, ok)
+	}
+}
+
 func TestProtoFieldDeclarationRetainsOptionsAndSemicolon(t *testing.T) {
 	const source = "syntax = \"proto3\";\n" +
 		"package demo;\n" +

@@ -1194,6 +1194,99 @@ func protoFieldDeclarationEnd(source string, numberEnd int) (int, bool) {
 	return numberEnd, false
 }
 
+// protoRPCDeclarationEnd verifies a complete authored RPC suffix without
+// treating a later sibling declaration or the enclosing service brace as its end.
+func protoRPCDeclarationEnd(source string, openParenEnd, serviceClose int) (int, bool) {
+	if openParenEnd < 1 || openParenEnd > len(source) || source[openParenEnd-1] != '(' {
+		return openParenEnd, false
+	}
+	limit := serviceClose
+	if limit > len(source) {
+		limit = len(source)
+	}
+	if bounded := openParenEnd + (1 << 15); limit > bounded {
+		limit = bounded
+	}
+	i := openParenEnd
+	skipSpace := func() {
+		for i < limit {
+			switch source[i] {
+			case ' ', '\t', '\r', '\n':
+				i++
+			default:
+				return
+			}
+		}
+	}
+	isFirst := func(ch byte) bool {
+		return ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+	}
+	isPart := func(ch byte) bool {
+		return isFirst(ch) || ch >= '0' && ch <= '9'
+	}
+	typeName := func() bool {
+		skipSpace()
+		if i+7 <= limit && source[i:i+6] == "stream" {
+			switch source[i+6] {
+			case ' ', '\t', '\r', '\n':
+				i += 6
+				skipSpace()
+			}
+		}
+		if i < limit && source[i] == '.' {
+			i++
+		}
+		for {
+			if i >= limit || !isFirst(source[i]) {
+				return false
+			}
+			i++
+			for i < limit && isPart(source[i]) {
+				i++
+			}
+			if i >= limit || source[i] != '.' {
+				break
+			}
+			i++
+		}
+		skipSpace()
+		if i >= limit || source[i] != ')' {
+			return false
+		}
+		i++
+		return true
+	}
+	if !typeName() {
+		return openParenEnd, false
+	}
+	skipSpace()
+	if i+7 > limit || source[i:i+7] != "returns" {
+		return openParenEnd, false
+	}
+	i += 7
+	skipSpace()
+	if i >= limit || source[i] != '(' {
+		return openParenEnd, false
+	}
+	i++
+	if !typeName() {
+		return openParenEnd, false
+	}
+	skipSpace()
+	if i >= limit {
+		return openParenEnd, false
+	}
+	switch source[i] {
+	case ';':
+		return i + 1, true
+	case '{':
+		if close := matchingBraceOffset(source[:limit], i); close >= 0 {
+			return close + 1, true
+		}
+	}
+	return openParenEnd, false
+}
+
 func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "proto", AnalyzerProto)
 	if err != nil {
@@ -1375,6 +1468,13 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 				} else {
 					addDocumentDataHardwareDiagnostic(builder, "proto-unmodeled-field-suffix",
 						"Protocol Buffers field terminator or options cannot be verified on the declaration line", memberStart, declarationEnd)
+				}
+			} else if scope.word == "service" {
+				if end, ok := protoRPCDeclarationEnd(source, declarationEnd, scope.close); ok {
+					declarationEnd = end
+				} else {
+					addDocumentDataHardwareDiagnostic(builder, "proto-unmodeled-rpc-suffix",
+						"Protocol Buffers RPC input, return type or terminator cannot be verified", memberStart, declarationEnd)
 				}
 			}
 			addDocumentDataHardwareSymbol(builder, memberKind, native, memberName, &scope.owner, OffsetRange{Start: memberStart, End: declarationEnd}, OffsetRange{Start: bodyStart + member[2], End: bodyStart + member[3]})
