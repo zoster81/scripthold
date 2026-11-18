@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -59,6 +60,103 @@ func TestJScriptNetProvider96PackageAndGlobalsRespectSymbolCap(t *testing.T) {
 		if !result.Analysis.Truncated || result.Analysis.CoverageComplete {
 			t.Errorf("cap %d must report incomplete source retention: %+v", cap, result.Analysis)
 		}
+	}
+}
+
+func TestJScriptNetPinnedFullOriginalDeclarationIdentity(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_JSNET_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("two complete independent JScript.NET R30 originals are not configured")
+	}
+	type declaration struct {
+		name, qualified string
+		line            int
+	}
+	for _, tc := range []struct {
+		file, oracle string
+		expected     []declaration
+	}{
+		{
+			file:   "codesanook-program.js",
+			oracle: "package CodeSanook.Example.JScript.NET {",
+			expected: []declaration{
+				{"CodeSanook.Example.JScript.NET", "CodeSanook.Example.JScript.NET", 8},
+				{"MainForm", "CodeSanook.Example.JScript.NET.MainForm", 10},
+				{"label", "CodeSanook.Example.JScript.NET.MainForm.label", 13},
+				{"textBox", "CodeSanook.Example.JScript.NET.MainForm.textBox", 14},
+				{"button", "CodeSanook.Example.JScript.NET.MainForm.button", 15},
+				{"panel", "CodeSanook.Example.JScript.NET.MainForm.panel", 16},
+				{"MainForm", "CodeSanook.Example.JScript.NET.MainForm.MainForm", 19},
+				{"buttonClicked", "CodeSanook.Example.JScript.NET.MainForm.buttonClicked", 62},
+			},
+		},
+		{
+			file:   "clearcanvas-jscript.js",
+			oracle: "package ClearCanvas.Jscript\r\n{",
+			expected: []declaration{
+				{"ClearCanvas.Jscript", "ClearCanvas.Jscript", 31},
+				{"Engine", "ClearCanvas.Jscript.Engine", 56},
+				{"Run", "ClearCanvas.Jscript.Engine.Run", 58},
+				{"CreateScript", "ClearCanvas.Jscript.Engine.CreateScript", 71},
+				{"CreateScriptPrivate", "ClearCanvas.Jscript.Engine.CreateScriptPrivate", 76},
+				{"ExecutableScript", "ClearCanvas.Jscript.ExecutableScript", 90},
+				{"_ctx", "ClearCanvas.Jscript.ExecutableScript._ctx", 92},
+				{"ExecutableScript", "ClearCanvas.Jscript.ExecutableScript.ExecutableScript", 95},
+				{"Run", "ClearCanvas.Jscript.ExecutableScript.Run", 100},
+			},
+		},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join(root, tc.file)
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("complete original must be a bounded regular file: info=%v err=%v", info, err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(raw), tc.oracle) {
+				t.Fatalf("original upstream source marker missing in %s", tc.file)
+			}
+			result, err := (JScriptNetAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument(path, string(raw)), testAnalyzeOptions(true, 256))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Errorf("original source unexpectedly incomplete: %+v", result.Analysis)
+			}
+			symbols := result.Analysis.Symbols
+			if len(symbols) != len(tc.expected) {
+				t.Errorf("complete original declarations: got %d, want %d", len(symbols), len(tc.expected))
+			}
+			byLine := make(map[int][]NormalizedSymbol)
+			for _, symbol := range symbols {
+				line := symbol.NameRange.Start.Line
+				byLine[line] = append(byLine[line], symbol)
+			}
+			for _, want := range tc.expected {
+				found := byLine[want.line]
+				if len(found) != 1 {
+					t.Errorf("line %d: expected one authored %q, got %d: %+v", want.line, want.name, len(found), found)
+					continue
+				}
+				if found[0].Name != want.name || found[0].QualifiedName != want.qualified {
+					t.Errorf("line %d: authored %s/%s, got %s/%s",
+						want.line, want.name, want.qualified, found[0].Name, found[0].QualifiedName)
+				}
+				if want.line == 13 || want.line == 14 || want.line == 15 || want.line == 16 || want.line == 92 {
+					if found[0].Kind != SymbolKindField {
+						t.Errorf("line %d: JScript.NET field classification missing: %+v", want.line, found[0])
+					}
+				}
+				delete(byLine, want.line)
+			}
+			for line, extras := range byLine {
+				t.Errorf("line %d: invented original class member(s): %+v", line, extras)
+			}
+		})
 	}
 }
 

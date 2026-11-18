@@ -751,6 +751,17 @@ func (parser *ecmaParser) addCallable(declarationStart, nameIndex, paren, end in
 			break
 		}
 	}
+	if parser.memberFunctionKeyword && members && bodyOpen < 0 && terminator >= 0 &&
+		parser.tokens[terminator].Kind == TokenNewline {
+		// JScript.NET permits a method's opening brace on the next line.
+		// Only an immediately following brace can extend the header.
+		next := parser.skipTrivia(terminator+1, end)
+		if next < end && next-terminator <= 16 && parser.token(next, "{") &&
+			parser.tokens[next].Nesting == base+1 {
+			bodyOpen = next
+			terminator = -1
+		}
+	}
 	kind := SymbolKindFunction
 	nativeKind := "function-declaration"
 	if members {
@@ -955,6 +966,16 @@ func (parser *ecmaParser) parseNamespace(declarationStart, keyword, end int, par
 func (parser *ecmaParser) parseMember(declarationStart, semantic, end int, parent *SymbolParent, owner string) (int, bool) {
 	base := parser.tokens[semantic].Nesting
 	nameIndex := semantic
+	if parser.memberFunctionKeyword && parser.token(nameIndex, "var") {
+		// JScript.NET class fields use "var Name: Type". The keyword
+		// cannot be the authored field identity.
+		terminator := parser.statementEnd(semantic, end)
+		nameIndex = parser.nextIdentifier(semantic+1, min(terminator+1, end))
+		if nameIndex < 0 {
+			parser.builder.MarkIncomplete()
+			return min(terminator+1, end), true
+		}
+	}
 	if parser.token(nameIndex, "get") || parser.token(nameIndex, "set") {
 		afterKeyword := parser.skipTrivia(nameIndex+1, end)
 		if afterKeyword < end && parser.tokens[afterKeyword].Text == "(" {

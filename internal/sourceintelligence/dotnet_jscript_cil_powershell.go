@@ -36,6 +36,7 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 	pairs := PairDelimiterTokens(scan.Tokens, nil)
 	packageKeyword := -1
 	packageName := -1
+	packageEnd := -1
 	open := -1
 	close := -1
 	for i := 0; i < len(scan.Tokens); i++ {
@@ -43,15 +44,25 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 			packageKeyword = i
 			packageName = nextIdentifierToken(scan.Tokens, i+1, len(scan.Tokens))
 			if packageName >= 0 {
-				for j := packageName + 1; j < len(scan.Tokens); j++ {
+				packageEnd = packageName
+				// A qualified package can contain dots, and its brace can
+				// follow the header on the next physical line.
+				for j := packageName + 1; j < len(scan.Tokens) && j < packageName+64; {
+					if scan.Tokens[j].Kind == TokenNewline {
+						j++
+						continue
+					}
+					if scan.Tokens[j].Text == "." && j+1 < len(scan.Tokens) &&
+						scan.Tokens[j+1].Kind == TokenIdentifier {
+						packageEnd = j + 1
+						j += 2
+						continue
+					}
 					if scan.Tokens[j].Text == "{" {
 						open = j
 						close = pairs[j]
-						break
 					}
-					if scan.Tokens[j].Kind == TokenNewline {
-						break
-					}
+					break
 				}
 			}
 			break
@@ -64,7 +75,9 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 	if err := builder.checkReady(); err != nil {
 		return AnalyzerResult{}, err
 	}
-	pkg, err := builder.Add(SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: scan.Tokens[packageName].Text, Declaration: OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, NameRange: OffsetRange{Start: scan.Tokens[packageName].StartOffset, End: scan.Tokens[packageName].EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, Evidence: SymbolEvidenceStructural})
+	pkgStart := scan.Tokens[packageName].StartOffset
+	pkgEnd := scan.Tokens[packageEnd].EndOffset
+	pkg, err := builder.Add(SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: document.Text[pkgStart:pkgEnd], Declaration: OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, NameRange: OffsetRange{Start: pkgStart, End: pkgEnd}, Signature: &OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, Evidence: SymbolEvidenceStructural})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
