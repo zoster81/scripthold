@@ -1875,6 +1875,9 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 				if close := parser.pairs[paren]; close > paren+1 && (parser.tokens[paren+1].Kind == TokenNumber || parser.tokens[paren+1].Kind == TokenString || parser.tokens[paren+1].Text == "new") {
 					return parser.parseVariable(start, terminator, paren, parent, members)
 				}
+				if parser.cppDirectInitializerExpression(paren) {
+					return parser.parseVariable(start, terminator, paren, parent, members)
+				}
 			}
 			if next, ok := parser.parseFunction(start, paren, terminator, end, parent, members, owner); ok {
 				return next, true
@@ -1889,6 +1892,52 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 		return terminator + 1, false
 	}
 	return parser.parseVariable(start, terminator, terminator, parent, members)
+}
+
+// cppDirectInitializerExpression detects a source-written '+' expression in
+// constructor arguments. A '+' inside a default parameter, template argument,
+// or nested declarator is not proof that the outer declaration is a variable.
+// Unproven or oversized lists retain the conservative existing classification.
+func (parser *cFamilyParser) cppDirectInitializerExpression(paren int) bool {
+	close := parser.pairs[paren]
+	const maxTokens = 256
+	if close <= paren || close >= len(parser.tokens) || close-paren > maxTokens {
+		return false
+	}
+	// The scanner records the opening delimiter after pushing it; direct
+	// argument tokens have the same nesting, while bracketed extents do not.
+	depth := parser.tokens[paren].Nesting
+	angleDepth := 0
+	defaultArgument := false
+	for index := paren + 1; index < close; index++ {
+		token := parser.tokens[index]
+		if token.Nesting != depth {
+			continue
+		}
+		switch token.Text {
+		case "<":
+			angleDepth++
+		case ">":
+			if angleDepth > 0 {
+				angleDepth--
+			}
+		case ">>":
+			angleDepth = max(0, angleDepth-2)
+		case ",":
+			if angleDepth == 0 {
+				defaultArgument = false
+			}
+		case "=":
+			if angleDepth == 0 {
+				defaultArgument = true
+			}
+		case "+":
+			if angleDepth == 0 && !defaultArgument {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
