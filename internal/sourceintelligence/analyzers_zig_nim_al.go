@@ -887,6 +887,12 @@ func (p *nimParser) field(line LogicalLine) bool {
 	if len(line.Tokens) < 2 || line.Tokens[0].Kind != TokenIdentifier || line.Tokens[1].Text != ":" {
 		return false
 	}
+	// Variant-object and conditional branch labels are not field names.
+	// Quoted/backtick identifiers are handled separately by the scanner.
+	switch strings.ToLower(line.Tokens[0].Text) {
+	case "else", "elif", "of", "case", "when", "if":
+		return false
+	}
 	name, nr := nimNameToken(line.Tokens[0])
 	if name == "" {
 		return false
@@ -895,11 +901,13 @@ func (p *nimParser) field(line LogicalLine) bool {
 	return true
 }
 func (p *nimParser) callable(line LogicalLine, native string) {
-	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
-	if idx < 0 {
+	// The callable name must immediately follow the declaration keyword.
+	// Symbolic/backtick names are outside this identifier-only subset;
+	// searching ahead could mistake their first parameter for the function.
+	if len(line.Tokens) < 2 || line.Tokens[1].Kind != TokenIdentifier {
 		return
 	}
-	name, nr := nimNameToken(line.Tokens[idx])
+	name, nr := nimNameToken(line.Tokens[1])
 	if name == "" {
 		return
 	}
