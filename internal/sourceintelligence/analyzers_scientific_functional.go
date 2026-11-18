@@ -1498,6 +1498,60 @@ func hasDoubleColon(tokens []Token, start int) bool {
 	return false
 }
 
+// ocamlIndentedContinuationEnd extends a directly authored let binding only over
+// consecutive more-indented physical lines. OCaml indentation is not a grammar:
+// ambiguous unindented continuations retain the conservative header-only range.
+func ocamlIndentedContinuationEnd(source string, headerStart, headerEnd int) (end int, incomplete bool) {
+	const maxBytes = 64 << 10
+	const maxLines = 1024
+	if headerStart < 0 || headerEnd < headerStart || headerEnd > len(source) {
+		return headerEnd, true
+	}
+	limit := min(len(source), headerStart+maxBytes)
+	if headerEnd > limit {
+		return headerEnd, true
+	}
+	lineStart := strings.LastIndexByte(source[:headerStart], '\n') + 1
+	baseIndent := headerStart - lineStart
+	end = headerEnd
+	cursor := headerEnd
+	for lineCount := 0; lineCount < maxLines; lineCount++ {
+		newline := strings.IndexByte(source[cursor:limit], '\n')
+		if newline < 0 {
+			return end, limit < len(source)
+		}
+		start := cursor + newline + 1
+		if start >= len(source) {
+			return end, false
+		}
+		lineEnd := strings.IndexByte(source[start:limit], '\n')
+		if lineEnd < 0 {
+			if limit < len(source) {
+				return headerEnd, true
+			}
+			lineEnd = len(source) - start
+		}
+		raw := source[start : start+lineEnd]
+		trimmed := strings.TrimRight(raw, " \t\r")
+		if len(trimmed) == 0 {
+			return end, false
+		}
+		indent := 0
+		for indent < len(trimmed) && (trimmed[indent] == ' ' || trimmed[indent] == '\t') {
+			indent++
+		}
+		if indent <= baseIndent {
+			return end, false
+		}
+		end = start + len(trimmed)
+		cursor = start + lineEnd
+		if cursor >= len(source) {
+			return end, false
+		}
+	}
+	return headerEnd, true
+}
+
 func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "ocaml", AnalyzerOCaml)
 	if err != nil {
@@ -1614,8 +1668,21 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 					kind = SymbolKindFunction
 					native = "function-binding"
 				}
+				declarationEnd := line.EndOffset
+				if equals >= 0 {
+					if extendedEnd, incomplete := ocamlIndentedContinuationEnd(document.Text, line.StartOffset, line.EndOffset); incomplete {
+						builder.MarkIncomplete()
+						span := OffsetRange{Start: line.StartOffset, End: line.EndOffset}
+						_ = builder.AddDiagnostic(DiagnosticSpec{
+							Code: "ocaml-incomplete-let-range", Message: "OCaml let continuation exceeds its bounded source scan",
+							Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+						})
+					} else {
+						declarationEnd = extendedEnd
+					}
+				}
 				addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
-					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+					Declaration: OffsetRange{Start: line.StartOffset, End: declarationEnd}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: declarationEnd}, Evidence: SymbolEvidenceStructural})
 			}
 		}
 	}
