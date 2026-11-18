@@ -640,7 +640,7 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	applyStructuralScanDiagnostics(builder, scan, "julia")
 	dependencies := []StructuralDependency{}
 	var scopes []structuralAnalyzerScope
-	for _, line := range lines {
+	for lineIndex, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
 		}
@@ -658,6 +658,12 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			if len(scopes) > 0 {
 				scopes = scopes[:len(scopes)-1]
 			}
+			continue
+		}
+		if juliaMacroWrappedFunctionOpensScope(line.Tokens) {
+			// Macro-generated callables are not indexed; their matching
+			// end must not close the enclosing named module.
+			scopes = append(scopes, structuralAnalyzerScope{label: "macro-function"})
 			continue
 		}
 		parent := parentFromStructuralScopes(scopes)
@@ -703,8 +709,9 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			if line.Tokens[0].Kind == TokenIdentifier {
 				name, nameRange, afterName := juliaCallableName(line.Tokens, 0)
 				if juliaCompactFunctionAt(line.Tokens, afterName) {
+					end := juliaCompactContinuationEnd(document, lines, lineIndex)
 					addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "compact-function", Name: name, Parent: parent,
-						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+						Declaration: OffsetRange{Start: line.StartOffset, End: end}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: end}, Evidence: SymbolEvidenceStructural})
 					continue
 				}
 			}
@@ -717,6 +724,60 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	markUnclosedStructuralScopes(builder, "julia", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// Macro-prefixed block functions own an anonymous lexical frame. Inline
+// functions and compact macro invocations do not consume a later 'end'.
+func juliaMacroWrappedFunctionOpensScope(tokens []Token) bool {
+	if len(tokens) < 4 || tokens[0].Text != "@" {
+		return false
+	}
+	base, at := tokens[0].Nesting, 0
+	for at+1 < len(tokens) && tokens[at].Text == "@" &&
+		tokens[at].Nesting == base && tokens[at+1].Kind == TokenIdentifier &&
+		tokens[at+1].Nesting == base {
+		at += 2
+	}
+	return at > 0 && at < len(tokens) && tokens[at].Nesting == base &&
+		strings.EqualFold(tokens[at].Text, "function") &&
+		!juliaLineClosesOwnScope(tokens, at+1)
+}
+
+// Extend a compact function ending in '=' by at most one indented source line.
+// Never consume a separately authored declaration or block opener.
+func juliaCompactContinuationEnd(document *SourceDocument, lines []LogicalLine, index int) int {
+	line := lines[index]
+	if len(line.Tokens) == 0 || index+1 >= len(lines) {
+		return line.EndOffset
+	}
+	last := line.Tokens[len(line.Tokens)-1]
+	if last.Text != "=" || last.Nesting != line.Tokens[0].Nesting {
+		return line.EndOffset
+	}
+	next := lines[index+1]
+	if len(next.Tokens) == 0 {
+		return line.EndOffset
+	}
+	start, err := document.PositionAtUTF8Offset(line.StartOffset)
+	if err != nil {
+		return line.EndOffset
+	}
+	following, err := document.PositionAtUTF8Offset(next.StartOffset)
+	if err != nil || following.Line <= start.Line || following.Column <= start.Column {
+		return line.EndOffset
+	}
+	switch strings.ToLower(next.Tokens[0].Text) {
+	case "module", "baremodule", "struct", "mutable", "function", "macro",
+		"end", "using", "import", "if", "for", "while", "let", "begin", "try", "quote":
+		return line.EndOffset
+	}
+	if next.Tokens[0].Kind == TokenIdentifier {
+		_, _, after := juliaCallableName(next.Tokens, 0)
+		if juliaCompactFunctionAt(next.Tokens, after) {
+			return line.EndOffset
+		}
+	}
+	return next.EndOffset
 }
 
 func juliaLineClosesOwnScope(tokens []Token, bodyStart int) bool {
