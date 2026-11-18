@@ -89,7 +89,7 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 			case "in-suite":
 				fiveAMSuite = fiveAMActive && commonLispFormName(scan.Tokens, form+1, close) != ""
 			}
-			parseCommonLispForm(document, builder, scan.Tokens, form, close, head, fiveAMActive, fiveAMSuite, &currentParent, packages, &dependencies)
+			parseCommonLispForm(document, builder, scan.Tokens, pairs, form, close, head, fiveAMActive, fiveAMSuite, &currentParent, packages, &dependencies)
 		case "clojure":
 			parseClojureForm(document, builder, scan.Tokens, pairs, form, close, head, &currentParent, &dependencies)
 		case "emacs-lisp":
@@ -313,7 +313,30 @@ func commonLispDefpackageUsesFiveAM(tokens []Token, pairs map[int]int, form, clo
 	return false
 }
 
-func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, fiveAMActive, fiveAMSuite bool, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
+// commonLispSetfFunctionName accepts only the two-atom compound function name
+// (setf symbol), not an arbitrary nested form or a call expression.
+func commonLispSetfFunctionName(tokens []Token, pairs map[int]int, open, enclosingClose int) (string, OffsetRange, int, bool) {
+	if open < 0 || open >= len(tokens) || tokens[open].Text != "(" {
+		return "", OffsetRange{}, 0, false
+	}
+	end := pairs[open]
+	if end <= open || end >= enclosingClose || end-open > 16 {
+		return "", OffsetRange{}, 0, false
+	}
+	operator := nextLispFormToken(tokens, open+1, end)
+	if operator < 0 || tokens[operator].Kind != TokenIdentifier || !strings.EqualFold(tokens[operator].Text, "setf") {
+		return "", OffsetRange{}, 0, false
+	}
+	target := nextLispFormToken(tokens, operator+1, end)
+	if target < 0 || tokens[target].Kind != TokenIdentifier ||
+		nextLispFormToken(tokens, target+1, end) >= 0 || len(tokens[target].Text) > 1024 {
+		return "", OffsetRange{}, 0, false
+	}
+	name := "(setf " + tokens[target].Text + ")"
+	return name, OffsetRange{Start: tokens[open].StartOffset, End: tokens[end].EndOffset}, tokens[end].EndOffset, true
+}
+
+func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, pairs map[int]int, form, close int, head string, fiveAMActive, fiveAMSuite bool, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
 		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
@@ -335,11 +358,29 @@ func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, token
 		return
 	}
 	name, nameRange := lispTokenName(tokens[nameIndex])
+	signatureEnd := tokens[min(close, nameIndex+1)].EndOffset
+	if head == "defun" {
+		directName := nextLispFormToken(tokens, form+1, close)
+		if directName >= 0 && tokens[directName].Text == "(" {
+			var valid bool
+			name, nameRange, signatureEnd, valid = commonLispSetfFunctionName(tokens, pairs, directName, close)
+			if !valid {
+				builder.MarkIncomplete()
+				span := OffsetRange{Start: tokens[directName].StartOffset, End: tokens[directName].EndOffset}
+				_ = builder.AddDiagnostic(DiagnosticSpec{
+					Code:     "common-lisp-unsupported-compound-function-name",
+					Message:  "Common Lisp compound function name is malformed or exceeds bounded structural support",
+					Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+				})
+				return
+			}
+		}
+	}
 	if name == "" {
 		return
 	}
 	declaration := OffsetRange{Start: tokens[form-1].StartOffset, End: tokens[close].EndOffset}
-	signature := OffsetRange{Start: declaration.Start, End: tokens[min(close, nameIndex+1)].EndOffset}
+	signature := OffsetRange{Start: declaration.Start, End: signatureEnd}
 	kind := SymbolKind("")
 	native := head
 	switch head {
