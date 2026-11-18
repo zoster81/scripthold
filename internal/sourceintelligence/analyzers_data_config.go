@@ -315,7 +315,7 @@ func sqlCanonicalIdentifier(raw string) string {
 }
 
 var (
-	plsqlPackage           = regexp.MustCompile(`(?im)\bcreate[ \t]+(?:or[ \t]+replace[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)[ \t]+(?:as|is)\b`)
+	plsqlPackage           = regexp.MustCompile(`(?im)^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?(?:(?:noneditionable|editionable)[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)(?:[ \t\r\n]+authid[ \t\r\n]+(?:current_user|definer))?[ \t\r\n]+(?:as|is)\b`)
 	plsqlStandaloneRoutine = regexp.MustCompile(`(?im)^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
 	plsqlRoutine           = regexp.MustCompile(`(?im)^[ \t]*(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
 	plsqlBatchEnd          = regexp.MustCompile(`(?m)^[ \t]*/[ \t]*\r?$`)
