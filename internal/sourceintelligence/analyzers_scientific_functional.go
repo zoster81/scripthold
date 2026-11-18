@@ -1088,6 +1088,7 @@ func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 	}
 	applyStructuralScanDiagnostics(builder, scan, "r")
 	dependencies := []StructuralDependency{}
+	tokenCursor := 0
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
@@ -1109,13 +1110,98 @@ func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 				break
 			}
 		}
-		if assignment < 0 || tokenIndexEqualFold(line.Tokens, "function", assignment+1) < 0 {
+		if assignment < 0 {
 			continue
 		}
+		functionIndex := tokenIndexEqualFold(line.Tokens, "function", assignment+1)
+		if functionIndex < 0 {
+			continue
+		}
+		declarationEnd, signatureEnd := line.EndOffset, line.EndOffset
+		for tokenCursor < len(scan.Tokens) && scan.Tokens[tokenCursor].StartOffset < line.Tokens[functionIndex].StartOffset {
+			tokenCursor++
+		}
+		if tokenCursor < len(scan.Tokens) {
+			if end, signature, braced, incomplete := rBracedFunctionRanges(scan.Tokens[tokenCursor:]); braced {
+				declarationEnd, signatureEnd = end, signature
+			} else if incomplete {
+				builder.MarkIncomplete()
+				value := OffsetRange{Start: line.StartOffset, End: line.EndOffset}
+				_ = builder.AddDiagnostic(DiagnosticSpec{
+					Code: "r-incomplete-function-range", Message: "R function range could not be proven within the bounded token scan",
+					Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true,
+				})
+			}
+		}
 		addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "assigned-function", Name: line.Tokens[0].Text,
-			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+			Declaration: OffsetRange{Start: line.StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset},
+			Signature: &OffsetRange{Start: line.StartOffset, End: signatureEnd}, Evidence: SymbolEvidenceStructural})
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// rBracedFunctionRanges uses scanner-owned tokens so comments and quoted braces
+// cannot terminate a function. Non-braced R expressions retain legacy ranges.
+func rBracedFunctionRanges(tokens []Token) (end, signatureEnd int, braced, incomplete bool) {
+	if len(tokens) == 0 || tokens[0].Text != "function" {
+		return 0, 0, false, true
+	}
+	const maxFunctionBytes = 64 << 10
+	limit := tokens[0].StartOffset + maxFunctionBytes
+	open := rNextSignificantToken(tokens, 1)
+	if open < 0 || tokens[open].Text != "(" {
+		return 0, 0, false, true
+	}
+	close := rMatchingToken(tokens, open, "(", ")", limit)
+	if close < 0 {
+		return 0, 0, false, true
+	}
+	body := rNextSignificantToken(tokens, close+1)
+	if body < 0 {
+		return 0, 0, false, true
+	}
+	if tokens[body].Text != "{" {
+		return 0, 0, false, false
+	}
+	closingBrace := rMatchingToken(tokens, body, "{", "}", limit)
+	if closingBrace < 0 {
+		return 0, 0, false, true
+	}
+	return tokens[closingBrace].EndOffset, tokens[body].EndOffset, true, false
+}
+
+func rNextSignificantToken(tokens []Token, from int) int {
+	for index := from; index < len(tokens); index++ {
+		switch tokens[index].Kind {
+		case TokenNewline, TokenIndent, TokenDedent:
+			continue
+		case TokenEOF:
+			return -1
+		default:
+			return index
+		}
+	}
+	return -1
+}
+
+func rMatchingToken(tokens []Token, from int, opening, closing string, limit int) int {
+	depth := 0
+	for index := from; index < len(tokens); index++ {
+		token := tokens[index]
+		if token.Kind == TokenEOF || token.EndOffset > limit {
+			return -1
+		}
+		switch token.Text {
+		case opening:
+			depth++
+		case closing:
+			depth--
+			if depth == 0 {
+				return index
+			}
+		}
+	}
+	return -1
 }
 
 func rStaticPackageArgument(tokens []Token) (int, string, bool) {
