@@ -13,6 +13,67 @@ import (
 // Third-party projects remain immutable and are not executed.
 // Complete immutable GoogleTest and Catch2 sources guard C++ authored
 // declarations against function-like macro calls with a brace body.
+func TestCppPinnedGoogleTestDestructorAuthoredIdentityNavigation(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("complete pinned GoogleTest original not configured")
+	}
+	path := filepath.Join(root, "googletest-sample2.h")
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 || len(data) > 1<<20 {
+		t.Fatalf("original missing/invalid: %v", err)
+	}
+	h := NewHandler([]string{root})
+	failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "cpp", Encoding: "utf-8", IncludeSignatures: true, MaxFiles: 1, MaxSymbols: 32,
+	})
+	if err != nil || failed != nil || outline.Truncated || !outline.CoverageComplete || outline.FilesParsed != 1 || len(outline.Symbols) != 11 {
+		t.Fatalf("complete original GoogleTest outline failed: err=%v failed=%+v symbols=%d", err, failed, len(outline.Symbols))
+	}
+	foundDestructor := 0
+	for _, sym := range outline.Symbols {
+		if sym.Kind != "destructor" {
+			continue
+		}
+		foundDestructor++
+		if sym.Name != "~MyString" || sym.QualifiedName != "MyString.~MyString" ||
+			sym.ParentQualifiedName != "MyString" || sym.NativeKind != "destructor-definition" ||
+			sym.NameRange.Start.Line != 68 || sym.NameRange.Start.Column != 3 ||
+			sym.NameRange.End.Column != 12 {
+			t.Errorf("whole original destructor not authored correctly: %+v", sym)
+		}
+	}
+	if foundDestructor != 1 {
+		t.Errorf("destructor count=%d", foundDestructor)
+	}
+	fp := outline.Files[0].SourceFingerprint
+	if fp == "" {
+		t.Fatal("original source fingerprint missing")
+	}
+	failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "find", Paths: []string{path}, Language: "cpp", Encoding: "utf-8",
+		Query: "~MyString", Match: "exact", MaxFiles: 1, MaxSymbols: 16,
+	})
+	if err != nil || failed != nil || len(found.Symbols) != 1 || found.Symbols[0].Name != "~MyString" {
+		t.Fatalf("authored destructor not findable: err=%v failure=%+v count=%d", err, failed, len(found.Symbols))
+	}
+	failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "show", Path: path, Language: "cpp", Encoding: "utf-8", SymbolID: found.Symbols[0].ID,
+		SourceFingerprint: fp, MaxBytes: 8192,
+	})
+	if err != nil || failed != nil || shown.Show == nil || !strings.Contains(shown.Show.Text, "~MyString() { delete[] c_string_; }") {
+		t.Fatalf("destructor excerpt not authenticated: err=%v failure=%+v", err, failed)
+	}
+	failed, search, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "search", Mode: "structural", Paths: []string{path}, Language: "cpp",
+		Encoding: "utf-8", Query: "~MyString", Match: "exact", MaxFiles: 1, MaxResults: 16,
+	})
+	if err != nil || failed != nil || search.Search == nil || len(search.Search.Matches) != 1 {
+		t.Fatalf("destructor structural search incorrect: err=%v failure=%+v", err, failed)
+	}
+}
+
 func TestCppPinnedWholeOriginalMacroIsNotSourceFunction(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
 	if root == "" {

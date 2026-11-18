@@ -17,6 +17,94 @@ var _ SourceAnalyzer = CAnalyzer{}
 var _ SourceAnalyzer = CPPAnalyzer{}
 
 // Complete pinned upstream files are inspected as source, not executed.
+func TestCPPPinnedOriginalGoogleTestDestructorSpelling(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("complete pinned GoogleTest original not configured")
+	}
+	for _, tc := range []struct {
+		name, file string
+		count      int
+	}{
+		{"googletest", "googletest-sample2.h", 11},
+		{"catch2-positive", "catch2-fixture.cpp", 9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, tc.file))
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("complete original missing/invalid: %v", err)
+			}
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(string(data)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Analysis.Symbols) != tc.count {
+				t.Fatalf("original declarations got=%d want=%d", len(result.Analysis.Symbols), tc.count)
+			}
+			if tc.name == "catch2-positive" {
+				return
+			}
+			found := 0
+			for _, sym := range result.Analysis.Symbols {
+				if sym.Kind != SymbolKindDestructor {
+					continue
+				}
+				found++
+				if sym.Name != "~MyString" || sym.QualifiedName != "MyString.~MyString" ||
+					sym.ParentQualifiedName != "MyString" || sym.NameRange.Start.Line != 68 ||
+					sym.NameRange.Start.Column != 3 || sym.NameRange.End.Line != 68 ||
+					sym.NameRange.End.Column != 12 || sym.NativeKind != "destructor-definition" {
+					t.Errorf("real original destructor spelling/range incorrect: %+v", sym)
+				}
+			}
+			if found != 1 {
+				t.Errorf("original destructor count=%d", found)
+			}
+		})
+	}
+}
+
+func TestCPPDestructorLexicalSpellingLFCRLFAndOutOfClass(t *testing.T) {
+	const source = "class Gadget { public: Gadget(); ~Gadget(); };" +
+		"\nGadget::Gadget() {}\nGadget::~Gadget() {}\n" +
+		"Unknown::~Unknown() = default;\n"
+	for _, tc := range []struct{ name, src string }{{"lf", source}, {"crlf", strings.ReplaceAll(source, "\n", "\r\n")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.src), testAnalyzeOptions(true, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := map[int]bool{}
+			for _, sym := range result.Analysis.Symbols {
+				line := sym.NameRange.Start.Line
+				if line != 1 && line != 3 && line != 4 {
+					continue
+				}
+				if sym.Name != "~Gadget" && sym.Name != "~Unknown" {
+					continue
+				}
+				found[line] = true
+				if line == 1 || line == 3 {
+					if sym.Name != "~Gadget" || sym.QualifiedName != "Gadget.~Gadget" {
+						t.Errorf("known destructor identity: %+v", sym)
+					}
+				} else if sym.Name != "~Unknown" || sym.QualifiedName != "Unknown.~Unknown" ||
+					sym.NativeKind != "qualified-destructor-defaulted-definition" || sym.ParentID != "" {
+					t.Errorf("unknown external destructor identity/ownership: %+v", sym)
+				}
+				if sym.NameRange.Start.Column < 1 {
+					t.Errorf("invalid destructor name span: %+v", sym)
+				}
+			}
+			for _, line := range []int{1, 3, 4} {
+				if !found[line] {
+					t.Errorf("missing authored tilde destructor at line %d: %+v", line, result.Analysis.Symbols)
+				}
+			}
+		})
+	}
+}
+
 func TestCPPPinnedOriginalFixtureMacroNotDirectFunction(t *testing.T) {
 	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
 	if root == "" {
@@ -246,7 +334,7 @@ const char* ordinary = "R\"tag(class QuotedFake {})tag\"";
 			constructors++
 			constructorIDs = append(constructorIDs, symbol.ID)
 		}
-		if symbol.QualifiedName == "Demo.Box.Box" && symbol.Kind == SymbolKindDestructor {
+		if symbol.QualifiedName == "Demo.Box.~Box" && symbol.Kind == SymbolKindDestructor {
 			destructors++
 			destructorIDs = append(destructorIDs, symbol.ID)
 		}
@@ -865,7 +953,7 @@ T Box<T>::get() const { return T{}; }
 	counts := map[string]int{}
 	ids := map[string]map[string]struct{}{}
 	for _, symbol := range result.Analysis.Symbols {
-		if symbol.QualifiedName != "Demo.Box.Box" && symbol.QualifiedName != "Demo.Box.get" {
+		if symbol.QualifiedName != "Demo.Box.Box" && symbol.QualifiedName != "Demo.Box.~Box" && symbol.QualifiedName != "Demo.Box.get" {
 			continue
 		}
 		key := string(symbol.Kind) + ":" + symbol.NativeKind
@@ -884,7 +972,7 @@ T Box<T>::get() const { return T{}; }
 			t.Fatalf("qualified C++ %s count=%d; symbols=%+v", key, counts[key], result.Analysis.Symbols)
 		}
 	}
-	if len(ids["Demo.Box.Box"]) != 4 || len(ids["Demo.Box.get"]) != 2 {
+	if len(ids["Demo.Box.Box"]) != 2 || len(ids["Demo.Box.~Box"]) != 2 || len(ids["Demo.Box.get"]) != 2 {
 		t.Fatalf("qualified C++ IDs are not distinct: %+v", ids)
 	}
 }
@@ -921,7 +1009,7 @@ TreeNode::~TreeNode() = default;
 					s.QualifiedName == "BT.TreeNode.operator=" && s.NativeKind == "operator-definition" && s.BodyRange != nil {
 					foundOperator = true
 				}
-				if s.NameRange.Start.Line == 6 && s.Kind == SymbolKindFunction && s.QualifiedName == "BT.TreeNode.TreeNode" &&
+				if s.NameRange.Start.Line == 6 && s.Kind == SymbolKindFunction && s.QualifiedName == "BT.TreeNode.~TreeNode" &&
 					s.NativeKind == "qualified-destructor-defaulted-definition" && s.BodyRange == nil && s.ParentQualifiedName == "BT" {
 					foundDefaulted = true
 				}
@@ -963,7 +1051,7 @@ TreeNode::~TreeNode() = default;
 			symbol.NameRange.Start.Line == 3 {
 			wantCtor = true
 		}
-		if symbol.Kind == SymbolKindFunction && symbol.QualifiedName == "BT.TreeNode.TreeNode" &&
+		if symbol.Kind == SymbolKindFunction && symbol.QualifiedName == "BT.TreeNode.~TreeNode" &&
 			symbol.NativeKind == "qualified-destructor-defaulted-definition" && symbol.BodyRange == nil &&
 			symbol.ParentQualifiedName == "BT" && symbol.NameRange.Start.Line == 6 {
 			wantDestructor = true
@@ -1239,7 +1327,7 @@ func TestCPPQualifiedDefinitionOwnersDoNotInventCrossFileTypes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			definitions := map[string]bool{"Gadget.Gadget@2": false, "Gadget.Gadget@3": false, "Gadget.Read@4": false}
+			definitions := map[string]bool{"Gadget.Gadget@2": false, "Gadget.~Gadget@3": false, "Gadget.Read@4": false}
 			for _, symbol := range result.Analysis.Symbols {
 				if symbol.BodyRange == nil || symbol.Kind == SymbolKindClass {
 					continue

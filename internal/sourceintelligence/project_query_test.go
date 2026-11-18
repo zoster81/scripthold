@@ -267,6 +267,10 @@ func TestProjectQueryCPPQualifiedLifecycleCandidates(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				wantQualified := "Codec.Codec"
+				if kind.value == SymbolKindDestructor {
+					wantQualified = "Codec.~Codec"
+				}
 				candidates := 0
 				for _, rel := range relations.Records {
 					if rel.Target.Path != source.Path {
@@ -274,7 +278,7 @@ func TestProjectQueryCPPQualifiedLifecycleCandidates(t *testing.T) {
 					}
 					candidates++
 					if rel.Evidence != SymbolEvidenceStructural || rel.Resolution != ResolutionAmbiguous ||
-						rel.Source.SymbolID != declaration.ID || rel.Target.SymbolID == "" || rel.Target.QualifiedName != "Codec.Codec" {
+						rel.Source.SymbolID != declaration.ID || rel.Target.SymbolID == "" || rel.Target.QualifiedName != wantQualified {
 						t.Errorf("unsafe %s link: %+v", kind.value, rel)
 					}
 					for _, symbol := range source.Analysis.Analysis.Symbols {

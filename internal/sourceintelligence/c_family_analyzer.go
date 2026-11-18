@@ -2178,6 +2178,12 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		}
 	}
 	modifiers := collectKnownModifiers(parser.tokens, start, paren, cFamilyModifiers)
+	nameStart := parser.tokens[nameIndex].StartOffset
+	if parser.cpp && nameIndex > start && parser.token(nameIndex-1, "~") &&
+		(kind == SymbolKindDestructor || strings.HasPrefix(nativeKind, "qualified-destructor-")) {
+		name = "~" + name
+		nameStart = parser.tokens[nameIndex-1].StartOffset
+	}
 	qualifiedName := ""
 	if unresolvedQualifier != "" {
 		// Preserve an explicit single-level C++ qualifier without inventing
@@ -2187,7 +2193,6 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 			qualifiedName = parent.QualifiedName + "." + qualifiedName
 		}
 	}
-	nameStart := parser.tokens[nameIndex].StartOffset
 	nameEnd := parser.tokens[nameIndex].EndOffset
 	if kind == SymbolKindOperator {
 		last := previousStructuralToken(parser.tokens, paren-1, nameIndex)
