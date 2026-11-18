@@ -504,6 +504,23 @@ func analyzeJSPHost(ctx context.Context, document *SourceDocument, options Analy
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	// Masking JSP expressions preserves offsets but can leave a literal ID
+	// prefix (id="c1<%=i%>") looking static to the HTML analyzer. Only
+	// retain names whose entire original attribute value is literal.
+	retained := host.Analysis.Symbols[:0]
+	for _, symbol := range host.Analysis.Symbols {
+		if symbol.Kind == SymbolKindEntity && symbol.NativeKind == "id-element" &&
+			symbol.nameOffsets.Start >= 0 && symbol.nameOffsets.End <= len(document.Text) &&
+			symbol.nameOffsets.End >= symbol.nameOffsets.Start {
+			value := document.Text[symbol.nameOffsets.Start:symbol.nameOffsets.End]
+			if strings.Contains(value, "<%") || strings.Contains(value, "${") ||
+				strings.Contains(value, "#{") {
+				continue
+			}
+		}
+		retained = append(retained, symbol)
+	}
+	host.Analysis.Symbols = retained
 	mergeCompositeAnalyzerResult(&result, host, options.Limits)
 
 	javaRanges := make([]OffsetRange, 0, len(regions))
