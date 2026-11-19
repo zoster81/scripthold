@@ -147,12 +147,16 @@ func (parser *csharpParser) parseUsing(start, end int) int {
 func (parser *csharpParser) parseNamespace(start, end int, parent *SymbolParent) (int, *SymbolParent) {
 	cursor := start + 1
 	var nameParts []string
+	firstNameToken := -1
 	for cursor < end {
 		token := parser.tokens[cursor]
 		if token.Text == "{" || token.Text == ";" {
 			break
 		}
 		if token.Kind == TokenIdentifier || token.Text == "." {
+			if token.Kind == TokenIdentifier && firstNameToken < 0 {
+				firstNameToken = cursor
+			}
 			nameParts = append(nameParts, token.Text)
 		}
 		cursor++
@@ -164,7 +168,7 @@ func (parser *csharpParser) parseNamespace(start, end int, parent *SymbolParent)
 	}
 	terminator := parser.tokens[cursor]
 	nameToken := parser.lastIdentifier(start+1, cursor)
-	if nameToken < 0 {
+	if firstNameToken < 0 || nameToken < 0 {
 		parser.builder.MarkIncomplete()
 		return cursor + 1, nil
 	}
@@ -184,7 +188,7 @@ func (parser *csharpParser) parseNamespace(start, end int, parent *SymbolParent)
 	}
 	spec := SymbolSpec{Kind: SymbolKindNamespace, NativeKind: "namespace", Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
-		NameRange:   OffsetRange{Start: parser.tokens[nameToken].StartOffset, End: parser.tokens[nameToken].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[firstNameToken].StartOffset, End: parser.tokens[nameToken].EndOffset},
 		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: terminator.StartOffset}, Body: body, Evidence: SymbolEvidenceStructural}
 	symbol, ok := parser.add(spec)
 	if !ok {
