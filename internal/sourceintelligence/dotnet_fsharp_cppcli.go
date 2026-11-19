@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -450,6 +451,10 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
 	masked := maskCPPCLIModifiers(document.Text)
+	masked, err := maskCPPCLIBlockPropertyDelimiters(ctx, document, masked, options.MaxNesting)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
 	clone := *document
 	clone.Text = masked
 	clone.lineStarts = buildLineStarts(masked)
@@ -468,6 +473,7 @@ var (
 	cppCLIAssemblyAttribute     = regexp.MustCompile(`(?mi)^[ \t]*\[assembly[ \t]*:[^\r\n]*\]`)
 	cppCLIStandaloneAttribute   = regexp.MustCompile(`(?m)^[ \t]*\[[A-Za-z_][A-Za-z0-9_:]*(?:\([^\]\r\n]*\))?\][ \t]*\r?$`)
 	cppCLITrailingClassModifier = regexp.MustCompile(`(?i)\bclass[ \t]+[A-Za-z_][A-Za-z0-9_]*((?:[ \t]+(?:sealed|abstract))+)\b`)
+	cppCLIInternalAccessLabel   = regexp.MustCompile(`(?m)^[ \t]*internal[ \t]*:`)
 )
 
 func maskCPPCLIModifiers(text string) string {
@@ -511,8 +517,76 @@ func maskCPPCLIModifiers(text string) string {
 	for _, match := range cppCLITrailingClassModifier.FindAllStringSubmatchIndex(text, -1) {
 		maskByteRangePreservingLines(result, match[2], match[3])
 	}
+	// The managed-only internal: access label is not a C++ declarator.
+	// Preserve its coordinates without leaking it into the following property.
+	for _, match := range cppCLIInternalAccessLabel.FindAllStringIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[0], match[1])
+	}
 	return string(result)
 }
+
+// A managed property block is not itself a C++ lexical scope. Keep the real
+// get/set declarations, but hide only its header and matching braces so the
+// shared C++ parser cannot attach those delimiters to adjacent declarations.
+// The bounded scanner/pairing avoids interpreting braces in strings or comments.
+func maskCPPCLIBlockPropertyDelimiters(ctx context.Context, document *SourceDocument, text string, maxNesting int) (string, error) {
+	if !strings.Contains(text, "property") {
+		return text, nil
+	}
+	probe := *document
+	probe.Text = text
+	probe.lineStarts = buildLineStarts(text)
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
+	scan, err := ScanSource(ctx, &probe, cFamilyCPPScannerProfile, ScannerLimits{
+		MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting,
+	})
+	if err != nil {
+		return "", err
+	}
+	if !scan.Complete {
+		return text, nil
+	}
+	pairs := PairDelimiterTokens(scan.Tokens, nil)
+	result := []byte(text)
+	for index, token := range scan.Tokens {
+		if token.Text != "property" {
+			continue
+		}
+		lineIndex := sort.SearchInts(probe.lineStarts, token.StartOffset+1) - 1
+		if lineIndex < 0 {
+			continue
+		}
+		lineStart := probe.lineStarts[lineIndex]
+		if token.StartOffset-lineStart > 512 || strings.TrimSpace(text[lineStart:token.StartOffset]) != "" {
+			continue // Only a directly authored property header, not an expression.
+		}
+		depth := token.Nesting
+		for next := index + 1; next < len(scan.Tokens) && next-index <= 32; next++ {
+			candidate := scan.Tokens[next]
+			if candidate.StartOffset-token.StartOffset > 512 || candidate.Nesting < depth ||
+				candidate.Kind == TokenEOF || candidate.Kind == TokenDirective {
+				break
+			}
+			if candidate.Text == ";" || candidate.Text == "}" || candidate.Text == "=" || candidate.Text == "(" {
+				break
+			}
+			if candidate.Text != "{" {
+				continue
+			}
+			if candidate.Nesting == depth+1 {
+				if close, ok := pairs[next]; ok && close > next {
+					maskRangePreservingLines(result, token.StartOffset, candidate.EndOffset)
+					maskRangePreservingLines(result, scan.Tokens[close].StartOffset, scan.Tokens[close].EndOffset)
+				}
+			}
+			break
+		}
+	}
+	return string(result), nil
+}
+
 func isASCIIIdentifierByte(b byte) bool {
 	return b == '_' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
 }
