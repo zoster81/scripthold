@@ -1441,7 +1441,7 @@ func (parser *cFamilyParser) typeDeclarationAt(start, end int) (keyword, declara
 	}
 	for cursor < end {
 		text := strings.ToLower(parser.tokens[cursor].Text)
-		if _, modifier := cFamilyModifiers[text]; modifier && text != "typedef" {
+		if _, modifier := cFamilyModifiers[text]; modifier {
 			cursor++
 			continue
 		}
@@ -1735,6 +1735,25 @@ func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolPa
 	if open >= 0 && nativeKind != "enum" {
 		typeParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 		parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+	}
+	if open >= 0 && parser.token(start, "typedef") {
+		// A tagged aggregate and its trailing typedef name are two distinct
+		// declarations. Accept only one directly authored alias and semicolon;
+		// ordinary trailing objects and compound declarators retain their path.
+		aliasIndex := nextStructuralToken(parser.tokens, close+1, end)
+		if aliasIndex < end && parser.tokens[aliasIndex].Kind == TokenIdentifier &&
+			parser.tokens[aliasIndex].Nesting == depth {
+			semicolonIndex := nextStructuralToken(parser.tokens, aliasIndex+1, end)
+			if parser.token(semicolonIndex, ";") && parser.tokens[semicolonIndex].Nesting == depth {
+				_, _ = parser.add(SymbolSpec{
+					Kind: SymbolKindAlias, NativeKind: "typedef", Name: parser.tokens[aliasIndex].Text, Parent: parent,
+					Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolonIndex].EndOffset},
+					NameRange:   OffsetRange{Start: parser.tokens[aliasIndex].StartOffset, End: parser.tokens[aliasIndex].EndOffset},
+					Evidence:    SymbolEvidenceStructural,
+				})
+				return semicolonIndex + 1
+			}
+		}
 	}
 	return terminator + 1
 }
