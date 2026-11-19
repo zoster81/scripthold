@@ -228,9 +228,11 @@ func analyzeLuaFamily(ctx context.Context, document *SourceDocument, options Ana
 			} else if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[0].Text, "export") && strings.EqualFold(line.Tokens[1].Text, "type") {
 				typeIndex = 1
 			}
-			if typeIndex >= 0 {
-				idx := nextIdentifierOrKeywordToken(line.Tokens, typeIndex+1, len(line.Tokens))
-				if idx >= 0 {
+			if typeIndex >= 0 && typeIndex+1 < len(line.Tokens) {
+				// A Luau type declaration names its alias directly after `type`.
+				// Do not skip punctuation into record or table fields named `type`.
+				idx := typeIndex + 1
+				if line.Tokens[idx].Kind == TokenIdentifier || line.Tokens[idx].Kind == TokenKeyword {
 					tok := line.Tokens[idx]
 					state.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: tok.Text, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 				}
