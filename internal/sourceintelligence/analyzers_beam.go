@@ -38,7 +38,7 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	var pending *elixirScope
 	currentModule := func() *SymbolParent {
 		for i := len(scopes) - 1; i >= 0; i-- {
-			if scopes[i].kind == "module" && scopes[i].parent != nil {
+			if (scopes[i].kind == "module" || scopes[i].kind == "implementation") && scopes[i].parent != nil {
 				value := *scopes[i].parent
 				return &value
 			}
@@ -82,6 +82,25 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 						}
 					}
 				}
+			case "defimpl":
+				// Only a directly authored single literal target creates a
+				// navigable owner; protocol dispatch and aliases are not resolved.
+				if protocol, target, targetStart, targetEnd, ok := elixirLiteralDefimplHeader(line.Tokens); ok {
+					name := protocol + "." + target
+					symbol, added := state.add(SymbolSpec{
+						Kind: SymbolKindImplementation, NativeKind: "defimpl",
+						Name: name, QualifiedName: name,
+						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+						NameRange:   OffsetRange{Start: line.Tokens[targetStart].StartOffset, End: line.Tokens[targetEnd-1].EndOffset},
+						Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+						Evidence:    SymbolEvidenceStructural,
+					})
+					if added {
+						parent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+						scope := elixirScope{kind: "implementation", parent: parent}
+						declarationScope = &scope
+					}
+				}
 			case "def", "defp", "defmacro", "defmacrop", "defguard", "defguardp":
 				idx := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
 				if idx >= 0 {
@@ -116,6 +135,38 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		_ = state.builder.AddDiagnostic(DiagnosticSpec{Code: "elixir-unterminated-block", Message: "Elixir source contains one or more blocks without matching end", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
 	return state.result()
+}
+
+// elixirLiteralDefimplHeader recognizes only a simple authored
+// "defimpl Protocol.Name, for: Target.Name do" form. Lists, macros,
+// multi-target implementations, options and inferred aliases are excluded.
+func elixirLiteralDefimplHeader(tokens []Token) (protocol, target string, targetStart, targetEnd int, ok bool) {
+	if len(tokens) < 6 || !strings.EqualFold(tokens[0].Text, "defimpl") {
+		return "", "", 0, 0, false
+	}
+	literal := func(start int) (string, int, bool) {
+		if start >= len(tokens) || (tokens[start].Kind != TokenIdentifier && tokens[start].Kind != TokenKeyword) {
+			return "", 0, false
+		}
+		end := start + 1
+		for end+1 < len(tokens) && tokens[end].Text == "." &&
+			(tokens[end+1].Kind == TokenIdentifier || tokens[end+1].Kind == TokenKeyword) {
+			end += 2
+		}
+		return tokenRangeText(tokens, start, end), end, true
+	}
+	var next int
+	protocol, next, ok = literal(1)
+	if !ok || next+3 >= len(tokens) || tokens[next].Text != "," ||
+		!strings.EqualFold(tokens[next+1].Text, "for") || tokens[next+2].Text != ":" {
+		return "", "", 0, 0, false
+	}
+	targetStart = next + 3
+	target, targetEnd, ok = literal(targetStart)
+	if !ok || targetEnd+1 != len(tokens) || !elixirStructuralKeywordToken(tokens, targetEnd, "do") {
+		return "", "", 0, 0, false
+	}
+	return protocol, target, targetStart, targetEnd, true
 }
 
 func elixirNextLineOpensGuard(lines []LogicalLine, lineIndex int) bool {

@@ -20,7 +20,7 @@ func TestElixirPinnedQuotedWholeOriginalMCPNavigation(t *testing.T) {
 	for _, tc := range []struct {
 		file  string
 		count int
-	}{{"phoenix-pipeline.ex", 24}, {"elixir-string-chars.ex", 9}} {
+	}{{"phoenix-pipeline.ex", 24}, {"elixir-string-chars.ex", 14}} {
 		t.Run(tc.file, func(t *testing.T) {
 			path := filepath.Join(root, tc.file)
 			data, err := os.ReadFile(path)

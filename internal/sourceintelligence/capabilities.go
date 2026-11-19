@@ -277,7 +277,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "lua", "luau":
 				descriptor.KnownLimitations = []string{"metatables, runtime table/member mutation, non-literal require targets, dynamic dispatch, project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "elixir":
-				descriptor.KnownLimitations = []string{"macro expansion, quoted/generated code, protocol/behaviour resolution, runtime dispatch, Mix/project resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"directly authored single-target `defimpl Protocol, for: Target do` blocks are lexical implementation owners of their directly authored methods; multi-target, generated or computed implementations, macro expansion, quoted/generated code, protocol/behaviour resolution, runtime dispatch, Mix/project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "erlang":
 				descriptor.KnownLimitations = []string{"preprocessor expansion, parse transforms, generated code, behaviour/call resolution, OTP/project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "gleam":

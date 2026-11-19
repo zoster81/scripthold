@@ -52,7 +52,7 @@ func TestElixirPinnedQuoteGeneratedMembers(t *testing.T) {
 	for _, tc := range []struct {
 		file string
 		want int
-	}{{"phoenix-pipeline.ex", 24}, {"elixir-string-chars.ex", 9}} {
+	}{{"phoenix-pipeline.ex", 24}, {"elixir-string-chars.ex", 14}} {
 		t.Run(tc.file, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join(root, tc.file))
 			if err != nil || len(data) == 0 || len(data) > 1<<20 {
