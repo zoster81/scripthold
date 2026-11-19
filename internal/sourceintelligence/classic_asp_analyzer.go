@@ -104,6 +104,11 @@ func (ClassicASPAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 		if symbols[i].declarationOffsets.Start != symbols[j].declarationOffsets.Start {
 			return symbols[i].declarationOffsets.Start < symbols[j].declarationOffsets.Start
 		}
+		// Multiple VBScript Dim names share the declaration start; their
+		// source name positions, not opaque IDs, determine authored order.
+		if symbols[i].nameOffsets.Start != symbols[j].nameOffsets.Start {
+			return symbols[i].nameOffsets.Start < symbols[j].nameOffsets.Start
+		}
 		return symbols[i].ID < symbols[j].ID
 	})
 	hostResult.Symbols = symbols
