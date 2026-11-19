@@ -45,7 +45,7 @@ func (AnsibleYAMLAnalyzer) ID() AnalyzerID   { return AnalyzerAnsibleYAML }
 func (AnsibleYAMLAnalyzer) Language() string { return "ansible-yaml" }
 
 var (
-	markupTag               = regexp.MustCompile(`(?is)<([A-Za-z_][A-Za-z0-9_.:-]*)\b[^>]*>`)
+	markupTag               = regexp.MustCompile(`(?is)<([A-Za-z_][A-Za-z0-9_.:-]*)\b(?:[^>"']|"[^"]*"|'[^']*')*>`)
 	markupDoubleID          = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*"([^"]+)"`)
 	markupSingleID          = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*'([^']+)'`)
 	markupBareID            = regexp.MustCompile(`(?i)\bid[ \t\r\n]*=[ \t\r\n]*([^\s>"']+)`)
