@@ -233,6 +233,35 @@ func TestKotlinSimpleEnumEntriesAndBoundaries(t *testing.T) {
 	}
 }
 
+func TestKotlinAnnotationClassNativeKind(t *testing.T) {
+	source := "package demo\n@Retention(RUNTIME) @JsonQualifier annotation class JsonString\nannotation class Marker\ndata class Data(val x: Int)\nclass Plain\n"
+	for _, eol := range []string{"\n", "\r\n"} {
+		document := sourceDocumentForScanner(strings.ReplaceAll(source, "\n", eol))
+		result, err := (KotlinAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+			t.Fatalf("annotation classes unexpectedly incomplete %q: %+v", eol, result.Analysis)
+		}
+		symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+		for name, native := range map[string]string{
+			"demo.JsonString": "annotation-class",
+			"demo.Marker":     "annotation-class",
+			"demo.Data":       "data-class",
+			"demo.Plain":      "class",
+		} {
+			sym, ok := symbols[name]
+			if !ok || sym.Kind != SymbolKindClass || sym.NativeKind != native || sym.ParentQualifiedName != "demo" {
+				t.Errorf("%q %s: %+v exists=%t, want native kind %s", eol, name, sym, ok, native)
+			}
+		}
+		if sym := symbols["demo.JsonString"]; sym.DeclarationRange.Start.Line != 2 || sym.NameRange.Start.Line != 2 {
+			t.Errorf("annotation name/source position changed: %+v", sym)
+		}
+	}
+}
+
 func TestKotlinImplicitCompanionObjectOwners(t *testing.T) {
 	source := "package demo\nclass Options {\n  companion object {\n    const val FLAG: Int = 7\n    fun of(): Options = Options()\n  }\n  fun instance() {}\n}\nclass Next {}\n"
 	for _, eol := range []string{"\n", "\r\n"} {

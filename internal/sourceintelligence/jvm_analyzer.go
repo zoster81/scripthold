@@ -350,7 +350,9 @@ func (parser *jvmParser) typeDeclarationAt(start, end int) (keyword, declaration
 				nativeKind = "companion-object"
 			}
 			if parser.kotlin && text == "class" {
-				if containsLower(prefixes, "value") {
+				if containsLower(prefixes, "annotation") {
+					nativeKind = "annotation-class"
+				} else if containsLower(prefixes, "value") {
 					nativeKind = "value-class"
 				} else if containsLower(prefixes, "data") {
 					nativeKind = "data-class"
