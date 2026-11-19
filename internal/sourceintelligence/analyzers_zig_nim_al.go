@@ -1210,6 +1210,13 @@ func (p *alParser) procedure(start, keyword, end int, parent *SymbolParent, memb
 			next = closeParen + 1
 		}
 	}
+	if next < end && p.tokens[next].Text == ";" {
+		after := nextStructuralToken(p.tokens, next+1, end)
+		if after < end && p.tokens[after].Nesting == p.tokens[keyword].Nesting &&
+			(strings.EqualFold(p.tokens[after].Text, "var") || strings.EqualFold(p.tokens[after].Text, "begin")) {
+			next++
+		}
+	}
 	kind := SymbolKindFunction
 	if members {
 		kind = SymbolKindMethod
