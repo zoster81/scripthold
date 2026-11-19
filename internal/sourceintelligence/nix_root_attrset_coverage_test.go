@@ -249,6 +249,141 @@ func TestNixOuterLetMissingInReportsIncompleteCoverage(t *testing.T) {
 
 // Existing direct Nix let bindings remain navigable, but unsupported inherit
 // clauses must not silently count toward complete source coverage.
+func TestNixDirectInheritCompactAndBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name, clause string
+		want         []string
+	}{
+		{"qualified", "inherit (lib) first second;", []string{"first", "second"}},
+		{"unqualified", "inherit first second;", []string{"first", "second"}},
+		{"too-many-names", "inherit" + strings.Repeat(" name", 65) + ";", nil},
+		{"too-many-lines", "inherit (lib)\n" + strings.Repeat("    name\n", 16) + "    ;", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := "let\n  " + tc.clause + "\n  selected = 1;\nin selected\n"
+			result, err := (NixAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("bounded.nix", input), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.NativeKind == "inherited-binding" {
+					got = append(got, symbol.Name)
+				}
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("bounded inherited names = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNixDirectInheritRejectsAmbiguousAndNestedClauses(t *testing.T) {
+	cases := []struct{ name, text string }{
+		{"adjoined-qualifier", "let\n  inherit (lib)fake;\n  selected = 1;\nin selected\n"},
+		{"malformed-source", "let\n  inherit (lib.${name}) fake;\n  selected = 1;\nin selected\n"},
+		{"missing-semicolon", "let\n  inherit (lib) fake\n  selected = 1;\nin selected\n"},
+		{"comment-on-name", "let\n  inherit (lib) fake # not a complete clause\n  ;\n  selected = 1;\nin selected\n"},
+		{"nested-attribute", "let\n  selected = {\n    inherit (lib) fake;\n  };\nin selected\n"},
+		{"nested-let", "let\n  selected = let\n    inherit (lib) fake;\n  in fake;\nin selected\n"},
+	}
+	for _, tc := range cases {
+		for _, ending := range []struct{ name, sep string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+			t.Run(tc.name+"-"+ending.name, func(t *testing.T) {
+				result, err := (NixAnalyzer{}).Analyze(context.Background(),
+					testSourceDocument("negative.nix", strings.ReplaceAll(tc.text, "\n", ending.sep)),
+					testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				names := sortedSymbolQualifiedNames(result.Analysis.Symbols)
+				if slices.Contains(names, "fake") || !slices.Contains(names, "selected") {
+					t.Errorf("unsafe inherited name or lost neighboring binding: %v", names)
+				}
+			})
+		}
+	}
+}
+
+func TestNixPinnedWholeFlakePartsInheritDeclarations(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_NIX_FLAKE_PARTS_ROOT")
+	if root == "" {
+		t.Skip("whole upstream Nix source not configured")
+	}
+	original, err := os.ReadFile(filepath.Join(root, "transposition.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(original) != 4588 {
+		t.Fatalf("whole original source length changed: %d", len(original))
+	}
+	result, err := (NixAnalyzer{}).Analyze(context.Background(),
+		testSourceDocument("transposition.nix", string(original)), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("whole original cannot claim complete Nix grammar: %+v", result.Analysis)
+	}
+	wants := map[string]int{"filterAttrs": 5, "mapAttrs": 6, "mkOption": 7, "types": 8, "escapeNixIdentifier": 11}
+	for name, line := range wants {
+		var found bool
+		for _, symbol := range result.Analysis.Symbols {
+			if symbol.Name == name && symbol.NameRange.Start.Line == line &&
+				symbol.Kind == SymbolKindVariable && symbol.NativeKind == "inherited-binding" &&
+				symbol.DeclarationRange.Start.Line == line {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("whole original missing inherited %s on line %d", name, line)
+		}
+	}
+}
+
+func TestNixSourceDerivedMultilineInheritNames(t *testing.T) {
+	const source = "let\n" +
+		"  inherit (lib)\n" +
+		"    filterAttrs\n" +
+		"    mapAttrs\n" +
+		"    mkOption\n" +
+		"    types\n" +
+		"    ;\n" +
+		"  inherit (lib.strings)\n" +
+		"    escapeNixIdentifier\n" +
+		"    ;\n" +
+		"  selected = filterAttrs;\n" +
+		"in selected\n"
+	want := map[string]int{"filterAttrs": 3, "mapAttrs": 4, "mkOption": 5, "types": 6, "escapeNixIdentifier": 9}
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (NixAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("transposition.nix", tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.CoverageComplete {
+				t.Error("unresolved Nix inherit expression and result must remain partial")
+			}
+			for name, line := range want {
+				found := false
+				for _, symbol := range result.Analysis.Symbols {
+					if symbol.Name == name && symbol.NameRange.Start.Line == line &&
+						symbol.Kind == SymbolKindVariable && symbol.NativeKind == "inherited-binding" {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("missing source-inherited %s on line %d", name, line)
+				}
+			}
+		})
+	}
+}
+
 func TestNixOuterLetInheritCannotClaimCompleteCoverage(t *testing.T) {
 	const original = "let\n" +
 		"  inherit (lib)\n" +
@@ -291,7 +426,7 @@ func TestNixOuterLetInheritCannotClaimCompleteCoverage(t *testing.T) {
 			if result.Analysis.CoverageComplete || result.Analysis.Truncated {
 				t.Fatalf("unindexed let inherit falsely reported complete: %+v", result.Analysis)
 			}
-			if !slices.Equal(sortedSymbolQualifiedNames(result.Analysis.Symbols), []string{"selected"}) {
+			if !slices.Equal(sortedSymbolQualifiedNames(result.Analysis.Symbols), []string{"escapeNixIdentifier", "filterAttrs", "mapAttrs", "mkOption", "selected", "types"}) {
 				t.Fatalf("Nix inherit fabricated names or direct binding lost: %+v", result.Analysis.Symbols)
 			}
 			found := false

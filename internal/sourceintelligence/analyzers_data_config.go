@@ -958,6 +958,92 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 }
 
 var nixBinding = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_'-]*)[ \t]*=`)
+var nixInheritQualifier = regexp.MustCompile(`^\([A-Za-z_][A-Za-z0-9_'-]*(?:\.[A-Za-z_][A-Za-z0-9_'-]*)*\)`)
+
+type nixInheritedName struct {
+	name       string
+	start, end int
+}
+
+// scanNixDirectInherit recognizes only a complete, bounded lexical clause.
+// Ambiguous expressions, comments, or missing terminators yield no symbols.
+func scanNixDirectInherit(lines []sourceTextLine, index int) []nixInheritedName {
+	if index < 0 || index >= len(lines) {
+		return nil
+	}
+	header := lines[index]
+	prefix := strings.Index(header.text, "inherit")
+	if prefix < 0 {
+		return nil
+	}
+	cursor := prefix + len("inherit")
+	if cursor >= len(header.text) || (header.text[cursor] != ' ' && header.text[cursor] != '\t') {
+		return nil
+	}
+	skipSpace := func(s string, pos int) int {
+		for pos < len(s) && (s[pos] == ' ' || s[pos] == '\t') {
+			pos++
+		}
+		return pos
+	}
+	cursor = skipSpace(header.text, cursor)
+	if cursor < len(header.text) && header.text[cursor] == '(' {
+		qualifier := nixInheritQualifier.FindString(header.text[cursor:])
+		if qualifier == "" {
+			return nil
+		}
+		cursor += len(qualifier)
+		if cursor < len(header.text) && header.text[cursor] != ' ' && header.text[cursor] != '\t' && header.text[cursor] != ';' {
+			return nil
+		}
+	}
+	var names []nixInheritedName
+	for current := index; current < len(lines) && current-index < 16; current++ {
+		line := lines[current]
+		if line.end-header.start > 4096 ||
+			(current > index && line.indent <= header.indent && strings.TrimSpace(line.text) != "") {
+			return nil
+		}
+		position := 0
+		if current == index {
+			position = cursor
+		}
+		for position < len(line.text) {
+			position = skipSpace(line.text, position)
+			if position == len(line.text) {
+				break
+			}
+			if line.text[position] == ';' {
+				if len(names) == 0 || strings.TrimSpace(line.text[position+1:]) != "" {
+					return nil
+				}
+				return names
+			}
+			start := position
+			ch := line.text[position]
+			if ch != '_' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') {
+				return nil
+			}
+			position++
+			for position < len(line.text) {
+				ch = line.text[position]
+				if ch != '_' && ch != '-' && ch != '\'' &&
+					(ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
+					break
+				}
+				position++
+			}
+			if position < len(line.text) && line.text[position] != ' ' && line.text[position] != '\t' && line.text[position] != ';' {
+				return nil
+			}
+			names = append(names, nixInheritedName{line.text[start:position], line.start + start, line.start + position})
+			if len(names) > 64 {
+				return nil
+			}
+		}
+	}
+	return nil
+}
 
 func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "nix", AnalyzerNix)
@@ -975,7 +1061,8 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		[]string{"#"}, "/*", "*/")
 	braceLines := sourceTextLines(braces)
 	braceDepth := 0
-	for index, line := range sourceTextLines(source) {
+	lines := sourceTextLines(source)
+	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
@@ -1019,14 +1106,21 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if !inLet {
 			continue
 		}
-		// Inherited names are declarations, but this bounded index currently
-		// handles only explicit name = bindings. Nested inherit also limits coverage.
-		if !inheritReported &&
-			(trimmed == "inherit" || strings.HasPrefix(trimmed, "inherit ") ||
-				strings.HasPrefix(trimmed, "inherit\t") || strings.HasPrefix(trimmed, "inherit(")) {
-			addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-inherit",
-				"Nix inherit declarations inside let expressions require direct source inspection", line.start, line.end)
-			inheritReported = true
+		// Index only complete direct inherited-name clauses; resolution of the
+		// source expression and nested inherited ownership remain unsupported.
+		if trimmed == "inherit" || strings.HasPrefix(trimmed, "inherit ") ||
+			strings.HasPrefix(trimmed, "inherit\t") || strings.HasPrefix(trimmed, "inherit(") {
+			if !inheritReported {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-inherit",
+					"Nix inherited sources and complex clauses require direct source inspection", line.start, line.end)
+				inheritReported = true
+			}
+			if lineDepth == letBraceDepth && (bindingIndent < 0 || line.indent == bindingIndent) {
+				for _, name := range scanNixDirectInherit(lines, index) {
+					span := OffsetRange{Start: name.start, End: name.end}
+					addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "inherited-binding", name.name, nil, span, span)
+				}
+			}
 			continue
 		}
 		match := nixBinding.FindStringSubmatchIndex(trimmed)
