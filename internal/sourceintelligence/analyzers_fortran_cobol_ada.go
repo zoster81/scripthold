@@ -1343,8 +1343,23 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			if !ok {
 				continue
 			}
+			declarationEnd := line.EndOffset
+			if adaPackageIsNew(line.Tokens, nameEnd) {
+				if end, complete := adaPackageInstantiationEnd(lines, lineIndex); complete {
+					declarationEnd = end
+				} else {
+					builder.MarkIncomplete()
+					_ = builder.AddDiagnostic(DiagnosticSpec{
+						Code:            "ada-unclosed-package-instantiation",
+						Message:         "Ada package instantiation has no bounded, unambiguous terminating semicolon",
+						Severity:        DiagnosticWarning,
+						Range:           &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+						AffectsCoverage: true,
+					})
+				}
+			}
 			symbol, added := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: name, Parent: parent,
-				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				Declaration: OffsetRange{Start: line.StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: declarationEnd}, Evidence: SymbolEvidenceStructural})
 			if added && adaPackageOpensScope(line.Tokens, nameEnd-1, adaNextTokens(lines, lineIndex+1)) {
 				scopes = append(scopes, structuralAnalyzerScope{label: "package", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 				lexical = append(lexical, adaLexicalFrame{})
@@ -1522,6 +1537,54 @@ func adaNextTokens(lines []LogicalLine, start int) []Token {
 		}
 	}
 	return nil
+}
+
+// adaPackageIsNew limits full-span recovery to source-authored package
+// instantiations, leaving package specifications and bodies untouched.
+func adaPackageIsNew(tokens []Token, nameEnd int) bool {
+	end := logicalLineTokenEnd(tokens)
+	for i := nameEnd; i+1 < end; i++ {
+		if tokens[i].Nesting == 0 && strings.EqualFold(tokens[i].Text, "is") &&
+			strings.EqualFold(tokens[i+1].Text, "new") {
+			return true
+		}
+	}
+	return false
+}
+
+// adaPackageInstantiationEnd uses scanner-owned tokens so quoted or commented
+// semicolons cannot terminate an Ada declaration. The scan is bounded and
+// never consumes a subsequent statement after a malformed instantiation.
+func adaPackageInstantiationEnd(lines []LogicalLine, start int) (int, bool) {
+	const maxBytes = 64 << 10
+	const maxLines = 1024
+	if start < 0 || start >= len(lines) {
+		return 0, false
+	}
+	base := lines[start].StartOffset
+	for i := start; i < len(lines) && i-start < maxLines; i++ {
+		line := lines[i]
+		if line.EndOffset-base > maxBytes {
+			return 0, false
+		}
+		end := logicalLineTokenEnd(line.Tokens)
+		if end == 0 {
+			continue
+		}
+		if i > start && line.Tokens[0].Nesting == 0 {
+			switch strings.ToLower(line.Tokens[0].Text) {
+			case "begin", "end", "package", "procedure", "function", "type",
+				"subtype", "task", "protected", "generic", "with":
+				return 0, false
+			}
+		}
+		for _, token := range line.Tokens[:end] {
+			if token.Text == ";" && token.Nesting == 0 {
+				return token.EndOffset, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func adaPackageOpensScope(tokens []Token, nameIndex int, nextTokens []Token) bool {
