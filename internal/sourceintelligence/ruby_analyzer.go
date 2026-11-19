@@ -356,9 +356,9 @@ type rubyScope struct {
 	visibility Visibility
 }
 
-// Only spans with an unambiguous, unnested end may supply Ruby method bodies.
-// A conservative second pass avoids fabricating implementation ranges for DSLs,
-// nested control flow, inline Ruby expressions, or malformed scoped text.
+// Only spans with a provably paired end may supply Ruby method bodies.
+// The conservative second pass supports bounded if/unless/do nesting, but
+// avoids fabricating ranges for other control forms, DSLs, or inline ends.
 type rubySimpleMethodBody struct{ end int }
 
 func rubySimpleMethodBodies(lines []LogicalLine, maxNesting int) map[int]rubySimpleMethodBody {
@@ -404,13 +404,30 @@ func rubySimpleMethodBodies(lines []LogicalLine, maxNesting int) map[int]rubySim
 				}
 			}
 		}
-		opens := (method && !rubyEndlessMethod(tokens)) || first == "class" || first == "module" || rubyStartsAnonymousBlock(tokens)
+		block := rubyStartsAnonymousBlock(tokens)
+		opens := (method && !rubyEndlessMethod(tokens)) || first == "class" || first == "module" || block
 		if opens {
 			if len(scopes) >= maxNesting {
 				return nil
 			}
-			if n := len(scopes); n > 0 && scopes[n-1].method {
-				scopes[n-1].safe = false
+			// Balanced conditional and do blocks may occur inside a method.
+			// Keep its body inferable only for this small, explicit subset;
+			// other scopes (including nested definitions) remain conservative.
+			provenBlock := (first == "if" || first == "unless") && block
+			if !provenBlock && block {
+				for _, token := range tokens {
+					if strings.EqualFold(token.Text, "do") && token.Kind == TokenKeyword {
+						provenBlock = true
+						break
+					}
+				}
+			}
+			if !provenBlock {
+				for i := range scopes {
+					if scopes[i].method {
+						scopes[i].safe = false
+					}
+				}
 			}
 			next := scope{method: method, start: line.StartOffset, safe: method}
 			if method {

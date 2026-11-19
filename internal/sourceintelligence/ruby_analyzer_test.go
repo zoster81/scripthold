@@ -292,7 +292,7 @@ func TestRubyAnalyzerInlineMethodVisibilityPreservesEnclosingScope(t *testing.T)
 	}
 }
 
-func TestRubyAnalyzerSimpleMethodBodiesAreExactAndNestedBodiesStayConservative(t *testing.T) {
+func TestRubyAnalyzerSimpleAndBalancedConditionalMethodBodiesAreExact(t *testing.T) {
 	source := "module Demo\n  class Service\n    def simple(value)\n      value * 2\n    end\n    def nested(flag)\n      if flag\n        :yes\n      end\n    end\n    def after\n      :ok\n    end\n  end\nend\n"
 	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
 	if err != nil {
@@ -318,8 +318,8 @@ func TestRubyAnalyzerSimpleMethodBodiesAreExactAndNestedBodiesStayConservative(t
 			t.Errorf("%s wrong declaration/body offsets: declaration=%+v body=%+v", name, declaration, body)
 		}
 	}
-	if nested := symbols["Demo.Service.nested"]; nested.BodyRange != nil {
-		t.Fatalf("unverified nested control flow must not claim complete body: %+v", nested)
+	if nested := symbols["Demo.Service.nested"]; nested.BodyRange == nil || nested.DeclarationRange.End.Line != 10 {
+		t.Fatalf("balanced nested conditional must preserve method's closing end: %+v", nested)
 	}
 }
 
