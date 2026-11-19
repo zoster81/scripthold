@@ -462,11 +462,36 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	classifyCPPCLISimpleProperties(document.Text, source.Analysis.Symbols)
 	analysis, err := reprojectAnalyzerSymbols(ctx, document, source, options, "cpp-cli", AnalyzerCPPCLI, "", 0, nil)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
+}
+
+// The shared C++ parser recognizes a simple managed property as a field.
+// Reclassify only an authored property-prefixed field; compound properties
+// and their accessor ownership remain outside this narrow adapter change.
+func classifyCPPCLISimpleProperties(text string, symbols []NormalizedSymbol) {
+	for index := range symbols {
+		symbol := &symbols[index]
+		if symbol.Kind != SymbolKindField {
+			continue
+		}
+		declaration, _, _, _ := symbol.SourceOffsets()
+		if declaration.Start < 0 || declaration.End > len(text) || declaration.Start >= declaration.End {
+			continue
+		}
+		spelling := strings.TrimLeft(text[declaration.Start:declaration.End], " \t\r\n")
+		if len(spelling) <= len("property") || !strings.HasPrefix(spelling, "property") ||
+			(spelling[len("property")] != ' ' && spelling[len("property")] != '\t') ||
+			!strings.HasSuffix(strings.TrimSpace(spelling), ";") {
+			continue
+		}
+		symbol.Kind = SymbolKindProperty
+		symbol.NativeKind = "simple-property"
+	}
 }
 
 var (

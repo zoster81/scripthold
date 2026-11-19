@@ -60,6 +60,88 @@ func TestCPPCLIPinnedWholeOriginalPropertyDeclarationStarts(t *testing.T) {
 	}
 }
 
+func TestCPPCLISimpleManagedPropertyKind(t *testing.T) {
+	const sample = "namespace N {\nref class Holder {\nproperty int Count;\nint Field;\nint propertyCount;\n};\n}\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", sample},
+		{"CRLF", strings.ReplaceAll(sample, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPCLIAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("Holder.h", tc.source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("simple managed property analysis incomplete: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			prop, ok := symbols["N.Holder.Count"]
+			if !ok || prop.Kind != SymbolKindProperty || prop.NativeKind != "simple-property" ||
+				prop.ParentQualifiedName != "N.Holder" || prop.NameRange.Start.Line != 3 ||
+				prop.DeclarationRange.Start.Line != 3 {
+				t.Errorf("simple managed property: %+v exists=%v", prop, ok)
+			}
+			for _, name := range []string{"Field", "propertyCount"} {
+				field, exists := symbols["N.Holder."+name]
+				if !exists || field.Kind != SymbolKindField || field.NativeKind != "field" {
+					t.Errorf("normal class member %s changed: %+v", name, field)
+				}
+			}
+		})
+	}
+}
+
+func TestCPPCLIPinnedWholeOriginalSimplePropertyKinds(t *testing.T) {
+	root := os.Getenv("R30_WORKSPACE")
+	if root == "" {
+		t.Skip("complete pinned originals not configured")
+	}
+	for _, tc := range []struct {
+		name          string
+		path          string
+		count         int
+		propertyLines map[string]int
+	}{
+		{"libyara", filepath.Join("source-intelligence-corpus", "cppcli-libyara-cpp-cli-selected", "files", "cpp-cli", "Meta.h"),
+			6, map[string]int{"libyaraNET.Meta.Identifier": 12, "libyaraNET.Meta.Value": 13}},
+		{"physx", filepath.Join("source-intelligence-corpus", "cppcli92-physx-selected", "files", "cpp-cli", "Actor.h"),
+			29, map[string]int{"PhysX.Actor.UserData": 117, "PhysX.Actor.UnmanagedOwner": 127}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join(root, tc.path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := (CPPCLIAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("whole.h", string(source)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated ||
+				len(result.Analysis.Symbols) != tc.count {
+				t.Fatalf("original symbols count=%d expected %d complete=%v",
+					len(result.Analysis.Symbols), tc.count, result.Analysis.CoverageComplete)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range tc.propertyLines {
+				s, exists := symbols[name]
+				if !exists || s.Kind != SymbolKindProperty || s.NativeKind != "simple-property" ||
+					s.NameRange.Start.Line != line || s.DeclarationRange.Start.Line != line {
+					t.Errorf("source-authored simple property %s: %+v exists=%v", name, s, exists)
+				}
+			}
+			for name, s := range symbols {
+				if strings.HasSuffix(name, ".get") || strings.HasSuffix(name, ".set") {
+					if s.Kind != SymbolKindMethod {
+						t.Errorf("accessor changed: %+v", s)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestCPPCLIBlockPropertyMaskIsLexicalAndBounded(t *testing.T) {
 	tests := []struct {
 		name, source      string
