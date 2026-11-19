@@ -679,10 +679,35 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		addDocumentDataHardwareSymbol(builder, SymbolKindSection, "directive", name, nil,
 			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
 	}
+	// Extend only provably complete top-level directly braced operation
+	// selections. Headers with variables/directives stay navigable without
+	// claiming to understand their full syntax or evaluation semantics.
+	depth, scanned = 0, 0
 	for _, match := range graphqlOperation.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		for ; scanned < match[0]; scanned++ {
+			switch source[scanned] {
+			case '{':
+				depth++
+			case '}':
+				if depth > 0 {
+					depth--
+				}
+			}
+		}
 		word := strings.ToLower(document.Text[match[2]:match[3]])
 		name := document.Text[match[4]:match[5]]
-		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, word, name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[4], End: match[5]})
+		declarationEnd := match[1]
+		if depth == 0 {
+			if end, ok := graphqlSimpleNamedOperationEnd(source, match[0], match[1]); ok {
+				declarationEnd = end
+			}
+		}
+		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, word, name, nil,
+			OffsetRange{Start: match[0], End: declarationEnd},
+			OffsetRange{Start: match[4], End: match[5]})
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
