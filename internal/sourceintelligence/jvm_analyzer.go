@@ -1331,6 +1331,49 @@ func (parser *jvmParser) kotlinPropertyWithModifiers(start, end int) bool {
 	return false
 }
 
+// kotlinNextLineCallInitializer recognizes a single, bounded, fully paired
+// constructor/function call after an otherwise empty property '=' line.
+// Ambiguous expression chains remain header-only rather than swallowing a
+// subsequent declaration or an unbounded source tail.
+func (parser *jvmParser) kotlinNextLineCallInitializer(propertyStart, equals, newline, end int) (int, int, bool) {
+	source := parser.document.Text
+	if strings.TrimSpace(source[parser.tokens[equals].EndOffset:parser.tokens[newline].StartOffset]) != "" {
+		return 0, 0, false
+	}
+	depth := parser.tokens[propertyStart].Nesting
+	first := nextStructuralToken(parser.tokens, newline+1, end)
+	if first >= end || parser.tokens[first].Kind != TokenIdentifier || parser.tokens[first].Nesting != depth ||
+		kotlinSourceIndent(source, parser.tokens[first].StartOffset) <= kotlinSourceIndent(source, parser.tokens[propertyStart].StartOffset) {
+		return 0, 0, false
+	}
+	open := nextStructuralToken(parser.tokens, first+1, end)
+	if open >= end || !parser.token(open, "(") ||
+		strings.TrimSpace(source[parser.tokens[first].EndOffset:parser.tokens[open].StartOffset]) != "" {
+		return 0, 0, false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end || parser.tokens[close].EndOffset-parser.tokens[equals].EndOffset > 16384 ||
+		strings.Count(source[parser.tokens[equals].EndOffset:parser.tokens[close].EndOffset], "\n") > 96 {
+		return 0, 0, false
+	}
+	lineEnd := len(source)
+	if offset := strings.IndexByte(source[parser.tokens[close].EndOffset:], '\n'); offset >= 0 {
+		lineEnd = parser.tokens[close].EndOffset + offset
+	}
+	if strings.TrimSpace(source[parser.tokens[close].EndOffset:lineEnd]) != "" {
+		return 0, 0, false
+	}
+	following := nextStructuralToken(parser.tokens, close+1, end)
+	if following < end && parser.tokens[following].Nesting == depth &&
+		kotlinSourceIndent(source, parser.tokens[following].StartOffset) > kotlinSourceIndent(source, parser.tokens[propertyStart].StartOffset) {
+		switch parser.tokens[following].Text {
+		case ".", "?.", "?:", "!!", "::", "(", "[":
+			return 0, 0, false
+		}
+	}
+	return parser.tokens[close].EndOffset, close + 1, true
+}
+
 func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParent) int {
 	marker := start
 	for marker < end && !parser.token(marker, "val") && !parser.token(marker, "var") {
@@ -1375,6 +1418,11 @@ func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParen
 	declarationEnd := parser.tokens[last].EndOffset
 	next := terminator + 1
 	if terminator < end && parser.tokens[terminator].Kind == TokenNewline {
+		if parser.token(last, "=") {
+			if initializerEnd, after, ok := parser.kotlinNextLineCallInitializer(start, last, terminator, end); ok {
+				declarationEnd, next = initializerEnd, after
+			}
+		}
 		var seenGet, seenSet bool
 		for count := 0; count < 2; count++ {
 			following := nextStructuralToken(parser.tokens, next, end)
