@@ -380,7 +380,9 @@ func (p *objectiveCParser) method(line LogicalLine) {
 			break
 		}
 	}
-	if returnOpen < 0 {
+	// A typed method begins with an immediate parenthesized return type.
+	// Later parentheses may belong to arguments of an unsupported untyped selector.
+	if returnOpen != 1 {
 		return
 	}
 	returnClose := -1
