@@ -580,7 +580,7 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 		}
 		first = strings.ToLower(tokens[semantic].Text)
 		if first == "declare" {
-			p.parseDeclare(line, currentParent)
+			p.parseDeclare(line, currentParent, scopeKind)
 			i++
 			continue
 		}
@@ -769,7 +769,7 @@ func (p *basicParser) parseDeclareLibraryPrototypes(start, end int, parent *Symb
 	}
 }
 
-func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent) {
+func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent, scopeKind string) {
 	if len(line.tokens) < 3 {
 		return
 	}
@@ -797,7 +797,11 @@ func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent) {
 	if k != "sub" && k != "function" {
 		return
 	}
-	p.addNamed(line, kindIndex+1, SymbolKindFunction, "declare-"+k, parent)
+	kind := SymbolKindFunction
+	if p.policy.freeBasic && basicFieldScope(scopeKind) {
+		kind = SymbolKindMethod
+	}
+	p.addNamed(line, kindIndex+1, kind, "declare-"+k, parent)
 }
 func (p *basicParser) parseDef(line basicLine, parent *SymbolParent) {
 	if len(line.tokens) < 2 {

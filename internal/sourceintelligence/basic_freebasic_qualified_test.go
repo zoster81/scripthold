@@ -32,7 +32,7 @@ func TestFreeBasicQualifiedMethodNamesAndPropertyPrototypes(t *testing.T) {
 	want := []expected{
 		{"Value", "JsonItem.Value", SymbolKindProperty, 2},
 		{"Value", "JsonItem.Value", SymbolKindProperty, 3},
-		{"AddItem", "JsonItem.AddItem", SymbolKindFunction, 4},
+		{"AddItem", "JsonItem.AddItem", SymbolKindMethod, 4},
 		{"Value", "JsonItem.Value", SymbolKindProperty, 6},
 		{"AddItem", "JsonItem.AddItem", SymbolKindFunction, 11},
 	}
