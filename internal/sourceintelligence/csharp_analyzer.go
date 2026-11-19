@@ -292,10 +292,69 @@ func (parser *csharpParser) parseType(start, keyword, end int, parent *SymbolPar
 	}
 	if closeIndex > terminator {
 		typeParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-		parser.parseScope(terminator+1, closeIndex, typeParent, true, symbol.Name)
+		if nativeKind == "enum" {
+			parser.parseEnumMembers(terminator+1, closeIndex, parser.tokens[terminator].Nesting, typeParent)
+		} else {
+			parser.parseScope(terminator+1, closeIndex, typeParent, true, symbol.Name)
+		}
 		return closeIndex + 1
 	}
 	return terminator + 1
+}
+
+// parseEnumMembers isolates enum value declarations from ordinary class members.
+// Commas inside expressions or attribute arguments are not declaration boundaries.
+func (parser *csharpParser) parseEnumMembers(start, end, depth int, parent *SymbolParent) {
+	for index := start; index < end && !parser.stopped; {
+		if parser.ctx.Err() != nil {
+			return
+		}
+		index = parser.nextUseful(index, end)
+		if index >= end {
+			return
+		}
+		if parser.tokenEqual(index, ",") {
+			index++
+			continue
+		}
+		nameIndex, ok := parser.skipAttributeLists(index, end)
+		if !ok {
+			return
+		}
+		nameIndex = parser.nextUseful(nameIndex, end)
+		if nameIndex >= end {
+			return
+		}
+		nameToken := parser.tokens[nameIndex]
+		if nameToken.Kind != TokenIdentifier {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		delimiter := end
+		for cursor := nameIndex + 1; cursor < end; cursor++ {
+			if parser.tokens[cursor].Text == "," && parser.tokens[cursor].Nesting == depth {
+				delimiter = cursor
+				break
+			}
+		}
+		endIndex := previousStructuralToken(parser.tokens, delimiter-1, nameIndex)
+		if endIndex < nameIndex {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		if next := parser.nextUseful(nameIndex+1, delimiter); next < delimiter && !parser.tokenEqual(next, "=") {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		parser.addDiscard(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-value", Name: nameToken.Text, Parent: parent,
+			Declaration: OffsetRange{Start: parser.tokens[index].StartOffset, End: parser.tokens[endIndex].EndOffset},
+			NameRange:   OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset},
+			Signature:   &OffsetRange{Start: nameToken.StartOffset, End: parser.tokens[endIndex].EndOffset},
+			Evidence:    SymbolEvidenceStructural,
+		})
+		index = delimiter + 1
+	}
 }
 
 func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ownerName string) int {

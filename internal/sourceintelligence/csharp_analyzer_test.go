@@ -385,6 +385,53 @@ func TestCSharpOriginalDapperQueryAsyncOverloads(t *testing.T) {
 	}
 }
 
+func TestCSharpEnumValueDeclarationsAndBoundary(t *testing.T) {
+	const src = "namespace Demo;\n[Flags]\npublic enum State : byte {\n    Ready,\n    [Obsolete(\"old, ignored\")] Done = 2,\n    More = (1 << 2),\n}\npublic enum Empty {}\nclass After { const int Good = 3; }\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", src}, {"CRLF", strings.ReplaceAll(src, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("enum scan partial: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range map[string]int{
+				"Demo.State.Ready": 4, "Demo.State.Done": 5, "Demo.State.More": 6,
+			} {
+				s, ok := symbols[name]
+				if !ok || s.Kind != SymbolKindConstant || s.NativeKind != "enum-value" ||
+					s.ParentQualifiedName != "Demo.State" || s.NameRange.Start.Line != line ||
+					s.DeclarationRange.End.Line != line {
+					t.Errorf("enum value %s: %+v exists=%t", name, s, ok)
+				}
+			}
+			for name, kind := range map[string]SymbolKind{
+				"Demo": SymbolKindNamespace, "Demo.State": SymbolKindEnum,
+				"Demo.Empty": SymbolKindEnum, "Demo.After": SymbolKindClass,
+				"Demo.After.Good": SymbolKindConstant,
+			} {
+				s, ok := symbols[name]
+				if !ok || s.Kind != kind {
+					t.Errorf("sibling %s: %+v exists=%t", name, s, ok)
+				}
+			}
+			if len(symbols) != 8 {
+				t.Fatalf("unexpected extra/missing enum symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			for _, bogus := range []string{"Demo.State.Obsolete", "Demo.State.Flags", "Demo.State.byte", "Demo.After.Ready"} {
+				if _, ok := symbols[bogus]; ok {
+					t.Fatalf("false-positive enum declaration %s", bogus)
+				}
+			}
+		})
+	}
+}
+
 func TestCSharpAnalyzerModernDeclarationsAndFalsePositiveResistance(t *testing.T) {
 	text := `using System;
 using IO = System.IO;

@@ -29,8 +29,8 @@ func TestCSharpPinnedWholeSerilogDottedNamespaceNameRange(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Symbols) != 2 {
-				t.Fatalf("complete original 2 supported namespace/enum symbols expected: count=%d complete=%v truncated=%v",
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated || len(result.Analysis.Symbols) != 8 {
+				t.Fatalf("complete original namespace/enum and six enum-value symbols expected: count=%d complete=%v truncated=%v",
 					len(result.Analysis.Symbols), result.Analysis.CoverageComplete, result.Analysis.Truncated)
 			}
 			found := symbolsByQualifiedName(result.Analysis.Symbols)
@@ -44,6 +44,17 @@ func TestCSharpPinnedWholeSerilogDottedNamespaceNameRange(t *testing.T) {
 			if !ok || enum.Kind != SymbolKindEnum || enum.NameRange.Start.Line != 20 ||
 				enum.ParentQualifiedName != "Serilog.Events" {
 				t.Errorf("following genuine enum owner and source line wrong: %+v exists=%v", enum, ok)
+			}
+			for name, line := range map[string]int{
+				"Verbose": 26, "Debug": 32, "Information": 38,
+				"Warning": 43, "Error": 49, "Fatal": 55,
+			} {
+				symbol, present := found["Serilog.Events.LogEventLevel."+name]
+				if !present || symbol.Kind != SymbolKindConstant || symbol.NativeKind != "enum-value" ||
+					symbol.ParentQualifiedName != "Serilog.Events.LogEventLevel" || symbol.NameRange.Start.Line != line ||
+					symbol.ParentID != enum.ID {
+					t.Errorf("original enum member %s line %d: %+v exists=%v", name, line, symbol, present)
+				}
 			}
 		})
 	}
