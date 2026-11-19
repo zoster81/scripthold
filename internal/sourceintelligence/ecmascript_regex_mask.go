@@ -228,6 +228,10 @@ func (masker *ecmaRegexMasker) maskRange(start, end int) {
 			masker.masked[at] = ' '
 		}
 	}
+	// Retain one inert expression token ending at the original literal end.
+	// A fully blank mask makes `var pattern = /.../` look unfinished at ASI;
+	// anchoring the token at the end also preserves declaration end offsets.
+	masker.masked[end-1] = '0'
 	masker.changed = true
 }
 
