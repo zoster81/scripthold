@@ -617,6 +617,40 @@ protected void Page_Load(object sender, EventArgs e) { }
 	}
 }
 
+func TestVB6MetadataModuleNameRangeUsesAuthoredValue(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, module string
+		line                int
+	}{
+		{"simple-lf", "Attribute VB_Name = \"PingMod\"\nPublic Sub Run()\nEnd Sub\n", "PingMod", 1},
+		{"designer-crlf", "VERSION 5.00\r\nBegin VB.Form Form1\r\nEnd\r\nAttribute VB_Name = \"Form1\"\r\nPrivate Sub Form_Load()\r\nEnd Sub\r\n", "Form1", 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (VB6Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.input), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Fatalf("unexpected partial coverage: %+v", result.Analysis)
+			}
+			found := false
+			for _, s := range result.Analysis.Symbols {
+				if s.Kind != SymbolKindModule {
+					continue
+				}
+				found = true
+				if s.Name != tc.module || s.NameRange.Start.Line != tc.line || s.NameRange.End.Line != tc.line ||
+					s.NameRange.Start.Column != 22 || s.NameRange.End.Column != 22+len(tc.module) {
+					t.Errorf("expected authored metadata module %q at %d:22..%d, got %+v", tc.module, tc.line, 22+len(tc.module), s)
+				}
+			}
+			if !found {
+				t.Fatalf("missing VB6 metadata module: %+v", result.Analysis.Symbols)
+			}
+		})
+	}
+}
+
 func TestBasicDialectsRemainCaseInsensitive(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

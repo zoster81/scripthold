@@ -560,7 +560,7 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 		if p.policy.metadataModule && first == "attribute" && len(tokens) >= 4 && strings.EqualFold(tokens[1].Text, "VB_Name") && tokens[2].Text == "=" && tokens[3].Kind == TokenString {
 			name := basicStringValue(tokens[3].Text)
 			if name != "" {
-				if symbol, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "vb-module", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tokens[1].StartOffset, End: tokens[1].EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
+				if symbol, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "vb-module", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tokens[3].StartOffset + 1, End: tokens[3].EndOffset - 1}, Evidence: SymbolEvidenceStructural}); ok {
 					v := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 					p.module = &v
 					currentParent = &v
