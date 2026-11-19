@@ -29,8 +29,8 @@ func TestCPPCLIPinnedWholeOriginalFinalizerIsNotConstructor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != 29 {
-				t.Fatalf("whole original 29 supported emitted declarations, got %d complete=%v", len(result.Analysis.Symbols), result.Analysis.CoverageComplete)
+			if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != 38 {
+				t.Fatalf("whole original 38 supported declarations including managed block properties, got %d complete=%v", len(result.Analysis.Symbols), result.Analysis.CoverageComplete)
 			}
 			var finalized, constructed, destructed int
 			for _, s := range result.Analysis.Symbols {

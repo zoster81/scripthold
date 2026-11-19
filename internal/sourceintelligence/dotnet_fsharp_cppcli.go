@@ -463,6 +463,7 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		return AnalyzerResult{}, err
 	}
 	classifyCPPCLISimpleProperties(document.Text, source.Analysis.Symbols)
+	classifyCPPCLIBlockProperties(document.Text, source.Analysis.Symbols)
 	analysis, err := reprojectAnalyzerSymbols(ctx, document, source, options, "cpp-cli", AnalyzerCPPCLI, "", 0, nil)
 	if err != nil {
 		return AnalyzerResult{}, err
@@ -491,6 +492,27 @@ func classifyCPPCLISimpleProperties(text string, symbols []NormalizedSymbol) {
 		}
 		symbol.Kind = SymbolKindProperty
 		symbol.NativeKind = "simple-property"
+	}
+}
+
+// The shared parser sees paired block properties as lexical struct surrogates.
+// Restore authored property semantics without changing their source ranges.
+func classifyCPPCLIBlockProperties(text string, symbols []NormalizedSymbol) {
+	for index := range symbols {
+		symbol := &symbols[index]
+		if symbol.Kind != SymbolKindStruct {
+			continue
+		}
+		declaration, _, _, _ := symbol.SourceOffsets()
+		if declaration.Start < 0 || declaration.End > len(text) || declaration.Start >= declaration.End {
+			continue
+		}
+		spelling := strings.TrimLeft(text[declaration.Start:declaration.End], " \t\r\n")
+		if !strings.HasPrefix(spelling, "property ") && !strings.HasPrefix(spelling, "property\t") {
+			continue
+		}
+		symbol.Kind = SymbolKindProperty
+		symbol.NativeKind = "block-property"
 	}
 }
 
@@ -550,10 +572,9 @@ func maskCPPCLIModifiers(text string) string {
 	return string(result)
 }
 
-// A managed property block is not itself a C++ lexical scope. Keep the real
-// get/set declarations, but hide only its header and matching braces so the
-// shared C++ parser cannot attach those delimiters to adjacent declarations.
-// The bounded scanner/pairing avoids interpreting braces in strings or comments.
+// Rewrite paired managed property headers into same-offset struct surrogates.
+// The shared C++ parser then retains get/set ownership and body ranges, while
+// the bounded scanner/pairing ignores braces in strings and comments.
 func maskCPPCLIBlockPropertyDelimiters(ctx context.Context, document *SourceDocument, text string, maxNesting int) (string, error) {
 	if !strings.Contains(text, "property") {
 		return text, nil
@@ -602,8 +623,29 @@ func maskCPPCLIBlockPropertyDelimiters(ctx context.Context, document *SourceDocu
 			}
 			if candidate.Nesting == depth+1 {
 				if close, ok := pairs[next]; ok && close > next {
-					maskRangePreservingLines(result, token.StartOffset, candidate.EndOffset)
-					maskRangePreservingLines(result, scan.Tokens[close].StartOffset, scan.Tokens[close].EndOffset)
+					nameIndex := -1
+					for at := index + 1; at < next; at++ {
+						if scan.Tokens[at].Kind == TokenIdentifier && scan.Tokens[at].Nesting == depth {
+							nameIndex = at
+						}
+					}
+					validName := nameIndex > index+1 &&
+						scan.Tokens[nameIndex].StartOffset-token.StartOffset >= len("struct ") &&
+						previousStructuralToken(scan.Tokens, next-1, index+1) == nameIndex
+					beforeName := previousStructuralToken(scan.Tokens, nameIndex-1, index+1)
+					if validName && beforeName >= index+1 &&
+						(scan.Tokens[beforeName].Text == ":" || scan.Tokens[beforeName].Text == ".") {
+						validName = false
+					}
+					if validName {
+						maskRangePreservingLines(result, token.StartOffset, scan.Tokens[nameIndex].StartOffset)
+						copy(result[token.StartOffset:], "struct")
+					} else {
+						// Preserve the previous conservative mask for ambiguous or
+						// malformed property headers; do not fabricate an owner.
+						maskRangePreservingLines(result, token.StartOffset, candidate.EndOffset)
+						maskRangePreservingLines(result, scan.Tokens[close].StartOffset, scan.Tokens[close].EndOffset)
+					}
 				}
 			}
 			break

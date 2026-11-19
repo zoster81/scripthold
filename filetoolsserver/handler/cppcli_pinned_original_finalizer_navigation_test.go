@@ -19,7 +19,7 @@ func TestCPPCLIPinnedWholeOriginalFinalizerNavigation(t *testing.T) {
 		Operation: "outline", Paths: []string{path}, Presentation: "detailed",
 		Language: "cpp-cli", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128, IncludeSignatures: true,
 	})
-	if err != nil || failed != nil || !outlined.CoverageComplete || outlined.Truncated || len(outlined.Symbols) != 29 {
+	if err != nil || failed != nil || !outlined.CoverageComplete || outlined.Truncated || len(outlined.Symbols) != 38 {
 		t.Fatalf("whole original C++/CLI outline: err=%v failed=%+v count=%d", err, failed, len(outlined.Symbols))
 	}
 	var finalizerID string

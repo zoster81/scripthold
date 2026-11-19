@@ -19,7 +19,7 @@ func TestCPPCLIPinnedWholeOriginalPropertySpanNavigation(t *testing.T) {
 		Operation: "outline", Paths: []string{path}, Presentation: "detailed",
 		Language: "cpp-cli", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128, IncludeSignatures: true,
 	})
-	if err != nil || failed != nil || !outlined.CoverageComplete || outlined.Truncated || len(outlined.Symbols) != 29 {
+	if err != nil || failed != nil || !outlined.CoverageComplete || outlined.Truncated || len(outlined.Symbols) != 38 {
 		t.Fatalf("whole pinned original detailed outline: err=%v failed=%+v count=%d", err, failed, len(outlined.Symbols))
 	}
 	wants := []struct {
@@ -47,6 +47,41 @@ func TestCPPCLIPinnedWholeOriginalPropertySpanNavigation(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("source declaration missing %s at line%d", want.name, want.line)
+		}
+	}
+	// Every authored managed block property is a real source owner, and
+	// accessors with repeated names must remain attached to the correct owner.
+	properties := map[string]int{
+		"Disposed": 40, "Physics": 57, "Scene": 64, "Type": 72, "Name": 80,
+		"Flags": 89, "DominanceGroup": 100, "OwnerClient": 110, "UnmanagedPointer": 122,
+	}
+	for name, line := range properties {
+		qualified := "PhysX.Actor." + name
+		var ownerID string
+		for _, symbol := range outlined.Symbols {
+			if symbol.QualifiedName == qualified && symbol.Kind == "property" &&
+				symbol.NativeKind == "block-property" && symbol.NameRange.Start.Line == line &&
+				symbol.ParentQualifiedName == "PhysX.Actor" {
+				ownerID = symbol.ID
+			}
+		}
+		if ownerID == "" {
+			t.Errorf("missing authored property %s on line %d", qualified, line)
+			continue
+		}
+		want := 1
+		if name == "Name" || name == "Flags" || name == "DominanceGroup" || name == "OwnerClient" {
+			want = 2
+		}
+		found := 0
+		for _, symbol := range outlined.Symbols {
+			if symbol.ParentID == ownerID && symbol.ParentQualifiedName == qualified &&
+				(symbol.Name == "get" || symbol.Name == "set") {
+				found++
+			}
+		}
+		if found != want {
+			t.Errorf("%s has %d owned accessors, want %d", qualified, found, want)
 		}
 	}
 	if methodID == "" || len(outlined.Files) != 1 || outlined.Files[0].SourceFingerprint == "" {

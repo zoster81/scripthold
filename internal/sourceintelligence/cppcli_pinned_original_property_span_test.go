@@ -37,8 +37,8 @@ func TestCPPCLIPinnedWholeOriginalPropertyDeclarationStarts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != 29 {
-				t.Fatalf("expected complete 29 supported source declarations, got %d complete=%v", len(result.Analysis.Symbols), result.Analysis.CoverageComplete)
+			if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != 38 {
+				t.Fatalf("expected 38 supported and block-property declarations, got %d complete=%v", len(result.Analysis.Symbols), result.Analysis.CoverageComplete)
 			}
 			for _, want := range wants {
 				found := false
@@ -102,11 +102,14 @@ func TestCPPCLIPinnedWholeOriginalSimplePropertyKinds(t *testing.T) {
 		path          string
 		count         int
 		propertyLines map[string]int
+		blockLines    map[string]int
 	}{
 		{"libyara", filepath.Join("source-intelligence-corpus", "cppcli-libyara-cpp-cli-selected", "files", "cpp-cli", "Meta.h"),
-			6, map[string]int{"libyaraNET.Meta.Identifier": 12, "libyaraNET.Meta.Value": 13}},
+			6, map[string]int{"libyaraNET.Meta.Identifier": 12, "libyaraNET.Meta.Value": 13}, nil},
 		{"physx", filepath.Join("source-intelligence-corpus", "cppcli92-physx-selected", "files", "cpp-cli", "Actor.h"),
-			29, map[string]int{"PhysX.Actor.UserData": 117, "PhysX.Actor.UnmanagedOwner": 127}},
+			38, map[string]int{"PhysX.Actor.UserData": 117, "PhysX.Actor.UnmanagedOwner": 127},
+			map[string]int{"Disposed": 40, "Physics": 57, "Scene": 64, "Type": 72, "Name": 80,
+				"Flags": 89, "DominanceGroup": 100, "OwnerClient": 110, "UnmanagedPointer": 122}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join(root, tc.path))
@@ -129,6 +132,31 @@ func TestCPPCLIPinnedWholeOriginalSimplePropertyKinds(t *testing.T) {
 				if !exists || s.Kind != SymbolKindProperty || s.NativeKind != "simple-property" ||
 					s.NameRange.Start.Line != line || s.DeclarationRange.Start.Line != line {
 					t.Errorf("source-authored simple property %s: %+v exists=%v", name, s, exists)
+				}
+			}
+			for name, line := range tc.blockLines {
+				qualified := "PhysX.Actor." + name
+				owner, ok := symbols[qualified]
+				if !ok || owner.Kind != SymbolKindProperty || owner.NativeKind != "block-property" ||
+					owner.NameRange.Start.Line != line || owner.DeclarationRange.Start.Line != line ||
+					owner.ParentQualifiedName != "PhysX.Actor" || owner.BodyRange == nil {
+					t.Errorf("original block property %s: %+v exists=%v", qualified, owner, ok)
+				}
+				wantAccessors := 1
+				if name == "Name" || name == "Flags" || name == "DominanceGroup" || name == "OwnerClient" {
+					wantAccessors = 2
+				}
+				found := 0
+				for _, s := range result.Analysis.Symbols {
+					if s.ParentQualifiedName == qualified && (s.Name == "get" || s.Name == "set") && s.Kind == SymbolKindMethod {
+						if s.ParentID != owner.ID {
+							t.Errorf("accessor parent ID for %s: %q != %q", qualified, s.ParentID, owner.ID)
+						}
+						found++
+					}
+				}
+				if found != wantAccessors {
+					t.Errorf("%s accessor count=%d expected=%d", qualified, found, wantAccessors)
 				}
 			}
 			for name, s := range symbols {
@@ -197,7 +225,7 @@ func TestCPPCLIBlockPropertyHeaderDoesNotCreateFalseDeclarations(t *testing.T) {
 	if !result.Analysis.CoverageComplete {
 		t.Error("source should remain structurally covered")
 	}
-	var get, set, next, simple int
+	var get, set, next, simple, size int
 	for _, s := range result.Analysis.Symbols {
 		switch s.Name {
 		case "get":
@@ -221,10 +249,50 @@ func TestCPPCLIBlockPropertyHeaderDoesNotCreateFalseDeclarations(t *testing.T) {
 				t.Errorf("simple property range: %+v", s)
 			}
 		case "Size":
-			t.Errorf("unsupported block-property should not invent symbol: %+v", s)
+			size++
+			if s.Kind != SymbolKindProperty || s.NativeKind != "block-property" || s.ParentQualifiedName != "N.Box" || s.DeclarationRange.Start.Line != 3 {
+				t.Errorf("block property owner: %+v", s)
+			}
 		}
 	}
-	if get != 1 || set != 1 || next != 1 || simple != 1 {
-		t.Errorf("missing authored members get=%d set=%d next=%d simple=%d", get, set, next, simple)
+	if get != 1 || set != 1 || next != 1 || simple != 1 || size != 1 {
+		t.Errorf("missing authored members get=%d set=%d next=%d simple=%d size=%d", get, set, next, simple, size)
+	}
+}
+
+func TestCPPCLIMalformedBlockPropertyDoesNotInventOwner(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{"missing-name", "ref class Box {\nproperty int {\n int get();\n}\nint Next();\n};\n"},
+		{"qualified-type-without-name", "ref class Box {\nproperty Foo::Bar {\n int get();\n}\nint Next();\n};\n"},
+	}
+	for _, tc := range cases {
+		for _, crlf := range []bool{false, true} {
+			t.Run(tc.name+map[bool]string{false: "-lf", true: "-crlf"}[crlf], func(t *testing.T) {
+				source := tc.source
+				if crlf {
+					source = strings.ReplaceAll(source, "\n", "\r\n")
+				}
+				result, err := (CPPCLIAnalyzer{}).Analyze(context.Background(),
+					testSourceDocument("invalid.h", source), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var next bool
+				for _, symbol := range result.Analysis.Symbols {
+					if symbol.Kind == SymbolKindProperty && symbol.NativeKind == "block-property" {
+						t.Errorf("invented owner in malformed header: %+v", symbol)
+					}
+					if symbol.Name == "Next" && symbol.ParentQualifiedName == "Box" {
+						next = true
+					}
+				}
+				if !next {
+					t.Error("missing following authored method")
+				}
+			})
+		}
 	}
 }
