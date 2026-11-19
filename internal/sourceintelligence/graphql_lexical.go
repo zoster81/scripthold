@@ -5,10 +5,19 @@ import (
 	"strings"
 )
 
-var graphqlSimpleVariableDefinition = regexp.MustCompile(`^\s*\$[A-Za-z_][A-Za-z0-9_]*\s*:\s*(?:[A-Za-z_][A-Za-z0-9_]*|\[\s*[A-Za-z_][A-Za-z0-9_]*!?\s*\])!?\s*(?:=\s*(?:[A-Za-z_][A-Za-z0-9_]*|-?[0-9]+(?:\.[0-9]+)?))?\s*$`)
+func graphqlNameStart(ch byte) bool {
+	return ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+}
+
+func graphqlNameContinue(ch byte) bool {
+	return graphqlNameStart(ch) || ch >= '0' && ch <= '9'
+}
+
+var graphqlSimpleVariableDefinition = regexp.MustCompile(`^\s*\$[A-Za-z_][A-Za-z0-9_]*\s*:\s*(?:[A-Za-z_][A-Za-z0-9_]*|\[\s*[A-Za-z_][A-Za-z0-9_]*!?\s*\])!?\s*(?:=\s*(?:[A-Za-z_][A-Za-z0-9_]*|-?[0-9]+(?:\.[0-9]+)?))?\s*(?:@[A-Za-z_][A-Za-z0-9_]*)?\s*$`)
 
 // graphqlSimpleVariablesEnd accepts a small lexical signature consisting of
-// directly authored $name: Type references with optional scalar/enum defaults.
+// directly authored $name: Type references with optional scalar/enum defaults
+// and one optional argument-free variable annotation.
 // Nested defaults, directive calls, strings and malformed variable definitions
 // remain outside the supported navigation subset.
 func graphqlSimpleVariablesEnd(masked string, open, maxEnd int) (int, bool) {
@@ -29,7 +38,7 @@ func graphqlSimpleVariablesEnd(masked string, open, maxEnd int) (int, bool) {
 				}
 			}
 			return end + 1, true
-		case '(', '{', '}', '"', '\'', '@':
+		case '(', '{', '}', '"', '\'':
 			return 0, false
 		}
 	}
@@ -38,8 +47,8 @@ func graphqlSimpleVariablesEnd(masked string, open, maxEnd int) (int, bool) {
 
 // graphqlSimpleNamedOperationEnd accepts only a complete, directly braced
 // selection after a named operation, with an optional proven small variable
-// signature. Directives, nested defaults and unbounded bodies retain the
-// existing header-only navigation.
+// signature and up to four direct argument-free named directives. Directive
+// arguments, nested defaults and unbounded bodies retain the header-only range.
 func graphqlSimpleNamedOperationEnd(masked string, headerStart, headerEnd int) (int, bool) {
 	if headerStart < 0 || headerEnd <= headerStart || headerEnd > len(masked) {
 		return 0, false
@@ -56,12 +65,13 @@ func graphqlSimpleNamedOperationEnd(masked string, headerStart, headerEnd int) (
 	}
 	cursor := headerEnd
 	variablesParsed := false
+	directivesParsed := 0
 	for cursor < len(masked) && cursor-headerEnd <= maxHeaderGap {
 		switch masked[cursor] {
 		case ' ', '\t', '\r', '\n':
 			cursor++
 		case '(':
-			if variablesParsed {
+			if variablesParsed || directivesParsed != 0 {
 				return 0, false
 			}
 			end, ok := graphqlSimpleVariablesEnd(masked, cursor, min(len(masked), headerEnd+512))
@@ -70,6 +80,15 @@ func graphqlSimpleNamedOperationEnd(masked string, headerStart, headerEnd int) (
 			}
 			variablesParsed = true
 			cursor = end
+		case '@':
+			if directivesParsed == 4 || cursor+1 >= len(masked) || !graphqlNameStart(masked[cursor+1]) {
+				return 0, false
+			}
+			cursor++
+			for cursor < len(masked) && graphqlNameContinue(masked[cursor]) {
+				cursor++
+			}
+			directivesParsed++
 		case '{':
 			limit := min(len(masked), headerStart+maxDeclarationBytes)
 			if cursor >= limit {
