@@ -387,23 +387,43 @@ func (p *fsharpParser) addRelation(line LogicalLine, kind string) {
 	}
 }
 func (p *fsharpParser) addLet(line LogicalLine) {
-	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
-	for idx >= 0 && (strings.EqualFold(line.Tokens[idx].Text, "inline") ||
-		strings.EqualFold(line.Tokens[idx].Text, "rec") ||
-		strings.EqualFold(line.Tokens[idx].Text, "mutable") ||
-		strings.EqualFold(line.Tokens[idx].Text, "private") ||
-		strings.EqualFold(line.Tokens[idx].Text, "internal") ||
-		strings.EqualFold(line.Tokens[idx].Text, "public")) {
-		idx = nextIdentifierToken(line.Tokens, idx+1, len(line.Tokens))
+	tokens := line.Tokens
+	bindingAt := 1
+	for bindingAt < len(tokens) {
+		modifier := strings.ToLower(tokens[bindingAt].Text)
+		if modifier != "inline" && modifier != "rec" && modifier != "mutable" &&
+			modifier != "private" && modifier != "internal" && modifier != "public" {
+			break
+		}
+		bindingAt++
 	}
+	// Scanner-owned source tokens distinguish a directly authored symbolic
+	// function name from parameter identifiers; do not search through strings
+	// or comments and accidentally promote their contents to declarations.
+	if bindingAt+2 < len(tokens) &&
+		tokens[bindingAt].Text == "(" && tokens[bindingAt+1].Text == "?" &&
+		tokens[bindingAt+2].Text == ")" &&
+		tokens[bindingAt].EndOffset == tokens[bindingAt+1].StartOffset &&
+		tokens[bindingAt+1].EndOffset == tokens[bindingAt+2].StartOffset {
+		name := tokens[bindingAt+1]
+		p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "let", Name: name.Text, Parent: p.namespace,
+			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+			NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+		return
+	}
+	idx := nextIdentifierToken(tokens, bindingAt, len(tokens))
 	if idx < 0 {
 		return
 	}
 	kind := SymbolKindFunction
-	if idx+1 < len(line.Tokens) && (line.Tokens[idx+1].Text == ":" || line.Tokens[idx+1].Text == "=") {
+	if idx+1 < len(tokens) && (tokens[idx+1].Text == ":" || tokens[idx+1].Text == "=") {
 		kind = SymbolKindVariable
 	}
-	p.add(SymbolSpec{Kind: kind, NativeKind: "let", Name: line.Tokens[idx].Text, Parent: p.namespace, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+	p.add(SymbolSpec{Kind: kind, NativeKind: "let", Name: tokens[idx].Text, Parent: p.namespace,
+		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+		NameRange:   OffsetRange{Start: tokens[idx].StartOffset, End: tokens[idx].EndOffset},
+		Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 }
 func (p *fsharpParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	s, err := p.builder.Add(spec)
