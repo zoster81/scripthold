@@ -2155,6 +2155,10 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		} else if effectiveMembers && nameIndex > start && parser.tokens[nameIndex-1].Text == "~" && name == effectiveOwner {
 			kind = SymbolKindDestructor
 			nativeKind = "destructor-declaration"
+		} else if effectiveMembers && nameIndex > start && parser.tokens[nameIndex-1].Text == "!" && name == effectiveOwner {
+			// A C++/CLI finalizer is neither a constructor nor a C++ destructor.
+			kind = SymbolKindMethod
+			nativeKind = "finalizer-declaration"
 		} else if effectiveMembers && name == effectiveOwner {
 			kind = SymbolKindConstructor
 			nativeKind = "constructor-declaration"
@@ -2191,7 +2195,11 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		case SymbolKindFunction:
 			nativeKind = "function-definition"
 		case SymbolKindMethod:
-			nativeKind = "method-definition"
+			if nativeKind == "finalizer-declaration" {
+				nativeKind = "finalizer-definition"
+			} else {
+				nativeKind = "method-definition"
+			}
 		case SymbolKindConstructor:
 			nativeKind = "constructor-definition"
 		case SymbolKindDestructor:
