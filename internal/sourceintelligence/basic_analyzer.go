@@ -738,6 +738,10 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 		return NormalizedSymbol{}, false
 	}
 	name := normalizeBasicName(nameToken.Text, p.policy)
+	nameEnd := nameToken.EndOffset
+	if p.policy.language == "qbasic" && (label == "sub" || label == "function") {
+		name, nameEnd = p.directDottedName(tokens, nameIndex, true)
+	}
 	declarationEnd := line.end
 	var body *OffsetRange
 	if bodyEnd > line.end {
@@ -747,7 +751,7 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 			body = &OffsetRange{Start: line.end, End: bodyEnd}
 		}
 	}
-	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, QualifiedName: qualifiedName, Parent: parent, Declaration: OffsetRange{Start: line.start, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset}, Signature: &OffsetRange{Start: line.start, End: line.end}, Body: body, Evidence: SymbolEvidenceStructural})
+	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, QualifiedName: qualifiedName, Parent: parent, Declaration: OffsetRange{Start: line.start, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameEnd}, Signature: &OffsetRange{Start: line.start, End: line.end}, Body: body, Evidence: SymbolEvidenceStructural})
 }
 
 func (p *basicParser) parseDeclareLibraryPrototypes(start, end int, parent *SymbolParent) {
@@ -818,11 +822,36 @@ func (p *basicParser) addNamed(line basicLine, index int, kind SymbolKind, nativ
 		return
 	}
 	name := tok.Text
+	nameEnd := tok.EndOffset
+	if p.policy.language == "qbasic" && (native == "const" || strings.HasPrefix(native, "declare-")) {
+		name, nameEnd = p.directDottedName(line.tokens, index, kind != SymbolKindConstant)
+	}
 	// Variable type suffixes distinguish BASIC identifiers; callable suffixes keep legacy normalization.
 	if kind != SymbolKindVariable && kind != SymbolKindField && kind != SymbolKindConstant {
-		name = normalizeBasicName(tok.Text, p.policy)
+		name = normalizeBasicName(name, p.policy)
 	}
-	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
+	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tok.StartOffset, End: nameEnd}, Evidence: SymbolEvidenceStructural})
+}
+
+// Only directly authored declaration names may contain contiguous dotted parts.
+// Keep the scanner's token and statement boundaries intact for other BASIC dialects.
+func (p *basicParser) directDottedName(tokens []Token, index int, trimSuffix bool) (string, int) {
+	first := tokens[index]
+	end := first.EndOffset
+	for index+2 < len(tokens) {
+		dot, next := tokens[index+1], tokens[index+2]
+		if dot.Text != "." || dot.StartOffset != end || next.StartOffset != dot.EndOffset ||
+			(next.Kind != TokenIdentifier && next.Kind != TokenKeyword) || next.Nesting != first.Nesting {
+			break
+		}
+		end = next.EndOffset
+		index += 2
+	}
+	name := p.document.Text[first.StartOffset:end]
+	if trimSuffix {
+		name = normalizeBasicName(name, p.policy)
+	}
+	return name, end
 }
 func (p *basicParser) addTypeField(line basicLine, parent *SymbolParent) bool {
 	if len(line.tokens) == 0 {
