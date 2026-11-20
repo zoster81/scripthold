@@ -12,6 +12,55 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+// Quoted and angle-bracket C/C++ includes have different search rules. With no
+// compiler include roots, a sibling file may satisfy "local.h", but cannot be
+// asserted as the target of <local.h> merely because its basename matches.
+func TestProjectResolverCFamilyIncludeDelimiterResolution(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{{"c", CAnalyzer{}}, {"cpp", CPPAnalyzer{}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, suffix := range []string{"local.h", "nested/local.h"} {
+				t.Run(suffix, func(t *testing.T) {
+					root := filepath.Join("project", "include-delimiters", tc.name)
+					header := projectResolverFacts(t, tc.analyzer, filepath.Join(root, "src", filepath.FromSlash(suffix)), "int declaration;\n")
+					source := projectResolverFacts(t, tc.analyzer, filepath.Join(root, "src", "main.cpp"), "#include <"+suffix+">\n#include \""+suffix+"\"\nint function(void) { return 1; }\n")
+					model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{source, header}, projectResolverLimitsForTest())
+					if err != nil {
+						t.Fatal(err)
+					}
+					dependencies := model.Dependencies(source.Path)
+					if len(dependencies) != 2 {
+						t.Fatalf("include dependencies=%d want=2: %+v", len(dependencies), dependencies)
+					}
+					for _, dep := range dependencies {
+						if dep.Dependency.Value != suffix || dep.Dependency.Kind != StructuralDependencyInclude {
+							t.Errorf("changed include public value: %+v", dep)
+						}
+						switch dep.Dependency.Range.Start.Line {
+						case 1:
+							if dep.Resolution != ResolutionExternal || len(dep.Targets) != 0 {
+								t.Errorf("angle include must not resolve from source dir: %+v", dep)
+							}
+						case 2:
+							if dep.Resolution != ResolutionResolved || len(dep.Targets) != 1 || dep.Targets[0].Path != header.Path {
+								t.Errorf("quoted include with sibling target must resolve: %+v", dep)
+							}
+						default:
+							t.Errorf("unexpected include line: %+v", dep)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestProjectResolverCrossEcosystemDefinitions(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

@@ -4,6 +4,8 @@ This reference explains what each Scripthold tool does, when to use it, its main
 
 Scripthold 4.x exposes 36 tools and 3 guided prompts; check [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) for the latest published version. Version 4.0 replaces eight approval/apply commands with `confirm_verified_operation`; clients upgrading from 3.x must follow the [4.0 migration guide](docs/MIGRATION_4.0.md). Stdio and Streamable HTTP expose the same tool behavior; only connection setup and transport security differ. See [README.md](README.md) for setup, [docs/HTTP_SECURITY.md](docs/HTTP_SECURITY.md) for HTTP deployment, and [docs/DURABLE_TASKS.md](docs/DURABLE_TASKS.md) for long-running execution.
 
+This reference describes the checked-in implementation. An installed server might be an earlier release and therefore lack fixes listed under [Unreleased](CHANGELOG.md#unreleased). Updating documentation or merging source does not update an active runtime.
+
 ## Find the right tool
 
 Use this index to start with a task, then open the tool section for its inputs, examples, limits, and errors. New to the server? Begin with the [quick start](README.md#quick-start) or the [Documentation Guide](docs/README.md).
@@ -721,6 +723,259 @@ The preview token is one-shot. Success, cancellation, conflict, write failure, o
 
 ## Source Intelligence
 
+### Source Intelligence response contract (development opt-in)
+
+**Development status:** All seven `source_symbols` and `source_query` concise projections are implemented as opt-in modes; broader cross-provider response qualification remains deferred after completion of the selected original-project navigation baseline. Legacy defaults are unchanged, and a running 4.0.1 server is not automatically updated. This section explains the intended LLM-facing responses. The selected examples below illustrate source-grounded behavior; their abbreviated JSON is **not** a literal copy of the available schemas or the released server. The operational reference immediately below remains authoritative until an implementation is verified and released. See [the source-level roadmap](docs/ROADMAP.md#source-intelligence-structural-reliability--source-level-gate-complete) and [response qualification checklist](docs/DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-on-demand).
+
+**Goal:** Deliver the smallest *sufficient, source-verifiable* answer to the caller's concrete navigation question. An analyzer may retain extensive facts internally; the response must not replay its entire index. Scripthold reports evidence, not an inferred maintenance plan; the LLM selects what to inspect next. Never trade away important declarations, identity safety, exact source text, ambiguity or incomplete-coverage warnings merely to reduce bytes.
+
+**Concise response principles:**
+
+- **Project overview (`digest`):** Show file paths and actual top-level class/type/function names, including recognized non-public declarations. Exclude field/method totals, individual symbol hashes, raw dependencies, encoding and other diagnostics by default. "Main" means an objectively identified top-level declaration, not an importance score inferred from names. Support languages without classes and mixed/composite sources without inventing nonexistent structures.
+- **Selected component outline (`outline`):** Show **all methods**, regardless of visibility, including constructors/destructors when recognized; omit internal fields by default. Preserve nested ownership, operators and overloaded signatures when needed to distinguish entries. List additional data members only when explicitly requested. Do not dump whole-project members as the normal first answer.
+- **Safe navigation:** Use one unqualified `name` inside an unambiguous owner and one `qualifiedName` (or equivalent) for independent hits; do not repeat both without a reason. `symbolId` and `sourceFingerprint` remain authoritative and available for fingerprint-bound `show`/`context` selectors, but are not repeated throughout overview/outline output. Keep the existing full-length IDs for the initial compatible rollout; shorter opaque references are a separate, unapproved optimization.
+- **Paths and locations:** Prefer relative paths within the selected root, with explicit root identity when multiple roots could collide. Return simple 1-based lines for navigation and exact ranges for source retrieval or ambiguity resolution. Do not change the underlying Unicode-scalar coordinate contract.
+- **Exactness:** Merge declaration and definition only with justified matching evidence, *not* merely identical qualified names. Different overloads remain distinct. Unsupported, unresolved or ambiguous links never become proven links by formatting.
+- **Freshness and scope:** Preserve fingerprint conflict checking; express partial analysis, omitted files, bounded results, ambiguous language and unsupported relations truthfully. A next-page cursor is *not* an analysis failure; an empty result is never proof of semantic absence outside the indexed scope.
+- **Minimal transport payload:** Keep the MCP structured/text client contract compatible. Avoid duplicate information in the LLM-consumed representation when client capabilities permit; measure actual SDK payload bytes and separately measure what the client places into model context.
+
+The following **illustrative JSON sketches** use source-verified example names and locations from an MQL5 GUI library. They explain what a useful answer should convey, but are **not literal tool responses or exact JSON schemas**. Use the operational `source_symbols` and `source_query` sections below for the implemented request and response fields:
+
+| Request | Intended result, without unrelated metadata |
+| --- | --- |
+| `source_symbols.digest` | File-to-top-level declarations map; explicit paging/coverage only when required |
+| `source_symbols.outline` | Targeted owner, all its methods and distinguishing signatures; no internal fields |
+| `source_symbols.find` | Independent matching declarations/definitions with kind, file and line; verified joins only |
+| `source_symbols.show` | Exact requested declaration/definition/body excerpt, location and honest truncation |
+| `source_query.search` | Scoped structural hits in stable pages; `nextCursor` only when another page exists |
+| `source_query.relations` | Requested dependencies/dependents/references/definitions/inheritance/implementations/trace/impact/cycles, retaining evidence/resolution limits |
+| `source_query.context` | Requested target and directly justified related snippets, bounded to task scope; no automatic full enclosing class |
+
+**Proposed `digest` example (selected files only):**
+
+```json
+{
+  "files": [
+    {"path": "Core/Ui.mqh", "classes": ["CEfnUi"]},
+    {"path": "Core/Control.mqh", "classes": ["CEfnControl"]},
+    {"path": "Controls/Basic.mqh", "classes": ["CEfnPanel", "CEfnLabel", "CEfnButton", "CEfnCheckBox", "CEfnProgressBar"]}
+  ]
+}
+```
+
+**Proposed `outline` example (selected methods only):** An owner qualifies its members once. Both `CEfnLabel.Text` overloads remain distinguishable by signature. Declaration/definition pairs below are source-observed examples; a future implementation must establish each match, not assume it.
+
+```json
+{
+  "file": "Controls/Basic.mqh",
+  "class": "CEfnLabel",
+  "methods": [
+    {"name": "Text", "signature": "void Text(const string value)", "declaration": 26, "definition": 105},
+    {"name": "Text", "signature": "string Text(void) const", "declaration": 27, "definition": 109},
+    {"name": "Color", "line": 28}
+  ]
+}
+```
+
+**Proposed `find` / `search` examples:**
+
+```json
+{
+  "query": "ChartEvent",
+  "matches": [{"symbol": "CEfnUi.ChartEvent", "file": "Core/Ui.mqh", "declaration": 71, "definition": 508}]
+}
+```
+
+```json
+{
+  "matches": [{"symbol": "CEfnWindow.MaxScrollX", "at": "Controls/Containers.mqh:24"}],
+  "nextCursor": "<opaque-cursor>"
+}
+```
+
+Search results shown are abbreviated. A page cursor is server-issued, bound to the query/index and must work through the *public* MCP schema. Adding `hasMore: true` next to `nextCursor` would be redundant. Safe symbol-selection data must be obtainable when a subsequent `show` or `context` call needs it, without forcing hashes into ordinary overviews.
+
+**Proposed `show` / `context` behavior:** `show` must return an exact declaration, verified definition, or available body chosen by the caller, with its location and an explicit complete/partial representation. It must not silently substitute a header for a requested body. `context` must return the explicitly selected target and only source-justified related excerpts. A targeted line/range is a caller selection, **not** a claim that Scripthold understood the maintenance question. `bodyPolicy: "signatures-only"` returns signatures; `"prefer"` returns complete bodies only when supported and within budget, otherwise a clearly labeled fallback or bounded failure. Neither mode automatically includes the entire enclosing class, invents call-graph edges or truncates code invisibly.
+
+**Proposed `show` JSON — complete verified method body.** This is the complete decoded source for the MQL5 `CEfnControl.AddChild` definition at lines 155–161; the JSON shows escaped newline characters for illustration. Implementation must preserve actual decoded line-ending content and the existing Unicode-scalar range semantics.
+
+```json
+{
+  "symbol": "CEfnControl.AddChild",
+  "file": "Core/Control.mqh",
+  "lines": [
+    155,
+    161
+  ],
+  "representation": "body",
+  "complete": true,
+  "code": "bool CEfnControl::AddChild(CEfnControl &child)\n  {\n   int total=::ArraySize(m_children);\n   if(::ArrayResize(m_children,total+1)!=total+1) return(false);\n   m_children[total]=::GetPointer(child);\n   return(true);\n  }"
+}
+```
+
+**Proposed `context` JSON — deliberately selected lines, not the whole class.** `CEfnUi.ChartEvent` contains the shown code at lines 534–535 inside the mouse-wheel branch. `completeBody: false` is intentional: this is a *selected excerpt*, not the complete method, and the caller must not treat it as one.
+
+```json
+{
+  "target": "CEfnUi.ChartEvent",
+  "items": [
+    {
+      "file": "Core/Ui.mqh",
+      "lines": [
+        534,
+        535
+      ],
+      "representation": "excerpt",
+      "completeBody": false,
+      "code": "         SEfnAction action; CEfnControl *receiver=target;\n         while(receiver!=NULL) { receiver.PointerWheel(delta,action); if(action.handled) { ApplyAction(receiver,action); break; } receiver=receiver.Parent(); }"
+    }
+  ]
+}
+```
+
+**Proposed `context` JSON — signatures-only.** The MQL5 declaration is at line 71. An implementation must return only a bounded signature in this mode, not an enclosing class body.
+
+```json
+{
+  "target": "CEfnUi.ChartEvent",
+  "items": [
+    {
+      "file": "Core/Ui.mqh",
+      "line": 71,
+      "representation": "signature",
+      "text": "void              ChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)"
+    }
+  ]
+}
+```
+
+**Safe `find`/`search` → `show`/`context` handoff.** After locating a target, a successful follow-up must not require re-scanning the whole project solely to discover technical identifiers. When the result is intended for safe drilldown, expose *one self-contained selection record for each independently selectable match*; do not add IDs to the project overview or every outline member. The initial rollout keeps the existing full-length SHA-256 `symbolId` and `sourceFingerprint` for compatibility. There is no approved shorter-reference scheme.
+
+A safe selected symbol needs its authorized absolute file `path`, `symbolId`, `sourceFingerprint`, `language` and `encoding` to satisfy **the current `source_symbols.show` input schema**. A compact display can show a relative path once while holding the full selection fields in a `showInput` object available *only for that requested candidate*. The example is schematic: placeholders are not valid selectors or captured fingerprints.
+
+```json
+{
+  "symbol": "CEfnControl.AddChild",
+  "at": "Core/Control.mqh:155",
+  "showInput": {
+    "operation": "show",
+    "path": "/allowed-project/Core/Control.mqh",
+    "symbolId": "<64-lowercase-hex-symbol-id>",
+    "sourceFingerprint": "<64-lowercase-hex-source-fingerprint>",
+    "language": "mql5",
+    "encoding": "utf-16-le"
+  }
+}
+```
+
+Pass the five validated selector fields unchanged to `show` and continue only if fingerprint validation succeeds. For `source_query.context`, its *different* current `targets[]` schema needs `kind: "symbol"`, `path`, `symbolId` and `sourceFingerprint`; a selected source position instead requires `kind: "position"`, an authorized `path`, `position: {line, column}` and its `sourceFingerprint`. In both cases the project `paths[]` scope remains required. Do not conflate a proposed display object with a currently registered MCP request, infer missing hashes or invent an owner from the name. A multi-root response must carry enough root identity to resolve a relative file without collisions; the authorized absolute path is retained internally for the actual selector. If selection evidence is stale, unavailable, ambiguous or mismatched, return the corresponding typed failure/ambiguity rather than opening a similarly named symbol. A requested declaration must not silently resolve to an implementation or a different overload.
+
+**Proposed `relations` example (selected direct includes only):**
+
+```json
+{
+  "relation": "dependencies",
+  "subject": "EasyAndFastGUI_Next.mqh",
+  "results": [
+    {"file": "Controls/Basic.mqh", "line": 12},
+    {"file": "Controls/Charts.mqh", "line": 21}
+  ]
+}
+```
+
+The line refers to the source include site. For other relation kinds, distinguish a reference *site* from an enclosing declaration range and retain `evidence` and `resolution` whenever their omission would mislead. `references` / `impact` are limited to indexed structural evidence, not a proven exhaustive call graph.
+
+**Empty, partial, ambiguous and error results — proposed concise JSON (not current output schemas).** Return only what is supported by the scope and evidence. **No matches** means no recorded match in the analyzed structural scope, not proof that the source or all call sites lack the requested behavior.
+
+*Complete scoped search, no matches:*
+
+```json
+{
+  "matches": [],
+  "scope": "indexed structural declarations",
+  "coverage": {
+    "analysisComplete": true,
+    "fileSelectionTruncated": false,
+    "resultsTruncated": false
+  }
+}
+```
+
+*Ambiguous same-name declaration search:* The two `CEfnLabel.Text` overload declarations at lines 26 and 27 are distinct despite a common qualified name. The caller must select an overload by signature and source position; the tool must never invent a winner or silently merge definitions.
+
+```json
+{
+  "query": "Text",
+  "matches": [
+    {
+      "symbol": "CEfnLabel.Text",
+      "signature": "void Text(const string value)",
+      "at": "Controls/Basic.mqh:26"
+    },
+    {
+      "symbol": "CEfnLabel.Text",
+      "signature": "string Text(void) const",
+      "at": "Controls/Basic.mqh:27"
+    }
+  ],
+  "ambiguous": true
+}
+```
+
+*Partial file selection, no matches:* The selected files may be fully analyzed while additional eligible files were excluded. These are independent coverage states.
+
+```json
+{
+  "matches": [],
+  "coverage": {
+    "analysisComplete": true,
+    "fileSelectionTruncated": true,
+    "resultsTruncated": false
+  },
+  "warning": "Additional eligible files were omitted by maxFiles; absence is not established."
+}
+```
+
+*Stale selector:* This is a **failed MCP call**, not a successful empty `show`. The schematic object uses the existing `CONFLICT` category and must preserve the MCP error indication and typed error mapping.
+
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Selected source changed. Repeat the lookup."
+  }
+}
+```
+
+*Invalid selector:* An invalid input is not a successful empty result. Public schema validation may return an SDK-level error rather than the illustrative object below.
+
+```json
+{
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "The supplied selector is not valid for this operation."
+  }
+}
+```
+
+When language recognition is ambiguous, an analyzer is unsupported, an access check fails, a source changes, a result budget prevents inclusion, or the caller cancels, report the actual status/error with the affected scope. Never replace missing data with empty success. For a valid next page, expose `nextCursor` without treating pagination as incomplete analysis; separately disclose skipped files, partial parsing and result-limit truncation. Sort all records deterministically. For very large overviews/outlines use a continuation or an explicit incomplete-state warning, never a silent cutoff. Example field names such as `warning`, `representation` and `complete` are **illustrative**, not approved replacements for current public JSON schemas or error codes.
+
+**Per-operation acceptance contract (implemented opt-in; cross-provider qualification pending):**
+
+| Operation | A correct, useful response MUST allow | Unacceptable response / negative test |
+| --- | --- | --- |
+| `source_symbols.digest` | From an unfamiliar project root, identify real top-level classes/types/functions by relative file, including supported non-public declarations; represent classless languages and composite scopes honestly. | Only file paths with counts; invented "main" importance; no classes because they are not marked public; full hashes or member inventories by default. |
+| `source_symbols.outline` | For a selected owner, return **all** recognized methods (public/private, constructors/destructors), location and signatures for overloads, with honest limits. | Default internal field dump; lost overload; duplicated owner prefix in every nested member; entire project hierarchy for one class. |
+| `source_symbols.find` | For a name/qualified query, identify each distinct declaration/definition with exact kind/file/line and enough evidence to request the specific one; join only with verified matching. | Silently choose one homonym; repeat full file inventories; infer signature identity from only a qualified name. |
+| `source_symbols.show` | With a safe selector, return the *requested* symbol's exact decoded source declaration, verified definition or body, location and complete/partial representation, with stale-fingerprint rejection. | Return a header when the body was requested without explanation; silent clipping; stale text; normalized newlines claimed original; wrong homonym. |
+| `source_query.search` | Return correct, stably ordered structural hits, evidence scope and usable public-MCP continuation cursor for additional pages. | Public schema rejects cursor; gaps/duplicates across pages; pagination conflated with partial parsing; unsupported claim of exhaustive text/call search. |
+| `source_query.relations` | For all nine supported relations (dependencies, dependents, references, definitions, inheritance, implementations, trace, impact, cycles), return only source-supported links/chains with exact reference *sites*, material evidence, resolution and scope limits. | Fabricated caller/callee relation; complete refactor safety inferred from impact; class range substituted for reference site; empty indexed hits claimed exhaustive. |
+| `source_query.context` | For caller-selected symbol/position scope, return bounded source-exact target excerpts and justified neighbors. `signatures-only` yields signatures; `prefer` yields complete supported bodies within budget or explicitly labeled fallback. | Full enclosing class for a narrow target; inferred relevance; partial body labeled complete; silently collapsed targets; exceeded byte/item budget. |
+
+**Comparative test rule (when response behavior or compatibility changes):** For each affected operation, define an independent source/grep oracle **before** comparing old/new output for the *same* task and project scope. Assert correct discovery, overload and relation identity, safe drilldown, truthful partial/empty/errors and stable pagination before measuring payload size. Measure SDK payload bytes, actually LLM-consumed bytes/tokens where accessible, and number of follow-up calls. Reject smaller answers that drop important evidence or require avoidable extra calls. Use two independent original projects per affected provider plus representative classless, composite, multi-root, overloaded, large and partial cases. See [the response-contract checklist](docs/DEVELOPMENT_CHECKLIST.md#source-intelligence-response-contract-qualification-on-demand).
+
+**Compatibility gates:** (1) keep the seven implemented concise projections opt-in while preserving historical responses; (2) verify schemas, safe selectors and MCP `content` versus `structuredContent` on actual clients; (3) qualify source facts and response costs on independent original projects across language families; (4) consider any change to defaults or legacy layouts only through a separately approved migration. Neither a new tool family nor disabling fingerprints is approved. The opt-in fields and paging behavior are specified in the tool sections below; future default transitions and quantitative byte/token targets require evidence and separate review.
+
 ### source_symbols
 
 Navigate bounded source declarations without reading every complete source file. The tool is read-only and exposes four strict operation variants under one schema: `outline`, `digest`, `find`, and fingerprint-bound `show`. All variants reject unknown or operation-illegal fields.
@@ -728,7 +983,7 @@ Navigate bounded source declarations without reading every complete source file.
 Scripthold has **100 active Source Intelligence providers**. The generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix shows what each provider can actually analyze; its contents are checked against the native registry.
 
 - **How analysis works:** Go uses the standard-library AST. Other providers use bounded native scanners, structural recognizers, or offset-preserving adapters. Composite providers retain host-file coordinates and analyze only supported embedded regions.
-- **What coverage means:** Shared file extensions and language dialects may be ambiguous. Indexing is bounded and process-local; enabling a provider does not imply that every project or semantic relationship is supported. Ambiguous, partial, truncated, and unsupported results are reported rather than guessed.
+- **What coverage means:** Shared file extensions and language dialects may be ambiguous. Indexing is bounded and process-local; enabling a provider does not imply that every project or semantic relationship is supported. `coverageComplete: true` means the selected analysis completed without reported omissions; it is not independent proof that every declaration was recognized correctly. Check important symbols against the source, and corroborate uncertain or missing declarations with `grep_text_files` and targeted reads. Ambiguous, partial, truncated, and unsupported results are reported rather than guessed.
 - **What is not required:** No external compiler, language server, network lookup, persistent code index, or complete-source cache.
 
 **Common navigation parameters:**
@@ -737,14 +992,14 @@ Scripthold has **100 active Source Intelligence providers**. The generated [Lang
 - `includes` / `excludes`, `respectGitignore`, `maxFiles`: bounded traversal filters.
 - `kinds` (optional for `outline`/`find`): normalized symbol-kind filter without hiding unsupported file coverage. With a filtered `outline`, `maxSymbols` limits the **matching declarations returned**, not the unfiltered declarations encountered earlier. The analyzer can inspect additional symbols up to its configured safety ceiling; `coverageComplete: false` still signals incomplete analysis or a truncated result.
 - `includeSignatures` (optional for `outline`/`find`): retain bounded declaration signatures.
-- `presentation` (optional for `outline` and `digest`): `outline` defaults to `tree`, with `compact` (flat file-grouped declarations) and `detailed` (historical full output). `digest` defaults to its historical full output; `presentation: "compact"` instead creates a bounded project file map, while `"detailed"` explicitly selects the historical output. `outline` tree/compact use `outlineFiles` instead of full `files`/`symbols`; `digest` compact uses `overviewFiles`. Each file retains its path, encoding, source fingerprint, coverage and errors; each symbol retains a full `symbolId`, kind, qualified name and starting line/column for navigation. Signatures remain opt-in. A filtered or otherwise missing ancestor is represented with `parentId` instead of being invented.
+- `presentation` (optional for `outline`, `digest`, `find`, and `show`): `outline` defaults to `tree`, with `compact` (flat file-grouped declarations), `detailed` (historical full output), and opt-in `concise` (selected owners and recognized methods without default fields or IDs). `digest` defaults to its historical full output; `presentation: "compact"` creates the established bounded file map, `"concise"` returns a file-to-top-level class/type/function name map without hashes or counts, and `"detailed"` explicitly selects the historical output. The concise projection includes non-public top-level declarations, relative file paths and a `root` discriminator when several roots are requested, plus explicit partial/skipped status and aggregate `coverage` when incomplete. `outline` tree/compact use `outlineFiles` instead of full `files`/`symbols`; `digest` compact uses `overviewFiles`. The historical tree/compact outlines still expose file encoding/fingerprint and full symbol IDs for safe navigation; concise `digest` and `outline` omit these technical identifiers, while concise `find` retains the required full symbol IDs and per-file fingerprint for safe `show`. Signatures are automatic in concise outlines and remain opt-in elsewhere. A filtered or otherwise missing ancestor is represented with `parentId` instead of being invented.
 - `fileDetails` (optional for `find` only): `all` (default) preserves the existing per-file results; `relevant` returns per-file details only for matching declarations and files with failed or incomplete analysis. This only changes response detail, not what is scanned or the symbol matches.
 
 **Operations:**
-- `outline`: by default returns a compact parent-child hierarchy in `outlineFiles`, not a call graph. `presentation: "compact"` returns an abbreviated flat list in `outlineFiles`; `presentation: "detailed"` returns the historical path/source-ordered `files` and `symbols` with full detection/fingerprint/coverage evidence. Aggregate coverage and truncation describe the same scanned files regardless of presentation.
+- `outline`: by default returns a compact parent-child hierarchy in `outlineFiles`, not a call graph. `presentation: "compact"` returns an abbreviated flat list in `outlineFiles`; `presentation: "detailed"` returns the historical path/source-ordered `files` and `symbols` with full detection/fingerprint/coverage evidence. `presentation: "concise"` returns `files[].owners[]`, their methods, kind, source line and distinguishing bounded signatures; private methods, constructors, destructors and operators are retained when recognized, without default field inventories or hashes. Optional `owner` is an exact simple or qualified owner name **only in concise outlines**. Duplicate owners are returned separately with `ambiguous: true`, not merged; a missing match means only no matching indexed owner in the selected scope. `kinds` can request particular member kinds, including fields explicitly. `maxSymbols` counts returned owners and members rather than every analyzed field, while `coverage.analysisComplete`, `fileSelectionTruncated` and `resultsTruncated` distinguish analysis limits from output limits. Multi-root results include a `root` discriminator. Existing presentations and defaults are unchanged.
 - `digest`: by default returns declaration counts, structural dependencies, relations, and composite regions, without source bodies. Request `presentation: "compact"` for an initial project overview in `overviewFiles`: each selected file has its path, source size, language, encoding, fingerprint, status, coverage, declaration counts and up to five top-level public entry points (`name`, `kind`, `line`). `entryPointsTruncated` signals additional eligible entry points, not incomplete analysis. The compact view intentionally omits detailed dependency/relationship evidence; request the default digest or specific `tree` outlines when needed.
-- `find`: requires `query`; `match` is `exact`, `prefix`, or `qualified`. Multiple retained matches set `ambiguous: true` rather than inventing a unique target. With `fileDetails: "relevant"`, `files` is a subset of the scanned files; `filesConsidered`, `filesParsed`, `filesSkipped`, `coverageComplete`, and `truncated` still describe the full scan. A missing symbol is not proof of absence if coverage is incomplete.
-- `show`: requires one `path`, `symbolId`, `sourceFingerprint`, `language`, and `encoding`. The file is re-read and re-analyzed; a stale fingerprint returns `CONFLICT`. `maxBytes` bounds the selected declaration text.
+- `find`: requires `query`; `match` is `exact`, `prefix`, or `qualified`. Opt-in `presentation: "concise"` returns only matching and incomplete files in `files[]`; each file carries its absolute path, language, encoding and fingerprint once, while `matches[]` carry name, proven owner, kind, source line, distinguishing signature and full symbol ID. This is sufficient for a fingerprint-verified `show` without repeating file identity per match. The default historical response is unchanged. In concise mode `fileDetails` is validated and only relevant results are emitted; no unmatched complete file inventory is returned. Multiple retained matches set `ambiguous: true` rather than inventing a unique target. With `fileDetails: "relevant"`, `files` is a subset of the scanned files; `filesConsidered`, `filesParsed`, `filesSkipped`, `coverageComplete`, and `truncated` still describe the full scan. A missing symbol is not proof of absence if coverage is incomplete. For QBasic and classic BASIC callable names with type suffixes, exact queries accept the normalized name or the precise source spelling (for example, `getfileinfo` or `getfileinfo&`), but not a different suffix. Numbered QBasic/classic BASIC lines are also navigable by their leading numeric `label` (for example, query `"220"`); `show` can retrieve the exact source line. These labels do not assert a valid `GOTO`/`GOSUB` target or reconstruct control flow. Use grep/read to discover matching text or call sites before narrowing by numbered source location.
+- `show`: requires one `path`, `symbolId`, `sourceFingerprint`, `language`, and `encoding`. The file is re-read and re-analyzed; a stale fingerprint returns `CONFLICT`. `maxBytes` bounds the returned exact decoded excerpt and rejects over-budget results instead of silently clipping source. By default, the historical `show` object is unchanged. Opt-in `presentation: "concise"` returns only `file`, the exact Unicode-scalar `range`, `representation`, `complete` and source-exact `code`, with `coverage.analysisComplete: false` when the analyzer reports incomplete coverage. Optional `part` (only with concise show) selects `declaration` (default), `signature`, or `body`, using analyzer-proven offsets. A missing signature/body range is an `UNSUPPORTED` error, never a mislabeled fallback; `complete: true` describes the returned *selected range*, not an assertion that the full source or project was analyzed. The text and structured MCP payloads carry the same representation. Use a targeted `read_text_file` if the provider does not expose the requested body.
 
 Public source coordinates use 1-based Unicode-scalar, half-open ranges (`unicode-scalar-1-based-half-open`) independent of the original file encoding. Symbol IDs and source fingerprints are deterministic lowercase SHA-256 values. Per-file analysis failures are independent; aggregate `coverageComplete` becomes false for skipped, unsupported, ambiguous, partial, or truncated coverage.
 
@@ -762,7 +1017,11 @@ Dedicated limits use the `MCP_SOURCE_MAX_*` family: input paths, files, aggregat
 }
 ```
 
-When the function name is already known, skip the project map: use `find` with `fileDetails: "relevant"`, select the correct `symbolId` when overloads make the result ambiguous, then use `show` for that specific body. Use `grep_text_files` and targeted reads instead if the question is primarily about occurrences or call sites; a complete structural file scan does not prove complete call/reference discovery. When starting with unfamiliar code, first scope `paths` to a relevant directory and request `{"operation":"digest","paths":["/project/src"],"presentation":"compact"}` for a file-level map. Then inspect a bounded `outline` tree; then read or `show` only declarations needed to understand behavior. Use `grep_text_files` for arbitrary text and cross-cutting behavior that structural relations do not cover. For an efficient structural overview, request `{"operation":"outline","paths":["/project/src/main.go"]}` (defaults to `tree`). **Compatibility:** clients expecting the previous top-level `files` and `symbols` must add `"presentation":"detailed"` to their outline requests. The `outlineFiles[].symbols[].symbolId` and corresponding `outlineFiles[].sourceFingerprint` may be used with `show`. In `detailed`, the symbol field remains `id`.
+**Division of responsibility:** The LLM interprets the change request, chooses search terms/scopes, and decides which files to investigate. `source_*` only reports supported source facts for the supplied request; it does not reason, recommend edits or decide what is unrelated.
+
+**Fast LLM workflow for a change request:** The LLM first inspects likely subsystems using a bounded file tree, project docs or a scoped concise `digest`: `{"operation":"digest","paths":["/project/src"],"presentation":"concise"}`. Narrow the search to plausible production files, then use `find`/`source_query search` for candidate declarations and fingerprint-bound `show` for the needed code. Check evidenced direct neighbors, configuration and relevant tests before planning an edit. Treat same-name hits, vendored/generated code and unrelated modules as **provisional exclusions**, not proof that no indirect dependency exists. If a symbol is already known, skip the broad project map. Prefer `grep_text_files` and targeted reads for arbitrary text, calls or relationships the structural index cannot support.
+
+**Ask for detail only when needed:** Use a narrow `outline` (`tree` by default), optionally filtered by `kinds`, to inspect a selected file/class hierarchy. A whole-project outline can exceed the source bytes and is not the normal first response. Never suppress incomplete/truncated coverage or stable identities to save bytes. Tree/compact `outlineFiles[].symbols[].symbolId` and the matching file `sourceFingerprint` are accepted by `show`; in the historical `presentation: "detailed"` form, the top-level output uses `files`/`symbols` and symbol `id`. Use detailed presentation only when a client explicitly needs that compatible layout.
 
 A typical follow-up uses the returned per-file `sourceFingerprint`, symbol `id` (or compact/tree `symbolId`), language, and encoding:
 
@@ -792,15 +1051,25 @@ The single-tool surface was selected instead of three near-duplicate `source_sea
 
 Selectors are fingerprint-bound and use `kind: "path" | "symbol" | "position"`. Every selector carries `path` plus the current lowercase SHA-256 `sourceFingerprint`; a `symbol` selector additionally requires lowercase SHA-256 `symbolId`, while a `position` selector requires positive 1-based `line` and `column`. Invalid combinations are rejected rather than guessed.
 
-**`search`:** requires non-empty `query` and `mode: "structural"`; optional `match` is `exact`, `prefix`, or `contains`. Search operates over normalized symbols, dependencies, and resolved structural relationships without rescanning raw source. Unsupported modes are rejected as invalid input; use `grep_text_files` for decoded text search. `kinds`, `evidence`, and `maxResults` are search-specific. Evidence strength uses only analyzer-proven `structural`, `scope-resolved`, and `project-resolved` grades; a result may never claim a stronger level than the native analyzer proves. Declaration matches also include `name`, `kind`, and `qualifiedName` when present in analyzer facts, so clients need not separately outline a file just to identify a result. Dependency and structural-reference matches omit these declaration-only fields rather than inventing an identity. When results exceed `maxResults`, `search.nextCursor` provides the next page. Repeat the same search parameters with `cursor` set to that value; `search.matches` then contains the next bounded page, in stable order, until `nextCursor` is absent. Search cursors expire after 10 minutes, are authenticated and bound to the query, filters, effective limits and current index generation/fingerprint. Invalid or cross-query tokens return `INVALID_INPUT`; expired, stale-generation or unavailable anchors return `CONFLICT`. Cursors are local to the current server instance and are not supported for `relations` or `context`. Existing searches without `cursor` retain their original result shape except for the optional new `nextCursor`. File-selection and analyzer coverage limits remain independent of pagination.
+**`search`:** requires non-empty `query` and `mode: "structural"`; optional `match` is `exact`, `prefix`, or `contains`. Search operates over normalized symbols, dependencies, and resolved structural relationships without rescanning raw source. Exact structural queries also accept retained original type-suffixed callable spellings in QBasic and classic BASIC, without changing the normalized names returned. Unsupported modes are rejected as invalid input; use `grep_text_files` for decoded text search. `kinds`, `evidence`, and `maxResults` are search-specific. Evidence strength uses only analyzer-proven `structural`, `scope-resolved`, and `project-resolved` grades; a result may never claim a stronger level than the native analyzer proves. Declaration matches also include `name`, `kind`, and `qualifiedName` when present in analyzer facts, so clients need not separately outline a file just to identify a result. Dependency and structural-reference matches omit these declaration-only fields rather than inventing an identity. When results exceed `maxResults`, `search.nextCursor` provides the next page. Repeat the same search parameters with `cursor` set to that value; `search.matches` then contains the next bounded page, in stable order, until `nextCursor` is absent. Search cursors expire after 10 minutes, are authenticated and bound to the query, filters, effective limits and current index generation/fingerprint. Invalid or cross-query tokens return `INVALID_INPUT`; expired, stale-generation or unavailable anchors return `CONFLICT`. Cursors are local to the current server instance and are not supported for `relations` or `context`. Existing searches without `cursor` retain their original result shape except for the optional new `nextCursor`. File-selection and analyzer coverage limits remain independent of pagination.
+
+**Opt-in concise search (development tree):** Add `presentation: "concise"` to structural `search` to receive `search.files[]` instead of repeated flat `search.matches[]`. Each file carries the authorized absolute `path`, detected language, one `sourceFingerprint`, and `encoding` **only when explicitly requested**. Its `matches[]` carry one source-backed symbol name (qualified when available), kind, exact 1-based `range`, evidence grade, and a full `symbolId` only for a verified declaration; structural reference sites without an ID are not silently promoted to selectable declarations. Empty results return `files: []`, a constant `scope: "indexed-structural"`, and compact `coverage` flags. A valid `nextCursor` is returned unchanged and does not mark analysis as incomplete; incomplete file selection, analysis or unpageable result truncation remains visible. Current index metadata is omitted when redundant, but an explicitly selected stale generation remains reported. The cursor is also bound to the selected presentation, so it cannot silently switch response formats mid-page. The historical search response and all non-search operations remain unchanged. If encoding was auto-detected, the concise search does not invent an encoding; use a separately verified decoder for `source_symbols.show`, or use a fingerprint-bound `source_query.context` selector without assuming a codec.
+
+**Development-tree pagination correction:** The public `source_query` schema now accepts `cursor`. A real MCP-client regression test verifies successive pages and rejects an invalid cursor. The installed/released server is unchanged until separately updated.
 
 **`relations`:** requires `relation`, whose vocabulary is `dependencies`, `dependents`, `references`, `definitions`, `inheritance`, `implementations`, `trace`, `impact`, or `cycles`. The supported relations include dependency/dependent adjacency, resolved structural references/definitions, inheritance, proven implementations, bounded dependency trace/impact, and dependency cycles. Requests for unavailable relation kinds are rejected as invalid input. `trace` requires both `subject` and `target`; `cycles` accepts neither selector and does not accept `maxDepth`; the other relation kinds require `subject` and reject `target`. Relation queries may use `evidence`, `maxResults`, `maxNodes`, `maxEdges`, and—where meaningful—`maxDepth`.
 
+**Opt-in concise relations (development tree):** Add `presentation: "concise"` to any of the nine supported `relations` requests to obtain `relations.relation`, `relations.evidenceScope` and bounded `relations.edges[]`, rather than the historical repeated `kind` per edge and complete index inventory. Each edge retains the full proven `source` and `target` identity (including any fingerprint and source-site range), independent `evidence` and `resolution`. The edge `kind` is omitted only when identical to the requested relation; an exceptional different kind remains explicit. Empty results use `edges: []`, not an assertion that no unindexed relation exists. Compact `coverage` retains separate analysis, file selection and result truncation flags, plus skipped-file count; stale index evidence is retained, while current generation bookkeeping is omitted. Unsupported inputs and cursor usage remain rejected; default `relations` and default `context` replies are unchanged. This mode was checked through the public MCP interface for all nine relation kinds and against source-verified cross-file dependency cases; it does not introduce new analyzers or infer additional links.
+
 Every `relations` response now reports `relations.evidenceScope: "indexed-relations-only"`. This describes the evidence boundary, not the file-scan coverage: only relationships recorded by the selected analyzers are returned. `coverage.coverageComplete: true` means the selected files were analyzed without truncation; it **does not** establish that all callers, references, or downstream effects are known. In particular, empty `references` or symbol-level `impact` results cannot prove that no usages exist. For refactors, corroborate possible call sites using `grep_text_files` and inspect candidate bodies with `show` or `read_text_file`. The language capability matrix identifies which structural relations can be claimed.
+
+For C++ class methods, constructors, destructors, and overloaded operators declared in a fully analyzed header, `definitions` can expose a **possible** out-of-class definition from a separately analyzed source file. This requires one indexed declaration and one corresponding written definition form of the same qualified name, one known class/struct owner, and a directly resolved source `#include` of that header. For C and C++, quoted includes may resolve to a matching file relative to the including source, while angle-bracket includes remain external unless compiler include-search roots can be proven; the current query does not accept or infer those roots. A similarly named local header is not proof of an angle-bracket include target. For unknown out-of-file owners, ordinary methods and constructor/destructor definitions retain `kind: "function"` with an empty `parentId`; overloaded operators retain `kind: "operator"` but still have no inferred class owner. Native kinds distinguish written lifecycle definitions without claiming semantic class membership. Candidate matching also requires a unique, bounded match of the written C++ parameter tokens and applicable qualifiers; `override` and `final` in the header are not part of the out-of-class signature. Differences in parameter names, default arguments, macros, or unusually long or unsupported signatures can prevent a candidate even when the compiler would identify the same overload. A candidate retains `evidence: "structural"` and `resolution: "ambiguous"`: matching tokens do not prove equivalent types, overload identity, or template substitutions. No cross-file parent ID or compiler-verified class membership is invented, and missing candidates do not prove an implementation is absent. The existing local declaration/self relation remains available as `scope-resolved`. An explicitly defaulted C++ special member such as `Class::~Class() = default;` is a definition without a brace body; `nativeKind` distinguishes it from a declaration while `bodyRange` remains absent. Written nested type definitions such as `struct Outer::Inner { ... }` preserve the inner type's name without inventing an outer class declaration in that file.
 
 Relationship **resolution state is separate from evidence strength**. The frozen states are `resolved`, `ambiguous`, `unresolved`, and `external`. This prevents an ambiguous structural fact from being represented as though `ambiguous` were a weaker evidence level. Indexed results expose generation, deterministic index fingerprint, and staleness as `current` or retained historical `stale`; `not-indexed` remains part of the frozen vocabulary for compatibility with non-indexed/earlier paths.
 
 **`context`:** returns source excerpts and related declarations for verified targets, within a strict output budget.
+
+**Opt-in concise context (development tree):** Set `presentation: "concise"` to receive `context.items[]` in the original priority order, with an exact `code` excerpt, verified `entity` (path, source fingerprint, optional symbol ID and source range), `reason`, `representation` (`body` or `signature`), independent `evidence` and `resolution`. The internal numeric `priority`, top-level operation and repeated current-index metadata are omitted, not the caller-selected evidence or source bytes. No snippets are shortened or reordered to make JSON smaller; `code` is the original decoded `text` under a clearer name. `context.usedBytes` still counts actual UTF-8 bytes of all excerpts; `budgetBytes` and separate compact `coverage` flags remain visible. A retained stale index remains explicit. An empty projection has `items: []`, not a claim that unindexed source or dependencies do not exist. The same policy and typed errors apply to `prefer`, `signatures-only`, missing explicit targets, byte/item limits and stale source. Historical responses without this option remain unchanged. Focused MCP-client checks and two independent original Java source-oracle cases exercise the opt-in behavior; wider cross-provider qualification remains pending.
 
 - **Inputs:** one to 32 fingerprint-bound `targets` and positive `budgetBytes`. Optional `bodyPolicy` is `prefer` or `signatures-only`; `maxItems` and `maxDepth` impose further limits.
 - **Selection:** planning uses one coherent project generation, prioritizing `target`, `enclosing`, `direct-dependency`, `reverse-or-type-relation`, then `deeper-relation`. Deeper relations have signatures only. Explicit symbol and position targets are all-or-error under byte/item pressure. For reverse dependencies, explicit file targets may include declarations across dependent files; symbol and position targets retain proven type relationships without including every unrelated declaration from those files. Mixed targets preserve any explicitly requested file scope. With `prefer`, a complete declaration body is returned when it fits; otherwise the planner uses its bounded signature.

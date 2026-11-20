@@ -75,18 +75,25 @@ type bladeAnonymousClass struct {
 }
 
 var (
-	scriptTagPattern              = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
-	styleTagPattern               = regexp.MustCompile(`(?is)<style\b([^>]*)>(.*?)</style\s*>`)
+	// A quoted script attribute can contain > without ending the opening tag.
+	quotedScriptTagPattern = regexp.MustCompile(`(?is)<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</script\s*>`)
+	// Quoted style attributes can contain > without ending the opening tag.
+	quotedStyleTagPattern         = regexp.MustCompile(`(?is)<style\b((?:[^>"']|"[^"]*"|'[^']*')*)>(.*?)</style\s*>`)
 	scriptOpenPattern             = regexp.MustCompile(`(?is)<script\b`)
 	styleOpenPattern              = regexp.MustCompile(`(?is)<style\b`)
 	languageAttributePattern      = regexp.MustCompile(`(?i)\blang\s*=\s*["']([^"']+)["']`)
 	typeAttributePattern          = regexp.MustCompile(`(?i)\btype\s*=\s*["']([^"']+)["']`)
 	phpBlockPattern               = regexp.MustCompile(`(?is)<\?(?:php|=)?(.*?)\?>`)
 	phpOpenPattern                = regexp.MustCompile(`(?is)<\?(?:php\b|=)`)
+	phpSourceOpenPattern          = regexp.MustCompile(`(?is)<\?(?:php\b|=|[ \t\r\n])`)
 	jspBlockPattern               = regexp.MustCompile(`(?is)<%[!@=]?(.*?)%>`)
+	jspXMLDeclarationPattern      = regexp.MustCompile(`(?s)<jsp:declaration\s*>(.*?)</jsp:declaration\s*>`)
+	jspXMLExecutablePattern       = regexp.MustCompile(`(?s)<jsp:(?:scriptlet|expression)\b[^>]*>(.*?)</jsp:(?:scriptlet|expression)\s*>`)
+	jspXMLCodeOpenPattern         = regexp.MustCompile(`(?i)<jsp:(?:declaration|scriptlet|expression)\b`)
 	ejsBlockPattern               = regexp.MustCompile(`(?is)<%[-_=#]?(.*?)[-_]?%>`)
 	percentOpenPattern            = regexp.MustCompile(`(?is)<%`)
 	bladeSectionPattern           = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*\)`)
+	bladeInlineSectionPattern     = regexp.MustCompile(`(?i)@section\s*\(\s*["']([^"']+)["']\s*,`)
 	bladeVoltPattern              = regexp.MustCompile(`(?i)@volt\s*\(\s*["']([^"']+)["']\s*\)`)
 	bladeDependencyPattern        = regexp.MustCompile(`(?i)@(extends|include)\s*\(\s*["']([^"']+)["']\s*\)`)
 	templateScopeDirectivePattern = regexp.MustCompile(`(?is)^\{%[-+]?\s*(block|macro|endblock|endmacro)\b(?:\s+([A-Za-z_][A-Za-z0-9_-]*))?`)
@@ -127,6 +134,10 @@ func (PHPHTMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 }
 
 func phpRegions(ctx context.Context, probe string) ([]compositeEmbeddedRegion, bool, error) {
+	return phpRegionsWithPattern(ctx, probe, phpOpenPattern)
+}
+
+func phpRegionsWithPattern(ctx context.Context, probe string, openingPattern *regexp.Regexp) ([]compositeEmbeddedRegion, bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -135,7 +146,7 @@ func phpRegions(ctx context.Context, probe string) ([]compositeEmbeddedRegion, b
 		if err := ctx.Err(); err != nil {
 			return nil, false, operation.Wrap(operation.KindCancelled, "segment_php_html_source", "", err)
 		}
-		opening := phpOpenPattern.FindStringIndex(probe[search:])
+		opening := openingPattern.FindStringIndex(probe[search:])
 		if opening == nil {
 			break
 		}
@@ -333,7 +344,7 @@ func analyzePHPHTMLHost(ctx context.Context, document *SourceDocument, options A
 		return AnalyzerResult{}, err
 	}
 	result := AnalyzerResult{Analysis: AnalysisResult{CoverageComplete: true}}
-	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskedHost, options, "php-html", AnalyzerPHPHTML, "host-html", "html")
+	host, err := analyzeMaskedEmbeddedRegion(ctx, document, maskPHPComputedIDAttributes(maskedHost, regions), options, "php-html", AnalyzerPHPHTML, "host-html", "html")
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -369,10 +380,70 @@ func analyzePHPHTMLHost(ctx context.Context, document *SourceDocument, options A
 	return result, nil
 }
 
+// A PHP expression inside an HTML id is not a statically addressable entity.
+func maskPHPComputedIDAttributes(host string, regions []compositeEmbeddedRegion) string {
+	if len(regions) == 0 {
+		return host
+	}
+	ranges := make([]OffsetRange, len(regions))
+	for i, region := range regions {
+		ranges[i] = region.full
+	}
+	return maskMarkupComputedIDAttributes(host, ranges)
+}
+
+// Mask the whole computed ID attribute, not just embedded spans, while preserving
+// byte offsets. Embedded ranges must be ordered as in the original source.
+func maskMarkupComputedIDAttributes(host string, ranges []OffsetRange) string {
+	if len(ranges) == 0 {
+		return host
+	}
+	var masked []byte
+	regionIndex := 0
+	for _, tag := range markupTag.FindAllStringIndex(host, -1) {
+		raw := host[tag[0]:tag[1]]
+		for _, pattern := range []*regexp.Regexp{markupDoubleID, markupSingleID, markupBareID} {
+			match := pattern.FindStringSubmatchIndex(raw)
+			if len(match) < 4 {
+				continue
+			}
+			start, end := tag[0]+match[2], tag[0]+match[3]
+			for regionIndex < len(ranges) && ranges[regionIndex].End <= start {
+				regionIndex++
+			}
+			if regionIndex < len(ranges) && ranges[regionIndex].Start < end {
+				if masked == nil {
+					masked = []byte(host)
+				}
+				maskByteRangePreservingLines(masked, tag[0]+match[0], tag[0]+match[1])
+			}
+			break
+		}
+	}
+	if masked == nil {
+		return host
+	}
+	return string(masked)
+}
+
 func (JSPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	probe := maskHostComments(document.Text)
-	regions := regexEmbeddedRegions(probe, jspBlockPattern, "jsp-java", "java")
-	complete := embeddedOpeningsCovered(probe, regions, percentOpenPattern)
+	classicRegions := regexEmbeddedRegions(probe, jspBlockPattern, "jsp-java", "java")
+	complete := embeddedOpeningsCovered(probe, classicRegions, percentOpenPattern)
+	outsideClassic, maskErr := maskCompositeRanges(probe, embeddedRegionFullRanges(classicRegions))
+	if maskErr != nil {
+		return AnalyzerResult{}, maskErr
+	}
+	// A declaration-looking tag inside XML executable code or CDATA is text,
+	// not an independent JSP declaration.
+	xmlProbe := maskDelimitedSourceRegions(outsideClassic, [][2]string{{"<![CDATA[", "]]>"}})
+	executable := regexEmbeddedRegions(xmlProbe, jspXMLExecutablePattern, "", "")
+	xmlProbe, maskErr = maskCompositeRanges(xmlProbe, embeddedRegionFullRanges(executable))
+	if maskErr != nil {
+		return AnalyzerResult{}, maskErr
+	}
+	regions := append(classicRegions, jspXMLDeclarationRegions(xmlProbe, outsideClassic)...)
+	sort.Slice(regions, func(i, j int) bool { return regions[i].full.Start < regions[j].full.Start })
 	result, err := analyzeJSPHost(ctx, document, options, regions)
 	if err != nil {
 		return AnalyzerResult{}, err
@@ -381,7 +452,34 @@ func (JSPAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	if !complete {
 		markCompositePartial(&result.Analysis, options.Limits, false, "jsp-unterminated-region", "JSP region is not terminated")
 	}
+	if jspXMLCodeOpenPattern.MatchString(probe) {
+		hostOnly, maskErr := maskCompositeRanges(probe, embeddedRegionFullRanges(regions))
+		if maskErr != nil {
+			return AnalyzerResult{}, maskErr
+		}
+		if jspXMLCodeOpenPattern.MatchString(hostOnly) {
+			markCompositePartial(&result.Analysis, options.Limits, false, "jsp-xml-code-unsupported", "JSP XML code elements are not structurally analyzed")
+		}
+	}
 	return result, nil
+}
+
+// XML declarations contain Java members. CDATA and entity-escaped Java need
+// a separate coordinate-preserving decoding policy, so leave them unsupported.
+func jspXMLDeclarationRegions(probe, original string) []compositeEmbeddedRegion {
+	if !jspXMLCodeOpenPattern.MatchString(probe) {
+		return nil
+	}
+	candidates := regexEmbeddedRegions(probe, jspXMLDeclarationPattern, "jsp-xml-declaration", "java")
+	regions := candidates[:0]
+	for _, region := range candidates {
+		content := original[region.content.Start:region.content.End]
+		if strings.Contains(content, "<![CDATA[") || strings.Contains(content, "&") {
+			continue
+		}
+		regions = append(regions, region)
+	}
+	return regions
 }
 
 func analyzeJSPHost(ctx context.Context, document *SourceDocument, options AnalyzeOptions, regions []compositeEmbeddedRegion) (AnalyzerResult, error) {
@@ -406,9 +504,27 @@ func analyzeJSPHost(ctx context.Context, document *SourceDocument, options Analy
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	// Masking JSP expressions preserves offsets but can leave a literal ID
+	// prefix (id="c1<%=i%>") looking static to the HTML analyzer. Only
+	// retain names whose entire original attribute value is literal.
+	retained := host.Analysis.Symbols[:0]
+	for _, symbol := range host.Analysis.Symbols {
+		if symbol.Kind == SymbolKindEntity && symbol.NativeKind == "id-element" &&
+			symbol.nameOffsets.Start >= 0 && symbol.nameOffsets.End <= len(document.Text) &&
+			symbol.nameOffsets.End >= symbol.nameOffsets.Start {
+			value := document.Text[symbol.nameOffsets.Start:symbol.nameOffsets.End]
+			if strings.Contains(value, "<%") || strings.Contains(value, "${") ||
+				strings.Contains(value, "#{") {
+				continue
+			}
+		}
+		retained = append(retained, symbol)
+	}
+	host.Analysis.Symbols = retained
 	mergeCompositeAnalyzerResult(&result, host, options.Limits)
 
 	javaRanges := make([]OffsetRange, 0, len(regions))
+	xmlDeclarationRanges := make([]OffsetRange, 0, len(regions))
 	for index, region := range regions {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_jsp_source", document.Path, err)
@@ -419,7 +535,9 @@ func analyzeJSPHost(ctx context.Context, document *SourceDocument, options Analy
 			return AnalyzerResult{}, rangeErr
 		}
 		result.Regions = append(result.Regions, SourceRegion{ID: regionID, Kind: region.kind, Language: region.language, Range: rangeValue, Evidence: SymbolEvidenceStructural, Supported: true})
-		if jspJavaRegion(document.Text, region) {
+		if region.kind == "jsp-xml-declaration" {
+			xmlDeclarationRanges = append(xmlDeclarationRanges, region.content)
+		} else if jspJavaRegion(document.Text, region) {
 			javaRanges = append(javaRanges, region.content)
 		}
 	}
@@ -436,6 +554,25 @@ func analyzeJSPHost(ctx context.Context, document *SourceDocument, options Analy
 		assignEmbeddedRegionIDs(embedded.Analysis.Symbols, regions)
 		mergeCompositeAnalyzerResult(&result, embedded, options.Limits)
 	}
+	if len(xmlDeclarationRanges) > 0 {
+		maskedJava, maskErr := MaskOutsideRanges(document.Text, xmlDeclarationRanges)
+		if maskErr != nil {
+			return AnalyzerResult{}, maskErr
+		}
+		clone := *document
+		clone.Text = maskedJava
+		clone.lineStarts = lineStartsForDerivedText(document, maskedJava)
+		members, analyzeErr := analyzeJVMFamilyScope(ctx, &clone, options, false, true)
+		if analyzeErr != nil {
+			return AnalyzerResult{}, analyzeErr
+		}
+		analysis, reprojectErr := reprojectAnalyzerSymbols(ctx, document, members, options, "java", AnalyzerJSP, "", 0, nil)
+		if reprojectErr != nil {
+			return AnalyzerResult{}, reprojectErr
+		}
+		assignEmbeddedRegionIDs(analysis.Symbols, regions)
+		mergeCompositeAnalyzerResult(&result, AnalyzerResult{Analysis: analysis, Dependencies: members.Dependencies, Relations: members.Relations}, options.Limits)
+	}
 	if regionsTruncated {
 		markCompositePartial(&result.Analysis, options.Limits, true, "jsp-region-limit", "composite region retention limit reached")
 	}
@@ -451,6 +588,34 @@ func jspJavaRegion(text string, region compositeEmbeddedRegion) bool {
 }
 
 func assignEmbeddedRegionIDs(symbols []NormalizedSymbol, regions []compositeEmbeddedRegion) {
+	if len(symbols) == 0 || len(regions) == 0 {
+		return
+	}
+	// Embedded regions are normally sorted and disjoint. Validate once before
+	// using binary search so irregular inputs retain first-match precedence.
+	disjoint := regions[0].content.Start <= regions[0].content.End
+	for index := 1; index < len(regions) && disjoint; index++ {
+		previous := regions[index-1].content
+		current := regions[index].content
+		disjoint = previous.End <= current.Start && current.Start <= current.End
+	}
+	if !disjoint {
+		assignEmbeddedRegionIDsLinear(symbols, regions)
+		return
+	}
+	for index := range symbols {
+		offset := symbols[index].declarationOffsets.Start
+		regionIndex := sort.Search(len(regions), func(i int) bool {
+			return regions[i].content.End > offset
+		})
+		if regionIndex >= len(regions) || offset < regions[regionIndex].content.Start {
+			continue
+		}
+		symbols[index].RegionID = fmt.Sprintf("%s-%d", regions[regionIndex].kind, regionIndex+1)
+	}
+}
+
+func assignEmbeddedRegionIDsLinear(symbols []NormalizedSymbol, regions []compositeEmbeddedRegion) {
 	for index := range symbols {
 		offset := symbols[index].declarationOffsets.Start
 		for regionIndex, region := range regions {
@@ -657,8 +822,8 @@ func analyzeScriptStyleHost(ctx context.Context, document *SourceDocument, optio
 			}
 		}
 	}
-	regions = append(regions, tagEmbeddedRegions(probe, scriptTagPattern, "script", scriptLanguage)...)
-	regions = append(regions, tagEmbeddedRegions(probe, styleTagPattern, "style", styleLanguage)...)
+	regions = append(regions, tagEmbeddedRegions(probe, quotedScriptTagPattern, "script", scriptLanguage)...)
+	regions = append(regions, tagEmbeddedRegions(probe, quotedStyleTagPattern, "style", styleLanguage)...)
 	regions = orderedNonOverlappingEmbeddedRegions(regions)
 	complete := embeddedOpeningsCovered(probe, regions, scriptOpenPattern) && embeddedOpeningsCovered(probe, regions, styleOpenPattern)
 	result, err := analyzeDelimitedCompositeHost(ctx, document, options, language, analyzer, regions)
@@ -666,6 +831,11 @@ func analyzeScriptStyleHost(ctx context.Context, document *SourceDocument, optio
 		return AnalyzerResult{}, err
 	}
 	retainedRegions, _ := capEmbeddedRegions(regions, options.Limits.MaxSymbols)
+	if language == "vue" {
+		if err := appendVueOptionsMethods(ctx, document, options, retainedRegions, &result); err != nil {
+			return AnalyzerResult{}, err
+		}
+	}
 	appendCompositeDependencies(&result, scriptSourceDependencies(document, retainedRegions), options.Limits)
 	if !complete {
 		markCompositePartial(&result.Analysis, options.Limits, false, language+"-unterminated-region", "script/style region is not terminated")
@@ -735,6 +905,7 @@ func analyzeTemplateHost(ctx context.Context, document *SourceDocument, options 
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
 	masked, ranges, complete := maskTemplateSyntax(document.Text)
+	masked = maskMarkupComputedIDAttributes(masked, ranges)
 	declarationProbe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}, {"{#", "#}"}, {"{{", "}}"}})
 	result, err := analyzeMaskedEmbeddedRegion(ctx, document, masked, options, language, analyzer, "host-html", "html")
 	if err != nil {
@@ -765,11 +936,101 @@ func analyzeTemplateHost(ctx context.Context, document *SourceDocument, options 
 	return result, nil
 }
 
+// templateMatchedScopes pairs balanced declaration tags before symbols are
+// normalized. A symbol's deterministic identity includes its final end offset,
+// so extending a previously added symbol would invalidate its parent selectors.
+type templateMatchedScope struct {
+	declarationEnd int
+	bodyStart      int
+	bodyEnd        int
+}
+
+// Twig permits a block to contain its expression in the opening tag, without
+// a corresponding endblock. Such a declaration has no lexical child scope.
+func twigInlineBlockExpression(tag string, nameEnd int) bool {
+	close := strings.LastIndex(tag, "%}")
+	if nameEnd < 0 || close < nameEnd {
+		return false
+	}
+	tail := strings.TrimSpace(tag[nameEnd:close])
+	tail = strings.TrimSpace(strings.TrimRight(tail, "-+"))
+	return tail != ""
+}
+
+func templateMatchedScopes(text string, ranges []OffsetRange, language string, maxNesting, maxSymbols int) map[int]templateMatchedScope {
+	type opening struct {
+		kind, name string
+		tag        OffsetRange
+		retained   bool
+	}
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
+	stack := make([]opening, 0, min(maxNesting, 8))
+	pairs := make(map[int]templateMatchedScope)
+	declarations := 0
+	overflow := 0
+	for _, span := range ranges {
+		if span.Start < 0 || span.End <= span.Start || span.End > len(text) {
+			continue
+		}
+		tag := text[span.Start:span.End]
+		if !strings.HasPrefix(tag, "{%") {
+			continue
+		}
+		match := templateScopeDirectivePattern.FindStringSubmatchIndex(tag)
+		if len(match) < 4 || match[2] < 0 {
+			continue
+		}
+		directive := strings.ToLower(tag[match[2]:match[3]])
+		switch directive {
+		case "block", "macro":
+			if len(match) < 6 || match[4] < 0 {
+				continue
+			}
+			if language == "twig" && directive == "block" &&
+				twigInlineBlockExpression(tag, match[5]) {
+				continue
+			}
+			if overflow != 0 || len(stack) >= maxNesting {
+				overflow++
+				continue
+			}
+			stack = append(stack, opening{kind: directive, name: tag[match[4]:match[5]], tag: span, retained: declarations < maxSymbols})
+			declarations++
+		case "endblock", "endmacro":
+			if overflow != 0 {
+				overflow--
+				continue
+			}
+			if len(stack) == 0 {
+				continue
+			}
+			top := stack[len(stack)-1]
+			if top.kind != strings.TrimPrefix(directive, "end") {
+				continue
+			}
+			if directive == "endblock" && len(match) >= 6 && match[4] >= 0 &&
+				tag[match[4]:match[5]] != top.name {
+				continue
+			}
+			stack = stack[:len(stack)-1]
+			if top.retained {
+				pairs[top.tag.Start] = templateMatchedScope{
+					declarationEnd: span.End, bodyStart: top.tag.End, bodyEnd: span.Start,
+				}
+			}
+		}
+	}
+	return pairs
+}
+
 func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, ranges []OffsetRange, language string, maxNesting int) error {
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
 	scopes := make([]templateScope, 0, min(8, maxNesting))
+	matched := templateMatchedScopes(document.Text, ranges, language, maxNesting, builder.options.Limits.MaxSymbols)
 	for _, value := range ranges {
 		if value.Start < 0 || value.End <= value.Start || value.End > len(document.Text) {
 			continue
@@ -805,15 +1066,27 @@ func addTemplateDeclarations(builder *SymbolBuilder, document *SourceDocument, r
 				value := scopes[len(scopes)-1].parent
 				parent = &value
 			}
+			inline := language == "twig" && directive == "block" &&
+				twigInlineBlockExpression(statement, match[5])
 			declaration := OffsetRange{Start: value.Start, End: nameEnd}
-			symbol, err := builder.Add(SymbolSpec{Kind: kind, NativeKind: directive, Name: name, Parent: parent, Declaration: declaration, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Evidence: SymbolEvidenceStructural})
+			if inline {
+				declaration.End = value.End
+			}
+			var body *OffsetRange
+			if bounds, paired := matched[value.Start]; paired {
+				declaration.End = bounds.declarationEnd
+				body = &OffsetRange{Start: bounds.bodyStart, End: bounds.bodyEnd}
+			}
+			symbol, err := builder.Add(SymbolSpec{Kind: kind, NativeKind: directive, Name: name, Parent: parent, Declaration: declaration, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Body: body, Evidence: SymbolEvidenceStructural})
 			if err != nil {
 				if operation.KindOf(err) == operation.KindLimit {
 					return nil
 				}
 				return err
 			}
-			scopes = append(scopes, templateScope{kind: directive, name: name, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}, declaration: declaration})
+			if !inline {
+				scopes = append(scopes, templateScope{kind: directive, name: name, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}, declaration: declaration})
+			}
 		case "endblock", "endmacro":
 			expected := strings.TrimPrefix(directive, "end")
 			if len(scopes) == 0 {
@@ -861,7 +1134,14 @@ func analyzeMaskedEmbeddedRegion(ctx context.Context, host *SourceDocument, mask
 	clone := *host
 	clone.Text = masked
 	clone.lineStarts = lineStartsForDerivedText(host, masked)
-	source, err := delegate.Analyze(ctx, &clone, options)
+	var source AnalyzerResult
+	if embeddedLanguage == "php" {
+		// The composite caller has already isolated PHP bytes; re-segmenting
+		// would mistake literal tag text in embedded strings for new PHP code.
+		source, err = analyzePHPSource(ctx, &clone, options, false)
+	} else {
+		source, err = delegate.Analyze(ctx, &clone, options)
+	}
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -1003,14 +1283,70 @@ func selfClosingTagOpening(opening string) bool {
 	return close >= 0 && strings.HasSuffix(strings.TrimSpace(opening[:close]), "/")
 }
 
+// bladeInlineSectionClose accepts a single-line, balanced Blade section expression.
+// A bounded scan avoids interpreting an unfinished nested call as a complete section.
+func bladeInlineSectionClose(probe string, open int) (int, bool) {
+	limit := min(len(probe), open+16384)
+	depth := 0
+	var quote byte
+	for i := open; i < limit; i++ {
+		c := probe[i]
+		if c == '\r' || c == '\n' {
+			break
+		}
+		if quote != 0 {
+			if c == '\\' && i+1 < limit {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i + 1, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func addBladeDeclarations(builder *SymbolBuilder, document *SourceDocument, probe string) ([]bladeVoltComponent, error) {
 	sectionMatches := bladeSectionPattern.FindAllStringSubmatchIndex(probe, -1)
 	voltMatches := bladeVoltPattern.FindAllStringSubmatchIndex(probe, -1)
 	declarations := make([]bladeDeclaration, 0, len(sectionMatches)+len(voltMatches))
 	for _, match := range sectionMatches {
+		if match[0] > 0 && probe[match[0]-1] == '@' {
+			continue // Blade renders @@section literally.
+		}
 		declarations = append(declarations, bladeDeclaration{
 			kind: SymbolKindSection, nativeKind: "section", name: document.Text[match[2]:match[3]],
 			declaration: OffsetRange{Start: match[0], End: match[1]}, nameRange: OffsetRange{Start: match[2], End: match[3]},
+		})
+	}
+	for _, match := range bladeInlineSectionPattern.FindAllStringSubmatchIndex(probe, -1) {
+		if match[0] > 0 && probe[match[0]-1] == '@' {
+			continue
+		}
+		open := match[0] + strings.IndexByte(probe[match[0]:match[1]], '(')
+		end, complete := bladeInlineSectionClose(probe, open)
+		if !complete {
+			builder.MarkIncomplete()
+			r := OffsetRange{Start: match[0], End: match[1]}
+			_ = builder.AddDiagnostic(DiagnosticSpec{Code: "blade-inline-section-unclosed", Message: "Inline Blade section has no matching closing parenthesis", Severity: DiagnosticWarning, Range: &r, AffectsCoverage: true})
+			continue
+		}
+		declarations = append(declarations, bladeDeclaration{
+			kind: SymbolKindSection, nativeKind: "section", name: document.Text[match[2]:match[3]],
+			declaration: OffsetRange{Start: match[0], End: end}, nameRange: OffsetRange{Start: match[2], End: match[3]},
 		})
 	}
 	validVoltMatches := 0
@@ -1452,6 +1788,57 @@ func maskHostComments(text string) string {
 	return maskDelimitedSourceRegions(text, [][2]string{{"<!--", "-->"}})
 }
 
+// Computed Razor ids are runtime expressions, not stable HTML entity names.
+// Mask only their attributes and preserve every source byte offset.
+func maskRazorComputedIDAttributes(source string) string {
+	var masked []byte
+	for _, tag := range markupTag.FindAllStringSubmatchIndex(source, -1) {
+		raw := source[tag[0]:tag[1]]
+		for _, pattern := range []*regexp.Regexp{markupDoubleID, markupSingleID, markupBareID} {
+			match := pattern.FindStringSubmatchIndex(raw)
+			if len(match) < 4 || match[2] < 0 || !razorIDContainsExpression(raw[match[2]:match[3]]) {
+				continue
+			}
+			if masked == nil {
+				masked = []byte(source)
+			}
+			for index := tag[0] + match[0]; index < tag[0]+match[1]; index++ {
+				if masked[index] != '\n' && masked[index] != '\r' {
+					masked[index] = ' '
+				}
+			}
+			break
+		}
+	}
+	if masked == nil {
+		return source
+	}
+	return string(masked)
+}
+
+func razorIDContainsExpression(value string) bool {
+	for index := 0; index+1 < len(value); index++ {
+		if value[index] != '@' {
+			continue
+		}
+		if value[index+1] == '@' {
+			index++ // Razor literal escaping is not an expression.
+			continue
+		}
+		next := value[index+1]
+		if next == '(' || next == '{' {
+			return true // Explicit Razor expressions can follow literal text.
+		}
+		if index > 0 && isASCIIIdentifierByte(value[index-1]) {
+			continue // Preserve ordinary email-like literal ids.
+		}
+		if next == '_' || next >= 'A' && next <= 'Z' || next >= 'a' && next <= 'z' {
+			return true
+		}
+	}
+	return false
+}
+
 func analyzeClientWebRegions(ctx context.Context, document *SourceDocument, options AnalyzeOptions, hostLanguage string, analyzer AnalyzerID, excluded []OffsetRange) (AnalyzerResult, error) {
 	probe := maskDelimitedSourceRegions(document.Text, [][2]string{{"<!--", "-->"}, {"@*", "*@"}})
 	var err error
@@ -1462,8 +1849,8 @@ func analyzeClientWebRegions(ctx context.Context, document *SourceDocument, opti
 		}
 	}
 	regions := append(
-		tagEmbeddedRegions(probe, scriptTagPattern, "script", scriptLanguage),
-		tagEmbeddedRegions(probe, styleTagPattern, "style", styleLanguage)...,
+		tagEmbeddedRegions(probe, quotedScriptTagPattern, "script", scriptLanguage),
+		tagEmbeddedRegions(probe, quotedStyleTagPattern, "style", styleLanguage)...,
 	)
 	regions = orderedNonOverlappingEmbeddedRegions(regions)
 	allRegions := regions
@@ -1475,6 +1862,9 @@ func analyzeClientWebRegions(ctx context.Context, document *SourceDocument, opti
 	hostMasked, err := maskCompositeRanges(document.Text, hostMasks)
 	if err != nil {
 		return AnalyzerResult{}, err
+	}
+	if hostLanguage == "razor" || hostLanguage == "blazor" {
+		hostMasked = maskRazorComputedIDAttributes(hostMasked)
 	}
 	result, err := analyzeMaskedEmbeddedRegion(ctx, document, hostMasked, options, hostLanguage, analyzer, "client-host", "html")
 	if err != nil {

@@ -147,12 +147,16 @@ func (parser *csharpParser) parseUsing(start, end int) int {
 func (parser *csharpParser) parseNamespace(start, end int, parent *SymbolParent) (int, *SymbolParent) {
 	cursor := start + 1
 	var nameParts []string
+	firstNameToken := -1
 	for cursor < end {
 		token := parser.tokens[cursor]
 		if token.Text == "{" || token.Text == ";" {
 			break
 		}
 		if token.Kind == TokenIdentifier || token.Text == "." {
+			if token.Kind == TokenIdentifier && firstNameToken < 0 {
+				firstNameToken = cursor
+			}
 			nameParts = append(nameParts, token.Text)
 		}
 		cursor++
@@ -164,7 +168,7 @@ func (parser *csharpParser) parseNamespace(start, end int, parent *SymbolParent)
 	}
 	terminator := parser.tokens[cursor]
 	nameToken := parser.lastIdentifier(start+1, cursor)
-	if nameToken < 0 {
+	if firstNameToken < 0 || nameToken < 0 {
 		parser.builder.MarkIncomplete()
 		return cursor + 1, nil
 	}
@@ -184,7 +188,7 @@ func (parser *csharpParser) parseNamespace(start, end int, parent *SymbolParent)
 	}
 	spec := SymbolSpec{Kind: SymbolKindNamespace, NativeKind: "namespace", Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
-		NameRange:   OffsetRange{Start: parser.tokens[nameToken].StartOffset, End: parser.tokens[nameToken].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[firstNameToken].StartOffset, End: parser.tokens[nameToken].EndOffset},
 		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: terminator.StartOffset}, Body: body, Evidence: SymbolEvidenceStructural}
 	symbol, ok := parser.add(spec)
 	if !ok {
@@ -288,10 +292,69 @@ func (parser *csharpParser) parseType(start, keyword, end int, parent *SymbolPar
 	}
 	if closeIndex > terminator {
 		typeParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-		parser.parseScope(terminator+1, closeIndex, typeParent, true, symbol.Name)
+		if nativeKind == "enum" {
+			parser.parseEnumMembers(terminator+1, closeIndex, parser.tokens[terminator].Nesting, typeParent)
+		} else {
+			parser.parseScope(terminator+1, closeIndex, typeParent, true, symbol.Name)
+		}
 		return closeIndex + 1
 	}
 	return terminator + 1
+}
+
+// parseEnumMembers isolates enum value declarations from ordinary class members.
+// Commas inside expressions or attribute arguments are not declaration boundaries.
+func (parser *csharpParser) parseEnumMembers(start, end, depth int, parent *SymbolParent) {
+	for index := start; index < end && !parser.stopped; {
+		if parser.ctx.Err() != nil {
+			return
+		}
+		index = parser.nextUseful(index, end)
+		if index >= end {
+			return
+		}
+		if parser.tokenEqual(index, ",") {
+			index++
+			continue
+		}
+		nameIndex, ok := parser.skipAttributeLists(index, end)
+		if !ok {
+			return
+		}
+		nameIndex = parser.nextUseful(nameIndex, end)
+		if nameIndex >= end {
+			return
+		}
+		nameToken := parser.tokens[nameIndex]
+		if nameToken.Kind != TokenIdentifier {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		delimiter := end
+		for cursor := nameIndex + 1; cursor < end; cursor++ {
+			if parser.tokens[cursor].Text == "," && parser.tokens[cursor].Nesting == depth {
+				delimiter = cursor
+				break
+			}
+		}
+		endIndex := previousStructuralToken(parser.tokens, delimiter-1, nameIndex)
+		if endIndex < nameIndex {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		if next := parser.nextUseful(nameIndex+1, delimiter); next < delimiter && !parser.tokenEqual(next, "=") {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		parser.addDiscard(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-value", Name: nameToken.Text, Parent: parent,
+			Declaration: OffsetRange{Start: parser.tokens[index].StartOffset, End: parser.tokens[endIndex].EndOffset},
+			NameRange:   OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset},
+			Signature:   &OffsetRange{Start: nameToken.StartOffset, End: parser.tokens[endIndex].EndOffset},
+			Evidence:    SymbolEvidenceStructural,
+		})
+		index = delimiter + 1
+	}
 }
 
 func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ownerName string) int {
@@ -326,9 +389,13 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 	segmentEnd := terminator
 	modifiers := parser.collectModifiers(start, segmentEnd)
 	visibility := csharpVisibility(modifiers)
-	paren := parser.findTopOpening(start, segmentEnd, "(", depth+1)
+	paren := parser.findMethodParameterOpening(start, segmentEnd, depth+1)
+	if paren >= 0 && (parser.findToken(start, paren, "=", depth) >= 0 || parser.findToken(start, paren, "=>", depth) >= 0) {
+		// An initializer invocation is not the member's parameter list.
+		paren = -1
+	}
 	if paren >= 0 {
-		nameIndex := parser.lastIdentifier(start, paren)
+		nameIndex := parser.memberMethodNameIndex(start, paren)
 		if nameIndex >= 0 {
 			kind := SymbolKindMethod
 			nativeKind := "method"
@@ -378,7 +445,7 @@ func (parser *csharpParser) parseMember(start, end int, parent *SymbolParent, ow
 			kind, nativeKind = SymbolKindConstant, "const"
 		} else if parser.containsToken(start, nameIndex, "event") {
 			kind, nativeKind = SymbolKindEvent, "event"
-		} else if closeIndex > terminator || parser.findToken(start, terminator, "=>", depth) >= 0 {
+		} else if parser.findToken(start, terminator, "=", depth) < 0 && (closeIndex > terminator || parser.findToken(start, terminator, "=>", depth) >= 0) {
 			kind, nativeKind = SymbolKindProperty, "property"
 		}
 		signatureEnd := parser.tokens[terminator].StartOffset
@@ -464,6 +531,33 @@ func (parser *csharpParser) nextIdentifier(index, end int) int {
 	return -1
 }
 
+// memberMethodNameIndex skips the bounded type parameter list between a
+// generic method's name and its argument list, rather than returning a type
+// parameter as the declared method name.
+func (parser *csharpParser) memberMethodNameIndex(start, paren int) int {
+	last := parser.lastIdentifier(start, paren)
+	lastToken := previousStructuralToken(parser.tokens, paren-1, start)
+	if lastToken < 0 || parser.tokens[lastToken].Text != ">" {
+		return last
+	}
+	depth := 0
+	for index := lastToken; index >= start; index-- {
+		switch parser.tokens[index].Text {
+		case ">":
+			depth++
+		case "<":
+			depth--
+			if depth == 0 {
+				nameIndex := previousStructuralToken(parser.tokens, index-1, start)
+				if nameIndex >= start && parser.tokens[nameIndex].Kind == TokenIdentifier {
+					return nameIndex
+				}
+			}
+		}
+	}
+	return last
+}
+
 func (parser *csharpParser) lastIdentifier(start, end int) int {
 	for index := end - 1; index >= start; index-- {
 		if parser.tokens[index].Kind == TokenIdentifier {
@@ -498,9 +592,19 @@ func (parser *csharpParser) findMemberTerminator(start, end, depth int) int {
 	return -1
 }
 
-func (parser *csharpParser) findTopOpening(start, end int, text string, nesting int) int {
+// A tuple return type can introduce parentheses before the actual method
+// parameters. The parameter list must close at a valid declaration suffix.
+func (parser *csharpParser) findMethodParameterOpening(start, end, nesting int) int {
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == text && parser.tokens[index].Nesting == nesting {
+		if parser.tokens[index].Text != "(" || parser.tokens[index].Nesting != nesting {
+			continue
+		}
+		closeIndex := parser.pairs[index]
+		if closeIndex <= index || closeIndex >= end {
+			continue
+		}
+		next := parser.nextUseful(closeIndex+1, end)
+		if next == end || parser.tokenEqual(next, "=>") || parser.tokenEqual(next, "where") || parser.tokenEqual(next, ":") {
 			return index
 		}
 	}
@@ -546,15 +650,11 @@ func (parser *csharpParser) indexerNameIndex(start, end, depth int) int {
 }
 
 func (parser *csharpParser) memberNameIndex(start, end int) int {
-	arrow := -1
+	depth := parser.tokens[start].Nesting
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == "=>" {
-			arrow = index
-			break
+		if parser.tokens[index].Nesting == depth && (parser.tokens[index].Text == "=" || parser.tokens[index].Text == "=>") {
+			return parser.lastIdentifier(start, index)
 		}
-	}
-	if arrow >= 0 {
-		return parser.lastIdentifier(start, arrow)
 	}
 	return parser.lastIdentifier(start, end)
 }

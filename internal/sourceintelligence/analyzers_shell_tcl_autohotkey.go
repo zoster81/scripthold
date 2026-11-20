@@ -88,16 +88,27 @@ func shellDelimiterRules(bash bool) []DelimiterRule {
 }
 
 func parseShellFunctions(state *structuralAnalyzerState, tokens []Token, pairs map[int]int, bash bool) {
-	for index := 0; index < len(tokens) && !state.stopped; {
+	parseShellFunctionsInGroup(state, tokens, pairs, bash, 0, len(tokens), 0)
+}
+
+func parseShellFunctionsInGroup(state *structuralAnalyzerState, tokens []Token, pairs map[int]int, bash bool, start, end, nesting int) {
+	for index := start; index < end && !state.stopped; {
 		token := tokens[index]
 		if token.Kind == TokenEOF {
 			return
 		}
-		if token.Nesting != 0 || token.Kind == TokenNewline || token.Kind == TokenHereDoc {
+		if token.Text == "{" && token.Nesting == nesting+1 && shellGroupCommandStart(tokens, index) {
+			if close := pairs[index]; close > index && close < end {
+				parseShellFunctionsInGroup(state, tokens, pairs, bash, index+1, close, nesting+1)
+				index = close + 1
+				continue
+			}
+		}
+		if token.Nesting != nesting || token.Kind == TokenNewline || token.Kind == TokenHereDoc {
 			index++
 			continue
 		}
-		start, nameIndex, paren, ok := shellFunctionCandidate(tokens, index, bash)
+		declarationStart, nameIndex, paren, ok := shellFunctionCandidate(tokens, index, bash)
 		if !ok {
 			index++
 			continue
@@ -111,20 +122,39 @@ func parseShellFunctions(state *structuralAnalyzerState, tokens []Token, pairs m
 			}
 			search = closeParen + 1
 		}
-		open := nextStructuralToken(tokens, search, len(tokens))
-		if open >= len(tokens) || tokens[open].Text != "{" {
+		open := nextStructuralToken(tokens, search, end)
+		if open >= end || tokens[open].Text != "{" {
 			index++
 			continue
 		}
 		close := pairs[open]
-		if close <= open {
+		if close <= open || close >= end {
 			state.builder.MarkIncomplete()
 			return
 		}
 		name := tokens[nameIndex]
-		state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "function", Name: name.Text, Declaration: OffsetRange{Start: tokens[start].StartOffset, End: tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: tokens[start].StartOffset, End: tokens[open].StartOffset}, Body: &OffsetRange{Start: tokens[open].StartOffset, End: tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
+		state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "function", Name: name.Text, Declaration: OffsetRange{Start: tokens[declarationStart].StartOffset, End: tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: tokens[declarationStart].StartOffset, End: tokens[open].StartOffset}, Body: &OffsetRange{Start: tokens[open].StartOffset, End: tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
 		index = close + 1
 	}
+}
+
+// Grouping braces at command boundaries introduce shell scope without
+// introducing function-local scope. Function bodies are skipped above.
+func shellGroupCommandStart(tokens []Token, index int) bool {
+	for i := index - 1; i >= 0; i-- {
+		if tokens[i].Kind == TokenDirective {
+			continue
+		}
+		if tokens[i].Kind == TokenNewline {
+			return true
+		}
+		switch tokens[i].Text {
+		case "{", ";", "then", "do", "else":
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 func shellFunctionCandidate(tokens []Token, index int, bash bool) (start, nameIndex, paren int, ok bool) {
@@ -212,6 +242,26 @@ type autoHotkeyParser struct {
 	pairs  map[int]int
 }
 
+func autoHotkeyFunctionCanStart(tokens []Token, index int, method bool) bool {
+	for modifiers := 0; index > 0; {
+		index--
+		previous := tokens[index]
+		if previous.Kind == TokenNewline || (method && previous.Text == "{") {
+			return true
+		}
+		if !method || modifiers >= 3 {
+			return false
+		}
+		switch strings.ToLower(previous.Text) {
+		case "static", "public", "private", "protected":
+			modifiers++
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolParent) {
 	for i := start; i < end && !p.state.stopped; {
 		i = nextStructuralToken(p.tokens, i, end)
@@ -235,7 +285,10 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 					break
 				}
 				if p.tokens[j].Kind == TokenNewline {
-					break
+					next := nextStructuralToken(p.tokens, j+1, end)
+					if next >= end || p.tokens[next].Text != "{" || p.tokens[next].Nesting != nesting+1 {
+						break
+					}
 				}
 			}
 			if open < 0 {
@@ -265,7 +318,7 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 			i = close + 1
 			continue
 		}
-		if p.tokens[i].Kind == TokenIdentifier {
+		if p.tokens[i].Kind == TokenIdentifier && autoHotkeyFunctionCanStart(p.tokens, i, parent != nil) {
 			paren := nextStructuralToken(p.tokens, i+1, end)
 			if paren < end && p.tokens[paren].Text == "(" {
 				closeParen := p.pairs[paren]
@@ -278,7 +331,10 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 							kind = SymbolKindMethod
 						}
 						name := p.tokens[i]
-						p.state.add(SymbolSpec{Kind: kind, NativeKind: "function", Name: name.Text, Parent: parent, Declaration: OffsetRange{Start: name.StartOffset, End: p.tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: name.StartOffset, End: p.tokens[open].StartOffset}, Body: &OffsetRange{Start: p.tokens[open].StartOffset, End: p.tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
+						symbol, ok := p.state.add(SymbolSpec{Kind: kind, NativeKind: "function", Name: name.Text, Parent: parent, Declaration: OffsetRange{Start: name.StartOffset, End: p.tokens[close].EndOffset}, NameRange: OffsetRange{Start: name.StartOffset, End: name.EndOffset}, Signature: &OffsetRange{Start: name.StartOffset, End: p.tokens[open].StartOffset}, Body: &OffsetRange{Start: p.tokens[open].StartOffset, End: p.tokens[close].EndOffset}, Evidence: SymbolEvidenceStructural})
+						if ok {
+							p.scanDirectLocalFunctions(open+1, close, nesting+1, &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName})
+						}
 						i = close + 1
 						continue
 					}
@@ -286,5 +342,55 @@ func (p *autoHotkeyParser) parseRange(start, end, nesting int, parent *SymbolPar
 			}
 		}
 		i++
+	}
+}
+
+func autoHotkeyBlockKeyword(name string) bool {
+	switch strings.ToLower(name) {
+	case "if", "else", "for", "loop", "while", "until", "switch", "case", "default",
+		"try", "catch", "finally", "class", "return", "throw", "break", "continue":
+		return true
+	}
+	return false
+}
+
+// scanDirectLocalFunctions recognizes only immediately nested named functions.
+// Ordinary control-flow blocks are not recursively interpreted as declarations.
+func (p *autoHotkeyParser) scanDirectLocalFunctions(start, end, nesting int, parent *SymbolParent) {
+	for i := start; i < end && !p.state.stopped; i++ {
+		i = nextStructuralToken(p.tokens, i, end)
+		if i >= end || p.tokens[i].Kind == TokenEOF {
+			return
+		}
+		name := p.tokens[i]
+		if name.Kind != TokenIdentifier || name.Nesting != nesting ||
+			autoHotkeyBlockKeyword(name.Text) || !autoHotkeyFunctionCanStart(p.tokens, i, false) {
+			continue
+		}
+		paren := nextStructuralToken(p.tokens, i+1, end)
+		if paren >= end || p.tokens[paren].Text != "(" {
+			continue
+		}
+		closeParen := p.pairs[paren]
+		if closeParen <= paren || closeParen >= end {
+			continue
+		}
+		open := nextStructuralToken(p.tokens, closeParen+1, end)
+		if open >= end || p.tokens[open].Text != "{" || p.tokens[open].Nesting != nesting+1 {
+			continue
+		}
+		close := p.pairs[open]
+		if close <= open || close >= end {
+			continue
+		}
+		p.state.add(SymbolSpec{
+			Kind: SymbolKindFunction, NativeKind: "local-function", Name: name.Text, Parent: parent,
+			Declaration: OffsetRange{Start: name.StartOffset, End: p.tokens[close].EndOffset},
+			NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			Signature:   &OffsetRange{Start: name.StartOffset, End: p.tokens[open].StartOffset},
+			Body:        &OffsetRange{Start: p.tokens[open].StartOffset, End: p.tokens[close].EndOffset},
+			Evidence:    SymbolEvidenceStructural,
+		})
+		i = close
 	}
 }

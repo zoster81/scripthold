@@ -12,6 +12,14 @@ This file applies to the entire repository. A nested `AGENTS.md` may add stricte
 
 Do not copy private workstation state, local process details, credentials, or operator-specific paths into tracked files. Public content must be reproducible by an external contributor from a normal clone.
 
+## Resuming a supervised development session
+
+When an authorized operator workspace supplies private continuity material, read its existing checkpoint **first**. Then read this root guide, every applicable scoped `AGENTS.md`, the [project overview](README.md#project-goal-and-documentation-map), [documentation index](docs/README.md), [current roadmap](docs/ROADMAP.md) and [development checklist](docs/DEVELOPMENT_CHECKLIST.md) before selecting new work. These public documents define the repeatable workflow, not the live state of an operator's workstation.
+
+Reconcile the current branch, `HEAD`, `origin/main`, staged/unstaged/untracked files and durable verification tasks against actual tools rather than trusting a handoff summary. Distinguish work already committed, changes still under review, tests with terminal success, and checks never run. Never modify files being tested or commit a pending increment before its final verification and complete staged diff review. Maintain the operator's private handoff at significant state transitions, with an exact next action and verification blockers; do not commit private `TODO.md`, `HANDOFF.md`, task IDs or machine details into this repository.
+
+For public documentation, use [Project Direction](docs/PROJECT_DIRECTION.md) for identity, [Architecture](docs/ARCHITECTURE.md) for the current contract, [Tool Reference](TOOLS.md) for API behavior, [Roadmap](docs/ROADMAP.md) for remaining work, and [Changelog](CHANGELOG.md) for completed released/unreleased changes. A public guide must not claim that an installed server includes changes from an unreleased development commit.
+
 ## Operator communication
 
 - Communicate with the operator in Italian unless explicitly requested otherwise.
@@ -44,7 +52,7 @@ All public documentation is user-facing first, even when it also serves as a tec
 - Streamable HTTP security contract: [`docs/HTTP_SECURITY.md`](docs/HTTP_SECURITY.md)
 - Durable task execution contract: [`docs/DURABLE_TASKS.md`](docs/DURABLE_TASKS.md)
 - Source Intelligence capability projection: [`docs/LANGUAGE_CAPABILITIES.md`](docs/LANGUAGE_CAPABILITIES.md), rendered from the native registry
-- Intentional compatibility changes: [`docs/MIGRATION_2.0.md`](docs/MIGRATION_2.0.md) and [`docs/MIGRATION_3.0.md`](docs/MIGRATION_3.0.md)
+- Intentional compatibility changes: [`docs/MIGRATION_2.0.md`](docs/MIGRATION_2.0.md), [`docs/MIGRATION_3.0.md`](docs/MIGRATION_3.0.md), and [`docs/MIGRATION_4.0.md`](docs/MIGRATION_4.0.md)
 - Authoritative MCP tool metadata: [`internal/toolcatalog/catalog.json`](internal/toolcatalog/catalog.json)
 
 Link to these sources instead of duplicating their content. Release history belongs in `CHANGELOG.md`, implementation history in Git, and current milestone state only in `docs/ROADMAP.md`. Do not create phase diaries, checkpoint documents, or completed-design archives when current behavior can be documented in an existing source of truth.

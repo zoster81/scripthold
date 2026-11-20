@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -199,6 +200,207 @@ end
 	}
 	if symbol, ok := symbolsByQualifiedName(result.Analysis.Symbols)["Service.decorate"]; !ok || symbol.Kind != SymbolKindMethod {
 		t.Fatalf("Service.decorate = %+v exists=%v; symbols=%v", symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestRubyAnalyzerOperatorMethodPreservesClassOwnership(t *testing.T) {
+	text := "module Demo\n  class Ring\n    def initialize(size)\n      @size = size\n    end\n    def <<(element)\n      @buf << element\n    end\n    def buffer\n      @buf\n    end\n    def reset(default = 0)\n      @buf.fill(default)\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind  SymbolKind
+		line  int
+		owner string
+	}{
+		"Demo":             {SymbolKindModule, 1, ""},
+		"Demo.Ring":        {SymbolKindClass, 2, "Demo"},
+		"Demo.Ring.Ring":   {SymbolKindConstructor, 3, "Demo.Ring"},
+		"Demo.Ring.<<":     {SymbolKindMethod, 6, "Demo.Ring"},
+		"Demo.Ring.buffer": {SymbolKindMethod, 9, "Demo.Ring"},
+		"Demo.Ring.reset":  {SymbolKindMethod, 12, "Demo.Ring"},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("Ruby operator method broke outline/coverage: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	for qualified, expected := range want {
+		got, exists := byName[qualified]
+		if !exists || got.Kind != expected.kind || got.DeclarationRange.Start.Line != expected.line ||
+			got.ParentQualifiedName != expected.owner {
+			t.Errorf("Ruby declaration %s: got=%+v exists=%v, expected=%+v", qualified, got, exists, expected)
+		}
+	}
+}
+
+func TestRubyAnalyzerBracketMethodsPreserveNestedOwners(t *testing.T) {
+	source := "module Demo\n  module Queues\n    class << self\n      def [](name)\n        @jobs[name]\n      end\n      def []=(name, value)\n        @jobs[name] = value\n      end\n      def push(job)\n        @jobs << job\n      end\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"Demo": 1, "Demo.Queues": 2, "Demo.Queues.[]": 4, "Demo.Queues.[]=": 7, "Demo.Queues.push": 10}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("Ruby bracket-method declarations or scope missing: %+v", result.Analysis)
+	}
+	found := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, line := range want {
+		got, ok := found[name]
+		if !ok || got.DeclarationRange.Start.Line != line {
+			t.Errorf("Ruby missing/wrong bracket-method symbol %s: %+v", name, got)
+		}
+	}
+	for _, name := range []string{"Demo.Queues.[]", "Demo.Queues.[]=", "Demo.Queues.push"} {
+		if found[name].ParentQualifiedName != "Demo.Queues" || found[name].Kind != SymbolKindMethod {
+			t.Errorf("Ruby method owner/kind %s: %+v", name, found[name])
+		}
+	}
+}
+
+func TestRubyAnalyzerInlineMethodVisibilityPreservesEnclosingScope(t *testing.T) {
+	source := "module Demo\n  class Box\n    private def guarded(value)\n      value\n    end\n    def ordinary\n      :ok\n    end\n    protected def covered\n      :ok\n    end\n    public def exposed\n      :ok\n    end\n  end\n  module Later\n    def next_method\n      :ok\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind       SymbolKind
+		owner      string
+		visibility Visibility
+		line       int
+	}{
+		"Demo":                   {SymbolKindModule, "", VisibilityPublic, 1},
+		"Demo.Box":               {SymbolKindClass, "Demo", VisibilityPublic, 2},
+		"Demo.Box.guarded":       {SymbolKindMethod, "Demo.Box", VisibilityPrivate, 3},
+		"Demo.Box.ordinary":      {SymbolKindMethod, "Demo.Box", VisibilityPublic, 6},
+		"Demo.Box.covered":       {SymbolKindMethod, "Demo.Box", VisibilityProtected, 9},
+		"Demo.Box.exposed":       {SymbolKindMethod, "Demo.Box", VisibilityPublic, 12},
+		"Demo.Later":             {SymbolKindModule, "Demo", VisibilityPublic, 16},
+		"Demo.Later.next_method": {SymbolKindMethod, "Demo.Later", VisibilityPublic, 17},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("inline visibility corrupted Ruby method scopes: %+v", result.Analysis)
+	}
+	found := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, expected := range want {
+		s, ok := found[name]
+		if !ok || s.Kind != expected.kind || s.ParentQualifiedName != expected.owner ||
+			s.Visibility != expected.visibility || s.DeclarationRange.Start.Line != expected.line {
+			t.Errorf("wrong Ruby method visibility/owner for %s: got=%+v expected=%+v exists=%v", name, s, expected, ok)
+		}
+	}
+}
+
+func TestRubyAnalyzerSimpleAndBalancedConditionalMethodBodiesAreExact(t *testing.T) {
+	source := "module Demo\n  class Service\n    def simple(value)\n      value * 2\n    end\n    def nested(flag)\n      if flag\n        :yes\n      end\n    end\n    def after\n      :ok\n    end\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete {
+		t.Fatalf("Ruby source structure incomplete: %+v", result.Analysis)
+	}
+	symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, expected := range map[string]string{
+		"Demo.Service.simple": "def simple(value)\n      value * 2\n    end",
+		"Demo.Service.after":  "def after\n      :ok\n    end",
+	} {
+		s, ok := symbols[name]
+		if !ok || s.BodyRange == nil {
+			t.Errorf("%s lacks a verifiable simple body: %+v", name, s)
+			continue
+		}
+		declaration, _, _, body := s.SourceOffsets()
+		if body == nil || source[declaration.Start:declaration.End] != expected ||
+			!strings.Contains(source[body.Start:body.End], ":ok") && name == "Demo.Service.after" ||
+			!strings.Contains(source[body.Start:body.End], "value * 2") && name == "Demo.Service.simple" {
+			t.Errorf("%s wrong declaration/body offsets: declaration=%+v body=%+v", name, declaration, body)
+		}
+	}
+	if nested := symbols["Demo.Service.nested"]; nested.BodyRange == nil || nested.DeclarationRange.End.Line != 10 {
+		t.Fatalf("balanced nested conditional must preserve method's closing end: %+v", nested)
+	}
+}
+
+func TestRubyAnalyzerPreservesPriorSimpleBodiesBeforeInlineSiblingClass(t *testing.T) {
+	source := "module Liquid\n  class Interrupt\n    def initialize(message = nil)\n      @message = message\n    end\n  end\n  class BreakInterrupt < Interrupt; end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != 4 {
+		t.Fatalf("Ruby inline sibling declarations: %+v", result.Analysis)
+	}
+	got := symbolsByQualifiedName(result.Analysis.Symbols)["Liquid.Interrupt.Interrupt"]
+	if got.BodyRange == nil {
+		t.Fatalf("Ruby simple constructor preceding inline sibling lost verified body %+v", got)
+	}
+	decl, _, _, body := got.SourceOffsets()
+	if body == nil || !strings.Contains(source[decl.Start:decl.End], "@message = message") ||
+		!strings.Contains(source[body.Start:body.End], "@message = message") ||
+		strings.Contains(source[body.Start:body.End], "BreakInterrupt") {
+		t.Fatalf("Ruby method body swallowed later sibling: %+v %+v", decl, body)
+	}
+}
+
+func TestRubyAnalyzerEndlessMethodKeepsFollowingScopeAndBody(t *testing.T) {
+	source := "module Demo\n  def answer = 42\n  def normal\n    :ok\n  end\n  def []=(key, value)\n    @values[key] = value\n  end\n  def label=(value)\n    @label = value\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind   SymbolKind
+		line   int
+		parent string
+	}{
+		"Demo":        {SymbolKindModule, 1, ""},
+		"Demo.answer": {SymbolKindMethod, 2, "Demo"},
+		"Demo.normal": {SymbolKindMethod, 3, "Demo"},
+		"Demo.[]=":    {SymbolKindMethod, 6, "Demo"},
+		"Demo.label=": {SymbolKindMethod, 9, "Demo"},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("endless Ruby declaration leaked scope: %+v", result.Analysis)
+	}
+	for _, sym := range result.Analysis.Symbols {
+		expected, ok := want[sym.QualifiedName]
+		if !ok || sym.Kind != expected.kind || sym.DeclarationRange.Start.Line != expected.line || sym.ParentQualifiedName != expected.parent {
+			t.Errorf("Ruby endless/ordinary/symbol setter scope wrong: %+v expected=%+v found=%v", sym, expected, ok)
+		}
+		if sym.QualifiedName == "Demo.answer" && sym.BodyRange != nil {
+			t.Errorf("Ruby endless declaration must not invent an end-block body: %+v", sym)
+		}
+		if sym.QualifiedName == "Demo.normal" && sym.BodyRange == nil {
+			t.Errorf("following ordinary Ruby method lost its provable body: %+v", sym)
+		}
+	}
+}
+
+func TestRubyAnalyzerQualifiedClassConstructorUsesLeafName(t *testing.T) {
+	source := "class Scientist::Observation\n  def initialize(value)\n    @value = value\n  end\n  def value\n    @value\n  end\nend\n"
+	result, err := (RubyAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		kind   SymbolKind
+		line   int
+		parent string
+	}{
+		"Scientist::Observation":             {SymbolKindClass, 1, ""},
+		"Scientist::Observation.Observation": {SymbolKindConstructor, 2, "Scientist::Observation"},
+		"Scientist::Observation.value":       {SymbolKindMethod, 5, "Scientist::Observation"},
+	}
+	if !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(want) {
+		t.Fatalf("Ruby qualified class symbols incomplete: %+v", result.Analysis)
+	}
+	for _, s := range result.Analysis.Symbols {
+		expected, ok := want[s.QualifiedName]
+		if !ok || s.Kind != expected.kind || s.DeclarationRange.Start.Line != expected.line || s.ParentQualifiedName != expected.parent {
+			t.Errorf("Ruby qualified class constructor wrong: %+v want=%+v exists=%v", s, expected, ok)
+		}
 	}
 }
 

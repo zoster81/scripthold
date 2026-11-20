@@ -249,8 +249,52 @@ func (p *zigParser) parseFunction(start, keyword, end int, parent *SymbolParent,
 		kind = SymbolKindMethod
 		native = "method"
 	}
-	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Evidence: SymbolEvidenceStructural, Disambiguator: tokenRangeText(p.tokens, paren, closeParen+1)})
+	symbol, added := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[terminator].StartOffset}, Body: body, Evidence: SymbolEvidenceStructural, Disambiguator: tokenRangeText(p.tokens, paren, closeParen+1)})
+	if added && open >= 0 {
+		// Only type factories returning a direct anonymous struct expose
+		// its declarations as members of the factory's result.
+		for i := closeParen + 1; i < open; i++ {
+			if p.tokens[i].Text == "type" {
+				p.parseReturnedStructMembers(open+1, p.pairs[open], &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName})
+				break
+			}
+		}
+	}
 	return next
+}
+
+func (p *zigParser) parseReturnedStructMembers(start, end int, parent *SymbolParent) {
+	for i := start; i < end && !p.stopped; i++ {
+		if p.ctx.Err() != nil {
+			return
+		}
+		// Nested blocks can contain local types, not declarations of the
+		// returned type; never index their members as the factory's API.
+		if p.tokens[i].Text == "{" {
+			if close := p.pairs[i]; close > i && close < end {
+				i = close
+			}
+			continue
+		}
+		if p.tokens[i].Text != "return" {
+			continue
+		}
+		kind := nextStructuralToken(p.tokens, i+1, end)
+		if kind >= end || p.tokens[kind].Text != "struct" {
+			continue
+		}
+		open := nextStructuralToken(p.tokens, kind+1, end)
+		if open >= end || p.tokens[open].Text != "{" {
+			continue
+		}
+		close := p.pairs[open]
+		if close <= open || close >= end {
+			p.builder.MarkIncomplete()
+			return
+		}
+		p.parseScope(open+1, close, parent, true)
+		i = close
+	}
 }
 
 func (p *zigParser) parseField(start, end int, parent *SymbolParent) int {
@@ -359,7 +403,13 @@ type nimParser struct {
 	inTypeSection     bool
 	currentType       *SymbolParent
 	currentTypeIndent int
+	callableScopes    []nimCallableScope
 	stopped           bool
+}
+
+type nimCallableScope struct {
+	indent int
+	parent SymbolParent
 }
 
 func (p *nimParser) parse(lines []LogicalLine) {
@@ -369,6 +419,9 @@ func (p *nimParser) parse(lines []LogicalLine) {
 		}
 		if p.currentType != nil && line.Indent <= p.currentTypeIndent {
 			p.currentType = nil
+		}
+		for len(p.callableScopes) > 0 && line.Indent <= p.callableScopes[len(p.callableScopes)-1].indent {
+			p.callableScopes = p.callableScopes[:len(p.callableScopes)-1]
 		}
 		first := strings.ToLower(strings.TrimSuffix(line.Tokens[0].Text, "*"))
 		if first == "type" && len(line.Tokens) == 1 {
@@ -383,6 +436,10 @@ func (p *nimParser) parse(lines []LogicalLine) {
 		}
 		if first == "import" || first == "include" {
 			p.importLine(line)
+			continue
+		}
+		if first == "from" {
+			p.fromImportLine(line)
 			continue
 		}
 		if p.inTypeSection && line.Indent > p.typeSectionIndent {
@@ -412,20 +469,366 @@ func nimNameToken(token Token) (string, OffsetRange) {
 	return name, OffsetRange{Start: token.StartOffset, End: end}
 }
 func (p *nimParser) importLine(line LogicalLine) {
-	for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, len(line.Tokens), line.Tokens[0].Nesting) {
-		if part[0] >= part[1] {
+	tokens := line.Tokens
+	depth := tokens[0].Nesting
+	for i := 1; i < len(tokens); i++ {
+		if tokens[i].Text != "except" || tokens[i].Nesting != depth {
 			continue
 		}
-		value := tokenRangeText(line.Tokens, part[0], part[1])
-		if value == "" {
+		// Preserve the existing grouped-import unsupported diagnostic for
+		// syntactically distinct bracketed source module expressions.
+		grouped := false
+		for _, token := range tokens[1:i] {
+			if token.Text == "[" || token.Text == "]" {
+				grouped = true
+				break
+			}
+		}
+		if !grouped {
+			p.exceptImportLine(tokens, i)
+			return
+		}
+		break
+	}
+	for _, part := range splitCommaTokenRangeAt(tokens, 1, len(tokens), depth) {
+		start, end := part[0], part[1]
+		if start >= end {
 			continue
 		}
-		r, err := p.document.RangeFromUTF8Offsets(line.Tokens[part[0]].StartOffset, line.Tokens[part[1]-1].EndOffset)
-		if err == nil {
-			p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{Kind: StructuralDependencyImport, Value: value, Range: r, Evidence: SymbolEvidenceStructural}})
+		// Keep the existing unsupported-alias diagnostic for a bracketed
+		// expression followed by a top-level "as" suffix.
+		aliasSuffix := end-start >= 2 && tokens[end-2].Text == "as" &&
+			tokens[end-2].Nesting == depth
+		if tokens[0].Text == "import" && !aliasSuffix {
+			if grouped, handled := p.nimGroupedImportPart(tokens, start, end); handled {
+				if grouped == nil {
+					span := OffsetRange{Start: tokens[start].StartOffset, End: tokens[end-1].EndOffset}
+					_ = p.builder.AddDiagnostic(DiagnosticSpec{
+						Code:     "nim-unsupported-grouped-import",
+						Message:  "Nim grouped import has unsupported syntax; inspect the authored directive",
+						Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+					})
+					p.builder.MarkIncomplete()
+				} else {
+					p.dependencies = appendUniqueDependencies(p.dependencies, grouped)
+				}
+				continue
+			}
 		}
+		moduleEnd := end
+		alias := ""
+		invalid := false
+		for i := start; i < end; i++ {
+			if tokens[i].Text != "as" || tokens[i].Nesting != depth {
+				continue
+			}
+			if i != end-2 || tokens[i+1].Kind != TokenIdentifier ||
+				tokens[i+1].Nesting != depth {
+				invalid = true
+			} else {
+				moduleEnd = i
+				alias = tokens[i+1].Text
+			}
+			break
+		}
+		module := tokenRangeText(tokens, start, moduleEnd)
+		if module == "" {
+			invalid = true
+		}
+		if alias != "" {
+			begin, finish := tokens[start].StartOffset, tokens[moduleEnd-1].EndOffset
+			if !nimSimpleImportModule(module) || begin < 0 ||
+				finish > len(p.document.Text) || begin >= finish ||
+				p.document.Text[begin:finish] != module {
+				invalid = true
+			}
+		}
+		if invalid {
+			p.builder.MarkIncomplete()
+			span := OffsetRange{Start: tokens[start].StartOffset, End: tokens[end-1].EndOffset}
+			_ = p.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "nim-unsupported-import-alias",
+				Message:  "Nim import alias has unsupported syntax; inspect the authored directive",
+				Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+			})
+			continue
+		}
+		r, err := p.document.RangeFromUTF8Offsets(tokens[start].StartOffset, tokens[moduleEnd-1].EndOffset)
+		if err != nil {
+			p.builder.MarkIncomplete()
+			continue
+		}
+		p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+			Kind: StructuralDependencyImport, Value: module, Alias: alias, Range: r,
+			Evidence: SymbolEvidenceStructural,
+		}})
 	}
 }
+
+// Except selectors filter member names imported from one source module.
+// Only the module itself forms a structural dependency. Unsupported directives
+// must not invent one module per selector or silently claim complete coverage.
+func (p *nimParser) exceptImportLine(tokens []Token, delimiter int) {
+	depth := tokens[0].Nesting
+	valid := delimiter > 1 && delimiter+1 < len(tokens)
+	module := ""
+	if valid {
+		start, end := tokens[1].StartOffset, tokens[delimiter-1].EndOffset
+		valid = start >= 0 && end <= len(p.document.Text) && start < end
+		if valid && delimiter == 2 && tokens[1].Kind == TokenString {
+			quoted := tokens[1].Text
+			module = quotedTokenStringValue(tokens[1])
+			valid = len(quoted) >= 2 && quoted[0] == '"' &&
+				quoted[len(quoted)-1] == '"' && quoted == "\""+module+"\"" &&
+				nimSimpleImportModule(module)
+		} else if valid {
+			module = tokenRangeText(tokens, 1, delimiter)
+			valid = nimSimpleImportModule(module) && p.document.Text[start:end] == module
+		}
+	}
+	for i := delimiter + 1; valid && i < len(tokens); i++ {
+		token := tokens[i]
+		if token.Nesting != depth {
+			valid = false
+		} else if (i-delimiter)%2 == 1 {
+			if token.Kind != TokenIdentifier || !nimSimpleImportModule(token.Text) ||
+				strings.ContainsAny(token.Text, "./") {
+				valid = false
+			}
+		} else if token.Text != "," {
+			valid = false
+		}
+	}
+	if (len(tokens)-delimiter)%2 != 0 {
+		valid = false
+	}
+	if !valid {
+		p.builder.MarkIncomplete()
+		if len(tokens) > 1 {
+			span := OffsetRange{Start: tokens[1].StartOffset, End: tokens[len(tokens)-1].EndOffset}
+			_ = p.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "nim-unsupported-import-except",
+				Message:  "Nim import except has unsupported syntax; inspect the authored directive",
+				Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+			})
+		}
+		return
+	}
+	r, err := p.document.RangeFromUTF8Offsets(tokens[1].StartOffset, tokens[delimiter-1].EndOffset)
+	if err != nil {
+		p.builder.MarkIncomplete()
+		return
+	}
+	p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+		Kind: StructuralDependencyImport, Value: module, Range: r,
+		Evidence: SymbolEvidenceStructural,
+	}})
+}
+
+// Grouped imports expand only simple member identifiers. The source range of
+// each logical module points to its authored member (the shared prefix is
+// outside that contiguous range), so navigation does not fabricate a span.
+func (p *nimParser) nimGroupedImportPart(tokens []Token, start, end int) ([]StructuralDependency, bool) {
+	open := -1
+	for i := start; i < end; i++ {
+		if tokens[i].Text == "[" || tokens[i].Text == "]" {
+			if open >= 0 {
+				if tokens[i].Text == "[" || i != end-1 {
+					return nil, true
+				}
+			} else if tokens[i].Text != "[" {
+				return nil, true
+			} else {
+				open = i
+			}
+		}
+	}
+	if open < 0 {
+		return nil, false
+	}
+	if open < start+2 || end < open+3 ||
+		tokens[open-1].Text != "/" || tokens[end-1].Text != "]" {
+		return nil, true
+	}
+	prefix := tokenRangeText(tokens, start, open-1)
+	if !nimSimpleImportModule(prefix) {
+		return nil, true
+	}
+	// Whitespace between two module-name tokens must not be collapsed into
+	// an invented prefix; spaces around slash separators are permitted.
+	for i := start + 1; i < open; i++ {
+		if tokens[i-1].Text == "/" || tokens[i].Text == "/" {
+			continue
+		}
+		if tokens[i].StartOffset != tokens[i-1].EndOffset {
+			return nil, true
+		}
+	}
+	members := make([]StructuralDependency, 0, (end-open)/2)
+	for i := open + 1; i < end-1; i++ {
+		token := tokens[i]
+		if (i-open)%2 == 0 {
+			if token.Text != "," {
+				return nil, true
+			}
+			continue
+		}
+		if token.Kind != TokenIdentifier || !nimSimpleImportModule(token.Text) ||
+			strings.ContainsAny(token.Text, "/.") {
+			return nil, true
+		}
+		r, err := p.document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
+		if err != nil {
+			return nil, true
+		}
+		members = append(members, StructuralDependency{
+			Kind: StructuralDependencyImport, Value: prefix + "/" + token.Text,
+			Range: r, Evidence: SymbolEvidenceStructural,
+		})
+	}
+	if len(members) == 0 || tokens[end-2].Text == "," {
+		return nil, true
+	}
+	return members, true
+}
+
+// Aliased imports are indexed only when the module's lexical spelling is a
+// simple path; grouped and computed module expressions need separate parsing.
+func nimSimpleImportModule(module string) bool {
+	module = strings.TrimPrefix(strings.TrimPrefix(module, "../"), "./")
+	if module == "" {
+		return false
+	}
+	for _, segment := range strings.Split(module, "/") {
+		if segment == "" || segment[0] == '.' || segment[len(segment)-1] == '.' ||
+			strings.Contains(segment, "..") {
+			return false
+		}
+		for i := 0; i < len(segment); i++ {
+			c := segment[i]
+			letter := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+			digit := i > 0 && c >= '0' && c <= '9'
+			if c != '_' && c != '.' && !letter && !digit {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Nim selective imports name one source module before the "import" keyword.
+// Imported member names do not form separate module dependencies.
+func (p *nimParser) fromImportLine(line LogicalLine) {
+	tokens := line.Tokens
+	delimiter := -1
+	for i := 2; i < len(tokens); i++ {
+		if tokens[i].Text == "import" && tokens[i].Nesting == tokens[0].Nesting {
+			delimiter = i
+			break
+		}
+	}
+	valid := delimiter > 1 && delimiter+1 < len(tokens)
+	if valid {
+		for i := 1; i < delimiter; i++ {
+			if tokens[i].Text == "as" {
+				valid = false
+				break
+			}
+		}
+	}
+	module := ""
+	if valid {
+		if tokens[1].Kind == TokenString {
+			// Nim also permits "quoted-root" / module/path. Preserve the
+			// authored full range, but never resolve the symbolic "$nim" root.
+			module, valid = p.nimComposedFromModule(tokens, delimiter)
+			if valid {
+				for i := delimiter + 1; i < len(tokens); i++ {
+					if (i-delimiter)%2 == 1 {
+						if tokens[i].Kind != TokenIdentifier {
+							valid = false
+						}
+					} else if tokens[i].Text != "," {
+						valid = false
+					}
+				}
+				if (len(tokens)-delimiter)%2 != 0 {
+					valid = false
+				}
+			}
+		} else {
+			module = tokenRangeText(tokens, 1, delimiter)
+			// Never merge whitespace-separated names or opaque syntax into a
+			// fabricated source-unit path.
+			start, end := tokens[1].StartOffset, tokens[delimiter-1].EndOffset
+			if module == "" || start < 0 || end > len(p.document.Text) ||
+				start >= end || p.document.Text[start:end] != module {
+				valid = false
+			}
+			for i := 0; i < len(module); i++ {
+				c := module[i]
+				if c != '_' && c != '.' && c != '/' &&
+					(c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+					(c < '0' || c > '9') {
+					valid = false
+					break
+				}
+			}
+		}
+	}
+	if !valid {
+		span := OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}
+		_ = p.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "nim-unsupported-from-import",
+			Message:  "Nim selective import has unsupported module syntax; inspect the authored directive",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+		p.builder.MarkIncomplete()
+		return
+	}
+	r, err := p.document.RangeFromUTF8Offsets(tokens[1].StartOffset, tokens[delimiter-1].EndOffset)
+	if err != nil {
+		p.builder.MarkIncomplete()
+		return
+	}
+	p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+		Kind: StructuralDependencyImport, Value: module, Range: r, Evidence: SymbolEvidenceStructural,
+	}})
+}
+
+// The module path has an authored quoted root, slash separator and one
+// contiguous plain module suffix. $nim is an unresolved lexical root token,
+// not a filesystem path inferred from the user's environment.
+func (p *nimParser) nimComposedFromModule(tokens []Token, delimiter int) (string, bool) {
+	if delimiter < 4 || tokens[2].Text != "/" ||
+		tokens[2].Nesting != tokens[0].Nesting {
+		return "", false
+	}
+	quoted := tokens[1].Text
+	root := quotedTokenStringValue(tokens[1])
+	if len(quoted) < 2 || quoted != "\""+root+"\"" ||
+		root != "$nim" && !nimSimpleImportModule(root) {
+		return "", false
+	}
+	source := p.document.Text
+	if tokens[1].EndOffset > tokens[2].StartOffset ||
+		tokens[2].EndOffset > tokens[3].StartOffset ||
+		tokens[1].EndOffset < 0 || tokens[3].StartOffset > len(source) {
+		return "", false
+	}
+	if strings.TrimSpace(source[tokens[1].EndOffset:tokens[2].StartOffset]) != "" ||
+		strings.TrimSpace(source[tokens[2].EndOffset:tokens[3].StartOffset]) != "" {
+		return "", false
+	}
+	suffix := tokenRangeText(tokens, 3, delimiter)
+	start, end := tokens[3].StartOffset, tokens[delimiter-1].EndOffset
+	if start < 0 || end > len(source) || start >= end ||
+		!nimSimpleImportModule(suffix) || source[start:end] != suffix {
+		return "", false
+	}
+	return root + "/" + suffix, true
+}
+
 func (p *nimParser) typeDecl(line LogicalLine) bool {
 	if len(line.Tokens) < 3 || line.Tokens[0].Kind != TokenIdentifier {
 		return false
@@ -484,6 +887,12 @@ func (p *nimParser) field(line LogicalLine) bool {
 	if len(line.Tokens) < 2 || line.Tokens[0].Kind != TokenIdentifier || line.Tokens[1].Text != ":" {
 		return false
 	}
+	// Variant-object and conditional branch labels are not field names.
+	// Quoted/backtick identifiers are handled separately by the scanner.
+	switch strings.ToLower(line.Tokens[0].Text) {
+	case "else", "elif", "of", "case", "when", "if":
+		return false
+	}
 	name, nr := nimNameToken(line.Tokens[0])
 	if name == "" {
 		return false
@@ -492,15 +901,26 @@ func (p *nimParser) field(line LogicalLine) bool {
 	return true
 }
 func (p *nimParser) callable(line LogicalLine, native string) {
-	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
-	if idx < 0 {
+	// The callable name must immediately follow the declaration keyword.
+	// Symbolic/backtick names are outside this identifier-only subset;
+	// searching ahead could mistake their first parameter for the function.
+	if len(line.Tokens) < 2 || line.Tokens[1].Kind != TokenIdentifier {
 		return
 	}
-	name, nr := nimNameToken(line.Tokens[idx])
+	name, nr := nimNameToken(line.Tokens[1])
 	if name == "" {
 		return
 	}
-	p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+	var parent *SymbolParent
+	if len(p.callableScopes) > 0 {
+		parent = &p.callableScopes[len(p.callableScopes)-1].parent
+	}
+	if symbol, ok := p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: native, Name: name, Parent: parent,
+		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr,
+		Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
+		p.callableScopes = append(p.callableScopes, nimCallableScope{indent: line.Indent,
+			parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+	}
 }
 func (p *nimParser) binding(line LogicalLine, native string) {
 	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
@@ -515,8 +935,29 @@ func (p *nimParser) binding(line LogicalLine, native string) {
 	if native == "const" {
 		kind = SymbolKindConstant
 	}
-	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr, Evidence: SymbolEvidenceStructural})
+	var parent *SymbolParent
+	if len(p.callableScopes) > 0 {
+		parent = &p.callableScopes[len(p.callableScopes)-1].parent
+	}
+	if symbol, ok := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
+		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nr, Evidence: SymbolEvidenceStructural}); ok && nimBlockInitializer(line.Tokens) {
+		p.callableScopes = append(p.callableScopes, nimCallableScope{indent: line.Indent,
+			parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+	}
 }
+
+func nimBlockInitializer(tokens []Token) bool {
+	if len(tokens) < 4 || tokens[len(tokens)-1].Text != ":" {
+		return false
+	}
+	for index := 0; index+1 < len(tokens); index++ {
+		if tokens[index].Text == "=" && strings.EqualFold(tokens[index+1].Text, "block") {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *nimParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	symbol, err := p.builder.Add(spec)
 	if operation.KindOf(err) == operation.KindLimit {
@@ -660,7 +1101,7 @@ func (p *alParser) parseScope(start, end int, parent *SymbolParent, members bool
 			return
 		}
 		lower := strings.ToLower(p.tokens[semantic].Text)
-		if kind, ok := objects[lower]; ok {
+		if kind, ok := objects[lower]; ok && !members {
 			i = p.object(i, semantic, end, parent, kind)
 			continue
 		}
@@ -769,17 +1210,80 @@ func (p *alParser) procedure(start, keyword, end int, parent *SymbolParent, memb
 			next = closeParen + 1
 		}
 	}
+	if next < end && p.tokens[next].Text == ";" {
+		after := nextStructuralToken(p.tokens, next+1, end)
+		if after < end && p.tokens[after].Nesting == p.tokens[keyword].Nesting &&
+			(strings.EqualFold(p.tokens[after].Text, "var") || strings.EqualFold(p.tokens[after].Text, "begin")) {
+			next++
+		}
+	}
 	kind := SymbolKindFunction
 	if members {
 		kind = SymbolKindMethod
+	}
+	signatureEnd := declarationEnd
+	var body *OffsetRange
+	if begin, close, ok := p.procedureBody(next, end, p.tokens[keyword].Nesting); ok {
+		endToken := close
+		if close+1 < end && p.tokens[close+1].Text == ";" {
+			endToken++
+		}
+		declarationEnd = p.tokens[endToken].EndOffset
+		value := OffsetRange{Start: p.tokens[begin].StartOffset, End: p.tokens[endToken].EndOffset}
+		body = &value
+		next = endToken + 1
 	}
 	p.add(SymbolSpec{
 		Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
-		Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, Evidence: SymbolEvidenceStructural,
+		Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd},
+		Body:        body, Evidence: SymbolEvidenceStructural,
 	})
 	return next
+}
+
+// AL procedures may have local variable declarations between their header
+// and begin/end block. A case statement has its own end; repeat/until does not.
+// Stop at another member to avoid borrowing an interface method's successor.
+func (p *alParser) procedureBody(start, end, nesting int) (int, int, bool) {
+	vars := false
+	for i := start; i < end; i++ {
+		tok := p.tokens[i]
+		if tok.Nesting != nesting {
+			continue
+		}
+		switch strings.ToLower(tok.Text) {
+		case "var":
+			vars = true
+		case "procedure", "trigger":
+			return 0, 0, false
+		case ";":
+			if !vars {
+				return 0, 0, false
+			}
+		case "begin":
+			depth := 0
+			for j := i; j < end; j++ {
+				inner := p.tokens[j]
+				if inner.Nesting != nesting {
+					continue
+				}
+				switch strings.ToLower(inner.Text) {
+				case "begin", "case":
+					depth++
+				case "end":
+					depth--
+					if depth == 0 {
+						return i, j, true
+					}
+				}
+			}
+			p.builder.MarkIncomplete()
+			return 0, 0, false
+		}
+	}
+	return 0, 0, false
 }
 
 func (p *alParser) field(start, end int, parent *SymbolParent) (int, bool) {

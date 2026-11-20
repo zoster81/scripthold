@@ -2,10 +2,13 @@ package filetoolsserver
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +43,7 @@ func TestSourceQueryPublicContract(t *testing.T) {
 	assertSourceQueryStrictSchema(t, "source_query", schema,
 		[]string{"operation", "paths"},
 		[]string{
-			"operation", "paths", "query", "mode", "match", "relation", "subject", "target", "targets", "budgetBytes", "bodyPolicy",
+			"operation", "paths", "query", "mode", "match", "cursor", "presentation", "relation", "subject", "target", "targets", "budgetBytes", "bodyPolicy",
 			"language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "evidence", "maxFiles", "maxResults",
 			"maxNodes", "maxEdges", "maxDepth", "maxItems", "index",
 		},
@@ -201,6 +204,513 @@ func TestSourceQueryPublicContract(t *testing.T) {
 		"operation": "search", "paths": []string{root}, "query": "Box", "mode": "structural",
 		"index": map[string]any{"fingerprint": sourceQueryContractZeroDigest()},
 	}, handler.ErrCodeConflict)
+}
+
+// TestSourceQueryPublicCursorPages verifies pagination through a real MCP client.
+func TestSourceQueryPublicCursorPages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	for _, name := range []string{"ItemAlpha", "ItemBeta", "ItemGamma"} {
+		if err := os.WriteFile(filepath.Join(root, name+".java"), []byte("package demo; public class "+name+" {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-query-public-cursor")
+	args := map[string]any{"operation": "search", "paths": []string{root}, "query": "Item", "mode": "structural", "match": "prefix", "language": "java", "encoding": "utf-8", "maxResults": 1}
+	var names []string
+	for page := 0; page < 3; page++ {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+		if err != nil || result == nil || result.IsError {
+			t.Fatalf("public cursor page %d: result=%#v err=%v", page, result, err)
+		}
+		payload := contractSchemaMap(t, contractStructuredMap(t, result)["search"])
+		matches := contractObjectSlice(t, payload["matches"])
+		if len(matches) != 1 {
+			t.Fatalf("public page %d matches=%#v", page, matches)
+		}
+		name, _ := matches[0]["name"].(string)
+		names = append(names, name)
+		cursor, _ := payload["nextCursor"].(string)
+		if page < 2 && cursor == "" {
+			t.Fatalf("public page %d has no continuation", page)
+		}
+		if page == 2 && cursor != "" {
+			t.Fatal("last page unexpectedly continued")
+		}
+		args["cursor"] = cursor
+	}
+	if !reflect.DeepEqual(names, []string{"ItemAlpha", "ItemBeta", "ItemGamma"}) {
+		t.Fatalf("public cursor pages=%v", names)
+	}
+	args["cursor"] = "invalid!"
+	assertSourceQueryCallErrorCode(t, ctx, session, args, handler.ErrCodeInvalidInput)
+}
+
+// TestSourceQueryConciseSearchPublicMCP qualifies paging through the real
+// public schema, preserving one fingerprint-bound drilldown selector per hit.
+func TestSourceQueryConciseSearchPublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	for _, name := range []string{"ItemAlpha", "ItemBeta", "ItemGamma"} {
+		if err := os.WriteFile(filepath.Join(root, name+".java"), []byte("package demo; public class "+name+" {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-query-concise-search")
+	args := map[string]any{
+		"operation": "search", "presentation": "concise", "paths": []string{root},
+		"query": "Item", "match": "prefix", "mode": "structural",
+		"language": "java", "encoding": "utf-8", "maxResults": 1,
+	}
+	var names []string
+	var cursor string
+	for page := 0; page < 3; page++ {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+		if err != nil || result == nil || result.IsError {
+			t.Fatalf("concise page %d: result=%#v err=%v", page, result, err)
+		}
+		payload := contractStructuredMap(t, result)
+		if payload["index"] != nil || payload["operation"] != nil || payload["coordinateSystem"] != nil {
+			t.Fatalf("concise page includes redundant index/inventory: %#v", payload)
+		}
+		coverage := contractSchemaMap(t, payload["coverage"])
+		if coverage["analysisComplete"] != true || coverage["fileSelectionTruncated"] != false ||
+			coverage["resultsTruncated"] != false || coverage["filesConsidered"] != nil {
+			t.Fatalf("page is not incomplete analysis: %#v", coverage)
+		}
+		search := contractSchemaMap(t, payload["search"])
+		files := contractObjectSlice(t, search["files"])
+		if len(files) != 1 {
+			t.Fatalf("concise page file groups=%#v", files)
+		}
+		file := files[0]
+		assertSourceSymbolsHexDigest(t, "file.sourceFingerprint", file["sourceFingerprint"])
+		if file["language"] != "java" || file["encoding"] != "utf-8" || file["path"] == nil {
+			t.Fatalf("file identity missing: %#v", file)
+		}
+		matches := contractObjectSlice(t, file["matches"])
+		if len(matches) != 1 || matches[0]["path"] != nil || matches[0]["sourceFingerprint"] != nil ||
+			matches[0]["evidence"] != "structural" || matches[0]["kind"] != "class" {
+			t.Fatalf("concise evidence or data duplication: %#v", matches)
+		}
+		assertSourceSymbolsHexDigest(t, "symbolId", matches[0]["symbolId"])
+		if contractSchemaMap(t, matches[0]["range"])["start"] == nil {
+			t.Fatalf("missing source coordinates: %#v", matches)
+		}
+		names = append(names, fmt.Sprint(matches[0]["symbol"]))
+		cursor, _ = search["nextCursor"].(string)
+		if page < 2 && cursor == "" {
+			t.Fatalf("page %d missing continuation: %#v", page, search)
+		}
+		if page == 2 && cursor != "" {
+			t.Fatalf("last page had unexpected cursor: %#v", search)
+		}
+		if page == 0 {
+			var fallback map[string]any
+			textEqual := false
+			for _, part := range result.Content {
+				if text, ok := part.(*mcp.TextContent); ok &&
+					json.Unmarshal([]byte(text.Text), &fallback) == nil && reflect.DeepEqual(fallback, payload) {
+					textEqual = true
+				}
+			}
+			if !textEqual {
+				t.Fatal("MCP content did not match structuredContent")
+			}
+			originalCursor := cursor
+			delete(args, "presentation")
+			args["cursor"] = originalCursor
+			assertSourceQueryCallErrorCode(t, ctx, session, args, handler.ErrCodeInvalidInput)
+			args["presentation"] = "concise"
+		}
+		args["cursor"] = cursor
+	}
+	if !reflect.DeepEqual(names, []string{"demo.ItemAlpha", "demo.ItemBeta", "demo.ItemGamma"}) {
+		t.Fatalf("page order/identities changed: %v", names)
+	}
+	delete(args, "cursor")
+	args["query"] = "Absent"
+	empty, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+	if err != nil || empty == nil || empty.IsError {
+		t.Fatalf("empty result failed: %#v err=%v", empty, err)
+	}
+	emptySearch := contractSchemaMap(t, contractStructuredMap(t, empty)["search"])
+	if len(contractObjectSlice(t, emptySearch["files"])) != 0 || emptySearch["nextCursor"] != nil {
+		t.Fatalf("empty search incorrectly claimed matches or pages: %#v", emptySearch)
+	}
+	legacy, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: map[string]any{
+		"operation": "search", "paths": []string{root}, "query": "Item", "mode": "structural",
+		"match": "prefix", "language": "java", "encoding": "utf-8",
+	}})
+	if err != nil || legacy == nil || legacy.IsError {
+		t.Fatalf("historical search changed: %#v err=%v", legacy, err)
+	}
+	historical := contractStructuredMap(t, legacy)
+	if historical["index"] == nil || contractSchemaMap(t, historical["search"])["matches"] == nil {
+		t.Fatalf("historical search contract was altered: %#v", historical)
+	}
+	assertSourceQueryCallErrorCode(t, ctx, session, map[string]any{
+		"operation": "relations", "presentation": "concise", "paths": []string{root},
+		"relation": "cycles", "cursor": "not-allowed",
+	}, handler.ErrCodeInvalidInput)
+}
+
+func TestSourceQueryConciseSearchOverloadsAndReferenceSites(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "Service.java")
+	source := "package demo;\nclass Service {\n" +
+		" void Work(int value) {}\n" +
+		" private void Work(String value) {}\n}\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(root, "Base.java")
+	child := filepath.Join(root, "Child.java")
+	if err := os.WriteFile(base, []byte("package demo; public class Base {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(child, []byte("package demo; public class Child extends Base {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-query-concise-evidence")
+	call := func(query string) map[string]any {
+		t.Helper()
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: map[string]any{
+			"operation": "search", "presentation": "concise",
+			"paths": []string{root}, "query": query, "mode": "structural",
+			"match": "exact", "language": "java", "encoding": "utf-8", "maxResults": 12,
+		}})
+		if err != nil || result == nil || result.IsError {
+			t.Fatalf("query %s: result=%#v err=%v", query, result, err)
+		}
+		return contractSchemaMap(t, contractStructuredMap(t, result)["search"])
+	}
+	workFiles := contractObjectSlice(t, call("Work")["files"])
+	if len(workFiles) != 1 || workFiles[0]["path"] != path {
+		t.Fatalf("overload grouping not file-scoped: %#v", workFiles)
+	}
+	matches := contractObjectSlice(t, workFiles[0]["matches"])
+	if len(matches) != 2 {
+		t.Fatalf("lost distinct overloads: %#v", matches)
+	}
+	lines, ids := map[float64]bool{}, map[string]bool{}
+	for _, match := range matches {
+		id, _ := match["symbolId"].(string)
+		assertSourceSymbolsHexDigest(t, "overload.id", id)
+		if ids[id] || match["symbol"] != "demo.Service.Work" {
+			t.Fatalf("distinct overload identity lost: %#v", matches)
+		}
+		ids[id] = true
+		site := contractSchemaMap(t, contractSchemaMap(t, match["range"])["start"])
+		line, ok := site["line"].(float64)
+		if !ok || lines[line] {
+			t.Fatalf("overload source site collapsed: %#v", matches)
+		}
+		lines[line] = true
+	}
+	baseFiles := contractObjectSlice(t, call("Base")["files"])
+	seenDecl, seenRef := false, false
+	for _, file := range baseFiles {
+		for _, match := range contractObjectSlice(t, file["matches"]) {
+			if file["path"] == base && match["evidence"] == "structural" && match["symbolId"] != nil {
+				seenDecl = true
+			}
+			if file["path"] == child && match["evidence"] == "project-resolved" && match["symbolId"] == nil {
+				seenRef = true
+				if contractSchemaMap(t, contractSchemaMap(t, match["range"])["start"])["line"] == nil {
+					t.Fatal("source reference site was lost")
+				}
+			}
+		}
+	}
+	if !seenDecl || !seenRef {
+		t.Fatalf("declaration and reference site were conflated: %#v", baseFiles)
+	}
+}
+
+func TestSourceQueryConciseRelationsPublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	source := filepath.Join(root, "main.c")
+	header := filepath.Join(root, "leaf.h")
+	if err := os.WriteFile(header, []byte("int leaf;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("#include \"leaf.h\"\nint main(void) { return 0; }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	getFP := func(path string) string {
+		t.Helper()
+		document, err := sourceintelligence.OpenSourceDocument(ctx, path, sourceintelligence.OpenDocumentOptions{
+			RequestedEncoding: "utf-8", MaxFileBytes: 4096, MaxDecodedCharacters: 4096,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return document.SourceFingerprint
+	}
+	sourceSelector := map[string]any{"kind": "path", "path": source, "sourceFingerprint": getFP(source)}
+	targetSelector := map[string]any{"kind": "path", "path": header, "sourceFingerprint": getFP(header)}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-query-concise-relations")
+	symbolResult, symbolErr := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: map[string]any{
+		"operation": "search", "paths": []string{source}, "query": "main", "mode": "structural",
+		"match": "exact", "language": "c", "encoding": "utf-8",
+	}})
+	if symbolErr != nil || symbolResult == nil || symbolResult.IsError {
+		t.Fatalf("cannot select original symbol: %#v err=%v", symbolResult, symbolErr)
+	}
+	symbolMatches := contractObjectSlice(t, contractSchemaMap(t, contractStructuredMap(t, symbolResult)["search"])["matches"])
+	if len(symbolMatches) != 1 {
+		t.Fatalf("main symbol selection is ambiguous: %#v", symbolMatches)
+	}
+	symbolSelector := map[string]any{
+		"kind": "symbol", "path": source, "sourceFingerprint": getFP(source),
+		"symbolId": symbolMatches[0]["symbolId"],
+	}
+	for _, kind := range sourceQueryRelationKinds() {
+		t.Run(kind, func(t *testing.T) {
+			args := map[string]any{
+				"operation": "relations", "presentation": "concise", "paths": []string{source, header},
+				"relation": kind, "language": "c", "encoding": "utf-8", "maxResults": 32,
+			}
+			switch kind {
+			case "cycles":
+			case "trace":
+				args["subject"], args["target"] = sourceSelector, targetSelector
+			case "references", "definitions", "inheritance", "implementations":
+				args["subject"] = symbolSelector
+			default:
+				args["subject"] = sourceSelector
+			}
+			compactResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+			if err != nil || compactResult == nil || compactResult.IsError {
+				t.Fatalf("concise relation %s failed: result=%#v err=%v", kind, compactResult, err)
+			}
+			compact := contractStructuredMap(t, compactResult)
+			if compact["operation"] != nil || compact["coordinateSystem"] != nil {
+				t.Fatalf("redundant projection metadata: %#v", compact)
+			}
+			envelope := contractSchemaMap(t, compact["relations"])
+			if envelope["relation"] != kind || envelope["evidenceScope"] != "indexed-relations-only" {
+				t.Fatalf("relation kind or evidence scope lost: %#v", envelope)
+			}
+			edges := contractObjectSlice(t, envelope["edges"])
+			coverage := contractSchemaMap(t, compact["coverage"])
+			if coverage["analysisComplete"] != true || coverage["fileSelectionTruncated"] != false || coverage["resultsTruncated"] != false {
+				t.Fatalf("incorrect coverage: %#v", coverage)
+			}
+			legacyArgs := make(map[string]any, len(args))
+			for k, v := range args {
+				if k != "presentation" {
+					legacyArgs[k] = v
+				}
+			}
+			legacyResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: legacyArgs})
+			if err != nil || legacyResult == nil || legacyResult.IsError {
+				t.Fatalf("historical relation failed: %#v err=%v", legacyResult, err)
+			}
+			legacy := contractStructuredMap(t, legacyResult)
+			var records []map[string]any
+			if raw := contractSchemaMap(t, legacy["relations"])["relations"]; raw != nil {
+				records = contractObjectSlice(t, raw)
+			}
+			if len(edges) != len(records) {
+				t.Fatalf("record count changed %d != %d", len(edges), len(records))
+			}
+			for i, record := range records {
+				edge := edges[i]
+				for _, endpoint := range []string{"source", "target"} {
+					if !reflect.DeepEqual(edge[endpoint], record[endpoint]) {
+						t.Fatalf("%s endpoint %d changed: %#v vs %#v", endpoint, i, edge, record)
+					}
+				}
+				if edge["evidence"] != record["evidence"] || edge["resolution"] != record["resolution"] {
+					t.Fatalf("evidence or resolution %d changed: %#v vs %#v", i, edge, record)
+				}
+				if edge["kind"] != nil && edge["kind"] != record["kind"] {
+					t.Fatalf("edge kind %d changed: %#v vs %#v", i, edge, record)
+				}
+				if edge["kind"] == nil && record["kind"] != kind {
+					t.Fatalf("omitted non-redundant edge kind %d: %#v", i, record)
+				}
+			}
+			if kind == "dependencies" {
+				if len(edges) == 0 {
+					t.Fatal("known dependency disappeared")
+				}
+				found := false
+				for _, edge := range edges {
+					src := contractSchemaMap(t, edge["source"])
+					dst := contractSchemaMap(t, edge["target"])
+					if src["path"] == source && dst["path"] == header {
+						start := contractSchemaMap(t, contractSchemaMap(t, src["range"])["start"])
+						if start["line"] != float64(1) || edge["evidence"] != "project-resolved" || edge["resolution"] != "resolved" {
+							t.Fatalf("original include site/evidence lost: %#v", edge)
+						}
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("resolved include omitted: %#v", edges)
+				}
+			}
+			var fallback map[string]any
+			equal := false
+			for _, c := range compactResult.Content {
+				if item, ok := c.(*mcp.TextContent); ok {
+					if json.Unmarshal([]byte(item.Text), &fallback) == nil && reflect.DeepEqual(fallback, compact) {
+						equal = true
+					}
+				}
+			}
+			if !equal {
+				t.Fatalf("text/structured mismatch for %s", kind)
+			}
+		})
+	}
+	assertSourceQueryCallErrorCode(t, ctx, session, map[string]any{
+		"operation": "context", "presentation": "concise", "paths": []string{source},
+		"targets": []any{sourceSelector}, "budgetBytes": 4096, "relation": "dependencies",
+	}, handler.ErrCodeInvalidInput)
+}
+
+func TestSourceQueryConciseContextPublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "Service.java")
+	const source = "package demo;\r\npublic class Service {\r\n    public int run(int value) { return value + 1; }\r\n}\r\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-query-concise-context")
+	located := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "presentation": "concise", "paths": []string{path},
+		"query": "run", "match": "exact", "language": "java", "encoding": "utf-8",
+		"maxSymbols": 8, "maxFiles": 1,
+	}))
+	files := contractObjectSlice(t, located["files"])
+	if len(files) != 1 {
+		t.Fatalf("cannot locate source with verified selector: %#v", located)
+	}
+	matches := contractObjectSlice(t, files[0]["matches"])
+	if len(matches) != 1 {
+		t.Fatalf("run declaration ambiguous: %#v", matches)
+	}
+	selector := map[string]any{
+		"kind": "symbol", "path": path, "symbolId": matches[0]["symbolId"],
+		"sourceFingerprint": files[0]["sourceFingerprint"],
+	}
+	args := map[string]any{
+		"operation": "context", "presentation": "concise", "paths": []string{root},
+		"targets": []any{selector}, "budgetBytes": 4096,
+		"bodyPolicy": "prefer", "language": "java", "encoding": "utf-8",
+		"maxItems": 8, "maxDepth": 2,
+	}
+	compactResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+	if err != nil || compactResult == nil || compactResult.IsError {
+		t.Fatalf("concise context failed: %#v err=%v", compactResult, err)
+	}
+	data := contractStructuredMap(t, compactResult)
+	if data["operation"] != nil || data["coordinateSystem"] != nil || data["index"] != nil {
+		t.Fatalf("repetitive context inventory: %#v", data)
+	}
+	contextData := contractSchemaMap(t, data["context"])
+	items := contractObjectSlice(t, contextData["items"])
+	if len(items) < 2 {
+		t.Fatalf("missing target or source-justified context: %#v", items)
+	}
+	sum := 0
+	for i, item := range items {
+		entity := contractSchemaMap(t, item["entity"])
+		code, ok := item["code"].(string)
+		if !ok || code == "" || entity["path"] != path ||
+			entity["sourceFingerprint"] != files[0]["sourceFingerprint"] ||
+			item["representation"] == nil || item["reason"] == nil ||
+			item["evidence"] == nil || item["resolution"] == nil ||
+			item["priority"] != nil || item["text"] != nil {
+			t.Fatalf("context item %d lost verified source evidence: %#v", i, item)
+		}
+		if !strings.Contains(source, code) {
+			t.Fatalf("context item %d not exact original decoded substring: %q", i, code)
+		}
+		sum += len(code)
+	}
+	if items[0]["reason"] != "target" || items[0]["representation"] != "body" ||
+		!strings.Contains(fmt.Sprint(items[0]["code"]), "return value + 1;") {
+		t.Fatalf("requested implementation missing: %#v", items[0])
+	}
+	if contextData["usedBytes"] != float64(sum) || contextData["budgetBytes"] != float64(4096) ||
+		sum > 4096 {
+		t.Fatalf("incorrect source UTF-8 byte accounting: %#v; sum=%d", contextData, sum)
+	}
+	coverage := contractSchemaMap(t, data["coverage"])
+	if coverage["analysisComplete"] != true || coverage["fileSelectionTruncated"] != false ||
+		coverage["resultsTruncated"] != false {
+		t.Fatalf("incorrect complete context coverage: %#v", coverage)
+	}
+	var fallback map[string]any
+	parity := false
+	for _, part := range compactResult.Content {
+		if content, ok := part.(*mcp.TextContent); ok &&
+			json.Unmarshal([]byte(content.Text), &fallback) == nil && reflect.DeepEqual(fallback, data) {
+			parity = true
+		}
+	}
+	if !parity {
+		t.Fatal("context content diverged from structuredContent")
+	}
+	legacyArgs := make(map[string]any, len(args))
+	for k, v := range args {
+		if k != "presentation" {
+			legacyArgs[k] = v
+		}
+	}
+	legacyResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: legacyArgs})
+	if err != nil || legacyResult == nil || legacyResult.IsError {
+		t.Fatalf("historical context unavailable: %#v err=%v", legacyResult, err)
+	}
+	legacy := contractStructuredMap(t, legacyResult)
+	legacyItems := contractObjectSlice(t, contractSchemaMap(t, legacy["context"])["items"])
+	if len(legacyItems) != len(items) || legacy["index"] == nil {
+		t.Fatalf("legacy result layout changed: %#v", legacy)
+	}
+	for i, item := range items {
+		if item["code"] != legacyItems[i]["text"] ||
+			!reflect.DeepEqual(item["entity"], legacyItems[i]["entity"]) ||
+			item["reason"] != legacyItems[i]["reason"] ||
+			item["representation"] != legacyItems[i]["representation"] ||
+			item["evidence"] != legacyItems[i]["evidence"] ||
+			item["resolution"] != legacyItems[i]["resolution"] {
+			t.Fatalf("concise context item %d differs from legacy evidence: %#v vs %#v", i, item, legacyItems[i])
+		}
+	}
+	args["bodyPolicy"] = "signatures-only"
+	args["maxItems"] = 1
+	signatureResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_query", Arguments: args})
+	if err != nil || signatureResult == nil || signatureResult.IsError {
+		t.Fatalf("signatures-only context failed: %#v err=%v", signatureResult, err)
+	}
+	signature := contractStructuredMap(t, signatureResult)
+	signatureContext := contractSchemaMap(t, signature["context"])
+	signatureItems := contractObjectSlice(t, signatureContext["items"])
+	if len(signatureItems) != 1 || signatureItems[0]["representation"] != "signature" ||
+		strings.Contains(fmt.Sprint(signatureItems[0]["code"]), "return value + 1") {
+		t.Fatalf("signature was silently presented as complete body: %#v", signatureItems)
+	}
+	signatureCoverage := contractSchemaMap(t, signature["coverage"])
+	if signatureCoverage["resultsTruncated"] != true || signatureCoverage["analysisComplete"] != true {
+		t.Fatalf("bounded context truncation was hidden: %#v", signatureCoverage)
+	}
+	if err := os.WriteFile(path, []byte(source+"// changed\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertSourceQueryCallErrorCode(t, ctx, session, args, handler.ErrCodeConflict)
 }
 
 func sourceQueryToolContract(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string) *mcp.Tool {

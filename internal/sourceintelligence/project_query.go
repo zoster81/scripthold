@@ -155,7 +155,9 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 					continue
 				}
 			}
-			if !acceptEvidence(record.symbol.Evidence) || (!projectSearchTextMatches(record.symbol.Name, query, matchMode) && !projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode)) {
+			if !acceptEvidence(record.symbol.Evidence) || (!projectSearchTextMatches(record.symbol.Name, query, matchMode) &&
+				!projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode) &&
+				!(matchMode == ProjectSearchExact && record.symbol.MatchesOriginalName(query))) {
 				continue
 			}
 			collector.append(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
@@ -425,12 +427,109 @@ func (model *ProjectModel) definitionRecords(selection projectQuerySelection, fi
 		return result, nil
 	}
 	if selection.entity.SymbolID != "" {
-		if !filter.allows(SymbolEvidenceScopeResolved) {
-			return nil, nil
+		result := make([]RelationRecord, 0, 2)
+		if filter.allows(SymbolEvidenceScopeResolved) {
+			result = append(result, RelationRecord{Kind: RelationDefinitions, Source: cloneRelationEntity(selection.entity), Target: cloneRelationEntity(selection.entity), Evidence: SymbolEvidenceScopeResolved, Resolution: ResolutionResolved})
 		}
-		return []RelationRecord{{Kind: RelationDefinitions, Source: cloneRelationEntity(selection.entity), Target: cloneRelationEntity(selection.entity), Evidence: SymbolEvidenceScopeResolved, Resolution: ResolutionResolved}}, nil
+		if filter.allows(SymbolEvidenceStructural) {
+			if candidate, ok := model.cppExplicitHeaderDefinitionCandidate(selection); ok {
+				result = append(result, RelationRecord{Kind: RelationDefinitions, Source: cloneRelationEntity(selection.entity), Target: cloneRelationEntity(candidate), Evidence: SymbolEvidenceStructural, Resolution: ResolutionAmbiguous})
+			}
+		}
+		return result, nil
 	}
 	return nil, operation.New(operation.KindInvalidInput, "definitions requires a reference position or symbol selector")
+}
+
+// cppExplicitHeaderDefinitionCandidate provides navigation, not semantic ownership.
+// A matching qualified spelling and a directly resolved #include still cannot
+// prove equivalent C++ overloads, macros, template substitutions or parameter types.
+// Use the bounded written declarator spelling to reject evident overload
+// mismatches. It is not a type-system signature: different parameter names,
+// macros, defaults, and templates can prevent a match. Return one explicitly
+// ambiguous candidate only when indexed preconditions are unambiguous; never
+// attach cross-file class parents to file-local symbols.
+func (model *ProjectModel) cppExplicitHeaderDefinitionCandidate(selection projectQuerySelection) (RelationEntity, bool) {
+	file := model.files[selection.pathKey]
+	if file.languageID != "cpp" || !file.facts.Analysis.Analysis.CoverageComplete || file.facts.Analysis.Analysis.Truncated {
+		return RelationEntity{}, false
+	}
+	var member *projectSymbolRecord
+	for index := range model.symbolsByFile[selection.pathKey] {
+		record := &model.symbolsByFile[selection.pathKey][index]
+		if record.symbol.ID == selection.entity.SymbolID &&
+			(record.symbol.Kind == SymbolKindMethod || record.symbol.Kind == SymbolKindConstructor ||
+				record.symbol.Kind == SymbolKindDestructor || record.symbol.Kind == SymbolKindOperator) &&
+			record.symbol.BodyRange == nil && record.symbol.ParentID != "" {
+			member = record
+			break
+		}
+	}
+	if member == nil || member.symbol.cppDeclaratorKey == "" {
+		return RelationEntity{}, false
+	}
+	// An explicitly defaulted definition is not an unresolved declaration.
+	switch member.symbol.NativeKind {
+	case "method-declaration", "constructor-declaration", "destructor-declaration", "operator-declaration":
+	default:
+		return RelationEntity{}, false
+	}
+	ownerCount := 0
+	for _, owner := range model.symbolsByQualified["cpp\x00"+projectSymbolLookupKey(LanguageDescriptor{ID: "cpp"}, member.symbol.ParentQualifiedName)] {
+		if owner.symbol.Kind == SymbolKindClass || owner.symbol.Kind == SymbolKindStruct {
+			ownerCount++
+			if owner.pathKey != selection.pathKey || owner.symbol.ID != member.symbol.ParentID {
+				return RelationEntity{}, false
+			}
+		}
+	}
+	if ownerCount != 1 {
+		return RelationEntity{}, false
+	}
+	definitionNative := "function-definition"
+	switch member.symbol.Kind {
+	case SymbolKindConstructor:
+		definitionNative = "qualified-constructor-definition"
+	case SymbolKindDestructor:
+		definitionNative = "qualified-destructor-definition"
+	case SymbolKindOperator:
+		definitionNative = "operator-definition"
+	}
+	definitionKind := SymbolKindFunction
+	if member.symbol.Kind == SymbolKindOperator {
+		definitionKind = SymbolKindOperator
+	}
+	memberCount, definitionCount := 0, 0
+	var definition *projectSymbolRecord
+	for _, record := range model.symbolsByQualified["cpp\x00"+member.qualifiedKey] {
+		if record.pathKey == selection.pathKey && record.symbol.Kind == member.symbol.Kind &&
+			record.symbol.ParentID == member.symbol.ParentID &&
+			record.symbol.cppDeclaratorKey == member.symbol.cppDeclaratorKey {
+			memberCount++
+		}
+		if record.pathKey != selection.pathKey && record.symbol.Kind == definitionKind &&
+			record.symbol.ParentID == "" && record.symbol.BodyRange != nil &&
+			record.symbol.NativeKind == definitionNative &&
+			record.symbol.cppDeclaratorKey == member.symbol.cppDeclaratorKey {
+			definitionCount++
+			definition = record
+		}
+	}
+	if memberCount != 1 || definitionCount != 1 {
+		return RelationEntity{}, false
+	}
+	candidateFile := model.files[definition.pathKey]
+	if !candidateFile.facts.Analysis.Analysis.CoverageComplete || candidateFile.facts.Analysis.Analysis.Truncated {
+		return RelationEntity{}, false
+	}
+	for _, dependency := range model.dependenciesBySource[definition.pathKey] {
+		if dependency.Dependency.Kind == StructuralDependencyInclude &&
+			dependency.Resolution == ResolutionResolved && len(dependency.Targets) == 1 &&
+			projectPathKey(dependency.Targets[0].Path) == selection.pathKey {
+			return definition.entity, true
+		}
+	}
+	return RelationEntity{}, false
 }
 
 func isInheritanceStructuralKind(value string) bool {

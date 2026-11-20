@@ -36,8 +36,28 @@ func (FlowAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	filtered := source
 	filtered.Analysis.Symbols = filtered.Analysis.Symbols[:0]
 	for _, symbol := range source.Analysis.Symbols {
-		if symbol.NativeKind == "namespace" || symbol.NativeKind == "module" {
+		if symbol.NativeKind == "namespace" {
 			continue
+		}
+		if symbol.NativeKind == "module" {
+			// Only explicitly declared, quoted ambient Flow modules own
+			// declarations. Inspect the parsed modifier and original name
+			// token rather than depending on formatting between keywords.
+			_, name, _, _ := symbol.SourceOffsets()
+			if name.Start < 0 || name.End > len(document.Text) || name.End <= name.Start ||
+				ecmaStringLiteralValue(document.Text[name.Start:name.End]) == "" {
+				continue
+			}
+			declared := false
+			for _, modifier := range symbol.Modifiers {
+				if modifier == "declare" {
+					declared = true
+					break
+				}
+			}
+			if !declared {
+				continue
+			}
 		}
 		filtered.Analysis.Symbols = append(filtered.Analysis.Symbols, symbol)
 	}

@@ -250,6 +250,13 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *p
 				languageID = file.languageID
 			}
 			descriptor, ok := descriptors.resolve(languageID)
+			if !ok && file.languageID == "classic-asp" &&
+				symbol.Analyzer == string(AnalyzerClassicASP) && languageID == "jscript" {
+				// Classic ASP exposes the original embedded language spelling.
+				// Resolve its syntax through the registered JavaScript provider
+				// without rewriting the source symbol or its safe selector.
+				descriptor, ok = descriptors.resolve("javascript")
+			}
 			if !ok {
 				continue
 			}
@@ -340,6 +347,11 @@ func (model *ProjectModel) resolveDependencyTargets(file projectFileRecord, desc
 	}
 	if dependency.Kind == StructuralDependencyReference {
 		return model.resolveReferenceDependencyTargets(file, descriptor, value, maxCandidates)
+	}
+	if dependency.Kind == StructuralDependencyInclude && dependency.cFamilyAngleInclude {
+		// Angle-bracket includes use compiler-defined search roots, not the
+		// including file's directory. No compile roots exist in project facts.
+		return nil, nil
 	}
 	pathLike := dependencyLooksPathLike(value, dependency.Kind)
 	pathMatches := model.dependencyPathMatches(file, dependency)

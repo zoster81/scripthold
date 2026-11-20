@@ -388,6 +388,7 @@ type braceLanguagePolicy struct {
 	explicitFuncs        map[string]string
 	maskText             func(string) (string, bool)
 	caseInsensitive      bool
+	supportsAnnotations  bool
 }
 
 func (DartAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -395,7 +396,7 @@ func (DartAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		language: "dart", analyzer: AnalyzerDart, profile: DartScannerProfile(),
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "enum": SymbolKindEnum, "mixin": SymbolKindTrait, "extension": SymbolKindType},
 		typeNative: map[string]string{"class": "class", "enum": "enum", "mixin": "mixin", "extension": "extension"},
-		modifiers:  setOf("abstract", "base", "final", "interface", "sealed"), importKeywords: setOf("import", "export", "part"),
+		modifiers:  setOf("abstract", "base", "final", "interface", "sealed"), importKeywords: setOf("import", "export", "part"), supportsAnnotations: true,
 	})
 }
 func (DAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -597,7 +598,7 @@ func (SolidityAnalyzer) Analyze(ctx context.Context, document *SourceDocument, o
 		language: "solidity", analyzer: AnalyzerSolidity, profile: SolidityScannerProfile(),
 		typeKinds:  map[string]SymbolKind{"contract": SymbolKindClass, "interface": SymbolKindInterface, "library": SymbolKindModule, "struct": SymbolKindStruct, "enum": SymbolKindEnum},
 		typeNative: map[string]string{"contract": "contract", "interface": "interface", "library": "library", "struct": "struct", "enum": "enum"},
-		modifiers:  setOf("abstract"), importKeywords: setOf("import"), explicitFuncs: map[string]string{"function": "function", "constructor": "constructor", "modifier": "modifier", "fallback": "fallback", "receive": "receive", "event": "event"},
+		modifiers:  setOf("abstract"), importKeywords: setOf("import"), explicitFuncs: map[string]string{"function": "function", "constructor": "constructor", "modifier": "modifier", "fallback": "fallback", "receive": "receive", "event": "event", "error": "error"},
 	})
 }
 func (ApexAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -605,7 +606,7 @@ func (ApexAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		language: "apex", analyzer: AnalyzerApex, profile: ApexScannerProfile(), caseInsensitive: true,
 		typeKinds:  map[string]SymbolKind{"class": SymbolKindClass, "interface": SymbolKindInterface, "enum": SymbolKindEnum},
 		typeNative: map[string]string{"class": "class", "interface": "interface", "enum": "enum"},
-		modifiers:  setOf("abstract", "global", "private", "protected", "public", "virtual", "with", "without", "sharing"), explicitFuncs: map[string]string{"trigger": "trigger"},
+		modifiers:  setOf("abstract", "global", "private", "protected", "public", "virtual", "with", "without", "sharing"), explicitFuncs: map[string]string{"trigger": "trigger"}, supportsAnnotations: true,
 	})
 }
 
@@ -748,12 +749,59 @@ func (p *braceLanguageParser) collectImport(start int) {
 	if end <= start+1 {
 		return
 	}
+	if p.policy.language == "d" {
+		p.collectDImports(start, end, depth)
+		return
+	}
+	if p.policy.language == "dart" &&
+		(p.tokens[start].Text == "import" || p.tokens[start].Text == "export") {
+		for i := start + 1; i < end; i++ {
+			if p.tokens[i].Text != "if" || p.tokens[i].Nesting != depth {
+				continue
+			}
+			// The default URI is authored source evidence, but platform-guarded
+			// alternatives cannot be represented by an unconditional dependency.
+			p.builder.MarkIncomplete()
+			span := OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[end-1].EndOffset}
+			_ = p.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "dart-conditional-uri-alternatives",
+				Message:  "Dart conditional import/export alternatives are not indexed; inspect the authored platform guards",
+				Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+			})
+			break
+		}
+	}
 	for i := start + 1; i < end; i++ {
 		if p.tokens[i].Kind != TokenString {
 			continue
 		}
 		value := quotedStringValue(p.tokens[i].Text)
 		if value != "" {
+			if p.policy.language == "dart" && p.tokens[start].Text == "import" {
+				// Dart's optional prefix belongs to the local binding, not
+				// to the imported URI. Only adjacent directive tokens count.
+				next := i + 1
+				for next < end && p.tokens[next].Kind == TokenNewline {
+					next++
+				}
+				if next < end && p.tokens[next].Text == "deferred" {
+					next++
+					for next < end && p.tokens[next].Kind == TokenNewline {
+						next++
+					}
+				}
+				if next+1 < end && p.tokens[next].Text == "as" &&
+					p.tokens[next+1].Kind == TokenIdentifier {
+					rangeValue, err := p.document.RangeFromUTF8Offsets(p.tokens[i].StartOffset, p.tokens[i].EndOffset)
+					if err == nil {
+						p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+							Kind: StructuralDependencyImport, Value: value, Alias: p.tokens[next+1].Text,
+							Range: rangeValue, Evidence: SymbolEvidenceStructural,
+						}})
+					}
+					return
+				}
+			}
 			p.addDependency(StructuralDependencyImport, value, p.tokens[i].StartOffset, p.tokens[i].EndOffset)
 			return
 		}
@@ -766,10 +814,148 @@ func (p *braceLanguageParser) collectImport(start int) {
 	for last > first && (p.tokens[last-1].Text == "," || p.tokens[last-1].Text == ";") {
 		last--
 	}
+	if p.policy.language == "groovy" && last-first >= 3 &&
+		p.tokens[last-2].Text == "as" && p.tokens[last-1].Kind == TokenIdentifier {
+		// Groovy's local alias is not part of the imported type/member.
+		value := tokenRangeText(p.tokens, first, last-2)
+		if value != "" {
+			rangeValue, err := p.document.RangeFromUTF8Offsets(p.tokens[first].StartOffset, p.tokens[last-3].EndOffset)
+			if err == nil {
+				p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+					Kind: StructuralDependencyImport, Value: value, Alias: p.tokens[last-1].Text,
+					Range: rangeValue, Evidence: SymbolEvidenceStructural,
+				}})
+			}
+		}
+		return
+	}
 	value := tokenRangeText(p.tokens, first, last)
 	if value != "" {
 		p.addDependency(StructuralDependencyImport, value, p.tokens[first].StartOffset, p.tokens[last-1].EndOffset)
 	}
+}
+
+func (p *braceLanguageParser) collectDImports(start, end, depth int) {
+	// Only module names before the first selective ':' are dependencies.
+	// A comma before that ':' separates modules; commas after it separate members.
+	selector := end
+	for i := start + 1; i < end; i++ {
+		if p.tokens[i].Nesting == depth && p.tokens[i].Text == ":" {
+			selector = i
+			break
+		}
+	}
+	invalid := false
+	for first := start + 1; first < selector; {
+		last := selector
+		for i := first; i < selector; i++ {
+			if p.tokens[i].Nesting == depth && p.tokens[i].Text == "," {
+				last = i
+				break
+			}
+		}
+		if !p.collectDImportModule(first, last) {
+			invalid = true
+		}
+		first = last + 1
+	}
+	if selector == start+1 || selector < end && !p.dImportSelectorsSupported(selector+1, end, depth) {
+		invalid = true
+	}
+	if invalid {
+		p.builder.MarkIncomplete()
+		span := OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[end-1].EndOffset}
+		_ = p.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "d-unsupported-import-form",
+			Message:  "D import has unsupported module or selector syntax; inspect the authored directive",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+}
+
+func (p *braceLanguageParser) collectDImportModule(first, end int) bool {
+	next := func(i int) int {
+		for i < end && p.tokens[i].Kind == TokenNewline {
+			i++
+		}
+		return i
+	}
+	i := next(first)
+	if i == end || p.tokens[i].Kind != TokenIdentifier {
+		return false
+	}
+	alias := ""
+	if at := next(i + 1); at < end && p.tokens[at].Text == "=" {
+		alias = p.tokens[i].Text
+		i = next(at + 1)
+	}
+	moduleStart := i
+	wantIdentifier := true
+	lastIdentifier := -1
+	for i = next(i); i < end; i = next(i + 1) {
+		token := p.tokens[i]
+		if wantIdentifier {
+			if token.Kind != TokenIdentifier {
+				return false
+			}
+			lastIdentifier = i
+		} else if token.Text != "." {
+			return false
+		}
+		wantIdentifier = !wantIdentifier
+	}
+	if wantIdentifier || lastIdentifier < 0 {
+		return false
+	}
+	value := tokenRangeText(p.tokens, moduleStart, lastIdentifier+1)
+	rangeValue, err := p.document.RangeFromUTF8Offsets(p.tokens[moduleStart].StartOffset, p.tokens[lastIdentifier].EndOffset)
+	if err != nil || value == "" {
+		return false
+	}
+	p.dependencies = appendUniqueDependencies(p.dependencies, []StructuralDependency{{
+		Kind: StructuralDependencyImport, Value: value, Alias: alias,
+		Range: rangeValue, Evidence: SymbolEvidenceStructural,
+	}})
+	return true
+}
+
+func (p *braceLanguageParser) dImportSelectorsSupported(first, end, depth int) bool {
+	// Member selectors are not modeled as independent module dependencies.
+	// Only simple identifiers and local aliases are accepted as understood syntax.
+	for first < end {
+		if p.tokens[first].Kind == TokenNewline {
+			first++
+			continue
+		}
+		if p.tokens[first].Nesting != depth || p.tokens[first].Kind != TokenIdentifier {
+			return false
+		}
+		first++
+		for first < end && p.tokens[first].Kind == TokenNewline {
+			first++
+		}
+		if first < end && p.tokens[first].Text == "=" {
+			first++
+			for first < end && p.tokens[first].Kind == TokenNewline {
+				first++
+			}
+			if first == end || p.tokens[first].Nesting != depth || p.tokens[first].Kind != TokenIdentifier {
+				return false
+			}
+			first++
+		}
+		for first < end && p.tokens[first].Kind == TokenNewline {
+			first++
+		}
+		if first == end {
+			return true
+		}
+		if p.tokens[first].Nesting != depth || p.tokens[first].Text != "," {
+			return false
+		}
+		first++
+	}
+	return false
 }
 
 func quotedStringValue(value string) string {
@@ -796,6 +982,75 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i++
 			continue
 		}
+		// Groovy package and import headers are already indexed. They do not
+		// declare callables: scanning through them can mislabel a later
+		// parameterized annotation and swallow its entire class.
+		if p.policy.lineTerminatedModule && p.tokens[i].Nesting == 0 {
+			word := p.lower(p.tokens[i].Text)
+			_, imported := p.policy.importKeywords[word]
+			if p.eq(word, p.policy.moduleKeyword) || imported {
+				lineEnd := p.lineEnd(i)
+				if semi := p.findSameDepth(i+1, lineEnd, ";", 0); semi >= 0 {
+					i = semi + 1
+				} else {
+					i = lineEnd
+				}
+				continue
+			}
+		}
+		if p.policy.language == "d" {
+			if next, consumed := p.skipDStructuralPrelude(i, end, parent, members, owner); consumed {
+				i = next
+				continue
+			}
+		}
+		// D unittest bodies contain executable statements, not declarations.
+		if p.policy.language == "d" && p.tokens[i].Text == "unittest" {
+			open := nextStructuralToken(p.tokens, i+1, end)
+			if open < end && p.tokens[open].Text == "{" {
+				if close := p.pairs[open]; close > open && close < end {
+					i = close + 1
+					continue
+				}
+			}
+			p.builder.MarkIncomplete()
+			i++
+			continue
+		}
+		// D static assertions are compile-time checks, not callable definitions.
+		if p.policy.language == "d" && p.tokens[i].Text == "static" {
+			assertion := nextStructuralToken(p.tokens, i+1, end)
+			if assertion < end && p.tokens[assertion].Text == "assert" {
+				open := nextStructuralToken(p.tokens, assertion+1, end)
+				if open < end && p.tokens[open].Text == "(" {
+					if close := p.pairs[open]; close > open && close < end {
+						semi := nextStructuralToken(p.tokens, close+1, end)
+						if semi < end && p.tokens[semi].Text == ";" {
+							i = semi + 1
+							continue
+						}
+					}
+				}
+				p.builder.MarkIncomplete()
+				i = assertion + 1
+				continue
+			}
+		}
+		// Solidity imports may contain named-brace lists. Consume the entire
+		// directive before parsing declarations, or its braces can hide the
+		// following contract and orphan all of that contract's members.
+		if p.policy.language == "solidity" && p.tokens[i].Text == "import" {
+			if terminator := p.findSameDepth(i+1, end, ";", p.tokens[i].Nesting); terminator >= 0 {
+				i = terminator + 1
+				continue
+			}
+			p.builder.MarkIncomplete()
+			return
+		}
+		if p.policy.supportsAnnotations && p.tokens[i].Text == "@" {
+			i = p.skipBraceAnnotation(i, end)
+			continue
+		}
 		if keyword, ok := p.typeKeyword(i, end); ok {
 			i = p.parseType(i, keyword, end, parent, members, owner)
 			continue
@@ -804,12 +1059,425 @@ func (p *braceLanguageParser) parseScope(start, end int, parent *SymbolParent, m
 			i = p.parseExplicit(i, end, parent, members, owner, native)
 			continue
 		}
-		if next, ok := p.parseCStyle(i, end, parent, members, owner); ok {
+		if p.policy.language == "dart" {
+			if next, consumed := p.parseDartTypedef(i, end, parent, members); consumed {
+				i = next
+				continue
+			}
+			if next, consumed := p.parseDartGetter(i, end, parent); consumed {
+				i = next
+				continue
+			}
+		}
+		if p.policy.language == "groovy" && (members || p.tokens[i].Text == "def") {
+			if next, consumed := p.parseGroovyContainerField(i, end, parent, members); consumed {
+				i = next
+				continue
+			}
+			if next, consumed := p.parseGroovySimpleField(i, end, parent, members); consumed {
+				i = next
+				continue
+			}
+		}
+		if p.policy.language == "groovy" &&
+			(p.tokens[i].Text == "}" || p.tokens[i].Text == "]") {
+			i++
+			continue
+		}
+		if next, consumed := p.parseCStyle(i, end, parent, members, owner); consumed {
 			i = next
 			continue
 		}
 		i++
 	}
+}
+
+// parseDartGetter recognizes explicit get declarations before the generic
+// callable parser can mistake invocations inside a getter body for methods.
+func (p *braceLanguageParser) parseDartGetter(start, end int, parent *SymbolParent) (int, bool) {
+	depth := p.tokens[start].Nesting
+	limit := min(end, start+20)
+	for i := start; i < limit; i++ {
+		token := p.tokens[i]
+		if token.Nesting < depth || token.Kind == TokenEOF {
+			break
+		}
+		if token.Nesting == depth && token.Text == "get" {
+			name := nextStructuralToken(p.tokens, i+1, end)
+			if name >= end || p.tokens[name].Kind != TokenIdentifier {
+				return 0, false
+			}
+			bodyStart := nextStructuralToken(p.tokens, name+1, end)
+			if bodyStart >= end {
+				return 0, false
+			}
+			var body *OffsetRange
+			var signatureEnd int
+			var declarationEnd int
+			var next int
+			switch p.tokens[bodyStart].Text {
+			case ";":
+				// A bodyless external getter is a declaration, not a field.
+				if p.tokens[start].Text != "external" || p.tokens[bodyStart].Nesting != depth {
+					return 0, false
+				}
+				signatureEnd = p.tokens[bodyStart].EndOffset
+				declarationEnd = signatureEnd
+				next = bodyStart + 1
+			case "{":
+				if p.tokens[bodyStart].Nesting != depth+1 {
+					return 0, false
+				}
+				close := p.pairs[bodyStart]
+				if close <= bodyStart || close >= end {
+					p.builder.MarkIncomplete()
+					return end, true
+				}
+				signatureEnd = p.tokens[bodyStart].StartOffset
+				declarationEnd = p.tokens[close].EndOffset
+				value := OffsetRange{Start: p.tokens[bodyStart].StartOffset, End: declarationEnd}
+				body = &value
+				next = close + 1
+			case "=>":
+				if p.tokens[bodyStart].Nesting != depth {
+					return 0, false
+				}
+				semi := p.findSameDepth(bodyStart+1, end, ";", depth)
+				if semi < 0 {
+					p.builder.MarkIncomplete()
+					return end, true
+				}
+				signatureEnd = p.tokens[bodyStart].StartOffset
+				declarationEnd = p.tokens[semi].EndOffset
+				value := OffsetRange{Start: p.tokens[bodyStart].StartOffset, End: declarationEnd}
+				body = &value
+				next = semi + 1
+			default:
+				return 0, false
+			}
+			mods := p.collectModifiers(start, i)
+			p.add(SymbolSpec{
+				Kind: SymbolKindProperty, NativeKind: "getter", Name: p.tokens[name].Text, Parent: parent,
+				Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd},
+				NameRange:   OffsetRange{Start: p.tokens[name].StartOffset, End: p.tokens[name].EndOffset},
+				Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd},
+				Body:        body, Visibility: braceLanguageVisibility(mods), Modifiers: mods, Evidence: SymbolEvidenceStructural,
+			})
+			return next, true
+		}
+		if token.Nesting == depth && (token.Text == ";" || token.Text == "(" || token.Text == "=" || token.Text == "=>") {
+			break
+		}
+		if token.Nesting == depth+1 && token.Text == "{" {
+			break
+		}
+	}
+	return 0, false
+}
+
+// parseDartTypedef indexes directly authored, semicolon-terminated type aliases
+// without mistaking their return types and Function signatures for callables.
+// Wider or malformed typedef grammar remains explicitly incomplete.
+func (p *braceLanguageParser) parseDartTypedef(start, end int, parent *SymbolParent, members bool) (int, bool) {
+	if p.tokens[start].Text != "typedef" {
+		return 0, false
+	}
+	limit := min(p.lineEnd(start), end)
+	depth := p.tokens[start].Nesting
+	semi := p.findSameDepth(start+1, limit, ";", depth)
+	diag := func(last, next int) (int, bool) {
+		finish := p.tokens[start].EndOffset
+		if last > start && last < end {
+			finish = p.tokens[last].EndOffset
+		}
+		addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-typedef",
+			"Unsupported or malformed Dart typedef requires direct source inspection",
+			p.tokens[start].StartOffset, finish)
+		return next, true
+	}
+	if members || semi < 0 {
+		return diag(limit-1, max(start+1, limit))
+	}
+	if semi-start > 192 {
+		return diag(semi, semi+1)
+	}
+	first := nextStructuralToken(p.tokens, start+1, semi)
+	if first >= semi {
+		return diag(semi, semi+1)
+	}
+	nameIndex := -1
+	if eq := p.findSameDepth(first, semi, "=", depth); eq >= 0 {
+		if p.tokens[first].Kind == TokenIdentifier &&
+			p.dartTypedefAliasHeader(first, eq, depth) &&
+			p.dartTypedefTypeRHS(eq+1, semi) {
+			nameIndex = first
+		}
+	} else {
+		// Legacy form: typedef ReturnType Name(Parameters);
+		for i := first + 1; i < semi; i++ {
+			if p.tokens[i].Nesting == depth+1 && p.tokens[i].Text == "(" {
+				if close := p.pairs[i]; close > i && nextStructuralToken(p.tokens, close+1, semi) == semi {
+					candidate := previousIdentifierToken(p.tokens, i-1, first+1)
+					if candidate > first && nextStructuralToken(p.tokens, candidate+1, i) == i {
+						nameIndex = candidate
+					}
+				}
+				break
+			}
+		}
+	}
+	if nameIndex < 0 {
+		return diag(semi, semi+1)
+	}
+	p.add(SymbolSpec{
+		Kind: SymbolKindAlias, NativeKind: "typedef", Name: p.tokens[nameIndex].Text,
+		Parent:      parent,
+		Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semi].EndOffset},
+		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
+		Signature:   &OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semi].StartOffset},
+		Evidence:    SymbolEvidenceStructural,
+	})
+	return semi + 1, true
+}
+
+// dartTypedefTypeRHS accepts source-spelled types, not runtime expressions.
+// Its deliberately small token vocabulary excludes numeric/string values and
+// executable operators; unsupported forms remain visible as diagnostics.
+func (p *braceLanguageParser) dartTypedefTypeRHS(start, end int) bool {
+	first := nextStructuralToken(p.tokens, start, end)
+	if first >= end || (p.tokens[first].Kind != TokenIdentifier && p.tokens[first].Kind != TokenKeyword) {
+		return false
+	}
+	for i := first; i < end; i++ {
+		token := p.tokens[i]
+		if token.Kind == TokenIdentifier || token.Kind == TokenKeyword || token.Kind == TokenNewline {
+			continue
+		}
+		switch token.Text {
+		case "<", ">", ">>", ">>>", "?", ",", ".", "(", ")", "[", "]":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (p *braceLanguageParser) dartTypedefAliasHeader(name, eq, depth int) bool {
+	next := nextStructuralToken(p.tokens, name+1, eq)
+	if next == eq {
+		return true
+	}
+	if next >= eq || p.tokens[next].Text != "<" {
+		return false
+	}
+	angles := 0
+	for i := next; i < eq; i++ {
+		token := p.tokens[i]
+		if token.Nesting != depth {
+			return false
+		}
+		switch token.Text {
+		case "<":
+			angles++
+		case ">":
+			angles--
+		case ">>":
+			angles -= 2
+		case ">>>":
+			angles -= 3
+		case ",", "?", ".":
+		default:
+			if token.Kind != TokenIdentifier && token.Kind != TokenKeyword && token.Kind != TokenNewline {
+				return false
+			}
+		}
+		if angles < 0 || angles == 0 && nextStructuralToken(p.tokens, i+1, eq) != eq {
+			return false
+		}
+	}
+	return angles == 0
+}
+
+// parseGroovyContainerField preserves explicit Groovy fields and script-level
+// def bindings with balanced closure/list initializers. Nested calls and closure
+// bodies are not declarations and cannot consume the next authored symbol.
+func (p *braceLanguageParser) parseGroovyContainerField(start, end int, parent *SymbolParent, members bool) (int, bool) {
+	depth := p.tokens[start].Nesting
+	lineEnd := min(p.lineEnd(start), end)
+	for i := start + 1; i < lineEnd; i++ {
+		if p.tokens[i].Nesting != depth || p.tokens[i].Text != "=" {
+			continue
+		}
+		open := nextStructuralToken(p.tokens, i+1, end)
+		if open >= end || (p.tokens[open].Text != "{" && p.tokens[open].Text != "[") ||
+			p.tokens[open].Nesting != depth+1 {
+			return 0, false
+		}
+		close := p.pairs[open]
+		if close <= open || close >= end {
+			p.builder.MarkIncomplete()
+			return open + 1, true
+		}
+		if _, added := p.parseVariable(start, close, parent, members); !added {
+			p.builder.MarkIncomplete()
+		}
+		return close + 1, true
+	}
+	return 0, false
+}
+
+// parseGroovySimpleField handles semicolon-free class fields and explicit
+// script-level def bindings without consuming the following method. Complex
+// Groovy declarations remain outside this bounded structural subset.
+func (p *braceLanguageParser) parseGroovySimpleField(start, end int, parent *SymbolParent, members bool) (int, bool) {
+	lineEnd := p.lineEnd(start)
+	if lineEnd >= end || p.tokens[lineEnd].Kind != TokenNewline {
+		return 0, false
+	}
+	depth := p.tokens[start].Nesting
+	lhsEnd := lineEnd
+	for i := start; i < lineEnd; i++ {
+		if p.tokens[i].Text == ";" && p.tokens[i].Nesting == depth {
+			return 0, false
+		}
+		if p.tokens[i].Text == "=" && p.tokens[i].Nesting == depth {
+			lhsEnd = i
+			break
+		}
+	}
+	typeStart := start
+	for typeStart < lhsEnd {
+		if _, modifier := p.policy.modifiers[p.lower(p.tokens[typeStart].Text)]; !modifier {
+			break
+		}
+		typeStart++
+	}
+	if typeStart >= lhsEnd {
+		return 0, false
+	}
+	first := p.tokens[typeStart]
+	if first.Kind != TokenIdentifier && first.Text != "def" {
+		switch first.Text {
+		case "boolean", "byte", "short", "int", "long", "float", "double", "char":
+		default:
+			return 0, false
+		}
+	}
+	nameIndex := previousIdentifierToken(p.tokens, lhsEnd-1, typeStart+1)
+	if nameIndex <= typeStart || nameIndex != lhsEnd-1 {
+		return 0, false
+	}
+	// Only recognize a typed declaration on the left of the assignment.
+	// Nested generic delimiters are types, while calls, member accesses and
+	// executable expressions must never become class declarations.
+	genericDepth := 0
+	for i := typeStart + 1; i < nameIndex; i++ {
+		switch p.tokens[i].Text {
+		case "<":
+			genericDepth++
+		case ">", ">>", ">>>":
+			closeCount := len(p.tokens[i].Text)
+			if closeCount > genericDepth {
+				return 0, false
+			}
+			genericDepth -= closeCount
+		case ",":
+			if genericDepth == 0 {
+				return 0, false
+			}
+		case "[", "]":
+		default:
+			if genericDepth == 0 || p.tokens[i].Kind != TokenIdentifier {
+				return 0, false
+			}
+		}
+	}
+	if genericDepth != 0 {
+		return 0, false
+	}
+	return p.parseVariable(start, lineEnd, parent, members)
+}
+
+// skipDStructuralPrelude keeps annotations, imports and visibility groups
+// from consuming the declaration that follows. Mixin expansion is not modeled.
+func (p *braceLanguageParser) skipDStructuralPrelude(start, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
+	token := p.tokens[start].Text
+	depth := p.tokens[start].Nesting
+	if token == "@" {
+		return p.skipBraceAnnotation(start, end), true
+	}
+	if token == "alias" {
+		semi := p.findSameDepth(start+1, end, ";", depth)
+		if semi < 0 {
+			p.builder.MarkIncomplete()
+			return start + 1, true
+		}
+		name := nextStructuralToken(p.tokens, start+1, semi)
+		equals := nextStructuralToken(p.tokens, name+1, semi)
+		if name < semi && p.tokens[name].Kind == TokenIdentifier && equals < semi && p.tokens[equals].Text == "=" {
+			p.add(SymbolSpec{Kind: SymbolKindAlias, NativeKind: "alias", Name: p.tokens[name].Text, Parent: parent,
+				Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semi].EndOffset},
+				NameRange:   OffsetRange{Start: p.tokens[name].StartOffset, End: p.tokens[name].EndOffset},
+				Evidence:    SymbolEvidenceStructural})
+		} else {
+			// Other D alias forms need a separate structural oracle.
+			p.builder.MarkIncomplete()
+		}
+		return semi + 1, true
+	}
+	if token == "mixin" || token == "import" || token == "module" {
+		if semi := p.findSameDepth(start+1, end, ";", depth); semi >= 0 {
+			if token == "mixin" {
+				p.builder.MarkIncomplete()
+			}
+			return semi + 1, true
+		}
+		p.builder.MarkIncomplete()
+		return start + 1, true
+	}
+	switch token {
+	case "public", "private", "protected", "package", "export":
+		open := nextStructuralToken(p.tokens, start+1, end)
+		if open < end && p.tokens[open].Text == "{" && p.tokens[open].Nesting == depth+1 {
+			if close := p.pairs[open]; close > open && close < end {
+				p.parseScope(open+1, close, parent, members, owner)
+				return close + 1, true
+			}
+			p.builder.MarkIncomplete()
+		}
+		if open < end && p.tokens[open].Text == ":" {
+			return open + 1, true
+		}
+	}
+	return start, false
+}
+
+// skipBraceAnnotation consumes metadata without mistaking its arguments for a
+// callable declaration. The following declaration remains available to parseScope.
+func (p *braceLanguageParser) skipBraceAnnotation(start, end int) int {
+	name := nextStructuralToken(p.tokens, start+1, end)
+	if p.policy.language == "d" && name < end && p.tokens[name].Text == "(" {
+		if close := p.pairs[name]; close > name && close < end {
+			return close + 1
+		}
+		p.builder.MarkIncomplete()
+		return start + 1
+	}
+	if name >= end || p.tokens[name].Kind != TokenIdentifier {
+		p.builder.MarkIncomplete()
+		return start + 1
+	}
+	next := name + 1
+	for next+1 < end && p.tokens[next].Text == "." && p.tokens[next+1].Kind == TokenIdentifier {
+		next += 2
+	}
+	if next < end && p.tokens[next].Text == "(" {
+		if close := p.pairs[next]; close > next && close < end {
+			return close + 1
+		}
+		p.builder.MarkIncomplete()
+	}
+	return next
 }
 
 func (p *braceLanguageParser) typeKeyword(start, end int) (int, bool) {
@@ -848,6 +1516,30 @@ func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolP
 		}
 	}
 	nameIndex := nextIdentifierToken(p.tokens, keyword+1, end)
+	dartExtensionType := false
+	if p.policy.language == "dart" && native == "extension" {
+		next := nextStructuralToken(p.tokens, keyword+1, end)
+		if next < end && p.tokens[next].Text == "type" {
+			dartExtensionType = true
+			next = nextStructuralToken(p.tokens, next+1, end)
+			if next < end && p.tokens[next].Text == "const" {
+				next = nextStructuralToken(p.tokens, next+1, end)
+			}
+			if next >= end || p.tokens[next].Kind != TokenIdentifier ||
+				p.tokens[next].Text == "on" || p.tokens[next].Text == "implements" ||
+				p.tokens[next].Text == "type" || p.tokens[next].Text == "const" {
+				return p.skipUnsupportedDartExtensionType(keyword, end)
+			}
+			nameIndex = next
+			afterName := nextStructuralToken(p.tokens, nameIndex+1, end)
+			if afterName >= end ||
+				(p.tokens[afterName].Text != "<" &&
+					p.tokens[afterName].Text != "." &&
+					p.tokens[afterName].Text != "(") {
+				return p.skipUnsupportedDartExtensionType(keyword, end)
+			}
+		}
+	}
 	if nameIndex < 0 {
 		p.builder.MarkIncomplete()
 		return keyword + 1
@@ -879,7 +1571,9 @@ func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolP
 		return end
 	}
 	kind := p.policy.typeKinds[native]
-	if override := p.policy.typeNative[native]; override != "" {
+	if dartExtensionType {
+		native = "extension-type"
+	} else if override := p.policy.typeNative[native]; override != "" {
 		native = override
 	}
 	declarationEnd := p.tokens[terminator].EndOffset
@@ -894,12 +1588,121 @@ func (p *braceLanguageParser) parseType(start, keyword, end int, parent *SymbolP
 	symbol, added := p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: p.tokens[start].StartOffset, End: signatureEnd}, Body: body, Visibility: braceLanguageVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	if added && open >= 0 {
 		p.collectTypeRelations(symbol.QualifiedName, nameIndex+1, open, depth)
-		if kind != SymbolKindEnum {
+		if kind == SymbolKindEnum {
+			if p.policy.language == "dart" {
+				p.parseDartEnumValues(open, close, symbol)
+			}
+		} else {
 			child := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 			p.parseScope(open+1, close, child, true, symbol.Name)
 		}
 	}
 	return terminator + 1
+}
+
+// parseDartEnumValues records plain directly authored enum entries under their
+// enum owner. Validate the whole bounded list before indexing any value: a
+// constructor argument, annotation or other enhanced enum syntax must never
+// become a fabricated constant.
+func (p *braceLanguageParser) parseDartEnumValues(open, close int, owner NormalizedSymbol) {
+	const maxEntries = 128
+	const maxListBytes = 16 * 1024
+	nesting := p.tokens[open].Nesting
+	listEnd := close
+	for i := open + 1; i < close; i++ {
+		if p.tokens[i].Nesting == nesting && p.tokens[i].Text == ";" {
+			listEnd = i
+			break
+		}
+	}
+	incomplete := func() {
+		spanEnd := p.tokens[listEnd].StartOffset
+		if spanEnd <= p.tokens[open].EndOffset {
+			spanEnd = p.tokens[close].EndOffset
+		}
+		addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-enum-values",
+			"Unsupported Dart enum value syntax requires direct source inspection",
+			p.tokens[open].StartOffset, spanEnd)
+	}
+	if p.tokens[listEnd].StartOffset-p.tokens[open].EndOffset > maxListBytes {
+		incomplete()
+		return
+	}
+	entries := make([]int, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	wantName := true
+	valid := true
+	for i := open + 1; i < listEnd; i++ {
+		token := p.tokens[i]
+		if token.Kind == TokenNewline {
+			continue
+		}
+		if token.Nesting != nesting {
+			valid = false
+			break
+		}
+		if wantName {
+			if token.Kind != TokenIdentifier || len(entries) >= maxEntries {
+				valid = false
+				break
+			}
+			if _, duplicate := seen[token.Text]; duplicate {
+				valid = false
+				break
+			}
+			seen[token.Text] = struct{}{}
+			entries = append(entries, i)
+		} else if token.Text != "," {
+			valid = false
+			break
+		}
+		wantName = !wantName
+	}
+	if !valid || len(entries) == 0 {
+		incomplete()
+		return
+	}
+	child := &SymbolParent{ID: owner.ID, QualifiedName: owner.QualifiedName}
+	for _, i := range entries {
+		token := p.tokens[i]
+		span := OffsetRange{Start: token.StartOffset, End: token.EndOffset}
+		p.add(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-value",
+			Name: token.Text, Parent: child, Declaration: span,
+			NameRange: span, Signature: &span, Evidence: SymbolEvidenceStructural,
+		})
+		if p.stopped {
+			return
+		}
+	}
+	if listEnd < close {
+		p.parseScope(listEnd+1, close, child, true, owner.Name)
+	}
+}
+
+// An unsupported extension type must not expose its representation or body
+// as unrelated top-level declarations. Stop at the nearest complete authored
+// block, same-depth semicolon, or physical line boundary.
+func (p *braceLanguageParser) skipUnsupportedDartExtensionType(keyword, end int) int {
+	token := p.tokens[keyword]
+	addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-extension-type",
+		"Unsupported or incomplete Dart extension type name or representation", token.StartOffset, token.EndOffset)
+	for i := keyword + 1; i < end; i++ {
+		current := p.tokens[i]
+		if current.Kind == TokenNewline && current.Nesting == token.Nesting {
+			return i + 1
+		}
+		if current.Text == ";" && current.Nesting == token.Nesting {
+			return i + 1
+		}
+		if current.Text == "{" && current.Nesting == token.Nesting+1 {
+			if close := p.pairs[i]; close > i && close < end {
+				return close + 1
+			}
+			return end
+		}
+	}
+	return end
 }
 
 func (p *braceLanguageParser) collectTypeRelations(source string, start, end, depth int) {
@@ -984,6 +1787,10 @@ func (p *braceLanguageParser) parseExplicit(start, end int, parent *SymbolParent
 	case "event":
 		kind = SymbolKindEvent
 		nameIndex = nextIdentifierToken(p.tokens, start+1, end)
+	case "error":
+		// Solidity custom errors define a named revert type, not a callable method.
+		kind = SymbolKindType
+		nameIndex = nextIdentifierToken(p.tokens, start+1, end)
 	case "trigger":
 		kind = SymbolKindFunction
 		nameIndex = nextIdentifierToken(p.tokens, start+1, end)
@@ -1049,6 +1856,8 @@ func (p *braceLanguageParser) parseExplicit(start, end int, parent *SymbolParent
 	return next
 }
 
+// parseCStyle reports whether it consumed a statement; consumption does not
+// imply that a declaration was emitted. Unknown blocks remain traversable.
 func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
 	depth := p.tokens[start].Nesting
 	terminator := -1
@@ -1068,14 +1877,71 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 	if terminator < 0 {
 		return start + 1, false
 	}
+	// A direct Dart collection literal is a variable initializer, not a body.
+	// Consume its paired braces and semicolon before scanning the next declaration.
+	if p.policy.language == "dart" && p.tokens[terminator].Text == "{" {
+		assignment := p.findSameDepth(start, terminator, "=", depth)
+		previous := terminator - 1
+		for previous > assignment && p.tokens[previous].Kind == TokenNewline {
+			previous--
+		}
+		if assignment >= 0 && previous > assignment &&
+			p.tokens[previous].Text == ">" {
+			callableHeader := false
+			for i := start; i < assignment; i++ {
+				if p.tokens[i].Text == "(" && p.tokens[i].Nesting == depth+1 {
+					callableHeader = true
+					break
+				}
+			}
+			if !callableHeader {
+				close := p.pairs[terminator]
+				if close <= terminator || close >= end {
+					addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-collection-initializer",
+						"Unclosed Dart collection initializer requires direct source inspection",
+						p.tokens[terminator].StartOffset, p.tokens[terminator].EndOffset)
+					return end, true
+				}
+				semi := nextStructuralToken(p.tokens, close+1, end)
+				if semi < end && p.tokens[semi].Text == ";" && p.tokens[semi].Nesting == depth {
+					return p.parseVariable(start, semi, parent, members)
+				}
+				addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-collection-initializer",
+					"Dart collection initializer has no direct semicolon terminator",
+					p.tokens[terminator].StartOffset, p.tokens[close].EndOffset)
+				lineEnd := min(end, p.lineEnd(close+1))
+				if tailSemi := p.findSameDepth(close+1, lineEnd, ";", depth); tailSemi >= 0 {
+					return tailSemi + 1, true
+				}
+				return lineEnd, true
+			}
+		}
+	}
+	// Dart initializers can contain calls or function types; neither declares a callable.
+	if p.policy.language == "dart" && p.tokens[terminator].Text == ";" {
+		for i := start; i < terminator; i++ {
+			if p.tokens[i].Text == "=" && p.tokens[i].Nesting == depth {
+				return p.parseVariable(start, terminator, parent, members)
+			}
+		}
+	}
 	paren := -1
+	assignment := false
 	for i := start; i < terminator; i++ {
+		if p.tokens[i].Text == "=" && p.tokens[i].Nesting == depth {
+			assignment = true
+		}
 		if p.tokens[i].Text == "(" && p.tokens[i].Nesting == depth+1 {
 			paren = i
 			break
 		}
 	}
 	if paren >= 0 {
+		// Apex and Solidity allow field initializers containing calls;
+		// those calls are not method declarations.
+		if assignment && (p.policy.language == "apex" || p.policy.language == "solidity") {
+			return p.parseVariable(start, terminator, parent, members)
+		}
 		nameIndex := previousIdentifierToken(p.tokens, paren-1, start)
 		name := ""
 		kind := SymbolKindFunction
@@ -1089,13 +1955,26 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 			native = "constructor"
 		}
 		if name != "" {
+			if p.policy.language == "groovy" &&
+				!p.groovyCallableHeader(start, nameIndex, members, owner) {
+				if p.tokens[terminator].Text == "{" {
+					if close := p.pairs[terminator]; close > terminator && close < end {
+						return close + 1, true
+					}
+					p.builder.MarkIncomplete()
+				}
+				return terminator + 1, true
+			}
 			lowerName := strings.ToLower(name)
 			if lowerName != "if" && lowerName != "for" && lowerName != "while" && lowerName != "switch" && lowerName != "catch" && lowerName != "return" {
 				if members && kind == SymbolKindFunction {
 					kind = SymbolKindMethod
 					native = "method"
 				}
-				if members && owner != "" && p.eq(name, owner) {
+				// Dart named constructors use Owner.name(...), not a method name.
+				if members && owner != "" && (p.eq(name, owner) ||
+					(p.policy.language == "dart" && nameIndex >= start+2 &&
+						p.tokens[nameIndex-1].Text == "." && p.eq(p.tokens[nameIndex-2].Text, owner))) {
 					kind = SymbolKindConstructor
 					native = "constructor"
 				}
@@ -1127,6 +2006,11 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 		}
 	}
 	if p.tokens[terminator].Text == "{" {
+		if p.policy.language == "apex" && members {
+			if next, ok := p.parseApexAutoProperty(start, terminator, parent); ok {
+				return next, true
+			}
+		}
 		if close := p.pairs[terminator]; close > terminator {
 			return close + 1, false
 		}
@@ -1135,13 +2019,95 @@ func (p *braceLanguageParser) parseCStyle(start, end int, parent *SymbolParent, 
 	return p.parseVariable(start, terminator, parent, members)
 }
 
+// groovyCallableHeader requires an authored method type/def prefix instead of
+// inferring a declaration from a call followed by a trailing closure block.
+// The constructor is the one supported implicit-type case inside a class.
+func (p *braceLanguageParser) groovyCallableHeader(start, nameIndex int, members bool, owner string) bool {
+	if nameIndex < start {
+		return false
+	}
+	if members && nameIndex == start && owner != "" && p.eq(p.tokens[nameIndex].Text, owner) {
+		return true
+	}
+	if nameIndex == start {
+		return false
+	}
+	prev := previousStructuralToken(p.tokens, nameIndex-1, start)
+	if prev < start {
+		return false
+	}
+	if p.tokens[prev].Kind != TokenIdentifier && p.tokens[prev].Text != "def" &&
+		p.tokens[prev].Text != ">" && p.tokens[prev].Text != "]" {
+		return false
+	}
+	for i := start; i < nameIndex; i++ {
+		switch p.tokens[i].Text {
+		case "=", "{", "}", "(", ")", ";", ":", "->":
+			return false
+		}
+		if p.tokens[i].Kind == TokenString {
+			return false
+		}
+	}
+	return p.tokens[start].Text != "new"
+}
+
+// parseApexAutoProperty recognizes only property bodies consisting of
+// semicolon-terminated get/set accessors. Arbitrary accessor implementations
+// are not assumed to be simple fields or converted into phantom declarations.
+func (p *braceLanguageParser) parseApexAutoProperty(start, open int, parent *SymbolParent) (int, bool) {
+	close := p.pairs[open]
+	if close <= open || parent == nil {
+		return 0, false
+	}
+	nameIndex := previousIdentifierToken(p.tokens, open-1, start)
+	if nameIndex <= start {
+		return 0, false
+	}
+	accessors := 0
+	for i := nextStructuralToken(p.tokens, open+1, close); i < close; {
+		if p.eq(p.tokens[i].Text, "private") || p.eq(p.tokens[i].Text, "protected") ||
+			p.eq(p.tokens[i].Text, "public") || p.eq(p.tokens[i].Text, "global") {
+			i = nextStructuralToken(p.tokens, i+1, close)
+			if i >= close {
+				return 0, false
+			}
+		}
+		if !p.eq(p.tokens[i].Text, "get") && !p.eq(p.tokens[i].Text, "set") {
+			return 0, false
+		}
+		semi := nextStructuralToken(p.tokens, i+1, close)
+		if semi >= close || p.tokens[semi].Text != ";" {
+			return 0, false
+		}
+		accessors++
+		i = nextStructuralToken(p.tokens, semi+1, close)
+	}
+	if accessors == 0 {
+		return 0, false
+	}
+	mods := p.collectModifiers(start, nameIndex)
+	p.add(SymbolSpec{Kind: SymbolKindProperty, NativeKind: "property",
+		Name: p.tokens[nameIndex].Text, Parent: parent,
+		Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[close].EndOffset},
+		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
+		Visibility:  braceLanguageVisibility(mods), Modifiers: mods, Evidence: SymbolEvidenceStructural})
+	return close + 1, true
+}
+
 func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *SymbolParent, members bool) (int, bool) {
 	if start >= semicolon {
 		return semicolon + 1, false
 	}
 	first := p.lower(p.tokens[start].Text)
-	if first == "module" || first == "import" || first == "export" || first == "part" || first == "pragma" || first == "using" || first == "return" {
-		return semicolon + 1, false
+	if first == "module" || first == "import" || first == "export" || first == "part" || first == "pragma" || first == "using" || first == "return" ||
+		(first == "package" && p.policy.language == "groovy") {
+		return semicolon + 1, true
+	}
+	if p.policy.language == "dart" {
+		if next, handled := p.parseDartMultipleVariables(start, semicolon, parent, members); handled {
+			return next, true
+		}
 	}
 	limit := semicolon
 	for i := start; i < semicolon; i++ {
@@ -1176,6 +2142,176 @@ func (p *braceLanguageParser) parseVariable(start, semicolon int, parent *Symbol
 	modifiers := p.collectModifiers(start, nameIndex)
 	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: p.tokens[nameIndex].Text, Parent: parent, Declaration: OffsetRange{Start: p.tokens[start].StartOffset, End: p.tokens[semicolon].EndOffset}, NameRange: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset}, Visibility: braceLanguageVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural})
 	return semicolon + 1, true
+}
+
+// parseDartMultipleVariables indexes each directly authored declarator without
+// treating commas inside type parameters or initializer expressions as siblings.
+func (p *braceLanguageParser) parseDartMultipleVariables(start, semi int, parent *SymbolParent, members bool) (int, bool) {
+	switch p.tokens[start].Text {
+	case "const", "final", "var", "dynamic", "late", "static":
+	default:
+		return 0, false
+	}
+	depth := p.tokens[start].Nesting
+	commas := make([]int, 0, 4)
+	header := true
+	angleDepth := 0
+	for i := start + 1; i < semi; i++ {
+		token := p.tokens[i]
+		if token.Nesting != depth {
+			continue
+		}
+		if header {
+			switch token.Text {
+			case "<":
+				angleDepth++
+			case ">":
+				if angleDepth > 0 {
+					angleDepth--
+				}
+			case "=":
+				if angleDepth == 0 {
+					header = false
+				}
+			}
+		} else if token.Text == "<" {
+			// A directly assigned typed collection has type-argument commas,
+			// not additional variable declarators. Require its literal opener.
+			previous := i - 1
+			for previous > start && p.tokens[previous].Kind == TokenNewline {
+				previous--
+			}
+			if previous > start && (p.tokens[previous].Text == "=" || p.tokens[previous].Text == "const") {
+				if close := p.dartTypedCollectionArgumentsClose(i, semi, depth); close > i {
+					i = close
+					continue
+				}
+			}
+		}
+		if token.Text == "," && angleDepth == 0 {
+			if len(commas) == 64 {
+				addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-multiple-declarators",
+					"More than 65 Dart declarators require direct source inspection",
+					p.tokens[start].StartOffset, p.tokens[semi].EndOffset)
+				return semi + 1, true
+			}
+			commas = append(commas, i)
+			header = false
+		}
+	}
+	if len(commas) == 0 {
+		return 0, false
+	}
+	type part struct{ name, begin, end int }
+	parts := make([]part, 0, len(commas)+1)
+	left := start
+	for index := 0; index <= len(commas); index++ {
+		right := semi
+		if index < len(commas) {
+			right = commas[index]
+		}
+		first := nextStructuralToken(p.tokens, left, right)
+		if first >= right {
+			break
+		}
+		nameIndex := first
+		if index == 0 {
+			limit := right
+			if assignment := p.findSameDepth(first, right, "=", depth); assignment >= 0 {
+				limit = assignment
+			}
+			nameIndex = previousIdentifierToken(p.tokens, limit-1, first)
+		}
+		if nameIndex < first || p.tokens[nameIndex].Kind != TokenIdentifier ||
+			p.tokens[nameIndex].Nesting != depth {
+			break
+		}
+		afterName := nextStructuralToken(p.tokens, nameIndex+1, right)
+		if afterName < right {
+			if p.tokens[afterName].Text != "=" || p.tokens[afterName].Nesting != depth ||
+				nextStructuralToken(p.tokens, afterName+1, right) >= right {
+				break
+			}
+		}
+		endOffset := p.tokens[right].StartOffset
+		if right == semi {
+			endOffset = p.tokens[semi].EndOffset
+		}
+		beginOffset := p.tokens[first].StartOffset
+		if index == 0 {
+			beginOffset = p.tokens[start].StartOffset
+		}
+		parts = append(parts, part{nameIndex, beginOffset, endOffset})
+		left = right + 1
+	}
+	if len(parts) != len(commas)+1 {
+		addDocumentDataHardwareDiagnostic(p.builder, "dart-unsupported-multiple-declarators",
+			"Ambiguous Dart comma-separated declaration requires direct source inspection",
+			p.tokens[start].StartOffset, p.tokens[semi].EndOffset)
+		return semi + 1, true
+	}
+	kind, native := SymbolKindVariable, "variable"
+	if members {
+		kind, native = SymbolKindField, "field"
+	} else {
+		for i := start; i < parts[0].name; i++ {
+			if p.tokens[i].Text == "const" || p.tokens[i].Text == "final" {
+				kind, native = SymbolKindConstant, "constant"
+				break
+			}
+		}
+	}
+	modifiers := p.collectModifiers(start, parts[0].name)
+	for _, variable := range parts {
+		p.add(SymbolSpec{
+			Kind: kind, NativeKind: native, Name: p.tokens[variable.name].Text,
+			Parent:      parent,
+			Declaration: OffsetRange{Start: variable.begin, End: variable.end},
+			NameRange:   OffsetRange{Start: p.tokens[variable.name].StartOffset, End: p.tokens[variable.name].EndOffset},
+			Visibility:  braceLanguageVisibility(modifiers), Modifiers: modifiers,
+			Evidence: SymbolEvidenceStructural,
+		})
+	}
+	return semi + 1, true
+}
+
+// dartTypedCollectionArgumentsClose only recognizes a bounded type-argument
+// sequence immediately followed by a collection literal, never comparisons.
+func (p *braceLanguageParser) dartTypedCollectionArgumentsClose(open, end, depth int) int {
+	angleDepth := 0
+	for i := open; i < end && i-open <= 96; i++ {
+		token := p.tokens[i]
+		if token.Nesting != depth {
+			return -1
+		}
+		switch token.Text {
+		case "<":
+			angleDepth++
+		case ">":
+			angleDepth--
+		case ">>":
+			angleDepth -= 2
+		case ">>>":
+			angleDepth -= 3
+		case ",", ".", "?":
+		default:
+			if token.Kind != TokenIdentifier && token.Kind != TokenKeyword && token.Kind != TokenNewline {
+				return -1
+			}
+		}
+		if angleDepth < 0 {
+			return -1
+		}
+		if angleDepth == 0 {
+			next := nextStructuralToken(p.tokens, i+1, end)
+			if next < end && p.tokens[next].Nesting == depth+1 &&
+				(p.tokens[next].Text == "{" || p.tokens[next].Text == "[") {
+				return i
+			}
+			return -1
+		}
+	}
+	return -1
 }
 
 func (p *braceLanguageParser) collectModifiers(start, end int) []string {

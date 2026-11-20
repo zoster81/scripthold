@@ -3,6 +3,8 @@ package sourceintelligence
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,6 +15,167 @@ import (
 
 var _ SourceAnalyzer = CAnalyzer{}
 var _ SourceAnalyzer = CPPAnalyzer{}
+
+// Complete pinned upstream files are inspected as source, not executed.
+func TestCPPPinnedOriginalGoogleTestDestructorSpelling(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("complete pinned GoogleTest original not configured")
+	}
+	for _, tc := range []struct {
+		name, file string
+		count      int
+	}{
+		{"googletest", "googletest-sample2.h", 11},
+		{"catch2-positive", "catch2-fixture.cpp", 9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, tc.file))
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("complete original missing/invalid: %v", err)
+			}
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(string(data)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Analysis.Symbols) != tc.count {
+				t.Fatalf("original declarations got=%d want=%d", len(result.Analysis.Symbols), tc.count)
+			}
+			if tc.name == "catch2-positive" {
+				return
+			}
+			found := 0
+			for _, sym := range result.Analysis.Symbols {
+				if sym.Kind != SymbolKindDestructor {
+					continue
+				}
+				found++
+				if sym.Name != "~MyString" || sym.QualifiedName != "MyString.~MyString" ||
+					sym.ParentQualifiedName != "MyString" || sym.NameRange.Start.Line != 68 ||
+					sym.NameRange.Start.Column != 3 || sym.NameRange.End.Line != 68 ||
+					sym.NameRange.End.Column != 12 || sym.NativeKind != "destructor-definition" {
+					t.Errorf("real original destructor spelling/range incorrect: %+v", sym)
+				}
+			}
+			if found != 1 {
+				t.Errorf("original destructor count=%d", found)
+			}
+		})
+	}
+}
+
+func TestCPPDestructorLexicalSpellingLFCRLFAndOutOfClass(t *testing.T) {
+	const source = "class Gadget { public: Gadget(); ~Gadget(); };" +
+		"\nGadget::Gadget() {}\nGadget::~Gadget() {}\n" +
+		"Unknown::~Unknown() = default;\n"
+	for _, tc := range []struct{ name, src string }{{"lf", source}, {"crlf", strings.ReplaceAll(source, "\n", "\r\n")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.src), testAnalyzeOptions(true, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := map[int]bool{}
+			for _, sym := range result.Analysis.Symbols {
+				line := sym.NameRange.Start.Line
+				if line != 1 && line != 3 && line != 4 {
+					continue
+				}
+				if sym.Name != "~Gadget" && sym.Name != "~Unknown" {
+					continue
+				}
+				found[line] = true
+				if line == 1 || line == 3 {
+					if sym.Name != "~Gadget" || sym.QualifiedName != "Gadget.~Gadget" {
+						t.Errorf("known destructor identity: %+v", sym)
+					}
+				} else if sym.Name != "~Unknown" || sym.QualifiedName != "Unknown.~Unknown" ||
+					sym.NativeKind != "qualified-destructor-defaulted-definition" || sym.ParentID != "" {
+					t.Errorf("unknown external destructor identity/ownership: %+v", sym)
+				}
+				if sym.NameRange.Start.Column < 1 {
+					t.Errorf("invalid destructor name span: %+v", sym)
+				}
+			}
+			for _, line := range []int{1, 3, 4} {
+				if !found[line] {
+					t.Errorf("missing authored tilde destructor at line %d: %+v", line, result.Analysis.Symbols)
+				}
+			}
+		})
+	}
+}
+
+func TestCPPPinnedOriginalFixtureMacroNotDirectFunction(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_REAL_CPP_OUTLINE_ROOT")
+	if root == "" {
+		t.Skip("two immutable original C++ files not configured")
+	}
+	for _, tc := range []struct {
+		file  string
+		count int
+	}{
+		{"googletest-sample2.h", 11},
+		{"catch2-fixture.cpp", 9},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, tc.file))
+			if err != nil || len(data) == 0 || len(data) > 1<<20 {
+				t.Fatalf("original missing/invalid: %v", err)
+			}
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(string(data)), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Analysis.Symbols) != tc.count {
+				t.Errorf("complete original authored declarations: got %d want %d", len(result.Analysis.Symbols), tc.count)
+			}
+			if tc.file == "catch2-fixture.cpp" {
+				expected := map[string]bool{"DBConnection": false, "createConnection": false, "executeSQL": false,
+					"UniqueTestsFixture": false, "getID": false, "conn": false, "uniqueID": false}
+				for _, sym := range result.Analysis.Symbols {
+					if sym.Name == "TEST_CASE_METHOD" {
+						t.Errorf("source macro invocation fabricated function: %+v", sym)
+					}
+					if _, ok := expected[sym.Name]; ok {
+						expected[sym.Name] = true
+					}
+				}
+				for name, found := range expected {
+					if !found {
+						t.Errorf("missing authored C++ declaration %s", name)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCPPStandaloneMacroWithBodyLFCRLFPreservesFollowingDeclarations(t *testing.T) {
+	const source = "class TEST_FIXTURE { public: TEST_FIXTURE() {} };\n" +
+		"void authored() {}\n" +
+		"TEST_CASE_METHOD(TEST_FIXTURE, \"named\") {\n  REQUIRE(true);\n}\n" +
+		"void after() {}\n"
+	for _, tc := range []struct{ name, content string }{{"lf", source}, {"crlf", strings.ReplaceAll(source, "\n", "\r\n")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.content), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := map[string]bool{}
+			for _, sym := range result.Analysis.Symbols {
+				if sym.Name == "TEST_CASE_METHOD" || sym.Name == "REQUIRE" {
+					t.Errorf("unresolved macro reported as direct callable: %+v", sym)
+				}
+				seen[sym.Name] = true
+			}
+			for _, name := range []string{"TEST_FIXTURE", "authored", "after"} {
+				if !seen[name] {
+					t.Errorf("authored %s omitted", name)
+				}
+			}
+		})
+	}
+}
 
 func TestCPPRawStringStartRecognizesPrefixesAndIdentifierBoundaries(t *testing.T) {
 	cases := []struct {
@@ -171,7 +334,7 @@ const char* ordinary = "R\"tag(class QuotedFake {})tag\"";
 			constructors++
 			constructorIDs = append(constructorIDs, symbol.ID)
 		}
-		if symbol.QualifiedName == "Demo.Box.Box" && symbol.Kind == SymbolKindDestructor {
+		if symbol.QualifiedName == "Demo.Box.~Box" && symbol.Kind == SymbolKindDestructor {
 			destructors++
 			destructorIDs = append(destructorIDs, symbol.ID)
 		}
@@ -790,7 +953,7 @@ T Box<T>::get() const { return T{}; }
 	counts := map[string]int{}
 	ids := map[string]map[string]struct{}{}
 	for _, symbol := range result.Analysis.Symbols {
-		if symbol.QualifiedName != "Demo.Box.Box" && symbol.QualifiedName != "Demo.Box.get" {
+		if symbol.QualifiedName != "Demo.Box.Box" && symbol.QualifiedName != "Demo.Box.~Box" && symbol.QualifiedName != "Demo.Box.get" {
 			continue
 		}
 		key := string(symbol.Kind) + ":" + symbol.NativeKind
@@ -809,8 +972,175 @@ T Box<T>::get() const { return T{}; }
 			t.Fatalf("qualified C++ %s count=%d; symbols=%+v", key, counts[key], result.Analysis.Symbols)
 		}
 	}
-	if len(ids["Demo.Box.Box"]) != 4 || len(ids["Demo.Box.get"]) != 2 {
+	if len(ids["Demo.Box.Box"]) != 2 || len(ids["Demo.Box.~Box"]) != 2 || len(ids["Demo.Box.get"]) != 2 {
 		t.Fatalf("qualified C++ IDs are not distinct: %+v", ids)
+	}
+}
+
+// A qualified assignment operator and defaulted destructor must not become variables.
+func TestCPPQualifiedOperatorAndDefaultedDestructorFromOriginalShape(t *testing.T) {
+	const source = `namespace BT {
+TreeNode& TreeNode::operator=(TreeNode&& other) noexcept
+{
+  return *this;
+}
+TreeNode::~TreeNode() = default;
+}`
+	for _, tc := range []struct{ name, text string }{
+		{"LF", source}, {"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Fatalf("qualified source partial: %+v", result.Analysis)
+			}
+			foundOperator, foundDefaulted := false, false
+			for _, s := range result.Analysis.Symbols {
+				if s.NameRange.Start.Line != 2 && s.NameRange.Start.Line != 6 {
+					continue
+				}
+				if s.Kind == SymbolKindVariable {
+					t.Errorf("false variable: %+v", s)
+				}
+				if s.NameRange.Start.Line == 2 && s.Kind == SymbolKindOperator && s.Name == "operator=" &&
+					s.QualifiedName == "BT.TreeNode.operator=" && s.NativeKind == "operator-definition" && s.BodyRange != nil {
+					foundOperator = true
+				}
+				if s.NameRange.Start.Line == 6 && s.Kind == SymbolKindFunction && s.QualifiedName == "BT.TreeNode.~TreeNode" &&
+					s.NativeKind == "qualified-destructor-defaulted-definition" && s.BodyRange == nil && s.ParentQualifiedName == "BT" {
+					foundDefaulted = true
+				}
+			}
+			if !foundOperator || !foundDefaulted {
+				t.Fatalf("operator=%v defaulted=%v; symbols=%+v", foundOperator, foundDefaulted, result.Analysis.Symbols)
+			}
+		})
+	}
+}
+
+// Out-of-class nested C++ type definitions must not masquerade as a
+// definition of their qualifier; the qualifier can live in a separate header.
+func TestCPPQualifiedNestedStructDoesNotInventOuterClass(t *testing.T) {
+	const source = `namespace BT {
+struct TreeNode::PImpl {
+  PImpl(int n) {}
+  int value;
+};
+TreeNode::~TreeNode() = default;
+}`
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("partial original-shaped nested class: %+v", result.Analysis)
+	}
+	wantStruct, wantCtor, wantDestructor := false, false, false
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.Kind == SymbolKindStruct && symbol.QualifiedName == "BT.TreeNode" {
+			t.Errorf("invented outer class from nested type: %+v", symbol)
+		}
+		if symbol.Kind == SymbolKindStruct && symbol.Name == "PImpl" && symbol.QualifiedName == "BT.TreeNode.PImpl" &&
+			symbol.ParentQualifiedName == "BT" && symbol.NameRange.Start.Line == 2 {
+			wantStruct = true
+		}
+		if symbol.Kind == SymbolKindConstructor && symbol.QualifiedName == "BT.TreeNode.PImpl.PImpl" &&
+			symbol.NameRange.Start.Line == 3 {
+			wantCtor = true
+		}
+		if symbol.Kind == SymbolKindFunction && symbol.QualifiedName == "BT.TreeNode.~TreeNode" &&
+			symbol.NativeKind == "qualified-destructor-defaulted-definition" && symbol.BodyRange == nil &&
+			symbol.ParentQualifiedName == "BT" && symbol.NameRange.Start.Line == 6 {
+			wantDestructor = true
+		}
+	}
+	if !wantStruct || !wantCtor || !wantDestructor {
+		t.Fatalf("nested type=%v constructor=%v defaulted destructor=%v; symbols=%+v", wantStruct, wantCtor, wantDestructor, result.Analysis.Symbols)
+	}
+}
+
+func TestCPPUnresolvedQualifiedDefinitionsRetainAuthoredScope(t *testing.T) {
+	const source = `void printer::print(int value) {}
+void other_scope::free_function() {}
+namespace Local {
+void printer::reset() {}
+}
+void Outer::Inner::complicated() {}
+`
+	for _, tc := range []struct {
+		name, text string
+	}{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for qualified, line := range map[string]int{
+				"printer.print":             1,
+				"other_scope.free_function": 2,
+				"Local.printer.reset":       4,
+			} {
+				got, ok := byName[qualified]
+				if !ok || got.Kind != SymbolKindFunction || got.NameRange.Start.Line != line {
+					t.Fatalf("unresolved authored scope %q at line %d: got %+v, exists=%v; symbols=%v", qualified, line, got, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+				if got.ParentQualifiedName != "" && got.ParentQualifiedName != "Local" {
+					t.Fatalf("invented C++ type owner: %+v", got)
+				}
+			}
+			if _, falseOwnership := byName["Inner.complicated"]; falseOwnership {
+				t.Fatalf("nested unresolved qualification was truncated into a false scope: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestCPPOriginalClinkQualifiedDefinitions(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_CPP_CLINK_PRINTER_CPP")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CPP_CLINK_PRINTER_CPP to the qualified Clink printer.cpp fixture")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("original Clink fixture exceeds 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := sourceDocumentForScanner(string(data))
+	document.Path = path
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[int]bool{36: false, 62: false, 71: false}
+	for _, symbol := range result.Analysis.Symbols {
+		if symbol.QualifiedName != "printer.print" {
+			continue
+		}
+		if symbol.Name != "print" || symbol.Kind != SymbolKindFunction || symbol.ParentQualifiedName != "" {
+			t.Fatalf("unproven Clink class membership falsely asserted: %+v", symbol)
+		}
+		if _, ok := want[symbol.NameRange.Start.Line]; !ok {
+			t.Fatalf("unexpected qualified Clink print definition: %+v", symbol)
+		}
+		want[symbol.NameRange.Start.Line] = true
+	}
+	for line, found := range want {
+		if !found {
+			t.Fatalf("original Clink printer::print definition at line %d lost; symbols=%v", line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
 	}
 }
 
@@ -865,5 +1195,219 @@ struct Hooks {
 		if (symbol.Name == "callback" || symbol.Name == "on_event") && (symbol.Kind == SymbolKindFunction || symbol.Kind == SymbolKindMethod) {
 			t.Fatalf("function pointer overclaimed as callable declaration: %+v", symbol)
 		}
+	}
+}
+
+func TestCPPExportDecoratedTypesPreserveNamesAndMembers(t *testing.T) {
+	const source = `namespace Demo {
+class LIBRARY_API Widget final : public Base {
+public:
+    Widget();
+    void work();
+};
+struct LIBRARY_EXPORT Record { int count; };
+union LIBRARY_EXPORT Variant { int value; };
+class Plain { public: void regular(); };
+class Valid_API final {};
+class DECLARED_EXPORT final {};
+class LIBRARY_API Forward;
+}`
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{name: "LF", text: source},
+		{name: "CRLF", text: strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("valid decorated class declarations reported partial: %+v", result.Analysis)
+			}
+			byName := symbolsByQualifiedName(result.Analysis.Symbols)
+			for qualified, kind := range map[string]SymbolKind{
+				"Demo.Widget":          SymbolKindClass,
+				"Demo.Widget.Widget":   SymbolKindConstructor,
+				"Demo.Widget.work":     SymbolKindMethod,
+				"Demo.Record":          SymbolKindStruct,
+				"Demo.Record.count":    SymbolKindField,
+				"Demo.Variant":         SymbolKindType,
+				"Demo.Variant.value":   SymbolKindField,
+				"Demo.Plain":           SymbolKindClass,
+				"Demo.Plain.regular":   SymbolKindMethod,
+				"Demo.Valid_API":       SymbolKindClass,
+				"Demo.DECLARED_EXPORT": SymbolKindClass,
+				"Demo.Forward":         SymbolKindClass,
+			} {
+				if got, ok := byName[qualified]; !ok || got.Kind != kind {
+					t.Fatalf("%s = %+v exists=%v; symbols=%v", qualified, got, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Name == "LIBRARY_API" || symbol.Name == "LIBRARY_EXPORT" {
+					t.Fatalf("export decoration indexed as a declaration: %+v", symbol)
+				}
+			}
+			if !hasStructuralRelation(result.Relations, "inherits", "Demo.Widget", "Base") {
+				t.Fatalf("decorated class lost inheritance: %+v", result.Relations)
+			}
+		})
+	}
+}
+
+func TestCPPOriginalSFMLExportDecoratedTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, qualified, constructor string
+		line                              int
+	}{
+		{"RenderWindow", "SCRIPTHOLD_REAL_CPP_SFML_RENDERWINDOW_HEADER", "sf.RenderWindow", "sf.RenderWindow.RenderWindow", 54},
+		{"Sprite", "SCRIPTHOLD_REAL_CPP_SFML_SPRITE_HEADER", "sf.Sprite", "sf.Sprite.Sprite", 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to an original qualified SFML header", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original fixture exceeds 1 MiB")
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document := sourceDocumentForScanner(string(data))
+			document.Path = path
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			foundClass, foundConstructor := false, false
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.QualifiedName == tc.qualified && symbol.Kind == SymbolKindClass {
+					if symbol.NameRange.Start.Line != tc.line {
+						t.Fatalf("original SFML class name range = %+v, want line %d", symbol.NameRange, tc.line)
+					}
+					foundClass = true
+				}
+				if symbol.QualifiedName == tc.constructor && symbol.Kind == SymbolKindConstructor {
+					if symbol.ParentQualifiedName != tc.qualified {
+						t.Fatalf("original SFML constructor lost owner: %+v", symbol)
+					}
+					foundConstructor = true
+				}
+				if symbol.Name == "SFML_GRAPHICS_API" {
+					t.Fatalf("SFML export decoration became a symbol: %+v", symbol)
+				}
+			}
+			if !foundClass || !foundConstructor {
+				t.Fatalf("original SFML symbols missing: class=%v constructor=%v; symbols=%v diagnostics=%+v", foundClass, foundConstructor, sortedSymbolQualifiedNames(result.Analysis.Symbols), result.Analysis.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestCPPQualifiedDefinitionOwnersDoNotInventCrossFileTypes(t *testing.T) {
+	cases := []struct {
+		name, input string
+		ownerKnown  bool
+	}{
+		{"known-class", "class Gadget { public: Gadget(); ~Gadget(); int Read(); };\nGadget::Gadget() {}\nGadget::~Gadget() {}\nint Gadget::Read() { return 0; }\n", true},
+		{"separate-definition", "#include \"gadget.h\"\nGadget::Gadget() {}\nGadget::~Gadget() {}\nint Gadget::Read() { return 0; }\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.input), testAnalyzeOptions(true, 40))
+			if err != nil {
+				t.Fatal(err)
+			}
+			definitions := map[string]bool{"Gadget.Gadget@2": false, "Gadget.~Gadget@3": false, "Gadget.Read@4": false}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.BodyRange == nil || symbol.Kind == SymbolKindClass {
+					continue
+				}
+				key := fmt.Sprintf("%s@%d", symbol.QualifiedName, symbol.NameRange.Start.Line)
+				if _, exists := definitions[key]; !exists {
+					t.Errorf("unexpected definition: %+v", symbol)
+					continue
+				}
+				definitions[key] = true
+				if tc.ownerKnown {
+					if symbol.ParentQualifiedName != "Gadget" || symbol.ParentID == "" {
+						t.Errorf("lost known parent: %+v", symbol)
+					}
+				} else if symbol.ParentQualifiedName != "" || symbol.ParentID != "" {
+					t.Errorf("invented class in different file: %+v", symbol)
+				}
+			}
+			for key, found := range definitions {
+				if !found {
+					t.Errorf("missing explicit qualified definition %s: %v", key, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
+func TestCPP20ConceptDoesNotBecomeVariable(t *testing.T) {
+	input := "namespace Util {\ntemplate<typename T>\nconcept function_pointer = is_pointer<T>;\ntemplate<typename T> using value_type = T;\nint ordinary = 1;\n}\n"
+	result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(input), testAnalyzeOptions(true, 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Analysis.CoverageComplete || !hasAnalysisDiagnostic(result.Analysis.Diagnostics, "cpp-unsupported-concept") {
+		t.Fatalf("unsupported concept must signal partial coverage: %+v", result.Analysis)
+	}
+	byName := symbolsByQualifiedName(result.Analysis.Symbols)
+	if _, found := byName["Util.function_pointer"]; found {
+		t.Fatalf("concept fabricated as a variable: %+v", byName["Util.function_pointer"])
+	}
+	if byName["Util"].Kind != SymbolKindNamespace || byName["Util.value_type"].Kind != SymbolKindAlias || byName["Util.ordinary"].Kind != SymbolKindVariable {
+		t.Fatalf("adjacent declarations lost: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestCPPQualifiedTemplateSpecializationPreservesDefinitions(t *testing.T) {
+	cases := []struct {
+		name, code string
+		want       map[string]int
+	}{
+		{
+			name: "explicit-specialization",
+			code: "template<>\nvoid Error::impl::Handle<spdlog::level::err>(int value) {\n  if (value) { Log(); }\n}\nvoid Error::impl::Ready() {}\n",
+			want: map[string]int{"Error.impl.Handle": 2, "Error.impl.Ready": 5},
+		},
+		{
+			name: "nested-qualified-function",
+			code: "std::wstring Alpha::Beta::Get(int count) { return {}; }\n",
+			want: map[string]int{"Alpha.Beta.Get": 1},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CPPAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.code), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("unexpected incomplete scan: %+v", result.Analysis)
+			}
+			if len(result.Analysis.Symbols) != len(tc.want) {
+				t.Fatalf("declarations %v; expected %v", sortedSymbolQualifiedNames(result.Analysis.Symbols), tc.want)
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				line, ok := tc.want[symbol.QualifiedName]
+				if !ok || symbol.Kind != SymbolKindFunction || symbol.NameRange.Start.Line != line ||
+					symbol.BodyRange == nil || symbol.ParentID != "" || symbol.ParentQualifiedName != "" {
+					t.Errorf("false or misqualified C++ declaration: %+v", symbol)
+				}
+			}
+		})
 	}
 }

@@ -120,6 +120,10 @@ func (p *pascalParser) parseLine(line LogicalLine) {
 	tokens := line.Tokens
 	first := 0
 	word := strings.ToLower(tokens[first].Text)
+	routineKeyword := first
+	if word == "class" && len(tokens) > first+1 && p.isRoutineKeyword(strings.ToLower(tokens[first+1].Text)) {
+		routineKeyword++
+	}
 
 	if p.mode == "uses" {
 		if p.parseUses(tokens, first, tokens[first].Nesting) {
@@ -130,7 +134,7 @@ func (p *pascalParser) parseLine(line LogicalLine) {
 	if p.handleEndOrBegin(tokens) {
 		return
 	}
-	if word == "program" || word == "unit" || word == "package" {
+	if word == "program" || word == "unit" || word == "package" || word == "library" {
 		p.parseModule(line, first, word)
 		p.mode = ""
 		return
@@ -158,8 +162,8 @@ func (p *pascalParser) parseLine(line LogicalLine) {
 			p.setTypeVisibility(tokens)
 			return
 		}
-		if p.isRoutineKeyword(word) {
-			p.parseRoutine(line, first, true)
+		if p.isRoutineKeyword(strings.ToLower(tokens[routineKeyword].Text)) {
+			p.parseRoutine(line, routineKeyword, true)
 			return
 		}
 		if word == "property" {
@@ -192,9 +196,9 @@ func (p *pascalParser) parseLine(line LogicalLine) {
 		}
 		return
 	}
-	if p.isRoutineKeyword(word) {
+	if p.isRoutineKeyword(strings.ToLower(tokens[routineKeyword].Text)) {
 		p.mode = ""
-		p.parseRoutine(line, first, false)
+		p.parseRoutine(line, routineKeyword, false)
 		return
 	}
 	switch p.mode {
@@ -213,6 +217,7 @@ func (p *pascalParser) handleEndOrBegin(tokens []Token) bool {
 	}
 	first := strings.ToLower(tokens[0].Text)
 	if first == "begin" {
+		p.mode = ""
 		if len(p.scopes) > 0 && pascalRoutineScope(p.scopes[len(p.scopes)-1].kind) {
 			p.scopes[len(p.scopes)-1].beginDepth++
 		}
@@ -495,6 +500,9 @@ func (p *pascalParser) parseRoutine(line LogicalLine, keyword int, member bool) 
 		visibility = scope.visibility
 	}
 	modifiers := p.sectionModifiers()
+	if keyword > 0 && strings.EqualFold(tokens[keyword-1].Text, "class") {
+		modifiers = append(modifiers, "class")
+	}
 	for _, modifier := range []string{"overload", "virtual", "override", "abstract", "static", "inline"} {
 		if pascalContainsFold(tokens, modifier) {
 			modifiers = append(modifiers, modifier)

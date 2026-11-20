@@ -55,6 +55,8 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 	dependencies := []StructuralDependency{}
 	var currentParent *SymbolParent
 	packages := make(map[string]SymbolParent)
+	fiveAMPackages := make(map[string]bool)
+	fiveAMActive, fiveAMSuite := false, false
 	for open := 0; open < len(scan.Tokens); open++ {
 		if scan.Tokens[open].Text != "(" || scan.Tokens[open].Nesting != 1 {
 			continue
@@ -75,9 +77,21 @@ func analyzeLispSource(ctx context.Context, document *SourceDocument, options An
 		head := strings.ToLower(scan.Tokens[form].Text)
 		switch language {
 		case "common-lisp":
-			parseCommonLispForm(document, builder, scan.Tokens, form, close, head, &currentParent, packages, &dependencies)
+			switch head {
+			case "defpackage":
+				name := commonLispFormName(scan.Tokens, form+1, close)
+				if name != "" {
+					fiveAMPackages[name] = commonLispDefpackageUsesFiveAM(scan.Tokens, pairs, form, close)
+				}
+			case "in-package":
+				fiveAMActive = fiveAMPackages[commonLispFormName(scan.Tokens, form+1, close)]
+				fiveAMSuite = false
+			case "in-suite":
+				fiveAMSuite = fiveAMActive && commonLispFormName(scan.Tokens, form+1, close) != ""
+			}
+			parseCommonLispForm(document, builder, scan.Tokens, pairs, form, close, head, fiveAMActive, fiveAMSuite, &currentParent, packages, &dependencies)
 		case "clojure":
-			parseClojureForm(document, builder, scan.Tokens, form, close, head, &currentParent, &dependencies)
+			parseClojureForm(document, builder, scan.Tokens, pairs, form, close, head, &currentParent, &dependencies)
 		case "emacs-lisp":
 			parseEmacsLispForm(document, builder, scan.Tokens, form, close, head, currentParent, &dependencies)
 		}
@@ -266,7 +280,63 @@ func nextLispAtomToken(tokens []Token, start, end int) int {
 	return -1
 }
 
-func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
+func commonLispFormName(tokens []Token, start, close int) string {
+	index := nextLispFormToken(tokens, start, close)
+	if index < 0 || (tokens[index].Kind != TokenIdentifier && tokens[index].Kind != TokenKeyword) {
+		return ""
+	}
+	return strings.ToLower(cleanLispAtom(tokens[index].Text))
+}
+
+// Require an explicit direct (:use :fiveam) package clause. A similarly named
+// macro in another package is not evidence of a FiveAM test definition.
+func commonLispDefpackageUsesFiveAM(tokens []Token, pairs map[int]int, form, close int) bool {
+	for index := form + 1; index < close; index++ {
+		if tokens[index].Text != "(" || tokens[index].Nesting != 2 {
+			continue
+		}
+		end := pairs[index]
+		if end <= index || end >= close {
+			continue
+		}
+		clause := nextLispFormToken(tokens, index+1, end)
+		if clause >= 0 && strings.EqualFold(cleanLispAtom(tokens[clause].Text), "use") {
+			for member := clause + 1; member < end; member++ {
+				if (tokens[member].Kind == TokenIdentifier || tokens[member].Kind == TokenKeyword) &&
+					strings.EqualFold(cleanLispAtom(tokens[member].Text), "fiveam") {
+					return true
+				}
+			}
+		}
+		index = end
+	}
+	return false
+}
+
+// commonLispSetfFunctionName accepts only the two-atom compound function name
+// (setf symbol), not an arbitrary nested form or a call expression.
+func commonLispSetfFunctionName(tokens []Token, pairs map[int]int, open, enclosingClose int) (string, OffsetRange, int, bool) {
+	if open < 0 || open >= len(tokens) || tokens[open].Text != "(" {
+		return "", OffsetRange{}, 0, false
+	}
+	end := pairs[open]
+	if end <= open || end >= enclosingClose || end-open > 16 {
+		return "", OffsetRange{}, 0, false
+	}
+	operator := nextLispFormToken(tokens, open+1, end)
+	if operator < 0 || tokens[operator].Kind != TokenIdentifier || !strings.EqualFold(tokens[operator].Text, "setf") {
+		return "", OffsetRange{}, 0, false
+	}
+	target := nextLispFormToken(tokens, operator+1, end)
+	if target < 0 || tokens[target].Kind != TokenIdentifier ||
+		nextLispFormToken(tokens, target+1, end) >= 0 || len(tokens[target].Text) > 1024 {
+		return "", OffsetRange{}, 0, false
+	}
+	name := "(setf " + tokens[target].Text + ")"
+	return name, OffsetRange{Start: tokens[open].StartOffset, End: tokens[end].EndOffset}, tokens[end].EndOffset, true
+}
+
+func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, pairs map[int]int, form, close int, head string, fiveAMActive, fiveAMSuite bool, currentParent **SymbolParent, packages map[string]SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
 		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
@@ -288,21 +358,51 @@ func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, token
 		return
 	}
 	name, nameRange := lispTokenName(tokens[nameIndex])
+	signatureEnd := tokens[min(close, nameIndex+1)].EndOffset
+	if head == "defun" {
+		directName := nextLispFormToken(tokens, form+1, close)
+		if directName >= 0 && tokens[directName].Text == "(" {
+			var valid bool
+			name, nameRange, signatureEnd, valid = commonLispSetfFunctionName(tokens, pairs, directName, close)
+			if !valid {
+				builder.MarkIncomplete()
+				span := OffsetRange{Start: tokens[directName].StartOffset, End: tokens[directName].EndOffset}
+				_ = builder.AddDiagnostic(DiagnosticSpec{
+					Code:     "common-lisp-unsupported-compound-function-name",
+					Message:  "Common Lisp compound function name is malformed or exceeds bounded structural support",
+					Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+				})
+				return
+			}
+		}
+	}
 	if name == "" {
 		return
 	}
 	declaration := OffsetRange{Start: tokens[form-1].StartOffset, End: tokens[close].EndOffset}
-	signature := OffsetRange{Start: declaration.Start, End: tokens[min(close, nameIndex+1)].EndOffset}
+	signature := OffsetRange{Start: declaration.Start, End: signatureEnd}
 	kind := SymbolKind("")
 	native := head
 	switch head {
 	case "defpackage":
 		kind = SymbolKindPackage
-	case "defclass":
+	case "defclass", "define-condition":
 		kind = SymbolKindClass
 	case "defstruct":
 		kind = SymbolKindStruct
 	case "defun", "defmacro":
+		kind = SymbolKindFunction
+	case "def-suite":
+		if !fiveAMActive || nameIndex != nextLispFormToken(tokens, form+1, close) ||
+			tokens[nameIndex].Kind != TokenIdentifier || strings.HasPrefix(tokens[nameIndex].Text, ":") {
+			return
+		}
+		kind = SymbolKindSection
+	case "test":
+		if !fiveAMSuite || nameIndex != nextLispFormToken(tokens, form+1, close) ||
+			tokens[nameIndex].Kind != TokenIdentifier || strings.HasPrefix(tokens[nameIndex].Text, ":") {
+			return
+		}
 		kind = SymbolKindFunction
 	case "defconstant":
 		kind = SymbolKindConstant
@@ -324,12 +424,12 @@ func parseCommonLispForm(document *SourceDocument, builder *SymbolBuilder, token
 	}
 }
 
-func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, currentParent **SymbolParent, dependencies *[]StructuralDependency) {
+func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, pairs map[int]int, form, close int, head string, currentParent **SymbolParent, dependencies *[]StructuralDependency) {
 	if head == "require" {
 		addLispRequireDependency(document, tokens, form+1, close, dependencies)
 		return
 	}
-	nameIndex := nextLispAtomToken(tokens, form+1, close)
+	nameIndex := clojureDeclarationNameToken(tokens, pairs, form+1, close)
 	if nameIndex < 0 {
 		return
 	}
@@ -340,6 +440,7 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 	declaration := OffsetRange{Start: tokens[form-1].StartOffset, End: tokens[close].EndOffset}
 	signature := OffsetRange{Start: declaration.Start, End: tokens[nameIndex].EndOffset}
 	kind := SymbolKind("")
+	native := head
 	switch head {
 	case "ns":
 		kind = SymbolKindNamespace
@@ -351,6 +452,12 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 		kind = SymbolKindInterface
 	case "defn", "defn-", "defmacro":
 		kind = SymbolKindFunction
+	case "deftest", "clojure.test/deftest":
+		if tokens[form].Text != head || tokens[nameIndex].Kind != TokenIdentifier {
+			return
+		}
+		kind = SymbolKindFunction
+		native = "deftest"
 	case "def":
 		kind = SymbolKindVariable
 	}
@@ -361,13 +468,50 @@ func parseClojureForm(document *SourceDocument, builder *SymbolBuilder, tokens [
 	if head == "ns" {
 		parent = nil
 	}
-	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: head, Name: name, Parent: parent,
+	symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
 		Declaration: declaration, NameRange: nameRange, Signature: &signature, Evidence: SymbolEvidenceStructural})
 	if ok && head == "ns" {
 		value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 		*currentParent = &value
 		addClojureNamespaceDependencies(document, tokens, form+1, close, dependencies)
 	}
+}
+
+// Metadata preceding a Clojure namespace or definition name belongs to the
+// reader form, not to the declared symbol.
+func clojureDeclarationNameToken(tokens []Token, pairs map[int]int, start, close int) int {
+	cursor := start
+	for cursor < close {
+		if tokens[cursor].Kind == TokenNewline {
+			cursor++
+			continue
+		}
+		if tokens[cursor].Text != "^" {
+			// A name must be the immediate atom, never an operator inside a later form.
+			if tokens[cursor].Kind == TokenIdentifier {
+				return cursor
+			}
+			return -1
+		}
+		cursor++
+		for cursor < close && tokens[cursor].Kind == TokenNewline {
+			cursor++
+		}
+		if cursor >= close {
+			return -1
+		}
+		switch tokens[cursor].Text {
+		case "{", "[", "(":
+			end, ok := pairs[cursor]
+			if !ok || end >= close {
+				return -1
+			}
+			cursor = end + 1
+		default:
+			cursor++
+		}
+	}
+	return -1
 }
 
 func parseEmacsLispForm(document *SourceDocument, builder *SymbolBuilder, tokens []Token, form, close int, head string, parent *SymbolParent, dependencies *[]StructuralDependency) {
@@ -388,6 +532,14 @@ func parseEmacsLispForm(document *SourceDocument, builder *SymbolBuilder, tokens
 	case "defclass":
 		kind = SymbolKindClass
 	case "defun", "defmacro":
+		kind = SymbolKindFunction
+	case "ert-deftest":
+		if tokens[form].Text != "ert-deftest" ||
+			nameIndex != nextLispFormToken(tokens, form+1, close) ||
+			tokens[nameIndex].Kind != TokenIdentifier ||
+			strings.HasPrefix(name, ":") {
+			return
+		}
 		kind = SymbolKindFunction
 	case "defconst":
 		kind = SymbolKindConstant

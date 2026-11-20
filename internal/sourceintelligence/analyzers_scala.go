@@ -89,6 +89,7 @@ type scalaParser struct {
 	braceCloses              map[int]Token
 	interpolationExpressions []OffsetRange
 	packageRoot              *SymbolParent
+	packageChain             bool
 	dependencies             []StructuralDependency
 	relations                []StructuralRelation
 	stopped                  bool
@@ -113,6 +114,7 @@ func (parser *scalaParser) parseRange(start, end int, parent *SymbolParent, pare
 			index++
 			continue
 		}
+		parser.packageChain = false
 		if scalaTokenEqual(line.Tokens[0], "import") || scalaTokenEqual(line.Tokens[0], "export") {
 			parser.parseImport(line)
 			index++
@@ -162,6 +164,8 @@ func (parser *scalaParser) parseRange(start, end int, parent *SymbolParent, pare
 }
 
 func (parser *scalaParser) parsePackage(line LogicalLine) {
+	chained := parser.packageChain
+	parser.packageChain = false
 	if len(line.Tokens) < 2 {
 		return
 	}
@@ -175,8 +179,14 @@ func (parser *scalaParser) parsePackage(line LogicalLine) {
 	}
 	nameStart := line.Tokens[1].StartOffset
 	nameEnd := line.Tokens[end-1].EndOffset
+	qualifiedName := name
+	var packageParent *SymbolParent
+	if chained && parser.packageRoot != nil {
+		packageParent = parser.packageRoot
+		qualifiedName = packageParent.QualifiedName + "." + name
+	}
 	symbol, err := parser.builder.Add(SymbolSpec{
-		Kind: SymbolKindPackage, NativeKind: "package", Name: name, QualifiedName: name,
+		Kind: SymbolKindPackage, NativeKind: "package", Name: name, QualifiedName: qualifiedName, Parent: packageParent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
 		NameRange:   OffsetRange{Start: nameStart, End: nameEnd}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
 		Evidence: SymbolEvidenceStructural,
@@ -190,6 +200,13 @@ func (parser *scalaParser) parsePackage(line LogicalLine) {
 		return
 	}
 	parser.packageRoot = &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+	parser.packageChain = true
+	for _, token := range line.Tokens {
+		if token.Text == "{" {
+			parser.packageChain = false
+			break
+		}
+	}
 }
 
 func (parser *scalaParser) parseImport(line LogicalLine) {
@@ -238,6 +255,11 @@ func (parser *scalaParser) scope(index, end, keywordIndex int, nativeKind string
 		body := &OffsetRange{Start: token.StartOffset, End: close.EndOffset}
 		return scopeEnd, body
 	}
+	if scalaTypeOwner(nativeKind) || nativeKind == "def" {
+		if scopeEnd, body, hasMultilineHeader := parser.multilineDeclarationHeaderScope(index, end, keywordIndex); hasMultilineHeader {
+			return scopeEnd, body
+		}
+	}
 	lineIndent := scalaPhysicalIndent(parser.document.Text, line.StartOffset)
 	if index+1 < end && scalaPhysicalIndent(parser.document.Text, parser.lines[index+1].StartOffset) > lineIndent {
 		scopeEnd := index + 1
@@ -255,6 +277,54 @@ func (parser *scalaParser) scope(index, end, keywordIndex int, nativeKind string
 		})
 	}
 	return index + 1, nil
+}
+
+// multilineDeclarationHeaderScope handles type and method declarations whose
+// closing parameter list and opening body brace occur on later physical lines.
+// Without this, constructor arguments are mistaken for the entire class body,
+// or statements in multiline method bodies are reported as type members.
+func (parser *scalaParser) multilineDeclarationHeaderScope(index, end, keywordIndex int) (int, *OffsetRange, bool) {
+	depth := 0
+	for _, token := range parser.lines[index].Tokens[keywordIndex+1:] {
+		switch token.Text {
+		case "(":
+			depth++
+		case ")":
+			depth--
+		}
+	}
+	if depth <= 0 {
+		return 0, nil, false
+	}
+	const maxHeaderLines = 128
+	for cursor := index + 1; cursor < end && cursor-index <= maxHeaderLines; cursor++ {
+		line := parser.lines[cursor]
+		for _, token := range line.Tokens {
+			switch token.Text {
+			case "(":
+				depth++
+			case ")":
+				depth--
+			}
+			if depth == 0 && token.Text == "{" {
+				close, ok := parser.braceCloses[token.StartOffset]
+				if !ok {
+					parser.builder.MarkIncomplete()
+					return cursor + 1, nil, true
+				}
+				scopeEnd := cursor + 1
+				for scopeEnd < end && parser.lines[scopeEnd].StartOffset < close.StartOffset {
+					scopeEnd++
+				}
+				return scopeEnd, &OffsetRange{Start: token.StartOffset, End: close.EndOffset}, true
+			}
+		}
+		if depth == 0 {
+			return cursor + 1, nil, true
+		}
+	}
+	parser.builder.MarkIncomplete()
+	return min(end, index+maxHeaderLines+1), nil, true
 }
 
 func scalaDeclarationOwnsBrace(nativeKind string, tokens []Token, keywordIndex, openIndex int) bool {
@@ -320,7 +390,8 @@ func scalaDeclaration(tokens []Token, parentKind string) (SymbolKind, string, in
 		return "", "", -1, -1
 	}
 	keyword := -1
-	for index, token := range tokens {
+	for index := 0; index < len(tokens); index++ {
+		token := tokens[index]
 		switch token.Text {
 		case "class", "trait", "object", "enum", "def", "val", "var", "type", "given":
 			keyword = index
@@ -331,11 +402,27 @@ func scalaDeclaration(tokens []Token, parentKind string) (SymbolKind, string, in
 		if !scalaModifier(token.Text) && token.Text != "case" {
 			return "", "", -1, -1
 		}
+		if (token.Text == "private" || token.Text == "protected") && index+1 < len(tokens) && tokens[index+1].Text == "[" {
+			cursor := index + 2
+			for cursor < len(tokens) && tokens[cursor].Text != "]" {
+				if tokens[cursor].Kind != TokenIdentifier && tokens[cursor].Text != "." && tokens[cursor].Text != "this" {
+					return "", "", -1, -1
+				}
+				cursor++
+			}
+			if cursor >= len(tokens) || cursor == index+2 {
+				return "", "", -1, -1
+			}
+			index = cursor
+		}
 	}
 	if keyword < 0 {
 		return "", "", -1, -1
 	}
 	nameIndex := nextIdentifierToken(tokens, keyword+1, len(tokens))
+	if tokens[keyword].Text == "def" && keyword+2 < len(tokens) && tokens[keyword+1].Kind == TokenOperator && tokens[keyword+2].Text == "(" {
+		nameIndex = keyword + 1
+	}
 	if nameIndex < 0 {
 		return "", "", keyword, -1
 	}

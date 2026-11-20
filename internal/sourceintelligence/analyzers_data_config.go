@@ -55,9 +55,11 @@ var (
 	sqlSimpleIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]*$`)
 	sqlReference        = regexp.MustCompile(`(?im)\breferences[ \t\r\n]+(` + sqlQualifiedNamePattern + `)`)
 	sqlDialectProfiles  = []sqlDialectProfile{
-		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(?:(?:or[ \t]+replace)[ \t]+)?(schema|table|view|function|procedure|type)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + sqlQualifiedNamePattern + `)`)},
+		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:(?:or[ \t]+replace)[ \t\r\n]+)?(schema|table|view|function|procedure|type)[ \t\r\n]+(?:if[ \t]+not[ \t]+exists[ \t\r\n]+)?(` + sqlQualifiedNamePattern + `)`)},
+		{name: "common", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:unique[ \t\r\n]+)?(index)[ \t\r\n]+(?:if[ \t]+not[ \t]+exists[ \t\r\n]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "postgresql", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+(materialized[ \t]+view)[ \t]+(?:if[ \t]+not[ \t]+exists[ \t]+)?(` + sqlQualifiedNamePattern + `)`)},
 		{name: "sqlserver", pattern: regexp.MustCompile(`(?im)\bcreate[ \t]+or[ \t]+alter[ \t]+(view|function|procedure)[ \t]+(` + sqlQualifiedNamePattern + `)`)},
+		{name: "oracle", pattern: regexp.MustCompile(`(?im)\bcreate[ \t\r\n]+(?:or[ \t\r\n]+replace[ \t\r\n]+)?(?:force|noforce)[ \t\r\n]+(view)[ \t\r\n]+(` + sqlQualifiedNamePattern + `)`)},
 	}
 )
 
@@ -68,7 +70,29 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	}
 	source := maskSourceComments(document.Text, []string{"--"}, "/*", "*/")
 	source = maskSourceStrings(source, true, false, false)
-	candidates := sqlDeclarations(document, source)
+	candidates, unsupportedHeaders, unsupportedIndexes := sqlDeclarations(document, source)
+	// A standalone slash is SQL*Plus's statement terminator, not part of
+	// the view body. Comments and quoted strings are already masked.
+	var sqlSlashLineStarts []int
+	for _, line := range sourceTextLines(source) {
+		if line.trimmed == "/" {
+			sqlSlashLineStarts = append(sqlSlashLineStarts, line.start)
+		}
+	}
+	for _, header := range unsupportedHeaders {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{
+			Code: "sql-unrecognized-table-header", Message: "SQL table declaration has an unrecognized header",
+			Severity: DiagnosticWarning, Range: &header, AffectsCoverage: true,
+		})
+	}
+	for _, header := range unsupportedIndexes {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{
+			Code: "sql-unrecognized-index-header", Message: "SQL index declaration has an unrecognized header",
+			Severity: DiagnosticWarning, Range: &header, AffectsCoverage: true,
+		})
+	}
 	parents := map[string]SymbolParent{}
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -80,6 +104,8 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			kind = SymbolKindSchema
 		case "function", "procedure":
 			kind = SymbolKindFunction
+		case "index":
+			kind = SymbolKindResource
 		}
 		name := candidate.fullName
 		nameStart := candidate.nameStart
@@ -95,8 +121,18 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			}
 		}
 		declEnd := candidate.headerEnd
-		if semi := strings.Index(source[declEnd:], ";"); semi >= 0 {
+		semi := strings.IndexByte(source[declEnd:], ';')
+		if semi >= 0 {
 			declEnd += semi + 1
+		}
+		if candidate.kindWord == "view" {
+			index := sort.SearchInts(sqlSlashLineStarts, candidate.headerEnd)
+			if index < len(sqlSlashLineStarts) && (semi < 0 || sqlSlashLineStarts[index] < declEnd) {
+				declEnd = sqlSlashLineStarts[index]
+				for declEnd > candidate.headerEnd && strings.ContainsRune(" \t\r\n", rune(document.Text[declEnd-1])) {
+					declEnd--
+				}
+			}
 		}
 		native := candidate.kindWord
 		if candidate.profile != "common" {
@@ -107,7 +143,7 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			parents[strings.ToLower(candidate.fullName)] = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 		}
 	}
-	var dependencies []StructuralDependency
+	var dependencies structuralDependencyAccumulator
 	for _, match := range sqlReference.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
@@ -116,20 +152,30 @@ func (SQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		if !ok {
 			continue
 		}
-		addStructuralDependency(document, &dependencies, StructuralDependencyReference, fullName, match[2], match[3])
+		dependencies.add(document, StructuralDependencyReference, fullName, match[2], match[3])
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
-func sqlDeclarations(document *SourceDocument, source string) []sqlDeclarationCandidate {
+func sqlDeclarations(document *SourceDocument, source string) ([]sqlDeclarationCandidate, []OffsetRange, []OffsetRange) {
 	seen := map[string]struct{}{}
 	var candidates []sqlDeclarationCandidate
+	var unsupportedHeaders []OffsetRange
+	var unsupportedIndexes []OffsetRange
 	for _, profile := range sqlDialectProfiles {
 		for _, match := range profile.pattern.FindAllStringSubmatchIndex(source, -1) {
 			if !sqlDeclarationBoundary(source, match[0]) {
 				continue
 			}
 			kindWord := strings.ToLower(strings.Join(strings.Fields(document.Text[match[2]:match[3]]), " "))
+			if kindWord == "table" && !sqlSupportedTableHeader(source, match[1]) {
+				unsupportedHeaders = append(unsupportedHeaders, OffsetRange{Start: match[0], End: match[1]})
+				continue
+			}
+			if kindWord == "index" && !sqlSupportedIndexHeader(source, match[1]) {
+				unsupportedIndexes = append(unsupportedIndexes, OffsetRange{Start: match[0], End: match[1]})
+				continue
+			}
 			fullName, parentName, leafName, leafStart, leafEnd, ok := sqlCanonicalName(document.Text[match[4]:match[5]])
 			if !ok {
 				continue
@@ -157,7 +203,60 @@ func sqlDeclarations(document *SourceDocument, source string) []sqlDeclarationCa
 		}
 		return candidates[i].fullName < candidates[j].fullName
 	})
-	return candidates
+	return candidates, unsupportedHeaders, unsupportedIndexes
+}
+
+var sqlIndexBody = regexp.MustCompile(`(?is)^[ \t\r\n]+on[ \t\r\n]+(?:only[ \t\r\n]+)?` + sqlQualifiedNamePattern + `[ \t\r\n]*(?:using[ \t\r\n]+[A-Za-z_][A-Za-z_0-9]*[ \t\r\n]*)?\(`)
+
+func sqlSupportedIndexHeader(source string, headerEnd int) bool {
+	match := sqlIndexBody.FindStringIndex(source[headerEnd:])
+	if match == nil {
+		return false
+	}
+	open := headerEnd + match[1] - 1
+	depth := 0
+	for index := open; index < len(source); index++ {
+		switch source[index] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(source[open+1:index]) != ""
+			}
+		case ';':
+			return false
+		}
+	}
+	return false
+}
+
+// Recognize common SQL table-header shapes without claiming to validate each
+// dialect's full DDL grammar. Unknown forms remain explicitly incomplete.
+func sqlSupportedTableHeader(source string, headerEnd int) bool {
+	rest := strings.TrimLeft(source[headerEnd:], " \t\r\n")
+	if len(rest) == 0 {
+		return false
+	}
+	if rest[0] == '(' {
+		return true
+	}
+	end := 0
+	for end < len(rest) {
+		value := rest[end]
+		if value < 'A' || value > 'Z' {
+			if value < 'a' || value > 'z' {
+				break
+			}
+		}
+		end++
+	}
+	switch strings.ToLower(rest[:end]) {
+	case "as", "like", "of", "partition", "using", "options", "cluster", "with":
+		return true
+	default:
+		return false
+	}
 }
 
 func sqlDeclarationBoundary(source string, start int) bool {
@@ -216,9 +315,16 @@ func sqlCanonicalIdentifier(raw string) string {
 }
 
 var (
-	plsqlPackage = regexp.MustCompile(`(?im)\bcreate[ \t]+(?:or[ \t]+replace[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)[ \t]+(?:as|is)\b`)
-	plsqlRoutine = regexp.MustCompile(`(?im)^[ \t]*(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
+	plsqlPackage           = regexp.MustCompile(`(?im)^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?(?:(?:noneditionable|editionable)[ \t]+)?package(?:[ \t]+body)?[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)(?:[ \t\r\n]+authid[ \t\r\n]+(?:current_user|definer))?[ \t\r\n]+(?:as|is)\b`)
+	plsqlStandaloneRoutine = regexp.MustCompile(`(?im)^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
+	plsqlRoutine           = regexp.MustCompile(`(?im)^[ \t]*(procedure|function)[ \t]+([A-Za-z_][A-Za-z0-9_$#]*)\b`)
+	plsqlBatchEnd          = regexp.MustCompile(`(?m)^[ \t]*/[ \t]*\r?$`)
 )
+
+type plsqlPackageScope struct {
+	start, end int
+	parent     *SymbolParent
+}
 
 func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "plsql", AnalyzerPLSQL)
@@ -227,19 +333,65 @@ func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	source := maskSourceComments(document.Text, []string{"--"}, "/*", "*/")
 	source = maskSourceStrings(source, true, false, false)
-	packageMatch := plsqlPackage.FindStringSubmatchIndex(source)
-	var parent *SymbolParent
-	if packageMatch != nil {
-		name := document.Text[packageMatch[2]:packageMatch[3]]
-		declEnd := packageMatch[1]
-		symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil, OffsetRange{Start: packageMatch[0], End: declEnd}, OffsetRange{Start: packageMatch[2], End: packageMatch[3]})
-		if ok {
-			parent = &symbol
+	packages := plsqlPackage.FindAllStringSubmatchIndex(source, -1)
+	batchEnds := plsqlBatchEnd.FindAllStringIndex(source, -1)
+	scopes := make([]plsqlPackageScope, 0, len(packages))
+	parents := make(map[string]SymbolParent)
+	batch := 0
+	for i, match := range packages {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
 		}
+		for batch < len(batchEnds) && batchEnds[batch][0] < match[0] {
+			batch++
+		}
+		end := len(source)
+		if i+1 < len(packages) {
+			end = packages[i+1][0]
+		}
+		if batch < len(batchEnds) && batchEnds[batch][0] < end {
+			end = batchEnds[batch][0]
+		}
+		name := document.Text[match[2]:match[3]]
+		key := strings.ToLower(name)
+		parent, exists := parents[key]
+		if !exists {
+			symbol, ok := addDocumentDataHardwareSymbol(builder, SymbolKindPackage, "package", name, nil,
+				OffsetRange{Start: match[0], End: match[1]},
+				OffsetRange{Start: match[2], End: match[3]})
+			if ok {
+				parent = symbol
+				parents[key] = parent
+				exists = true
+			}
+		}
+		scope := plsqlPackageScope{start: match[0], end: end}
+		if exists {
+			scope.parent = &parent
+		}
+		scopes = append(scopes, scope)
 	}
+	for _, match := range plsqlStandaloneRoutine.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		kindWord := strings.ToLower(document.Text[match[2]:match[3]])
+		name := document.Text[match[4]:match[5]]
+		addDocumentDataHardwareSymbol(builder, SymbolKindFunction, kindWord, name, nil,
+			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[4], End: match[5]})
+	}
+	scopeIndex := 0
 	for _, match := range plsqlRoutine.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		for scopeIndex+1 < len(scopes) && scopes[scopeIndex+1].start < match[0] {
+			scopeIndex++
+		}
+		var parent *SymbolParent
+		if len(scopes) > 0 && scopes[scopeIndex].start < match[0] &&
+			match[0] < scopes[scopeIndex].end {
+			parent = scopes[scopeIndex].parent
 		}
 		kindWord := strings.ToLower(document.Text[match[2]:match[3]])
 		name := document.Text[match[4]:match[5]]
@@ -247,17 +399,133 @@ func (PLSQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		if semi := strings.Index(document.Text[end:], ";"); semi >= 0 {
 			end += semi + 1
 		}
-		addDocumentDataHardwareSymbol(builder, SymbolKindFunction, kindWord, name, parent, OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[4], End: match[5]})
+		addDocumentDataHardwareSymbol(builder, SymbolKindFunction, kindWord, name, parent,
+			OffsetRange{Start: match[0], End: end}, OffsetRange{Start: match[4], End: match[5]})
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
 
 var (
-	graphqlSchema    = regexp.MustCompile(`(?m)\bschema[ \t]*\{`)
-	graphqlContainer = regexp.MustCompile(`(?m)\b(type|interface|input|enum)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[^\{]*\{`)
-	graphqlOperation = regexp.MustCompile(`(?m)\b(query|mutation|subscription)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
-	graphqlField     = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
+	graphqlSchema        = regexp.MustCompile(`(?m)\bschema[ \t]*\{`)
+	graphqlContainer     = regexp.MustCompile(`(?m)\b(type|interface|input|enum)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[^\{]*\{`)
+	graphqlOperation     = regexp.MustCompile(`(?m)\b(query|mutation|subscription)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	graphqlNamedLeaf     = regexp.MustCompile(`(?m)^[ \t]*(union|scalar)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	graphqlFragment      = regexp.MustCompile(`(?m)^[ \t]*fragment[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+on[ \t]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\{`)
+	graphqlDirective     = regexp.MustCompile(`(?m)^[ \t]*directive[ \t]+@([A-Za-z_][A-Za-z0-9_]*)(?:[ \t\r\n]*\([^()]*\))?[ \t\r\n]*(?:repeatable[ \t\r\n]+)?on[ \t\r\n]+\|?[ \t\r\n]*[A-Z_]+(?:[ \t\r\n]*\|[ \t\r\n]*[A-Z_]+)*`)
+	graphqlField         = regexp.MustCompile(`(?m)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\([^)]*\)[ \t]*)?:`)
+	graphqlDirectiveCall = regexp.MustCompile(`@[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:\r?\n[ \t]*)?\([^()]*\)`)
+	graphqlEnumValue     = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+@[A-Za-z_][A-Za-z0-9_]*)*[ \t]*\r?$`)
 )
+
+// GraphQL ignores commas between name tokens. This intentionally covers only
+// simple, same-physical-line enum bodies: directive calls, nested punctuation
+// and oversized inputs fail closed instead of inventing enum members.
+func graphqlSimpleInlineEnumMembers(body string) ([]OffsetRange, bool) {
+	if len(body) > 4096 || strings.ContainsAny(body, "\r\n") {
+		return nil, false
+	}
+	members := make([]OffsetRange, 0, 4)
+	for i := 0; i < len(body); {
+		c := body[i]
+		if c == ' ' || c == '\t' || c == ',' {
+			i++
+			continue
+		}
+		if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return nil, false
+		}
+		start := i
+		for i < len(body) {
+			c = body[i]
+			if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') {
+				break
+			}
+			i++
+		}
+		switch body[start:i] {
+		case "true", "false", "null":
+			return nil, false
+		}
+		members = append(members, OffsetRange{Start: start, End: i})
+		if len(members) > 128 {
+			return nil, false
+		}
+	}
+	return members, true
+}
+
+// graphqlTypeReferenceEnd recognizes a bounded, same-line GraphQL type token.
+// A type is a name or nested list, each optionally followed by '!'. It never
+// borrows a following field or directive when the type grammar is unsupported.
+func graphqlTypeReferenceEnd(source string, afterColon, bodyEnd int) (int, bool) {
+	if afterColon < 0 || afterColon >= bodyEnd || bodyEnd > len(source) {
+		return afterColon, false
+	}
+	limit := min(bodyEnd, afterColon+256)
+	start := afterColon
+	for start < limit && (source[start] == ' ' || source[start] == '\t') {
+		start++
+	}
+	end, ok := graphqlParseTypeReference(source, start, limit, 0)
+	if !ok {
+		return afterColon, false
+	}
+	if end < bodyEnd {
+		switch source[end] {
+		case ':', '!', '[', ']', '_':
+			return afterColon, false
+		}
+		if source[end] >= '0' && source[end] <= '9' ||
+			source[end] >= 'A' && source[end] <= 'Z' ||
+			source[end] >= 'a' && source[end] <= 'z' {
+			return afterColon, false
+		}
+	}
+	return end, true
+}
+
+func graphqlParseTypeReference(source string, pos, limit, depth int) (int, bool) {
+	if depth >= 8 || pos >= limit {
+		return pos, false
+	}
+	if source[pos] == '[' {
+		pos++
+		for pos < limit && (source[pos] == ' ' || source[pos] == '\t') {
+			pos++
+		}
+		var ok bool
+		pos, ok = graphqlParseTypeReference(source, pos, limit, depth+1)
+		if !ok {
+			return pos, false
+		}
+		for pos < limit && (source[pos] == ' ' || source[pos] == '\t') {
+			pos++
+		}
+		if pos >= limit || source[pos] != ']' {
+			return pos, false
+		}
+		pos++
+	} else {
+		c := source[pos]
+		if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return pos, false
+		}
+		pos++
+		for pos < limit {
+			c = source[pos]
+			if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') {
+				break
+			}
+			pos++
+		}
+	}
+	if pos < limit && source[pos] == '!' {
+		pos++
+	}
+	return pos, true
+}
 
 func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "graphql", AnalyzerGraphQL)
@@ -288,23 +556,158 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			kind = SymbolKindEnum
 		}
 		symbol, ok := addDocumentDataHardwareSymbol(builder, kind, word, name, nil, OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: match[4], End: match[5]})
-		if !ok || word == "enum" {
+		if !ok {
 			continue
 		}
 		parent := &symbol
 		bodyStart := open + 1
 		body := source[bodyStart:close]
-		for _, field := range graphqlField.FindAllStringSubmatchIndex(body, -1) {
+		if word == "enum" {
+			// Preserve the line-form grammar and its source ranges. The
+			// compact one-line subset has its own bounded, fail-closed path.
+			if !strings.ContainsAny(body, "\r\n") {
+				members, valid := graphqlSimpleInlineEnumMembers(body)
+				if !valid {
+					addDocumentDataHardwareDiagnostic(builder, "graphql-unsupported-inline-enum",
+						"GraphQL inline enum contains unsupported syntax", bodyStart, close)
+				} else {
+					for _, memberRange := range members {
+						start, end := bodyStart+memberRange.Start, bodyStart+memberRange.End
+						addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "enum-value",
+							document.Text[start:end], parent,
+							OffsetRange{Start: start, End: end},
+							OffsetRange{Start: start, End: end})
+					}
+				}
+				continue
+			}
+			// Multiline enum members retain their existing line-anchored
+			// declaration ranges and supported directive annotations.
+			for _, value := range graphqlEnumValue.FindAllStringSubmatchIndex(body, -1) {
+				member := document.Text[bodyStart+value[2] : bodyStart+value[3]]
+				if member == "true" || member == "false" || member == "null" {
+					continue
+				}
+				addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "enum-value", member, parent,
+					OffsetRange{Start: bodyStart + value[0], End: bodyStart + value[1]},
+					OffsetRange{Start: bodyStart + value[2], End: bodyStart + value[3]})
+			}
+			continue
+		}
+		// Directive argument keys are not fields of the containing type.
+		// Mask simple balanced calls while retaining original byte offsets.
+		fieldBody := []byte(body)
+		for _, call := range graphqlDirectiveCall.FindAllStringIndex(body, -1) {
+			maskByteRangePreservingLines(fieldBody, call[0], call[1])
+		}
+		for _, field := range graphqlField.FindAllStringSubmatchIndex(string(fieldBody), -1) {
 			fieldName := document.Text[bodyStart+field[2] : bodyStart+field[3]]
 			start := bodyStart + field[0]
 			end := bodyStart + field[1]
+			if typedEnd, ok := graphqlTypeReferenceEnd(source, end, close); ok {
+				end = typedEnd
+			} else {
+				addDocumentDataHardwareDiagnostic(builder, "graphql-unmodeled-field-type",
+					"GraphQL field type reference could not be safely determined", start, end)
+			}
 			addDocumentDataHardwareSymbol(builder, SymbolKindField, "field", fieldName, parent, OffsetRange{Start: start, End: end}, OffsetRange{Start: bodyStart + field[2], End: bodyStart + field[3]})
 		}
 	}
+	for _, match := range graphqlNamedLeaf.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		word := document.Text[match[2]:match[3]]
+		name := document.Text[match[4]:match[5]]
+		addDocumentDataHardwareSymbol(builder, SymbolKindType, word, name, nil,
+			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[4], End: match[5]})
+	}
+	// A fragment is a named, reusable selection, not an executable operation.
+	// Walk the already masked bytes once to reject declarations nested inside
+	// a query or another selection block; nested decoys are not top-level names.
+	depth, scanned := 0, 0
+	for _, match := range graphqlFragment.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		for ; scanned < match[0]; scanned++ {
+			switch source[scanned] {
+			case '{':
+				depth++
+			case '}':
+				if depth > 0 {
+					depth--
+				}
+			}
+		}
+		if depth != 0 {
+			continue
+		}
+		open := match[1] - 1
+		close := matchingBraceOffset(source, open)
+		if close < 0 {
+			addDocumentDataHardwareDiagnostic(builder, "graphql-unclosed-fragment",
+				"GraphQL fragment definition has an unclosed selection block", match[0], match[1])
+			continue
+		}
+		name := document.Text[match[2]:match[3]]
+		addDocumentDataHardwareSymbol(builder, SymbolKindSection, "fragment", name, nil,
+			OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: match[2], End: match[3]})
+	}
+	// GraphQL schema directives define names; @name annotations on fields
+	// only refer to them. Require a complete on-location header and exclude
+	// decoys inside object/type blocks using the masked brace depth.
+	depth, scanned = 0, 0
+	for _, match := range graphqlDirective.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		for ; scanned < match[0]; scanned++ {
+			switch source[scanned] {
+			case '{':
+				depth++
+			case '}':
+				if depth > 0 {
+					depth--
+				}
+			}
+		}
+		if depth != 0 {
+			continue
+		}
+		name := document.Text[match[2]:match[3]]
+		addDocumentDataHardwareSymbol(builder, SymbolKindSection, "directive", name, nil,
+			OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[2], End: match[3]})
+	}
+	// Extend only provably complete top-level directly braced operation
+	// selections. Headers with variables/directives stay navigable without
+	// claiming to understand their full syntax or evaluation semantics.
+	depth, scanned = 0, 0
 	for _, match := range graphqlOperation.FindAllStringSubmatchIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		for ; scanned < match[0]; scanned++ {
+			switch source[scanned] {
+			case '{':
+				depth++
+			case '}':
+				if depth > 0 {
+					depth--
+				}
+			}
+		}
 		word := strings.ToLower(document.Text[match[2]:match[3]])
 		name := document.Text[match[4]:match[5]]
-		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, word, name, nil, OffsetRange{Start: match[0], End: match[1]}, OffsetRange{Start: match[4], End: match[5]})
+		declarationEnd := match[1]
+		if depth == 0 {
+			if end, ok := graphqlSimpleNamedOperationEnd(source, match[0], match[1]); ok {
+				declarationEnd = end
+			}
+		}
+		addDocumentDataHardwareSymbol(builder, SymbolKindOperation, word, name, nil,
+			OffsetRange{Start: match[0], End: declarationEnd},
+			OffsetRange{Start: match[4], End: match[5]})
 	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
@@ -312,6 +715,116 @@ func (GraphQLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 var hclBlock = regexp.MustCompile(`(?m)^([ \t]*)(variable|resource|data|module|output)[ \t]+"([^"]+)"(?:[ \t]+"([^"]+)")?[ \t]*\{`)
 var hclGenericBlock = regexp.MustCompile(`(?m)^([ \t]*)([A-Za-z_][A-Za-z0-9_-]*)(?:[ \t]+"([^"]+)")?[ \t]*\{`)
 var hclSource = regexp.MustCompile(`(?m)^[ \t]*source[ \t]*=[ \t]*"([^"]+)"`)
+
+// hclDirectModuleSource returns only a module's direct source attribute.
+// Braces inside quoted values do not change lexical nesting.
+func hclDirectModuleSource(source string, open, close int) (OffsetRange, bool) {
+	if open < 0 || close > len(source) || open >= close {
+		return OffsetRange{}, false
+	}
+	bodyStart := open + 1
+	body := source[bodyStart:close]
+	structure := maskSourceStrings(body, false, true, false)
+	depth, scanned, cursor := 0, 0, 0
+	for cursor < len(body) {
+		match := hclSource.FindStringSubmatchIndex(body[cursor:])
+		if match == nil {
+			break
+		}
+		start := cursor + match[0]
+		for ; scanned < start; scanned++ {
+			switch structure[scanned] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+		}
+		if depth == 0 {
+			return OffsetRange{
+				Start: bodyStart + cursor + match[2],
+				End:   bodyStart + cursor + match[3],
+			}, true
+		}
+		cursor += match[1]
+	}
+	return OffsetRange{}, false
+}
+
+var hclDirectLocalAssignment = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=`)
+
+type hclLocalBinding struct {
+	name, declaration OffsetRange
+}
+
+// Only direct attributes in a Terraform locals block are declarations.
+// Reuse the quote mask and balanced nesting guard so object keys, list items,
+// template strings and other nested expressions cannot become local bindings.
+func hclDirectLocalBindings(source string, open, close int) ([]hclLocalBinding, bool) {
+	if open < 0 || close > len(source) || open >= close {
+		return nil, false
+	}
+	body := source[open+1 : close]
+	if len(body) > 65536 {
+		return nil, false
+	}
+	structure := maskSourceStrings(body, false, true, false)
+	matches := hclDirectLocalAssignment.FindAllStringSubmatchIndex(structure, -1)
+	bindings := make([]hclLocalBinding, 0, min(8, len(matches)))
+	curly, square, paren, scanned := 0, 0, 0, 0
+	for _, match := range matches {
+		for ; scanned < match[0]; scanned++ {
+			switch structure[scanned] {
+			case '{':
+				curly++
+			case '}':
+				curly--
+			case '[':
+				square++
+			case ']':
+				square--
+			case '(':
+				paren++
+			case ')':
+				paren--
+			}
+			if curly < 0 || square < 0 || paren < 0 {
+				return nil, false
+			}
+		}
+		if curly != 0 || square != 0 || paren != 0 {
+			continue
+		}
+		if match[1] < len(structure) && structure[match[1]] == '=' {
+			return nil, false
+		}
+		lineEnd := strings.IndexAny(body[match[1]:], "\r\n")
+		end := len(body)
+		if lineEnd >= 0 {
+			end = match[1] + lineEnd
+		}
+		valueStart := match[1]
+		for valueStart < len(body) && (body[valueStart] == ' ' || body[valueStart] == '\t') {
+			valueStart++
+		}
+		if valueStart == len(body) || body[valueStart] == '\r' || body[valueStart] == '\n' || body[valueStart] == '}' {
+			return nil, false
+		}
+		if structure[valueStart] == '{' {
+			if valueEnd := matchingBraceOffset(structure, valueStart); valueEnd >= 0 {
+				end = valueEnd + 1
+			}
+		}
+		bindings = append(bindings, hclLocalBinding{
+			name:        OffsetRange{Start: open + 1 + match[2], End: open + 1 + match[3]},
+			declaration: OffsetRange{Start: open + 1 + match[2], End: open + 1 + end},
+		})
+		if len(bindings) > 256 {
+			return nil, false
+		}
+	}
+	return bindings, true
+}
 
 type hclBlockCandidate struct {
 	start     int
@@ -334,13 +847,17 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	dependencies := []StructuralDependency{}
+	dependencies := structuralDependencyAccumulator{items: []StructuralDependency{}}
 	source := maskSourceComments(document.Text, []string{"#", "//"}, "/*", "*/")
 	source = maskSourceHeredocs(source)
 	candidates := make([]hclBlockCandidate, 0)
+	invalidBlockRanges := make([]OffsetRange, 0)
 	for _, match := range hclBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		if len(invalidBlockRanges) > 0 && match[0] < invalidBlockRanges[len(invalidBlockRanges)-1].End {
+			continue // A nested block cannot escape an invalid enclosing declaration.
 		}
 		word := document.Text[match[4]:match[5]]
 		first := document.Text[match[6]:match[7]]
@@ -359,6 +876,12 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 		nameStart, nameEnd := match[6], match[7]
 		switch word {
 		case "resource", "data":
+			if match[8] < 0 {
+				addDocumentDataHardwareDiagnostic(builder, "terraform-missing-block-label",
+					"Terraform resource and data blocks require a type and a local name", match[0], match[1])
+				invalidBlockRanges = append(invalidBlockRanges, OffsetRange{Start: match[0], End: close + 1})
+				continue
+			}
 			kind = SymbolKindResource
 			name = first + "." + second
 			nameStart, nameEnd = match[6], match[9]
@@ -375,6 +898,12 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 	for _, match := range hclGenericBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
+		}
+		nextInvalid := sort.Search(len(invalidBlockRanges), func(i int) bool {
+			return invalidBlockRanges[i].Start > match[0]
+		})
+		if nextInvalid > 0 && match[0] < invalidBlockRanges[nextInvalid-1].End {
+			continue // Never elevate nested HCL scopes under an invalid outer block.
 		}
 		word := document.Text[match[4]:match[5]]
 		switch word {
@@ -426,21 +955,120 @@ func (TerraformAnalyzer) Analyze(ctx context.Context, document *SourceDocument, 
 			parent = scopes[len(scopes)-1].parent
 		}
 		symbol, added := addDocumentDataHardwareSymbol(builder, candidate.kind, candidate.native, candidate.name, parent, OffsetRange{Start: candidate.start, End: candidate.close + 1}, candidate.nameRange)
+		if added && candidate.word == "locals" && parent == nil &&
+			strings.HasSuffix(strings.ToLower(document.Path), ".tf") {
+			bindings, valid := hclDirectLocalBindings(source, candidate.open, candidate.close)
+			if !valid {
+				addDocumentDataHardwareDiagnostic(builder, "terraform-unsupported-locals",
+					"Terraform direct locals exceed the lexical scope or have unsupported nesting", candidate.start, candidate.open+1)
+			} else {
+				for _, binding := range bindings {
+					addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "local-binding",
+						document.Text[binding.name.Start:binding.name.End], &symbol,
+						binding.declaration, binding.name)
+				}
+			}
+		}
 		if candidate.word == "module" {
-			bodyStart := candidate.open + 1
-			if sourceMatch := hclSource.FindStringSubmatchIndex(source[bodyStart:candidate.close]); sourceMatch != nil {
-				value := document.Text[bodyStart+sourceMatch[2] : bodyStart+sourceMatch[3]]
-				addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, bodyStart+sourceMatch[2], bodyStart+sourceMatch[3])
+			if sourceRange, ok := hclDirectModuleSource(source, candidate.open, candidate.close); ok {
+				value := document.Text[sourceRange.Start:sourceRange.End]
+				dependencies.add(document, StructuralDependencyImport, value, sourceRange.Start, sourceRange.End)
 			}
 		}
 		if added {
 			scopes = append(scopes, hclScope{close: candidate.close, parent: &symbol})
 		}
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
 var nixBinding = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_'-]*)[ \t]*=`)
+var nixInheritQualifier = regexp.MustCompile(`^\([A-Za-z_][A-Za-z0-9_'-]*(?:\.[A-Za-z_][A-Za-z0-9_'-]*)*\)`)
+
+type nixInheritedName struct {
+	name       string
+	start, end int
+}
+
+// scanNixDirectInherit recognizes only a complete, bounded lexical clause.
+// Ambiguous expressions, comments, or missing terminators yield no symbols.
+func scanNixDirectInherit(lines []sourceTextLine, index int) []nixInheritedName {
+	if index < 0 || index >= len(lines) {
+		return nil
+	}
+	header := lines[index]
+	prefix := strings.Index(header.text, "inherit")
+	if prefix < 0 {
+		return nil
+	}
+	cursor := prefix + len("inherit")
+	if cursor >= len(header.text) || (header.text[cursor] != ' ' && header.text[cursor] != '\t') {
+		return nil
+	}
+	skipSpace := func(s string, pos int) int {
+		for pos < len(s) && (s[pos] == ' ' || s[pos] == '\t') {
+			pos++
+		}
+		return pos
+	}
+	cursor = skipSpace(header.text, cursor)
+	if cursor < len(header.text) && header.text[cursor] == '(' {
+		qualifier := nixInheritQualifier.FindString(header.text[cursor:])
+		if qualifier == "" {
+			return nil
+		}
+		cursor += len(qualifier)
+		if cursor < len(header.text) && header.text[cursor] != ' ' && header.text[cursor] != '\t' && header.text[cursor] != ';' {
+			return nil
+		}
+	}
+	var names []nixInheritedName
+	for current := index; current < len(lines) && current-index < 16; current++ {
+		line := lines[current]
+		if line.end-header.start > 4096 ||
+			(current > index && line.indent <= header.indent && strings.TrimSpace(line.text) != "") {
+			return nil
+		}
+		position := 0
+		if current == index {
+			position = cursor
+		}
+		for position < len(line.text) {
+			position = skipSpace(line.text, position)
+			if position == len(line.text) {
+				break
+			}
+			if line.text[position] == ';' {
+				if len(names) == 0 || strings.TrimSpace(line.text[position+1:]) != "" {
+					return nil
+				}
+				return names
+			}
+			start := position
+			ch := line.text[position]
+			if ch != '_' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') {
+				return nil
+			}
+			position++
+			for position < len(line.text) {
+				ch = line.text[position]
+				if ch != '_' && ch != '-' && ch != '\'' &&
+					(ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
+					break
+				}
+				position++
+			}
+			if position < len(line.text) && line.text[position] != ' ' && line.text[position] != '\t' && line.text[position] != ';' {
+				return nil
+			}
+			names = append(names, nixInheritedName{line.text[start:position], line.start + start, line.start + position})
+			if len(names) > 64 {
+				return nil
+			}
+		}
+	}
+	return nil
+}
 
 func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "nix", AnalyzerNix)
@@ -448,48 +1076,342 @@ func (NixAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		return AnalyzerResult{}, err
 	}
 	inLet := false
-	for _, line := range sourceTextLines(document.Text) {
+	letStart := -1
+	letIndent, bindingIndent, letBraceDepth := -1, -1, 0
+	rootSeen, nestedReported, inheritReported := false, false, false
+	source := maskNixIndentedStrings(document.Text)
+	// Use existing source-preserving masks so braces inside Nix strings and
+	// comments never change the lexical depth of a let binding.
+	braces := maskSourceComments(strings.ReplaceAll(maskSourceStrings(source, false, true, false), "'", " "),
+		[]string{"#"}, "/*", "*/")
+	braceLines := sourceTextLines(braces)
+	braceDepth := 0
+	lines := sourceTextLines(source)
+	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
+		lineDepth := braceDepth
+		for _, c := range braceLines[index].text {
+			if c == '{' {
+				braceDepth++
+			} else if c == '}' && braceDepth > 0 {
+				braceDepth--
+			}
+		}
 		trimmed := strings.TrimSpace(stripLineComment(line.text, "#"))
+		if !rootSeen && trimmed != "" {
+			rootSeen = true
+			if trimmed != "let" && !strings.HasPrefix(trimmed, "let ") {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-root-structure",
+					"Nix root expressions outside a let binding are not indexed", line.start, line.end)
+			}
+		}
 		if trimmed == "let" || strings.HasPrefix(trimmed, "let ") {
-			inLet = true
+			if !inLet && lineDepth == 0 {
+				inLet = true
+				letStart = line.start + strings.Index(line.text, trimmed)
+				letIndent, bindingIndent, letBraceDepth = line.indent, -1, lineDepth
+			}
+			// An inner let expression must not restart the outer binding list.
 			continue
 		}
-		if inLet && (trimmed == "in" || strings.HasPrefix(trimmed, "in ")) {
+		if inLet && lineDepth == letBraceDepth && line.indent <= letIndent &&
+			(trimmed == "in" || strings.HasPrefix(trimmed, "in ")) {
+			// Only let bindings are indexed; attributes returned by the Nix
+			// expression must not silently count as completely navigable.
+			value := strings.TrimSpace(strings.TrimPrefix(trimmed, "in"))
+			if value == "" || strings.Contains(value, "{") {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-result-structure",
+					"Nix result structure is not indexed by the let-binding analyzer", line.start, line.end)
+			}
 			inLet = false
 			continue
 		}
 		if !inLet {
 			continue
 		}
+		// Index only complete direct inherited-name clauses; resolution of the
+		// source expression and nested inherited ownership remain unsupported.
+		if trimmed == "inherit" || strings.HasPrefix(trimmed, "inherit ") ||
+			strings.HasPrefix(trimmed, "inherit\t") || strings.HasPrefix(trimmed, "inherit(") {
+			if !inheritReported {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-inherit",
+					"Nix inherited sources and complex clauses require direct source inspection", line.start, line.end)
+				inheritReported = true
+			}
+			if lineDepth == letBraceDepth && (bindingIndent < 0 || line.indent == bindingIndent) {
+				for _, name := range scanNixDirectInherit(lines, index) {
+					span := OffsetRange{Start: name.start, End: name.end}
+					addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "inherited-binding", name.name, nil, span, span)
+				}
+			}
+			continue
+		}
 		match := nixBinding.FindStringSubmatchIndex(trimmed)
 		if match == nil {
 			continue
+		}
+		// Indentation alone is not syntax in Nix: even a same-column key
+		// inside a nested attrset cannot be promoted to a top-level binding.
+		if lineDepth != letBraceDepth || (bindingIndent >= 0 && line.indent != bindingIndent) {
+			if !nestedReported {
+				addDocumentDataHardwareDiagnostic(builder, "nix-unmodeled-nested-binding",
+					"Nested Nix attributes and local bindings require direct source inspection", line.start, line.end)
+				nestedReported = true
+			}
+			continue
+		}
+		if bindingIndent < 0 {
+			bindingIndent = line.indent
 		}
 		name := trimmed[match[2]:match[3]]
 		trimOffset := strings.Index(line.text, trimmed)
 		start := line.start + trimOffset
 		addDocumentDataHardwareSymbol(builder, SymbolKindVariable, "binding", name, nil, OffsetRange{Start: start, End: line.end}, OffsetRange{Start: start + match[2], End: start + match[3]})
 	}
+	if inLet && letStart >= 0 {
+		addDocumentDataHardwareDiagnostic(builder, "nix-unclosed-let",
+			"Nix outer let has no matching in terminator; inspect source directly", letStart, letStart+len("let"))
+	}
 	return AnalyzerResult{Analysis: builder.Result()}, nil
 }
 
 var (
-	protoPackage = regexp.MustCompile(`(?m)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
-	protoImport  = regexp.MustCompile(`(?m)^[ \t]*import(?:[ \t]+(?:public|weak))?[ \t]+"([^"]+)"[ \t]*;`)
-	protoBlock   = regexp.MustCompile(`(?m)^[ \t]*(message|enum|service)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\{`)
-	protoField   = regexp.MustCompile(`(?m)^[ \t]*(?:optional[ \t]+|required[ \t]+|repeated[ \t]+)?[A-Za-z_.][A-Za-z0-9_.<> ,]*[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*[0-9]+`)
-	protoRPC     = regexp.MustCompile(`(?m)^[ \t]*rpc[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
+	protoPackage   = regexp.MustCompile(`(?m)^[ \t]*package[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
+	protoImport    = regexp.MustCompile(`(?m)^[ \t]*import(?:[ \t]+(?:public|weak))?[ \t]+"([^"]+)"[ \t]*;`)
+	protoBlock     = regexp.MustCompile(`(?m)^[ \t]*(message|enum|service|extend)[ \t]+([.]?[A-Za-z_][A-Za-z0-9_.]*)[ \t]*\{`)
+	protoField     = regexp.MustCompile(`(?m)^[ \t]*(?:optional[ \t]+|required[ \t]+|repeated[ \t]+)?[A-Za-z_.][A-Za-z0-9_.<> ,]*[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*[0-9]+`)
+	protoEnumValue = regexp.MustCompile(`(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*-?[0-9]+[ \t]*;`)
+	protoRPC       = regexp.MustCompile(`(?m)^[ \t]*rpc[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
 )
+
+var protoGroupBlock = regexp.MustCompile(`(?m)^[ \t]*(?:(?:optional|required|repeated)[ \t]+)?group[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*[0-9]+[ \t]*\{`)
+
+// A complete single-physical-line protobuf enum may contain multiple
+// semicolon-terminated values. Scan only plain NAME = integer; statements;
+// unsupported options/reserved clauses must not invent partial member lists.
+type protoInlineEnumMember struct {
+	name, declaration OffsetRange
+}
+
+func protoSimpleInlineEnumMembers(body string) ([]protoInlineEnumMember, bool) {
+	if len(body) > 4096 || strings.ContainsAny(body, "\r\n") {
+		return nil, false
+	}
+	members := make([]protoInlineEnumMember, 0, 4)
+	i := 0
+	skipSpace := func() {
+		for i < len(body) && (body[i] == ' ' || body[i] == '\t') {
+			i++
+		}
+	}
+	for i < len(body) {
+		skipSpace()
+		if i == len(body) {
+			break
+		}
+		start := i
+		c := body[i]
+		if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return nil, false
+		}
+		i++
+		for i < len(body) {
+			c = body[i]
+			if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') {
+				break
+			}
+			i++
+		}
+		nameEnd := i
+		skipSpace()
+		if i == len(body) || body[i] != '=' {
+			return nil, false
+		}
+		i++
+		skipSpace()
+		if i < len(body) && body[i] == '-' {
+			i++
+		}
+		numberStart := i
+		for i < len(body) && body[i] >= '0' && body[i] <= '9' {
+			i++
+		}
+		if i == numberStart {
+			return nil, false
+		}
+		skipSpace()
+		if i == len(body) || body[i] != ';' {
+			return nil, false
+		}
+		i++
+		members = append(members, protoInlineEnumMember{
+			name:        OffsetRange{Start: start, End: nameEnd},
+			declaration: OffsetRange{Start: start, End: i},
+		})
+		if len(members) > 128 {
+			return nil, false
+		}
+	}
+	return members, true
+}
+
+// protoFieldDeclarationEnd extends a recognized field through its authored
+// same-line terminator. Inline option brackets may contain quoted semicolons
+// and closing brackets; neither may prematurely end the field.
+func protoFieldDeclarationEnd(source string, numberEnd int) (int, bool) {
+	index := numberEnd
+	skipSpaces := func() {
+		for index < len(source) && (source[index] == ' ' || source[index] == '\t') {
+			index++
+		}
+	}
+	skipSpaces()
+	if index < len(source) && source[index] == '[' {
+		depth := 0
+		quoted, escaped := false, false
+		for index < len(source) {
+			c := source[index]
+			if c == '\r' || c == '\n' {
+				return numberEnd, false
+			}
+			if quoted {
+				if escaped {
+					escaped = false
+				} else if c == '\\' {
+					escaped = true
+				} else if c == '"' {
+					quoted = false
+				}
+			} else {
+				switch c {
+				case '"':
+					quoted = true
+				case '[':
+					depth++
+				case ']':
+					depth--
+					if depth == 0 {
+						index++
+						skipSpaces()
+						if index < len(source) && source[index] == ';' {
+							return index + 1, true
+						}
+						return numberEnd, false
+					}
+				}
+			}
+			index++
+		}
+		return numberEnd, false
+	}
+	if index < len(source) && source[index] == ';' {
+		return index + 1, true
+	}
+	return numberEnd, false
+}
+
+// protoRPCDeclarationEnd verifies a complete authored RPC suffix without
+// treating a later sibling declaration or the enclosing service brace as its end.
+func protoRPCDeclarationEnd(source string, openParenEnd, serviceClose int) (int, bool) {
+	if openParenEnd < 1 || openParenEnd > len(source) || source[openParenEnd-1] != '(' {
+		return openParenEnd, false
+	}
+	limit := serviceClose
+	if limit > len(source) {
+		limit = len(source)
+	}
+	if bounded := openParenEnd + (1 << 15); limit > bounded {
+		limit = bounded
+	}
+	i := openParenEnd
+	skipSpace := func() {
+		for i < limit {
+			switch source[i] {
+			case ' ', '\t', '\r', '\n':
+				i++
+			default:
+				return
+			}
+		}
+	}
+	isFirst := func(ch byte) bool {
+		return ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+	}
+	isPart := func(ch byte) bool {
+		return isFirst(ch) || ch >= '0' && ch <= '9'
+	}
+	typeName := func() bool {
+		skipSpace()
+		if i+7 <= limit && source[i:i+6] == "stream" {
+			switch source[i+6] {
+			case ' ', '\t', '\r', '\n':
+				i += 6
+				skipSpace()
+			}
+		}
+		if i < limit && source[i] == '.' {
+			i++
+		}
+		for {
+			if i >= limit || !isFirst(source[i]) {
+				return false
+			}
+			i++
+			for i < limit && isPart(source[i]) {
+				i++
+			}
+			if i >= limit || source[i] != '.' {
+				break
+			}
+			i++
+		}
+		skipSpace()
+		if i >= limit || source[i] != ')' {
+			return false
+		}
+		i++
+		return true
+	}
+	if !typeName() {
+		return openParenEnd, false
+	}
+	skipSpace()
+	if i+7 > limit || source[i:i+7] != "returns" {
+		return openParenEnd, false
+	}
+	i += 7
+	skipSpace()
+	if i >= limit || source[i] != '(' {
+		return openParenEnd, false
+	}
+	i++
+	if !typeName() {
+		return openParenEnd, false
+	}
+	skipSpace()
+	if i >= limit {
+		return openParenEnd, false
+	}
+	switch source[i] {
+	case ';':
+		return i + 1, true
+	case '{':
+		if close := matchingBraceOffset(source[:limit], i); close >= 0 {
+			return close + 1, true
+		}
+	}
+	return openParenEnd, false
+}
 
 func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "proto", AnalyzerProto)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	dependencies := []StructuralDependency{}
+	dependencies := structuralDependencyAccumulator{items: []StructuralDependency{}}
 	source := maskSourceComments(document.Text, []string{"//"}, "/*", "*/")
 	var packageParent *SymbolParent
 	if match := protoPackage.FindStringSubmatchIndex(source); match != nil {
@@ -501,46 +1423,183 @@ func (ProtoAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	for _, match := range protoImport.FindAllStringSubmatchIndex(source, -1) {
 		value := document.Text[match[2]:match[3]]
-		addStructuralDependency(document, &dependencies, StructuralDependencyImport, value, match[2], match[3])
+		dependencies.add(document, StructuralDependencyImport, value, match[2], match[3])
 	}
+	// Proto2 group bodies introduce nested scopes that this lexical index does
+	// not model. Hide their entire balanced regions rather than falsely assigning
+	// their fields to the enclosing message; keep offsets and following members.
+	masked := []byte(source)
+	for _, group := range protoGroupBlock.FindAllStringIndex(source, -1) {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		open := group[1] - 1
+		if masked[open] != '{' { // Nested group already hidden by an outer group.
+			continue
+		}
+		close := matchingBraceOffset(source, open)
+		addDocumentDataHardwareDiagnostic(builder, "proto-unmodeled-group",
+			"Protocol Buffers group scope is not indexed; inspect its fields directly", group[0], open+1)
+		if close < 0 {
+			maskByteRangePreservingLines(masked, group[0], len(masked))
+			break
+		}
+		maskByteRangePreservingLines(masked, group[0], close+1)
+	}
+	source = string(masked)
+	// Collect all brace-bounded declarations first, so fields in nested
+	// messages cannot be duplicated under an enclosing message.
+	type protoScope struct {
+		match       []int
+		word        string
+		open, close int
+		parent      int
+		children    []OffsetRange
+		owner       SymbolParent
+	}
+	var scopes []protoScope
+	var stack []int
+	skippedUntil := 0
 	for _, match := range protoBlock.FindAllStringSubmatchIndex(source, -1) {
 		if err := ctx.Err(); err != nil {
 			return AnalyzerResult{}, err
 		}
-		word := document.Text[match[2]:match[3]]
-		name := document.Text[match[4]:match[5]]
+		if match[0] < skippedUntil {
+			continue // Never promote declarations inside an invalid outer type.
+		}
 		open := match[1] - 1
 		close := matchingBraceOffset(source, open)
 		if close < 0 {
 			addDocumentDataHardwareDiagnostic(builder, "proto-unclosed-block", "Protocol Buffers declaration has an unclosed block", match[0], match[1])
+			break // Do not promote descendants of a malformed outer declaration.
+		}
+		for len(stack) > 0 && match[0] >= scopes[stack[len(stack)-1]].close {
+			stack = stack[:len(stack)-1]
+		}
+		parent := -1
+		if len(stack) > 0 {
+			parent = stack[len(stack)-1]
+		}
+		word := document.Text[match[2]:match[3]]
+		name := document.Text[match[4]:match[5]]
+		if word != "extend" && strings.Contains(name, ".") {
+			// Only extend targets may have qualified names in Proto syntax.
+			// Hide the entire invalid block, including its nested declarations.
+			addDocumentDataHardwareDiagnostic(builder, "proto-invalid-declaration-name", "Protocol Buffers message, enum, and service names must be simple identifiers", match[4], match[5])
+			if parent >= 0 {
+				scopes[parent].children = append(scopes[parent].children, OffsetRange{Start: match[0], End: close + 1})
+			}
+			skippedUntil = close + 1
 			continue
+		}
+		if parent >= 0 {
+			scopes[parent].children = append(scopes[parent].children, OffsetRange{Start: match[0], End: close + 1})
+		}
+		scopes = append(scopes, protoScope{match: match, word: word, open: open, close: close, parent: parent})
+		stack = append(stack, len(scopes)-1)
+	}
+	for index := range scopes {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		scope := &scopes[index]
+		match := scope.match
+		name := document.Text[match[4]:match[5]]
+		scopeNative := scope.word
+		if scope.word == "extend" {
+			name = "extend " + name // Lexical scope, not the external target's definition.
+			scopeNative = "extend-block"
+		}
+		parent := packageParent
+		if scope.parent >= 0 {
+			parent = &scopes[scope.parent].owner
 		}
 		kind := SymbolKindType
-		if word == "enum" {
+		if scope.word == "enum" {
 			kind = SymbolKindEnum
-		} else if word == "service" {
+		} else if scope.word == "service" {
 			kind = SymbolKindInterface
+		} else if scope.word == "extend" {
+			kind = SymbolKindNamespace // A grouping for extension declarations, not a type definition.
 		}
-		symbol, ok := addDocumentDataHardwareSymbol(builder, kind, word, name, packageParent, OffsetRange{Start: match[0], End: close + 1}, OffsetRange{Start: match[4], End: match[5]})
+		owner, ok := addDocumentDataHardwareSymbol(builder, kind, scopeNative, name, parent, OffsetRange{Start: match[0], End: scope.close + 1}, OffsetRange{Start: match[4], End: match[5]})
 		if !ok {
+			break
+		}
+		scope.owner = owner
+		bodyStart := scope.open + 1
+		body := source[bodyStart:scope.close]
+		var kindMatches [][]int
+		var memberKind SymbolKind
+		var native string
+		switch scope.word {
+		case "message":
+			kindMatches = protoField.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindField, "field"
+		case "service":
+			kindMatches = protoRPC.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindOperation, "rpc"
+		case "enum":
+			if !strings.ContainsAny(body, "\r\n") {
+				members, valid := protoSimpleInlineEnumMembers(body)
+				if !valid {
+					addDocumentDataHardwareDiagnostic(builder, "proto-unsupported-inline-enum",
+						"Protocol Buffers inline enum has unsupported syntax", bodyStart, scope.close)
+				} else {
+					for _, member := range members {
+						declaration := OffsetRange{
+							Start: bodyStart + member.declaration.Start,
+							End:   bodyStart + member.declaration.End,
+						}
+						nameRange := OffsetRange{
+							Start: bodyStart + member.name.Start,
+							End:   bodyStart + member.name.End,
+						}
+						addDocumentDataHardwareSymbol(builder, SymbolKindConstant, "enum-value",
+							document.Text[nameRange.Start:nameRange.End], &scope.owner,
+							declaration, nameRange)
+					}
+				}
+				continue
+			}
+			kindMatches = protoEnumValue.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindConstant, "enum-value"
+		case "extend":
+			kindMatches = protoField.FindAllStringSubmatchIndex(body, -1)
+			memberKind, native = SymbolKindField, "extension-field"
+		default:
 			continue
 		}
-		parent := &symbol
-		bodyStart := open + 1
-		body := source[bodyStart:close]
-		if word == "service" {
-			for _, rpc := range protoRPC.FindAllStringSubmatchIndex(body, -1) {
-				name := document.Text[bodyStart+rpc[2] : bodyStart+rpc[3]]
-				addDocumentDataHardwareSymbol(builder, SymbolKindOperation, "rpc", name, parent, OffsetRange{Start: bodyStart + rpc[0], End: bodyStart + rpc[1]}, OffsetRange{Start: bodyStart + rpc[2], End: bodyStart + rpc[3]})
+		for _, member := range kindMatches {
+			memberStart := bodyStart + member[0]
+			// Direct children are ordered and contain their own nested scopes.
+			child := sort.Search(len(scope.children), func(i int) bool {
+				return scope.children[i].Start > memberStart
+			})
+			if child > 0 && memberStart < scope.children[child-1].End {
+				continue
 			}
-		} else if word == "message" {
-			for _, field := range protoField.FindAllStringSubmatchIndex(body, -1) {
-				name := document.Text[bodyStart+field[2] : bodyStart+field[3]]
-				addDocumentDataHardwareSymbol(builder, SymbolKindField, "field", name, parent, OffsetRange{Start: bodyStart + field[0], End: bodyStart + field[1]}, OffsetRange{Start: bodyStart + field[2], End: bodyStart + field[3]})
+			memberName := document.Text[bodyStart+member[2] : bodyStart+member[3]]
+			declarationEnd := bodyStart + member[1]
+			if scope.word == "message" || scope.word == "extend" {
+				if end, ok := protoFieldDeclarationEnd(source, declarationEnd); ok {
+					declarationEnd = end
+				} else {
+					addDocumentDataHardwareDiagnostic(builder, "proto-unmodeled-field-suffix",
+						"Protocol Buffers field terminator or options cannot be verified on the declaration line", memberStart, declarationEnd)
+				}
+			} else if scope.word == "service" {
+				if end, ok := protoRPCDeclarationEnd(source, declarationEnd, scope.close); ok {
+					declarationEnd = end
+				} else {
+					addDocumentDataHardwareDiagnostic(builder, "proto-unmodeled-rpc-suffix",
+						"Protocol Buffers RPC input, return type or terminator cannot be verified", memberStart, declarationEnd)
+				}
 			}
+			addDocumentDataHardwareSymbol(builder, memberKind, native, memberName, &scope.owner, OffsetRange{Start: memberStart, End: declarationEnd}, OffsetRange{Start: bodyStart + member[2], End: bodyStart + member[3]})
 		}
 	}
-	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies.items}, nil
 }
 
 func matchingBraceOffset(text string, open int) int {

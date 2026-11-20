@@ -2,6 +2,8 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +37,122 @@ func TestSQLDialectProfiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// SQL allows the table identifier on the next line. These are original-source
+// declaration forms, not INSERT references or strings mentioning CREATE TABLE.
+func TestSQLMultilineCreateTableDeclaresActualTables(t *testing.T) {
+	for _, eol := range []struct {
+		name string
+		sep  string
+	}{
+		{name: "LF", sep: "\n"},
+		{name: "CRLF", sep: "\r\n"},
+	} {
+		t.Run(eol.name, func(t *testing.T) {
+			lines := []string{
+				"CREATE TABLE",
+				"    animals (id INTEGER PRIMARY KEY);",
+				"CREATE TABLE",
+				"    species (id INT);",
+				"CREATE",
+				"    TABLE",
+				"    owners (id INT);",
+				"INSERT INTO animals (id) VALUES (1);",
+				"-- CREATE TABLE ignored_comment (id INT);",
+				"SELECT 'CREATE TABLE ignored_string (id INT)';",
+				"CREATE TABLE broken COLUMNS (id INT);",
+			}
+			result, err := (SQLAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("vet_schema.sql", strings.Join(lines, eol.sep)+eol.sep), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range map[string]int{"animals": 2, "species": 4, "owners": 7} {
+				symbol, ok := symbols[name]
+				if !ok || symbol.Kind != SymbolKindType || symbol.NameRange.Start.Line != line {
+					t.Errorf("table %s: got %+v exists=%v, expected type at line %d", name, symbol, ok, line)
+				}
+			}
+			for _, forbidden := range []string{"ignored_comment", "ignored_string", "broken"} {
+				if _, ok := symbols[forbidden]; ok {
+					t.Errorf("invented table %s", forbidden)
+				}
+			}
+			if result.Analysis.CoverageComplete {
+				t.Error("unsupported table header must leave coverage incomplete")
+			}
+			if len(result.Analysis.Diagnostics) != 1 || result.Analysis.Diagnostics[0].Code != "sql-unrecognized-table-header" {
+				t.Errorf("expected one unsupported-header diagnostic, got %+v", result.Analysis.Diagnostics)
+			}
+		})
+	}
+}
+
+// The original project source is opt-in, not a dependency of the portable test suite.
+func TestSQLRealVetClinicMultilineTables(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_SQL_REAL_SCHEMA")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_SQL_REAL_SCHEMA to an authorized original schema.sql")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := (SQLAnalyzer{}).Analyze(context.Background(),
+		testSourceDocument("vet_schema.sql", string(content)), testAnalyzeOptions(true, 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+	for name, line := range map[string]int{
+		"animals": 2, "species": 13, "owners": 20,
+		"vets": 39, "specializations": 48, "visits": 66,
+	} {
+		symbol, ok := symbols[name]
+		if !ok || symbol.Kind != SymbolKindType || symbol.NameRange.Start.Line != line {
+			t.Errorf("original SQL table %q = %+v exists=%v; expected declaration line %d", name, symbol, ok, line)
+		}
+	}
+	if len(symbols) != 6 || !result.Analysis.CoverageComplete {
+		t.Errorf("original SQL declarations: symbols=%v coverageComplete=%v diagnostics=%+v",
+			sortedSymbolQualifiedNames(result.Analysis.Symbols), result.Analysis.CoverageComplete, result.Analysis.Diagnostics)
+	}
+}
+
+// Unsupported table headers must not become proven declarations. The scanner
+// still reports partial coverage when SQL dialect syntax is not recognized.
+func TestSQLUnsupportedTableHeaderDoesNotInventDeclarations(t *testing.T) {
+	text := "CREATE TABLE broken COLUMNS (id INT);\n" +
+		"CREATE TABLE valid (id INTEGER);\n" +
+		"CREATE TABLE copied AS SELECT id FROM valid;\n" +
+		"CREATE TABLE cloned LIKE valid;\n" +
+		"CREATE TABLE no_body;\n" +
+		"CREATE VIEW active AS SELECT id FROM valid;\n"
+	result, err := (SQLAnalyzer{}).Analyze(context.Background(), testSourceDocument("unsupported.sql", text), testAnalyzeOptions(true, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, name := range []string{"valid", "copied", "cloned", "active"} {
+		if _, ok := symbols[name]; !ok {
+			t.Errorf("valid declaration %q missing: %v", name, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+	for _, name := range []string{"broken", "no_body"} {
+		if _, ok := symbols[name]; ok {
+			t.Errorf("unsupported SQL table header invented declaration %q", name)
+		}
+	}
+	if result.Analysis.CoverageComplete || len(result.Analysis.Diagnostics) != 2 {
+		t.Fatalf("unsupported headers require two explicit incomplete-coverage diagnostics: %+v", result.Analysis)
+	}
+	for _, diagnostic := range result.Analysis.Diagnostics {
+		if diagnostic.Code != "sql-unrecognized-table-header" {
+			t.Errorf("unexpected SQL header diagnostic: %+v", diagnostic)
+		}
 	}
 }
 
@@ -87,6 +205,56 @@ func TestSQLQuotedDDLHierarchyAndReferenceDependencies(t *testing.T) {
 		if _, ok := byName[forbidden]; ok {
 			t.Fatalf("SQL DCL phrase produced phantom declaration %q: %v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 		}
+	}
+}
+
+// Index definitions are named schema objects, not CREATE TABLE declarations.
+func TestSQLNamedIndexesAreStructuralResources(t *testing.T) {
+	for _, tc := range []struct{ name, eol string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := []string{
+				"CREATE TABLE owners (id INT PRIMARY KEY);",
+				"CREATE INDEX idx_owners_id ON owners (id);",
+				"CREATE UNIQUE INDEX idx_owners_unique ON owners (id);",
+				"CREATE INDEX IF NOT EXISTS",
+				"  idx_owners_concurrent ON owners USING btree (id);",
+				"-- CREATE INDEX ghost ON owners (id);",
+				"SELECT 'CREATE INDEX fake ON owners (id)';",
+				"CREATE INDEX broken AS SELECT id FROM owners;",
+				"CREATE INDEX incomplete ON owners (",
+			}
+			source := strings.Join(lines, tc.eol) + tc.eol
+			result, err := (SQLAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("indexes.sql", source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range map[string]int{
+				"idx_owners_id": 2, "idx_owners_unique": 3,
+				"idx_owners_concurrent": 4,
+			} {
+				s, ok := found[name]
+				if !ok || s.Kind != SymbolKindResource || s.NativeKind != "index" ||
+					s.DeclarationRange.Start.Line != line {
+					t.Errorf("missing index %s on line %d: %+v", name, line, s)
+				}
+			}
+			if got := found["owners"]; got.Kind != SymbolKindType {
+				t.Errorf("table changed kind: %+v", got)
+			}
+			for _, absent := range []string{"ghost", "fake", "broken", "incomplete"} {
+				if _, ok := found[absent]; ok {
+					t.Errorf("invented SQL index %s", absent)
+				}
+			}
+			if len(found) != 4 {
+				t.Errorf("incorrect index inventory: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			if result.Analysis.CoverageComplete {
+				t.Error("malformed CREATE INDEX must mark coverage incomplete")
+			}
+		})
 	}
 }
 
@@ -162,6 +330,356 @@ service "api" {
 		if _, ok := byName[forbidden]; ok {
 			t.Fatalf("Terraform object expression unexpectedly became a structural block %s; symbols=%v", forbidden, sortedSymbolQualifiedNames(result.Analysis.Symbols))
 		}
+	}
+}
+
+func TestAssemblyNamedDataExcludesStructureAndMacroFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		want      map[string]int
+		forbidden []string
+	}{
+		{
+			name: "masm-fields-and-macro",
+			text: ".data\nMsg DB 'hello'\nWORD_BUFFER DW 512 dup (?)\n" +
+				"VIOinfo struc\nlevel DB ?\nflags DW ?\nVIOinfo ends\n" +
+				"after_struct DB 8\nmymacro macro args\ninner DB 9\nendm\n" +
+				"after_macro DW 10\n",
+			want:      map[string]int{"Msg": 2, "WORD_BUFFER": 3, "after_struct": 8, "after_macro": 12},
+			forbidden: []string{"level", "flags", "inner", "mymacro", "VIOinfo"},
+		},
+		{
+			name: "nasm-and-negative-syntax",
+			text: "section .data\ngreeting db 'hello'\ncount dw 4\n" +
+				"; Ghost DB 1\ninvalid db ; no operand\nlabel: db 1\n" +
+				"struc Packet\nfield db 1\nendstruc\n" +
+				"%macro make 0\nmacro_value db 3\n%endmacro\n" +
+				"tail dw 2\n",
+			want:      map[string]int{"greeting": 2, "count": 3, "tail": 13},
+			forbidden: []string{"Ghost", "invalid", "field", "macro_value"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("data.asm", tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range tc.want {
+				symbol, ok := got[name]
+				if !ok || symbol.Kind != SymbolKindVariable || symbol.DeclarationRange.Start.Line != line {
+					t.Errorf("Assembly data variable %q: got=%+v present=%v, want variable at line %d", name, symbol, ok, line)
+				}
+			}
+			for _, name := range tc.forbidden {
+				if _, ok := got[name]; ok {
+					t.Errorf("Assembly macro/structure/invalid data became a variable: %q", name)
+				}
+			}
+		})
+	}
+}
+
+func TestAssemblyMotorolaFDBAndRMBNamedData(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		expected  map[string]int
+		forbidden []string
+		complete  bool
+	}{
+		{
+			name: "word-data-and-reserved-bytes",
+			source: "entry:\nvector FDB entry\nwords fdb $1234,$5678\n" +
+				"buffer RMB 16\nspan rmb $20 ; reserved storage\ncommentComma RMB 3 ; bytes, reserved\n" +
+				"  FDB 7\n  RMB 4\n; commented FDB 1\n" +
+				"badWord FDB ; missing operand\nbadReserve RMB ; missing count\n" +
+				"badList FDB ,8\nbadCount RMB ,4\nextraCount RMB 4,8\n" +
+				"namedLabel: RMB 1\n",
+			expected:  map[string]int{"vector": 2, "words": 3, "buffer": 4, "span": 5, "commentComma": 6},
+			forbidden: []string{"commented", "badWord", "badReserve", "badList", "badCount", "extraCount"},
+			complete:  true,
+		},
+		{
+			name: "recognized-macro-and-structure",
+			source: "outside FDB 123\nMaker MACRO\ninsideWord FDB $FF\ninsideReserve RMB 8\nENDM\n" +
+				"Packet STRUCT\nfieldWord FDB 9\nfieldReserve RMB 6\nPacket ENDS\n" +
+				"after RMB 32\n",
+			expected:  map[string]int{"outside": 1, "after": 10},
+			forbidden: []string{"insideWord", "insideReserve", "fieldWord", "fieldReserve"},
+			complete:  true,
+		},
+		{
+			name:      "unclosed-macro",
+			source:    "outside FDB 1\nMaker MACRO\ninsideWord FDB 2\ninsideReserve RMB 9\n",
+			expected:  map[string]int{"outside": 1},
+			forbidden: []string{"insideWord", "insideReserve"},
+			complete:  false,
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct{ name, value string }{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				document := testSourceDocument("motorola.asm", strings.ReplaceAll(tc.source, "\n", eol.value))
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				for name, line := range tc.expected {
+					symbol, found := symbols[name]
+					if !found || symbol.Kind != SymbolKindVariable || symbol.DeclarationRange.Start.Line != line {
+						t.Errorf("Motorola data %q: got %+v found=%v; want variable at line %d", name, symbol, found, line)
+					}
+				}
+				for _, name := range tc.forbidden {
+					if symbol, found := symbols[name]; found {
+						t.Errorf("invalid or non-global declaration indexed: %+v", symbol)
+					}
+				}
+				if tc.name == "word-data-and-reserved-bytes" {
+					for _, name := range []string{"entry", "namedLabel"} {
+						if symbol, found := symbols[name]; !found || symbol.Kind != SymbolKindLabel {
+							t.Errorf("label %q reclassified: %+v, found=%v", name, symbol, found)
+						}
+					}
+				}
+				if result.Analysis.CoverageComplete != tc.complete {
+					t.Errorf("coverage complete=%v want=%v diagnostics=%+v", result.Analysis.CoverageComplete, tc.complete, result.Analysis.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
+func TestAssemblyMotorolaFCBAndFCCNamedData(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		want      map[string]int
+		forbidden []string
+		complete  bool
+	}{
+		{
+			name: "68hc11-declarations-and-invalid-operands",
+			text: "INTERRUPTS:\nTRAPP FCB CR,LF\n  FCB CR,LF\n  FCC 'unlabelled'\n" +
+				"PROMPT fcb 0\nBANNER FCC \"HELLO\"\nSLASH FCC /a;b/ ; real character data\n" +
+				"COLD LDS #STACK\n; Ghost FCB 2\ninvalidByte FCB ; no value\n" +
+				"invalidStart FCB ,7\ninvalidText FCC unquoted\nemptyText FCC ; no string\n" +
+				"namedLabel: FCB 9\n",
+			want:      map[string]int{"TRAPP": 2, "PROMPT": 5, "BANNER": 6, "SLASH": 7},
+			forbidden: []string{"COLD", "Ghost", "invalidByte", "invalidStart", "invalidText", "emptyText"},
+			complete:  true,
+		},
+		{
+			name: "macro-and-structure-scopes",
+			text: "before FCB 1\nGenerator MACRO\nmacroByte FCB 2\nmacroText FCC 'ghost'\nENDM\n" +
+				"Packet STRUCT\nstructByte FCB 3\nstructText FCC 'hidden'\nPacket ENDS\n" +
+				"after FCC 'done'\n",
+			want:      map[string]int{"before": 1, "after": 10},
+			forbidden: []string{"macroByte", "macroText", "structByte", "structText"},
+			complete:  true,
+		},
+		{
+			name:      "unterminated-macro",
+			text:      "before FCB 1\nGenerator MACRO\nmacroData FCB 2\nmacroText FCC 'hidden'\n",
+			want:      map[string]int{"before": 1},
+			forbidden: []string{"macroData", "macroText"},
+			complete:  false,
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct {
+			name, value string
+		}{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				source := strings.ReplaceAll(tc.text, "\n", eol.value)
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("motorola.asm", source), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				byName := symbolsByQualifiedName(result.Analysis.Symbols)
+				for name, line := range tc.want {
+					sym, ok := byName[name]
+					if !ok || sym.Kind != SymbolKindVariable || sym.DeclarationRange.Start.Line != line {
+						t.Errorf("named Motorola data %q: got=%+v exists=%v, want variable line %d", name, sym, ok, line)
+					}
+				}
+				for _, name := range tc.forbidden {
+					if sym, ok := byName[name]; ok {
+						t.Errorf("invalid, instruction or unexpanded data exported: %+v", sym)
+					}
+				}
+				if symbol, ok := byName["namedLabel"]; tc.name == "68hc11-declarations-and-invalid-operands" && (!ok || symbol.Kind != SymbolKindLabel) {
+					t.Errorf("colon-terminated Motorola label changed kind: %+v, exists=%v", symbol, ok)
+				}
+				if result.Analysis.CoverageComplete != tc.complete {
+					t.Errorf("coverageComplete=%v, want %v, diagnostics=%+v", result.Analysis.CoverageComplete, tc.complete, result.Analysis.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
+func TestAssemblyLabelsInsideMacroAndStructureAreNotGlobals(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		want      map[string]int
+		forbidden []string
+		complete  bool
+	}{
+		{
+			name: "masm",
+			text: "entry:\nMake MACRO\ninside_label:\nInner PROC\nInner ENDP\nENDM\n" +
+				"Packet STRUCT\nfield_label:\nPacket ENDS\nexit_label:\nExport PROC\nExport ENDP\n",
+			want:      map[string]int{"entry": 1, "exit_label": 10, "Export": 11},
+			forbidden: []string{"inside_label", "Inner", "field_label"},
+			complete:  true,
+		},
+		{
+			name:      "nasm",
+			text:      "start:\n%macro define 0\nmacro_label:\n%endmacro\nstruc Record\nstructure_label:\nendstruc\ndone:\n",
+			want:      map[string]int{"start": 1, "done": 8},
+			forbidden: []string{"macro_label", "structure_label"},
+			complete:  true,
+		},
+		{
+			name:      "unterminated-masm-macro",
+			text:      "before:\nGen MACRO\nshould_not_escape:\nGhost PROC\n",
+			want:      map[string]int{"before": 1},
+			forbidden: []string{"should_not_escape", "Ghost"},
+			complete:  false,
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct {
+			name  string
+			value string
+		}{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				source := strings.ReplaceAll(tc.text, "\n", eol.value)
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("scopes.asm", source), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := symbolsByQualifiedName(result.Analysis.Symbols)
+				for name, line := range tc.want {
+					symbol, ok := got[name]
+					if !ok || symbol.Kind != SymbolKindLabel || symbol.DeclarationRange.Start.Line != line {
+						t.Errorf("global Assembly label/procedure %q: got=%+v present=%v, want label at line %d", name, symbol, ok, line)
+					}
+				}
+				for _, name := range tc.forbidden {
+					if symbol, ok := got[name]; ok {
+						t.Errorf("unexpanded macro/structure exported a global: %+v", symbol)
+					}
+				}
+				if result.Analysis.CoverageComplete != tc.complete {
+					t.Errorf("coverage complete=%v, want %v; diagnostics=%+v", result.Analysis.CoverageComplete, tc.complete, result.Analysis.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
+func TestAssemblyEQUInsideMacroDefinitionIsNotGlobal(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		expected  string
+		forbidden string
+	}{
+		{
+			name:      "masm",
+			text:      "makeConst MACRO\ninner EQU 2\nENDM\noutside EQU 3\n",
+			expected:  "outside",
+			forbidden: "inner",
+		},
+		{
+			name:      "nasm",
+			text:      "%macro makeConst 0\nlocalValue EQU 4\n%endmacro\npublicValue EQU 5\n",
+			expected:  "publicValue",
+			forbidden: "localValue",
+		},
+	}
+	for _, tc := range tests {
+		for _, eol := range []struct {
+			name  string
+			value string
+		}{{"lf", "\n"}, {"crlf", "\r\n"}} {
+			t.Run(tc.name+"-"+eol.name, func(t *testing.T) {
+				source := strings.ReplaceAll(tc.text, "\n", eol.value)
+				result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("macro.asm", source), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if symbol, exists := symbols[tc.expected]; !exists || symbol.Kind != SymbolKindConstant {
+					t.Errorf("real constant %q missing: %+v", tc.expected, symbol)
+				}
+				if symbol, exists := symbols[tc.forbidden]; exists {
+					t.Errorf("unexpanded macro body became global constant: %+v", symbol)
+				}
+				if !result.Analysis.CoverageComplete {
+					t.Errorf("closed macro has partial coverage: %+v", result.Analysis.Diagnostics)
+				}
+			})
+		}
+	}
+}
+
+func TestAssemblyEQUConstantsAreNotLabelsOrInstructions(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		want   map[string]int
+		labels []string
+	}{
+		{
+			name:   "masm-equ",
+			text:   ".data\nMsg DB 'hello'\nmyequ EQU 3\nMain PROC\n  ret\nMain ENDP\n",
+			want:   map[string]int{"myequ": 3},
+			labels: []string{"Main"},
+		},
+		{
+			name:   "68hc11-equ",
+			text:   "INTERRUPTS:\nPORTD EQU $1008\nSP EQU $20\nsym1 EQU 1\nsym2: EQU 2\n",
+			want:   map[string]int{"PORTD": 2, "SP": 3, "sym1": 4},
+			labels: []string{"sym2", "INTERRUPTS"},
+		},
+		{
+			name: "forbidden-pseudo-declarations",
+			text: "; Ghost EQU 5\nFake EQU ; missing operand\nmov eax, EQU\nnope EQU\n_valid EQU $10 ; comment\n",
+			want: map[string]int{"_valid": 5},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (AssemblyAnalyzer{}).Analyze(context.Background(), testSourceDocument("fixture.asm", tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range tc.want {
+				sym, ok := got[name]
+				if !ok || sym.Kind != SymbolKindConstant || sym.DeclarationRange.Start.Line != line {
+					t.Errorf("Assembly EQU %q: got=%+v present=%v, want constant at line %d", name, sym, ok, line)
+				}
+			}
+			for _, name := range tc.labels {
+				if sym, ok := got[name]; !ok || sym.Kind != SymbolKindLabel {
+					t.Errorf("Assembly label %q: got=%+v present=%v", name, sym, ok)
+				}
+			}
+			for _, name := range []string{"Ghost", "Fake", "nope", "mov", "EQU", "DB"} {
+				if _, ok := got[name]; ok {
+					t.Errorf("unsupported or malformed assembly text became symbol %q", name)
+				}
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package filetoolsserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,7 +50,7 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 
 	assertSourceSymbolsOperationSchema(t, branches, "outline",
 		[]string{"operation", "paths"},
-		[]string{"operation", "paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "presentation", "maxSymbols", "maxFiles"},
+		[]string{"operation", "paths", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "presentation", "owner", "maxSymbols", "maxFiles"},
 	)
 	digestBranch := assertSourceSymbolsOperationSchema(t, branches, "digest",
 		[]string{"operation", "paths"},
@@ -57,11 +58,11 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "find",
 		[]string{"operation", "paths", "query"},
-		[]string{"operation", "paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "maxSymbols", "maxFiles"},
+		[]string{"operation", "paths", "query", "match", "language", "encoding", "kinds", "includes", "excludes", "respectGitignore", "includeSignatures", "fileDetails", "presentation", "maxSymbols", "maxFiles"},
 	)
 	assertSourceSymbolsOperationSchema(t, branches, "show",
 		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding"},
-		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding", "maxBytes"},
+		[]string{"operation", "path", "symbolId", "sourceFingerprint", "language", "encoding", "presentation", "part", "maxBytes"},
 	)
 
 	for _, operation := range []string{"outline", "digest", "find"} {
@@ -75,10 +76,10 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	if got := contractStringSlice(t, contractSchemaMap(t, properties["match"])["enum"]); !reflect.DeepEqual(got, []string{"exact", "prefix", "qualified"}) {
 		t.Fatalf("find.match enum = %v", got)
 	}
-	if got := contractStringSlice(t, contractSchemaMap(t, properties["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact", "tree"}) {
+	if got := contractStringSlice(t, contractSchemaMap(t, properties["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact", "tree", "concise"}) {
 		t.Fatalf("outline.presentation enum = %v", got)
 	}
-	if got := contractStringSlice(t, contractSchemaMap(t, contractSchemaProperties(t, digestBranch)["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact"}) {
+	if got := contractStringSlice(t, contractSchemaMap(t, contractSchemaProperties(t, digestBranch)["presentation"])["enum"]); !reflect.DeepEqual(got, []string{"detailed", "compact", "concise"}) {
 		t.Fatalf("digest.presentation enum = %v", got)
 	}
 	assertSourceSymbolsIntegerBound(t, "find.query.maxLength", properties["query"], "maxLength", 512)
@@ -104,6 +105,389 @@ func TestSourceSymbolsPublicContract(t *testing.T) {
 	})
 	if err == nil && (rejected == nil || !rejected.IsError) {
 		t.Fatalf("outline accepted operation-illegal field query: result=%#v err=%v", rejected, err)
+	}
+}
+
+func TestSourceSymbolsConciseDigestPublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	javaRoot, goRoot := filepath.Join(root, "java"), filepath.Join(root, "go")
+	for _, dir := range []string{javaRoot, goRoot} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	javaFile := filepath.Join(javaRoot, "Example.java")
+	goFile := filepath.Join(goRoot, "example.go")
+	for path, content := range map[string]string{
+		javaFile: "package demo;\nclass Hidden { private int field; private void work() {} }\npublic class Visible {}\n",
+		goFile:   "package demo\ntype Record struct { Field int }\nfunc Start() {}\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-concise-digest")
+	conciseResult := callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "digest", "paths": []string{javaRoot, goRoot}, "presentation": "concise", "maxFiles": 4,
+	})
+	concise := contractStructuredMap(t, conciseResult)
+	for _, omitted := range []string{"digests", "overviewFiles", "symbolCount", "filesConsidered", "sourceFingerprint"} {
+		if _, present := concise[omitted]; present {
+			t.Fatalf("concise response leaks %s: %#v", omitted, concise)
+		}
+	}
+	files := contractObjectSlice(t, concise["files"])
+	if len(files) != 2 {
+		t.Fatalf("concise files=%#v", files)
+	}
+	byRoot := make(map[string]map[string]any, len(files))
+	for _, file := range files {
+		rootName, _ := file["root"].(string)
+		byRoot[rootName] = file
+		if _, exists := file["sourceFingerprint"]; exists {
+			t.Fatalf("per-file digest leaked hash: %#v", file)
+		}
+	}
+	java := byRoot[javaRoot]
+	goSource := byRoot[goRoot]
+	if java == nil || java["path"] != "Example.java" ||
+		!reflect.DeepEqual(contractStringSlice(t, java["classes"]), []string{"Hidden", "Visible"}) {
+		t.Fatalf("missing non-public Java top-level class: %#v", java)
+	}
+	if goSource == nil || goSource["path"] != "example.go" ||
+		!reflect.DeepEqual(contractStringSlice(t, goSource["types"]), []string{"Record"}) ||
+		!reflect.DeepEqual(contractStringSlice(t, goSource["functions"]), []string{"Start"}) {
+		t.Fatalf("classless Go file was not mapped: %#v", goSource)
+	}
+	legacy := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "digest", "paths": []string{goRoot}, "presentation": "compact",
+	}))
+	if legacy["overviewFiles"] == nil {
+		t.Fatal("existing compact digest projection changed")
+	}
+}
+
+func TestSourceSymbolsConciseOutlinePublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "Example.java")
+	code := "package demo;\nclass Example {\n" +
+		" private int field;\n" +
+		" Example() {}\n" +
+		" private void hidden() {}\n" +
+		" void Text(int value) {}\n" +
+		" void Text(String value) {}\n" +
+		"}\n"
+	if err := os.WriteFile(path, []byte(code), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-concise-outline")
+	result := callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "outline", "paths": []string{path}, "presentation": "concise",
+		"owner": "Example", "language": "java", "encoding": "utf-8", "maxSymbols": 16,
+	})
+	payload := contractStructuredMap(t, result)
+	for _, forbidden := range []string{"outlineFiles", "symbols", "filesConsidered", "symbolCount"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("concise outline contains %s", forbidden)
+		}
+	}
+	files := contractObjectSlice(t, payload["files"])
+	if len(files) != 1 || files[0]["path"] != "Example.java" {
+		t.Fatalf("concise outline files=%#v", files)
+	}
+	owners := contractObjectSlice(t, files[0]["owners"])
+	if len(owners) != 1 || owners[0]["name"] != "Example" {
+		t.Fatalf("requested owner not isolated: %#v", owners)
+	}
+	methods := contractObjectSlice(t, owners[0]["methods"])
+	if len(methods) != 4 {
+		t.Fatalf("expected constructor, private and both overloads, got %#v", methods)
+	}
+	counts := map[string]int{}
+	signatures := map[string]bool{}
+	for _, m := range methods {
+		name, _ := m["name"].(string)
+		counts[name]++
+		sig, _ := m["signature"].(string)
+		if sig == "" || signatures[sig] {
+			t.Fatalf("missing or duplicate overload signature: %#v", methods)
+		}
+		signatures[sig] = true
+		if m["line"] == nil || m["symbolId"] != nil || m["sourceFingerprint"] != nil ||
+			m["parentId"] != nil || m["field"] != nil {
+			t.Fatalf("unexpected method metadata: %#v", m)
+		}
+	}
+	if !reflect.DeepEqual(counts, map[string]int{"Example": 1, "hidden": 1, "Text": 2}) {
+		t.Fatalf("constructor or overload lost: %#v", counts)
+	}
+	legacy := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "outline", "paths": []string{path}, "language": "java",
+	}))
+	if legacy["outlineFiles"] == nil {
+		t.Fatal("default tree projection changed")
+	}
+}
+
+func TestSourceSymbolsConciseOutlineCoverageAndAmbiguity(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	for _, dir := range []string{"one", "two"} {
+		sub := filepath.Join(root, dir)
+		if err := os.Mkdir(sub, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		source := "package demo;\nclass Widget { int field; Widget() {} void Work() {} }\n"
+		if err := os.WriteFile(filepath.Join(sub, "Widget.java"), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-concise-coverage")
+	request := map[string]any{
+		"operation": "outline", "paths": []string{filepath.Join(root, "one"), filepath.Join(root, "two")},
+		"presentation": "concise", "owner": "Widget", "language": "java", "encoding": "utf-8",
+	}
+	multiple := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, request))
+	if multiple["ambiguous"] != true || len(contractObjectSlice(t, multiple["files"])) != 2 {
+		t.Fatalf("same-name owners were silently conflated: %#v", multiple)
+	}
+	for _, file := range contractObjectSlice(t, multiple["files"]) {
+		if file["root"] == nil || file["path"] != "Widget.java" {
+			t.Fatalf("multi-root owner lacks unambiguous location: %#v", file)
+		}
+	}
+	limited := make(map[string]any, len(request)+1)
+	for k, v := range request {
+		limited[k] = v
+	}
+	limited["maxSymbols"] = 2
+	result := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, limited))
+	cov := contractSchemaMap(t, result["coverage"])
+	if cov["analysisComplete"] != true || cov["resultsTruncated"] != true || cov["fileSelectionTruncated"] != false {
+		t.Fatalf("result limit confused with analysis or file selection: %#v", cov)
+	}
+	limited["paths"] = []string{filepath.Join(root, "one")}
+	limited["kinds"] = []string{"field"}
+	limited["maxSymbols"] = 8
+	fieldsOnly := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, limited))
+	files := contractObjectSlice(t, fieldsOnly["files"])
+	owners := contractObjectSlice(t, files[0]["owners"])
+	if len(contractObjectSlice(t, owners[0]["fields"])) != 1 || owners[0]["methods"] != nil {
+		t.Fatalf("explicit field selection did not isolate fields: %#v", owners[0])
+	}
+	invalid := make(map[string]any, len(limited))
+	for k, v := range limited {
+		invalid[k] = v
+	}
+	invalid["presentation"] = "tree"
+	rejected, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: invalid})
+	if err == nil && (rejected == nil || !rejected.IsError) {
+		t.Fatalf("owner filter leaked into legacy tree: %#v", rejected)
+	}
+}
+
+func TestSourceSymbolsConciseFindSafeShow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "Service.java")
+	source := "package demo;\nclass Service {\n" +
+		" private int field;\n" +
+		" void Work(int value) {}\n" +
+		" private void Work(String value) {}\n" +
+		"}\nclass Other { void Work() {} }\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-concise-find")
+	args := map[string]any{
+		"operation": "find", "paths": []string{path}, "presentation": "concise",
+		"language": "java", "encoding": "utf-8", "query": "Work",
+		"match": "exact", "maxSymbols": 8,
+	}
+	payload := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, args))
+	if payload["ambiguous"] != true || payload["symbols"] != nil || payload["symbolCount"] != nil {
+		t.Fatalf("concise find missing ambiguity or exposing historical symbol inventory: %#v", payload)
+	}
+	files := contractObjectSlice(t, payload["files"])
+	if len(files) != 1 || files[0]["path"] != path {
+		t.Fatalf("usable source path not returned: %#v", files)
+	}
+	file := files[0]
+	assertSourceSymbolsHexDigest(t, "file.sourceFingerprint", file["sourceFingerprint"])
+	matches := contractObjectSlice(t, file["matches"])
+	if len(matches) != 3 {
+		t.Fatalf("overloads or unrelated owner lost: %#v", matches)
+	}
+	owners, sigs := map[string]int{}, map[string]bool{}
+	for _, match := range matches {
+		if match["name"] != "Work" || match["kind"] != "method" {
+			t.Fatalf("unexpected match: %#v", match)
+		}
+		owner, _ := match["owner"].(string)
+		owners[owner]++
+		sig, _ := match["signature"].(string)
+		if sig == "" || sigs[sig] && owner == "demo.Service" {
+			t.Fatalf("missing/distinct overload signatures: %#v", matches)
+		}
+		sigs[sig] = true
+		assertSourceSymbolsHexDigest(t, "match.symbolId", match["symbolId"])
+		if match["line"] == nil || match["path"] != nil || match["sourceFingerprint"] != nil {
+			t.Fatalf("redundant or missing navigation data: %#v", match)
+		}
+	}
+	if owners["demo.Service"] != 2 || owners["demo.Other"] != 1 {
+		t.Fatalf("same-name owner identity lost: %#v", owners)
+	}
+	shown := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "show", "path": path, "language": file["language"],
+		"encoding": file["encoding"], "sourceFingerprint": file["sourceFingerprint"],
+		"symbolId": matches[0]["symbolId"], "maxBytes": 4096,
+	}))
+	body := contractSchemaMap(t, shown["show"])
+	if snippet, _ := body["text"].(string); !strings.Contains(snippet, "Work(") {
+		t.Fatalf("concise find cannot navigate to exact source: %#v", body)
+	}
+	legacy := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "paths": []string{path}, "query": "Work",
+		"match": "exact", "language": "java", "encoding": "utf-8",
+	}))
+	if legacy["symbols"] == nil || legacy["files"] == nil {
+		t.Fatal("original find contract changed")
+	}
+}
+
+func TestSourceSymbolsConciseShowPublicMCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	root := canonicalServerTestDir(t)
+	path := filepath.Join(root, "source.go")
+	const source = "package demo\r\nfunc Work(value int) int {\r\n\treturn value + 1\r\n}\r\nfunc NoBody() int\r\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := connectTestClient(t, ctx, NewServer([]string{root}, nil, nil), "source-concise-show")
+	found := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "presentation": "concise", "paths": []string{path},
+		"query": "Work", "match": "exact", "language": "go", "encoding": "utf-8",
+	}))
+	files := contractObjectSlice(t, found["files"])
+	if len(files) != 1 {
+		t.Fatalf("no source file selection: %#v", files)
+	}
+	matches := contractObjectSlice(t, files[0]["matches"])
+	if len(matches) != 1 {
+		t.Fatalf("no unambiguous Work selection: %#v", matches)
+	}
+	showArgs := map[string]any{
+		"operation": "show", "path": path,
+		"symbolId":          matches[0]["symbolId"],
+		"sourceFingerprint": files[0]["sourceFingerprint"],
+		"language":          "go", "encoding": "utf-8", "maxBytes": 4096,
+		"presentation": "concise", "part": "body",
+	}
+	result := callSourceSymbolsContract(t, ctx, session, showArgs)
+	payload := contractStructuredMap(t, result)
+	for _, forbidden := range []string{"files", "symbolCount", "filesConsidered", "symbolId", "sourceFingerprint", "show"} {
+		if _, exists := payload[forbidden]; exists {
+			t.Fatalf("redundant concise show property %s: %#v", forbidden, payload)
+		}
+	}
+	if payload["representation"] != "body" || payload["complete"] != true || payload["file"] != path {
+		t.Fatalf("missing truthful complete body representation: %#v", payload)
+	}
+	if _, present := payload["coverage"]; present {
+		t.Fatalf("complete selected analysis should omit coverage metadata: %#v", payload)
+	}
+	body, _ := payload["code"].(string)
+	if !strings.HasPrefix(body, "{") || !strings.HasSuffix(body, "}") ||
+		!strings.Contains(body, "\r\n\treturn value + 1\r\n") {
+		t.Fatalf("decoded source body changed or incomplete: %q", body)
+	}
+	coordinate := contractSchemaMap(t, payload["range"])
+	if contractSchemaMap(t, coordinate["start"])["line"] == nil {
+		t.Fatalf("source range not provided: %#v", coordinate)
+	}
+	legacyArgs := map[string]any{}
+	for k, v := range showArgs {
+		if k != "presentation" && k != "part" {
+			legacyArgs[k] = v
+		}
+	}
+	legacy := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, legacyArgs))
+	if contractSchemaMap(t, legacy["show"])["text"] == nil {
+		t.Fatal("historical show layout changed")
+	}
+	showArgs["part"] = "signature"
+	signature := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, showArgs))
+	if signature["representation"] != "signature" || !strings.Contains(fmt.Sprint(signature["code"]), "func Work(") ||
+		strings.Contains(fmt.Sprint(signature["code"]), "return value") {
+		t.Fatalf("signature-only request returned body or lost signature: %#v", signature)
+	}
+	// The text fallback must describe the same exact source evidence as the
+	// structured result for MCP consumers that do not read structuredContent.
+	textMatches := false
+	for _, item := range result.Content {
+		if content, ok := item.(*mcp.TextContent); ok {
+			var fallback map[string]any
+			if json.Unmarshal([]byte(content.Text), &fallback) == nil && reflect.DeepEqual(fallback, payload) {
+				textMatches = true
+			}
+		}
+	}
+	if !textMatches {
+		t.Fatal("MCP text fallback differs from the concise structured response")
+	}
+
+	// The caller can request the whole declaration or the verified body.
+	showArgs["part"] = "declaration"
+	full := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, showArgs))
+	if full["representation"] != "declaration" ||
+		!strings.Contains(fmt.Sprint(full["code"]), "func Work(value int) int {") {
+		t.Fatalf("declaration content missing: %#v", full)
+	}
+
+	// A header-only declaration must not be silently presented as a full body.
+	missing := contractStructuredMap(t, callSourceSymbolsContract(t, ctx, session, map[string]any{
+		"operation": "find", "presentation": "concise", "paths": []string{path},
+		"query": "NoBody", "match": "exact", "language": "go", "encoding": "utf-8",
+	}))
+	missingFiles := contractObjectSlice(t, missing["files"])
+	if len(missingFiles) != 1 || len(contractObjectSlice(t, missingFiles[0]["matches"])) != 1 {
+		t.Fatalf("no header-only symbol found: %#v", missing)
+	}
+	showArgs["symbolId"] = contractObjectSlice(t, missingFiles[0]["matches"])[0]["symbolId"]
+	showArgs["part"] = "body"
+	unavailable, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err != nil || unavailable == nil || !unavailable.IsError || unavailable.Meta[handler.ErrorCodeMetaKey] != handler.ErrCodeUnsupported {
+		t.Fatalf("unavailable body was not a typed error: %#v err=%v", unavailable, err)
+	}
+	showArgs["symbolId"] = matches[0]["symbolId"]
+	showArgs["maxBytes"] = 2
+	overLimit, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err != nil || overLimit == nil || !overLimit.IsError || overLimit.Meta[handler.ErrorCodeMetaKey] != handler.ErrCodeLimit {
+		t.Fatalf("truncated body was silently emitted: %#v err=%v", overLimit, err)
+	}
+	showArgs["maxBytes"] = 4096
+
+	// Fingerprint freshness precedes source selection; no stale source is shown.
+	if err := os.WriteFile(path, []byte(source+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err != nil || stale == nil || !stale.IsError || stale.Meta[handler.ErrorCodeMetaKey] != handler.ErrCodeConflict {
+		t.Fatalf("stale source accepted: %#v err=%v", stale, err)
+	}
+
+	showArgs["part"] = "unknown"
+	rejected, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "source_symbols", Arguments: showArgs})
+	if err == nil && (rejected == nil || !rejected.IsError) {
+		t.Fatalf("unknown representation accepted: %#v", rejected)
 	}
 }
 

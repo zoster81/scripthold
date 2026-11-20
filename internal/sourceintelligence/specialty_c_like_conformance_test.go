@@ -487,7 +487,7 @@ func TestALConditionalMergeDuplicateSymbolAllocationBudget(t *testing.T) {
 }
 
 func TestALConditionalSymbolEqualityMatchesReflectDeepEqual(t *testing.T) {
-	if fields := reflect.TypeOf(NormalizedSymbol{}).NumField(); fields != 24 {
+	if fields := reflect.TypeOf(NormalizedSymbol{}).NumField(); fields != 26 {
 		t.Fatalf("NormalizedSymbol field count = %d, update alConditionalSymbolsEqual for the new shape", fields)
 	}
 	makeSymbol := func() NormalizedSymbol {
@@ -540,11 +540,13 @@ func TestALConditionalSymbolEqualityMatchesReflectDeepEqual(t *testing.T) {
 		{"analyzer", func(value *NormalizedSymbol) { value.Analyzer = "other" }},
 		{"declaration-offsets", func(value *NormalizedSymbol) { value.declarationOffsets.End++ }},
 		{"name-offsets", func(value *NormalizedSymbol) { value.nameOffsets.End++ }},
+		{"source-spelling", func(value *NormalizedSymbol) { value.sourceSpelling = "Run&" }},
 		{"signature-offsets", func(value *NormalizedSymbol) { value.signatureOffsets.End++ }},
 		{"signature-offsets-nil", func(value *NormalizedSymbol) { value.signatureOffsets = nil }},
 		{"body-offsets", func(value *NormalizedSymbol) { value.bodyOffsets.End++ }},
 		{"body-offsets-nil", func(value *NormalizedSymbol) { value.bodyOffsets = nil }},
 		{"signature-truncated", func(value *NormalizedSymbol) { value.signatureTruncated = false }},
+		{"cpp-declarator-key", func(value *NormalizedSymbol) { value.cppDeclaratorKey = "(int)" }},
 	}
 	for _, testCase := range mutations {
 		t.Run(testCase.name, func(t *testing.T) {

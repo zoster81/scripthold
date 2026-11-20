@@ -125,9 +125,13 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 	}
 	logical := BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{":"}})
 	lines := make([]basicLine, 0, len(logical))
+	var numberedLabels []Token
 	for _, line := range logical {
 		tokens := append([]Token(nil), line.Tokens...)
 		if policy.lineNumbers && len(tokens) > 0 && tokens[0].Kind == TokenNumber {
+			if basicPhysicalLineNumber(document.Text, tokens[0]) {
+				numberedLabels = append(numberedLabels, tokens[0])
+			}
 			tokens = tokens[1:]
 		}
 		if len(tokens) > 0 {
@@ -139,10 +143,50 @@ func analyzeBasicDialect(ctx context.Context, document *SourceDocument, options 
 	parser.pairs = parser.buildPairs()
 	parser.dependencies = collectBasicDependencies(document, policy)
 	parser.parseRange(0, len(lines), nil, "")
+	// Existing declarations take precedence when a caller sets a small symbol cap.
+	// Numbered BASIC labels remain navigable without changing statement semantics.
+	for _, number := range numberedLabels {
+		end := number.EndOffset
+		if next := strings.IndexAny(document.Text[end:], "\r\n"); next >= 0 {
+			end += next
+		} else {
+			end = len(document.Text)
+		}
+		if err := builder.addDiscard(SymbolSpec{
+			Kind: SymbolKindLabel, NativeKind: "line-number", Name: number.Text,
+			Declaration: OffsetRange{Start: number.StartOffset, End: end},
+			NameRange:   OffsetRange{Start: number.StartOffset, End: number.EndOffset},
+		}); err != nil {
+			break // The symbol builder reports truncation/limits and preserves prior symbols.
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_basic_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies}, nil
+}
+
+func basicPhysicalLineNumber(text string, token Token) bool {
+	if token.StartOffset < 0 || token.EndOffset > len(text) || token.StartOffset >= token.EndOffset {
+		return false
+	}
+	for _, digit := range token.Text {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	for offset := token.StartOffset; offset > 0; {
+		offset--
+		switch text[offset] {
+		case ' ', '\t':
+			continue
+		case '\n', '\r':
+			return true
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func maskPureBasicMacroBlocks(text string) (string, *OffsetRange, bool) {
@@ -276,6 +320,13 @@ func basicSemanticIndex(tokens []Token) int {
 		switch value {
 		case "public", "private", "protected", "friend", "shared":
 			continue
+		case "default":
+			if index+1 < len(tokens) {
+				next := strings.ToLower(tokens[index+1].Text)
+				if next == "function" || next == "property" {
+					continue
+				}
+			}
 		case "static":
 			if index+1 < len(tokens) {
 				next := strings.ToLower(tokens[index+1].Text)
@@ -345,6 +396,8 @@ func (p *basicParser) scopeOpen(tokens []Token) (string, bool) {
 	}
 	if p.policy.pureBasic {
 		switch first {
+		case "declaremodule":
+			return "declaremodule", true
 		case "module":
 			return "module", true
 		case "structure":
@@ -385,6 +438,8 @@ func (p *basicParser) scopeClose(tokens []Token) string {
 	first := strings.ToLower(tokens[0].Text)
 	if p.policy.pureBasic {
 		switch first {
+		case "enddeclaremodule":
+			return "declaremodule"
 		case "endmodule":
 			return "module"
 		case "endstructure":
@@ -430,18 +485,54 @@ func (p *basicParser) parseDeclareLibraryBlock(index, end int, parent *SymbolPar
 }
 
 func (p *basicParser) parseVariableDeclaration(line basicLine, semantic int, first, scopeKind string, parent *SymbolParent) bool {
+	bareModuleVariable := false
 	if first != "dim" && first != "global" && first != "static" {
-		return false
+		if !p.policy.metadataModule || scopeKind != "" || semantic != 1 ||
+			!strings.EqualFold(line.tokens[0].Text, "public") && !strings.EqualFold(line.tokens[0].Text, "private") ||
+			line.tokens[semantic].Kind != TokenIdentifier || semantic+1 >= len(line.tokens) {
+			return false
+		}
+		// VB6/VBA module-level variables can omit Dim: Public Options As Config.
+		// Require declaration syntax to avoid treating an arbitrary statement as a variable.
+		separator := line.tokens[semantic+1].Text
+		if !strings.EqualFold(separator, "as") && separator != "=" && separator != "," && separator != "(" {
+			return false
+		}
+		bareModuleVariable = true
 	}
 	kind := SymbolKindVariable
 	if basicFieldScope(scopeKind) {
 		kind = SymbolKindField
 	}
 	nameIndex := semantic + 1
+	if bareModuleVariable {
+		nameIndex = semantic
+	}
 	if first == "dim" && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "shared") {
 		nameIndex++
 	}
-	p.addNamed(line, nameIndex, kind, "variable", parent)
+	if (p.policy.freeBasic || p.policy.lineNumbers) && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "as") {
+		nameIndex++
+		if p.policy.freeBasic && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "const") {
+			nameIndex++
+		}
+		if p.policy.lineNumbers && nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "_unsigned") {
+			nameIndex++
+		}
+		if nameIndex < len(line.tokens) {
+			nameIndex++ // Type-first DIM places the declared names after the type.
+		}
+		if p.policy.freeBasic {
+			for nameIndex < len(line.tokens) && strings.EqualFold(line.tokens[nameIndex].Text, "ptr") {
+				nameIndex++
+			}
+		}
+	}
+	if nameIndex < len(line.tokens) {
+		for _, part := range splitCommaTokenRangeAt(line.tokens, nameIndex, len(line.tokens), line.tokens[nameIndex].Nesting) {
+			p.addNamed(line, part[0], kind, "variable", parent)
+		}
+	}
 	return true
 }
 
@@ -469,7 +560,7 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 		if p.policy.metadataModule && first == "attribute" && len(tokens) >= 4 && strings.EqualFold(tokens[1].Text, "VB_Name") && tokens[2].Text == "=" && tokens[3].Kind == TokenString {
 			name := basicStringValue(tokens[3].Text)
 			if name != "" {
-				if symbol, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "vb-module", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tokens[1].StartOffset, End: tokens[1].EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
+				if symbol, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "vb-module", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tokens[3].StartOffset + 1, End: tokens[3].EndOffset - 1}, Evidence: SymbolEvidenceStructural}); ok {
 					v := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 					p.module = &v
 					currentParent = &v
@@ -489,7 +580,7 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 		}
 		first = strings.ToLower(tokens[semantic].Text)
 		if first == "declare" {
-			p.parseDeclare(line, currentParent)
+			p.parseDeclare(line, currentParent, scopeKind)
 			i++
 			continue
 		}
@@ -512,7 +603,11 @@ func (p *basicParser) parseRange(start, end int, parent *SymbolParent, scopeKind
 				_ = p.builder.AddDiagnostic(DiagnosticSpec{Code: p.policy.language + "-missing-end", Message: "declaration is missing its matching end", Severity: DiagnosticWarning, Range: &OffsetRange{Start: line.start, End: line.end}, AffectsCoverage: true})
 				close = end
 			}
-			symbol, added := p.addScopeSymbol(line, label, currentParent)
+			bodyEnd := line.end
+			if ok && close > i && close < len(p.lines) {
+				bodyEnd = p.lines[close].end
+			}
+			symbol, added := p.addScopeSymbol(line, label, currentParent, bodyEnd)
 			if !added {
 				i++
 				continue
@@ -554,7 +649,7 @@ func basicFieldScope(scopeKind string) bool {
 	}
 }
 
-func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *SymbolParent) (NormalizedSymbol, bool) {
+func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *SymbolParent, bodyEnd int) (NormalizedSymbol, bool) {
 	tokens := line.tokens
 	semantic := basicSemanticIndex(tokens)
 	if semantic < 0 {
@@ -565,7 +660,7 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 	native := label
 	if p.policy.pureBasic {
 		switch label {
-		case "module":
+		case "module", "declaremodule":
 			kind = SymbolKindModule
 		case "structure":
 			kind = SymbolKindStruct
@@ -594,7 +689,7 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 			}
 		}
 	}
-	if label == "property" && parent != nil {
+	if label == "property" && (parent != nil || p.policy.freeBasic) {
 		kind = SymbolKindProperty
 	}
 	if label == "constructor" {
@@ -607,7 +702,12 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 		kind = SymbolKindOperator
 	}
 	if label == "procedure" {
-		nameIndex = 1
+		nameIndex = semantic + 1
+		// PureBasic permits a return type between Procedure and its name.
+		if p.policy.pureBasic && nameIndex+2 < len(tokens) && tokens[nameIndex].Text == "." &&
+			(tokens[nameIndex+1].Kind == TokenIdentifier || tokens[nameIndex+1].Kind == TokenKeyword) {
+			nameIndex += 2
+		}
 	}
 	if label == "property" && nameIndex < len(tokens) {
 		switch strings.ToLower(tokens[nameIndex].Text) {
@@ -618,12 +718,40 @@ func (p *basicParser) addScopeSymbol(line basicLine, label string, parent *Symbo
 	if nameIndex >= len(tokens) {
 		return NormalizedSymbol{}, false
 	}
+	qualifiedName := ""
+	if p.policy.freeBasic && (label == "sub" || label == "function" || label == "property") {
+		firstName := nameIndex
+		for nameIndex+2 < len(tokens) && tokens[nameIndex+1].Text == "." &&
+			(tokens[nameIndex+2].Kind == TokenIdentifier || tokens[nameIndex+2].Kind == TokenKeyword) {
+			nameIndex += 2
+		}
+		if nameIndex > firstName {
+			parts := make([]string, 0, (nameIndex-firstName)/2+1)
+			for index := firstName; index <= nameIndex; index += 2 {
+				parts = append(parts, normalizeBasicName(tokens[index].Text, p.policy))
+			}
+			qualifiedName = strings.Join(parts, ".")
+		}
+	}
 	nameToken := tokens[nameIndex]
 	if nameToken.Kind != TokenIdentifier && nameToken.Kind != TokenKeyword {
 		return NormalizedSymbol{}, false
 	}
 	name := normalizeBasicName(nameToken.Text, p.policy)
-	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameToken.EndOffset}, Signature: &OffsetRange{Start: line.start, End: line.end}, Evidence: SymbolEvidenceStructural})
+	nameEnd := nameToken.EndOffset
+	if p.policy.language == "qbasic" && (label == "sub" || label == "function") {
+		name, nameEnd = p.directDottedName(tokens, nameIndex, true)
+	}
+	declarationEnd := line.end
+	var body *OffsetRange
+	if bodyEnd > line.end {
+		switch label {
+		case "sub", "function", "property", "procedure", "constructor", "destructor", "operator":
+			declarationEnd = bodyEnd
+			body = &OffsetRange{Start: line.end, End: bodyEnd}
+		}
+	}
+	return p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, QualifiedName: qualifiedName, Parent: parent, Declaration: OffsetRange{Start: line.start, End: declarationEnd}, NameRange: OffsetRange{Start: nameToken.StartOffset, End: nameEnd}, Signature: &OffsetRange{Start: line.start, End: line.end}, Body: body, Evidence: SymbolEvidenceStructural})
 }
 
 func (p *basicParser) parseDeclareLibraryPrototypes(start, end int, parent *SymbolParent) {
@@ -641,7 +769,7 @@ func (p *basicParser) parseDeclareLibraryPrototypes(start, end int, parent *Symb
 	}
 }
 
-func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent) {
+func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent, scopeKind string) {
 	if len(line.tokens) < 3 {
 		return
 	}
@@ -650,11 +778,30 @@ func (p *basicParser) parseDeclare(line basicLine, parent *SymbolParent) {
 		return
 	}
 	kindIndex := semantic + 1
+	if p.policy.pureBasic {
+		nameIndex := kindIndex
+		if nameIndex+2 < len(line.tokens) && line.tokens[nameIndex].Text == "." &&
+			(line.tokens[nameIndex+1].Kind == TokenIdentifier || line.tokens[nameIndex+1].Kind == TokenKeyword) {
+			nameIndex += 2
+		}
+		if nameIndex+1 < len(line.tokens) && line.tokens[nameIndex+1].Text == "(" {
+			p.addNamed(line, nameIndex, SymbolKindFunction, "declare-procedure", parent)
+		}
+		return
+	}
 	k := strings.ToLower(line.tokens[kindIndex].Text)
+	if k == "property" && p.policy.freeBasic {
+		p.addNamed(line, kindIndex+1, SymbolKindProperty, "declare-property", parent)
+		return
+	}
 	if k != "sub" && k != "function" {
 		return
 	}
-	p.addNamed(line, kindIndex+1, SymbolKindFunction, "declare-"+k, parent)
+	kind := SymbolKindFunction
+	if p.policy.freeBasic && basicFieldScope(scopeKind) {
+		kind = SymbolKindMethod
+	}
+	p.addNamed(line, kindIndex+1, kind, "declare-"+k, parent)
 }
 func (p *basicParser) parseDef(line basicLine, parent *SymbolParent) {
 	if len(line.tokens) < 2 {
@@ -662,6 +809,10 @@ func (p *basicParser) parseDef(line basicLine, parent *SymbolParent) {
 	}
 	semantic := basicSemanticIndex(line.tokens)
 	if semantic < 0 || semantic+1 >= len(line.tokens) {
+		return
+	}
+	name := line.tokens[semantic+1].Text
+	if len(name) <= 2 || !strings.EqualFold(name[:2], "fn") {
 		return
 	}
 	p.addNamed(line, semantic+1, SymbolKindFunction, "def-fn", parent)
@@ -674,8 +825,37 @@ func (p *basicParser) addNamed(line basicLine, index int, kind SymbolKind, nativ
 	if tok.Kind != TokenIdentifier && tok.Kind != TokenKeyword {
 		return
 	}
-	name := normalizeBasicName(tok.Text, p.policy)
-	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
+	name := tok.Text
+	nameEnd := tok.EndOffset
+	if p.policy.language == "qbasic" && (native == "const" || strings.HasPrefix(native, "declare-")) {
+		name, nameEnd = p.directDottedName(line.tokens, index, kind != SymbolKindConstant)
+	}
+	// Variable type suffixes distinguish BASIC identifiers; callable suffixes keep legacy normalization.
+	if kind != SymbolKindVariable && kind != SymbolKindField && kind != SymbolKindConstant {
+		name = normalizeBasicName(name, p.policy)
+	}
+	p.add(SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.start, End: line.end}, NameRange: OffsetRange{Start: tok.StartOffset, End: nameEnd}, Evidence: SymbolEvidenceStructural})
+}
+
+// Only directly authored declaration names may contain contiguous dotted parts.
+// Keep the scanner's token and statement boundaries intact for other BASIC dialects.
+func (p *basicParser) directDottedName(tokens []Token, index int, trimSuffix bool) (string, int) {
+	first := tokens[index]
+	end := first.EndOffset
+	for index+2 < len(tokens) {
+		dot, next := tokens[index+1], tokens[index+2]
+		if dot.Text != "." || dot.StartOffset != end || next.StartOffset != dot.EndOffset ||
+			(next.Kind != TokenIdentifier && next.Kind != TokenKeyword) || next.Nesting != first.Nesting {
+			break
+		}
+		end = next.EndOffset
+		index += 2
+	}
+	name := p.document.Text[first.StartOffset:end]
+	if trimSuffix {
+		name = normalizeBasicName(name, p.policy)
+	}
+	return name, end
 }
 func (p *basicParser) addTypeField(line basicLine, parent *SymbolParent) bool {
 	if len(line.tokens) == 0 {
@@ -718,10 +898,11 @@ func (p *basicParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 
 func normalizeBasicName(value string, policy basicDialectPolicy) string {
 	if policy.lineNumbers {
-		value = strings.TrimRight(value, "$%&!#")
+		return strings.TrimRight(value, "$%&!#")
 	}
 	return value
 }
+
 func basicStringValue(value string) string {
 	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
 		return strings.ReplaceAll(value[1:len(value)-1], "\"\"", "\"")

@@ -2,7 +2,9 @@ package sourceintelligence
 
 import (
 	"context"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -210,6 +212,11 @@ func handleMATLABLikeControlScope(
 		return appendMATLABLikeOpenScopes(scopes, first, tokens, octave), true
 	case "arguments":
 		if !octave {
+			scopes = appendMATLABLikeOpenScopes(scopes, first, tokens, false)
+		}
+		return scopes, true
+	case "enumeration":
+		if !octave && len(scopes) > 0 && scopes[len(scopes)-1].label == "class" {
 			scopes = appendMATLABLikeOpenScopes(scopes, first, tokens, false)
 		}
 		return scopes, true
@@ -443,6 +450,11 @@ func matlabLikeUsesImplicitFunctionBoundaries(lines []LogicalLine, octave bool) 
 				scopes = append(scopes, first)
 				scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, false)...)
 			}
+		case "enumeration":
+			if !octave && len(scopes) > 0 && scopes[len(scopes)-1] == "class" && !matlabLikeLineClosesOwnScope(line.Tokens, false) {
+				scopes = append(scopes, first)
+				scopes = append(scopes, matlabLikeUnclosedTrailingScopes(line.Tokens, false)...)
+			}
 		case "unwind_protect":
 			if octave && !matlabLikeLineClosesOwnScope(line.Tokens, true) {
 				scopes = append(scopes, first)
@@ -470,7 +482,7 @@ func matlabLikeScopeOpeningLine(keyword string, octave bool) bool {
 	switch keyword {
 	case "classdef", "function", "methods", "properties", "if", "for", "while", "switch", "try", "parfor", "spmd":
 		return true
-	case "arguments":
+	case "arguments", "enumeration":
 		return !octave
 	case "unwind_protect":
 		return octave
@@ -628,7 +640,7 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	applyStructuralScanDiagnostics(builder, scan, "julia")
 	dependencies := []StructuralDependency{}
 	var scopes []structuralAnalyzerScope
-	for _, line := range lines {
+	for lineIndex, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
 		}
@@ -646,6 +658,12 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			if len(scopes) > 0 {
 				scopes = scopes[:len(scopes)-1]
 			}
+			continue
+		}
+		if juliaMacroWrappedFunctionOpensScope(line.Tokens) {
+			// Macro-generated callables are not indexed; their matching
+			// end must not close the enclosing named module.
+			scopes = append(scopes, structuralAnalyzerScope{label: "macro-function"})
 			continue
 		}
 		parent := parentFromStructuralScopes(scopes)
@@ -676,9 +694,10 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		case "function", "macro":
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
-				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
-					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				if !juliaLineClosesOwnScope(line.Tokens, nameIndex+1) {
+				name, nameRange, afterName := juliaCallableName(line.Tokens, nameIndex)
+				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: name, Parent: parent,
+					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				if !juliaLineClosesOwnScope(line.Tokens, afterName) {
 					scope := structuralAnalyzerScope{label: "function"}
 					if ok {
 						scope.parent = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
@@ -687,10 +706,14 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 				}
 			}
 		default:
-			if line.Tokens[0].Kind == TokenIdentifier && juliaCompactFunction(line.Tokens) {
-				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "compact-function", Name: line.Tokens[0].Text, Parent: parent,
-					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				continue
+			if line.Tokens[0].Kind == TokenIdentifier {
+				name, nameRange, afterName := juliaCallableName(line.Tokens, 0)
+				if juliaCompactFunctionAt(line.Tokens, afterName) {
+					end := juliaCompactContinuationEnd(document, lines, lineIndex)
+					addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "compact-function", Name: name, Parent: parent,
+						Declaration: OffsetRange{Start: line.StartOffset, End: end}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: end}, Evidence: SymbolEvidenceStructural})
+					continue
+				}
 			}
 			if first == "if" || first == "for" || first == "while" || first == "begin" || first == "let" || first == "try" || first == "quote" {
 				if !juliaLineClosesOwnScope(line.Tokens, 1) {
@@ -701,6 +724,60 @@ func (JuliaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	}
 	markUnclosedStructuralScopes(builder, "julia", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// Macro-prefixed block functions own an anonymous lexical frame. Inline
+// functions and compact macro invocations do not consume a later 'end'.
+func juliaMacroWrappedFunctionOpensScope(tokens []Token) bool {
+	if len(tokens) < 4 || tokens[0].Text != "@" {
+		return false
+	}
+	base, at := tokens[0].Nesting, 0
+	for at+1 < len(tokens) && tokens[at].Text == "@" &&
+		tokens[at].Nesting == base && tokens[at+1].Kind == TokenIdentifier &&
+		tokens[at+1].Nesting == base {
+		at += 2
+	}
+	return at > 0 && at < len(tokens) && tokens[at].Nesting == base &&
+		strings.EqualFold(tokens[at].Text, "function") &&
+		!juliaLineClosesOwnScope(tokens, at+1)
+}
+
+// Extend a compact function ending in '=' by at most one indented source line.
+// Never consume a separately authored declaration or block opener.
+func juliaCompactContinuationEnd(document *SourceDocument, lines []LogicalLine, index int) int {
+	line := lines[index]
+	if len(line.Tokens) == 0 || index+1 >= len(lines) {
+		return line.EndOffset
+	}
+	last := line.Tokens[len(line.Tokens)-1]
+	if last.Text != "=" || last.Nesting != line.Tokens[0].Nesting {
+		return line.EndOffset
+	}
+	next := lines[index+1]
+	if len(next.Tokens) == 0 {
+		return line.EndOffset
+	}
+	start, err := document.PositionAtUTF8Offset(line.StartOffset)
+	if err != nil {
+		return line.EndOffset
+	}
+	following, err := document.PositionAtUTF8Offset(next.StartOffset)
+	if err != nil || following.Line <= start.Line || following.Column <= start.Column {
+		return line.EndOffset
+	}
+	switch strings.ToLower(next.Tokens[0].Text) {
+	case "module", "baremodule", "struct", "mutable", "function", "macro",
+		"end", "using", "import", "if", "for", "while", "let", "begin", "try", "quote":
+		return line.EndOffset
+	}
+	if next.Tokens[0].Kind == TokenIdentifier {
+		_, _, after := juliaCallableName(next.Tokens, 0)
+		if juliaCompactFunctionAt(next.Tokens, after) {
+			return line.EndOffset
+		}
+	}
+	return next.EndOffset
 }
 
 func juliaLineClosesOwnScope(tokens []Token, bodyStart int) bool {
@@ -745,13 +822,23 @@ func juliaInlineBlockOpener(tokens []Token, index, base int) bool {
 	}
 }
 
-func juliaCompactFunction(tokens []Token) bool {
-	if len(tokens) < 4 || tokens[1].Text != "(" {
+func juliaCallableName(tokens []Token, start int) (string, OffsetRange, int) {
+	name := tokens[start].Text
+	last := start
+	for last+2 < len(tokens) && tokens[last+1].Text == "." && tokens[last+2].Kind == TokenIdentifier {
+		name += "." + tokens[last+2].Text
+		last += 2
+	}
+	return name, OffsetRange{Start: tokens[start].StartOffset, End: tokens[last].EndOffset}, last + 1
+}
+
+func juliaCompactFunctionAt(tokens []Token, paren int) bool {
+	if paren < 0 || paren >= len(tokens) || tokens[paren].Text != "(" {
 		return false
 	}
 	pairs := PairDelimiterTokens(tokens, nil)
-	close := pairs[1]
-	return close > 1 && close+1 < len(tokens) && tokens[close+1].Text == "="
+	close := pairs[paren]
+	return close > paren && close+1 < len(tokens) && tokens[close+1].Text == "="
 }
 
 func addJuliaType(builder *SymbolBuilder, line LogicalLine, parent *SymbolParent, mutable bool, scopes *[]structuralAnalyzerScope) {
@@ -1001,6 +1088,7 @@ func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 	}
 	applyStructuralScanDiagnostics(builder, scan, "r")
 	dependencies := []StructuralDependency{}
+	tokenCursor := 0
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
@@ -1022,13 +1110,98 @@ func (RAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options 
 				break
 			}
 		}
-		if assignment < 0 || tokenIndexEqualFold(line.Tokens, "function", assignment+1) < 0 {
+		if assignment < 0 {
 			continue
 		}
+		functionIndex := tokenIndexEqualFold(line.Tokens, "function", assignment+1)
+		if functionIndex < 0 {
+			continue
+		}
+		declarationEnd, signatureEnd := line.EndOffset, line.EndOffset
+		for tokenCursor < len(scan.Tokens) && scan.Tokens[tokenCursor].StartOffset < line.Tokens[functionIndex].StartOffset {
+			tokenCursor++
+		}
+		if tokenCursor < len(scan.Tokens) {
+			if end, signature, braced, incomplete := rBracedFunctionRanges(scan.Tokens[tokenCursor:]); braced {
+				declarationEnd, signatureEnd = end, signature
+			} else if incomplete {
+				builder.MarkIncomplete()
+				value := OffsetRange{Start: line.StartOffset, End: line.EndOffset}
+				_ = builder.AddDiagnostic(DiagnosticSpec{
+					Code: "r-incomplete-function-range", Message: "R function range could not be proven within the bounded token scan",
+					Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true,
+				})
+			}
+		}
 		addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "assigned-function", Name: line.Tokens[0].Text,
-			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+			Declaration: OffsetRange{Start: line.StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset},
+			Signature: &OffsetRange{Start: line.StartOffset, End: signatureEnd}, Evidence: SymbolEvidenceStructural})
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// rBracedFunctionRanges uses scanner-owned tokens so comments and quoted braces
+// cannot terminate a function. Non-braced R expressions retain legacy ranges.
+func rBracedFunctionRanges(tokens []Token) (end, signatureEnd int, braced, incomplete bool) {
+	if len(tokens) == 0 || tokens[0].Text != "function" {
+		return 0, 0, false, true
+	}
+	const maxFunctionBytes = 64 << 10
+	limit := tokens[0].StartOffset + maxFunctionBytes
+	open := rNextSignificantToken(tokens, 1)
+	if open < 0 || tokens[open].Text != "(" {
+		return 0, 0, false, true
+	}
+	close := rMatchingToken(tokens, open, "(", ")", limit)
+	if close < 0 {
+		return 0, 0, false, true
+	}
+	body := rNextSignificantToken(tokens, close+1)
+	if body < 0 {
+		return 0, 0, false, true
+	}
+	if tokens[body].Text != "{" {
+		return 0, 0, false, false
+	}
+	closingBrace := rMatchingToken(tokens, body, "{", "}", limit)
+	if closingBrace < 0 {
+		return 0, 0, false, true
+	}
+	return tokens[closingBrace].EndOffset, tokens[body].EndOffset, true, false
+}
+
+func rNextSignificantToken(tokens []Token, from int) int {
+	for index := from; index < len(tokens); index++ {
+		switch tokens[index].Kind {
+		case TokenNewline, TokenIndent, TokenDedent:
+			continue
+		case TokenEOF:
+			return -1
+		default:
+			return index
+		}
+	}
+	return -1
+}
+
+func rMatchingToken(tokens []Token, from int, opening, closing string, limit int) int {
+	depth := 0
+	for index := from; index < len(tokens); index++ {
+		token := tokens[index]
+		if token.Kind == TokenEOF || token.EndOffset > limit {
+			return -1
+		}
+		switch token.Text {
+		case opening:
+			depth++
+		case closing:
+			depth--
+			if depth == 0 {
+				return index
+			}
+		}
+	}
+	return -1
 }
 
 func rStaticPackageArgument(tokens []Token) (int, string, bool) {
@@ -1080,13 +1253,53 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 	applyStructuralScanDiagnostics(builder, scan, "haskell")
 	dependencies := []StructuralDependency{}
 	var module *SymbolParent
-	seenFunctions := make(map[string]struct{})
+	// Preserve independent declarations from mutually exclusive CPP branches.
+	seenFunctions := make(map[string]map[string]struct{})
+	cppEvents := haskellCPPBranchEvents(scanDocument.Text)
+	cppEventIndex := 0
+	cppScope := ""
+	// Module-level bindings share one layout column. Class and instance members
+	// use a deeper column and are handled separately below.
+	moduleIndent := -1
 	for _, line := range lines {
+		if len(line.Tokens) == 0 || !haskellDeclarationCandidate(line) {
+			continue
+		}
+		indent := haskellLineIndent(scanDocument.Text, line.StartOffset)
+		if indent >= 0 && (moduleIndent < 0 || indent < moduleIndent) {
+			moduleIndent = indent
+		}
+	}
+	memberOwnerIndent, memberIndent := -1, -1
+	memberScope := ""
+	for _, line := range lines {
+		for cppEventIndex < len(cppEvents) && cppEvents[cppEventIndex].offset <= line.StartOffset {
+			cppScope = cppEvents[cppEventIndex].scope
+			cppEventIndex++
+		}
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		// CPP directives do not close the surrounding Haskell layout block.
+		if haskellCPPDirectiveAt(scanDocument.Text, line.StartOffset) {
+			continue
+		}
+		indent := haskellLineIndent(scanDocument.Text, line.StartOffset)
+		if memberOwnerIndent >= 0 && indent <= memberOwnerIndent {
+			memberOwnerIndent, memberIndent = -1, -1
+			memberScope = ""
+		}
+		if (first == "class" || first == "instance") && indent == moduleIndent {
+			memberOwnerIndent, memberIndent = indent, -1
+			memberScope = strconv.Itoa(line.StartOffset)
+		}
 		if first == "module" {
+			// A module may reexport other modules in its export list; only the
+			// first module header declares this source file's own module.
+			if module != nil {
+				continue
+			}
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
 				symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: line.Tokens[nameIndex].Text,
@@ -1105,6 +1318,19 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 			}
 			continue
 		}
+		if indent < 0 || first == "let" || first == "where" || first == "instance" || !haskellDeclarationCandidate(line) {
+			continue
+		}
+		if indent != moduleIndent {
+			if memberOwnerIndent < 0 || indent <= memberOwnerIndent {
+				continue
+			}
+			if memberIndent < 0 {
+				memberIndent = indent
+			} else if indent != memberIndent {
+				continue
+			}
+		}
 		if first == "data" || first == "newtype" || first == "type" || first == "class" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
@@ -1119,18 +1345,26 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 		}
 		if line.Tokens[0].Kind == TokenIdentifier && hasDoubleColon(line.Tokens, 1) {
 			name := line.Tokens[0].Text
-			if _, exists := seenFunctions[name]; !exists {
+			seenName := name
+			if indent != moduleIndent {
+				seenName += "\x00" + memberScope
+			}
+			if !haskellSeenInCPPAncestor(seenFunctions, seenName, cppScope) {
 				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "type-signature", Name: name, Parent: module,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-				seenFunctions[name] = struct{}{}
+				haskellRememberCPPBinding(seenFunctions, seenName, cppScope)
 			}
 			continue
 		}
-		if line.Tokens[0].Kind == TokenIdentifier {
+		if line.Tokens[0].Kind == TokenIdentifier && haskellValueBinderName(line.Tokens[0].Text) {
 			equals := tokenIndexEqualFold(line.Tokens, "=", 1)
 			if equals > 0 {
 				name := line.Tokens[0].Text
-				if _, exists := seenFunctions[name]; !exists {
+				seenName := name
+				if indent != moduleIndent {
+					seenName += "\x00" + memberScope
+				}
+				if !haskellSeenInCPPAncestor(seenFunctions, seenName, cppScope) {
 					kind := SymbolKindVariable
 					native := "value-binding"
 					if equals > 1 {
@@ -1139,12 +1373,53 @@ func (HaskellAnalyzer) Analyze(ctx context.Context, document *SourceDocument, op
 					}
 					addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: module,
 						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[0].StartOffset, End: line.Tokens[0].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-					seenFunctions[name] = struct{}{}
+					haskellRememberCPPBinding(seenFunctions, seenName, cppScope)
 				}
 			}
 		}
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+func haskellDeclarationCandidate(line LogicalLine) bool {
+	first := strings.ToLower(line.Tokens[0].Text)
+	switch first {
+	case "let", "where", "do", "of", "in", "module", "import":
+		return false
+	case "data", "newtype", "type", "class", "instance":
+		return true
+	}
+	return line.Tokens[0].Kind == TokenIdentifier && haskellValueBinderName(line.Tokens[0].Text) &&
+		(hasDoubleColon(line.Tokens, 1) || tokenIndexEqualFold(line.Tokens, "=", 1) > 0)
+}
+
+func haskellValueBinderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	first, _ := utf8.DecodeRuneInString(name)
+	return first == '_' || unicode.IsLower(first)
+}
+
+// haskellLineIndent returns a layout column without allocating per-line text.
+// Lines starting after non-whitespace source are not standalone declarations.
+func haskellLineIndent(text string, offset int) int {
+	if offset < 0 || offset > len(text) {
+		return -1
+	}
+	start := strings.LastIndexAny(text[:offset], "\r\n") + 1
+	column := 0
+	for i := start; i < offset; i++ {
+		switch text[i] {
+		case ' ':
+			column++
+		case '\t':
+			column = (column/8 + 1) * 8
+		default:
+			return -1
+		}
+	}
+	return column
 }
 
 func maskHaskellQuasiQuotes(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
@@ -1223,6 +1498,60 @@ func hasDoubleColon(tokens []Token, start int) bool {
 	return false
 }
 
+// ocamlIndentedContinuationEnd extends a directly authored let binding only over
+// consecutive more-indented physical lines. OCaml indentation is not a grammar:
+// ambiguous unindented continuations retain the conservative header-only range.
+func ocamlIndentedContinuationEnd(source string, headerStart, headerEnd int) (end int, incomplete bool) {
+	const maxBytes = 64 << 10
+	const maxLines = 1024
+	if headerStart < 0 || headerEnd < headerStart || headerEnd > len(source) {
+		return headerEnd, true
+	}
+	limit := min(len(source), headerStart+maxBytes)
+	if headerEnd > limit {
+		return headerEnd, true
+	}
+	lineStart := strings.LastIndexByte(source[:headerStart], '\n') + 1
+	baseIndent := headerStart - lineStart
+	end = headerEnd
+	cursor := headerEnd
+	for lineCount := 0; lineCount < maxLines; lineCount++ {
+		newline := strings.IndexByte(source[cursor:limit], '\n')
+		if newline < 0 {
+			return end, limit < len(source)
+		}
+		start := cursor + newline + 1
+		if start >= len(source) {
+			return end, false
+		}
+		lineEnd := strings.IndexByte(source[start:limit], '\n')
+		if lineEnd < 0 {
+			if limit < len(source) {
+				return headerEnd, true
+			}
+			lineEnd = len(source) - start
+		}
+		raw := source[start : start+lineEnd]
+		trimmed := strings.TrimRight(raw, " \t\r")
+		if len(trimmed) == 0 {
+			return end, false
+		}
+		indent := 0
+		for indent < len(trimmed) && (trimmed[indent] == ' ' || trimmed[indent] == '\t') {
+			indent++
+		}
+		if indent <= baseIndent {
+			return end, false
+		}
+		end = start + len(trimmed)
+		cursor = start + lineEnd
+		if cursor >= len(source) {
+			return end, false
+		}
+	}
+	return headerEnd, true
+}
+
 func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
 	builder, err := newStructuralAnalyzerBuilder(ctx, document, options, "ocaml", AnalyzerOCaml)
 	if err != nil {
@@ -1239,11 +1568,29 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 	applyStructuralScanDiagnostics(builder, scan, "ocaml")
 	dependencies := []StructuralDependency{}
 	var scopes []structuralAnalyzerScope
+	declarationGroup := ""
 	for _, line := range lines {
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		atColumnZero := line.StartOffset == 0 || document.Text[line.StartOffset-1] == '\n'
+		if atColumnZero {
+			switch first {
+			case "let", "type":
+				declarationGroup = first
+			case "and":
+				// Continue only a known root binding group; never infer a free-standing declaration.
+				if declarationGroup == "" {
+					continue
+				}
+				first = declarationGroup
+			case "module", "class", "open", "include", "end", "exception", "external", "val":
+				declarationGroup = ""
+			}
+		} else if first == "and" {
+			continue
+		}
 		if first == "open" || first == "include" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
 			if nameIndex >= 0 {
@@ -1270,6 +1617,10 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 		case "type":
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
+			for nameIndex > 0 && line.Tokens[nameIndex-1].Text == "'" {
+				// OCaml type variables precede the declared type, including in tuples.
+				nameIndex = firstIdentifierToken(line.Tokens, nameIndex+1)
+			}
 			if nameIndex >= 0 {
 				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: line.Tokens[nameIndex].Text, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
@@ -1287,15 +1638,51 @@ func (OCamlAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			}
 			nameIndex := firstIdentifierToken(line.Tokens, start)
 			if nameIndex >= 0 {
+				name := line.Tokens[nameIndex].Text
+				nameRange := OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}
+				bindingEnd := nameIndex
+				if start < len(line.Tokens) && line.Tokens[start].Text == "(" {
+					for index := start + 1; index < len(line.Tokens); index++ {
+						if line.Tokens[index].Text != ")" {
+							continue
+						}
+						openEnd, closeStart := line.Tokens[start].EndOffset, line.Tokens[index].StartOffset
+						if openEnd <= closeStart && closeStart <= len(document.Text) {
+							raw := document.Text[openEnd:closeStart]
+							candidate := strings.TrimSpace(raw)
+							switch candidate {
+							case "let*", "let+", "and*", "and+":
+								name = candidate
+								nameRange.Start = openEnd + strings.Index(raw, candidate)
+								nameRange.End = nameRange.Start + len(candidate)
+								bindingEnd = index
+							}
+						}
+						break
+					}
+				}
 				kind := SymbolKindVariable
 				native := "value-binding"
-				equals := tokenIndexEqualFold(line.Tokens, "=", nameIndex+1)
-				if equals > nameIndex+1 && line.Tokens[nameIndex+1].Text != ":" || tokenIndexEqualFold(line.Tokens, "fun", nameIndex+1) >= 0 || tokenIndexEqualFold(line.Tokens, "function", nameIndex+1) >= 0 {
+				equals := tokenIndexEqualFold(line.Tokens, "=", bindingEnd+1)
+				if equals > bindingEnd+1 && line.Tokens[bindingEnd+1].Text != ":" || tokenIndexEqualFold(line.Tokens, "fun", bindingEnd+1) >= 0 || tokenIndexEqualFold(line.Tokens, "function", bindingEnd+1) >= 0 {
 					kind = SymbolKindFunction
 					native = "function-binding"
 				}
-				addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: line.Tokens[nameIndex].Text, Parent: parent,
-					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				declarationEnd := line.EndOffset
+				if equals >= 0 {
+					if extendedEnd, incomplete := ocamlIndentedContinuationEnd(document.Text, line.StartOffset, line.EndOffset); incomplete {
+						builder.MarkIncomplete()
+						span := OffsetRange{Start: line.StartOffset, End: line.EndOffset}
+						_ = builder.AddDiagnostic(DiagnosticSpec{
+							Code: "ocaml-incomplete-let-range", Message: "OCaml let continuation exceeds its bounded source scan",
+							Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+						})
+					} else {
+						declarationEnd = extendedEnd
+					}
+				}
+				addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: native, Name: name, Parent: parent,
+					Declaration: OffsetRange{Start: line.StartOffset, End: declarationEnd}, NameRange: nameRange, Signature: &OffsetRange{Start: line.StartOffset, End: declarationEnd}, Evidence: SymbolEvidenceStructural})
 			}
 		}
 	}

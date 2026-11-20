@@ -1,8 +1,8 @@
-# Markdown / Document Intelligence (R30)
+# Markdown Document Intelligence
 
 ## Status and authority
 
-Scripthold can inspect Markdown structure and make controlled, source-preserving edits. The four Markdown-specific MCP tools and the shared 4.0 confirmation tool support a read–preview–apply workflow (3.3.6 still uses `markdown_apply`):
+Scripthold can inspect Markdown structure and make controlled, source-preserving edits. In 4.0 and later, the four Markdown-specific MCP tools and the shared confirmation tool support a read–preview–apply workflow:
 
 | Task | Tool |
 |---|---|
@@ -36,7 +36,7 @@ Unsupported operations fail safely rather than being emulated with regular expre
 2. Marksplice receives one immutable BOM-free UTF-8 byte snapshot containing the source's exact decoded line endings.
 3. Marksplice failures are fail-closed. Scripthold never retries a rejected operation through regexes, generic text replacement, or hand-written Markdown rules.
 4. Existing-document mutations are prepared by Marksplice `ChangeSet` values and are revalidated against the exact approved snapshot before physical mutation.
-5. `confirm_verified_operation` accepts only `previewId`. Mutation parameters cannot be supplied or changed at apply time.
+5. `confirm_verified_operation` requires `previewId` and optionally accepts a descriptive `note` (at most 256 UTF-8 bytes). Mutation parameters cannot be supplied or changed at apply time.
 6. Unrelated authored source and line endings must remain unchanged. If Scripthold cannot prove that the encoding path can reproduce the untouched physical representation safely, mutation is rejected rather than silently re-encoding the document.
 7. Canonical Markdown generation is an explicit export/generation path and is never substituted for source-preserving editing.
 8. Marksplice `NodeID` values are snapshot-local implementation identities. They are never exposed as durable public identities.
@@ -78,7 +78,7 @@ The mapping below covers the public non-rendering v1.2.0 API. Optional third-par
 
 `markdown_edit` always prepares a preview. It never writes a file directly. A request contains one authorized document target and one or more declarative operations evaluated against the same immutable source snapshot. Independent prepared changes are combined with `Document.ComposeChanges`; overlap or semantic interaction rejected by Marksplice rejects the entire preview.
 
-The table below is the R30 target mapping, not a claim that every Marksplice preparation API is registered publicly. The exact currently exposed operation forms are authoritative in [`TOOLS.md`](../TOOLS.md) and the runtime schema. Table content/row/column editing remains planned; alignment-only table mutation is exposed because it changes only Marksplice-owned delimiter syntax. Existing-document targetless construction remains limited to the closed `create/*` edit forms described below, while complete new-document construction is exposed separately through `markdown_create`.
+The table below identifies the Marksplice preparation APIs behind the Markdown editing model; **it is not a list of registered public operations**. The authoritative supported operation forms are in [`TOOLS.md`](../TOOLS.md#markdown_edit) and the runtime schema. Table content/row/column editing remains unavailable; alignment-only table mutation is supported because it changes Marksplice-owned delimiter syntax. Existing-document targetless construction is limited to the closed `create/*` edit forms described below, while complete new-document construction uses `markdown_create`.
 
 Existing-document operation mapping:
 
@@ -143,8 +143,8 @@ Workspace cardinality has dedicated Scripthold policy rather than borrowing batc
 | `Workspace.Validate` / `ValidateWorkspace` | `validate` |
 | Workspace diagnostics | `validate` structured diagnostics: missing/ambiguous/invalid fragment, missing document, unresolved reference, orphan document, plus stale/unrecognized generated indexes for explicitly managed TOCs |
 | `WorkspaceRepairPlan` / `WorkspaceRepair.Change` | Repair count/document projection from `validate`; bounded source-bound `repairPreview` capabilities whose internal `ChangeSet` values are never exposed |
-| `BuildKnowledgeIndex` | Deferred; not exposed by the initial read-only workspace registration |
-| Knowledge aliases/tags/references/related/reachable queries | Deferred; not exposed by the initial read-only workspace registration |
+| `BuildKnowledgeIndex` | Deferred; not exposed by the current workspace tool |
+| Knowledge aliases/tags/references/related/reachable queries | Deferred; not exposed by the current workspace tool |
 
 R30 does not invent repair heuristics. Workspace repair planning is limited to repairs produced by Marksplice's conservative repair plan, currently explicitly managed TOC synchronization. The caller names each managed TOC by document key and fragment; Scripthold accepts it only when Marksplice resolves that fragment uniquely to a heading. `repairPreview` must expose every affected target and rejects rather than truncates an approvable plan; zero repairs return no token. `markdown_workspace` never writes files directly: the returned capability is consumed only by `confirm_verified_operation`, which revalidates all targets and reports committed/unchanged/unknown state without automatic rollback.
 
@@ -154,11 +154,12 @@ Input schema is intentionally closed:
 
 ```json
 {
-  "previewId": "<64 lowercase hexadecimal characters>"
+  "previewId": "<64 lowercase hexadecimal characters>",
+  "note": "Optional approval note"
 }
 ```
 
-Unknown fields are rejected. A preview token is one-shot, process-local, bounded, expires, and becomes invalid after process restart. Applying a preview performs cancellation checks, path reauthorization, target-type checks, source fingerprint revalidation, exact decode/BOM revalidation, Marksplice `ChangeSet.Apply` source-snapshot verification, backup policy enforcement, staging, durable replacement, and truthful post-write state reporting.
+Only `previewId` is required. The optional `note` must be valid UTF-8 and no longer than 256 bytes; it does not affect approval, routing or the mutation. All other fields are rejected. A preview token is one-shot, process-local, bounded, expires, and becomes invalid after process restart. Applying a preview performs cancellation checks, path reauthorization, target-type checks, source fingerprint revalidation, exact decode/BOM revalidation, Marksplice `ChangeSet.Apply` source-snapshot verification, backup policy enforcement, staging, durable replacement, and truthful post-write state reporting.
 
 ## Public schema model
 
@@ -331,7 +332,7 @@ Preview replay, expired tokens, evicted tokens, restart-invalidated tokens, conc
 
 ## Test strategy
 
-R30 is implemented incrementally with focused failing tests before each behavior where practical.
+The following areas define regression coverage for the implemented Markdown tools. Run the relevant focused checks when behavior changes; passing one check does not establish that every listed scenario was executed in the current session.
 
 ### Authority and regression tests
 
@@ -367,7 +368,7 @@ R30 is implemented incrementally with focused failing tests before each behavior
 
 ### Apply lifecycle tests
 
-- apply schema accepts only `previewId` and rejects unknown/mutation fields;
+- apply schema requires `previewId`, permits only an optional bounded `note`, and rejects unknown/mutation fields;
 - stale source, path replacement, authorization change, expiry, eviction, restart, replay, concurrent double apply;
 - cancellation before destructive work;
 - read-only targets/force-writable policy where explicitly supported;

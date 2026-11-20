@@ -109,20 +109,21 @@ type SymbolParent struct {
 
 // SymbolSpec is the analyzer-facing language-neutral declaration input.
 type SymbolSpec struct {
-	Kind          SymbolKind
-	NativeKind    string
-	Name          string
-	QualifiedName string
-	Parent        *SymbolParent
-	RegionID      string
-	Declaration   OffsetRange
-	NameRange     OffsetRange
-	Signature     *OffsetRange
-	Body          *OffsetRange
-	Visibility    Visibility
-	Modifiers     []string
-	Evidence      SymbolEvidence
-	Disambiguator string
+	Kind             SymbolKind
+	NativeKind       string
+	Name             string
+	QualifiedName    string
+	Parent           *SymbolParent
+	RegionID         string
+	Declaration      OffsetRange
+	NameRange        OffsetRange
+	Signature        *OffsetRange
+	Body             *OffsetRange
+	Visibility       Visibility
+	Modifiers        []string
+	Evidence         SymbolEvidence
+	Disambiguator    string
+	cppDeclaratorKey string
 }
 
 // NormalizedSymbol is the shared language-neutral symbol IR. Raw parser/AST types never escape
@@ -150,9 +151,18 @@ type NormalizedSymbol struct {
 
 	declarationOffsets OffsetRange
 	nameOffsets        OffsetRange
+	sourceSpelling     string
 	signatureOffsets   *OffsetRange
 	bodyOffsets        *OffsetRange
 	signatureTruncated bool
+	cppDeclaratorKey   string
+}
+
+// MatchesOriginalName recognizes the exact source spelling of a callable whose
+// BASIC type suffix is intentionally omitted from its normalized symbol name.
+// This alias stays internal and never changes the published symbol identity.
+func (symbol NormalizedSymbol) MatchesOriginalName(query string) bool {
+	return symbol.sourceSpelling != "" && symbol.sourceSpelling == query
 }
 
 // SourceOffsets exposes decoded-text UTF-8 offsets only to in-module internal
@@ -517,6 +527,15 @@ func (builder *SymbolBuilder) normalizeSymbol(spec SymbolSpec) (NormalizedSymbol
 		Analyzer:            builder.options.Analyzer,
 		declarationOffsets:  spec.Declaration,
 		nameOffsets:         spec.NameRange,
+		cppDeclaratorKey:    spec.cppDeclaratorKey,
+	}
+	if (builder.options.Language == "qbasic" || builder.options.Language == "classic-basic") && spec.Kind == SymbolKindFunction {
+		original := builder.document.Text[spec.NameRange.Start:spec.NameRange.End]
+		// A source-only alias preserves the true typed name without changing IDs.
+		// Keep retained aliases bounded by the maximum public search query size.
+		if original != name && len(original) <= 2048 {
+			normalized.sourceSpelling = strings.Clone(original)
+		}
 	}
 	if spec.Signature != nil {
 		publicRange, rangeErr := builder.normalizeOptionalRange("signature", *spec.Signature, spec.Declaration, declarationRange)
@@ -787,6 +806,18 @@ func sortNormalizedSymbols(symbols []NormalizedSymbol) {
 			return -1
 		}
 		if left.declarationOffsets.End > right.declarationOffsets.End {
+			return 1
+		}
+		if left.nameOffsets.Start < right.nameOffsets.Start {
+			return -1
+		}
+		if left.nameOffsets.Start > right.nameOffsets.Start {
+			return 1
+		}
+		if left.nameOffsets.End < right.nameOffsets.End {
+			return -1
+		}
+		if left.nameOffsets.End > right.nameOffsets.End {
 			return 1
 		}
 		return strings.Compare(left.ID, right.ID)

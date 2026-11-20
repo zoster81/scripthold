@@ -34,6 +34,9 @@ type StructuralDependency struct {
 	Alias    string                   `json:"alias,omitempty"`
 	Range    Range                    `json:"range"`
 	Evidence SymbolEvidence           `json:"evidence"`
+	// C/C++ angle includes require compiler include roots; never infer them from
+	// the source file's directory. Private: public include values stay unchanged.
+	cFamilyAngleInclude bool
 }
 
 func newStructuralAnalyzerBuilder(ctx context.Context, document *SourceDocument, options AnalyzeOptions, language string, analyzer AnalyzerID) (*SymbolBuilder, error) {
@@ -53,18 +56,23 @@ func newStructuralAnalyzerBuilder(ctx context.Context, document *SourceDocument,
 	return builder, nil
 }
 
-func addStructuralDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
+func structuralDependencyFromOffsets(document *SourceDocument, kind StructuralDependencyKind, value string, start, end int) (StructuralDependency, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" || start < 0 || end <= start || end > len(document.Text) {
-		return
+		return StructuralDependency{}, false
 	}
 	rangeValue, err := document.RangeFromUTF8Offsets(start, end)
 	if err != nil {
-		return
+		return StructuralDependency{}, false
 	}
-	*dependencies = appendUniqueDependencies(*dependencies, []StructuralDependency{{
-		Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural,
-	}})
+	return StructuralDependency{Kind: kind, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural}, true
+}
+
+func addStructuralDependency(document *SourceDocument, dependencies *[]StructuralDependency, kind StructuralDependencyKind, value string, start, end int) {
+	dependency, ok := structuralDependencyFromOffsets(document, kind, value, start, end)
+	if ok {
+		*dependencies = appendUniqueDependencies(*dependencies, []StructuralDependency{dependency})
+	}
 }
 
 type structuralDependencyKey struct {
@@ -72,6 +80,47 @@ type structuralDependencyKey struct {
 	value string
 }
 
+// structuralDependencyAccumulator is local to one analyzer invocation. Its
+// persistent index avoids rebuilding a dedup map on every declaration.
+type structuralDependencyAccumulator struct {
+	items             []StructuralDependency
+	seen              map[structuralDependencyKey]struct{}
+	compatibilitySeen map[string]struct{}
+}
+
+func (acc *structuralDependencyAccumulator) add(document *SourceDocument, kind StructuralDependencyKind, value string, start, end int) {
+	dependency, ok := structuralDependencyFromOffsets(document, kind, value, start, end)
+	if ok {
+		acc.appendUnique(dependency)
+	}
+}
+
+func (acc *structuralDependencyAccumulator) appendUnique(dependency StructuralDependency) {
+	kind := string(dependency.Kind)
+	if strings.IndexByte(kind, 0) >= 0 || strings.IndexByte(dependency.Value, 0) >= 0 {
+		if acc.compatibilitySeen == nil {
+			acc.compatibilitySeen = make(map[string]struct{})
+		}
+		key := kind + "\x00" + dependency.Value
+		if _, exists := acc.compatibilitySeen[key]; exists {
+			return
+		}
+		acc.compatibilitySeen[key] = struct{}{}
+	} else {
+		if acc.seen == nil {
+			acc.seen = make(map[structuralDependencyKey]struct{})
+		}
+		key := structuralDependencyKey{kind: dependency.Kind, value: dependency.Value}
+		if _, exists := acc.seen[key]; exists {
+			return
+		}
+		acc.seen[key] = struct{}{}
+	}
+	acc.items = append(acc.items, dependency)
+}
+
+// The batch merge retains its allocation-optimized fast path; streaming
+// analyzers use structuralDependencyAccumulator instead of rebuilding it.
 func appendUniqueDependencies(base, extra []StructuralDependency) []StructuralDependency {
 	total := len(base) + len(extra)
 	seen := make(map[structuralDependencyKey]struct{}, total)

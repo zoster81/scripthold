@@ -233,9 +233,9 @@ func generatedTOML(count int) string {
 
 func generatedOpenAPI(count int) string {
 	var b strings.Builder
-	b.WriteString("openapi: 3.1.0\n")
+	b.WriteString("openapi: 3.1.0\npaths:\n")
 	for i := 0; i < count; i++ {
-		fmt.Fprintf(&b, "operationId: op%04d\n", i)
+		fmt.Fprintf(&b, "  /resource%04d:\n    get:\n      operationId: op%04d\n", i, i)
 	}
 	return b.String()
 }

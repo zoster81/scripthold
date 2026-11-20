@@ -176,19 +176,94 @@ func normalizeDotNetScriptLanguage(value string) string {
 	}
 }
 
-var aspNetCodeFileRE = regexp.MustCompile(`(?is)<%@\s*(?:Page|Control|Master)\b[^%>]*\b(?:CodeFile|CodeBehind)\s*=\s*["']([^"']+)["']`)
+// aspNetDirectiveEnd recognizes the terminating %> outside quoted attributes.
+func aspNetDirectiveEnd(source string, afterOpen int) int {
+	var quote byte
+	for cursor := afterOpen; cursor+1 < len(source); cursor++ {
+		switch source[cursor] {
+		case '\'', '"':
+			if quote == 0 {
+				quote = source[cursor]
+			} else if quote == source[cursor] {
+				quote = 0
+			}
+		case '%':
+			if quote == 0 && source[cursor+1] == '>' {
+				return cursor + 2
+			}
+		}
+	}
+	return -1
+}
 
 func aspNetDirectiveDependencies(document *SourceDocument) []StructuralDependency {
-	matches := aspNetCodeFileRE.FindAllStringSubmatchIndex(document.Text, -1)
-	result := make([]StructuralDependency, 0, len(matches))
-	for _, m := range matches {
-		if len(m) < 4 || m[2] < 0 {
+	// Comments must not introduce fake code-behind links. The masks preserve
+	// source-byte offsets for fingerprint-bound selection.
+	masked, _ := maskSimpleDelimited(document.Text, "<%--", "--%>")
+	masked, _ = maskSimpleDelimited(masked, "<!--", "-->")
+	lower := asciiLowerPreservingBytes(masked)
+	var result []StructuralDependency
+	for cursor := 0; cursor < len(masked); {
+		next := strings.IndexByte(masked[cursor:], '<')
+		if next < 0 {
+			break
+		}
+		at := cursor + next
+		if strings.HasPrefix(masked[at:], "<%@") {
+			end := aspNetDirectiveEnd(masked, at+3)
+			if end < 0 {
+				break // An unfinished directive cannot provide a safe link.
+			}
+			header := strings.TrimLeft(masked[at+3:end-2], " \t\r\n")
+			kindEnd := strings.IndexAny(header, " \t\r\n")
+			if kindEnd > 0 {
+				kind := header[:kindEnd]
+				if strings.EqualFold(kind, "Page") || strings.EqualFold(kind, "Control") || strings.EqualFold(kind, "Master") {
+					tag := document.Text[at:end]
+					bestStart, bestEnd := -1, -1
+					for _, key := range []string{"CodeFile", "CodeBehind"} {
+						_, start, stop, found := markupAttributeValue(tag, key)
+						if !found || start < 1 || stop >= len(tag) {
+							continue
+						}
+						quote := tag[start-1]
+						if (quote != '"' && quote != '\'') || tag[stop] != quote {
+							continue // The legacy include contract requires a quoted path.
+						}
+						if bestStart < 0 || start < bestStart {
+							bestStart, bestEnd = start, stop
+						}
+					}
+					if bestStart >= 0 {
+						start, stop := at+bestStart, at+bestEnd
+						if r, err := document.RangeFromUTF8Offsets(start, stop); err == nil {
+							result = append(result, StructuralDependency{
+								Kind: StructuralDependencyInclude, Value: document.Text[start:stop],
+								Range: r, Evidence: SymbolEvidenceStructural,
+							})
+						}
+					}
+				}
+			}
+			cursor = end
 			continue
 		}
-		r, err := document.RangeFromUTF8Offsets(m[2], m[3])
-		if err == nil {
-			result = append(result, StructuralDependency{Kind: StructuralDependencyInclude, Value: document.Text[m[2]:m[3]], Range: r, Evidence: SymbolEvidenceStructural})
+		name, end, closing, _, valid := razorMarkupTagAt(masked, at)
+		if !valid {
+			cursor = at + 1
+			continue
 		}
+		if !closing && (strings.EqualFold(name, "script") || strings.EqualFold(name, "style")) {
+			// Literal examples inside client script/style bodies are not ASP.NET directives.
+			closingName := "</" + strings.ToLower(name)
+			if closeAt := strings.Index(lower[end:], closingName); closeAt >= 0 {
+				if closeEnd := strings.IndexByte(masked[end+closeAt:], '>'); closeEnd >= 0 {
+					cursor = end + closeAt + closeEnd + 1
+					continue
+				}
+			}
+		}
+		cursor = end // Skip quoted attributes of ordinary markup tags.
 	}
 	return result
 }
@@ -628,8 +703,6 @@ type XAMLAnalyzer struct{}
 func (XAMLAnalyzer) ID() AnalyzerID   { return AnalyzerXAML }
 func (XAMLAnalyzer) Language() string { return "xaml" }
 
-var xamlClassRE = regexp.MustCompile(`(?is)\bx:Class\s*=\s*(?:"([^"'\s=<>]+)"|'([^"'\s=<>]+)')`)
-var xamlNameRE = regexp.MustCompile(`(?is)\bx:Name\s*=\s*(?:"([^"'\s=<>]+)"|'([^"'\s=<>]+)')`)
 var xamlXMLNSRE = regexp.MustCompile(`(?is)\bxmlns(?::[A-Za-z_][A-Za-z0-9_.-]*)?\s*=\s*(?:"([^"'\s<>]+)"|'([^"'\s<>]+)')`)
 
 func xamlCapturedValueRange(match []int) (int, int, bool) {
@@ -640,6 +713,47 @@ func xamlCapturedValueRange(match []int) (int, int, bool) {
 		return match[4], match[5], true
 	}
 	return 0, 0, false
+}
+
+// xamlQuotedTagAttribute uses the shared quote-aware attribute scanner, then
+// verifies the authored case-sensitive XML name and exact source spans.
+func xamlQuotedTagAttribute(tag, candidate string) (value string, attributeStart, attributeEnd, nameStart, nameEnd int, ok bool) {
+	value, start, end, found := markupAttributeValue(tag, candidate)
+	if !found || start < 2 || end >= len(tag) || strings.ContainsAny(value, "'\" \t\r\n=<>") {
+		return "", 0, 0, 0, 0, false
+	}
+	quote := tag[start-1]
+	if (quote != '"' && quote != '\'') || tag[end] != quote {
+		return "", 0, 0, 0, 0, false
+	}
+	cursor := start - 2
+	for cursor >= 0 && markupAttributeSpace(tag[cursor]) {
+		cursor--
+	}
+	if cursor < 0 || tag[cursor] != '=' {
+		return "", 0, 0, 0, 0, false
+	}
+	cursor--
+	for cursor >= 0 && markupAttributeSpace(tag[cursor]) {
+		cursor--
+	}
+	keyEnd := cursor + 1
+	keyStart := keyEnd - len(candidate)
+	if keyStart < 0 || tag[keyStart:keyEnd] != candidate ||
+		(keyStart > 0 && !markupAttributeSpace(tag[keyStart-1]) && tag[keyStart-1] != '<') {
+		return "", 0, 0, 0, 0, false
+	}
+	return value, keyStart, end + 1, start, end, true
+}
+
+func xamlNamedAttribute(tag string) (kind, name string, attributeStart, attributeEnd, nameStart, nameEnd int, ok bool) {
+	for _, candidate := range []string{"x:Name", "Name"} {
+		value, attrStart, attrEnd, start, end, found := xamlQuotedTagAttribute(tag, candidate)
+		if found {
+			return candidate, value, attrStart, attrEnd, start, end, true
+		}
+	}
+	return "", "", 0, 0, 0, 0, false
 }
 
 func (XAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, options AnalyzeOptions) (AnalyzerResult, error) {
@@ -658,38 +772,92 @@ func (XAMLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 		builder.MarkIncomplete()
 		_ = builder.AddDiagnostic(DiagnosticSpec{Code: "xaml-unterminated-comment", Message: "XAML comment is not terminated", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
-	classMatches := xamlClassRE.FindAllStringSubmatchIndex(masked, -1)
-	var parent *SymbolParent
-	if len(classMatches) > 0 {
-		m := classMatches[0]
-		nameStart, nameEnd, ok := xamlCapturedValueRange(m)
-		if ok {
-			s, err := builder.Add(SymbolSpec{Kind: SymbolKindClass, NativeKind: "x:Class", Name: document.Text[nameStart:nameEnd], QualifiedName: document.Text[nameStart:nameEnd], Declaration: OffsetRange{Start: m[0], End: m[1]}, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Evidence: SymbolEvidenceStructural})
-			if operation.KindOf(err) == operation.KindLimit {
-				builder.MarkTruncated()
-			} else if err == nil {
-				v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
-				parent = &v
-			} else {
-				builder.MarkIncomplete()
-			}
-		}
+	// XAML CDATA is opaque to element/attribute discovery, like comments.
+	maskedCDATA, cdataComplete := maskSimpleDelimited(masked, "<![CDATA[", "]]>")
+	if !cdataComplete {
+		builder.MarkIncomplete()
+		_ = builder.AddDiagnostic(DiagnosticSpec{Code: "xaml-unterminated-cdata", Message: "XAML CDATA is not terminated", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
-	if parent != nil {
-		for _, m := range xamlNameRE.FindAllStringSubmatchIndex(masked, -1) {
-			nameStart, nameEnd, ok := xamlCapturedValueRange(m)
-			if !ok {
-				continue
-			}
-			_, err := builder.Add(SymbolSpec{Kind: SymbolKindField, NativeKind: "x:Name", Name: document.Text[nameStart:nameEnd], Parent: parent, Declaration: OffsetRange{Start: m[0], End: m[1]}, NameRange: OffsetRange{Start: nameStart, End: nameEnd}, Evidence: SymbolEvidenceStructural})
-			if operation.KindOf(err) == operation.KindLimit {
-				builder.MarkTruncated()
-				break
-			}
-			if err != nil {
+	masked = maskedCDATA
+	var parent *SymbolParent
+	rootSeen := false
+elements:
+	for cursor := 0; cursor < len(masked); {
+		if err := ctx.Err(); err != nil {
+			return AnalyzerResult{}, err
+		}
+		next := strings.IndexByte(masked[cursor:], '<')
+		if next < 0 {
+			break
+		}
+		cursor += next
+		_, end, closing, _, valid := razorMarkupTagAt(masked, cursor)
+		if !valid {
+			if cursor+1 < len(masked) &&
+				(razorMarkupTagNameStart(masked[cursor+1]) || masked[cursor+1] == '/') {
 				builder.MarkIncomplete()
+				_ = builder.AddDiagnostic(DiagnosticSpec{
+					Code: "xaml-malformed-tag", Message: "XAML element opening tag is not terminated",
+					Severity: DiagnosticWarning, AffectsCoverage: true,
+				})
+				break // A malformed tag must not scan the rest of the file repeatedly.
+			}
+			cursor++
+			continue // Processing instructions and directives are not elements.
+		}
+		if !closing {
+			tag := document.Text[cursor:end]
+			if !rootSeen {
+				rootSeen = true
+				if name, attrStart, attrEnd, nameStart, nameEnd, ok := xamlQuotedTagAttribute(tag, "x:Class"); ok {
+					s, err := builder.Add(SymbolSpec{
+						Kind: SymbolKindClass, NativeKind: "x:Class", Name: name, QualifiedName: name,
+						Declaration: OffsetRange{Start: cursor + attrStart, End: cursor + attrEnd},
+						NameRange:   OffsetRange{Start: cursor + nameStart, End: cursor + nameEnd},
+						Evidence:    SymbolEvidenceStructural,
+					})
+					if operation.KindOf(err) == operation.KindLimit {
+						builder.MarkTruncated()
+					} else if err == nil {
+						v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
+						parent = &v
+					} else {
+						builder.MarkIncomplete()
+					}
+				}
+			}
+			if parent != nil {
+				// A resource element may have both a named control and an x:Key.
+				for attribute := 0; attribute < 2; attribute++ {
+					var kind, name string
+					var attrStart, attrEnd, nameStart, nameEnd int
+					var ok bool
+					if attribute == 0 {
+						kind, name, attrStart, attrEnd, nameStart, nameEnd, ok = xamlNamedAttribute(tag)
+					} else {
+						kind = "x:Key"
+						name, attrStart, attrEnd, nameStart, nameEnd, ok = xamlQuotedTagAttribute(tag, kind)
+					}
+					if !ok {
+						continue
+					}
+					_, err := builder.Add(SymbolSpec{
+						Kind: SymbolKindField, NativeKind: kind, Name: name, Parent: parent,
+						Declaration: OffsetRange{Start: cursor + attrStart, End: cursor + attrEnd},
+						NameRange:   OffsetRange{Start: cursor + nameStart, End: cursor + nameEnd},
+						Evidence:    SymbolEvidenceStructural,
+					})
+					if operation.KindOf(err) == operation.KindLimit {
+						builder.MarkTruncated()
+						break elements
+					}
+					if err != nil {
+						builder.MarkIncomplete()
+					}
+				}
 			}
 		}
+		cursor = end
 	}
 	deps := make([]StructuralDependency, 0)
 	for _, m := range xamlXMLNSRE.FindAllStringSubmatchIndex(masked, -1) {

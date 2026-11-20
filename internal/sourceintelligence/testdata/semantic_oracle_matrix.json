@@ -1,0 +1,4319 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Explicit language-derived positive and forbidden declaration expectations, independent of analyzer output; no claim of full 100-provider accuracy",
+  "cases": [
+    {
+      "id": "blade-escaped-section-directives-do-not-declare-or-truncate",
+      "language": "blade",
+      "path": "escaped.blade.php",
+      "source": "@@section('escapedSimple')\n@@section('escapedInline', __('literal'))\n@@section('escapedUnclosed', __('unfinished')\n@section('actualSimple')\n@section('actualInline', __('nested'))\n{{-- @section('commented') --}}\n",
+      "present": [
+        {
+          "qualifiedName": "actualSimple",
+          "kind": "section",
+          "line": 4
+        },
+        {
+          "qualifiedName": "actualInline",
+          "kind": "section",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "escapedSimple",
+        "escapedInline",
+        "escapedUnclosed",
+        "commented",
+        "literal",
+        "nested"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "blade-inline-sections-nested-expression-malformed-coverage",
+      "language": "blade",
+      "path": "401.blade.php",
+      "source": "@section('title', __('Unauthorized'))\n@section('code', '401')\n{{-- @section('commented', 'fake') --}}\n@section('broken', __('Oops')\n",
+      "present": [
+        {
+          "qualifiedName": "title",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "code",
+          "kind": "section",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "commented",
+        "broken",
+        "Unauthorized",
+        "fake"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "freebasic-typed-first-shared-dim-variables",
+      "language": "freebasic",
+      "path": "typed-first.bas",
+      "source": "dim shared as integer ConfigCount\nDim Shared As Single Ptr Weights\ndim shared Named As Integer\nDim As Integer Left, Right(2, 3)\ndim as const byte ptr Buffer\n' Dim Shared As Integer Phantom\n",
+      "present": [
+        {
+          "qualifiedName": "ConfigCount",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Weights",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Named",
+          "kind": "variable",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Left",
+          "kind": "variable",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Right",
+          "kind": "variable",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Buffer",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Integer",
+        "Single",
+        "Ptr",
+        "As",
+        "Phantom",
+        "ConfigCount.Phantom"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "al-codeunit-typed-variable-does-not-hide-later-local-method",
+      "language": "al",
+      "path": "Engine.Codeunit.al",
+      "source": "codeunit 50100 Engine\n{\n    procedure First()\n    var\n        Telemetry: Codeunit \"Trace\";\n    begin\n        Telemetry.Record();\n    end;\n\n    local procedure Second()\n    begin\n    end;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Engine",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Engine.First",
+          "kind": "method",
+          "line": 3,
+          "parent": "Engine"
+        },
+        {
+          "qualifiedName": "Engine.Second",
+          "kind": "method",
+          "line": 10,
+          "parent": "Engine"
+        }
+      ],
+      "forbidden": [
+        "Engine.Telemetry",
+        "Engine.Record",
+        "Trace",
+        "Engine.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "delphi-library-declaration-vs-comment",
+      "language": "delphi",
+      "path": "Apache.dpr",
+      "source": "library Apache;\n// library Phantom;\nvar ApacheModuleData: Integer;\nbegin\n ApacheModuleData := 1;\nend.\n",
+      "present": [
+        {
+          "qualifiedName": "Apache",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Apache.ApacheModuleData",
+          "kind": "variable",
+          "line": 3,
+          "parent": "Apache"
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Apache.Integer",
+        "Apache.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-asp-unterminated-region-honest-coverage",
+      "language": "classic-asp",
+      "path": "partial.asp",
+      "source": "<%@ Language=\"VBScript\" %>\n<% Sub Good() : End Sub %>\n<% Sub Open()",
+      "present": [
+        {
+          "qualifiedName": "Good",
+          "kind": "method",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "End",
+        "ReadLine"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "php-html-unterminated-php-region-honest-coverage",
+      "language": "php-html",
+      "path": "partial.php",
+      "source": "<main id=\"hero\"></main>\n<?php function open() {",
+      "present": [
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "main",
+        "Page_Load"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "blade-unterminated-php-directive-honest-coverage",
+      "language": "blade",
+      "path": "partial.blade.php",
+      "source": "<main id=\"hero\"></main>\n@php function open() {",
+      "present": [
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Page_Load",
+        "main"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "astro-frontmatter-function-vs-markup",
+      "language": "astro",
+      "path": "Card.astro",
+      "source": "---\n// function Ghost() {}\nfunction load() { return 1 }\n---\n<main id=\"hero\">{{ load }}</main>\n",
+      "present": [
+        {
+          "qualifiedName": "load",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "main",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "autohotkey-class-and-method",
+      "language": "autohotkey",
+      "path": "worker.ahk",
+      "source": "; class Ghost {}\nclass Worker extends Base {\n Run(x) { return x }\n}\nTop(x) { return x }\n",
+      "present": [
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Worker.Run",
+          "kind": "method",
+          "line": 3,
+          "parent": "Worker"
+        },
+        {
+          "qualifiedName": "Top",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Base",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "autohotkey-control-conditions-are-not-functions",
+      "language": "autohotkey",
+      "path": "conditions.ahk",
+      "source": "class Worker {\n static Run() { return 1 }\n}\nif WinExist(\"x\") {\n}\nwhile Running() {\n}\nfor item in Items() {\n}\nTop() { return 2 }\n",
+      "present": [
+        {"qualifiedName": "Worker", "kind": "class", "line": 1},
+        {"qualifiedName": "Worker.Run", "kind": "method", "line": 2, "parent": "Worker"},
+        {"qualifiedName": "Top", "kind": "function", "line": 10}
+      ],
+      "forbidden": ["WinExist", "Running", "Items", "Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "blade-section-and-embedded-php",
+      "language": "blade",
+      "path": "card.blade.php",
+      "source": "{{-- @section('ghost') --}}\n<main id=\"hero\"></main>\n@section('content')\n@php function load() { return 1; } @endphp\n@endsection\n",
+      "present": [
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 2
+        },
+        {
+          "qualifiedName": "content",
+          "kind": "section",
+          "line": 3
+        },
+        {
+          "qualifiedName": "load",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "return",
+        "main"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "delphi-unit-class-method",
+      "language": "delphi",
+      "path": "Demo.pas",
+      "source": "unit Demo;\ninterface\ntype\n TWorker = class\n  procedure Run;\n end;\nimplementation\nend.\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.TWorker",
+          "kind": "class",
+          "line": 4,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.TWorker.Run",
+          "kind": "method",
+          "line": 5,
+          "parent": "Demo.TWorker"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Demo.interface",
+        "Demo.TWorker.procedure"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "mql4-expert-input-and-oninit",
+      "language": "mql4",
+      "path": "Expert.mq4",
+      "source": "// int Ghost() { return 1; }\ninput int Period = 14;\nint OnInit() { return 0; }\n",
+      "present": [
+        {
+          "qualifiedName": "Period",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "OnInit",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "return",
+        "input"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "objective-cpp-class-typedef-return-is-function",
+      "language": "objective-cpp",
+      "path": "Linking.mm",
+      "source": "Class RCTLinkingClassProvider(const char *name) {\n  return nil;\n}\nclass RealCppType {};\n",
+      "present": [
+        {"qualifiedName": "RCTLinkingClassProvider", "kind": "function", "line": 1},
+        {"qualifiedName": "RealCppType", "kind": "class", "line": 4}
+      ],
+      "forbidden": ["Class", "RCTLinkingClassProvider.nil", "Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "objective-cpp-interface-and-cpp-class",
+      "language": "objective-cpp",
+      "path": "Bridge.mm",
+      "source": "// @interface Ghost\n@interface Bridge : NSObject\n- (void)run;\n@end\nclass CppHelper { public: void Execute() {} };\n",
+      "present": [
+        {
+          "qualifiedName": "Bridge",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Bridge.run",
+          "kind": "method",
+          "line": 3,
+          "parent": "Bridge"
+        },
+        {
+          "qualifiedName": "CppHelper",
+          "kind": "class",
+          "line": 5
+        },
+        {
+          "qualifiedName": "CppHelper.Execute",
+          "kind": "method",
+          "line": 5,
+          "parent": "CppHelper"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "NSObject",
+        "CppHelper.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "plsql-package-procedures",
+      "language": "plsql",
+      "path": "demo.pks",
+      "source": "-- CREATE PACKAGE Ghost AS\nCREATE OR REPLACE PACKAGE demo AS\n  PROCEDURE run(value NUMBER);\n  FUNCTION calc(value NUMBER) RETURN NUMBER;\nEND demo;\n/\n",
+      "present": [
+        {
+          "qualifiedName": "demo",
+          "kind": "package",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.run",
+          "kind": "function",
+          "line": 3,
+          "parent": "demo"
+        },
+        {
+          "qualifiedName": "demo.calc",
+          "kind": "function",
+          "line": 4,
+          "parent": "demo"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "NUMBER",
+        "demo.value"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vbscript-default-class-method",
+      "language": "vbscript",
+      "path": "service.vbs",
+      "source": "Class Service\n ' Default Function Phantom()\n Public Default Function Item(value)\n  Item = value\n End Function\nEnd Class\n",
+      "present": [
+        {
+          "qualifiedName": "Service",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Service.Item",
+          "kind": "method",
+          "line": 3,
+          "parent": "Service"
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Service.value",
+        "Service.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-asp-default-class-method",
+      "language": "classic-asp",
+      "path": "logger.asp",
+      "source": "<%@ Language=\"VBScript\" %>\n<%\nClass Logger\n Public Default Function log(value)\n  log = value\n End Function\nEnd Class\n%>\n",
+      "present": [
+        {
+          "qualifiedName": "Logger",
+          "kind": "class",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Logger.log",
+          "kind": "method",
+          "line": 4,
+          "parent": "Logger"
+        }
+      ],
+      "forbidden": [
+        "Logger.value",
+        "Logger.Ghost",
+        "Default"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "aspnet-webforms-server-csharp-vs-markup",
+      "language": "aspnet-webforms",
+      "path": "upload.aspx",
+      "source": "<%@ Page Language=\"C#\" %>\n<main id=\"hero\">Page_Load is text</main>\n<script runat=\"server\">\nprotected void Page_Load(object sender, EventArgs e) { }\n</script>\n",
+      "present": [
+        {
+          "qualifiedName": "Page_Load",
+          "kind": "method",
+          "line": 4
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "sender",
+        "Page_Load is text",
+        "runat"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-asp-vbscript-declaration-vs-comment",
+      "language": "classic-asp",
+      "path": "logger.asp",
+      "source": "<%@ Language=\"VBScript\" %>\n<% ' Class Ghost\nClass Logger\n Public Sub Run()\n End Sub\nEnd Class\n%>\n",
+      "present": [
+        {
+          "qualifiedName": "Logger",
+          "kind": "class",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Logger.Run",
+          "kind": "method",
+          "line": 4,
+          "parent": "Logger"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Logger.Ghost",
+        "Public"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "jscript-net-variables-vs-calls",
+      "language": "jscript-net",
+      "path": "hello.js",
+      "source": "import System;\n// function ghost() {}\nvar _name = Console.ReadLine();\nConsole.WriteLine(_name);\n",
+      "present": [
+        {
+          "qualifiedName": "_name",
+          "kind": "variable",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "Console.WriteLine",
+        "Console.ReadLine"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-html-dynamic-id-embedded-region",
+      "language": "php-html",
+      "path": "dynamic-page.php",
+      "source": "<section id=\"stable\"></section>\n<article id=\"post-<?php the_ID(); ?>\" class=\"item\"></article>\n<aside id='topic-<?php echo $slug; ?>'></aside>\n<main id=\"footer\"></main>\n",
+      "present": [
+        {"qualifiedName": "stable", "kind": "entity", "line": 1},
+        {"qualifiedName": "footer", "kind": "entity", "line": 4}
+      ],
+      "forbidden": ["post-", "topic-", "post-<?php the_ID(); ?>", "topic-<?php echo $slug; ?>"],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-html-embedded-function-vs-markup",
+      "language": "php-html",
+      "path": "view.php",
+      "source": "<?php // function ghost() {}\nfunction render_card() { return 1; }\n?>\n<main id=\"hero\">{{ render_card }}</main>\n",
+      "present": [
+        {
+          "qualifiedName": "render_card",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "return",
+        "main"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vbnet-class-property-and-comment",
+      "language": "vbnet",
+      "path": "Arrow.vb",
+      "source": "' Class Ghost\nFriend Class Arrow\n Public Property Angle As Double\n End Property\n Public Shared ReadOnly AngleProperty As Integer = 1\nEnd Class\n",
+      "present": [
+        {
+          "qualifiedName": "Arrow",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Arrow.Angle",
+          "kind": "property",
+          "line": 3,
+          "parent": "Arrow"
+        },
+        {
+          "qualifiedName": "Arrow.AngleProperty",
+          "kind": "field",
+          "line": 5,
+          "parent": "Arrow"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Double",
+        "Arrow.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "fortran-program-and-contained-subroutine",
+      "language": "fortran",
+      "path": "example.f90",
+      "source": "! program ghost\nprogram example\ncontains\n  subroutine print_grid()\n  end subroutine\nend program example\n",
+      "present": [
+        {
+          "qualifiedName": "example",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "example.print_grid",
+          "kind": "function",
+          "line": 4,
+          "parent": "example"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "contains",
+        "print"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "jinja-macro-and-block-vs-interpolation",
+      "language": "jinja",
+      "path": "layout.j2",
+      "source": "{# {% macro ghost() %} #}\n{% macro greet(name) %}\n{{ name }}\n{% endmacro %}\n{% block page %}{{ data }}{% endblock %}\n",
+      "present": [
+        {
+          "qualifiedName": "greet",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "page",
+          "kind": "section",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "name",
+        "data"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-basic-distinct-type-suffixes",
+      "language": "classic-basic",
+      "path": "types.bas",
+      "source": "10 DIM S, S$(4), COUNT%, R!\n20 REM DIM Ghost$\n",
+      "present": [
+        {"qualifiedName": "S", "kind": "variable", "line": 1},
+        {"qualifiedName": "S$", "kind": "variable", "line": 1},
+        {"qualifiedName": "COUNT%", "kind": "variable", "line": 1},
+        {"qualifiedName": "R!", "kind": "variable", "line": 1}
+      ],
+      "forbidden": ["Ghost$", "COUNT", "R"],
+      "coverageComplete": true
+    },
+    {
+      "id": "qbasic-distinct-type-suffixes",
+      "language": "qbasic",
+      "path": "types.bas",
+      "source": "DIM Alias$\nDIM Alias\nDIM Amount%\nREM DIM Ghost$\n",
+      "present": [
+        {"qualifiedName": "Alias$", "kind": "variable", "line": 1},
+        {"qualifiedName": "Alias", "kind": "variable", "line": 2},
+        {"qualifiedName": "Amount%", "kind": "variable", "line": 3}
+      ],
+      "forbidden": ["Ghost$", "Amount", "Alias%"],
+      "coverageComplete": true
+    },
+    {
+      "id": "classic-basic-numbered-subroutine",
+      "language": "classic-basic",
+      "path": "driver.bas",
+      "source": "10 REM SUB Ghost()\n20 SUB Runner()\n30 PRINT \"SUB Fake()\"\n40 END SUB\n",
+      "present": [
+        {
+          "qualifiedName": "Runner",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Fake",
+        "PRINT"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "purebasic-procedure-return-type-and-name",
+      "language": "purebasic",
+      "path": "typed.pb",
+      "source": "Procedure.i Compute_Value(value.i)\n  ProcedureReturn value\nEndProcedure\nProcedure.s LabelText()\n  ProcedureReturn \"ok\"\nEndProcedure\nProcedure Plain()\nEndProcedure\n",
+      "present": [
+        {"qualifiedName": "Compute_Value", "kind": "function", "line": 1},
+        {"qualifiedName": "LabelText", "kind": "function", "line": 4},
+        {"qualifiedName": "Plain", "kind": "function", "line": 7}
+      ],
+      "forbidden": ["Compute", "i", "s", "ProcedureReturn", "Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "purebasic-module-and-procedure",
+      "language": "purebasic",
+      "path": "tools.pb",
+      "source": "; Procedure Ghost()\nModule Tools\n  Procedure Run()\n  EndProcedure\nEndModule\n",
+      "present": [
+        {
+          "qualifiedName": "Tools",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Tools.Run",
+          "kind": "function",
+          "line": 3,
+          "parent": "Tools"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "EndProcedure",
+        "Tools.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vbscript-class-method",
+      "language": "vbscript",
+      "path": "worker.vbs",
+      "source": "' Class Ghost\nClass Worker\n Public Sub Start()\n End Sub\nEnd Class\n",
+      "present": [
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Worker.Start",
+          "kind": "method",
+          "line": 3,
+          "parent": "Worker"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Worker.Ghost",
+        "Public"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "common-lisp-functions-and-constants",
+      "language": "common-lisp",
+      "path": "utility.lisp",
+      "source": "; (defun ghost () nil)\n(defun square (x) (* x x))\n(defconstant max-count 3)\n",
+      "present": [
+        {
+          "qualifiedName": "square",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "max-count",
+          "kind": "constant",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "x",
+        "defun"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "gleam-type-function-and-constant",
+      "language": "gleam",
+      "path": "status.gleam",
+      "source": "// pub fn ghost() { 0 }\npub type Status {\n Ready\n}\npub fn echo(x: Int) -> Int { x }\npub const answer = 42\n",
+      "present": [
+        {
+          "qualifiedName": "Status",
+          "kind": "type",
+          "line": 2
+        },
+        {
+          "qualifiedName": "echo",
+          "kind": "function",
+          "line": 5
+        },
+        {
+          "qualifiedName": "answer",
+          "kind": "constant",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "x",
+        "pub"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "groovy-class-and-method",
+      "language": "groovy",
+      "path": "Worker.groovy",
+      "source": "// class Ghost {}\nclass Worker {\n def run() { return 3 }\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Worker.run",
+          "kind": "method",
+          "line": 3,
+          "parent": "Worker"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "return",
+        "Worker.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "c-struct-and-function",
+      "language": "c",
+      "path": "geometry.c",
+      "source": "// int ghost(void) { return 0; }\nstruct Point { int x; };\nint compute(int x) { return x + 1; }\n",
+      "present": [
+        {
+          "qualifiedName": "Point",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "compute",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "return",
+        "x"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "emacs-lisp-functions-and-constants-vs-comment",
+      "language": "emacs-lisp",
+      "path": "core.el",
+      "source": ";; (defun ghost () t)\n(defun mal-boolean (value)\n  (if value t nil))\n(defconst core-ns '((a . 1)))\n",
+      "present": [
+        {
+          "qualifiedName": "mal-boolean",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "core-ns",
+          "kind": "constant",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "value",
+        "if"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "flow-typed-export-and-declaration",
+      "language": "flow",
+      "path": "types.js.flow",
+      "source": "// @flow\n// export type Ghost = string;\nexport type User = { id: string };\ndeclare export const ccc: Array<string>;\n",
+      "present": [
+        {
+          "qualifiedName": "User",
+          "kind": "alias",
+          "line": 3
+        },
+        {
+          "qualifiedName": "ccc",
+          "kind": "constant",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "string",
+        "Array"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "freebasic-type-and-function",
+      "language": "freebasic",
+      "path": "engine.bas",
+      "source": "' Type Ghost\nType Particle\n x As Integer\nEnd Type\nFunction Area(ByVal r As Integer) As Integer\n Return r * r\nEnd Function\n",
+      "present": [
+        {
+          "qualifiedName": "Particle",
+          "kind": "type",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Particle.x",
+          "kind": "field",
+          "line": 3,
+          "parent": "Particle"
+        },
+        {
+          "qualifiedName": "Area",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "ByVal",
+        "Return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "matlab-function-and-nested-logic",
+      "language": "matlab",
+      "path": "normalize.m",
+      "source": "% function ghost(x)\nfunction out = normalize(x)\n if x > 0\n  out = x;\n else\n  out = 0;\n end\nend\n",
+      "present": [
+        {
+          "qualifiedName": "normalize",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "out",
+        "if"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "zig-struct-and-nested-function",
+      "language": "zig",
+      "path": "geometry.zig",
+      "source": "// const Ghost = struct {};\npub const Point = struct {\n x: i32,\n y: i32,\n pub fn area(self: Point) i32 { return self.x * self.y; }\n};\n",
+      "present": [
+        {
+          "qualifiedName": "Point",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Point.x",
+          "kind": "field",
+          "line": 3,
+          "parent": "Point"
+        },
+        {
+          "qualifiedName": "Point.y",
+          "kind": "field",
+          "line": 4,
+          "parent": "Point"
+        },
+        {
+          "qualifiedName": "Point.area",
+          "kind": "method",
+          "line": 5,
+          "parent": "Point"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Point.self",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "erlang-escript-shebang-preserves-declarations",
+      "language": "erlang",
+      "path": "script.erl",
+      "source": "#!/usr/bin/env escript\n%% standalone Erlang program\n-module(docsite).\nmain() -> ok.\n",
+      "present": [
+        {
+          "qualifiedName": "docsite",
+          "kind": "module",
+          "line": 3
+        },
+        {
+          "qualifiedName": "docsite.main",
+          "kind": "function",
+          "line": 4,
+          "parent": "docsite"
+        }
+      ],
+      "forbidden": [
+        "escript",
+        "docsite.ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ocaml-structure-binding-vs-comment",
+      "language": "ocaml",
+      "path": "syntax.ml",
+      "source": "(* let phantom = 1 *)\nmodule Tools = struct\n  let amount = 4\n  let double x = x + x\nend\n",
+      "present": [
+        {
+          "qualifiedName": "Tools",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Tools.amount",
+          "kind": "variable",
+          "line": 3,
+          "parent": "Tools"
+        },
+        {
+          "qualifiedName": "Tools.double",
+          "kind": "function",
+          "line": 4,
+          "parent": "Tools"
+        }
+      ],
+      "forbidden": [
+        "phantom",
+        "Tools.phantom",
+        "Tools.x"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "erlang-module-functions-vs-expression",
+      "language": "erlang",
+      "path": "docsite.erl",
+      "source": "%% -module(ghost).\n-module(docsite).\n-export([main/0]).\nmain() -> helper().\nhelper() -> ok.\n",
+      "present": [
+        {
+          "qualifiedName": "docsite",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "docsite.main",
+          "kind": "function",
+          "line": 4,
+          "parent": "docsite"
+        },
+        {
+          "qualifiedName": "docsite.helper",
+          "kind": "function",
+          "line": 5,
+          "parent": "docsite"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "docsite.ok",
+        "docsite.export"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "octave-function-vs-comment-and-call",
+      "language": "octave",
+      "path": "double.m",
+      "source": "# function ghost(x)\nfunction a = double (p)\n  a = p.poly;\nendfunction\n",
+      "present": [
+        {
+          "qualifiedName": "double",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "poly",
+        "a"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "qbasic-comma-variable-declarations-and-array-bounds",
+      "language": "qbasic",
+      "path": "variables.bas",
+      "source": "DIM SHARED OldAngle, OldX, OldY, OldDelta\nDIM H(10 TO 99, 4), HH(6 TO 90, 4)\nPRINT \"DIM Ghost\"\n",
+      "present": [
+        {
+          "qualifiedName": "OldAngle",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "OldX",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "OldY",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "OldDelta",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "H",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "HH",
+          "kind": "variable",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "TO",
+        "PRINT"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vba-multiple-typed-declarators",
+      "language": "vba",
+      "path": "Dual.bas",
+      "source": "Attribute VB_Name = \"Dual\"\nDim LeftItem As Integer, RightItem As Long\n' Dim Ghost As String\n",
+      "present": [
+        {
+          "qualifiedName": "Dual",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Dual.LeftItem",
+          "kind": "variable",
+          "line": 2,
+          "parent": "Dual"
+        },
+        {
+          "qualifiedName": "Dual.RightItem",
+          "kind": "variable",
+          "line": 2,
+          "parent": "Dual"
+        }
+      ],
+      "forbidden": [
+        "Dual.Ghost",
+        "Dual.Integer",
+        "Dual.Long"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "qbasic-declares-and-implemented-subs",
+      "language": "qbasic",
+      "path": "clock.bas",
+      "source": "REM SUB Ghost()\nDECLARE SUB StartTick ()\nSUB DrawClock()\nEND SUB\nDIM SHARED ClockCount\nPRINT \"SUB Fake()\"\n",
+      "present": [
+        {
+          "qualifiedName": "StartTick",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "DrawClock",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "ClockCount",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Fake",
+        "PRINT"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vba-module-constant-and-method",
+      "language": "vba",
+      "path": "Module1.bas",
+      "source": "Attribute VB_Name = \"Module1\"\nPrivate Const MaxItems = 8\nPublic Sub Refresh()\n  Debug.Print \"Sub Ghost()\"\nEnd Sub\n",
+      "present": [
+        {
+          "qualifiedName": "Module1",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Module1.MaxItems",
+          "kind": "constant",
+          "line": 2,
+          "parent": "Module1"
+        },
+        {
+          "qualifiedName": "Module1.Refresh",
+          "kind": "method",
+          "line": 3,
+          "parent": "Module1"
+        }
+      ],
+      "forbidden": [
+        "Module1.Ghost",
+        "Module1.Debug",
+        "VB_Name"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "systemverilog-logic-signal-vs-expression",
+      "language": "systemverilog",
+      "path": "cpu.sv",
+      "source": "// module ghost(); endmodule\nmodule cpu();\n  logic ready;\n  assign ready = 1'b1;\nendmodule\n",
+      "present": [
+        {
+          "qualifiedName": "cpu",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "cpu.ready",
+          "kind": "signal",
+          "line": 3,
+          "parent": "cpu"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "cpu.assign"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "systemverilog-broken-module-does-not-claim-complete",
+      "language": "systemverilog",
+      "path": "partial.sv",
+      "source": "module good;\n  logic valid;\nendmodule\nmodule broken;\n  logic missing;\n",
+      "present": [
+        {
+          "qualifiedName": "good",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "good.valid",
+          "kind": "signal",
+          "line": 2,
+          "parent": "good"
+        }
+      ],
+      "forbidden": [
+        "broken",
+        "broken.missing"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "nim-exported-object-and-procedure",
+      "language": "nim",
+      "path": "packet.nim",
+      "source": "# proc ghost() = discard\ntype\n  Packet* = object\n    id*: int\nproc makePacket*(): Packet =\n  discard\n",
+      "present": [
+        {
+          "qualifiedName": "Packet",
+          "kind": "class",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Packet.id",
+          "kind": "field",
+          "line": 4,
+          "parent": "Packet"
+        },
+        {
+          "qualifiedName": "makePacket",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "discard"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "julia-struct-and-function-vs-comment",
+      "language": "julia",
+      "path": "buffer.jl",
+      "source": "# struct Phantom end\nmutable struct Buffer\n  data::Int\nend\nfunction consume(x)\n  return x\nend\n",
+      "present": [
+        {
+          "qualifiedName": "Buffer",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "consume",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "return"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "css-selectors-vs-properties-and-comments",
+      "language": "css",
+      "path": "styles.css",
+      "source": "/* .ghost { color: red; } */\n.sd-card-header {\n  font-size: 110%;\n}\nh1, .h1 {\n  color: #00353d;\n}\n",
+      "present": [
+        {
+          "qualifiedName": ".sd-card-header",
+          "kind": "selector",
+          "line": 2
+        },
+        {
+          "qualifiedName": "h1",
+          "kind": "selector",
+          "line": 5
+        },
+        {
+          "qualifiedName": ".h1",
+          "kind": "selector",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        ".ghost",
+        "font-size",
+        "color"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "assembly-labels-vs-comments-and-operations",
+      "language": "assembly",
+      "path": "module.asm",
+      "source": "; Phantom:\nstart:\n  mov eax, 1\nnext:\n  jmp start\n",
+      "present": [
+        {
+          "qualifiedName": "start",
+          "kind": "label",
+          "line": 2
+        },
+        {
+          "qualifiedName": "next",
+          "kind": "label",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "mov",
+        "jmp"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "openapi-schema-vs-comment-and-property",
+      "language": "openapi",
+      "path": "api.yaml",
+      "source": "openapi: 3.0.0\ncomponents:\n  schemas:\n    Widget:\n      type: object\n      properties:\n        name:\n          type: string\n# operationId: Ghost\npaths:\n  /widget:\n    get:\n      operationId: listWidgets\n",
+      "present": [
+        {
+          "qualifiedName": "Widget",
+          "kind": "type",
+          "line": 4
+        },
+        {
+          "qualifiedName": "listWidgets",
+          "kind": "operation",
+          "line": 13
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "name",
+        "properties"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ansible-indentless-task-sequence",
+      "language": "ansible-yaml",
+      "path": "indentless.yml",
+      "source": "- name: First\n  tasks:\n  - name: taskOne\n    debug:\n- name: Second\n  hosts: all\n",
+      "present": [
+        {
+          "qualifiedName": "First",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "First.taskOne",
+          "kind": "operation",
+          "line": 3,
+          "parent": "First"
+        },
+        {
+          "qualifiedName": "Second",
+          "kind": "section",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "taskOne",
+        "Second.taskOne",
+        "First.debug"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "scala-consecutive-package-clauses",
+      "language": "scala",
+      "path": "NestedMain.scala",
+      "source": "package dotty.tools\npackage dotc\n// object Phantom extends Driver\nobject Main extends Driver\n",
+      "present": [
+        {
+          "qualifiedName": "dotty.tools.dotc.Main",
+          "kind": "module",
+          "line": 4,
+          "parent": "dotty.tools.dotc"
+        }
+      ],
+      "forbidden": [
+        "dotc.Main",
+        "dotty.tools.Phantom",
+        "dotty.tools.dotc.Driver"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "terraform-resource-vs-reference",
+      "language": "terraform",
+      "path": "resources.tf",
+      "source": "# resource \"ghost\" \"never\" {}\nresource \"test_instance\" \"foo\" {\n  ami = \"bar\"\n}\n",
+      "present": [
+        {
+          "qualifiedName": "test_instance.foo",
+          "kind": "resource",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost.never",
+        "bar"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "xaml-class-and-named-element",
+      "language": "xaml",
+      "path": "window.xaml",
+      "source": "<!-- <Window x:Class=\"Ghost.View\" /> -->\n<Window x:Class=\"Demo.View\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">\n  <Grid x:Name=\"Primary\" />\n</Window>\n",
+      "present": [
+        {
+          "qualifiedName": "Demo.View",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Demo.View.Primary",
+          "kind": "field",
+          "line": 3,
+          "parent": "Demo.View"
+        }
+      ],
+      "forbidden": [
+        "Ghost.View",
+        "Demo.View.xmlns"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ansible-play-task-vs-module",
+      "language": "ansible-yaml",
+      "path": "ping.yml",
+      "source": "# - name: Ghost\n- name: Ping\n  hosts: all\n  tasks:\n    - name: ping\n      win_ping:\n",
+      "present": [
+        {
+          "qualifiedName": "Ping",
+          "kind": "section",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Ping.ping",
+          "kind": "operation",
+          "line": 5,
+          "parent": "Ping"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Ping.win_ping"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "verilog-module-signal-vs-expression",
+      "language": "verilog",
+      "path": "logic.v",
+      "source": "// module ghost(); endmodule\nmodule aes_key_expand_128(clk);\n  input clk;\n  wire signal_a;\n  assign signal_a = clk;\nendmodule\n",
+      "present": [
+        {
+          "qualifiedName": "aes_key_expand_128",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "aes_key_expand_128.signal_a",
+          "kind": "signal",
+          "line": 4,
+          "parent": "aes_key_expand_128"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "aes_key_expand_128.assign"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "scala-object-vs-comment-and-base",
+      "language": "scala",
+      "path": "Main.scala",
+      "source": "package demo\n// object Ghost extends Driver\nobject Main extends Driver\n",
+      "present": [
+        {
+          "qualifiedName": "demo.Main",
+          "kind": "module",
+          "line": 3,
+          "parent": "demo"
+        }
+      ],
+      "forbidden": [
+        "demo.Ghost",
+        "demo.Driver"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "elixir-module-docstring-vs-function",
+      "language": "elixir",
+      "path": "atom.ex",
+      "source": "# defmodule Phantom do end\ndefmodule Atom do\n  @doc \"def ghost(arg), do: arg\"\n  def to_string(atom), do: :erlang.atom_to_binary(atom)\nend\n",
+      "present": [
+        {
+          "qualifiedName": "Atom",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Atom.to_string",
+          "kind": "function",
+          "line": 4,
+          "parent": "Atom"
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Atom.ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "svelte-script-vs-template-expression",
+      "language": "svelte",
+      "path": "main.svelte",
+      "source": "<script>\n  export function updateFoo(value) {\n    foo = value;\n  }\n  export let foo;\n</script>\n<p>{foo}</p>\n",
+      "present": [
+        {
+          "qualifiedName": "updateFoo",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "foo",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "value",
+        "p"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-static-assert-class-scope",
+      "language": "cpp",
+      "path": "device.hpp",
+      "source": "class Device {\n  static_assert(sizeof(int) > 0, \"ok\");\n  int slot;\n};\n",
+      "present": [
+        {
+          "qualifiedName": "Device",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Device.slot",
+          "kind": "field",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Device.static_assert",
+        "Device.sizeof",
+        "Device.int"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-static-assert-unterminated-incomplete",
+      "language": "cpp",
+      "path": "broken.hpp",
+      "source": "int stable;\nstatic_assert(sizeof(int) > 0, \"unterminated\"\nint after;\n",
+      "present": [
+        {
+          "qualifiedName": "stable",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "static_assert",
+        "sizeof"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "cpp-static-assert-is-not-declaration",
+      "language": "cpp",
+      "path": "sketch.hpp",
+      "source": "static_assert(MAX_LOCOS > 1 && MAX_LOCOS < 256, \"range\");\nvoid setup() {}\nvoid loop() {}\n",
+      "present": [
+        {
+          "qualifiedName": "setup",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "loop",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "MAX_LOCOS",
+        "static_assert"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-member-before-lock-statement",
+      "language": "cpp",
+      "path": "app_metrics.h",
+      "source": "class AppMetrics {\npublic:\n  void operator=(AppMetrics const&) = delete;\n  void increment_count(const std::string& identifier, uint64_t count) {\n    std::unique_lock lock(mutex);\n    (*current_counts)[identifier] += count;\n  }\n  void increment_duration(const std::string& identifier, uint64_t duration) {\n    std::unique_lock lock(mutex);\n  }\n};\n",
+      "present": [
+        {
+          "qualifiedName": "AppMetrics",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "AppMetrics.increment_count",
+          "kind": "method",
+          "line": 4
+        },
+        {
+          "qualifiedName": "AppMetrics.increment_duration",
+          "kind": "method",
+          "line": 8
+        }
+      ],
+      "forbidden": [
+        "AppMetrics.lock",
+        "AppMetrics.mutex",
+        "AppMetrics.identifier"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-using-directive",
+      "language": "cpp",
+      "path": "namespaces.cpp",
+      "source": "using namespace System;\nusing namespace System::Reflection;\nusing facebook::react;\nusing Alias = int;\nnamespace Demo { class Service {}; }\nint count;\n",
+      "present": [
+        {
+          "qualifiedName": "Alias",
+          "kind": "alias",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Demo.Service",
+          "kind": "class",
+          "line": 5,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "count",
+          "kind": "variable",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "System",
+        "Reflection",
+        "react"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-cli-ref-class-trailing-sealed",
+      "language": "cpp-cli",
+      "path": "Meta.h",
+      "source": "namespace libyaraNET {\n public ref class Meta sealed {\n public:\n Meta() {}\n property String^ Identifier;\n };\n}\n",
+      "present": [
+        {"qualifiedName": "libyaraNET", "kind": "namespace", "line": 1},
+        {"qualifiedName": "libyaraNET.Meta", "kind": "class", "line": 2},
+        {"qualifiedName": "libyaraNET.Meta.Meta", "kind": "constructor", "line": 4, "parent": "libyaraNET.Meta"}
+      ],
+      "forbidden": ["libyaraNET.Identifier", "libyaraNET.Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-cli-assembly-metadata-not-declarations",
+      "language": "cpp-cli",
+      "path": "AssemblyInfo.cpp",
+      "source": "using namespace System;\n[assembly:AssemblyTitle(\"NTagLib\")];\n[assembly:AssemblyDescription(\"About\")]\n[assembly:AssemblyConfiguration(\"\")];\npublic ref class Marker {};\n",
+      "present": [{"qualifiedName": "Marker", "kind": "class", "line": 5}],
+      "forbidden": ["System", "AssemblyTitle", "AssemblyDescription", "AssemblyConfiguration"],
+      "coverageComplete": true
+    },
+    {
+      "id": "cpp-cli-using-directive-bom",
+      "language": "cpp-cli",
+      "path": "assembly.cpp",
+      "source": "﻿#include \"stdafx.h\"\nusing namespace System;\nusing namespace System::Reflection;\npublic ref class Service {};\n",
+      "present": [
+        {
+          "qualifiedName": "Service",
+          "kind": "class",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "System",
+        "Reflection"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cil-class-method-block-scope",
+      "language": "cil",
+      "path": "nested-methods.il",
+      "source": ".assembly DemoLibrary {}\n.class public Demo\n{\n  .method public static void First() cil managed\n  {\n    ret\n  }\n  .method public static void Second() cil managed\n  {\n    ret\n  }\n  .field public int32 Count\n}\n.method public static void Ghost() cil managed\n",
+      "present": [
+        {"qualifiedName": "DemoLibrary", "kind": "module", "line": 1},
+        {"qualifiedName": "DemoLibrary.Demo", "kind": "class", "line": 2},
+        {"qualifiedName": "DemoLibrary.Demo.First", "kind": "method", "line": 4, "parent": "DemoLibrary.Demo"},
+        {"qualifiedName": "DemoLibrary.Demo.Second", "kind": "method", "line": 8, "parent": "DemoLibrary.Demo"},
+        {"qualifiedName": "DemoLibrary.Demo.Count", "kind": "field", "line": 12, "parent": "DemoLibrary.Demo"}
+      ],
+      "forbidden": ["Ghost", "DemoLibrary.Demo.Ghost", "DemoLibrary.Demo.ret"],
+      "coverageComplete": true
+    },
+    {
+      "id": "cil-quoted-assembly",
+      "language": "cil",
+      "path": "quoted.il",
+      "source": ".assembly extern mscorlib\n{\n}\n.assembly 'ConvTest'\n{\n}\n.module ConvTest.exe\n",
+      "present": [
+        {
+          "qualifiedName": "ConvTest",
+          "kind": "module",
+          "line": 4,
+          "nativeKind": "assembly"
+        }
+      ],
+      "forbidden": [
+        "'"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "razor-computed-id",
+      "language": "razor",
+      "path": "component.cshtml",
+      "source": "<main id=\"fixed\"></main>\n<div id=\"@Id\"></div>\n<button id=\"section-@Id\"></button>\n<aside id=\"help@example.com\"></aside>\n",
+      "present": [
+        {
+          "qualifiedName": "fixed",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "help@example.com",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "@Id",
+        "section-@Id"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "blazor-computed-id",
+      "language": "blazor",
+      "path": "component.razor",
+      "source": "<main id=\"fixed\"></main>\n<Widget Id=\"@(Model.Selected)\" />\n<div id=\"@Id\"></div>\n",
+      "present": [
+        {
+          "qualifiedName": "fixed",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "@(Model.Selected)",
+        "@Id"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "html-literal-at-id",
+      "language": "html",
+      "path": "page.html",
+      "source": "<main id=\"@Id\"></main>\n<div id=\"literal\"></div>\n",
+      "present": [
+        {
+          "qualifiedName": "@Id",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "literal",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Id"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "html-script-and-style-text-are-not-markup",
+      "language": "html",
+      "path": "inline.html",
+      "source": "<script id=\"script-anchor\">\nconst html = '<li id=\"face_item_' + key + '\">';\n</script>\n<style>.x::before { content: '<span id=\"style-ghost\">'; }</style>\n<textarea><div id=\"textarea-ghost\"></textarea>\n<main id=\"actual\"></main>\n",
+      "present": [
+        {
+          "qualifiedName": "script-anchor",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "actual",
+          "kind": "entity",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "face_item_' + key + '",
+        "face_item_",
+        "style-ghost",
+        "textarea-ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "html-unterminated-script-does-not-expose-phantoms",
+      "language": "html",
+      "path": "broken.html",
+      "source": "<div id=\"before\"></div>\n<script>\nconst html = '<div id=\"phantom\">';\n<section id=\"also-phantom\">\n",
+      "present": [
+        {
+          "qualifiedName": "before",
+          "kind": "entity",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "phantom",
+        "also-phantom"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "dart-named-constructors-not-methods",
+      "language": "dart",
+      "path": "vessel.dart",
+      "source": "class Vessel {\n  Vessel();\n  Vessel.named();\n  const Vessel._internal();\n  void pump() {}\n  external factory Vessel.fromHost();\n}\n",
+      "present": [
+        {"qualifiedName": "Vessel", "kind": "class", "line": 1},
+        {"qualifiedName": "Vessel.Vessel", "kind": "constructor", "line": 2, "parent": "Vessel"},
+        {"qualifiedName": "Vessel.named", "kind": "constructor", "line": 3, "parent": "Vessel"},
+        {"qualifiedName": "Vessel._internal", "kind": "constructor", "line": 4, "parent": "Vessel"},
+        {"qualifiedName": "Vessel.pump", "kind": "method", "line": 5, "parent": "Vessel"},
+        {"qualifiedName": "Vessel.fromHost", "kind": "constructor", "line": 6, "parent": "Vessel"}
+      ],
+      "forbidden": ["Vessel.Ghost", "Vessel.value", "Vessel.factory"],
+      "coverageComplete": true
+    },
+    {
+      "id": "dart-annotation",
+      "language": "dart",
+      "path": "example.dart",
+      "source": "@pragma(\"vm:entry-point\")\nfinal class ProbeType {\n  int value = 1;\n}\nclass Other {}\n",
+      "present": [
+        {
+          "qualifiedName": "ProbeType",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "ProbeType.value",
+          "kind": "field",
+          "line": 3,
+          "parent": "ProbeType"
+        },
+        {
+          "qualifiedName": "Other",
+          "kind": "class",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "pragma"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "apex-annotated-field",
+      "language": "apex",
+      "path": "Example.cls",
+      "source": "public class Probe {\n  private static Set<String> cache = new Set<String>();\n  public static Boolean ready() { return true; }\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Probe",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Probe.cache",
+          "kind": "field",
+          "line": 2,
+          "parent": "Probe"
+        },
+        {
+          "qualifiedName": "Probe.ready",
+          "kind": "method",
+          "line": 3,
+          "parent": "Probe"
+        }
+      ],
+      "forbidden": [
+        "Probe.String"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "d-module-import",
+      "language": "d",
+      "path": "example.d",
+      "source": "module test.simple;\nimport std.stdio;\nstruct Data {}\n",
+      "present": [
+        {
+          "qualifiedName": "test.simple.Data",
+          "kind": "struct",
+          "line": 3,
+          "parent": "test.simple"
+        }
+      ],
+      "forbidden": [
+        "test.simple.simple",
+        "test.simple.stdio"
+      ],
+      "coverageComplete": true
+    },
+    {
+        "id": "solidity-named-import-preserves-contract-ownership",
+        "language": "solidity",
+        "path": "Guard.sol",
+        "source": "pragma solidity ^0.8.0;\nimport {Context} from \"./Context.sol\";\nabstract contract Guard is Context {\n    error Denied(address caller);\n    address private owner;\n    function check() public returns (bool) { return true; }\n}\n",
+        "present": [
+          {
+            "qualifiedName": "Guard",
+            "kind": "class",
+            "line": 3
+          },
+          {
+            "qualifiedName": "Guard.Denied",
+            "kind": "type",
+            "line": 4,
+            "parent": "Guard"
+          },
+          {
+            "qualifiedName": "Guard.owner",
+            "kind": "field",
+            "line": 5,
+            "parent": "Guard"
+          },
+          {
+            "qualifiedName": "Guard.check",
+            "kind": "method",
+            "line": 6,
+            "parent": "Guard"
+          }
+        ],
+        "forbidden": [
+          "Context",
+          "Guard.Context",
+          "owner",
+          "check",
+          "Guard.Ghost"
+        ],
+        "coverageComplete": true
+    },
+    {
+        "id": "apex-automatic-properties-are-properties-not-getter-symbols",
+        "language": "apex",
+        "path": "Paged.cls",
+        "source": "public with sharing class Paged {\n    @AuraEnabled\n    public Integer size { get; set; }\n    public String title { get; set; }\n    public void reset() {}\n}\n",
+        "present": [
+          {
+            "qualifiedName": "Paged",
+            "kind": "class",
+            "line": 1
+          },
+          {
+            "qualifiedName": "Paged.size",
+            "kind": "property",
+            "line": 3,
+            "parent": "Paged"
+          },
+          {
+            "qualifiedName": "Paged.title",
+            "kind": "property",
+            "line": 4,
+            "parent": "Paged"
+          },
+          {
+            "qualifiedName": "Paged.reset",
+            "kind": "method",
+            "line": 5,
+            "parent": "Paged"
+          }
+        ],
+        "forbidden": [
+          "Paged.get",
+          "Paged.set",
+          "Paged.AuraEnabled",
+          "Paged.Ghost"
+        ],
+        "coverageComplete": true
+    },
+    {
+      "id": "solidity-pragma",
+      "language": "solidity",
+      "path": "DataTypes.sol",
+      "source": "pragma solidity ^0.8.0;\nlibrary DataTypes {}\n",
+      "present": [
+        {
+          "qualifiedName": "DataTypes",
+          "kind": "module",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "solidity"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "haskell-qualified-module-and-top-level-signature",
+      "language": "haskell",
+      "path": "UDP.hs",
+      "source": "module Network.UDP where\nclass DataPacket a where\n  toStrictBS :: a -> String\npingUDPPort :: Int -> Int\npingUDPPort value = value\n",
+      "present": [
+        {"qualifiedName": "Network.UDP", "kind": "module", "line": 1},
+        {"qualifiedName": "Network.UDP.DataPacket", "kind": "interface", "line": 2, "parent": "Network.UDP"},
+        {"qualifiedName": "Network.UDP.pingUDPPort", "kind": "function", "line": 4, "parent": "Network.UDP"}
+      ],
+      "forbidden": ["Network", "Network.UDP.String", "Network.UDP.value", "Network.UDP.Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "haskell-local-bindings",
+      "language": "haskell",
+      "path": "Demo.hs",
+      "source": "module Demo where\nrun n = do\n  let doubled x = x + x\n      answer = doubled n\n  pure answer\ntop x = inner x\n  where\n    inner y = y + 1\noutside = 42\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.run",
+          "kind": "function",
+          "line": 2,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.top",
+          "kind": "function",
+          "line": 6,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.outside",
+          "kind": "variable",
+          "line": 9,
+          "parent": "Demo"
+        }
+      ],
+      "forbidden": [
+        "Demo.let",
+        "Demo.doubled",
+        "Demo.answer",
+        "Demo.inner"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "cobol-quoted-program",
+      "language": "cobol",
+      "path": "hello.cbl",
+      "source": "IDENTIFICATION DIVISION.\nPROGRAM-ID. 'HELLO'.\nENVIRONMENT DIVISION.\nCONFIGURATION SECTION.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\nPROCEDURE DIVISION.\nMAIN SECTION.\n",
+      "present": [
+        {
+          "qualifiedName": "HELLO",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "HELLO.CONFIGURATION",
+          "kind": "section",
+          "line": 4,
+          "parent": "HELLO"
+        },
+        {
+          "qualifiedName": "HELLO.MAIN",
+          "kind": "function",
+          "line": 8,
+          "parent": "HELLO"
+        }
+      ],
+      "forbidden": [
+        "HELLO.CONFIGURATION.MAIN"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vhdl-architecture-component",
+      "language": "vhdl",
+      "path": "core.vhd",
+      "source": "library ieee;\nuse ieee.std_logic_1164.all;\nentity Core is\nend entity;\narchitecture rtl of Core is\n  signal state : std_logic;\n  -- component Fake\n  component ADC\n    port (clk : in std_logic);\n  end component;\nbegin\n  ADC_i : ADC port map (clk => state);\nend architecture;\n",
+      "present": [
+        {
+          "qualifiedName": "Core",
+          "kind": "entity",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Core.rtl",
+          "kind": "implementation",
+          "line": 5,
+          "parent": "Core"
+        },
+        {
+          "qualifiedName": "Core.rtl.ADC",
+          "kind": "type",
+          "line": 8,
+          "parent": "Core.rtl",
+          "nativeKind": "component"
+        }
+      ],
+      "forbidden": [
+        "Core.rtl.Fake",
+        "Core.rtl.ADC_i"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-backtick-operator-static-members",
+      "language": "fsharp",
+      "path": "Ops.fs",
+      "source": "namespace Sample\ntype Ops =\n    static member ``***`` (a: int, b: int) = a + b\n    static member ``&&&`` (a: int, b: int) = a * b\ntype Ops with\n    static member inline ``^^^`` (a: int, b: int) = a ^^^ b\n",
+      "present": [
+        {
+          "qualifiedName": "Sample",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Sample.Ops",
+          "kind": "type",
+          "line": 2,
+          "parent": "Sample"
+        },
+        {
+          "qualifiedName": "Sample.Ops.***",
+          "kind": "method",
+          "line": 3,
+          "parent": "Sample.Ops"
+        },
+        {
+          "qualifiedName": "Sample.Ops.&&&",
+          "kind": "method",
+          "line": 4,
+          "parent": "Sample.Ops"
+        },
+        {
+          "qualifiedName": "Sample.Ops.^^^",
+          "kind": "method",
+          "line": 6,
+          "parent": "Sample.Ops"
+        }
+      ],
+      "forbidden": [
+        "Sample.Ops.static",
+        "Sample.Ops.member",
+        "Sample.Ops.a",
+        "Sample.Ops.b",
+        "Sample.Ops.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-static-member-type-augmentation-no-duplicate",
+      "language": "fsharp",
+      "path": "Worker.fs",
+      "source": "namespace Sample\ntype Worker =\n    static member Act(x: int) = x\n    static member inline Run(x: int) = x\ntype Worker with\n    static member Extend(x: string) = x\ntype Other =\n    member this.Go() = 1\n",
+      "present": [
+        {"qualifiedName": "Sample", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Sample.Worker", "kind": "type", "line": 2, "parent": "Sample"},
+        {"qualifiedName": "Sample.Worker.Act", "kind": "method", "line": 3, "parent": "Sample.Worker"},
+        {"qualifiedName": "Sample.Worker.Run", "kind": "method", "line": 4, "parent": "Sample.Worker"},
+        {"qualifiedName": "Sample.Worker.Extend", "kind": "method", "line": 6, "parent": "Sample.Worker"},
+        {"qualifiedName": "Sample.Other", "kind": "type", "line": 7, "parent": "Sample"},
+        {"qualifiedName": "Sample.Other.Go", "kind": "method", "line": 8, "parent": "Sample.Other"}
+      ],
+      "forbidden": ["Sample.Worker.static", "Sample.Worker.inline", "Sample.Worker.Worker", "Sample.Worker.x", "Sample.Other.Act"],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-qualified-module-and-nonowning-module-alias",
+      "language": "fsharp",
+      "path": "Main.fs",
+      "source": "module Vendor.Tools.Main\nmodule Alias = Other.Tools\nlet inline compute x =\n    let localOnly = x\n    localOnly\n",
+      "present": [
+        {"qualifiedName": "Vendor.Tools.Main", "kind": "module", "line": 1},
+        {"qualifiedName": "Vendor.Tools.Main.Alias", "kind": "module", "line": 2, "parent": "Vendor.Tools.Main"},
+        {"qualifiedName": "Vendor.Tools.Main.compute", "kind": "function", "line": 3, "parent": "Vendor.Tools.Main"}
+      ],
+      "forbidden": ["Vendor", "Vendor.Tools.Main.Alias.compute", "Vendor.Tools.Main.inline", "Vendor.Tools.Main.localOnly", "Vendor.Tools.Main.Alias.localOnly"],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-type-access-modifier-is-not-type-name",
+      "language": "fsharp",
+      "path": "Internal.fs",
+      "source": "namespace Example\ntype internal Counter() =\n    member this.Increment() = 1\ntype private Box() =\n    member this.Read() = 2\n",
+      "present": [
+        {"qualifiedName": "Example", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Example.Counter", "kind": "type", "line": 2, "parent": "Example"},
+        {"qualifiedName": "Example.Counter.Increment", "kind": "method", "line": 3, "parent": "Example.Counter"},
+        {"qualifiedName": "Example.Box", "kind": "type", "line": 4, "parent": "Example"},
+        {"qualifiedName": "Example.Box.Read", "kind": "method", "line": 5, "parent": "Example.Box"}
+      ],
+      "forbidden": ["Example.internal", "Example.private", "Example.internal.Increment", "Example.private.Read"],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-scoped-module-local-binding-and-override",
+      "language": "fsharp",
+      "path": "Scoped.fs",
+      "source": "namespace Sample\ntype First = string\nmodule Helpers =\n    let convert value =\n        let localOnly = value\n        localOnly\ntype Second() =\n    override this.ToString() = \"ok\"\n",
+      "present": [
+        {"qualifiedName": "Sample", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Sample.First", "kind": "type", "line": 2, "parent": "Sample"},
+        {"qualifiedName": "Sample.Helpers", "kind": "module", "line": 3, "parent": "Sample"},
+        {"qualifiedName": "Sample.Helpers.convert", "kind": "function", "line": 4, "parent": "Sample.Helpers"},
+        {"qualifiedName": "Sample.Second", "kind": "type", "line": 7, "parent": "Sample"},
+        {"qualifiedName": "Sample.Second.ToString", "kind": "method", "line": 8, "parent": "Sample.Second"}
+      ],
+      "forbidden": ["Sample.Helpers.Second", "Sample.Helpers.localOnly", "Sample.localOnly", "Sample.Helpers.First", "Sample.Helpers.ToString"],
+      "coverageComplete": true
+    },
+    {
+      "id": "fsharp-typed-binding",
+      "language": "fsharp",
+      "path": "Probe.fs",
+      "source": "module Probe\nlet value : int =\n    7\nlet square x =\n    x * x\n",
+      "present": [
+        {
+          "qualifiedName": "Probe",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Probe.value",
+          "kind": "variable",
+          "line": 2,
+          "parent": "Probe"
+        },
+        {
+          "qualifiedName": "Probe.square",
+          "kind": "function",
+          "line": 4,
+          "parent": "Probe"
+        }
+      ],
+      "forbidden": [
+        "Probe.int"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "python-comment-ghost",
+      "language": "python",
+      "path": "module.py",
+      "source": "# def ghost(): pass\n\ndef real(value):\n    return value\n",
+      "present": [
+        {
+          "qualifiedName": "real",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "jsp-xml-declaration",
+      "language": "jsp",
+      "path": "declarations.jsp",
+      "source": "<jsp:declaration>\n  String greeting(Locale locale) { return locale.toString(); }\n</jsp:declaration>\n<main id=\"hero\"></main>\n<!-- <jsp:declaration>class Ghost {}</jsp:declaration> -->\n",
+      "present": [
+        {
+          "qualifiedName": "greeting",
+          "kind": "method",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "razor-inline-computed-id",
+      "language": "razor",
+      "path": "inline.cshtml",
+      "source": "<button id=\"savecustomerrolesrequirement@(Model.RequirementId)\"></button>\n<div id=\"fixed\"></div>\n",
+      "present": [
+        {
+          "qualifiedName": "fixed",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "savecustomerrolesrequirement@(Model.RequirementId)"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "go-ast-comment",
+      "language": "go",
+      "path": "sample.go",
+      "source": "package sample\n// func Ghost() {}\ntype Widget struct { Value int }\nfunc Run() {}\n",
+      "present": [
+        {
+          "qualifiedName": "sample",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "sample.Widget",
+          "kind": "struct",
+          "line": 3
+        },
+        {
+          "qualifiedName": "sample.Widget.Value",
+          "kind": "field",
+          "line": 3
+        },
+        {
+          "qualifiedName": "sample.Run",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "sample.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "javascript-opaque-comment",
+      "language": "javascript",
+      "path": "app.js",
+      "source": "// function Phantom() {}\nfunction real(value) { return value; }\nconst text = \"function Ghost() {}\";\n",
+      "present": [
+        {
+          "qualifiedName": "real",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "typescript-interface",
+      "language": "typescript",
+      "path": "app.ts",
+      "source": "export interface Item { id: string; }\nexport type State = 'active' | 'closed';\nconst value = \"class Ghost {}\";\n",
+      "present": [
+        {
+          "qualifiedName": "Item",
+          "kind": "interface",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Item.id",
+          "kind": "property",
+          "line": 1
+        },
+        {
+          "qualifiedName": "State",
+          "kind": "alias",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "java-string-fake",
+      "language": "java",
+      "path": "Box.java",
+      "source": "package demo.core;\nclass Box {\n  int value;\n  String fake = \"class Ghost {}\";\n  void run() {}\n}\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.Box",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.Box.value",
+          "kind": "field",
+          "line": 3
+        },
+        {
+          "qualifiedName": "demo.core.Box.run",
+          "kind": "method",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "demo.core.Box.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "kotlin-expect-constructor-typed-property",
+      "language": "kotlin",
+      "path": "ForwardingSource.kt",
+      "source": "package okio\nexpect abstract class ForwardingSource constructor(\n  delegate: Source,\n) : Source {\n  val delegate: Source\n  override fun read(sink: Buffer, byteCount: Long): Long\n}\n",
+      "present": [
+        {
+          "qualifiedName": "okio",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "okio.ForwardingSource",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "okio.ForwardingSource.delegate",
+          "kind": "property",
+          "line": 5
+        },
+        {
+          "qualifiedName": "okio.ForwardingSource.read",
+          "kind": "method",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "okio.ForwardingSource.Source",
+        "okio.ForwardingSource.Buffer",
+        "okio.ForwardingSource.Long"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "kotlin-string-fake",
+      "language": "kotlin",
+      "path": "Box.kt",
+      "source": "package demo.core\nclass Box(val value: Int) {\n  fun run(): Int = value\n  val fake = \"class Ghost {}\"\n}\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.Box",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.Box.value",
+          "kind": "property",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.Box.run",
+          "kind": "method",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "demo.core.Box.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sql-comment-ghost",
+      "language": "sql",
+      "path": "schema.sql",
+      "source": "CREATE SCHEMA IF NOT EXISTS `lemans24` DEFAULT CHARACTER SET utf8mb4;\nCREATE TABLE IF NOT EXISTS `lemans24`.`drivers` (`id` INT PRIMARY KEY);\n-- CREATE TABLE Ghost (id INT);\n",
+      "present": [
+        {
+          "qualifiedName": "lemans24",
+          "kind": "schema",
+          "line": 1
+        },
+        {
+          "qualifiedName": "lemans24.drivers",
+          "kind": "type",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "xml-comment-ghost",
+      "language": "xml",
+      "path": "sample.xml",
+      "source": "<catalog>\n  <item id=\"real\"/>\n  <!-- <item id=\"ghost\"/> -->\n</catalog>\n",
+      "present": [
+        {
+          "qualifiedName": "real",
+          "kind": "entity",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "csharp-generic-method-name-before-type-parameters",
+      "language": "csharp",
+      "path": "Helpers.cs",
+      "source": "namespace Demo;\npublic class Helpers {\n public T Echo<T>(T value) { return value; }\n public TValue Pair<TKey, TValue>(TKey key, TValue value) { return value; }\n public int Count() { return 1; }\n}\n",
+      "present": [
+        {"qualifiedName": "Demo", "kind": "namespace", "line": 1},
+        {"qualifiedName": "Demo.Helpers", "kind": "class", "line": 2},
+        {"qualifiedName": "Demo.Helpers.Echo", "kind": "method", "line": 3, "parent": "Demo.Helpers"},
+        {"qualifiedName": "Demo.Helpers.Pair", "kind": "method", "line": 4, "parent": "Demo.Helpers"},
+        {"qualifiedName": "Demo.Helpers.Count", "kind": "method", "line": 5, "parent": "Demo.Helpers"}
+      ],
+      "forbidden": ["Demo.Helpers.T", "Demo.Helpers.TKey", "Demo.Helpers.TValue", "Demo.Helpers.value", "Demo.Helpers.Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "csharp-comment-ghost",
+      "language": "csharp",
+      "path": "Service.cs",
+      "source": "namespace Demo {\n  class Service {\n    // void Ghost() {}\n    public void Run() {}\n  }\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.Service",
+          "kind": "class",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Demo.Service.Run",
+          "kind": "method",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Demo.Service.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "scss-use-with-configuration-not-variable-declarations",
+      "language": "scss",
+      "path": "theme.scss",
+      "source": "$highlight: #123456;\n@use \"theme;file\" with (\n  $base-color: #245278,\n  $highlight: $highlight,\n  $map: (nested: (key: \"semi;colon\")),\n  $end: red\n);\n@forward \"shared\" with (\n  $theme: #444\n);\n.card {\n  $local: green;\n  color: $highlight;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "highlight",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "local",
+          "kind": "variable",
+          "line": 12
+        },
+        {
+          "qualifiedName": ".card",
+          "kind": "selector",
+          "line": 11
+        }
+      ],
+      "forbidden": [
+        "base-color",
+        "map",
+        "end",
+        "theme"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "scss-comment-ghost",
+      "language": "scss",
+      "path": "variables.scss",
+      "source": "$primary: #ffffff;\n// $ghost: #000000;\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "graphql-hasura-input",
+      "language": "graphql",
+      "path": "actions.graphql",
+      "source": "type Mutation {\n  actionName(arg1: SampleInput!): SampleOutput\n}\ninput SampleInput {\n  username: String!\n}\n# type Ghost { phantom: Boolean }\n",
+      "present": [
+        {
+          "qualifiedName": "Mutation",
+          "kind": "type",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Mutation.actionName",
+          "kind": "field",
+          "line": 2
+        },
+        {
+          "qualifiedName": "SampleInput",
+          "kind": "type",
+          "line": 4
+        },
+        {
+          "qualifiedName": "SampleInput.username",
+          "kind": "field",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Ghost.phantom"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "proto-addressbook-field",
+      "language": "proto",
+      "path": "addressbook.proto",
+      "source": "package tutorial;\nmessage Person {\n  required string name = 1;\n  optional int32 id = 2;\n}\n// message Ghost { optional string fake = 1; }\n",
+      "present": [
+        {
+          "qualifiedName": "tutorial",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "tutorial.Person",
+          "kind": "type",
+          "line": 2
+        },
+        {
+          "qualifiedName": "tutorial.Person.name",
+          "kind": "field",
+          "line": 3
+        },
+        {
+          "qualifiedName": "tutorial.Person.id",
+          "kind": "field",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "tutorial.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "less-antdesign-selector",
+      "language": "less",
+      "path": "global.less",
+      "source": "@import 'dumi/theme-default/slots/SearchBar/index.less';\n.demo-logo {\n  width: 120px;\n}\n// .ghost { display:none; }\n",
+      "present": [
+        {
+          "qualifiedName": ".demo-logo",
+          "kind": "selector",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        ".ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sass-variable-selector",
+      "language": "sass",
+      "path": "style.sass",
+      "source": "$primary: #fc5a7d\n$secondary: #7d6dfb\n// $ghost: #000\nbody\n  margin: 0\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "secondary",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "body",
+          "kind": "selector",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "luau-local-function",
+      "language": "luau",
+      "path": "classes.luau",
+      "source": "--!nocheck\nlocal function expectpass(s, f)\n    f()\nend\n-- local function ghost() end\n",
+      "present": [
+        {
+          "qualifiedName": "expectpass",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "arduino-eeprom-setup",
+      "language": "arduino",
+      "path": "eeprom_get.ino",
+      "source": "#include <EEPROM.h>\nvoid setup() {\n  Serial.begin(9600);\n}\n// void fake() {}\n",
+      "present": [
+        {
+          "qualifiedName": "setup",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "fake"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vue-header-script-setup",
+      "language": "vue",
+      "path": "Header.vue",
+      "source": "<script setup lang=\"ts\">\nconst props = defineProps<{ store: string }>()\n</script>\n<template><main id=\"hero\"></main></template>\n<!-- <div id=\"ghost\"></div> -->\n",
+      "present": [
+        {
+          "qualifiedName": "props",
+          "kind": "constant",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hero",
+          "kind": "entity",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ejs-index-entity",
+      "language": "ejs",
+      "path": "index.ejs",
+      "source": "<main id=\"greeting\"></main>\n<% function render() { return 'hello'; } %>\n<!-- <div id=\"ghost\"></div> -->\n",
+      "present": [
+        {
+          "qualifiedName": "greeting",
+          "kind": "entity",
+          "line": 1
+        },
+        {
+          "qualifiedName": "render",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "twig-craftcms-message",
+      "language": "twig",
+      "path": "400.twig",
+      "source": "{% extends \"_layouts/message\" %}\n{% block message %}\n <h2>{{ title }}</h2>\n{% endblock %}\n{# {% block ghost %}{% endblock %} #}\n",
+      "present": [
+        {
+          "qualifiedName": "message",
+          "kind": "section",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "r-highlight-square",
+      "language": "r",
+      "path": "highlight.R",
+      "source": "## Functions\nSquare <- function(x) {\n  return(x^2)\n}\n# Ghost <- function() 42\n",
+      "present": [
+        {
+          "qualifiedName": "Square",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "objective-c-methods-ignore-cpp-statements-in-mm",
+      "language": "objective-c",
+      "path": "Mixed.mm",
+      "source": "@implementation Sample\n- (instancetype)init { return self; }\n+ (NSString *)identifier { return @\"x\"; }\n@end\nClass RCTLinkingClassProvider(const char *name) { return nil; }\nclass HiddenCpp {};\n",
+      "present": [
+        {"qualifiedName": "Sample@implementation", "kind": "implementation", "line": 1},
+        {"qualifiedName": "Sample.init", "kind": "constructor", "line": 2, "parent": "Sample"},
+        {"qualifiedName": "Sample.identifier", "kind": "method", "line": 3, "parent": "Sample"}
+      ],
+      "forbidden": ["RCTLinkingClassProvider", "HiddenCpp", "Class", "Sample.Ghost"],
+      "coverageComplete": true
+    },
+    {
+      "id": "objective-c-implementation",
+      "language": "objective-c",
+      "path": "Foo.m",
+      "source": "#import \"Foo.h\"\n@implementation Foo\n@end\n// @implementation Ghost\n",
+      "present": [
+        {
+          "qualifiedName": "Foo@implementation",
+          "kind": "implementation",
+          "line": 2,
+          "nativeKind": "@implementation"
+        }
+      ],
+      "forbidden": [
+        "Ghost@implementation"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "al-sales-codeunit",
+      "language": "al",
+      "path": "SalesDataMgmt.al",
+      "source": "// SalesDataMgmt.al declaration\ncodeunit 50200 \"SalesDataMgmt\"\n{\n  procedure GetSalesJSON(): Text\n  begin\n    exit('{}');\n  end;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "SalesDataMgmt",
+          "kind": "module",
+          "line": 2
+        },
+        {
+          "qualifiedName": "SalesDataMgmt.GetSalesJSON",
+          "kind": "method",
+          "line": 4,
+          "parent": "SalesDataMgmt"
+        }
+      ],
+      "forbidden": [
+        "FakeSalesDataMgmt"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sass-function-rem",
+      "language": "sass",
+      "path": "functions.sass",
+      "source": "$browser-context: 16\n@function rem($pixels, $context: $browser-context)\n  @if unitless($pixels)\n    $pixels: $pixels * 1px\n  @return $pixels / $context * 1rem\n// @function Ghost() should not produce a symbol\n",
+      "present": [
+        {
+          "qualifiedName": "browser-context",
+          "kind": "variable",
+          "line": 1
+        },
+        {
+          "qualifiedName": "rem",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "unitless"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "sass-malformed-function",
+      "language": "sass",
+      "path": "invalid.sass",
+      "source": "$primary: #fc5a7d\n@function invalid\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "invalid"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "sass-unclosed-function-parameters",
+      "language": "sass",
+      "path": "unclosed.sass",
+      "source": "$primary: red\n@function incomplete($value\n  @return $value\n",
+      "present": [
+        {
+          "qualifiedName": "primary",
+          "kind": "variable",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "incomplete"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "pascal-brook-class",
+      "language": "pascal",
+      "path": "brook.pas",
+      "source": "unit BrookFCLCGIBroker;\ninterface\ntype\n  TBrookApplication = class(TObject)\n  private\n    FApp: TObject;\n  public\n    procedure Run;\n  end;\n// TGhost = class(TObject)\nimplementation\nend.\n",
+      "present": [
+        {
+          "qualifiedName": "BrookFCLCGIBroker",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "BrookFCLCGIBroker.TBrookApplication",
+          "kind": "class",
+          "line": 4
+        },
+        {
+          "qualifiedName": "BrookFCLCGIBroker.TBrookApplication.FApp",
+          "kind": "field",
+          "line": 6,
+          "parent": "BrookFCLCGIBroker.TBrookApplication"
+        }
+      ],
+      "forbidden": [
+        "TGhost",
+        "TBrookApplication.TGhost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "powershell-class-function",
+      "language": "powershell",
+      "path": "class.ps1",
+      "source": "class Foo {\n    $Property1\n    Method($Arg1) {\n        $LocalVar1 = 100\n    }\n}\nfunction GetBar {\n    $LocalVar2 = 200\n}\n# function Ghost {}\n",
+      "present": [
+        {
+          "qualifiedName": "Foo",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Foo.Method",
+          "kind": "method",
+          "line": 3
+        },
+        {
+          "qualifiedName": "GetBar",
+          "kind": "function",
+          "line": 7
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Foo.LocalVar1",
+        "GetBar.LocalVar2"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "perl-package-pod-comment",
+      "language": "perl",
+      "path": "Package.pm",
+      "source": "package Test::One;\nuse strict;\n# sub Ghost { }\nsub real { return 1; }\n=head1 COMMENTS\nsub PodGhost { }\n=cut\n",
+      "present": [
+        {
+          "qualifiedName": "Test::One",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Test::One.real",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Test::One.Ghost",
+        "Test::One.PodGhost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "mql5-input-group",
+      "language": "mql5",
+      "path": "EA.mq5",
+      "source": "#include <Trade/Trade.mqh>\ninput group \"Indicator Parameters\"\ninput int AosPeriod = 50;\ninput bool RequireRisingADX = true;\n// input int Ghost = 1;\nvoid OnTick() {}\n",
+      "present": [
+        {
+          "qualifiedName": "AosPeriod",
+          "kind": "variable",
+          "line": 3
+        },
+        {
+          "qualifiedName": "RequireRisingADX",
+          "kind": "variable",
+          "line": 4
+        },
+        {
+          "qualifiedName": "OnTick",
+          "kind": "function",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "Indicator",
+        "Ghost",
+        "Parameters"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "vb6-module-metadata",
+      "language": "vb6",
+      "path": "Module1.bas",
+      "source": "Attribute VB_Name = \"Module1\"\nOption Explicit\nPrivate Const SC_CLOSE As Long = &HF060&\nPublic Function GetMenuItemInfo() As Boolean\nEnd Function\n' Public Sub Ghost()\n",
+      "present": [
+        {
+          "qualifiedName": "Module1",
+          "kind": "module",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Module1.SC_CLOSE",
+          "kind": "constant",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Module1.GetMenuItemInfo",
+          "kind": "method",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "Module1.VB_Name",
+        "Module1.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ada-string-ghost",
+      "language": "ada",
+      "path": "test.adb",
+      "source": "with Ada.Text_IO;\nprocedure Test is\n  procedure Tagged_Procedure is\n    function Boolean_As_String return String is\n      (case True is when True => \"; function dummy0 return String is (\", when False => \"False\");\n  begin\n    null;\n  end Tagged_Procedure;\nbegin\n  null;\nend Test;\n",
+      "present": [
+        {
+          "qualifiedName": "Test",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Test.Tagged_Procedure",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "Test.Tagged_Procedure.Boolean_As_String",
+          "kind": "function",
+          "line": 4
+        }
+      ],
+      "forbidden": [
+        "dummy0",
+        "Test.Tagged_Procedure.dummy0"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "clojure-quoted-comment",
+      "language": "clojure",
+      "path": "for.clj",
+      "source": "(ns demo.core)\n(defn prime? [n] (not-any? zero? (range 2 n)))\n;; (defn Ghost [] nil)\n'(defn Quoted [] nil)\n(def value 42)\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.prime?",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "demo.core.value",
+          "kind": "variable",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "demo.core.Ghost",
+        "demo.core.Quoted"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "clojure-metadata-namespace",
+      "language": "clojure",
+      "path": "metadata.clj",
+      "source": "(ns ^{:doc \"Documented namespace\" :author \"team\"} demo.core)\n(defn run [] 1)\n;; (defn Ghost [] nil)\n",
+      "present": [
+        {
+          "qualifiedName": "demo.core",
+          "kind": "namespace",
+          "line": 1
+        },
+        {
+          "qualifiedName": "demo.core.run",
+          "kind": "function",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "demo.core.Ghost",
+        "Documented namespace"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "clojure-definition-metadata",
+      "language": "clojure",
+      "path": "metadata-defn.clj",
+      "source": "(defn my-fn [])\n\n(defn ^:private my-private-fn [])\n\n(defn ^{:foo :bar} my-public-fn [])\n\n(defn my-hinted-fn ^MyReturnType [])\n\n(defn ^:private my-private-hinted-fn ^MyReturnType [])\n\n(defn ^:private so-many-hints ^MyReturnType\n  [^MyArgType x])\n",
+      "present": [
+        {
+          "qualifiedName": "my-fn",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "my-private-fn",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "my-public-fn",
+          "kind": "function",
+          "line": 5
+        },
+        {
+          "qualifiedName": "my-hinted-fn",
+          "kind": "function",
+          "line": 7
+        },
+        {
+          "qualifiedName": "my-private-hinted-fn",
+          "kind": "function",
+          "line": 9
+        },
+        {
+          "qualifiedName": "so-many-hints",
+          "kind": "function",
+          "line": 11
+        }
+      ],
+      "forbidden": [
+        "private",
+        "foo",
+        "bar",
+        "MyReturnType",
+        "MyArgType"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "tcl-commented-procedures",
+      "language": "tcl",
+      "path": "procedures.tcl",
+      "source": "# proc ghost {} {}\nproc proc1 {} {\n  if {[regexp {[0-9]$} \"\"]} {\n    echo \"matched\"\n  }\n}\n\nproc proc2 {} {}\n\nproc proc3 {} {\n    set abc \"hello\"\n    puts ${abc}\n}\n\nproc proc4 {} {}\n\nproc3\n",
+      "present": [
+        {
+          "qualifiedName": "proc1",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "proc2",
+          "kind": "function",
+          "line": 8
+        },
+        {
+          "qualifiedName": "proc3",
+          "kind": "function",
+          "line": 10
+        },
+        {
+          "qualifiedName": "proc4",
+          "kind": "function",
+          "line": 15
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "regexp"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ada-anonymous-end-scope",
+      "language": "ada",
+      "path": "demo.adb",
+      "source": "package body Demo is\n  procedure Outer is\n    procedure Inner is\n    begin\n      null;\n    end;\n    procedure After is\n    begin\n      null;\n    end After;\n  begin\n    declare\n      Local : Integer := 1;\n    begin\n      null;\n    end;\n  end Outer;\n  procedure Sibling is\n  begin\n    null;\n  end Sibling;\nend Demo;\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.Outer",
+          "kind": "function",
+          "line": 2,
+          "parent": "Demo"
+        },
+        {
+          "qualifiedName": "Demo.Outer.Inner",
+          "kind": "function",
+          "line": 3,
+          "parent": "Demo.Outer"
+        },
+        {
+          "qualifiedName": "Demo.Outer.After",
+          "kind": "function",
+          "line": 7,
+          "parent": "Demo.Outer"
+        },
+        {
+          "qualifiedName": "Demo.Sibling",
+          "kind": "function",
+          "line": 18,
+          "parent": "Demo"
+        }
+      ],
+      "forbidden": [
+        "Demo.Outer.Inner.After",
+        "Demo.Outer.Sibling"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "ada-unmodeled-task-body-closer",
+      "language": "ada",
+      "path": "task-body.adb",
+      "source": "package body Demo is\n  task body Worker is\n  begin\n    null;\n  end;\n  procedure Run is\n  begin\n    null;\n  end Run;\nend Demo;\n",
+      "present": [
+        {
+          "qualifiedName": "Demo",
+          "kind": "package",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Demo.Run",
+          "kind": "function",
+          "line": 6,
+          "parent": "Demo"
+        }
+      ],
+      "forbidden": [
+        "Run",
+        "Demo.Worker.Run"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "lua-nested-function-assignments",
+      "language": "lua",
+      "path": "nested.lua",
+      "source": "a = {}\na.b = {}\na.b.c = function()\n  print \"hello\"\nend\na.b.c()\n-- function Ghost() end\nfunction Real()\nend\n",
+      "present": [
+        {
+          "qualifiedName": "a.b.c",
+          "kind": "function",
+          "line": 3,
+          "nativeKind": "function-assignment"
+        },
+        {
+          "qualifiedName": "Real",
+          "kind": "function",
+          "line": 8
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "print",
+        "a.b"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "lua-equality-malformed-declaration",
+      "language": "lua",
+      "path": "invalid.lua",
+      "source": "function Valid()\nend\nif type(v) == \"function\" then\n  print(v)\nend\nfunction == IGNOREME1\n",
+      "present": [
+        {
+          "qualifiedName": "Valid",
+          "kind": "function",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "IGNOREME1",
+        "print",
+        "type"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "ruby-super-string-class-methods",
+      "language": "ruby",
+      "path": "class.rb",
+      "source": "class A\n  def a()\n    super(\" do \")\n  end\n  def b()\n  end\nend\n# class Ghost\n",
+      "present": [
+        {
+          "qualifiedName": "A",
+          "kind": "class",
+          "line": 1
+        },
+        {
+          "qualifiedName": "A.a",
+          "kind": "method",
+          "line": 2,
+          "parent": "A"
+        },
+        {
+          "qualifiedName": "A.b",
+          "kind": "method",
+          "line": 5,
+          "parent": "A"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "super",
+        "A.super"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-host-script-isolation",
+      "language": "php",
+      "path": "mixed.php",
+      "source": "<html>\n<script type=\"text/typescript\">\nclass DateTime { get() { return 1; } }\n</script>\n<?php\nclass User {\n    public function __construct() {}\n}\n?>\n<div class=\"Ghost\">Hello</div>\n<?php\nfunction after(): void {}\n?>\n</html>\n",
+      "present": [
+        {
+          "qualifiedName": "User",
+          "kind": "class",
+          "line": 6
+        },
+        {
+          "qualifiedName": "User.User",
+          "kind": "constructor",
+          "line": 7,
+          "parent": "User"
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 12
+        }
+      ],
+      "forbidden": [
+        "DateTime",
+        "get",
+        "Ghost",
+        "DateTime.get"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-short-tags-isolate-host",
+      "language": "php",
+      "path": "short.php",
+      "source": "<?\nfunction shortFn() {}\n?>\n<script>class JSFake {}</script>\n<?php function after() {} ?>\n",
+      "present": [
+        {
+          "qualifiedName": "shortFn",
+          "kind": "function",
+          "line": 2
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "JSFake",
+        "script",
+        "class"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-code-only-quoted-open-tag",
+      "language": "php",
+      "path": "snippet.php",
+      "source": "function before() {}\n$example = \"<?php class Phantom {} ?>\";\nfunction after() {}\n",
+      "present": [
+        {
+          "qualifiedName": "before",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Phantom.after",
+        "class"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-leading-host-text-before-script",
+      "language": "php",
+      "path": "leading-text.php",
+      "source": "Welcome to the page\n<script type=\"text/typescript\">\nclass BrowserOnly { view() {} }\n</script>\n<?php\nclass Real {}\n?>\n",
+      "present": [
+        {
+          "qualifiedName": "Real",
+          "kind": "class",
+          "line": 6
+        }
+      ],
+      "forbidden": [
+        "BrowserOnly",
+        "BrowserOnly.view",
+        "view"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "php-untagged-snippet-markup-string",
+      "language": "php",
+      "path": "untagged.php",
+      "source": "function before() {}\n$markup = \"<script>class Fake {}</script><?php class Phantom {} ?>\";\nfunction after() {}\n",
+      "present": [
+        {
+          "qualifiedName": "before",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "function",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "Fake",
+        "Phantom",
+        "script"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "rust-struct-inherent-impl",
+      "language": "rust",
+      "path": "circle.rs",
+      "source": "fn main() { println!(\"hi\"); }\nstruct Circle {\n  radius: f64,\n}\nimpl Circle {\n  fn area(&self) -> f64 { self.radius }\n}\n// fn Ghost() {}\n",
+      "present": [
+        {
+          "qualifiedName": "main",
+          "kind": "function",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Circle.radius",
+          "kind": "field",
+          "line": 3,
+          "parent": "Circle"
+        },
+        {
+          "qualifiedName": "Circle.area",
+          "kind": "method",
+          "line": 6,
+          "parent": "Circle"
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "println",
+        "Circle.println"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "toml-spaced-dotted-array-table",
+      "language": "toml",
+      "path": "settings.toml",
+      "source": "# a sample config\n[ params ]\n  commit = true\n[[ params . social ]]\n  name = \"GitHub\"\n  icon = \"fab fa-github\"\n# [[ phantom . wrong ]]\n",
+      "present": [
+        {
+          "qualifiedName": "params",
+          "kind": "section",
+          "line": 2
+        },
+        {
+          "qualifiedName": "params.commit",
+          "kind": "key",
+          "line": 3,
+          "parent": "params"
+        },
+        {
+          "qualifiedName": "params.social",
+          "kind": "section",
+          "line": 4,
+          "parent": "params",
+          "nativeKind": "array-table"
+        },
+        {
+          "qualifiedName": "params.social.name",
+          "kind": "key",
+          "line": 5,
+          "parent": "params.social"
+        }
+      ],
+      "forbidden": [
+        "params . social",
+        "phantom",
+        "params.social.wrong"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "toml-quoted-dotted-path",
+      "language": "toml",
+      "path": "quoted.toml",
+      "source": "[target]\n[target.\"ci.windows\"]\nrunner = \"stable\"\n# [target.fake]\n",
+      "present": [
+        {
+          "qualifiedName": "target",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "target.\"ci.windows\"",
+          "kind": "section",
+          "line": 2,
+          "parent": "target"
+        },
+        {
+          "qualifiedName": "target.\"ci.windows\".runner",
+          "kind": "key",
+          "line": 3,
+          "parent": "target.\"ci.windows\""
+        }
+      ],
+      "forbidden": [
+        "target.ci.windows",
+        "target.fake",
+        "runner"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "toml-malformed-section-isolation",
+      "language": "toml",
+      "path": "broken.toml",
+      "source": "[known]\nvalue = 1\n[broken..section]\ninvalid = 2\n[after]\nvalid = true\n",
+      "present": [
+        {
+          "qualifiedName": "known",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "known.value",
+          "kind": "key",
+          "line": 2,
+          "parent": "known"
+        },
+        {
+          "qualifiedName": "after",
+          "kind": "section",
+          "line": 5
+        },
+        {
+          "qualifiedName": "after.valid",
+          "kind": "key",
+          "line": 6,
+          "parent": "after"
+        }
+      ],
+      "forbidden": [
+        "broken..section",
+        "invalid",
+        "after.invalid"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "toml-trailing-dot-whitespace-invalid",
+      "language": "toml",
+      "path": "trailing.toml",
+      "source": "[before]\nok = 1\n[bogus.   ]\nghost = 2\n[after]\nok = 2\n",
+      "present": [
+        {
+          "qualifiedName": "before.ok",
+          "kind": "key",
+          "line": 2,
+          "parent": "before"
+        },
+        {
+          "qualifiedName": "after.ok",
+          "kind": "key",
+          "line": 6,
+          "parent": "after"
+        }
+      ],
+      "forbidden": [
+        "bogus",
+        "bogus.ghost",
+        "ghost"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "toml-quoted-and-spaced-keys",
+      "language": "toml",
+      "path": "keys.toml",
+      "source": "[settings]\n'quoted.key' = \"one\"\n\"key=sign\" = \"two\"\nfruit. color = \"yellow\"\nfruit.name = \"banana\"\nsite.\"google.com\" = true\n# 'ghost' = 1\n",
+      "present": [
+        {
+          "qualifiedName": "settings",
+          "kind": "section",
+          "line": 1
+        },
+        {
+          "qualifiedName": "settings.'quoted.key'",
+          "kind": "key",
+          "line": 2,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.\"key=sign\"",
+          "kind": "key",
+          "line": 3,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.fruit.color",
+          "kind": "key",
+          "line": 4,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.fruit.name",
+          "kind": "key",
+          "line": 5,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.site.\"google.com\"",
+          "kind": "key",
+          "line": 6,
+          "parent": "settings"
+        }
+      ],
+      "forbidden": [
+        "settings.quoted.key",
+        "settings.key=sign",
+        "settings.fruit. color",
+        "settings.site.google.com",
+        "settings.'ghost'"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "toml-invalid-assignment-keeps-siblings",
+      "language": "toml",
+      "path": "invalid-keys.toml",
+      "source": "[settings]\nfoo = 1\nbad key = 2\nbar = 3\n",
+      "present": [
+        {
+          "qualifiedName": "settings.foo",
+          "kind": "key",
+          "line": 2,
+          "parent": "settings"
+        },
+        {
+          "qualifiedName": "settings.bar",
+          "kind": "key",
+          "line": 4,
+          "parent": "settings"
+        }
+      ],
+      "forbidden": [
+        "settings.bad",
+        "settings.bad key",
+        "settings.key"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "yaml-plain-spaced-and-quoted-mapping",
+      "language": "yaml",
+      "path": "mapping.yaml",
+      "source": "root:\n  another key: value\n  \"a:b key\": \"x:y\"\n  'single # key': ok\n  child:\n    leaf: true\n# ghost: false\n",
+      "present": [
+        {
+          "qualifiedName": "root",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "root.another key",
+          "kind": "key",
+          "line": 2,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.a:b key",
+          "kind": "key",
+          "line": 3,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.single # key",
+          "kind": "key",
+          "line": 4,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.child",
+          "kind": "key",
+          "line": 5,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.child.leaf",
+          "kind": "key",
+          "line": 6,
+          "parent": "root.child"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "root.ghost",
+        "root.a",
+        "root.child.another key"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "yaml-block-scalar-text-not-declarations",
+      "language": "yaml",
+      "path": "literal.yaml",
+      "source": "description: |-\n  fake: not a mapping\n  nested:\n    ghost: true\nactive:\n  name: ok\nnote: >+\n  other: no\nlast: yes\n",
+      "present": [
+        {
+          "qualifiedName": "description",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "active",
+          "kind": "key",
+          "line": 5
+        },
+        {
+          "qualifiedName": "active.name",
+          "kind": "key",
+          "line": 6,
+          "parent": "active"
+        },
+        {
+          "qualifiedName": "note",
+          "kind": "key",
+          "line": 7
+        },
+        {
+          "qualifiedName": "last",
+          "kind": "key",
+          "line": 9
+        }
+      ],
+      "forbidden": [
+        "description.fake",
+        "description.nested",
+        "nested.ghost",
+        "fake",
+        "other"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "yaml-unmodeled-complex-key-honest-coverage",
+      "language": "yaml",
+      "path": "complex.yaml",
+      "source": "root:\n  safe: yes\n? [one, two]\n: complex value\nnext: good\n",
+      "present": [
+        {
+          "qualifiedName": "root",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "root.safe",
+          "kind": "key",
+          "line": 2,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "next",
+          "kind": "key",
+          "line": 5
+        }
+      ],
+      "forbidden": [
+        "root.one",
+        "one",
+        "two",
+        "complex value"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "yaml-tagged-block-scalar-suppress-ghost",
+      "language": "yaml",
+      "path": "tagged.yaml",
+      "source": "root:\n  tagged: !!str |-\n    ghost: literal text\n    nested:\n      fake: string\n  after: true\n",
+      "present": [
+        {
+          "qualifiedName": "root",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "root.tagged",
+          "kind": "key",
+          "line": 2,
+          "parent": "root"
+        },
+        {
+          "qualifiedName": "root.after",
+          "kind": "key",
+          "line": 6,
+          "parent": "root"
+        }
+      ],
+      "forbidden": [
+        "ghost",
+        "root.ghost",
+        "root.tagged.ghost",
+        "nested.fake",
+        "fake"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "bash-functions-opaque-heredoc",
+      "language": "bash",
+      "path": "build.bash",
+      "source": "#!/usr/bin/env bash\nsource \"./lib.bash\"\nfunction deploy() { echo ready; }\ncompile () {\n  cat <<'EOF'\nfunction Phantom() { echo fake; }\nEOF\n  echo done\n}\n# function Ghost() { :; }\nfunction cleanup { :; }\n",
+      "present": [
+        {
+          "qualifiedName": "deploy",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "compile",
+          "kind": "function",
+          "line": 4
+        },
+        {
+          "qualifiedName": "cleanup",
+          "kind": "function",
+          "line": 11
+        }
+      ],
+      "forbidden": [
+        "Phantom",
+        "Ghost",
+        "cat",
+        "echo"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "shell-posix-functions",
+      "language": "shell",
+      "path": "build.sh",
+      "source": "#!/bin/sh\n. ./env.sh\nbuild() {\n  printf '%s\\n' ok\n}\n# shadow() { false; }\nclean() { :; }\n",
+      "present": [
+        {
+          "qualifiedName": "build",
+          "kind": "function",
+          "line": 3
+        },
+        {
+          "qualifiedName": "clean",
+          "kind": "function",
+          "line": 7
+        }
+      ],
+      "forbidden": [
+        "shadow",
+        "printf",
+        "false"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "json-nested-objects-opaque-string",
+      "language": "json",
+      "path": "config.json",
+      "source": "{\n  \"service\": {\n    \"name\": \"api\",\n    \"enabled\": true\n  },\n  \"note\": \"class Ghost { }\",\n  \"params\": {}\n}\n",
+      "present": [
+        {
+          "qualifiedName": "service",
+          "kind": "key",
+          "line": 2
+        },
+        {
+          "qualifiedName": "service.name",
+          "kind": "key",
+          "line": 3,
+          "parent": "service"
+        },
+        {
+          "qualifiedName": "service.enabled",
+          "kind": "key",
+          "line": 4,
+          "parent": "service"
+        },
+        {
+          "qualifiedName": "note",
+          "kind": "key",
+          "line": 6
+        },
+        {
+          "qualifiedName": "params",
+          "kind": "key",
+          "line": 7
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "name",
+        "service.Ghost"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "json-malformed-structure-incomplete",
+      "language": "json",
+      "path": "invalid.json",
+      "source": "{\n  \"safe\": 1,\n  \"broken\": [1,\n}\n",
+      "present": [
+        {
+          "qualifiedName": "safe",
+          "kind": "key",
+          "line": 2
+        }
+      ],
+      "forbidden": [
+        "broken.Ghost",
+        "Ghost"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "json-array-of-objects-incomplete",
+      "language": "json",
+      "path": "catalog.json",
+      "source": "{\n  \"tools\": [{\"name\": \"read_text_file\", \"description\": \"a tool\"}],\n  \"count\": 1\n}\n",
+      "present": [
+        {
+          "qualifiedName": "tools",
+          "kind": "key",
+          "line": 2
+        },
+        {
+          "qualifiedName": "count",
+          "kind": "key",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "tools.name",
+        "tools.description",
+        "name",
+        "description"
+      ],
+      "coverageComplete": false
+    },
+    {
+      "id": "json-scalar-array-remains-complete",
+      "language": "json",
+      "path": "numbers.json",
+      "source": "{\"nums\":[1,2,3],\"text\":\"{ fake: 1 }\"}\n",
+      "present": [
+        {
+          "qualifiedName": "nums",
+          "kind": "key",
+          "line": 1
+        },
+        {
+          "qualifiedName": "text",
+          "kind": "key",
+          "line": 1
+        }
+      ],
+      "forbidden": [
+        "fake",
+        "nums.fake"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "swift-type-and-function-declarations",
+      "language": "swift",
+      "path": "Greeter.swift",
+      "source": "import Foundation\nstruct Greeter {\n  let prefix = \"hello\"\n  func greet(_ name: String) -> String {\n    return prefix + name\n  }\n}\nfunc top() {}\n// func Ghost() {}\nlet text = \"func Fake() {}\"\n",
+      "present": [
+        {
+          "qualifiedName": "Greeter",
+          "kind": "struct",
+          "line": 2
+        },
+        {
+          "qualifiedName": "Greeter.prefix",
+          "kind": "property",
+          "line": 3,
+          "parent": "Greeter"
+        },
+        {
+          "qualifiedName": "Greeter.greet",
+          "kind": "method",
+          "line": 4,
+          "parent": "Greeter"
+        },
+        {
+          "qualifiedName": "top",
+          "kind": "function",
+          "line": 8
+        },
+        {
+          "qualifiedName": "text",
+          "kind": "variable",
+          "line": 10
+        }
+      ],
+      "forbidden": [
+        "Ghost",
+        "Fake",
+        "Greeter.Fake",
+        "prefix"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "swift-protocol-members-and-conformance",
+      "language": "swift",
+      "path": "Pingable.swift",
+      "source": "protocol Pingable {\n  func ping()\n}\nclass Worker: Pingable {\n  func ping() {}\n}\n",
+      "present": [
+        {
+          "qualifiedName": "Pingable",
+          "kind": "interface",
+          "line": 1
+        },
+        {
+          "qualifiedName": "Pingable.ping",
+          "kind": "method",
+          "line": 2,
+          "parent": "Pingable"
+        },
+        {
+          "qualifiedName": "Worker",
+          "kind": "class",
+          "line": 4
+        },
+        {
+          "qualifiedName": "Worker.ping",
+          "kind": "method",
+          "line": 5,
+          "parent": "Worker"
+        }
+      ],
+      "forbidden": [
+        "ping",
+        "Worker.Pingable",
+        "Pingable.Worker"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "nix-simple-let-binding",
+      "language": "nix",
+      "path": "simple.nix",
+      "source": "let\n  version = 3;\n  enabled = true;\nin version\n",
+      "present": [
+        {
+          "qualifiedName": "version",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "enabled",
+          "kind": "variable",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "true",
+        "3",
+        "version.enabled"
+      ],
+      "coverageComplete": true
+    },
+    {
+      "id": "nix-attrset-output-honest-incomplete",
+      "language": "nix",
+      "path": "attributes.nix",
+      "source": "let\n  bool = true;\n  hint = \"value\";\nin {\n  child = bool;\n  nested.key = hint;\n}\n",
+      "present": [
+        {
+          "qualifiedName": "bool",
+          "kind": "variable",
+          "line": 2
+        },
+        {
+          "qualifiedName": "hint",
+          "kind": "variable",
+          "line": 3
+        }
+      ],
+      "forbidden": [
+        "hint.child",
+        "bool.nested",
+        "nested",
+        "child.hint"
+      ],
+      "coverageComplete": false
+    }
+  ]
+}

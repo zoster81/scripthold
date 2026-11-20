@@ -36,6 +36,7 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 	pairs := PairDelimiterTokens(scan.Tokens, nil)
 	packageKeyword := -1
 	packageName := -1
+	packageEnd := -1
 	open := -1
 	close := -1
 	for i := 0; i < len(scan.Tokens); i++ {
@@ -43,15 +44,25 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 			packageKeyword = i
 			packageName = nextIdentifierToken(scan.Tokens, i+1, len(scan.Tokens))
 			if packageName >= 0 {
-				for j := packageName + 1; j < len(scan.Tokens); j++ {
+				packageEnd = packageName
+				// A qualified package can contain dots, and its brace can
+				// follow the header on the next physical line.
+				for j := packageName + 1; j < len(scan.Tokens) && j < packageName+64; {
+					if scan.Tokens[j].Kind == TokenNewline {
+						j++
+						continue
+					}
+					if scan.Tokens[j].Text == "." && j+1 < len(scan.Tokens) &&
+						scan.Tokens[j+1].Kind == TokenIdentifier {
+						packageEnd = j + 1
+						j += 2
+						continue
+					}
 					if scan.Tokens[j].Text == "{" {
 						open = j
 						close = pairs[j]
-						break
 					}
-					if scan.Tokens[j].Kind == TokenNewline {
-						break
-					}
+					break
 				}
 			}
 			break
@@ -64,22 +75,63 @@ func (JScriptNetAnalyzer) Analyze(ctx context.Context, document *SourceDocument,
 	if err := builder.checkReady(); err != nil {
 		return AnalyzerResult{}, err
 	}
-	pkg, err := builder.Add(SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: scan.Tokens[packageName].Text, Declaration: OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, NameRange: OffsetRange{Start: scan.Tokens[packageName].StartOffset, End: scan.Tokens[packageName].EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, Evidence: SymbolEvidenceStructural})
+	pkgStart := scan.Tokens[packageName].StartOffset
+	pkgEnd := scan.Tokens[packageEnd].EndOffset
+	pkg, err := builder.Add(SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: document.Text[pkgStart:pkgEnd], Declaration: OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, NameRange: OffsetRange{Start: pkgStart, End: pkgEnd}, Signature: &OffsetRange{Start: scan.Tokens[packageKeyword].StartOffset, End: scan.Tokens[open].StartOffset}, Evidence: SymbolEvidenceStructural})
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	parent := &SymbolParent{ID: pkg.ID, QualifiedName: pkg.QualifiedName}
 	remaining := options
-	if remaining.Limits.MaxSymbols > 0 {
-		remaining.Limits.MaxSymbols--
+	bodyAvailable := options.Limits.MaxSymbols - 1
+	if options.Limits.MaxSymbols > 0 {
+		// A zero limit is invalid for the nested builder. Scan one bounded
+		// symbol to prove whether declarations were omitted.
+		remaining.Limits.MaxSymbols = max(1, bodyAvailable)
 	}
 	body, err := analyzeJScriptNetBody(ctx, document, remaining, masked, scan.Tokens[open].EndOffset, scan.Tokens[close].StartOffset, parent)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	base := builder.Result()
+	if options.Limits.MaxSymbols > 0 && len(body.Analysis.Symbols) > max(0, bodyAvailable) {
+		body.Analysis.Symbols = body.Analysis.Symbols[:max(0, bodyAvailable)]
+		body.Analysis.Truncated = true
+		body.Analysis.CoverageComplete = false
+	}
 	mergeAnalysisSymbols(&base, body.Analysis)
-	return AnalyzerResult{Analysis: base, Dependencies: body.Dependencies, Relations: body.Relations}, nil
+	// A JScript.NET package is not necessarily the whole script. Retain
+	// declarations before and after it without parsing its body twice.
+	outside := []byte(masked)
+	maskByteRangePreservingLines(outside, scan.Tokens[packageKeyword].StartOffset, scan.Tokens[close].EndOffset)
+	globalOptions := options
+	available := options.Limits.MaxSymbols - len(base.Symbols)
+	if options.Limits.MaxSymbols > 0 {
+		globalOptions.Limits.MaxSymbols = max(1, available)
+	}
+	globals, err := analyzeJScriptNetBody(ctx, document, globalOptions, string(outside), 0, len(outside), nil)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
+	if options.Limits.MaxSymbols > 0 {
+		if available <= 0 {
+			if len(globals.Analysis.Symbols) > 0 {
+				base.Truncated = true
+				base.CoverageComplete = false
+			}
+			globals.Analysis.Symbols = nil
+		} else if len(globals.Analysis.Symbols) > available {
+			globals.Analysis.Symbols = globals.Analysis.Symbols[:available]
+			globals.Analysis.Truncated = true
+			globals.Analysis.CoverageComplete = false
+		}
+	}
+	mergeAnalysisSymbols(&base, globals.Analysis)
+	return AnalyzerResult{
+		Analysis:     base,
+		Dependencies: append(body.Dependencies, globals.Dependencies...),
+		Relations:    append(body.Relations, globals.Relations...),
+	}, nil
 }
 
 func analyzeJScriptNetBody(ctx context.Context, host *SourceDocument, options AnalyzeOptions, masked string, start, end int, parent *SymbolParent) (AnalyzerResult, error) {
@@ -96,8 +148,8 @@ func analyzeJScriptNetBody(ctx context.Context, host *SourceDocument, options An
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	dependencies := jscriptNetDependencies(host, start, end)
-	relations := jscriptNetRelations(host, start, end, parent)
+	dependencies := jscriptNetDependencies(host, text, start)
+	relations := jscriptNetRelations(host, text, start, parent)
 	return AnalyzerResult{Analysis: analysis, Dependencies: dependencies, Relations: relations}, nil
 }
 
@@ -127,11 +179,10 @@ func maskJScriptNetModifiers(text string) string {
 var jscriptNetImportRE = regexp.MustCompile(`(?im)^[ \t]*import[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;`)
 var jscriptNetInheritanceRE = regexp.MustCompile(`(?im)\bclass[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+(?:extends|implements)[ \t]+([A-Za-z_][A-Za-z0-9_.]*)`)
 
-func jscriptNetDependencies(document *SourceDocument, start, end int) []StructuralDependency {
-	if document == nil || start < 0 || end < start || end > len(document.Text) {
+func jscriptNetDependencies(document *SourceDocument, text string, start int) []StructuralDependency {
+	if document == nil || start < 0 || start > len(document.Text) || len(text) > len(document.Text)-start {
 		return nil
 	}
-	text := document.Text[start:end]
 	matches := jscriptNetImportRE.FindAllStringSubmatchIndex(text, -1)
 	result := make([]StructuralDependency, 0, len(matches))
 	for _, match := range matches {
@@ -148,11 +199,10 @@ func jscriptNetDependencies(document *SourceDocument, start, end int) []Structur
 	return result
 }
 
-func jscriptNetRelations(document *SourceDocument, start, end int, parent *SymbolParent) []StructuralRelation {
-	if document == nil || start < 0 || end < start || end > len(document.Text) {
+func jscriptNetRelations(document *SourceDocument, text string, start int, parent *SymbolParent) []StructuralRelation {
+	if document == nil || start < 0 || start > len(document.Text) || len(text) > len(document.Text)-start {
 		return nil
 	}
-	text := document.Text[start:end]
 	matches := jscriptNetInheritanceRE.FindAllStringSubmatchIndex(text, -1)
 	result := make([]StructuralRelation, 0, len(matches))
 	for _, match := range matches {
@@ -232,15 +282,19 @@ type cilParser struct {
 }
 
 func (p *cilParser) parse(lines []LogicalLine) {
-	for _, line := range lines {
+	type classScope struct {
+		outer     *SymbolParent
+		baseDepth int
+		opened    bool
+	}
+	depth := 0
+	var classes []classScope
+	for index := 0; index < len(lines); index++ {
+		line := lines[index]
 		if p.stopped || p.ctx.Err() != nil || len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
-		if first == "}" {
-			p.class = nil
-			continue
-		}
 		switch first {
 		case ".assembly":
 			p.assembly(line)
@@ -249,18 +303,142 @@ func (p *cilParser) parse(lines []LogicalLine) {
 				p.moduleDecl(line)
 			}
 		case ".class":
+			outer := p.class
 			p.classDecl(line)
+			if p.class != nil && (outer == nil || p.class.ID != outer.ID) {
+				classes = append(classes, classScope{outer: outer, baseDepth: depth})
+			}
 		case ".field":
 			if p.class != nil {
 				p.member(line, SymbolKindField, "field")
 			}
 		case ".method":
-			if p.class != nil {
-				p.member(line, SymbolKindMethod, "method")
+			if p.class != nil || depth == 0 {
+				header, through := cilMethodHeader(lines, index)
+				// Global methods require an observed body; a trailing header
+				// alone is not enough to prove a declaration.
+				if p.class != nil || cilGlobalMethodBodyStarts(lines, through) {
+					p.member(header, SymbolKindMethod, "method")
+					index = through
+					line = header
+				}
+			}
+		}
+		for _, token := range line.Tokens {
+			switch token.Text {
+			case "{":
+				depth++
+				if len(classes) > 0 && depth > classes[len(classes)-1].baseDepth {
+					classes[len(classes)-1].opened = true
+				}
+			case "}":
+				if depth > 0 {
+					depth--
+				}
+				// A method's closing brace must not end its containing class.
+				for len(classes) > 0 && classes[len(classes)-1].opened && depth <= classes[len(classes)-1].baseDepth {
+					p.class = classes[len(classes)-1].outer
+					classes = classes[:len(classes)-1]
+				}
 			}
 		}
 	}
 }
+
+// CIL method signatures may place the method name on a later line or
+// contain modopt/modreq argument lists before the method's own parameter list.
+// Join only a bounded header, never IL body lines.
+func cilMethodHeader(lines []LogicalLine, start int) (LogicalLine, int) {
+	header := lines[start]
+	if cilMethodNameIndex(header.Tokens) >= 0 {
+		return header, start
+	}
+	candidate := header
+	for next := start + 1; next < len(lines) && next <= start+8; next++ {
+		line := lines[next]
+		if line.EndOffset-header.StartOffset > 8192 {
+			break
+		}
+		if len(line.Tokens) == 0 {
+			continue
+		}
+		first := line.Tokens[0].Text
+		if strings.HasPrefix(first, ".") || first == "{" || first == "}" {
+			break
+		}
+		for _, token := range line.Tokens {
+			if token.Text == "{" || token.Text == "}" {
+				return header, start
+			}
+		}
+		candidate.Tokens = append(candidate.Tokens, line.Tokens...)
+		candidate.EndOffset = line.EndOffset
+		if cilMethodNameIndex(candidate.Tokens) >= 0 {
+			return candidate, next
+		}
+	}
+	return header, start
+}
+
+func cilGlobalMethodBodyStarts(lines []LogicalLine, headerEnd int) bool {
+	if headerEnd >= len(lines) || headerEnd < 0 {
+		return false
+	}
+	for _, token := range lines[headerEnd].Tokens {
+		if token.Text == "{" {
+			return true
+		}
+	}
+	for next := headerEnd + 1; next < len(lines) && next <= headerEnd+8; next++ {
+		if len(lines[next].Tokens) > 0 {
+			return lines[next].Tokens[0].Text == "{"
+		}
+	}
+	return false
+}
+
+// Find the name immediately preceding the method parameter list. Metadata
+// modifiers have their own parentheses, and generic method names end in >.
+func cilMethodNameIndex(tokens []Token) int {
+	for i := 1; i < len(tokens); i++ {
+		if tokens[i].Text != "(" {
+			continue
+		}
+		before := i - 1
+		if before >= 1 && tokens[before].Text == ">" {
+			depth := 0
+			matched := false
+			for j := before; j >= 1; j-- {
+				switch tokens[j].Text {
+				case ">":
+					depth++
+				case "<":
+					depth--
+					if depth == 0 {
+						before = j - 1
+						matched = true
+					}
+				}
+				if matched {
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		if before < 1 || tokens[before].Kind != TokenIdentifier {
+			continue
+		}
+		switch strings.ToLower(tokens[before].Text) {
+		case "modopt", "modreq", "marshal", "pinvokeimpl":
+			continue
+		}
+		return before
+	}
+	return -1
+}
+
 func (p *cilParser) assembly(line LogicalLine) {
 	if len(line.Tokens) < 2 {
 		return
@@ -274,14 +452,35 @@ func (p *cilParser) assembly(line LogicalLine) {
 		return
 	}
 	tok := line.Tokens[idx]
+	name := tok.Text
+	nameEnd := tok.EndOffset
+	if name == "'" {
+		closing := -1
+		for i := idx + 1; i < len(line.Tokens); i++ {
+			if line.Tokens[i].Text == "'" && (i == idx+1 || line.Tokens[i-1].Text != "\\") {
+				closing = i
+				break
+			}
+		}
+		if closing < 0 {
+			p.builder.MarkIncomplete()
+			return
+		}
+		nameEnd = line.Tokens[closing].EndOffset
+		name = p.document.Text[tok.EndOffset:line.Tokens[closing].StartOffset]
+		if name == "" {
+			p.builder.MarkIncomplete()
+			return
+		}
+	}
 	if extern {
-		r, err := p.document.RangeFromUTF8Offsets(tok.StartOffset, tok.EndOffset)
+		r, err := p.document.RangeFromUTF8Offsets(tok.StartOffset, nameEnd)
 		if err == nil {
-			p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: tok.Text, Range: r, Evidence: SymbolEvidenceStructural})
+			p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: name, Range: r, Evidence: SymbolEvidenceStructural})
 		}
 		return
 	}
-	s, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "assembly", Name: tok.Text, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Evidence: SymbolEvidenceStructural})
+	s, ok := p.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "assembly", Name: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: nameEnd}, Evidence: SymbolEvidenceStructural})
 	if ok {
 		v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
 		p.module = &v
@@ -294,6 +493,9 @@ func (p *cilParser) moduleDecl(line LogicalLine) {
 	}
 	p.assembly(LogicalLine{Tokens: []Token{line.Tokens[0], line.Tokens[idx]}, StartOffset: line.StartOffset, EndOffset: line.EndOffset})
 }
+
+var cilGenericClassArity = regexp.MustCompile("`[0-9]+$")
+
 func (p *cilParser) classDecl(line LogicalLine) {
 	end := len(line.Tokens)
 	marker := end
@@ -304,6 +506,30 @@ func (p *cilParser) classDecl(line LogicalLine) {
 		}
 	}
 	idx := previousIdentifierToken(line.Tokens, marker-1, 1)
+	// For a generic IL class, the name precedes its <...> parameters.
+	// The last token before "extends" can otherwise be a type parameter.
+	for i := 2; i < marker; i++ {
+		if line.Tokens[i].Text != "<" {
+			continue
+		}
+		candidate := previousIdentifierToken(line.Tokens, i-1, 1)
+		if candidate < 0 || !cilGenericClassArity.MatchString(line.Tokens[candidate].Text) {
+			continue
+		}
+		closed := false
+		for j := i + 1; j < marker; j++ {
+			if line.Tokens[j].Text == ">" {
+				closed = true
+				break
+			}
+		}
+		if !closed {
+			p.builder.MarkIncomplete()
+			return
+		}
+		idx = candidate
+		break
+	}
 	if idx < 0 {
 		return
 	}
@@ -328,14 +554,9 @@ func (p *cilParser) classDecl(line LogicalLine) {
 	}
 }
 func (p *cilParser) member(line LogicalLine, kind SymbolKind, native string) {
-	name := -1
+	var name int
 	if kind == SymbolKindMethod {
-		for i, t := range line.Tokens {
-			if t.Text == "(" {
-				name = previousIdentifierToken(line.Tokens, i-1, 1)
-				break
-			}
-		}
+		name = cilMethodNameIndex(line.Tokens)
 	} else {
 		name = previousIdentifierToken(line.Tokens, len(line.Tokens)-1, 1)
 		if name >= 0 && line.Tokens[name].Text == "}" {
@@ -510,9 +731,15 @@ func (p *powerShellParser) parseClass(start, end int, parent *SymbolParent) int 
 	return close + 1
 }
 func (p *powerShellParser) parseFunction(start, end int, parent *SymbolParent) int {
-	name := nextIdentifierToken(p.tokens, start+1, end)
-	if name < 0 {
+	name := nextStructuralToken(p.tokens, start+1, end)
+	if name >= end || p.tokens[name].Kind != TokenIdentifier || p.tokens[name].Text == "@" {
+		// Hashtable keys named Function/Filter are not declarations.
 		return start + 1
+	}
+	if name+2 < end && p.tokens[name+1].Text == ":" && p.tokens[name+2].Kind == TokenIdentifier {
+		// In a scope-qualified function name (global:prompt), the identifier
+		// after the scope is the declared function, not the scope itself.
+		name += 2
 	}
 	open := -1
 	for i := name + 1; i < end; i++ {

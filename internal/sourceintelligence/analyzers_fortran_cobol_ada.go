@@ -696,7 +696,25 @@ func parseFortranTokens(document *SourceDocument, builder *SymbolBuilder, tokens
 			*scopes = append(*scopes, structuralAnalyzerScope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
 		}
 	case "type":
-		if len(tokens) > 1 && (tokens[1].Text == "(" || tokens[1].Text == "=" || tokens[1].Text == "=>" || strings.EqualFold(tokens[1].Text, "is")) {
+		if len(tokens) > 2 && tokens[1].Text == "(" {
+			depth := 1
+			for index := 2; index < len(tokens); index++ {
+				switch tokens[index].Text {
+				case "(":
+					depth++
+				case ")":
+					depth--
+				}
+				if depth == 0 {
+					if index+1 < len(tokens) && fortranProcedureKeyword(tokens[index+1].Text) == "function" {
+						parseFortranProcedure(builder, tokens, start, end, index+1, parent, scopes)
+					}
+					break
+				}
+			}
+			return
+		}
+		if len(tokens) > 1 && (tokens[1].Text == "=" || tokens[1].Text == "=>" || strings.EqualFold(tokens[1].Text, "is")) {
 			return
 		}
 		nameIndex := -1
@@ -866,6 +884,8 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		return AnalyzerResult{}, err
 	}
 	var program *SymbolParent
+	var procedureSection *SymbolParent
+	division := ""
 	dependencies := []StructuralDependency{}
 	continuedQuote := byte(0)
 	continuedRange := OffsetRange{}
@@ -913,6 +933,13 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		}
 		upper := strings.ToUpper(code)
 		switch {
+		case strings.HasSuffix(upper, " DIVISION."):
+			division = strings.TrimSpace(strings.TrimSuffix(upper, " DIVISION."))
+			procedureSection = nil
+		case strings.HasPrefix(upper, "PROCEDURE DIVISION USING "):
+			// A procedure header may list parameters and continue on later lines.
+			division = "PROCEDURE"
+			procedureSection = nil
 		case strings.HasPrefix(upper, "PROGRAM-ID."):
 			name := cobolWordAfter(code, "PROGRAM-ID.")
 			if name == "" {
@@ -931,8 +958,29 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 				continue
 			}
 			nameRange := findEqualFoldRange(document.Text, line.Code, name)
-			addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "section", Name: name, Parent: program,
+			kind := SymbolKindFunction
+			if division != "" && division != "PROCEDURE" {
+				kind = SymbolKindSection
+			}
+			symbol, ok := addStructuralSymbol(builder, SymbolSpec{Kind: kind, NativeKind: "section", Name: name, Parent: program,
 				Declaration: line.Code, NameRange: nameRange, Signature: &line.Code, Evidence: SymbolEvidenceStructural})
+			if division == "PROCEDURE" {
+				procedureSection = nil
+				if ok {
+					value := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+					procedureSection = &value
+				}
+			}
+		case division == "PROCEDURE":
+			if name := cobolParagraphLabel(code, rawCode, fixedFormat); name != "" {
+				parent := program
+				if procedureSection != nil {
+					parent = procedureSection
+				}
+				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: "paragraph", Name: name, Parent: parent,
+					Declaration: line.Code, NameRange: findEqualFoldRange(document.Text, line.Code, name),
+					Signature: &line.Code, Evidence: SymbolEvidenceStructural})
+			}
 		}
 		if index := strings.Index(upper, "COPY "); index >= 0 {
 			rest := strings.TrimSpace(code[index+len("COPY "):])
@@ -947,6 +995,34 @@ func (COBOLAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		addUnterminatedLiteral(continuedRange)
 	}
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// Paragraph labels are standalone words in the procedure division. Fixed-format
+// labels also belong to Area A (columns 8-11), unlike executable statements.
+func cobolParagraphLabel(code, rawCode string, fixedFormat bool) string {
+	if fixedFormat && len(rawCode)-len(strings.TrimLeft(rawCode, " \t")) > 3 {
+		return ""
+	}
+	if !strings.HasSuffix(code, ".") {
+		return ""
+	}
+	name := strings.TrimSuffix(code, ".")
+	if name == "" || cobolLeadingWord(name) != name {
+		return ""
+	}
+	upper := strings.ToUpper(name)
+	if strings.HasPrefix(upper, "END-") || strings.HasPrefix(upper, "EXIT-") {
+		return ""
+	}
+	switch upper {
+	case "CONTINUE", "GOBACK", "EXIT", "STOP", "RETURN", "NEXT", "NEXT-SENTENCE",
+		"DISPLAY", "ACCEPT", "INITIALIZE", "CANCEL", "COMMIT", "ROLLBACK",
+		"READ", "WRITE", "REWRITE", "DELETE", "OPEN", "CLOSE", "MOVE", "SET",
+		"ADD", "SUBTRACT", "MULTIPLY", "DIVIDE", "COMPUTE", "IF", "ELSE",
+		"PERFORM", "EVALUATE", "SEARCH", "STRING", "UNSTRING", "CALL":
+		return ""
+	}
+	return name
 }
 
 func cobolStripInlineComment(text string) (string, bool) {
@@ -998,6 +1074,10 @@ func cobolLooksFreeForm(text string) bool {
 			end++
 		}
 		line := text[start:end]
+		if start == 0 {
+			// A decoded UTF-8 BOM is metadata, not a fixed-format sequence column.
+			line = strings.TrimPrefix(line, "\uFEFF")
+		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" && !strings.HasPrefix(trimmed, "*>") && cobolFreeFormLineEvidence(line) {
 			return true
@@ -1036,24 +1116,39 @@ func cobolFreeFormLineEvidence(line string) bool {
 }
 
 func cobolFixedPrefixCompatible(line string) bool {
-	if utf8.RuneCountInString(line) < 7 {
+	if utf8.RuneCountInString(line) < 6 {
 		return false
 	}
+	hasSequenceLetter, hasSequenceDigit, hasSequenceSpace := false, false, false
 	for column := 1; column <= 6; column++ {
 		offset := scalarColumnOffset(line, column)
 		if offset >= len(line) {
 			return false
 		}
 		r, _ := utf8.DecodeRuneInString(line[offset:])
-		if r != ' ' && (r < '0' || r > '9') {
+		switch {
+		case r == ' ':
+			hasSequenceSpace = true
+		case r >= '0' && r <= '9':
+			hasSequenceDigit = true
+		case r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z':
+			hasSequenceLetter = true
+		default:
 			return false
 		}
 	}
+	// Six-column sequence-only records (including all-digit counters)
+	// carry no source code and must not imply free format.
 	indicatorOffset := scalarColumnOffset(line, 7)
 	if indicatorOffset >= len(line) {
-		return false
+		return hasSequenceDigit && !hasSequenceSpace
 	}
 	indicator, _ := utf8.DecodeRuneInString(line[indicatorOffset:])
+	// Historic sequences may be mixed letter/digit IDs or all-letter comment
+	// tags (e.g. SCROLL*). Reject ambiguous short free-format identifiers.
+	if hasSequenceLetter && (!hasSequenceDigit || hasSequenceSpace) && indicator != '*' && indicator != '/' {
+		return false
+	}
 	switch indicator {
 	case ' ', '*', '/', 'D', 'd', '-':
 		return true
@@ -1078,7 +1173,15 @@ func cobolWordAfter(text, prefix string) string {
 	if len(text) < len(prefix) {
 		return ""
 	}
-	return cobolLeadingWord(strings.TrimSpace(text[len(prefix):]))
+	name := strings.TrimSpace(text[len(prefix):])
+	if len(name) > 2 && (name[0] == '\'' || name[0] == '"') {
+		end := strings.IndexByte(name[1:], name[0])
+		if end <= 0 || end+2 < len(name) && name[end+2] == name[0] {
+			return ""
+		}
+		return name[1 : end+1]
+	}
+	return cobolLeadingWord(name)
 }
 
 func cobolLeadingWord(text string) string {
@@ -1124,12 +1227,42 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 	applyStructuralScanDiagnostics(builder, scan, "ada")
 	dependencies := []StructuralDependency{}
 	var scopes []structuralAnalyzerScope
+	// Keep unnamed statement blocks distinct from Ada declaration scopes.
+	type adaLexicalFrame struct {
+		begun  bool
+		blocks int
+	}
+	var lexical []adaLexicalFrame
+	// Task/protected scopes have unsupported members. Suppress them until
+	// their named end (or simple task-body end;) instead of assigning them
+	// to the outer package.
+	var opaqueName string
+	var opaqueSimpleTaskBody, opaqueSawBegin, opaqueNested bool
 	for lineIndex := range lines {
 		line := lines[lineIndex]
 		if len(line.Tokens) == 0 {
 			continue
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
+		if opaqueName != "" {
+			if first == "begin" {
+				if opaqueSawBegin {
+					opaqueNested = true
+				}
+				opaqueSawBegin = true
+			}
+			switch first {
+			case "declare", "procedure", "function", "task", "protected":
+				opaqueNested = true
+			}
+			if first == "end" && len(line.Tokens) > 1 {
+				if strings.EqualFold(line.Tokens[1].Text, opaqueName) ||
+					(line.Tokens[1].Text == ";" && opaqueSimpleTaskBody && opaqueSawBegin && !opaqueNested) {
+					opaqueName = ""
+				}
+			}
+			continue
+		}
 		if first == "with" {
 			end := logicalLineTokenEnd(line.Tokens)
 			for _, part := range splitCommaTokenRangeAt(line.Tokens, 1, end, line.Tokens[0].Nesting) {
@@ -1147,15 +1280,55 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			}
 			continue
 		}
+		if first == "task" || first == "protected" {
+			nameIndex := firstIdentifierToken(line.Tokens, 1)
+			if nameIndex >= 0 && adaOpaqueHeaderOpens(lines, lineIndex, nameIndex) {
+				builder.MarkIncomplete()
+				opaqueName = line.Tokens[nameIndex].Text
+				opaqueSimpleTaskBody = first == "task" && len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "body")
+				opaqueSawBegin, opaqueNested = false, false
+			}
+			if len(line.Tokens) > 1 && strings.EqualFold(line.Tokens[1].Text, "body") {
+				// A body is not a second type declaration, even if its name
+				// matches a declared task or protected object in a spec.
+				builder.MarkIncomplete()
+				continue
+			}
+		}
 		if first == "end" {
 			if len(scopes) > 0 && len(line.Tokens) > 1 {
 				closing := line.Tokens[1].Text
+				frame := &lexical[len(lexical)-1]
+				if closing == ";" {
+					if frame.blocks > 0 {
+						frame.blocks--
+					} else {
+						scopes = scopes[:len(scopes)-1]
+						lexical = lexical[:len(lexical)-1]
+					}
+					continue
+				}
 				if name, _, _, ok := adaSelectedName(line.Tokens, 1); ok {
 					closing = name
 				}
 				current := scopes[len(scopes)-1]
 				if strings.EqualFold(closing, "package") || strings.EqualFold(closing, current.parent.QualifiedName) || strings.EqualFold(closing, qualifiedNameTail(current.parent.QualifiedName)) {
+					if frame.blocks > 0 {
+						builder.MarkIncomplete()
+					}
 					scopes = scopes[:len(scopes)-1]
+					lexical = lexical[:len(lexical)-1]
+				}
+			}
+			continue
+		}
+		if first == "begin" {
+			if len(lexical) > 0 {
+				frame := &lexical[len(lexical)-1]
+				if frame.begun {
+					frame.blocks++
+				} else {
+					frame.begun = true
 				}
 			}
 			continue
@@ -1170,10 +1343,26 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 			if !ok {
 				continue
 			}
+			declarationEnd := line.EndOffset
+			if adaPackageIsNew(line.Tokens, nameEnd) {
+				if end, complete := adaPackageInstantiationEnd(lines, lineIndex); complete {
+					declarationEnd = end
+				} else {
+					builder.MarkIncomplete()
+					_ = builder.AddDiagnostic(DiagnosticSpec{
+						Code:            "ada-unclosed-package-instantiation",
+						Message:         "Ada package instantiation has no bounded, unambiguous terminating semicolon",
+						Severity:        DiagnosticWarning,
+						Range:           &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+						AffectsCoverage: true,
+					})
+				}
+			}
 			symbol, added := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindPackage, NativeKind: "package", Name: name, Parent: parent,
-				Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				Declaration: OffsetRange{Start: line.StartOffset, End: declarationEnd}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameEnd-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: declarationEnd}, Evidence: SymbolEvidenceStructural})
 			if added && adaPackageOpensScope(line.Tokens, nameEnd-1, adaNextTokens(lines, lineIndex+1)) {
 				scopes = append(scopes, structuralAnalyzerScope{label: "package", parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+				lexical = append(lexical, adaLexicalFrame{})
 			}
 			continue
 		}
@@ -1187,14 +1376,79 @@ func (AdaAnalyzer) Analyze(ctx context.Context, document *SourceDocument, option
 		}
 		if first == "procedure" || first == "function" {
 			nameIndex := firstIdentifierToken(line.Tokens, 1)
-			if nameIndex >= 0 {
-				addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: line.Tokens[nameIndex].Text, Parent: parent,
+			name := ""
+			if len(line.Tokens) > 1 && line.Tokens[1].Kind == TokenString {
+				// An Ada operator function has a quoted designator immediately
+				// after "function"; later identifiers are its parameters.
+				if first == "function" {
+					name = adaOperatorDesignator(line.Tokens[1])
+				}
+				nameIndex = 1
+			} else if nameIndex == 1 {
+				name = line.Tokens[nameIndex].Text
+			}
+			if name != "" {
+				symbol, added := addStructuralSymbol(builder, SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: name, Parent: parent,
 					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[nameIndex].StartOffset, End: line.Tokens[nameIndex].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+				if added && adaSubprogramOpensScope(line.Tokens, nameIndex, adaNextTokens(lines, lineIndex+1)) {
+					scopes = append(scopes, structuralAnalyzerScope{label: first, parent: SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}})
+					lexical = append(lexical, adaLexicalFrame{})
+				}
 			}
 		}
 	}
 	markUnclosedStructuralScopes(builder, "ada", scopes)
 	return AnalyzerResult{Analysis: builder.Result(), Dependencies: dependencies}, nil
+}
+
+// Inspect only a bounded declaration header; a semicolon in a parameter list
+// is not the declaration terminator. Opaque scopes are never semantically parsed.
+func adaOpaqueHeaderOpens(lines []LogicalLine, start, nameIndex int) bool {
+	depth := lines[start].Tokens[nameIndex].Nesting
+	firstOffset := lines[start].StartOffset
+	for i := start; i < len(lines) && i < start+12 && lines[i].EndOffset-firstOffset <= 4096; i++ {
+		from := 0
+		if i == start {
+			from = nameIndex + 1
+		}
+		for j := from; j < logicalLineTokenEnd(lines[i].Tokens); j++ {
+			tok := lines[i].Tokens[j]
+			if tok.Nesting > depth {
+				continue
+			}
+			if strings.EqualFold(tok.Text, "is") {
+				return true
+			}
+			if tok.Text == ";" {
+				return false
+			}
+		}
+	}
+	return false
+}
+
+// Only subprogram bodies open a lexical declaration scope. Signatures and
+// expression functions have no matching named end, so must not retain a scope.
+func adaSubprogramOpensScope(tokens []Token, nameIndex int, nextTokens []Token) bool {
+	end := logicalLineTokenEnd(tokens)
+	for index := nameIndex + 1; index < end; index++ {
+		if !strings.EqualFold(tokens[index].Text, "is") {
+			continue
+		}
+		if index+1 < end {
+			switch strings.ToLower(tokens[index+1].Text) {
+			case "(", "new", "abstract", "separate", "null":
+				return false
+			}
+		} else if len(nextTokens) > 0 {
+			switch strings.ToLower(nextTokens[0].Text) {
+			case "(", "new", "abstract", "separate", "null":
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func maskAdaCharacterLiterals(ctx context.Context, document *SourceDocument) (*SourceDocument, error) {
@@ -1242,7 +1496,28 @@ func maskAdaCharacterLiterals(ctx context.Context, document *SourceDocument) (*S
 	return &clone, nil
 }
 
+// Only Ada's overloadable operator designators are callable names. Reject
+// arbitrary quoted text instead of indexing an unrelated parameter identifier.
+func adaOperatorDesignator(token Token) string {
+	value := quotedTokenStringValue(token)
+	if !strings.HasPrefix(token.Text, "\"") {
+		return ""
+	}
+	switch value {
+	case "and", "or", "xor", "=", "/=", "<", "<=", ">", ">=", "+", "-", "&", "*", "/", "mod", "rem", "**", "abs", "not":
+		return value
+	default:
+		return ""
+	}
+}
+
 func adaSelectedName(tokens []Token, start int) (string, int, int, bool) {
+	if start < len(tokens) && tokens[start].Kind == TokenString {
+		if name := adaOperatorDesignator(tokens[start]); name != "" {
+			return name, start, start + 1, true
+		}
+		return "", 0, 0, false
+	}
 	nameStart := firstIdentifierToken(tokens, start)
 	if nameStart < 0 {
 		return "", 0, 0, false
@@ -1262,6 +1537,54 @@ func adaNextTokens(lines []LogicalLine, start int) []Token {
 		}
 	}
 	return nil
+}
+
+// adaPackageIsNew limits full-span recovery to source-authored package
+// instantiations, leaving package specifications and bodies untouched.
+func adaPackageIsNew(tokens []Token, nameEnd int) bool {
+	end := logicalLineTokenEnd(tokens)
+	for i := nameEnd; i+1 < end; i++ {
+		if tokens[i].Nesting == 0 && strings.EqualFold(tokens[i].Text, "is") &&
+			strings.EqualFold(tokens[i+1].Text, "new") {
+			return true
+		}
+	}
+	return false
+}
+
+// adaPackageInstantiationEnd uses scanner-owned tokens so quoted or commented
+// semicolons cannot terminate an Ada declaration. The scan is bounded and
+// never consumes a subsequent statement after a malformed instantiation.
+func adaPackageInstantiationEnd(lines []LogicalLine, start int) (int, bool) {
+	const maxBytes = 64 << 10
+	const maxLines = 1024
+	if start < 0 || start >= len(lines) {
+		return 0, false
+	}
+	base := lines[start].StartOffset
+	for i := start; i < len(lines) && i-start < maxLines; i++ {
+		line := lines[i]
+		if line.EndOffset-base > maxBytes {
+			return 0, false
+		}
+		end := logicalLineTokenEnd(line.Tokens)
+		if end == 0 {
+			continue
+		}
+		if i > start && line.Tokens[0].Nesting == 0 {
+			switch strings.ToLower(line.Tokens[0].Text) {
+			case "begin", "end", "package", "procedure", "function", "type",
+				"subtype", "task", "protected", "generic", "with":
+				return 0, false
+			}
+		}
+		for _, token := range line.Tokens[:end] {
+			if token.Text == ";" && token.Nesting == 0 {
+				return token.EndOffset, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func adaPackageOpensScope(tokens []Token, nameIndex int, nextTokens []Token) bool {

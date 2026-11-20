@@ -13,6 +13,775 @@ import (
 	"github.com/zoster81/scripthold/internal/config"
 )
 
+// Complete source-derived header inventory; the connected server may run older
+// C macro parsing and must not be conflated with development handler results.
+func TestSourceSymbolsOriginalCJSONUtilsHeader(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/c-davegamble-cjson/cJSON_Utils.h"))
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "c", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failed != nil || !out.CoverageComplete || out.Truncated || len(out.Files) != 1 {
+		t.Fatalf("C original header outline: failed=%+v err=%v output=%+v", failed, err, out)
+	}
+	want := map[string]int{
+		"cJSONUtils_GetPointer":                      34,
+		"cJSONUtils_GetPointerCaseSensitive":         35,
+		"cJSONUtils_GeneratePatches":                 39,
+		"cJSONUtils_GeneratePatchesCaseSensitive":    40,
+		"cJSONUtils_AddPatchToArray":                 42,
+		"cJSONUtils_ApplyPatches":                    44,
+		"cJSONUtils_ApplyPatchesCaseSensitive":       45,
+		"cJSONUtils_MergePatch":                      70,
+		"cJSONUtils_MergePatchCaseSensitive":         71,
+		"cJSONUtils_GenerateMergePatch":              74,
+		"cJSONUtils_GenerateMergePatchCaseSensitive": 75,
+		"cJSONUtils_FindPointerFromObjectTo":         78,
+		"cJSONUtils_SortObject":                      81,
+		"cJSONUtils_SortObjectCaseSensitive":         82,
+	}
+	seen := make(map[string]int, len(out.Symbols))
+	for _, sym := range out.Symbols {
+		seen[sym.QualifiedName]++
+		if line, ok := want[sym.QualifiedName]; !ok || string(sym.Kind) != "function" ||
+			sym.NameRange.Start.Line != line || sym.ParentQualifiedName != "" {
+			t.Errorf("unexpected original C declaration: %+v", sym)
+		}
+	}
+	for name := range want {
+		if seen[name] != 1 {
+			t.Errorf("%s declaration count %d, want 1", name, seen[name])
+		}
+	}
+	if len(out.Symbols) != len(want) {
+		t.Errorf("found %d declarations, want %d", len(out.Symbols), len(want))
+	}
+}
+
+// Real source is read only; selected declarations were independently annotated.
+func TestSourceSymbolsGroovyPackerOriginalSelectedFile(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/groovy-mcxiaoke-gradle-packer-plugin/plugin/src/main/groovy/com/mcxiaoke/packer/AndroidPackerExtension.groovy"))
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "groovy", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failed != nil || out.Truncated || !out.CoverageComplete {
+		t.Fatalf("original Groovy outline failed: %v %+v", err, failed)
+	}
+	want := map[string]int{
+		"com.mcxiaoke.packer":                                               1,
+		"com.mcxiaoke.packer.AndroidPackerExtension":                        6,
+		"com.mcxiaoke.packer.AndroidPackerExtension.archiveOutput":          11,
+		"com.mcxiaoke.packer.AndroidPackerExtension.archiveNameFormat":      28,
+		"com.mcxiaoke.packer.AndroidPackerExtension.manifestMatcher":        33,
+		"com.mcxiaoke.packer.AndroidPackerExtension.buildNumberAuto":        40,
+		"com.mcxiaoke.packer.AndroidPackerExtension.buildNumberTypeMatcher": 44,
+		"com.mcxiaoke.packer.AndroidPackerExtension.AndroidPackerExtension": 47,
+	}
+	seen := map[string]int{}
+	for _, s := range out.Symbols {
+		seen[s.QualifiedName]++
+		if line, ok := want[s.QualifiedName]; !ok || s.NameRange.Start.Line != line {
+			t.Errorf("unexpected declaration: %s %s line %d", s.QualifiedName, s.Kind, s.NameRange.Start.Line)
+		}
+	}
+	for name := range want {
+		if seen[name] != 1 {
+			t.Errorf("missing/duplicated: %s (%d)", name, seen[name])
+		}
+	}
+	const pkg = "com.mcxiaoke.packer"
+	const owner = pkg + ".AndroidPackerExtension"
+	var ctorID string
+	for _, s := range out.Symbols {
+		kind, parent := "field", owner
+		switch s.QualifiedName {
+		case pkg:
+			kind, parent = "package", ""
+		case owner:
+			kind, parent = "class", pkg
+		case owner + ".AndroidPackerExtension":
+			kind = "constructor"
+			ctorID = s.ID
+		}
+		if string(s.Kind) != kind || s.ParentQualifiedName != parent {
+			t.Errorf("wrong kind/ownership for %s: kind=%s parent=%s", s.QualifiedName, s.Kind, s.ParentQualifiedName)
+		}
+	}
+	if len(out.Symbols) != len(want) || len(out.Files) != 1 || ctorID == "" {
+		t.Fatalf("original file inventory mismatch: count=%d expected=%d", len(out.Symbols), len(want))
+	}
+	for _, view := range []string{"tree", "compact"} {
+		failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+			Operation: "outline", Presentation: view, Paths: []string{path},
+			Language: "groovy", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+		})
+		if err != nil || failed != nil || outline.SymbolCount != len(want) ||
+			!outline.CoverageComplete || len(outline.OutlineFiles) != 1 ||
+			outline.OutlineFiles[0].SourceFingerprint != out.Files[0].SourceFingerprint {
+			t.Fatalf("original %s outline inconsistent: err=%v failed=%+v", view, err, failed)
+		}
+	}
+	failed, digest, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "digest", Presentation: "compact", Paths: []string{path},
+		Language: "groovy", Encoding: "utf-8", MaxFiles: 1,
+	})
+	if err != nil || failed != nil || !digest.CoverageComplete ||
+		digest.SymbolCount != len(want) || len(digest.OverviewFiles) != 1 {
+		t.Fatalf("original compact digest mismatch: err=%v failed=%+v", err, failed)
+	}
+	failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "find", Paths: []string{path}, Language: "groovy", Encoding: "utf-8",
+		Query: "buildNumberTypeMatcher", Match: "exact", MaxSymbols: 8,
+	})
+	if err != nil || failed != nil || len(found.Symbols) != 1 ||
+		found.Symbols[0].QualifiedName != owner+".buildNumberTypeMatcher" {
+		t.Fatalf("original find mismatch: err=%v failed=%+v symbols=%+v", err, failed, found.Symbols)
+	}
+	failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "show", Path: path, SymbolID: ctorID,
+		SourceFingerprint: out.Files[0].SourceFingerprint,
+		Language:          "groovy", Encoding: "utf-8", MaxBytes: 4096,
+	})
+	if err != nil || failed != nil || shown.Show == nil ||
+		!strings.Contains(shown.Show.Text, "archiveOutput = new File(") {
+		t.Fatalf("original constructor show mismatch: err=%v failed=%+v shown=%+v", err, failed, shown.Show)
+	}
+	failed, result, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "search", Mode: "structural", Paths: []string{path},
+		Language: "groovy", Encoding: "utf-8", Query: "manifestMatcher",
+		Match: "exact", MaxResults: 8,
+	})
+	if err != nil || failed != nil || result.Search == nil ||
+		len(result.Search.Matches) != 1 ||
+		result.Search.Matches[0].QualifiedName != owner+".manifestMatcher" {
+		t.Fatalf("original structural search mismatch: err=%v failed=%+v search=%+v", err, failed, result.Search)
+	}
+}
+
+// Check the entire selected original Solidity file against a source-derived inventory.
+func TestSourceSymbolsSolidityAccessOriginalSelectedFile(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/solidity-fravoll-solidity-patterns/AccessRestriction/AccessRestriction.sol"))
+	h := NewHandler([]string{root})
+	failed, out, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "solidity", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64,
+	})
+	if err != nil || failed != nil || !out.CoverageComplete || out.Truncated || len(out.Files) != 1 {
+		t.Fatalf("original Solidity outline failed: err=%v failed=%+v", err, failed)
+	}
+	want := map[string]struct {
+		kind string
+		line int
+	}{
+		"AccessRestriction":                 {"class", 6},
+		"AccessRestriction.owner":           {"field", 8},
+		"AccessRestriction.lastOwnerChange": {"field", 9},
+		"AccessRestriction.onlyBy":          {"method", 11},
+		"AccessRestriction.onlyAfter":       {"method", 16},
+		"AccessRestriction.costs":           {"method", 21},
+		"AccessRestriction.changeOwner":     {"method", 29},
+		"AccessRestriction.buyContract":     {"method", 33},
+	}
+	seen := map[string]int{}
+	for _, s := range out.Symbols {
+		seen[s.QualifiedName]++
+		w, ok := want[s.QualifiedName]
+		parent := "AccessRestriction"
+		if s.QualifiedName == "AccessRestriction" {
+			parent = ""
+		}
+		if !ok || string(s.Kind) != w.kind || s.NameRange.Start.Line != w.line || s.ParentQualifiedName != parent {
+			t.Errorf("unexpected original Solidity declaration %+v", s)
+		}
+	}
+	for name := range want {
+		if seen[name] != 1 {
+			t.Errorf("missing/duplicate %s: %d", name, seen[name])
+		}
+	}
+}
+
+// Each selected original file has an independently reviewed, complete inventory.
+// The corpus remains a private opt-in test input rather than a repository fixture.
+func TestSourceSymbolsAdditionalOriginalBraceInventories(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	type declaration struct {
+		qualified, kind string
+		line            int
+	}
+	cases := []struct {
+		name, relative, language, pkg, owner, query, snippet string
+		want                                                 []declaration
+	}{
+		{
+			name:     "groovy-method-signature",
+			relative: "real-projects/groovy-jenkinsci-jenkinspipelineunit/src/main/groovy/com/lesfurets/jenkins/unit/MethodSignature.groovy",
+			language: "groovy", pkg: "com.lesfurets.jenkins.unit",
+			owner: "com.lesfurets.jenkins.unit.MethodSignature",
+			query: "argsToString", snippet: "return args.collect",
+			want: []declaration{
+				{"com.lesfurets.jenkins.unit", "package", 1},
+				{"com.lesfurets.jenkins.unit.MethodSignature", "class", 8},
+				{"com.lesfurets.jenkins.unit.MethodSignature.name", "field", 9},
+				{"com.lesfurets.jenkins.unit.MethodSignature.args", "field", 10},
+				{"com.lesfurets.jenkins.unit.MethodSignature.method", "method", 12},
+				{"com.lesfurets.jenkins.unit.MethodSignature.MethodSignature", "constructor", 16},
+				{"com.lesfurets.jenkins.unit.MethodSignature.argsToString", "method", 21},
+				{"com.lesfurets.jenkins.unit.MethodSignature.equals", "method", 32},
+				{"com.lesfurets.jenkins.unit.MethodSignature.hashCode", "method", 54},
+				{"com.lesfurets.jenkins.unit.MethodSignature.toString", "method", 63},
+			},
+		},
+		{
+			name:     "groovy-directory-manager",
+			relative: "real-projects/groovy-kezong-fat-aar-android/source/src/main/groovy/com/kezong/fataar/DirectoryManager.groovy",
+			language: "groovy", pkg: "com.kezong.fataar",
+			owner: "com.kezong.fataar.DirectoryManager",
+			query: "getRJavaDirectory", snippet: "return sProject.file",
+			want: []declaration{
+				{"com.kezong.fataar", "package", 1},
+				{"com.kezong.fataar.DirectoryManager", "class", 10},
+				{"com.kezong.fataar.DirectoryManager.RE_BUNDLE_FOLDER", "field", 12},
+				{"com.kezong.fataar.DirectoryManager.INTERMEDIATES_TEMP_FOLDER", "field", 14},
+				{"com.kezong.fataar.DirectoryManager.sProject", "field", 16},
+				{"com.kezong.fataar.DirectoryManager.attach", "method", 18},
+				{"com.kezong.fataar.DirectoryManager.getReBundleDirectory", "method", 22},
+				{"com.kezong.fataar.DirectoryManager.getRJavaDirectory", "method", 26},
+				{"com.kezong.fataar.DirectoryManager.getRClassDirectory", "method", 30},
+				{"com.kezong.fataar.DirectoryManager.getRJarDirectory", "method", 34},
+				{"com.kezong.fataar.DirectoryManager.getMergeClassDirectory", "method", 38},
+				{"com.kezong.fataar.DirectoryManager.getKotlinMetaDirectory", "method", 42},
+			},
+		},
+		{
+			name:     "solidity-atoken-harness",
+			relative: "real-projects/solidity-aave-v3/certora/harness/ATokenHarness.sol",
+			language: "solidity", owner: "ATokenHarness",
+			query: "scaledTotalSupply", snippet: "uint256 val = super.scaledTotalSupply();",
+			want: []declaration{
+				{"ATokenHarness", "class", 13},
+				{"ATokenHarness.ATokenHarness", "constructor", 17},
+				{"ATokenHarness.scaledTotalSupply", "method", 19},
+				{"ATokenHarness.additionalData", "method", 24},
+				{"ATokenHarness.scaledBalanceOfToBalanceOf", "method", 28},
+			},
+		},
+		{
+			name:     "groovy-aspectjx-config",
+			relative: "real-projects/groovy-hujiangtechnology-gradle_plugin_android_aspectjx/aspectjx/src/main/groovy/com/hujiang/gradle/plugin/android/aspectjx/AJXConfig.groovy",
+			language: "groovy", pkg: "com.hujiang.gradle.plugin.android.aspectjx", owner: "com.hujiang.gradle.plugin.android.aspectjx.AJXConfig",
+			query: "getVariants", snippet: "return hasAppPlugin ?",
+			want: []declaration{
+				{"com.hujiang.gradle.plugin.android.aspectjx", "package", 16},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig", "class", 32},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig.project", "field", 34},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig.hasAppPlugin", "field", 35},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig.hasLibPlugin", "field", 36},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig.plugin", "field", 37},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig.AJXConfig", "constructor", 39},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig.getVariants", "method", 55},
+				{"com.hujiang.gradle.plugin.android.aspectjx.AJXConfig.getBootClasspath", "method", 63},
+			},
+		},
+		{
+			name:     "groovy-palantir-docker",
+			relative: "groovy-palantir-gradle-docker/src/main/groovy/com/palantir/gradle/docker/DockerComposeExtension.groovy",
+			language: "groovy", pkg: "com.palantir.gradle.docker", owner: "com.palantir.gradle.docker.DockerComposeExtension",
+			query: "templateToken", snippet: "this.templateTokens.put(key, value)",
+			want: []declaration{
+				{"com.palantir.gradle.docker", "package", 16},
+				{"com.palantir.gradle.docker.DockerComposeExtension", "class", 21},
+				{"com.palantir.gradle.docker.DockerComposeExtension.project", "field", 22},
+				{"com.palantir.gradle.docker.DockerComposeExtension.template", "field", 24},
+				{"com.palantir.gradle.docker.DockerComposeExtension.dockerComposeFile", "field", 25},
+				{"com.palantir.gradle.docker.DockerComposeExtension.templateTokens", "field", 26},
+				{"com.palantir.gradle.docker.DockerComposeExtension.DockerComposeExtension", "constructor", 28},
+				{"com.palantir.gradle.docker.DockerComposeExtension.setTemplate", "method", 34},
+				{"com.palantir.gradle.docker.DockerComposeExtension.setDockerComposeFile", "method", 38},
+				{"com.palantir.gradle.docker.DockerComposeExtension.setTemplateTokens", "method", 42},
+				{"com.palantir.gradle.docker.DockerComposeExtension.templateToken", "method", 46},
+				{"com.palantir.gradle.docker.DockerComposeExtension.getTemplateTokens", "method", 50},
+				{"com.palantir.gradle.docker.DockerComposeExtension.getTemplate", "method", 54},
+				{"com.palantir.gradle.docker.DockerComposeExtension.getDockerComposeFile", "method", 58},
+			},
+		},
+		{
+			name:     "groovy-google-protobuf",
+			relative: "real-projects/groovy-google-protobuf-gradle-plugin/src/main/groovy/com/google/protobuf/gradle/ExecutableLocator.groovy",
+			language: "groovy", pkg: "com.google.protobuf.gradle", owner: "com.google.protobuf.gradle.ExecutableLocator",
+			query: "resolve", snippet: "this.artifactFiles = artifactFiles",
+			want: []declaration{
+				{"com.google.protobuf.gradle", "package", 29},
+				{"com.google.protobuf.gradle.ExecutableLocator", "class", 43},
+				{"com.google.protobuf.gradle.ExecutableLocator.name", "field", 45},
+				{"com.google.protobuf.gradle.ExecutableLocator.artifact", "field", 47},
+				{"com.google.protobuf.gradle.ExecutableLocator.path", "field", 48},
+				{"com.google.protobuf.gradle.ExecutableLocator.artifactFiles", "field", 50},
+				{"com.google.protobuf.gradle.ExecutableLocator.simplifiedArtifactName", "field", 51},
+				{"com.google.protobuf.gradle.ExecutableLocator.ExecutableLocator", "constructor", 53},
+				{"com.google.protobuf.gradle.ExecutableLocator.getName", "method", 58},
+				{"com.google.protobuf.gradle.ExecutableLocator.setArtifact", "method", 66},
+				{"com.google.protobuf.gradle.ExecutableLocator.setPath", "method", 74},
+				{"com.google.protobuf.gradle.ExecutableLocator.getArtifact", "method", 79},
+				{"com.google.protobuf.gradle.ExecutableLocator.getPath", "method", 83},
+				{"com.google.protobuf.gradle.ExecutableLocator.getArtifactFiles", "method", 88},
+				{"com.google.protobuf.gradle.ExecutableLocator.getSimplifiedArtifactName", "method", 95},
+				{"com.google.protobuf.gradle.ExecutableLocator.resolve", "method", 102},
+			},
+		},
+		{
+			name:     "groovy-autoregister",
+			relative: "groovy-luckybilly-autoregister/autoregister/src/main/groovy/com/billy/android/register/AutoRegisterConfig.groovy",
+			language: "groovy", pkg: "com.billy.android.register", owner: "com.billy.android.register.AutoRegisterConfig",
+			query: "reset", snippet: "info.reset()",
+			want: []declaration{
+				{"com.billy.android.register", "package", 1},
+				{"com.billy.android.register.AutoRegisterConfig", "class", 10},
+				{"com.billy.android.register.AutoRegisterConfig.registerInfo", "field", 12},
+				{"com.billy.android.register.AutoRegisterConfig.list", "field", 14},
+				{"com.billy.android.register.AutoRegisterConfig.project", "field", 16},
+				{"com.billy.android.register.AutoRegisterConfig.cacheEnabled", "field", 17},
+				{"com.billy.android.register.AutoRegisterConfig.AutoRegisterConfig", "constructor", 19},
+				{"com.billy.android.register.AutoRegisterConfig.convertConfig", "method", 21},
+				{"com.billy.android.register.AutoRegisterConfig.checkRegisterInfo", "method", 57},
+				{"com.billy.android.register.AutoRegisterConfig.deleteFile", "method", 83},
+				{"com.billy.android.register.AutoRegisterConfig.reset", "method", 90},
+				{"com.billy.android.register.AutoRegisterConfig.toString", "method", 97},
+			},
+		},
+		{
+			name:     "solidity-openzeppelin-ownable",
+			relative: "real-projects/solidity-openzeppelin/contracts/access/Ownable.sol",
+			language: "solidity", pkg: "", owner: "Ownable",
+			query: "transferOwnership", snippet: "_transferOwnership(newOwner)",
+			want: []declaration{
+				{"Ownable", "class", 20},
+				{"Ownable._owner", "field", 21},
+				{"Ownable.OwnableUnauthorizedAccount", "type", 26},
+				{"Ownable.OwnableInvalidOwner", "type", 31},
+				{"Ownable.OwnershipTransferred", "event", 33},
+				{"Ownable.Ownable", "constructor", 38},
+				{"Ownable.onlyOwner", "method", 48},
+				{"Ownable.owner", "method", 56},
+				{"Ownable._checkOwner", "method", 63},
+				{"Ownable.renounceOwnership", "method", 76},
+				{"Ownable.transferOwnership", "method", 84},
+				{"Ownable._transferOwnership", "method", 95},
+			},
+		},
+		{
+			name:     "solidity-compound-jump",
+			relative: "real-projects/solidity-compound/contracts/BaseJumpRateModelV2.sol",
+			language: "solidity", pkg: "", owner: "BaseJumpRateModelV2",
+			query: "utilizationRate", snippet: "return borrows * BASE",
+			want: []declaration{
+				{"BaseJumpRateModelV2", "class", 11},
+				{"BaseJumpRateModelV2.NewInterestParams", "event", 12},
+				{"BaseJumpRateModelV2.BASE", "field", 14},
+				{"BaseJumpRateModelV2.owner", "field", 19},
+				{"BaseJumpRateModelV2.blocksPerYear", "field", 24},
+				{"BaseJumpRateModelV2.multiplierPerBlock", "field", 29},
+				{"BaseJumpRateModelV2.baseRatePerBlock", "field", 34},
+				{"BaseJumpRateModelV2.jumpMultiplierPerBlock", "field", 39},
+				{"BaseJumpRateModelV2.kink", "field", 44},
+				{"BaseJumpRateModelV2.BaseJumpRateModelV2", "constructor", 54},
+				{"BaseJumpRateModelV2.updateJumpRateModel", "method", 67},
+				{"BaseJumpRateModelV2.utilizationRate", "method", 80},
+				{"BaseJumpRateModelV2.getBorrowRateInternal", "method", 96},
+				{"BaseJumpRateModelV2.getSupplyRate", "method", 116},
+				{"BaseJumpRateModelV2.updateJumpRateModelInternal", "method", 130},
+			},
+		},
+		{
+			name:     "groovy-gradle-node",
+			relative: "groovy-srs-gradle-node-plugin/src/main/groovy/com/moowork/gradle/node/NodePlugin.groovy",
+			language: "groovy", pkg: "com.moowork.gradle.node",
+			owner: "com.moowork.gradle.node.NodePlugin",
+			query: "configureSetupTask", snippet: "this.setupTask.setEnabled",
+			want: []declaration{
+				{"com.moowork.gradle.node", "package", 1},
+				{"com.moowork.gradle.node.NodePlugin", "class", 15},
+				{"com.moowork.gradle.node.NodePlugin.project", "field", 18},
+				{"com.moowork.gradle.node.NodePlugin.config", "field", 20},
+				{"com.moowork.gradle.node.NodePlugin.setupTask", "field", 22},
+				{"com.moowork.gradle.node.NodePlugin.npmSetupTask", "field", 24},
+				{"com.moowork.gradle.node.NodePlugin.yarnSetupTask", "field", 26},
+				{"com.moowork.gradle.node.NodePlugin.apply", "method", 29},
+				{"com.moowork.gradle.node.NodePlugin.addGlobalTypes", "method", 47},
+				{"com.moowork.gradle.node.NodePlugin.addTasks", "method", 54},
+				{"com.moowork.gradle.node.NodePlugin.addGlobalTaskType", "method", 63},
+				{"com.moowork.gradle.node.NodePlugin.addNpmRule", "method", 68},
+				{"com.moowork.gradle.node.NodePlugin.addYarnRule", "method", 97},
+				{"com.moowork.gradle.node.NodePlugin.configureSetupTask", "method", 117},
+				{"com.moowork.gradle.node.NodePlugin.configureNpmSetupTask", "method", 122},
+				{"com.moowork.gradle.node.NodePlugin.configureYarnSetupTask", "method", 127},
+			},
+		},
+		{
+			name:     "solidity-wotsplus-library",
+			relative: "real-projects/solidity-quipnetwork-hashsigs-solidity/contracts/WOTSPlus.sol",
+			language: "solidity", owner: "WOTSPlus",
+			query: "verifyWithRandomizationElements", snippet: "return computedHash == quipAddress.publicKeyHash",
+			want: []declaration{
+				{"WOTSPlus", "module", 22},
+				{"WOTSPlus.SignatureSize", "field", 26},
+				{"WOTSPlus.PublicKeySize", "field", 28},
+				{"WOTSPlus.Hash", "method", 31},
+				{"WOTSPlus.HashLen", "field", 38},
+				{"WOTSPlus.MessageLen", "field", 49},
+				{"WOTSPlus.ChainLen", "field", 61},
+				{"WOTSPlus.LgChainLen", "field", 63},
+				{"WOTSPlus.NumMessageChunks", "field", 70},
+				{"WOTSPlus.NumChecksumChunks", "field", 78},
+				{"WOTSPlus.NumSignatureChunks", "field", 80},
+				{"WOTSPlus.WinternitzAddress", "struct", 82},
+				{"WOTSPlus.WinternitzAddress.publicSeed", "field", 83},
+				{"WOTSPlus.WinternitzAddress.publicKeyHash", "field", 84},
+				{"WOTSPlus.WinternitzElements", "struct", 87},
+				{"WOTSPlus.WinternitzElements.elements", "field", 88},
+				{"WOTSPlus.WinternitzMessage", "struct", 91},
+				{"WOTSPlus.WinternitzMessage.messageHash", "field", 92},
+				{"WOTSPlus.verify", "method", 102},
+				{"WOTSPlus.verifyWithRandomizationElements", "method", 163},
+				{"WOTSPlus.sign", "method", 217},
+				{"WOTSPlus.generateKeyPair", "method", 244},
+				{"WOTSPlus.generateRandomizationElements", "method", 282},
+				{"WOTSPlus.chain", "method", 294},
+				{"WOTSPlus.xor", "method", 311},
+				{"WOTSPlus.setSlice32", "method", 316},
+				{"WOTSPlus.prf", "method", 326},
+				{"WOTSPlus.ComputeMessageHashChainIndexes", "method", 337},
+				{"WOTSPlus.checksum", "method", 345},
+				{"WOTSPlus.toBaseW", "method", 372},
+			},
+		},
+		{
+			name:     "solidity-appeal-storage",
+			relative: "real-projects/solidity-aircoin-official-aircash/AppealStorage.sol",
+			language: "solidity", owner: "AppealStorage",
+			query: "searchAppeal", snippet: "return appeals[_o];",
+			want: []declaration{
+				{"AppealStorage", "class", 10},
+				{"AppealStorage._oSt", "field", 11},
+				{"AppealStorage._rSt", "field", 12},
+				{"AppealStorage._uSt", "field", 13},
+				{"AppealStorage.recAddr", "field", 14},
+				{"AppealStorage.Appeal", "struct", 16},
+				{"AppealStorage.Appeal.user", "field", 17},
+				{"AppealStorage.Appeal.appealNo", "field", 18},
+				{"AppealStorage.Appeal.orderNo", "field", 19},
+				{"AppealStorage.Appeal.witness", "field", 20},
+				{"AppealStorage.Appeal.buyer", "field", 21},
+				{"AppealStorage.Appeal.seller", "field", 22},
+				{"AppealStorage.Appeal.mortgage", "field", 23},
+				{"AppealStorage.Appeal.status", "field", 24},
+				{"AppealStorage.Appeal.appealTime", "field", 25},
+				{"AppealStorage.Appeal.witTakeTime", "field", 26},
+				{"AppealStorage.Appeal.obTakeTime", "field", 27},
+				{"AppealStorage.Appeal.detail", "field", 28},
+				{"AppealStorage.AppealDetail", "struct", 31},
+				{"AppealStorage.AppealDetail.finalAppealAddr", "field", 32},
+				{"AppealStorage.AppealDetail.updateTime", "field", 33},
+				{"AppealStorage.AppealDetail.witnessReason", "field", 34},
+				{"AppealStorage.AppealDetail.witnessAppealStatus", "field", 35},
+				{"AppealStorage.AppealDetail.observerReason", "field", 36},
+				{"AppealStorage.AppealDetail.witnessHandleTime", "field", 37},
+				{"AppealStorage.AppealDetail.observerHandleTime", "field", 38},
+				{"AppealStorage.AppealDetail.observerAddr", "field", 39},
+				{"AppealStorage.AppealDetail.witnessHandleReward", "field", 40},
+				{"AppealStorage.AppealDetail.observerHandleReward", "field", 41},
+				{"AppealStorage.AppealDetail.witnessHandleCredit", "field", 42},
+				{"AppealStorage.AppealDetail.observerHandleCredit", "field", 43},
+				{"AppealStorage.AppealDetail.witReward", "field", 44},
+				{"AppealStorage.AppealDetail.witSub", "field", 45},
+				{"AppealStorage.AppealDetail.witCreditR", "field", 46},
+				{"AppealStorage.AppealDetail.witCreditS", "field", 47},
+				{"AppealStorage.appeals", "field", 50},
+				{"AppealStorage.appealIndex", "field", 51},
+				{"AppealStorage.appealList", "field", 53},
+				{"AppealStorage.AppealStorage", "constructor", 55},
+				{"AppealStorage.onlyWit", "method", 66},
+				{"AppealStorage.onlyOb", "method", 73},
+				{"AppealStorage.onlyBOS", "method", 80},
+				{"AppealStorage._insert", "method", 90},
+				{"AppealStorage.chanT", "method", 139},
+				{"AppealStorage.applyAppeal", "method", 188},
+				{"AppealStorage.takeWit", "method", 196},
+				{"AppealStorage.takeOb", "method", 214},
+				{"AppealStorage.changeHandler", "method", 232},
+				{"AppealStorage.witOrOb", "method", 255},
+				{"AppealStorage.applyFinal", "method", 263},
+				{"AppealStorage.witnessOpt", "method", 291},
+				{"AppealStorage.observerOpt", "method", 338},
+				{"AppealStorage.searchAppeal", "method", 446},
+				{"AppealStorage.searchAppealList", "method", 454},
+			},
+		},
+		{
+			name:     "solidity-mighty-arbitrage",
+			relative: "real-projects/solidity-mighty-alien-ai-trader-bot/contract.sol",
+			language: "solidity", owner: "Arbitrage",
+			query: "executeArbitrage", snippet: "emit ArbitrageExecuted",
+			want: []declaration{
+				{"ISwapRouter", "interface", 4},
+				{"ISwapRouter.ExactInputParams", "struct", 5},
+				{"ISwapRouter.ExactInputParams.path", "field", 6},
+				{"ISwapRouter.ExactInputParams.recipient", "field", 7},
+				{"ISwapRouter.ExactInputParams.deadline", "field", 8},
+				{"ISwapRouter.ExactInputParams.amountIn", "field", 9},
+				{"ISwapRouter.ExactInputParams.amountOutMinimum", "field", 10},
+				{"ISwapRouter.exactInput", "method", 12},
+				{"ISwapRouterV2", "interface", 15},
+				{"ISwapRouterV2.swapExactTokensForTokens", "method", 16},
+				{"ISwapRouterV2.swapExactETHForTokens", "method", 24},
+				{"Arbitrage", "class", 65},
+				{"Arbitrage.ROUTER", "field", 69},
+				{"Arbitrage.WETH", "field", 70},
+				{"Arbitrage.NATIVE", "field", 71},
+				{"Arbitrage.owner", "field", 76},
+				{"Arbitrage.allowed", "field", 77},
+				{"Arbitrage.allowedRouters", "field", 78},
+				{"Arbitrage.paused", "field", 79},
+				{"Arbitrage._reentrancyLock", "field", 80},
+				{"Arbitrage.defaultTokenOut", "field", 82},
+				{"Arbitrage.defaultFee", "field", 83},
+				{"Arbitrage.minQuickSwapAmount", "field", 85},
+				{"Arbitrage.maxQuickSwapAmount", "field", 86},
+				{"Arbitrage.Swapped", "event", 91},
+				{"Arbitrage.ArbitrageExecuted", "event", 92},
+				{"Arbitrage.TokenAllowedSet", "event", 93},
+				{"Arbitrage.RouterAllowedSet", "event", 94},
+				{"Arbitrage.PausedSet", "event", 95},
+				{"Arbitrage.Withdraw", "event", 96},
+				{"Arbitrage.EmergencyWithdrawAll", "event", 97},
+				{"Arbitrage.Deposit", "event", 98},
+				{"Arbitrage.DefaultTokenOutSet", "event", 99},
+				{"Arbitrage.DefaultFeeSet", "event", 100},
+				{"Arbitrage.MinQuickSwapAmountSet", "event", 101},
+				{"Arbitrage.MaxQuickSwapAmountSet", "event", 102},
+				{"Arbitrage.onlyOwner", "method", 141},
+				{"Arbitrage.whenNotPaused", "method", 146},
+				{"Arbitrage.nonReentrant", "method", 151},
+				{"Arbitrage.receive", "method", 169},
+				{"Arbitrage.Arbitrage", "constructor", 161},
+				{"Arbitrage.setTokenAllowed", "method", 174},
+				{"Arbitrage.setRouterAllowed", "method", 179},
+				{"Arbitrage.setPaused", "method", 184},
+				{"Arbitrage.withdraw", "method", 189},
+				{"Arbitrage.setDefaultTokenOut", "method", 201},
+				{"Arbitrage.setDefaultFee", "method", 208},
+				{"Arbitrage.setMinQuickSwapAmount", "method", 213},
+				{"Arbitrage.setMaxQuickSwapAmount", "method", 218},
+				{"Arbitrage._safeTransfer", "method", 226},
+				{"Arbitrage._safeTransferFrom", "method", 234},
+				{"Arbitrage._safeApprove", "method", 242},
+				{"Arbitrage._getAllowance", "method", 249},
+				{"Arbitrage._balanceOf", "method", 257},
+				{"Arbitrage._approveIfNeeded", "method", 266},
+				{"Arbitrage._firstToken", "method", 276},
+				{"Arbitrage._lastToken", "method", 281},
+				{"Arbitrage._unwrapAndSend", "method", 286},
+				{"Arbitrage.swap", "method", 296},
+				{"Arbitrage._executeSwap", "method", 323},
+				{"Arbitrage.quickSwap", "method", 358},
+				{"Arbitrage.quickSwapFromBalance", "method", 377},
+				{"Arbitrage.SwapLeg", "struct", 400},
+				{"Arbitrage.SwapLeg.router", "field", 401},
+				{"Arbitrage.SwapLeg.path", "field", 402},
+				{"Arbitrage.SwapLeg.amountOutMinimum", "field", 403},
+				{"Arbitrage.SwapLeg.useV2", "field", 404},
+				{"Arbitrage.SwapLeg.v2Path", "field", 405},
+				{"Arbitrage.executeArbitrage", "method", 408},
+				{"Arbitrage._swapLeg", "method", 444},
+				{"Arbitrage.getBalance", "method", 501},
+				{"Arbitrage.revokeApproval", "method", 505},
+			},
+		},
+		{
+			name:     "solidity-lens-hub",
+			relative: "real-projects/solidity-lens-protocol-core/contracts/LensHub.sol",
+			language: "solidity", owner: "LensHub",
+			query: "createProfile", snippet: "return profileId;",
+			want: []declaration{
+				{"LensHub", "class", 49},
+				{"LensHub.onlyProfileOwnerOrDelegatedExecutor", "method", 59},
+				{"LensHub.whenPublishingEnabled", "method", 64},
+				{"LensHub.LensHub", "constructor", 71},
+				{"LensHub.createProfile", "method", 84},
+				{"LensHub.setProfileMetadataURI", "method", 101},
+				{"LensHub.setProfileMetadataURIWithSig", "method", 109},
+				{"LensHub.setFollowModule", "method", 119},
+				{"LensHub.setFollowModuleWithSig", "method", 128},
+				{"LensHub.changeDelegatedExecutorsConfig", "method", 139},
+				{"LensHub.changeDelegatedExecutorsConfig", "method", 155},
+				{"LensHub.changeDelegatedExecutorsConfigWithSig", "method", 164},
+				{"LensHub.post", "method", 194},
+				{"LensHub.postWithSig", "method", 207},
+				{"LensHub.comment", "method", 222},
+				{"LensHub.commentWithSig", "method", 235},
+				{"LensHub.mirror", "method", 250},
+				{"LensHub.mirrorWithSig", "method", 263},
+				{"LensHub.quote", "method", 278},
+				{"LensHub.quoteWithSig", "method", 291},
+				{"LensHub.follow", "method", 310},
+				{"LensHub.followWithSig", "method", 333},
+				{"LensHub.unfollow", "method", 358},
+				{"LensHub.unfollowWithSig", "method", 370},
+				{"LensHub.setBlockStatus", "method", 385},
+				{"LensHub.setBlockStatusWithSig", "method", 394},
+				{"LensHub.collectLegacy", "method", 405},
+				{"LensHub.collectLegacyWithSig", "method", 424},
+				{"LensHub.act", "method", 445},
+				{"LensHub.actWithSig", "method", 463},
+				{"LensHub.incrementNonce", "method", 483},
+				{"LensHub.isFollowing", "method", 492},
+				{"LensHub.isDelegatedExecutorApproved", "method", 498},
+				{"LensHub.isDelegatedExecutorApproved", "method", 507},
+				{"LensHub.getDelegatedExecutorsConfigNumber", "method", 515},
+				{"LensHub.getDelegatedExecutorsPrevConfigNumber", "method", 520},
+				{"LensHub.getDelegatedExecutorsMaxConfigNumberSet", "method", 525},
+				{"LensHub.isBlocked", "method", 530},
+				{"LensHub.getContentURI", "method", 535},
+				{"LensHub.getProfile", "method", 541},
+				{"LensHub.getPublication", "method", 546},
+				{"LensHub.isActionModuleEnabledInPublication", "method", 554},
+				{"LensHub.getPublicationType", "method", 563},
+				{"LensHub.getFollowModule", "method", 570},
+				{"LensHub.isFollowing", "method", 580},
+			},
+		},
+	}
+	h := NewHandler([]string{root})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(root, filepath.FromSlash(tc.relative))
+			failed, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128,
+			})
+			if err != nil || failed != nil || !result.CoverageComplete || result.Truncated ||
+				len(result.Files) != 1 || result.Files[0].SourceFingerprint == "" {
+				t.Fatalf("incomplete original file inventory: err=%v failed=%+v result=%+v", err, failed, result)
+			}
+			type declarationKey struct {
+				qualified string
+				line      int
+			}
+			want := make(map[declarationKey]declaration, len(tc.want))
+			for _, item := range tc.want {
+				want[declarationKey{item.qualified, item.line}] = item
+			}
+			seen := make(map[declarationKey]int, len(result.Symbols))
+			for _, got := range result.Symbols {
+				key := declarationKey{got.QualifiedName, got.NameRange.Start.Line}
+				seen[key]++
+				expected, ok := want[key]
+				parent := ""
+				if got.QualifiedName != tc.pkg && got.QualifiedName != tc.owner {
+					if last := strings.LastIndex(got.QualifiedName, "."); last >= 0 {
+						parent = got.QualifiedName[:last]
+					}
+				} else if got.QualifiedName == tc.owner {
+					parent = tc.pkg
+				}
+				if !ok || string(got.Kind) != expected.kind ||
+					got.NameRange.Start.Line != expected.line || got.ParentQualifiedName != parent {
+					t.Errorf("wrong/extra source declaration: %s kind=%s line=%d owner=%s expected=%+v present=%v", got.QualifiedName, got.Kind, got.NameRange.Start.Line, got.ParentQualifiedName, expected, ok)
+				}
+			}
+			for _, expected := range tc.want {
+				key := declarationKey{expected.qualified, expected.line}
+				if seen[key] != 1 {
+					t.Errorf("missing/duplicate %s line %d: %d", expected.qualified, expected.line, seen[key])
+				}
+			}
+			if len(result.Symbols) != len(tc.want) {
+				t.Errorf("symbol count %d expected %d", len(result.Symbols), len(tc.want))
+			}
+			for _, presentation := range []string{"tree", "compact"} {
+				failed, view, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+					Operation: "outline", Presentation: presentation, Paths: []string{path},
+					Language: tc.language, Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 128,
+				})
+				if err != nil || failed != nil || !view.CoverageComplete ||
+					view.SymbolCount != len(tc.want) || len(view.OutlineFiles) != 1 ||
+					view.OutlineFiles[0].SourceFingerprint != result.Files[0].SourceFingerprint {
+					t.Errorf("%s outline mismatch: err=%v failed=%+v", presentation, err, failed)
+				}
+			}
+			failed, digest, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "digest", Presentation: "compact", Paths: []string{path},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 1,
+			})
+			if err != nil || failed != nil || !digest.CoverageComplete ||
+				digest.SymbolCount != len(tc.want) || len(digest.OverviewFiles) != 1 {
+				t.Errorf("digest mismatch: err=%v failed=%+v", err, failed)
+			}
+			failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "find", Paths: []string{path}, Language: tc.language,
+				Encoding: "utf-8", Query: tc.query, Match: "exact", MaxSymbols: 8,
+			})
+			qualified := tc.owner + "." + tc.query
+			if err != nil || failed != nil || len(found.Symbols) != 1 ||
+				found.Symbols[0].QualifiedName != qualified {
+				t.Fatalf("original find mismatch: err=%v failed=%+v found=%+v", err, failed, found.Symbols)
+			}
+			failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "show", Path: path, Language: tc.language, Encoding: "utf-8",
+				SymbolID: found.Symbols[0].ID, SourceFingerprint: result.Files[0].SourceFingerprint,
+				MaxBytes: 4096,
+			})
+			if err != nil || failed != nil || shown.Show == nil ||
+				!strings.Contains(shown.Show.Text, tc.snippet) {
+				t.Errorf("original show mismatch: err=%v failed=%+v", err, failed)
+			}
+			failed, queried, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Mode: "structural", Paths: []string{path},
+				Language: tc.language, Encoding: "utf-8", Query: tc.query,
+				Match: "exact", MaxResults: 8,
+			})
+			if err != nil || failed != nil || queried.Search == nil ||
+				len(queried.Search.Matches) != 1 ||
+				queried.Search.Matches[0].QualifiedName != qualified {
+				t.Errorf("original structural search mismatch: err=%v failed=%+v query=%+v", err, failed, queried.Search)
+			}
+			failed, contextResult, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "context", Paths: []string{path}, Language: tc.language,
+				Encoding: "utf-8", BodyPolicy: "prefer", BudgetBytes: 4096,
+				MaxItems: 4, MaxDepth: 1,
+				Targets: []SourceSelectorInput{{
+					Kind: "symbol", Path: path, SymbolID: found.Symbols[0].ID,
+					SourceFingerprint: result.Files[0].SourceFingerprint,
+				}},
+			})
+			if err != nil || failed != nil || contextResult.Context == nil ||
+				len(contextResult.Context.Items) == 0 ||
+				string(contextResult.Context.Items[0].Representation) != "body" ||
+				!strings.Contains(contextResult.Context.Items[0].Text, tc.snippet) {
+				t.Errorf("original context body mismatch: err=%v failed=%+v", err, failed)
+			}
+		})
+	}
+}
+
 func TestSourceSymbolsOutlineFindShowAndStaleFingerprint(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")

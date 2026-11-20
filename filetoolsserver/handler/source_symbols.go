@@ -39,8 +39,14 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		}
 	}
 	if operationName == "find" {
+		if input.Presentation != "" && input.Presentation != "concise" {
+			return errorResultWithCode(ErrCodeInvalidInput, "find presentation must be concise when specified"), SourceSymbolsOutput{}, nil
+		}
 		if input.FileDetails != "" && input.FileDetails != "all" && input.FileDetails != "relevant" {
 			return errorResultWithCode(ErrCodeInvalidInput, "fileDetails must be all or relevant"), SourceSymbolsOutput{}, nil
+		}
+		if input.Presentation == "concise" {
+			input.FileDetails = "relevant"
 		}
 		if strings.TrimSpace(input.Query) == "" || utf8.RuneCountInString(input.Query) > 512 {
 			return errorResultWithCode(ErrCodeInvalidInput, "query must be a non-empty string up to 512 Unicode scalar values"), SourceSymbolsOutput{}, nil
@@ -52,12 +58,16 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 			return errorResultWithCode(ErrCodeInvalidInput, "match must be exact, prefix, or qualified"), SourceSymbolsOutput{}, nil
 		}
 	}
-	if operationName == "digest" && input.Presentation != "" && input.Presentation != "detailed" && input.Presentation != "compact" {
-		return errorResultWithCode(ErrCodeInvalidInput, "digest presentation must be detailed or compact"), SourceSymbolsOutput{}, nil
+	if operationName == "digest" && input.Presentation != "" && input.Presentation != "detailed" && input.Presentation != "compact" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "digest presentation must be detailed, compact, or concise"), SourceSymbolsOutput{}, nil
 	}
 	if operationName == "outline" && input.Presentation != "" && input.Presentation != "detailed" &&
-		input.Presentation != "compact" && input.Presentation != "tree" {
-		return errorResultWithCode(ErrCodeInvalidInput, "presentation must be detailed, compact, or tree"), SourceSymbolsOutput{}, nil
+		input.Presentation != "compact" && input.Presentation != "tree" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "presentation must be detailed, compact, tree, or concise"), SourceSymbolsOutput{}, nil
+	}
+	if input.Owner != "" && (operationName != "outline" || input.Presentation != "concise" ||
+		strings.TrimSpace(input.Owner) == "" || utf8.RuneCountInString(input.Owner) > 512) {
+		return errorResultWithCode(ErrCodeInvalidInput, "owner requires a concise outline and a non-empty name up to 512 Unicode scalars"), SourceSymbolsOutput{}, nil
 	}
 	if len(input.Kinds) > 32 {
 		return errorResultWithCode(ErrCodeLimit, "kinds exceeds the 32-item limit"), SourceSymbolsOutput{}, nil
@@ -79,16 +89,18 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 	if registryErr != nil {
 		return errorResultWithCode(ErrCodeInternal, registryErr.Error()), SourceSymbolsOutput{}, nil
 	}
-	includeSignatures := input.IncludeSignatures && operationName != "digest"
+	conciseOutline := operationName == "outline" && input.Presentation == "concise"
+	conciseFind := operationName == "find" && input.Presentation == "concise"
+	includeSignatures := (input.IncludeSignatures || conciseOutline || conciseFind) && operationName != "digest"
 	perFileSymbols := maxSymbols
-	if operationName == "digest" || operationName == "find" || (operationName == "outline" && len(input.Kinds) > 0) {
+	if operationName == "digest" || operationName == "find" || conciseOutline || (operationName == "outline" && len(input.Kinds) > 0) {
 		perFileSymbols = limits.MaxSymbols
 	}
 	// A kind-filtered outline may inspect more symbols than it returns.
 	// Retain only matching declarations plus one truncation sentinel per file,
 	// avoiding a large result slice for each selected source file.
 	var outlineKinds map[string]struct{}
-	if operationName == "outline" && len(input.Kinds) > 0 {
+	if operationName == "outline" && !conciseOutline && len(input.Kinds) > 0 {
 		outlineKinds = make(map[string]struct{}, len(input.Kinds))
 		for _, kind := range input.Kinds {
 			outlineKinds[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
@@ -121,7 +133,39 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		return errorResultWithCode(ErrCodeCancelled, "source analysis cancelled"), SourceSymbolsOutput{}, nil
 	}
 
+	if conciseOutline {
+		output := buildSourceConciseOutline(analyses, input.Paths, input.Owner, input.Kinds, selectionTruncated, maxSymbols)
+		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
+			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
+		}
+		return nil, output, nil
+	}
+	if operationName == "digest" && input.Presentation == "concise" {
+		output := buildSourceConciseDigest(analyses, input.Paths, selectionTruncated)
+		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
+			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
+		}
+		return nil, output, nil
+	}
+
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
+	if conciseFind {
+		output.ConciseFiles = presentSourceConciseFind(output.Files, output.Symbols)
+		output.ConciseAnalysisComplete = true
+		for _, current := range analyses {
+			if current.file.Status != "parsed" || !current.file.CoverageComplete {
+				output.ConciseAnalysisComplete = false
+				break
+			}
+		}
+		output.ConciseSelectionTruncated = selectionTruncated
+		output.ConciseResultsTruncated = output.Truncated && !selectionTruncated
+		output.Presentation = "concise"
+		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
+			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
+		}
+		return nil, output, nil
+	}
 	if operationName == "digest" && input.Presentation == "compact" {
 		output.OverviewFiles = presentSourceDigestOverview(analyses, output.Digests)
 		output.Presentation = "compact"
@@ -145,6 +189,15 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 }
 
 func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInput) (*mcp.CallToolResult, SourceSymbolsOutput, error) {
+	if input.Presentation != "" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "show presentation must be concise when specified"), SourceSymbolsOutput{}, nil
+	}
+	if input.Part != "" && input.Presentation != "concise" {
+		return errorResultWithCode(ErrCodeInvalidInput, "part requires concise show"), SourceSymbolsOutput{}, nil
+	}
+	if input.Part != "" && input.Part != "declaration" && input.Part != "signature" && input.Part != "body" {
+		return errorResultWithCode(ErrCodeInvalidInput, "part must be declaration, signature, or body"), SourceSymbolsOutput{}, nil
+	}
 	limits := h.sourceLimits()
 	if input.Path == "" || input.SymbolID == "" || input.SourceFingerprint == "" || input.Language == "" || input.Encoding == "" {
 		return errorResultWithCode(ErrCodeInvalidInput, "show requires path, symbolId, sourceFingerprint, language, and encoding"), SourceSymbolsOutput{}, nil
@@ -195,8 +248,27 @@ func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInpu
 		if symbol.ID != input.SymbolID {
 			continue
 		}
-		declaration, _, _, _ := symbol.SourceOffsets()
-		text, rangeValue, sliceErr := document.SliceUTF8Offsets(declaration.Start, declaration.End, maxBytes)
+		declaration, _, signature, body := symbol.SourceOffsets()
+		selected := declaration
+		part := input.Part
+		if part == "" {
+			part = "declaration"
+		}
+		if input.Presentation == "concise" {
+			switch part {
+			case "signature":
+				if signature == nil {
+					return errorResultWithCode(ErrCodeUnsupported, "selected symbol has no verified signature range"), SourceSymbolsOutput{}, nil
+				}
+				selected = *signature
+			case "body":
+				if body == nil {
+					return errorResultWithCode(ErrCodeUnsupported, "selected symbol has no verified body range"), SourceSymbolsOutput{}, nil
+				}
+				selected = *body
+			}
+		}
+		text, rangeValue, sliceErr := document.SliceUTF8Offsets(selected.Start, selected.End, maxBytes)
 		if sliceErr != nil {
 			return errorResultFromError(sliceErr), SourceSymbolsOutput{}, nil
 		}
@@ -204,6 +276,13 @@ func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInpu
 			Operation: "show", CoordinateSystem: sourceCoordinateSystem,
 			FilesConsidered: 1, FilesParsed: 1, SymbolCount: 1, CoverageComplete: analysis.Analysis.CoverageComplete,
 			Show: &SourceShow{Path: validated.Path, SymbolID: symbol.ID, SourceFingerprint: document.SourceFingerprint, Language: descriptor.ID, Encoding: document.Encoding, Range: rangeValue, Text: text},
+		}
+		if input.Presentation == "concise" {
+			output.Presentation = "concise"
+			output.ConciseShow = &SourceConciseShow{
+				File: validated.Path, Range: rangeValue, Representation: part,
+				Complete: true, Code: text,
+			}
 		}
 		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
 			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil

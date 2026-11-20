@@ -21,6 +21,14 @@ AI clients see `Настройки` — not `????` or `Íàñòðîéêè`.
 
 **Start here:** [Quick start](#quick-start) · [Find a tool](TOOLS.md#find-the-right-tool) · [All documentation](docs/README.md) · [Security policy](SECURITY.md).
 
+## Project goal and documentation map
+
+Scripthold's goal is to let agents inspect and change files in **explicitly authorized local workspaces** without guessing encodings, crossing filesystem boundaries, or losing track of approved changes. Source Intelligence helps an agent locate source evidence; it does not compile code, infer every dependency, or decide which files should be edited. See [Project Direction](docs/PROJECT_DIRECTION.md) for the product scope and [Architecture](docs/ARCHITECTURE.md) for the security and durability boundaries.
+
+Use [Quick start](#quick-start) to run Scripthold, then the [Tool Reference](TOOLS.md) to choose operations. The [Documentation Guide](docs/README.md) organizes installation, security, recovery, development and release guides. To contribute or resume development, start with [Contributing](CONTRIBUTING.md) and the repository [Agent Guide](AGENTS.md), use the [Development Checklist](docs/DEVELOPMENT_CHECKLIST.md) to verify changes, and consult the [Roadmap](docs/ROADMAP.md) for completed source-level milestones, [qualification boundaries](docs/ROADMAP.md#milestone-completion-criteria), and remaining work. The [Changelog](CHANGELOG.md) distinguishes released behavior from unreleased fixes; a local commit does not update an installed server.
+
+Private operator checkpoints, local test task identifiers and machine-specific handoff notes are intentionally **not** part of the public repository documentation. They must be verified in the authorized operator workspace when resuming a supervised session; the public documents remain usable from a normal clone.
+
 ## What Scripthold provides
 
 Scripthold 4.x provides 36 tools and 3 guided prompts; see [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) for the latest published version. Clients upgrading from 3.x should follow the [4.0 migration guide](docs/MIGRATION_4.0.md) for the unified confirmation tool. In 4.0.1, the `source_symbols outline` response defaults to a compact tree; pass `presentation: "detailed"` to retain the earlier `files` and `symbols` fields.
@@ -147,9 +155,9 @@ The image runs as unprivileged UID/GID `10001`.
 
 ## Source Intelligence
 
-Source Intelligence helps agents navigate source code without running it or requiring an external compiler, parser, or language server. Use `source_symbols` to map project files with `digest` `presentation: "compact"`, browse a tree-structured file outline by default (or request `presentation: "detailed"` for the previous outline JSON structure), and inspect a selected symbol; use `source_query` for structural search, supported project relationships, dependency graphs, and verified context. Use `grep_text_files` when looking for arbitrary text or code behavior that is not represented by structural symbols.
+Source Intelligence provides bounded source evidence without requiring agents to read every file in full. The LLM chooses what to investigate and interprets the results; Scripthold does not reason about a change request or select edit targets. Use `source_symbols` to map project files with `digest` `presentation: "compact"`, inspect the parent-child **symbol hierarchy within each file** with `outline` (which defaults to `tree`), and retrieve a selected declaration with fingerprint-verified `show`. Request `presentation: "detailed"` for the earlier outline JSON structure. Use `source_query` for structural search, supported project relationships, dependency graphs, and verified context. The separate filesystem `tree` tool shows file paths, not class/member ownership. Use `grep_text_files` and targeted reads for arbitrary text, call sites, and independent verification of important declarations.
 
-Unsupported or ambiguous relationships are rejected rather than guessed. Markdown files have their own [document tools](TOOLS.md#markdown_read). Check the generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix for available source providers and analysis coverage.
+Unsupported or ambiguous relationships are rejected rather than guessed. A completed structural scan is **not** proof that every source declaration or caller was identified; verify important results against the original source and prefer `grep_text_files` for literal occurrences. Markdown files have their own [document tools](TOOLS.md#markdown_read). Check the generated [Language Capabilities](docs/LANGUAGE_CAPABILITIES.md) matrix for available source providers and analysis coverage. The [current original-project qualification](docs/ROADMAP.md#current-original-project-qualification) separately reports which providers have passed bounded development-handler navigation checks; registration alone does not certify project-level behavior.
 
 ## Markdown documents
 

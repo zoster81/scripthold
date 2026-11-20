@@ -277,7 +277,7 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "lua", "luau":
 				descriptor.KnownLimitations = []string{"metatables, runtime table/member mutation, non-literal require targets, dynamic dispatch, project/type resolution, semantic relations, and incremental indexing are not implemented"}
 			case "elixir":
-				descriptor.KnownLimitations = []string{"macro expansion, quoted/generated code, protocol/behaviour resolution, runtime dispatch, Mix/project resolution, semantic relations, and incremental indexing are not implemented"}
+				descriptor.KnownLimitations = []string{"directly authored single-target `defimpl Protocol, for: Target do` blocks are lexical implementation owners of their directly authored methods; multi-target, generated or computed implementations, macro expansion, quoted/generated code, protocol/behaviour resolution, runtime dispatch, Mix/project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "erlang":
 				descriptor.KnownLimitations = []string{"preprocessor expansion, parse transforms, generated code, behaviour/call resolution, OTP/project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "gleam":
@@ -325,14 +325,18 @@ func enrichLanguageDescriptor(descriptor LanguageDescriptor) LanguageDescriptor 
 			case "proto":
 				descriptor.KnownLimitations = []string{"package/message/enum/service/rpc structure and literal imports are extracted without descriptor linking, option evaluation, generated-code semantics, type/project resolution, semantic relations, or incremental indexing"}
 			case "vhdl":
-				descriptor.KnownLimitations = []string{"entity/architecture/signal structure is extracted without elaboration, generic/port/type binding, library/project resolution, simulation semantics, semantic relations, or incremental indexing"}
+				descriptor.KnownLimitations = []string{"entity/architecture/signal/component and supported entity generic declarations are structural only; package declarations, generic/port/type binding, elaboration, library/project resolution, simulation semantics, semantic relations, and incremental indexing are not implemented"}
 			case "verilog", "systemverilog":
 				descriptor.KnownLimitations = []string{"module/interface/package/signal structure is bounded and macro-free; preprocessing, generate/elaboration, parameter/type/net binding, simulation semantics, project resolution, semantic relations, and incremental indexing are not implemented"}
 			case "assembly":
-				descriptor.KnownLimitations = []string{"GAS/NASM-style labels, numeric local labels, and MASM PROC declarations are structural only; macro expansion, instruction decoding, control-flow/symbol/linker resolution, architecture semantics, semantic relations, and incremental indexing are not implemented"}
-			case "html", "xml":
+				descriptor.KnownLimitations = []string{"GAS/NASM-style labels, numeric local labels, MASM PROC declarations, MASM/Motorola EQU constants, named MASM/NASM DB/DW data, and named Motorola FCB/FCC/FDB/RMB data outside recognized macro/structure blocks are structural only; FDB words and RMB storage sizes use operand-shape checks without expression evaluation, and FCC delimiters have shape checks; other assignments/data directives, macro expansion, assembler END semantics, instruction decoding, control-flow/symbol/linker resolution, architecture semantics, semantic relations, and incremental indexing are not implemented"}
+			case "html":
 				descriptor.KnownLimitations = []string{"only elements with explicit id attributes are navigation symbols; DOM/schema/namespace validation, template/runtime semantics, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
-			case "css", "scss", "sass", "less":
+			case "xml":
+				descriptor.KnownLimitations = []string{"explicit id elements, supported Android string resources and direct leaf Project/PropertyGroup MSBuild properties are indexed; MSBuild parsing requires well-formed XML and does not evaluate conditions or imports; general XML schema/namespace validation, runtime semantics, cross-file resolution, semantic relations, and incremental indexing are not implemented"}
+			case "sass":
+				descriptor.KnownLimitations = []string{"indented Sass selectors, supported variables, @function and =mixin declarations are structural only; nested selector expansion, mixin/function execution, import/module resolution, cascade/style computation, semantic relations, and incremental indexing are not implemented"}
+			case "css", "scss", "less":
 				descriptor.KnownLimitations = []string{"selector and supported variable structure is lexical/structural only; nesting expansion, mixins/functions, imports/modules, cascade/style computation, semantic relations, and incremental indexing are not implemented"}
 			case "json":
 				descriptor.KnownLimitations = []string{"object keys are navigation symbols; arrays and scalar values are not independently indexed, and schema validation, reference resolution, semantic relations, and incremental indexing are not implemented"}
@@ -550,7 +554,7 @@ func detectionEvidenceForDescriptor(descriptor LanguageDescriptor) []EvidenceKin
 	// Modelines can name every registered canonical ID/alias.
 	values = append(values, EvidenceDirective)
 	switch descriptor.ID {
-	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp", "graphql", "proto", "terraform", "vhdl", "verilog", "systemverilog", "plsql", "openapi", "ansible-yaml", "php-html", "scala", "flow":
+	case "go", "csharp", "vbnet", "python", "classic-asp", "c", "cpp", "java", "kotlin", "php", "ruby", "swift", "delphi", "vbscript", "fsharp", "cil", "powershell", "freebasic", "purebasic", "aspnet-webforms", "razor", "blazor", "xaml", "mql4", "mql5", "objective-c", "objective-cpp", "dart", "d", "zig", "nim", "solidity", "apex", "al", "arduino", "perl", "luau", "elixir", "erlang", "groovy", "tcl", "autohotkey", "fortran", "cobol", "ada", "matlab", "octave", "julia", "r", "haskell", "ocaml", "common-lisp", "clojure", "emacs-lisp", "graphql", "proto", "terraform", "vhdl", "verilog", "systemverilog", "plsql", "openapi", "ansible-yaml", "php-html", "vue", "html", "scala", "flow":
 		values = append(values, EvidenceContentMarker)
 	}
 	values = append(values, EvidenceProjectHint)

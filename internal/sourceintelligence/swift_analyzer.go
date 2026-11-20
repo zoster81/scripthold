@@ -58,7 +58,7 @@ func (SwiftAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 
 var swiftModifiers = map[string]struct{}{
 	"convenience": {}, "fileprivate": {}, "final": {}, "internal": {}, "mutating": {}, "nonisolated": {}, "open": {},
-	"override": {}, "private": {}, "public": {}, "required": {}, "static": {},
+	"override": {}, "package": {}, "private": {}, "public": {}, "required": {}, "static": {},
 }
 
 type swiftParser struct {
@@ -158,8 +158,18 @@ func (p *swiftParser) skipAttributes(index, end int) int {
 
 func (p *swiftParser) skipModifiers(index, end int) int {
 	for index < end {
-		if _, ok := swiftModifiers[strings.ToLower(p.tokens[index].Text)]; ok {
+		modifier := strings.ToLower(p.tokens[index].Text)
+		if _, ok := swiftModifiers[modifier]; ok {
 			index++
+			if modifier == "nonisolated" && p.token(index, "(") {
+				close := p.pairs[index]
+				if close != index+2 || close >= end ||
+					(p.tokens[index+1].Text != "unsafe" && p.tokens[index+1].Text != "nonsending") {
+					p.builder.MarkIncomplete()
+					return index
+				}
+				index = close + 1
+			}
 			continue
 		}
 		return index
@@ -233,9 +243,68 @@ func (p *swiftParser) parseType(declarationStart, keyword, end int, parent *Symb
 		p.types[symbol.QualifiedName] = parentValue
 		p.types[symbol.Name] = parentValue
 		p.collectTypeRelations(symbol.QualifiedName, nativeKind, nameIndex+1, open, base)
+		if nativeKind == "enum" {
+			p.parseEnumCases(open+1, close, p.tokens[open].Nesting, &parentValue)
+		}
 		p.parseScope(open+1, close, &parentValue, true, symbol.Name)
 	}
 	return close + 1
+}
+
+// parseEnumCases projects only top-level case declarations from an enum body.
+// Tokens inside computed properties, methods, and switch statements have a
+// deeper nesting level and must not be confused with enum case members.
+func (p *swiftParser) parseEnumCases(start, end, nesting int, parent *SymbolParent) {
+	for index := start; index < end && !p.stopped; index++ {
+		if p.ctx.Err() != nil {
+			return
+		}
+		if p.tokens[index].Nesting != nesting || p.tokens[index].Text != "case" {
+			continue
+		}
+		terminator := p.lineTerminator(index+1, end, nesting)
+		if terminator < 0 {
+			terminator = end
+		}
+		cursor := p.skipTrivia(index+1, terminator)
+		for cursor < terminator && !p.stopped {
+			if p.tokens[cursor].Kind != TokenIdentifier {
+				p.builder.MarkIncomplete()
+				break
+			}
+			nameIndex := cursor
+			_, _ = p.add(SymbolSpec{
+				Kind: SymbolKindField, NativeKind: "case", Name: p.tokens[nameIndex].Text, Parent: parent,
+				Declaration: OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
+				NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
+				Evidence:    SymbolEvidenceStructural,
+			})
+			cursor++
+			if cursor < terminator && p.token(cursor, "(") {
+				close := p.pairs[cursor]
+				if close <= cursor || close >= terminator {
+					p.builder.MarkIncomplete()
+					break
+				}
+				cursor = close + 1
+			}
+			if cursor < terminator && p.token(cursor, "=") {
+				for cursor++; cursor < terminator; cursor++ {
+					if p.token(cursor, ",") && p.tokens[cursor].Nesting == nesting {
+						break
+					}
+				}
+			}
+			if cursor >= terminator || !p.token(cursor, ",") {
+				break
+			}
+			cursor = p.skipTrivia(cursor+1, terminator)
+			if cursor == terminator {
+				p.builder.MarkIncomplete()
+			}
+		}
+		index = terminator
+	}
 }
 
 func (p *swiftParser) parseExtension(_ int, keyword, end int, lexicalParent *SymbolParent) int {
@@ -319,7 +388,20 @@ func swiftSplitTypeList(tokens []Token, start, end, nesting int) [][2]int {
 }
 
 func (p *swiftParser) parseFunction(declarationStart, keyword, end int, parent *SymbolParent, member bool) int {
-	nameIndex := nextIdentifierToken(p.tokens, keyword+1, end)
+	nameIndex := p.skipTrivia(keyword+1, end)
+	if nameIndex < end && p.tokens[nameIndex].Kind == TokenOperator {
+		// Swift operators are callable declarations too. Do not scan past
+		// their parameter list and mistake an argument name for a method.
+		paren := p.skipTrivia(nameIndex+1, end)
+		if p.tokens[nameIndex].Text != "=" && p.tokens[nameIndex].Text != "->" &&
+			paren < end && p.token(paren, "(") &&
+			p.tokens[paren].Nesting == p.tokens[keyword].Nesting+1 {
+			return p.addCallable(declarationStart, nameIndex, paren, end, parent, member, p.tokens[nameIndex].Text, "func")
+		}
+		p.builder.MarkIncomplete()
+		return p.skipStatement(declarationStart, end)
+	}
+	nameIndex = nextIdentifierToken(p.tokens, keyword+1, end)
 	if nameIndex < 0 {
 		return keyword + 1
 	}
@@ -413,13 +495,35 @@ func (p *swiftParser) addCallable(declarationStart, nameIndex, paren, end int, p
 		nativeKind += "-declaration"
 	}
 	modifiers := collectKnownModifiers(p.tokens, declarationStart, nameIndex, swiftModifiers)
-	p.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
+	symbol, added := p.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: p.tokens[declarationStart].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: p.tokens[nameIndex].StartOffset, End: p.tokens[nameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: p.tokens[declarationStart].StartOffset, End: signatureEnd}, Body: body,
 		Visibility: swiftVisibility(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
 		Disambiguator: tokenRangeText(p.tokens, paren, closeParen+1) + ":" + nativeKind})
+	if added && bodyOpen >= 0 {
+		localParent := SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+		p.parseLocalFunctions(bodyOpen+1, p.pairs[bodyOpen], p.tokens[bodyOpen].Nesting, &localParent)
+	}
 	return next
+}
+
+func (p *swiftParser) parseLocalFunctions(start, end, nesting int, parent *SymbolParent) {
+	for index := start; index < end && !p.stopped; {
+		if p.ctx.Err() != nil {
+			return
+		}
+		if p.tokens[index].Nesting != nesting || !p.token(index, "func") {
+			index++
+			continue
+		}
+		next := p.parseFunction(index, index, end, parent, false)
+		if next <= index {
+			index++
+		} else {
+			index = next
+		}
+	}
 }
 
 func (p *swiftParser) parseProperty(declarationStart, keyword, end int, parent *SymbolParent, member bool) int {

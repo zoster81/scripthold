@@ -2,12 +2,227 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+// Angle-bracket C/C++ includes depend on compiler search roots, whereas
+// quoted includes first check the including file's directory. The public
+// query must not present an incidental sibling as a resolved angle target.
+func TestSourceQueryCFamilyAngleIncludeDoesNotResolveSibling(t *testing.T) {
+	for _, tc := range []struct{ name, language, ext string }{
+		{"c", "c", ".c"}, {"cpp", "cpp", ".cpp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := canonicalHandlerTestDir(t)
+			header := filepath.Join(root, "local.h")
+			source := filepath.Join(root, "main"+tc.ext)
+			writeSourceQueryFixture(t, header, "int local;\n")
+			writeSourceQueryFixture(t, source, "#include <local.h>\n#include \"local.h\"\nint main(void) { return 0; }\n")
+			h := NewHandler([]string{root})
+			failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{source, header},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 2, MaxSymbols: 32,
+			})
+			if err != nil || failed != nil || outline.Truncated || !outline.CoverageComplete || len(outline.Files) != 2 {
+				t.Fatalf("two-file include fixture incomplete: failed=%+v err=%v", failed, err)
+			}
+			var fp string
+			for _, file := range outline.Files {
+				if file.Path == source {
+					fp = file.SourceFingerprint
+				}
+			}
+			if fp == "" {
+				t.Fatal("source fingerprint missing")
+			}
+			failed, out, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "relations", Relation: "dependencies", Paths: []string{source, header},
+				Language: tc.language, Encoding: "utf-8",
+				Subject:  &SourceSelectorInput{Kind: "path", Path: source, SourceFingerprint: fp},
+				MaxFiles: 2, MaxResults: 16, MaxNodes: 16, MaxEdges: 32, MaxDepth: 2,
+			})
+			if err != nil || failed != nil || out.Relations == nil || !out.Coverage.CoverageComplete {
+				t.Fatalf("bounded include dependencies unavailable: err=%v fail=%+v out=%+v", err, failed, out)
+			}
+			resolved := 0
+			for _, edge := range out.Relations.Relations {
+				if edge.Target.Path != header {
+					continue
+				}
+				if edge.Source.Range == nil || edge.Source.Range.Start.Line != 2 ||
+					edge.Resolution != sourceintelligence.ResolutionResolved ||
+					edge.Evidence != sourceintelligence.SymbolEvidenceProjectResolved {
+					t.Errorf("C/C++ angle include falsely linked as sibling: %+v", edge)
+				} else {
+					resolved++
+				}
+			}
+			if resolved != 1 {
+				t.Fatalf("resolved quoted include count=%d, want 1", resolved)
+			}
+		})
+	}
+}
+
+// The original declaration is at line 3; nearby Apex annotations and calls
+// are not substitutes for an indexed structural method definition.
+func TestSourceQueryOriginalApexCheckApexTypes(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	path := filepath.Join(root, filepath.FromSlash("real-projects/apex-lwc-recipes/force-app/main/default/classes/ApexTypesController.cls"))
+	h := NewHandler([]string{root})
+	failed, result, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+		Operation: "search", Mode: "structural", Paths: []string{path},
+		Language: "apex", Encoding: "utf-8", Query: "checkApexTypes",
+		Match: "exact", MaxResults: 8,
+	})
+	if err != nil || failed != nil || !result.Coverage.CoverageComplete ||
+		result.Search == nil || len(result.Search.Matches) != 1 {
+		t.Fatalf("original Apex method search: err=%v failed=%+v result=%+v", err, failed, result)
+	}
+	m := result.Search.Matches[0]
+	if m.QualifiedName != "ApexTypesController.checkApexTypes" ||
+		m.Evidence != sourceintelligence.SymbolEvidenceStructural || m.SymbolID == "" {
+		t.Fatalf("original Apex method misclassified: %+v", m)
+	}
+	failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "apex", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 16,
+	})
+	if err != nil || failed != nil || len(outline.Files) != 1 ||
+		!outline.CoverageComplete || len(outline.Symbols) != 2 {
+		t.Fatalf("original Apex outline unexpected: err=%v failed=%+v outline=%+v", err, failed, outline)
+	}
+	failed, shown, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+		Operation: "show", Path: path, Language: "apex", Encoding: "utf-8",
+		SymbolID: m.SymbolID, SourceFingerprint: outline.Files[0].SourceFingerprint, MaxBytes: 4096,
+	})
+	if err != nil || failed != nil || shown.Show == nil ||
+		!strings.Contains(shown.Show.Text, "return response;") {
+		t.Fatalf("original Apex show missing expected body: err=%v failed=%+v", err, failed)
+	}
+}
+
+// This verifies source-derived, two-file dependency edges without implying
+// whole-project or exhaustive caller coverage.
+func TestSourceQueryOriginalCrossFileDependencies(t *testing.T) {
+	root := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if root == "" {
+		t.Skip("private original corpus is not configured")
+	}
+	cases := []struct {
+		name, language, source, target string
+		importLine                     int
+	}{
+		{"solidity-openzeppelin", "solidity",
+			"real-projects/solidity-openzeppelin/contracts/access/Ownable.sol",
+			"real-projects/solidity-openzeppelin/contracts/utils/Context.sol", 6},
+		{"groovy-gradle-node", "groovy",
+			"groovy-srs-gradle-node-plugin/src/main/groovy/com/moowork/gradle/node/NodePlugin.groovy",
+			"groovy-srs-gradle-node-plugin/src/main/groovy/com/moowork/gradle/node/task/NodeTask.groovy", 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := filepath.Join(root, filepath.FromSlash(tc.source))
+			target := filepath.Join(root, filepath.FromSlash(tc.target))
+			h := NewHandler([]string{root})
+			failed, outline, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{source, target},
+				Language: tc.language, Encoding: "utf-8", MaxFiles: 2, MaxSymbols: 128,
+			})
+			if err != nil || failed != nil || !outline.CoverageComplete || outline.Truncated || len(outline.Files) != 2 {
+				t.Fatalf("original two-file outline: failed=%+v err=%v result=%+v", failed, err, outline)
+			}
+			fingerprints := make(map[string]string, 2)
+			for _, file := range outline.Files {
+				fingerprints[file.Path] = file.SourceFingerprint
+			}
+			if fingerprints[source] == "" || fingerprints[target] == "" {
+				t.Fatal("missing source fingerprints")
+			}
+			failed, result, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "relations", Relation: "dependencies", Paths: []string{source, target},
+				Language: tc.language, Encoding: "utf-8",
+				Subject:  &SourceSelectorInput{Kind: "path", Path: source, SourceFingerprint: fingerprints[source]},
+				MaxFiles: 2, MaxResults: 32, MaxNodes: 32, MaxEdges: 64, MaxDepth: 2,
+			})
+			if err != nil || failed != nil || result.Relations == nil ||
+				!result.Coverage.CoverageComplete || result.Coverage.FilesParsed != 2 ||
+				result.Relations.EvidenceScope != "indexed-relations-only" {
+				t.Fatalf("original dependencies: failed=%+v err=%v output=%+v", failed, err, result)
+			}
+			var resolved int
+			for _, edge := range result.Relations.Relations {
+				if edge.Resolution != sourceintelligence.ResolutionResolved {
+					continue
+				}
+				resolved++
+				if edge.Source.Path != source || edge.Target.Path != target ||
+					edge.Source.Range == nil || edge.Source.Range.Start.Line != tc.importLine ||
+					edge.Evidence != sourceintelligence.SymbolEvidenceProjectResolved ||
+					edge.Target.SourceFingerprint != fingerprints[target] {
+					t.Errorf("incorrect resolved dependency: %+v", edge)
+				}
+			}
+			if resolved != 1 {
+				t.Errorf("resolved edges=%d want=1", resolved)
+			}
+			failed, concise, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "relations", Presentation: "concise", Relation: "dependencies",
+				Paths: []string{source, target}, Language: tc.language, Encoding: "utf-8",
+				Subject:  &SourceSelectorInput{Kind: "path", Path: source, SourceFingerprint: fingerprints[source]},
+				MaxFiles: 2, MaxResults: 32, MaxNodes: 32, MaxEdges: 64, MaxDepth: 2,
+			})
+			if err != nil || failed != nil || concise.Relations == nil || !concise.Coverage.CoverageComplete {
+				t.Fatalf("original concise dependencies failed: %v %+v %+v", err, failed, concise)
+			}
+			payload, err := json.Marshal(concise)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var projected struct {
+				Relations struct {
+					EvidenceScope string `json:"evidenceScope"`
+					Edges         []struct {
+						Source     sourceintelligence.RelationEntity  `json:"source"`
+						Target     sourceintelligence.RelationEntity  `json:"target"`
+						Evidence   sourceintelligence.SymbolEvidence  `json:"evidence"`
+						Resolution sourceintelligence.ResolutionState `json:"resolution"`
+					} `json:"edges"`
+				} `json:"relations"`
+			}
+			if err := json.Unmarshal(payload, &projected); err != nil {
+				t.Fatal(err)
+			}
+			if projected.Relations.EvidenceScope != "indexed-relations-only" ||
+				len(projected.Relations.Edges) != len(result.Relations.Relations) {
+				t.Fatalf("source scope or edges lost: %s", payload)
+			}
+			for i, edge := range projected.Relations.Edges {
+				original := result.Relations.Relations[i]
+				if !reflect.DeepEqual(edge.Source, original.Source) ||
+					!reflect.DeepEqual(edge.Target, original.Target) ||
+					edge.Evidence != original.Evidence || edge.Resolution != original.Resolution {
+					t.Fatalf("original relation changed at %d: %+v vs %+v", i, edge, original)
+				}
+			}
+			legacyBytes, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("original source relation JSON bytes concise=%d legacy=%d", len(payload), len(legacyBytes))
+		})
+	}
+}
 
 func TestSourceQueryStructuralSearchAndCoverage(t *testing.T) {
 	root := canonicalHandlerTestDir(t)

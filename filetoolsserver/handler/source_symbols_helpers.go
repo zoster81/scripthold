@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -362,6 +363,276 @@ func presentSourceDigestOverview(analyses []sourceFileAnalysis, digests []Source
 	return out
 }
 
+// presentSourceConciseFind retains one verified file identity for each group of
+// matching declarations so clients can pass its path, encoding and fingerprint
+// with a single member symbolId to source_symbols show.
+func presentSourceConciseFind(files []SourceSymbolsFile, symbols []sourceintelligence.NormalizedSymbol) []SourceConciseFile {
+	out := make([]SourceConciseFile, 0, len(files))
+	byPath := make(map[string]int, len(files))
+	for _, file := range files {
+		entry := SourceConciseFile{
+			Path: file.Path, Language: file.Language, Encoding: file.Encoding,
+			SourceFingerprint: file.SourceFingerprint,
+		}
+		if file.Status != "parsed" || !file.CoverageComplete {
+			entry.Status = file.Status
+			if file.Status == "parsed" {
+				entry.Status = "partial"
+			}
+			entry.Error, entry.ErrorCode = file.Error, file.ErrorCode
+		}
+		byPath[file.Path] = len(out)
+		out = append(out, entry)
+	}
+	for _, symbol := range symbols {
+		if index, exists := byPath[symbol.Path]; exists {
+			out[index].Matches = append(out[index].Matches, SourceConciseMatch{
+				Name: symbol.Name, Owner: symbol.ParentQualifiedName,
+				Kind: symbol.Kind, Line: symbol.DeclarationRange.Start.Line,
+				Signature: symbol.Signature, SymbolID: symbol.ID,
+			})
+		}
+	}
+	return out
+}
+
+// buildSourceConciseDigest walks the bounded analyzer facts once, without
+// constructing the legacy dependency inventories or exposing selection hashes.
+func buildSourceConciseDigest(analyses []sourceFileAnalysis, roots []string, selectionTruncated bool) SourceSymbolsOutput {
+	out := SourceSymbolsOutput{
+		Operation: "digest", Presentation: "concise",
+		CoordinateSystem: sourceCoordinateSystem,
+		CoverageComplete: !selectionTruncated, Truncated: selectionTruncated,
+		ConciseAnalysisComplete:   true,
+		ConciseSelectionTruncated: selectionTruncated,
+		ConciseFiles:              make([]SourceConciseFile, 0, len(analyses)),
+	}
+	for _, current := range analyses {
+		relative, root := sourceConciseLocation(current.file.Path, roots)
+		entry := SourceConciseFile{Path: relative}
+		if len(roots) > 1 {
+			entry.Root = root
+		}
+		if current.file.Status != "parsed" {
+			out.FilesSkipped++
+			out.CoverageComplete = false
+			out.ConciseAnalysisComplete = false
+			entry.Status = current.file.Status
+			entry.ErrorCode = current.file.ErrorCode
+			entry.Error = current.file.Error
+		} else {
+			out.FilesParsed++
+			if !current.file.CoverageComplete {
+				out.CoverageComplete = false
+				out.ConciseAnalysisComplete = false
+				entry.Status = "partial"
+			}
+			parents := make(map[string]sourceintelligence.NormalizedSymbol, len(current.analysis.Analysis.Symbols))
+			for _, symbol := range current.analysis.Analysis.Symbols {
+				parents[symbol.ID] = symbol
+			}
+			for _, symbol := range current.analysis.Analysis.Symbols {
+				if !sourceConciseTopLevel(symbol, parents) {
+					continue
+				}
+				switch symbol.Kind {
+				case sourceintelligence.SymbolKindClass:
+					entry.Classes = append(entry.Classes, symbol.Name)
+				case sourceintelligence.SymbolKindStruct, sourceintelligence.SymbolKindInterface,
+					sourceintelligence.SymbolKindEnum, sourceintelligence.SymbolKindRecord,
+					sourceintelligence.SymbolKindType, sourceintelligence.SymbolKindAlias,
+					sourceintelligence.SymbolKindTrait, sourceintelligence.SymbolKindDelegate:
+					entry.Types = append(entry.Types, symbol.Name)
+				case sourceintelligence.SymbolKindFunction:
+					entry.Functions = append(entry.Functions, symbol.Name)
+				}
+			}
+		}
+		out.ConciseFiles = append(out.ConciseFiles, entry)
+	}
+	return out
+}
+
+// Only package/namespace/module containers may stand between a declaration
+// and file scope; a method or nested class is not a top-level declaration.
+func sourceConciseTopLevel(symbol sourceintelligence.NormalizedSymbol, symbols map[string]sourceintelligence.NormalizedSymbol) bool {
+	for id, steps := symbol.ParentID, 0; id != ""; steps++ {
+		if steps >= len(symbols) {
+			return false
+		}
+		parent, ok := symbols[id]
+		if !ok {
+			return false
+		}
+		switch parent.Kind {
+		case sourceintelligence.SymbolKindPackage, sourceintelligence.SymbolKindNamespace, sourceintelligence.SymbolKindModule:
+			id = parent.ParentID
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// Keep the longest matching selected root. A file selected directly uses its
+// basename; multi-root responses carry the root explicitly to avoid collisions.
+func sourceConciseLocation(path string, roots []string) (string, string) {
+	bestRoot, bestRelative := "", path
+	for _, raw := range roots {
+		root, err := filepath.Abs(raw)
+		if err != nil {
+			continue
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || filepath.IsAbs(relative) || relative == ".." ||
+			strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if len(root) > len(bestRoot) {
+			bestRoot, bestRelative = root, relative
+		}
+	}
+	if bestRoot == "" || bestRelative == "." {
+		bestRelative = filepath.Base(path)
+	}
+	return filepath.ToSlash(bestRelative), bestRoot
+}
+
+// buildSourceConciseOutline presents method declarations only for recognized
+// owners. It never guesses ownership from a common name or adjacent lines.
+func buildSourceConciseOutline(analyses []sourceFileAnalysis, roots []string, requestedOwner string, kinds []string, selectionTruncated bool, maxSymbols int) SourceSymbolsOutput {
+	out := SourceSymbolsOutput{
+		Operation: "outline", Presentation: "concise",
+		CoordinateSystem: sourceCoordinateSystem,
+		CoverageComplete: !selectionTruncated, Truncated: selectionTruncated,
+		ConciseAnalysisComplete:   true,
+		ConciseSelectionTruncated: selectionTruncated,
+		ConciseFiles:              make([]SourceConciseFile, 0, len(analyses)),
+	}
+	selectedKinds := make(map[string]bool, len(kinds))
+	for _, kind := range kinds {
+		selectedKinds[strings.ToLower(strings.TrimSpace(kind))] = true
+	}
+	wantKind := func(kind sourceintelligence.SymbolKind) bool {
+		return len(selectedKinds) == 0 || selectedKinds[string(kind)]
+	}
+	retained, matchedOwners := 0, 0
+	appendMember := func(destination *[]SourceConciseMember, symbol sourceintelligence.NormalizedSymbol) {
+		if retained >= maxSymbols {
+			out.Truncated = true
+			out.ConciseResultsTruncated = true
+			out.CoverageComplete = false
+			return
+		}
+		*destination = append(*destination, SourceConciseMember{
+			Name: symbol.Name, Kind: symbol.Kind,
+			Line: symbol.DeclarationRange.Start.Line, Signature: symbol.Signature,
+		})
+		retained++
+	}
+	for _, current := range analyses {
+		relative, root := sourceConciseLocation(current.file.Path, roots)
+		entry := SourceConciseFile{Path: relative}
+		if len(roots) > 1 {
+			entry.Root = root
+		}
+		if current.file.Status != "parsed" {
+			out.FilesSkipped++
+			out.CoverageComplete = false
+			out.ConciseAnalysisComplete = false
+			entry.Status, entry.ErrorCode, entry.Error = current.file.Status, current.file.ErrorCode, current.file.Error
+			out.ConciseFiles = append(out.ConciseFiles, entry)
+			continue
+		}
+		out.FilesParsed++
+		if !current.file.CoverageComplete {
+			out.CoverageComplete = false
+			out.ConciseAnalysisComplete = false
+			entry.Status = "partial"
+		}
+		ownerByID := make(map[string]int)
+		symbols := current.analysis.Analysis.Symbols
+		parents := sourceConciseParents(symbols)
+		for _, symbol := range symbols {
+			if !sourceConciseOwnerKind(symbol.Kind) || (requestedOwner != "" &&
+				requestedOwner != symbol.Name && requestedOwner != symbol.QualifiedName) {
+				continue
+			}
+			matchedOwners++
+			if retained >= maxSymbols {
+				out.Truncated = true
+				out.ConciseResultsTruncated = true
+				out.CoverageComplete = false
+				continue
+			}
+			display := SourceConciseOwner{
+				Name: symbol.Name, Kind: symbol.Kind,
+				Line: symbol.DeclarationRange.Start.Line,
+			}
+			if requestedOwner != "" && requestedOwner != symbol.Name {
+				display.QualifiedName = symbol.QualifiedName
+			}
+			ownerByID[symbol.ID] = len(entry.Owners)
+			entry.Owners = append(entry.Owners, display)
+			retained++
+		}
+		for _, symbol := range symbols {
+			if index, ok := ownerByID[symbol.ParentID]; ok {
+				if !wantKind(symbol.Kind) {
+					continue
+				}
+				switch symbol.Kind {
+				case sourceintelligence.SymbolKindMethod, sourceintelligence.SymbolKindConstructor,
+					sourceintelligence.SymbolKindDestructor, sourceintelligence.SymbolKindOperator,
+					sourceintelligence.SymbolKindFunction:
+					appendMember(&entry.Owners[index].Methods, symbol)
+				case sourceintelligence.SymbolKindField, sourceintelligence.SymbolKindProperty,
+					sourceintelligence.SymbolKindVariable, sourceintelligence.SymbolKindConstant:
+					// Fields require explicit selection; do not dump them by default.
+					if len(selectedKinds) > 0 {
+						appendMember(&entry.Owners[index].Fields, symbol)
+					}
+				}
+			} else if requestedOwner == "" && symbol.Kind == sourceintelligence.SymbolKindFunction &&
+				sourceConciseTopLevel(symbol, parents) && wantKind(symbol.Kind) {
+				if retained >= maxSymbols {
+					out.Truncated = true
+					out.ConciseResultsTruncated = true
+					out.CoverageComplete = false
+				} else {
+					entry.Functions = append(entry.Functions, symbol.Name)
+					retained++
+				}
+			}
+		}
+		if requestedOwner == "" || len(entry.Owners) > 0 || entry.Status != "" {
+			out.ConciseFiles = append(out.ConciseFiles, entry)
+		}
+	}
+	out.Ambiguous = requestedOwner != "" && matchedOwners > 1
+	return out
+}
+
+func sourceConciseOwnerKind(kind sourceintelligence.SymbolKind) bool {
+	switch kind {
+	case sourceintelligence.SymbolKindClass, sourceintelligence.SymbolKindStruct,
+		sourceintelligence.SymbolKindInterface, sourceintelligence.SymbolKindRecord,
+		sourceintelligence.SymbolKindTrait, sourceintelligence.SymbolKindType,
+		sourceintelligence.SymbolKindImplementation:
+		return true
+	default:
+		return false
+	}
+}
+
+func sourceConciseParents(symbols []sourceintelligence.NormalizedSymbol) map[string]sourceintelligence.NormalizedSymbol {
+	parents := make(map[string]sourceintelligence.NormalizedSymbol, len(symbols))
+	for _, symbol := range symbols {
+		parents[symbol.ID] = symbol
+	}
+	return parents
+}
+
 func resolvePositiveLimit(requested, maximum int, name string) (int, *mcp.CallToolResult) {
 	if maximum <= 0 {
 		return 0, errorResultWithCode(ErrCodeInternal, name+" server limit is invalid")
@@ -383,9 +654,9 @@ func sourceSymbolMatches(symbol sourceintelligence.NormalizedSymbol, query, mode
 	case "prefix":
 		return strings.HasPrefix(symbol.Name, query) || strings.HasPrefix(symbol.QualifiedName, query)
 	case "qualified":
-		return symbol.QualifiedName == query
+		return symbol.QualifiedName == query || (symbol.QualifiedName == symbol.Name && symbol.MatchesOriginalName(query))
 	default:
-		return symbol.Name == query
+		return symbol.Name == query || symbol.MatchesOriginalName(query)
 	}
 }
 

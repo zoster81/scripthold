@@ -14,7 +14,7 @@ This guide applies to files under `docs/`. Follow the root [`AGENTS.md`](../AGEN
 - [`HTTP_SECURITY.md`](HTTP_SECURITY.md): current Streamable HTTP threat model and deployment contract.
 - [`DURABLE_TASKS.md`](DURABLE_TASKS.md): current durable task process, recovery, log, retention, and configuration contract.
 - [`LANGUAGE_CAPABILITIES.md`](LANGUAGE_CAPABILITIES.md): generated source-intelligence capability projection; update its generator/registry rather than editing claims independently.
-- [`MIGRATION_2.0.md`](MIGRATION_2.0.md) and [`MIGRATION_3.0.md`](MIGRATION_3.0.md): user migration guides for intentional compatibility breaks.
+- [`MIGRATION_2.0.md`](MIGRATION_2.0.md), [`MIGRATION_3.0.md`](MIGRATION_3.0.md), and [`MIGRATION_4.0.md`](MIGRATION_4.0.md): user migration guides for intentional compatibility breaks.
 
 Detailed tool schemas, examples, limits, and current public behavior belong in [`TOOLS.md`](../TOOLS.md). Release-by-release user-visible changes belong in [`CHANGELOG.md`](../CHANGELOG.md). Implementation chronology belongs in Git, not in new phase diaries or completed-design archives.
 

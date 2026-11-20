@@ -44,6 +44,131 @@ func TestBasicDialectAnalyzersRemainDistinct(t *testing.T) {
 	}
 }
 
+// The segment-register directive in a real QBasic map converter is not a DEF FN declaration.
+func TestBasicDefSegmentDirectiveDoesNotInventFunctions(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+	}{
+		{"qbasic", QBasicAnalyzer{}},
+		{"classic-basic", ClassicBasicAnalyzer{}},
+		{"freebasic", FreeBasicAnalyzer{}},
+		{"vb6", VB6Analyzer{}},
+		{"vba", VBAAnalyzer{}},
+		{"vbscript", VBScriptAnalyzer{}},
+		{"purebasic", PureBasicAnalyzer{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "DEF SEG = VARSEG(mz%(0, 0))\nDEF SEG\n"
+			if tc.name == "qbasic" || tc.name == "classic-basic" {
+				source += "DEF FNDOUBLE(X)=X*2\n"
+			}
+			result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("unexpected partial analysis: %+v", result.Analysis)
+			}
+			want := map[string]SymbolKind{}
+			if tc.name == "qbasic" || tc.name == "classic-basic" {
+				want["FNDOUBLE"] = SymbolKindFunction
+			}
+			got := symbolsByQualifiedName(result.Analysis.Symbols)
+			if !reflect.DeepEqual(gotNamesAndKinds(got), want) {
+				t.Fatalf("unexpected DEF symbols: got=%v want=%v", gotNamesAndKinds(got), want)
+			}
+		})
+	}
+}
+
+func gotNamesAndKinds(symbols map[string]NormalizedSymbol) map[string]SymbolKind {
+	kinds := make(map[string]SymbolKind, len(symbols))
+	for name, symbol := range symbols {
+		kinds[name] = symbol.Kind
+	}
+	return kinds
+}
+
+// A real QBasic file declares three independent names in one DIM SHARED statement.
+func TestBasicCommaSeparatedDimSharedNames(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		analyzer    SourceAnalyzer
+		declaration string
+	}{
+		{"qbasic", QBasicAnalyzer{}, "DIM SHARED mapwidth, mapheight, numscripts AS INTEGER"},
+		{"classic-basic", ClassicBasicAnalyzer{}, "DIM mapwidth, mapheight, numscripts"},
+		{"freebasic", FreeBasicAnalyzer{}, "DIM SHARED mapwidth, mapheight, numscripts AS INTEGER"},
+		{"vb6", VB6Analyzer{}, "Dim mapwidth, mapheight, numscripts As Integer"},
+		{"vba", VBAAnalyzer{}, "Dim mapwidth, mapheight, numscripts As Integer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, eol := range []string{"\n", "\r\n"} {
+				result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(tc.declaration+eol), testAnalyzeOptions(true, 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+					t.Fatalf("incomplete %q: %+v", eol, result.Analysis)
+				}
+				got := symbolsByQualifiedName(result.Analysis.Symbols)
+				for _, name := range []string{"mapwidth", "mapheight", "numscripts"} {
+					if sym, ok := got[name]; !ok || sym.Kind != SymbolKindVariable || sym.DeclarationRange.Start.Line != 1 {
+						t.Fatalf("name %q missing/wrong on EOL %q: %+v; symbols=%v", name, eol, sym, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+					}
+				}
+				if len(result.Analysis.Symbols) != 3 {
+					t.Fatalf("wrong number of DIM declarations (%q): %v", eol, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
+// Original QB64 sources use both per-declarator types and type-first DIM forms.
+func TestBasicMultiDeclaratorTypePlacement(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analyzer SourceAnalyzer
+		source   string
+		want     []string
+	}{
+		{"qbasic-suffix-types", QBasicAnalyzer{}, "DIM SHARED Size_Screen_X AS INTEGER, Size_Screen_Y AS INTEGER", []string{"Size_Screen_X", "Size_Screen_Y"}},
+		{"classic-suffix-types", ClassicBasicAnalyzer{}, "DIM win_Img AS INTEGER, win_Img_Image AS LONG", []string{"win_Img", "win_Img_Image"}},
+		{"vb6-suffix-types", VB6Analyzer{}, "Dim first As Integer, second As Long", []string{"first", "second"}},
+		{"vba-suffix-types", VBAAnalyzer{}, "Dim first As Integer, second As Long", []string{"first", "second"}},
+		{"freebasic-suffix-types", FreeBasicAnalyzer{}, "Dim first As Integer, second As Long", []string{"first", "second"}},
+		{"qbasic-type-first", QBasicAnalyzer{}, "DIM AS LONG g1, g2", []string{"g1", "g2"}},
+		{"classic-type-first", ClassicBasicAnalyzer{}, "DIM AS LONG g1, g2", []string{"g1", "g2"}},
+		{"freebasic-type-first", FreeBasicAnalyzer{}, "DIM AS LONG g1, g2", []string{"g1", "g2"}},
+		{"classic-unsigned-type-first", ClassicBasicAnalyzer{}, "DIM AS _UNSIGNED LONG i, totalParticles", []string{"i", "totalParticles"}},
+		{"qbasic-unsigned-type-first", QBasicAnalyzer{}, "DIM AS _UNSIGNED LONG i, totalParticles", []string{"i", "totalParticles"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, ending := range []string{"\n", "\r\n"} {
+				result, err := tc.analyzer.Analyze(context.Background(), sourceDocumentForScanner(tc.source+ending), testAnalyzeOptions(true, 32))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+					t.Fatalf("partial: %+v", result.Analysis)
+				}
+				symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+				if len(symbols) != len(tc.want) {
+					t.Fatalf("symbol names=%v, want %v", sortedSymbolQualifiedNames(result.Analysis.Symbols), tc.want)
+				}
+				for _, name := range tc.want {
+					sym, ok := symbols[name]
+					if !ok || sym.Kind != SymbolKindVariable || sym.DeclarationRange.Start.Line != 1 {
+						t.Errorf("missing/wrong %s: %+v; names=%v", name, sym, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestRealWorldFreeBasicTypeAliasesDoNotOpenScopes(t *testing.T) {
 	text := "Type pCall As Function (xy As Any Ptr) As Long\n" +
 		"Type ValueAlias As Long\n" +
@@ -487,6 +612,40 @@ protected void Page_Load(object sender, EventArgs e) { }
 				if symbol.DeclarationRange.Start.Line <= 0 || symbol.NameRange.Start.Line <= 0 {
 					t.Fatalf("%s invalid host range: %+v", tc.language, symbol)
 				}
+			}
+		})
+	}
+}
+
+func TestVB6MetadataModuleNameRangeUsesAuthoredValue(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, module string
+		line                int
+	}{
+		{"simple-lf", "Attribute VB_Name = \"PingMod\"\nPublic Sub Run()\nEnd Sub\n", "PingMod", 1},
+		{"designer-crlf", "VERSION 5.00\r\nBegin VB.Form Form1\r\nEnd\r\nAttribute VB_Name = \"Form1\"\r\nPrivate Sub Form_Load()\r\nEnd Sub\r\n", "Form1", 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (VB6Analyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.input), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete {
+				t.Fatalf("unexpected partial coverage: %+v", result.Analysis)
+			}
+			found := false
+			for _, s := range result.Analysis.Symbols {
+				if s.Kind != SymbolKindModule {
+					continue
+				}
+				found = true
+				if s.Name != tc.module || s.NameRange.Start.Line != tc.line || s.NameRange.End.Line != tc.line ||
+					s.NameRange.Start.Column != 22 || s.NameRange.End.Column != 22+len(tc.module) {
+					t.Errorf("expected authored metadata module %q at %d:22..%d, got %+v", tc.module, tc.line, 22+len(tc.module), s)
+				}
+			}
+			if !found {
+				t.Fatalf("missing VB6 metadata module: %+v", result.Analysis.Symbols)
 			}
 		})
 	}

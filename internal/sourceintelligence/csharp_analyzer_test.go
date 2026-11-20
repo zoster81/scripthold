@@ -2,12 +2,435 @@ package sourceintelligence
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 )
 
 var _ SourceAnalyzer = CSharpAnalyzer{}
+
+func TestCSharpAnalyzerGenericMethodNames(t *testing.T) {
+	const source = `namespace Demo {
+public class Converter {
+    public static T? DeserializeObject<T>(string value) => default;
+    public static T? DeserializeAnonymousType<T>(string value, T item) { return default; }
+    public static T? DeserializeObject<T>
+        (string value, int count) => default;
+    public static TResult? Map<TResult, TKey>(TKey key) where TResult : class { return default; }
+    public static int Compare(int left, int right) => left < right ? left : right;
+    public static TValue? Parse
+        <TValue>
+        (string value) => default;
+}
+}`
+	for _, tc := range []struct {
+		name, source string
+	}{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("generic method source analysis partial: %+v", result.Analysis)
+			}
+			want := map[int]string{
+				3: "DeserializeObject",
+				4: "DeserializeAnonymousType",
+				5: "DeserializeObject",
+				7: "Map",
+				8: "Compare",
+				9: "Parse",
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				line := symbol.NameRange.Start.Line
+				if expected, ok := want[line]; ok {
+					if symbol.Name != expected || symbol.Kind != SymbolKindMethod ||
+						symbol.QualifiedName != "Demo.Converter."+expected ||
+						symbol.ParentQualifiedName != "Demo.Converter" {
+						t.Fatalf("generic method at line %d: got %+v, want %s", line, symbol, expected)
+					}
+					delete(want, line)
+				}
+				if symbol.Kind == SymbolKindMethod && (symbol.Name == "T" || symbol.Name == "TResult" || symbol.Name == "TKey") {
+					t.Fatalf("generic parameter indexed as method: %+v", symbol)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("generic methods missing at lines %v; symbols=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestCSharpOriginalNewtonsoftGenericMethods(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_CSHARP_NEWTONSOFT_JSONCONVERT")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CSHARP_NEWTONSOFT_JSONCONVERT to the original JsonConvert.cs")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("original C# fixture exceeds 1 MiB")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := sourceDocumentForScanner(string(contents))
+	document.Path = path
+	result, err := (CSharpAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("original Newtonsoft analysis partial: %+v", result.Analysis)
+	}
+	want := map[int]string{
+		744: "DeserializeObject",
+		763: "DeserializeAnonymousType",
+		786: "DeserializeAnonymousType",
+		801: "DeserializeObject",
+		819: "DeserializeObject",
+	}
+	for _, symbol := range result.Analysis.Symbols {
+		line := symbol.NameRange.Start.Line
+		if expected, ok := want[line]; ok {
+			if symbol.Name != expected || symbol.Kind != SymbolKindMethod ||
+				symbol.QualifiedName != "Newtonsoft.Json.JsonConvert."+expected ||
+				symbol.ParentQualifiedName != "Newtonsoft.Json.JsonConvert" {
+				t.Fatalf("original Newtonsoft generic declaration line %d: got %+v, want %q", line, symbol, expected)
+			}
+			delete(want, line)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("original Newtonsoft generic methods missing at lines %v; symbols=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestCSharpOriginalSerilogGenericMethods(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, qualified string
+		line                 int
+	}{
+		{"extensions", "SCRIPTHOLD_REAL_CSHARP_SERILOG_EXTENSIONS", "Serilog.LoggerExtensions.ForContext", 20},
+		{"interface", "SCRIPTHOLD_REAL_CSHARP_SERILOG_ILOGGER", "Serilog.ILogger.ForContext", 105},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to an original pinned Serilog C# source file", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original Serilog C# fixture exceeds 1 MiB")
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document := sourceDocumentForScanner(string(contents))
+			document.Path = path
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("original Serilog analysis partial: %+v", result.Analysis)
+			}
+			found := false
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Kind == SymbolKindMethod && (symbol.Name == "TSource" || symbol.Name == "TValue") {
+					t.Fatalf("Serilog generic argument misnamed as method: %+v", symbol)
+				}
+				if symbol.NameRange.Start.Line == tc.line &&
+					symbol.QualifiedName == tc.qualified && symbol.Kind == SymbolKindMethod {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("original Serilog generic method %q at line %d missing; symbols=%v", tc.qualified, tc.line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestCSharpMemberInitializersAreNotCallableDeclarations(t *testing.T) {
+	const source = `class Pipeline {
+    public static readonly Pipeline Empty = new(1);
+    public Func<int> Callback = () => 1;
+    public int Value => Compute();
+    public static Pipeline Create(int value) => new(value);
+    private int Compute() => 7;
+}`
+	for _, tc := range []struct{ name, source string }{
+		{"LF", source},
+		{"CRLF", strings.ReplaceAll(source, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), sourceDocumentForScanner(tc.source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("member initializer source partial: %+v", result.Analysis)
+			}
+			want := map[string]SymbolKind{
+				"Pipeline":          SymbolKindClass,
+				"Pipeline.Empty":    SymbolKindField,
+				"Pipeline.Callback": SymbolKindField,
+				"Pipeline.Value":    SymbolKindProperty,
+				"Pipeline.Create":   SymbolKindMethod,
+				"Pipeline.Compute":  SymbolKindMethod,
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				kind, ok := want[symbol.QualifiedName]
+				if !ok || symbol.Kind != kind {
+					t.Fatalf("unexpected member declaration %+v; want=%v", symbol, want)
+				}
+				delete(want, symbol.QualifiedName)
+			}
+			if len(want) != 0 {
+				t.Fatalf("members missing: %v; symbols=%v", want, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+		})
+	}
+}
+
+func TestCSharpOriginalPollyPipelineMembers(t *testing.T) {
+	for _, tc := range []struct {
+		name, env string
+		want      map[int]struct {
+			qualified string
+			kind      SymbolKind
+		}
+	}{
+		{"type", "SCRIPTHOLD_REAL_CSHARP_POLLY_PIPELINE", map[int]struct {
+			qualified string
+			kind      SymbolKind
+		}{
+			13: {"Polly.ResiliencePipeline", SymbolKindClass},
+			18: {"Polly.ResiliencePipeline.Empty", SymbolKindField},
+		}},
+		{"async", "SCRIPTHOLD_REAL_CSHARP_POLLY_PIPELINE_ASYNC", map[int]struct {
+			qualified string
+			kind      SymbolKind
+		}{
+			17: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			32: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			48: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			63: {"Polly.ResiliencePipeline.ExecuteAsync", SymbolKindMethod},
+			86: {"Polly.ResiliencePipeline.ExecuteOutcomeAsync", SymbolKindMethod},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to a qualified original Polly C# file", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("original Polly fixture exceeds 1 MiB")
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document := sourceDocumentForScanner(string(contents))
+			document.Path = path
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("original Polly analysis partial: %+v", result.Analysis)
+			}
+			seen := make(map[int]bool)
+			for _, symbol := range result.Analysis.Symbols {
+				if want, ok := tc.want[symbol.NameRange.Start.Line]; ok {
+					if symbol.QualifiedName != want.qualified || symbol.Kind != want.kind {
+						t.Fatalf("Polly declaration line %d: got %+v, want %+v", symbol.NameRange.Start.Line, symbol, want)
+					}
+					seen[symbol.NameRange.Start.Line] = true
+				}
+			}
+			for line := range tc.want {
+				if !seen[line] {
+					t.Fatalf("Polly declaration line %d missing; symbols=%v", line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
+func TestCSharpOriginalMediatRSendOverloads(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, owner string
+		lines            []int
+	}{
+		{"interface", "SCRIPTHOLD_REAL_CSHARP_MEDIATR_ISENDER", "MediatR.ISender", []int{19, 27, 36}},
+		{"implementation", "SCRIPTHOLD_REAL_CSHARP_MEDIATR_MEDIATOR", "MediatR.Mediator", []int{50, 67, 85}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := os.Getenv(tc.env)
+			if path == "" {
+				t.Skipf("set %s to the qualified original MediatR C# source", tc.env)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() > 1<<20 {
+				t.Fatal("MediatR fixture exceeds 1 MiB")
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc := sourceDocumentForScanner(string(data))
+			doc.Path = path
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 512))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("MediatR analysis incomplete: %+v", result.Analysis)
+			}
+			want := make(map[int]bool, len(tc.lines))
+			for _, line := range tc.lines {
+				want[line] = false
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Kind == SymbolKindMethod && (symbol.Name == "TResponse" || symbol.Name == "TRequest") {
+					t.Fatalf("generic parameter became a method: %+v", symbol)
+				}
+				line := symbol.NameRange.Start.Line
+				if _, exists := want[line]; !exists {
+					continue
+				}
+				if symbol.Kind != SymbolKindMethod || symbol.Name != "Send" ||
+					symbol.QualifiedName != tc.owner+".Send" || symbol.ParentQualifiedName != tc.owner {
+					t.Fatalf("MediatR Send at line %d: %+v", line, symbol)
+				}
+				want[line] = true
+			}
+			for line, found := range want {
+				if !found {
+					t.Fatalf("missing %s.Send at line %d; symbols=%v", tc.owner, line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+				}
+			}
+		})
+	}
+}
+
+func TestCSharpOriginalDapperQueryAsyncOverloads(t *testing.T) {
+	path := os.Getenv("SCRIPTHOLD_REAL_CSHARP_DAPPER_SQLMAPPER_ASYNC")
+	if path == "" {
+		t.Skip("set SCRIPTHOLD_REAL_CSHARP_DAPPER_SQLMAPPER_ASYNC to the qualified Dapper SqlMapper.Async.cs")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 1<<20 {
+		t.Fatal("Dapper original fixture exceeds 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := sourceDocumentForScanner(string(data))
+	doc.Path = path
+	result, err := (CSharpAnalyzer{}).Analyze(context.Background(), doc, testAnalyzeOptions(true, 512))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("Dapper original analysis partial: %+v", result.Analysis)
+	}
+	lines := []int{27, 36, 90, 213, 298, 307, 691, 708, 730, 748, 771, 790, 814, 834, 859, 880, 906, 928, 969}
+	want := make(map[int]bool, len(lines))
+	for _, line := range lines {
+		want[line] = false
+	}
+	for _, symbol := range result.Analysis.Symbols {
+		line := symbol.NameRange.Start.Line
+		if _, exists := want[line]; !exists {
+			continue
+		}
+		if symbol.Name != "QueryAsync" || symbol.Kind != SymbolKindMethod ||
+			symbol.QualifiedName != "Dapper.SqlMapper.QueryAsync" ||
+			symbol.ParentQualifiedName != "Dapper.SqlMapper" {
+			t.Fatalf("Dapper QueryAsync at %d: %+v", line, symbol)
+		}
+		want[line] = true
+	}
+	for line, found := range want {
+		if !found {
+			t.Fatalf("missing Dapper QueryAsync at line %d; symbols=%v", line, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+	}
+}
+
+func TestCSharpEnumValueDeclarationsAndBoundary(t *testing.T) {
+	const src = "namespace Demo;\n[Flags]\npublic enum State : byte {\n    Ready,\n    [Obsolete(\"old, ignored\")] Done = 2,\n    More = (1 << 2),\n}\npublic enum Empty {}\nclass After { const int Good = 3; }\n"
+	for _, tc := range []struct{ name, text string }{
+		{"LF", src}, {"CRLF", strings.ReplaceAll(src, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := (CSharpAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(tc.text), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+				t.Fatalf("enum scan partial: %+v", result.Analysis)
+			}
+			symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+			for name, line := range map[string]int{
+				"Demo.State.Ready": 4, "Demo.State.Done": 5, "Demo.State.More": 6,
+			} {
+				s, ok := symbols[name]
+				if !ok || s.Kind != SymbolKindConstant || s.NativeKind != "enum-value" ||
+					s.ParentQualifiedName != "Demo.State" || s.NameRange.Start.Line != line ||
+					s.DeclarationRange.End.Line != line {
+					t.Errorf("enum value %s: %+v exists=%t", name, s, ok)
+				}
+			}
+			for name, kind := range map[string]SymbolKind{
+				"Demo": SymbolKindNamespace, "Demo.State": SymbolKindEnum,
+				"Demo.Empty": SymbolKindEnum, "Demo.After": SymbolKindClass,
+				"Demo.After.Good": SymbolKindConstant,
+			} {
+				s, ok := symbols[name]
+				if !ok || s.Kind != kind {
+					t.Errorf("sibling %s: %+v exists=%t", name, s, ok)
+				}
+			}
+			if len(symbols) != 8 {
+				t.Fatalf("unexpected extra/missing enum symbols: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+			}
+			for _, bogus := range []string{"Demo.State.Obsolete", "Demo.State.Flags", "Demo.State.byte", "Demo.After.Ready"} {
+				if _, ok := symbols[bogus]; ok {
+					t.Fatalf("false-positive enum declaration %s", bogus)
+				}
+			}
+		})
+	}
+}
 
 func TestCSharpAnalyzerModernDeclarationsAndFalsePositiveResistance(t *testing.T) {
 	text := `using System;

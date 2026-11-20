@@ -97,6 +97,11 @@ func analyzeECMAScriptDialect(ctx context.Context, document *SourceDocument, opt
 		builder: builder, typescript: typescript, memberFunctionKeyword: memberFunctionKeyword,
 	}
 	parser.parseScope(0, len(scan.Tokens), nil, false, "")
+	if memberFunctionKeyword {
+		// Only the JScript.NET dialect uses this flag. Shared JavaScript,
+		// TypeScript, and Flow declaration behavior remains unchanged.
+		parser.collectJScriptNetReturnedObjectMethods()
+	}
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_ecmascript_source", document.Path, err)
 	}
@@ -131,6 +136,10 @@ func (parser *ecmaParser) parseScope(start, end int, parent *SymbolParent, membe
 		}
 		if !members && parser.token(index, "export") {
 			if next, ok := parser.parseReExport(index, end); ok {
+				index = next
+				continue
+			}
+			if next, ok := parser.parseExportDefaultWrappedFunction(index, end, parent); ok {
 				index = next
 				continue
 			}
@@ -196,7 +205,16 @@ func (parser *ecmaParser) token(index int, text string) bool {
 func (parser *ecmaParser) skipDeclarationPrefixes(index, end int) int {
 	for index < end {
 		if _, ok := ecmaModifiers[parser.tokens[index].Text]; ok {
+			declared := parser.tokens[index].Text == "declare"
 			index++
+			// Ambient type declarations may split "declare" and their
+			// declaration keyword across a line break. Other modifiers
+			// (notably async) retain their ordinary ASI boundary.
+			if declared {
+				for index < end && parser.tokens[index].Kind == TokenNewline {
+					index++
+				}
+			}
 			continue
 		}
 		return index
@@ -224,6 +242,36 @@ func (parser *ecmaParser) statementEnd(start, end int) int {
 	return end - 1
 }
 
+// A variable initializer can begin on the next line after '=' or continue
+// after a direct arrow. Only these incomplete variable lines bypass ASI;
+// ordinary statements retain the conservative newline boundary.
+func (parser *ecmaParser) variableStatementEnd(start, end int) int {
+	if start >= end {
+		return end
+	}
+	base := parser.tokens[start].Nesting
+	lastCode := -1
+	for index := start; index < end; index++ {
+		token := parser.tokens[index]
+		if token.Kind == TokenEOF {
+			return index
+		}
+		if token.Text == ";" && token.Nesting == base {
+			return index
+		}
+		if token.Kind == TokenNewline && token.Nesting == base {
+			if lastCode >= start && (parser.token(lastCode, "=") || parser.token(lastCode, "=>")) {
+				continue
+			}
+			return index
+		}
+		if token.Kind != TokenNewline && token.Kind != TokenDirective {
+			lastCode = index
+		}
+	}
+	return end - 1
+}
+
 func (parser *ecmaParser) skipUnknownStatement(start, end int) int {
 	terminator := parser.statementEnd(start, end)
 	if terminator < start {
@@ -233,6 +281,46 @@ func (parser *ecmaParser) skipUnknownStatement(start, end int) int {
 		return terminator + 1
 	}
 	return min(terminator+1, end)
+}
+
+// A named function passed directly to an exported default call is a useful
+// source-level edit target. Do not recurse through arbitrary call expressions:
+// that would promote unrelated nested callbacks into top-level declarations.
+func (parser *ecmaParser) parseExportDefaultWrappedFunction(start, end int, parent *SymbolParent) (int, bool) {
+	if !parser.token(start, "export") || !parser.token(start+1, "default") {
+		return 0, false
+	}
+	cursor := parser.skipTrivia(start+2, end)
+	if cursor >= end || parser.tokens[cursor].Kind != TokenIdentifier {
+		return 0, false
+	}
+	cursor++
+	for cursor+1 < end && parser.token(cursor, ".") && parser.tokens[cursor+1].Kind == TokenIdentifier {
+		cursor += 2
+	}
+	if !parser.token(cursor, "(") {
+		return 0, false
+	}
+	close, paired := parser.pairs[cursor]
+	if !paired || close <= cursor+1 || close >= end {
+		return 0, false
+	}
+	function := parser.skipTrivia(cursor+1, close)
+	if parser.token(function, "async") {
+		function = parser.skipTrivia(function+1, close)
+	}
+	if !parser.token(function, "function") {
+		return 0, false
+	}
+	name := function + 1
+	if parser.token(name, "*") {
+		name++
+	}
+	if name >= close || parser.tokens[name].Kind != TokenIdentifier {
+		return 0, false
+	}
+	parser.parseFunction(function, function, close, parent, false)
+	return parser.skipUnknownStatement(start, end), true
 }
 
 func (parser *ecmaParser) parseImport(start, end int) int {
@@ -295,16 +383,12 @@ func ecmaStringLiteralValue(value string) string {
 }
 
 func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, parent *SymbolParent) int {
-	terminator := parser.statementEnd(keyword, end)
+	terminator := parser.variableStatementEnd(keyword, end)
 	nameIndex := parser.nextIdentifier(keyword+1, terminator+1)
 	if nameIndex < 0 {
 		return min(terminator+1, end)
 	}
-	arrow := false
 	for index := nameIndex + 1; index <= terminator && index < end; index++ {
-		if parser.tokens[index].Text == "=>" {
-			arrow = true
-		}
 		if parser.tokens[index].Text == "require" && index+1 <= terminator {
 			open := parser.skipTrivia(index+1, terminator+1)
 			if open <= terminator && parser.tokens[open].Text == "(" {
@@ -328,6 +412,19 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 			}
 		}
 	}
+	patternOpen := parser.skipTrivia(keyword+1, terminator+1)
+	if parser.token(patternOpen, "{") {
+		return parser.parseObjectDestructuring(declarationStart, keyword, patternOpen, terminator, end, parent)
+	}
+	if parser.token(patternOpen, "[") {
+		// An array binding pattern has no single declared variable name.
+		// Its current elements are unsupported; never index the first one
+		// and misleadingly claim a complete declaration inventory.
+		parser.builder.MarkIncomplete()
+		return min(terminator+1, end)
+	}
+	arrow := parser.directArrowInitializer(keyword, nameIndex, terminator)
+	functionExpression := !arrow && parser.directFunctionExpressionInitializer(keyword, nameIndex, terminator)
 	kind := SymbolKindVariable
 	nativeKind := parser.tokens[keyword].Text
 	if parser.token(keyword, "const") {
@@ -337,6 +434,9 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 	if arrow {
 		kind = SymbolKindFunction
 		nativeKind = "arrow-function"
+	} else if functionExpression {
+		kind = SymbolKindFunction
+		nativeKind = "function-expression"
 	}
 	last := parser.previousCodeToken(terminator-1, nameIndex)
 	if parser.tokens[terminator].Text == ";" {
@@ -346,7 +446,7 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		last = nameIndex
 	}
 	var signature *OffsetRange
-	if arrow {
+	if arrow || functionExpression {
 		value := OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[last].EndOffset}
 		signature = &value
 	}
@@ -358,6 +458,247 @@ func (parser *ecmaParser) parseVariable(declarationStart, keyword, end int, pare
 		Modifiers: parser.modifiers(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
 		Disambiguator: tokenRangeText(parser.tokens, nameIndex, min(terminator+1, end)),
 	})
+	return min(terminator+1, end)
+}
+
+// Only a complete function expression directly assigned to a binding is a
+// callable declaration. Nested callbacks, IIFEs and compound expressions are
+// values, not declarations of the enclosing variable as a function.
+func (parser *ecmaParser) directFunctionExpressionInitializer(keyword, nameIndex, end int) bool {
+	base := parser.tokens[keyword].Nesting
+	for index := nameIndex + 1; index < end; index++ {
+		if !parser.token(index, "=") || parser.tokens[index].Nesting != base {
+			continue
+		}
+		start := parser.skipTrivia(index+1, end)
+		if parser.token(start, "async") {
+			start = parser.skipTrivia(start+1, end)
+		}
+		if !parser.token(start, "function") {
+			return false
+		}
+		cursor := parser.skipTrivia(start+1, end)
+		if parser.token(cursor, "*") {
+			cursor = parser.skipTrivia(cursor+1, end)
+		}
+		if cursor < end && parser.tokens[cursor].Kind == TokenIdentifier && !parser.token(cursor, "(") {
+			cursor = parser.skipTrivia(cursor+1, end)
+		}
+		if !parser.token(cursor, "(") {
+			return false
+		}
+		closeParameters, paired := parser.pairs[cursor]
+		if !paired || closeParameters <= cursor || closeParameters >= end {
+			return false
+		}
+		last := parser.previousCodeToken(end-1, start)
+		if last <= closeParameters || !parser.token(last, "}") {
+			return false
+		}
+		for open := closeParameters + 1; open < last; open++ {
+			if !parser.token(open, "{") || parser.tokens[open].Nesting != base+1 || parser.pairs[open] != last {
+				continue
+			}
+			// An object return type has its own braces before the body;
+			// do not mistake that type annotation for a function body.
+			if parser.typescript {
+				annotation := parser.skipTrivia(closeParameters+1, open)
+				if parser.token(annotation, ":") && parser.skipTrivia(annotation+1, open) == open {
+					return false
+				}
+			}
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+// An arrow callback within an object, call, conditional or type annotation
+// cannot change the declaring variable into a direct arrow function.
+// Inspect only the initializer expression, without interpreting its runtime value.
+func (parser *ecmaParser) directArrowInitializer(keyword, nameIndex, end int) bool {
+	base := parser.tokens[keyword].Nesting
+	for index := nameIndex + 1; index < end; index++ {
+		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == base {
+			return parser.directArrowExpression(parser.skipTrivia(index+1, end), end, base)
+		}
+	}
+	return false
+}
+
+func (parser *ecmaParser) directArrowExpression(start, end, base int) bool {
+	// Unwrap only complete parenthesized expressions. Calls or conditional
+	// expressions must not inherit their nested callback's arrow kind.
+	for depth := 0; depth < 32 && start < end; depth++ {
+		if parser.token(start, "async") {
+			start = parser.skipTrivia(start+1, end)
+		}
+		if start >= end {
+			return false
+		}
+		if parser.token(start, "(") {
+			close, ok := parser.pairs[start]
+			if !ok || close <= start || close >= end {
+				return false
+			}
+			for index := close + 1; index < end; index++ {
+				if parser.tokens[index].Nesting != base {
+					continue
+				}
+				if parser.token(index, "=>") {
+					return true
+				}
+				if parser.token(index, "?") || parser.token(index, ",") || parser.token(index, "=") || parser.token(index, "+") {
+					return false
+				}
+			}
+			if close == end-1 || (parser.typescript && parser.simpleTypeAssertionSuffix(close+1, end, base)) {
+				base = parser.tokens[start].Nesting
+				start = parser.skipTrivia(start+1, close)
+				end = close
+				continue
+			}
+			return false
+		}
+		if parser.tokens[start].Kind == TokenIdentifier {
+			next := parser.skipTrivia(start+1, end)
+			return next < end && parser.token(next, "=>") && parser.tokens[next].Nesting == base
+		}
+		if parser.token(start, "<") {
+			// TypeScript and Flow generic arrow parameter lists start with
+			// a type-parameter header, not a nested object/call expression.
+			for index := start + 1; index < end; index++ {
+				if parser.tokens[index].Nesting != base {
+					continue
+				}
+				if parser.token(index, "=>") {
+					return true
+				}
+				if parser.token(index, "?") || parser.token(index, ";") {
+					return false
+				}
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// A narrow, source-proven assertion after a complete grouped expression
+// preserves that expression's arrow kind. Type operators and compound
+// expressions remain conservative rather than borrowing nested arrows.
+func (parser *ecmaParser) simpleTypeAssertionSuffix(start, end, base int) bool {
+	cursor := parser.skipTrivia(start, end)
+	if cursor >= end || parser.tokens[cursor].Nesting != base ||
+		(!parser.token(cursor, "as") && !parser.token(cursor, "satisfies")) {
+		return false
+	}
+	cursor = parser.skipTrivia(cursor+1, end)
+	if cursor >= end || parser.tokens[cursor].Nesting != base || parser.tokens[cursor].Kind != TokenIdentifier {
+		return false
+	}
+	cursor = parser.skipTrivia(cursor+1, end)
+	for cursor < end {
+		if parser.tokens[cursor].Nesting != base || !parser.token(cursor, ".") {
+			return false
+		}
+		cursor = parser.skipTrivia(cursor+1, end)
+		if cursor >= end || parser.tokens[cursor].Nesting != base || parser.tokens[cursor].Kind != TokenIdentifier {
+			return false
+		}
+		cursor = parser.skipTrivia(cursor+1, end)
+	}
+	return true
+}
+
+// parseObjectDestructuring indexes local binding names rather than object
+// property keys. Types and initializer expressions are never declarations.
+// Unsupported nested/computed patterns are reported as partial, not guessed.
+func (parser *ecmaParser) parseObjectDestructuring(declarationStart, keyword, open, terminator, end int, parent *SymbolParent) int {
+	close, paired := parser.pairs[open]
+	if !paired || close <= open || close > terminator {
+		parser.builder.MarkIncomplete()
+		return min(terminator+1, end)
+	}
+	depth := parser.tokens[open].Nesting
+	for index := close + 1; index < terminator; index++ {
+		if parser.token(index, ",") && parser.tokens[index].Nesting == parser.tokens[keyword].Nesting {
+			// Mixed declaration lists after a destructured first binding
+			// need a separate declarator pass. Report that limitation.
+			parser.builder.MarkIncomplete()
+			break
+		}
+	}
+	kind := SymbolKindVariable
+	if parser.token(keyword, "const") {
+		kind = SymbolKindConstant
+	}
+	declarationEnd := parser.tokens[terminator].EndOffset
+	if parser.tokens[terminator].Kind == TokenEOF {
+		declarationEnd = parser.tokens[close].EndOffset
+	}
+	for entry := open + 1; entry < close && !parser.stopped; {
+		entry = parser.skipTrivia(entry, close)
+		if entry >= close {
+			break
+		}
+		segmentEnd := entry
+		for segmentEnd < close {
+			if parser.token(segmentEnd, ",") && parser.tokens[segmentEnd].Nesting == depth {
+				break
+			}
+			segmentEnd++
+		}
+		// A final binding may be followed by line breaks before '}'.
+		// Trim only trivia for recognition; advance using the original
+		// segment end so commas and subsequent bindings are not lost.
+		contentEnd := segmentEnd
+		for contentEnd > entry {
+			kind := parser.tokens[contentEnd-1].Kind
+			if kind != TokenNewline && kind != TokenDirective {
+				break
+			}
+			contentEnd--
+		}
+		nameIndex := -1
+		first := entry
+		if parser.token(first, "...") {
+			first++
+		} else if parser.token(first, ".") && parser.token(first+1, ".") && parser.token(first+2, ".") {
+			first += 3
+		}
+		if first != entry {
+			if first < contentEnd && parser.tokens[first].Kind == TokenIdentifier {
+				nameIndex = first
+			}
+		} else if first < contentEnd && parser.tokens[first].Kind == TokenIdentifier {
+			if first+1 == contentEnd || parser.token(first+1, "=") {
+				nameIndex = first
+			}
+		}
+		if first == entry && nameIndex < 0 && first+2 < contentEnd && parser.token(first+1, ":") {
+			alias := parser.skipTrivia(first+2, contentEnd)
+			if alias < contentEnd && parser.tokens[alias].Kind == TokenIdentifier &&
+				(alias+1 == contentEnd || parser.token(alias+1, "=")) {
+				nameIndex = alias
+			}
+		}
+		if nameIndex < 0 {
+			parser.builder.MarkIncomplete()
+		} else {
+			parser.add(SymbolSpec{
+				Kind: kind, NativeKind: parser.tokens[keyword].Text,
+				Name: parser.tokens[nameIndex].Text, Parent: parent,
+				Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: declarationEnd},
+				NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
+				Visibility:  parser.visibility(declarationStart, keyword),
+				Modifiers:   parser.modifiers(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
+				Disambiguator: tokenRangeText(parser.tokens, entry, contentEnd),
+			})
+		}
+		entry = segmentEnd + 1
+	}
 	return min(terminator+1, end)
 }
 
@@ -408,6 +749,17 @@ func (parser *ecmaParser) addCallable(declarationStart, nameIndex, paren, end in
 		if parser.tokens[index].Kind == TokenNewline && parser.tokens[index].Nesting == base {
 			terminator = index
 			break
+		}
+	}
+	if parser.memberFunctionKeyword && members && bodyOpen < 0 && terminator >= 0 &&
+		parser.tokens[terminator].Kind == TokenNewline {
+		// JScript.NET permits a method's opening brace on the next line.
+		// Only an immediately following brace can extend the header.
+		next := parser.skipTrivia(terminator+1, end)
+		if next < end && next-terminator <= 16 && parser.token(next, "{") &&
+			parser.tokens[next].Nesting == base+1 {
+			bodyOpen = next
+			terminator = -1
 		}
 	}
 	kind := SymbolKindFunction
@@ -572,8 +924,18 @@ func (parser *ecmaParser) parseEnum(declarationStart, keyword, end int, parent *
 }
 
 func (parser *ecmaParser) parseNamespace(declarationStart, keyword, end int, parent *SymbolParent) int {
-	nameIndex := parser.nextIdentifier(keyword+1, end)
-	if nameIndex < 0 {
+	nameIndex := parser.skipTrivia(keyword+1, end)
+	if nameIndex >= end {
+		return keyword + 1
+	}
+	name := parser.tokens[nameIndex].Text
+	if parser.tokens[nameIndex].Kind == TokenString {
+		name = ecmaStringLiteralValue(name)
+		if name == "" {
+			parser.builder.MarkIncomplete()
+			return nameIndex + 1
+		}
+	} else if parser.tokens[nameIndex].Kind != TokenIdentifier {
 		return keyword + 1
 	}
 	open := parser.findBodyOpen(nameIndex+1, end, parser.tokens[keyword].Nesting)
@@ -586,11 +948,12 @@ func (parser *ecmaParser) parseNamespace(declarationStart, keyword, end int, par
 		return end
 	}
 	symbol, added := parser.add(SymbolSpec{
-		Kind: SymbolKindNamespace, NativeKind: parser.tokens[keyword].Text, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Kind: SymbolKindNamespace, NativeKind: parser.tokens[keyword].Text, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[close].EndOffset},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[open].StartOffset},
 		Body:        &OffsetRange{Start: parser.tokens[open].StartOffset, End: parser.tokens[close].EndOffset},
+		Modifiers:   parser.modifiers(declarationStart, keyword),
 		Evidence:    SymbolEvidenceStructural,
 	})
 	if added {
@@ -603,6 +966,16 @@ func (parser *ecmaParser) parseNamespace(declarationStart, keyword, end int, par
 func (parser *ecmaParser) parseMember(declarationStart, semantic, end int, parent *SymbolParent, owner string) (int, bool) {
 	base := parser.tokens[semantic].Nesting
 	nameIndex := semantic
+	if parser.memberFunctionKeyword && parser.token(nameIndex, "var") {
+		// JScript.NET class fields use "var Name: Type". The keyword
+		// cannot be the authored field identity.
+		terminator := parser.statementEnd(semantic, end)
+		nameIndex = parser.nextIdentifier(semantic+1, min(terminator+1, end))
+		if nameIndex < 0 {
+			parser.builder.MarkIncomplete()
+			return min(terminator+1, end), true
+		}
+	}
 	if parser.token(nameIndex, "get") || parser.token(nameIndex, "set") {
 		afterKeyword := parser.skipTrivia(nameIndex+1, end)
 		if afterKeyword < end && parser.tokens[afterKeyword].Text == "(" {
@@ -689,6 +1062,32 @@ func (parser *ecmaParser) memberValueKind() SymbolKind {
 }
 
 func (parser *ecmaParser) collectTypeRelations(source string, start, end, nesting int, interfaceDecl bool) {
+	start = parser.skipTrivia(start, end)
+	if parser.typescript && parser.token(start, "<") {
+		depth := 0
+		closed := false
+		for index := start; index < end; index++ {
+			switch parser.tokens[index].Text {
+			case "<":
+				depth++
+			case ">":
+				depth--
+			case ">>":
+				depth -= 2
+			case ">>>":
+				depth -= 3
+			}
+			if depth <= 0 {
+				start = index + 1
+				closed = true
+				break
+			}
+		}
+		if !closed {
+			parser.builder.MarkIncomplete()
+			return
+		}
+	}
 	for index := start; index < end; index++ {
 		kind := ""
 		switch parser.tokens[index].Text {
@@ -731,11 +1130,27 @@ func splitECMATypeList(tokens []Token, start, end, nesting int) [][2]int {
 }
 
 func (parser *ecmaParser) findBodyOpen(start, end, base int) int {
+	angleDepth := 0
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == "{" && parser.tokens[index].Nesting == base+1 {
+		token := parser.tokens[index]
+		if token.Nesting == base {
+			switch token.Text {
+			case "<":
+				angleDepth++
+			case ">":
+				if angleDepth > 0 {
+					angleDepth--
+				}
+			case ">>", ">>>":
+				if angleDepth > 0 {
+					angleDepth = max(0, angleDepth-len(token.Text))
+				}
+			}
+		}
+		if token.Text == "{" && token.Nesting == base+1 && angleDepth == 0 {
 			return index
 		}
-		if parser.tokens[index].Kind == TokenEOF {
+		if token.Kind == TokenEOF {
 			break
 		}
 	}

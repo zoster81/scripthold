@@ -100,9 +100,13 @@ func (parser *rustParser) parseScope(start, end int, parent *SymbolParent, mode 
 		if index >= end || parser.tokens[index].Kind == TokenEOF {
 			return
 		}
-		if next, ok := parser.skipMacro(index, end); ok {
-			index = next
-			continue
+		// A macro invocation remains opaque, but an authored macro_rules!
+		// definition is a navigable source declaration.
+		if !parser.token(index, "macro_rules") {
+			if next, ok := parser.skipMacro(index, end); ok {
+				index = next
+				continue
+			}
 		}
 		declarationStart := index
 		index = parser.skipAttributes(index, end)
@@ -124,6 +128,8 @@ func (parser *rustParser) parseScope(start, end int, parent *SymbolParent, mode 
 			index = parser.parseUse(semantic, end)
 		case "struct":
 			index = parser.parseStruct(declarationStart, semantic, end, parent)
+		case "union":
+			index = parser.parseUnion(declarationStart, semantic, end, parent)
 		case "enum":
 			index = parser.parseEnum(declarationStart, semantic, end, parent)
 		case "trait":
@@ -136,6 +142,8 @@ func (parser *rustParser) parseScope(start, end int, parent *SymbolParent, mode 
 			index = parser.parseValue(declarationStart, semantic, end, parent)
 		case "type":
 			index = parser.parseTypeAlias(declarationStart, semantic, end, parent)
+		case "macro_rules":
+			index = parser.parseMacroRulesDefinition(declarationStart, semantic, end, parent)
 		default:
 			index = parser.skipUnknown(index, end)
 		}
@@ -253,6 +261,58 @@ func (parser *rustParser) skipMacro(start, end int) (int, bool) {
 	return next, true
 }
 
+// parseMacroRulesDefinition indexes only the authored macro name and its exact
+// source block; no token inside the macro body is interpreted as a declaration.
+func (parser *rustParser) parseMacroRulesDefinition(declarationStart, keyword, end int, parent *SymbolParent) int {
+	unsupported := func() {
+		span := OffsetRange{Start: parser.tokens[keyword].StartOffset, End: parser.tokens[keyword].EndOffset}
+		_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "rust-unsupported-macro-rules",
+			Message:  "Unsupported or malformed macro_rules definition requires direct source inspection",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+	bang := parser.skipTrivia(keyword+1, end)
+	if !parser.token(bang, "!") {
+		unsupported()
+		return parser.skipUnknown(keyword, end)
+	}
+	name := parser.skipTrivia(bang+1, end)
+	if name >= end || parser.tokens[name].Kind != TokenIdentifier {
+		unsupported()
+		if next, ok := parser.skipMacro(keyword, end); ok {
+			return next
+		}
+		return parser.skipUnknown(keyword, end)
+	}
+	open := parser.skipTrivia(name+1, end)
+	if open >= end || (parser.tokens[open].Text != "{" &&
+		parser.tokens[open].Text != "(" && parser.tokens[open].Text != "[") {
+		unsupported()
+		return parser.skipUnknown(keyword, end)
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		unsupported()
+		return end
+	}
+	last := close
+	if parser.token(close+1, ";") {
+		last++
+	}
+	header := OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[open].StartOffset}
+	body := OffsetRange{Start: parser.tokens[open].StartOffset, End: parser.tokens[close].EndOffset}
+	parser.add(SymbolSpec{
+		Kind: SymbolKindEntity, NativeKind: "macro_rules",
+		Name: parser.tokens[name].Text, Parent: parent,
+		Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[last].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+		Signature:   &header, Body: &body,
+		Visibility: parser.visibility(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
+	})
+	return last + 1
+}
+
 func (parser *rustParser) parseModule(declarationStart, keyword, end int, parent *SymbolParent) int {
 	nameIndex := parser.nextIdentifier(keyword+1, end)
 	if nameIndex < 0 {
@@ -364,6 +424,69 @@ func (parser *rustParser) parseStruct(declarationStart, keyword, end int, parent
 	return close + 1
 }
 
+// parseUnion indexes only authored named Rust union fields. It does not inspect
+// macro expansions, evaluate cfg attributes, or resolve the member types.
+func (parser *rustParser) parseUnion(declarationStart, keyword, end int, parent *SymbolParent) int {
+	incomplete := func() {
+		span := OffsetRange{Start: parser.tokens[keyword].StartOffset, End: parser.tokens[keyword].EndOffset}
+		_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "rust-unsupported-union",
+			Message:  "Malformed or unsupported Rust union declaration requires direct source inspection",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+	name := parser.skipTrivia(keyword+1, end)
+	if name >= end || parser.tokens[name].Kind != TokenIdentifier {
+		incomplete()
+		return parser.skipUnknown(keyword, end)
+	}
+	base := parser.tokens[keyword].Nesting
+	for index := name + 1; index < end && index < name+512; index++ {
+		if parser.tokens[index].StartOffset-parser.tokens[keyword].StartOffset > 16*1024 {
+			incomplete()
+			return parser.skipUnknown(keyword, end)
+		}
+		if parser.tokens[index].Nesting == base {
+			if parser.token(index, ";") {
+				incomplete()
+				return index + 1
+			}
+			switch parser.tokens[index].Text {
+			case "fn", "struct", "enum", "union", "impl", "trait", "mod", "const", "static", "type":
+				incomplete()
+				return index
+			}
+		}
+		if !parser.token(index, "{") || parser.tokens[index].Nesting != base+1 {
+			continue
+		}
+		close := parser.pairs[index]
+		if close <= index || close >= end {
+			incomplete()
+			return end
+		}
+		if close-index > 4096 || parser.tokens[close].EndOffset-parser.tokens[index].StartOffset > 64*1024 {
+			incomplete()
+			return close + 1
+		}
+		symbol, added := parser.add(SymbolSpec{
+			Kind: SymbolKindType, NativeKind: "union", Name: parser.tokens[name].Text, Parent: parent,
+			Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[close].EndOffset},
+			NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+			Signature:   &OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[index].StartOffset},
+			Body:        &OffsetRange{Start: parser.tokens[index].StartOffset, End: parser.tokens[close].EndOffset},
+			Visibility:  parser.visibility(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
+		})
+		if added {
+			unionParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+			parser.parseScope(index+1, close, unionParent, rustScopeStruct)
+		}
+		return close + 1
+	}
+	incomplete()
+	return parser.skipUnknown(keyword, end)
+}
+
 func (parser *rustParser) parseStructField(declarationStart, semantic, end int, parent *SymbolParent) (int, bool) {
 	nameIndex := semantic
 	if parser.tokens[nameIndex].Kind != TokenIdentifier {
@@ -406,7 +529,7 @@ func (parser *rustParser) parseEnum(declarationStart, keyword, end int, parent *
 		parser.builder.MarkIncomplete()
 		return end
 	}
-	parser.add(SymbolSpec{
+	symbol, added := parser.add(SymbolSpec{
 		Kind: SymbolKindEnum, NativeKind: "enum", Name: parser.tokens[nameIndex].Text, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[close].EndOffset},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
@@ -414,7 +537,106 @@ func (parser *rustParser) parseEnum(declarationStart, keyword, end int, parent *
 		Body:        &OffsetRange{Start: parser.tokens[open].StartOffset, End: parser.tokens[close].EndOffset},
 		Visibility:  parser.visibility(declarationStart, keyword), Evidence: SymbolEvidenceStructural,
 	})
+	if added {
+		enumParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+		parser.parseEnumVariants(open, close, enumParent)
+	}
 	return close + 1
+}
+
+// parseEnumVariants indexes only directly authored lexical variants. It validates
+// the complete bounded list before adding any member, so malformed entries do
+// not fabricate an apparently authoritative partial list.
+func (parser *rustParser) parseEnumVariants(open, close int, parent *SymbolParent) {
+	incomplete := func(index int) {
+		if index < open || index >= close {
+			index = open
+		}
+		span := OffsetRange{Start: parser.tokens[index].StartOffset, End: parser.tokens[index].EndOffset}
+		_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+			Code:     "rust-unsupported-enum-variants",
+			Message:  "Malformed, oversized, or unsupported Rust enum entries require direct source inspection",
+			Severity: DiagnosticWarning, Range: &span, AffectsCoverage: true,
+		})
+	}
+	if close-open > 4096 || parser.tokens[close].EndOffset-parser.tokens[open].StartOffset > 16*1024 {
+		incomplete(open)
+		return
+	}
+	type entry struct {
+		start, name, last int
+		variantBody       *OffsetRange
+	}
+	entries := make([]entry, 0, 16)
+	seen := make(map[string]struct{})
+	base := parser.tokens[open].Nesting
+	segmentStart := open + 1
+	for i := open + 1; i <= close; i++ {
+		if i < close && (!parser.token(i, ",") || parser.tokens[i].Nesting != base) {
+			continue
+		}
+		start := parser.skipTrivia(segmentStart, i)
+		if start >= i {
+			if i == close { // trailing comma, blank lines, or empty enum
+				break
+			}
+			incomplete(segmentStart)
+			return
+		}
+		if len(entries) >= 128 {
+			incomplete(start)
+			return
+		}
+		last := parser.previousCode(i-1, start)
+		if last < start {
+			incomplete(start)
+			return
+		}
+		name := parser.skipAttributes(start, last+1)
+		name = parser.skipTrivia(name, last+1)
+		if name > last || parser.tokens[name].Kind != TokenIdentifier {
+			incomplete(start)
+			return
+		}
+		if _, exists := seen[parser.tokens[name].Text]; exists {
+			incomplete(name)
+			return
+		}
+		next := parser.skipTrivia(name+1, last+1)
+		var body *OffsetRange
+		if next <= last {
+			switch parser.tokens[next].Text {
+			case "(", "{":
+				end := parser.pairs[next]
+				if end != last {
+					incomplete(next)
+					return
+				}
+				body = &OffsetRange{Start: parser.tokens[next].StartOffset, End: parser.tokens[end].EndOffset}
+			case "=":
+				value := parser.skipTrivia(next+1, last+1)
+				if value != last || parser.tokens[value].Kind != TokenNumber {
+					incomplete(next)
+					return
+				}
+			default:
+				incomplete(next)
+				return
+			}
+		}
+		seen[parser.tokens[name].Text] = struct{}{}
+		entries = append(entries, entry{start: start, name: name, last: last, variantBody: body})
+		segmentStart = i + 1
+	}
+	for _, e := range entries {
+		signature := OffsetRange{Start: parser.tokens[e.start].StartOffset, End: parser.tokens[e.last].EndOffset}
+		parser.add(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-variant", Name: parser.tokens[e.name].Text, Parent: parent,
+			Declaration: signature,
+			NameRange:   OffsetRange{Start: parser.tokens[e.name].StartOffset, End: parser.tokens[e.name].EndOffset},
+			Signature:   &signature, Body: e.variantBody, Evidence: SymbolEvidenceStructural,
+		})
+	}
 }
 
 func (parser *rustParser) parseTrait(declarationStart, keyword, end int, parent *SymbolParent) int {

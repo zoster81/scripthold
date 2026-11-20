@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -109,5 +110,125 @@ func TestSourceSymbolsRoutesDistinctFormatsAndExplicitDialects(t *testing.T) {
 		if !found {
 			t.Fatalf("explicit %s missing %s; symbols=%+v", tc.language, tc.want, result.Symbols)
 		}
+	}
+}
+
+// A DIM SHARED statement after a TYPE block still declares every variable.
+func TestSourceSymbolsQBasicDimSharedAfterTypeAndSegmentDirective(t *testing.T) {
+	for _, tc := range []struct{ name, eol string }{{"lf", "\n"}, {"crlf", "\r\n"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := canonicalHandlerTestDir(t)
+			path := filepath.Join(root, "program.bas")
+			source := "TYPE Player\n  x AS INTEGER\nEND TYPE\nDIM SHARED mapwidth, mapheight, numscripts AS INTEGER\nDEF SEG = VARSEG(mapwidth)\nDEF SEG\nSUB MovePlayer\nEND SUB\n"
+			source = strings.ReplaceAll(source, "\n", tc.eol)
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{root})
+			toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "qbasic", Encoding: "utf-8", MaxSymbols: 32,
+			})
+			if err != nil || toolErr != nil {
+				t.Fatalf("handler err=%v toolErr=%+v", err, toolErr)
+			}
+			if !result.CoverageComplete || result.FilesParsed != 1 || len(result.Symbols) != 6 {
+				t.Fatalf("unexpected coverage/symbols: %+v", result)
+			}
+			want := map[string]struct {
+				kind string
+				line int
+			}{
+				"Player": {"type", 1}, "Player.x": {"field", 2},
+				"mapwidth": {"variable", 4}, "mapheight": {"variable", 4}, "numscripts": {"variable", 4},
+				"MovePlayer": {"function", 7},
+			}
+			for _, symbol := range result.Symbols {
+				v, ok := want[symbol.QualifiedName]
+				if !ok || string(symbol.Kind) != v.kind || symbol.DeclarationRange.Start.Line != v.line {
+					t.Fatalf("unexpected symbol: %+v", symbol)
+				}
+				delete(want, symbol.QualifiedName)
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing symbols: %+v", want)
+			}
+		})
+	}
+}
+
+// Type-first DIM from real QB64 sources must not create an "AS" declaration.
+func TestSourceSymbolsBasicTypeFirstDimAfterType(t *testing.T) {
+	for _, language := range []string{"qbasic", "classic-basic", "freebasic"} {
+		t.Run(language, func(t *testing.T) {
+			root := canonicalHandlerTestDir(t)
+			path := filepath.Join(root, "types.bas")
+			source := "TYPE Vector\n  x AS SINGLE\nEND TYPE\nDIM AS LONG g1, g2\nDIM AS _UNSIGNED LONG index, totalParticles\nSUB Run\n  DIM AS SINGLE dx, dy\nEND SUB\n"
+			if language == "freebasic" {
+				source = strings.ReplaceAll(source, "AS _UNSIGNED LONG", "AS LONG")
+			}
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler([]string{root})
+			toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: language, Encoding: "utf-8", MaxSymbols: 32,
+			})
+			if err != nil || toolErr != nil {
+				t.Fatalf("handler: %v %+v", err, toolErr)
+			}
+			if !result.CoverageComplete || result.FilesParsed != 1 || result.FilesSkipped != 0 {
+				t.Fatalf("incomplete: %+v", result)
+			}
+			names := map[string]struct {
+				kind string
+				line int
+			}{
+				"Vector": {"type", 1}, "Vector.x": {"field", 2},
+				"g1": {"variable", 4}, "g2": {"variable", 4},
+				"index": {"variable", 5}, "totalParticles": {"variable", 5},
+				"Run": {"function", 6}, "Run.dx": {"variable", 7}, "Run.dy": {"variable", 7},
+			}
+			if len(result.Symbols) != len(names) {
+				t.Fatalf("symbols=%+v", result.Symbols)
+			}
+			for _, symbol := range result.Symbols {
+				expected, ok := names[symbol.QualifiedName]
+				if !ok || string(symbol.Kind) != expected.kind || symbol.DeclarationRange.Start.Line != expected.line {
+					t.Fatalf("unexpected symbol: %+v", symbol)
+				}
+				delete(names, symbol.QualifiedName)
+			}
+			if len(names) != 0 {
+				t.Fatalf("missing: %v", names)
+			}
+		})
+	}
+}
+
+func TestSourceSymbolsBasicDefSegOriginalFormIsNotAFunction(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "segment.bas")
+	original := "DIM mz%(50, 50)\nDEF SEG = VARSEG(mz%(0, 0))\nDEF SEG\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	for _, language := range []string{"qbasic", "classic-basic", "freebasic", "vb6", "vba", "vbscript", "purebasic"} {
+		t.Run(language, func(t *testing.T) {
+			toolErr, result, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
+				Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: language, Encoding: "utf-8", MaxSymbols: 32,
+			})
+			if err != nil || toolErr != nil {
+				t.Fatalf("outline err=%v toolErr=%+v", err, toolErr)
+			}
+			if !result.CoverageComplete || result.FilesParsed != 1 || result.FilesSkipped != 0 {
+				t.Fatalf("unexpected coverage: %+v", result)
+			}
+			for _, symbol := range result.Symbols {
+				if symbol.Kind == "function" || symbol.Name == "SEG" {
+					t.Fatalf("DEF SEG invented a function: %+v", symbol)
+				}
+			}
+		})
 	}
 }

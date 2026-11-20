@@ -32,6 +32,9 @@ func TestVBDeclarationKeywordCanonicalizationPreservesFallback(t *testing.T) {
 		{name: "mixed-case declaration after modifier", tokens: []Token{{Text: "PuBlIc"}, {Text: "FuNcTiOn"}}, wantIndex: 1, wantKeyword: "function"},
 		{name: "mixed-case end", tokens: []Token{{Text: "eNd"}, {Text: "sUb"}}, wantIndex: 0, wantKeyword: "end"},
 		{name: "unknown token fallback", tokens: []Token{{Text: "CustomName"}}, wantIndex: 0, wantKeyword: "customname"},
+		{name: "leading attribute and continuation", tokens: []Token{{Text: "<"}, {Text: "Obsolete"}, {Text: ">"}, {Text: "_"}, {Text: "Public"}, {Text: "Class"}}, wantIndex: 5, wantKeyword: "class"},
+		{name: "multiple leading attributes", tokens: []Token{{Text: "<"}, {Text: "A"}, {Text: ">"}, {Text: "_"}, {Text: "<"}, {Text: "B"}, {Text: ">"}, {Text: "_"}, {Text: "Public"}, {Text: "Function"}}, wantIndex: 9, wantKeyword: "function"},
+		{name: "unterminated attribute does not invent a declaration", tokens: []Token{{Text: "<"}, {Text: "BadAttribute"}, {Text: "Class"}, {Text: "Ghost"}}, wantIndex: 0, wantKeyword: "<"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -310,5 +313,43 @@ func TestVBNetAnalyzerIgnoresMethodLocalsAndRecoversMissingEnd(t *testing.T) {
 	}
 	if _, exists := byName["Broken.Work.local"]; exists {
 		t.Fatalf("method local became field: %v", sortedSymbolQualifiedNames(result.Analysis.Symbols))
+	}
+}
+
+func TestVBNetAnalyzerAttributeContinuationPreservesOwnedDeclarations(t *testing.T) {
+	text := `<System.ComponentModel.TypeConverter(GetType(System.ComponentModel.ExpandableObjectConverter))> _
+Public Class Decorated
+    <System.Obsolete("legacy")> _
+    Public Function Execute() As Boolean
+        Return True
+    End Function
+End Class
+`
+	document := sourceDocumentForScanner(text)
+	document.Path = "attributes.vb"
+	result, err := (VBNetAnalyzer{}).Analyze(context.Background(), document, AnalyzeOptions{
+		IncludeSignatures: true,
+		Limits:            SymbolBuilderLimits{MaxSymbols: 32, MaxSignatureBytes: 2048, MaxDiagnostics: 16},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Analysis.CoverageComplete || result.Analysis.Truncated {
+		t.Fatalf("attribute continuation lowered coverage: %+v", result.Analysis)
+	}
+	symbols := symbolsByQualifiedName(result.Analysis.Symbols)
+	for _, want := range []struct {
+		name string
+		kind SymbolKind
+		line int
+	}{
+		{"Decorated", SymbolKindClass, 2},
+		{"Decorated.Execute", SymbolKindMethod, 4},
+	} {
+		symbol, ok := symbols[want.name]
+		if !ok || symbol.Kind != want.kind || symbol.NameRange.Start.Line != want.line {
+			t.Fatalf("%s not indexed at expected declaration: got=%+v exists=%v all=%v",
+				want.name, symbol, ok, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
 	}
 }

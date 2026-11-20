@@ -36,10 +36,16 @@ var kotlinModifiers = map[string]struct{}{
 	"abstract": {}, "actual": {}, "annotation": {}, "companion": {}, "const": {}, "crossinline": {}, "data": {}, "enum": {},
 	"expect": {}, "external": {}, "final": {}, "infix": {}, "inline": {}, "inner": {}, "internal": {}, "lateinit": {},
 	"noinline": {}, "open": {}, "operator": {}, "out": {}, "override": {}, "private": {}, "protected": {}, "public": {},
-	"reified": {}, "sealed": {}, "suspend": {}, "tailrec": {}, "vararg": {},
+	"reified": {}, "sealed": {}, "suspend": {}, "tailrec": {}, "value": {}, "vararg": {},
 }
 
 func analyzeJVMFamily(ctx context.Context, document *SourceDocument, options AnalyzeOptions, kotlin bool) (AnalyzerResult, error) {
+	return analyzeJVMFamilyScope(ctx, document, options, kotlin, false)
+}
+
+// analyzeJVMFamilyScope also permits JSP declaration fragments to reuse the
+// Java member grammar without changing Java/Kotlin compilation-unit behavior.
+func analyzeJVMFamilyScope(ctx context.Context, document *SourceDocument, options AnalyzeOptions, kotlin, members bool) (AnalyzerResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -82,7 +88,7 @@ func analyzeJVMFamily(ctx context.Context, document *SourceDocument, options Ana
 	parser := &jvmParser{
 		ctx: ctx, document: document, tokens: scan.Tokens, pairs: PairDelimiterTokens(scan.Tokens, nil), builder: builder, kotlin: kotlin,
 	}
-	parser.parseScope(0, len(scan.Tokens), nil, false, "")
+	parser.parseScope(0, len(scan.Tokens), nil, members, "")
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_jvm_source", document.Path, err)
 	}
@@ -104,6 +110,10 @@ type jvmParser struct {
 
 func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, members bool, owner string) {
 	currentParent := parent
+	memberDepth := -1
+	if parser.kotlin && members && start > 0 {
+		memberDepth = parser.tokens[start-1].Nesting
+	}
 	for index := start; index < end && !parser.stopped; {
 		if parser.ctx.Err() != nil {
 			return
@@ -112,10 +122,31 @@ func (parser *jvmParser) parseScope(start, end int, parent *SymbolParent, member
 		if index >= end || parser.tokens[index].Kind == TokenEOF {
 			return
 		}
+		if memberDepth >= 0 && parser.tokens[index].Nesting > memberDepth {
+			index++
+			continue
+		}
 		if parser.token(index, "@") {
 			if parser.kotlin {
 				if next := parser.skipKotlinAnnotations(index, end); next > index {
-					index = next
+					candidate := nextStructuralToken(parser.tokens, next, end)
+					if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting &&
+						parser.kotlinAnnotatedPropertyAt(candidate, end) {
+						index = parser.parseKotlinProperty(index, end, currentParent)
+					} else if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting &&
+						parser.kotlinAnnotatedFunctionAt(candidate, end) {
+						index = parser.parseKotlinFunction(index, end, currentParent, members)
+					} else if candidate < end && parser.tokens[candidate].Nesting == parser.tokens[index].Nesting {
+						if keyword, _, nativeKind, ok := parser.typeDeclarationAt(candidate, end); ok &&
+							keyword-candidate < 12 {
+							// Keep a validated type's annotations in the existing class excerpt.
+							index = parser.parseType(index, keyword, nativeKind, end, currentParent)
+						} else {
+							index = next
+						}
+					} else {
+						index = next
+					}
 					continue
 				}
 			} else if !members {
@@ -185,6 +216,27 @@ func (parser *jvmParser) parsePackage(start, end int) (int, *SymbolParent) {
 	}
 	first := nextIdentifierToken(parser.tokens, start+1, valueEnd)
 	last := previousIdentifierToken(parser.tokens, valueEnd-1, start+1)
+	if parser.kotlin {
+		// Kotlin's soft "internal" modifier is also valid as a package segment.
+		// Validate each separator rather than truncating a partially parsed name.
+		first, last = start+1, valueEnd-1
+		expectSegment := true
+		valid := first <= last
+		for index := first; index <= last && valid; index++ {
+			token := parser.tokens[index]
+			if expectSegment {
+				valid = token.Kind == TokenIdentifier ||
+					(token.Kind == TokenKeyword && token.Text == "internal")
+			} else {
+				valid = token.Text == "."
+			}
+			expectSegment = !expectSegment
+		}
+		if !valid || expectSegment {
+			parser.builder.MarkIncomplete()
+			return terminator + 1, nil
+		}
+	}
 	if first < 0 || last < first {
 		return terminator + 1, nil
 	}
@@ -286,10 +338,23 @@ func (parser *jvmParser) typeDeclarationAt(start, end int) (keyword, declaration
 				return 0, start, "", false
 			}
 		}
-		if text == "class" || text == "interface" || (!parser.kotlin && (text == "enum" || text == "record")) {
+		implicitCompanion := parser.kotlin && text == "object" && containsLower(prefixes, "companion") &&
+			cursor+1 < end && parser.token(cursor+1, "{") &&
+			parser.tokens[cursor+1].Nesting == parser.tokens[cursor].Nesting+1
+		if text == "class" || text == "interface" ||
+			(parser.kotlin && text == "object" && cursor+1 < end &&
+				(parser.tokens[cursor+1].Kind == TokenIdentifier || implicitCompanion)) ||
+			(!parser.kotlin && (text == "enum" || text == "record")) {
 			nativeKind = text
+			if implicitCompanion {
+				nativeKind = "companion-object"
+			}
 			if parser.kotlin && text == "class" {
-				if containsLower(prefixes, "data") {
+				if containsLower(prefixes, "annotation") {
+					nativeKind = "annotation-class"
+				} else if containsLower(prefixes, "value") {
+					nativeKind = "value-class"
+				} else if containsLower(prefixes, "data") {
 					nativeKind = "data-class"
 				} else if containsLower(prefixes, "sealed") {
 					nativeKind = "sealed-class"
@@ -311,21 +376,70 @@ func containsLower(values []string, value string) bool {
 	return false
 }
 
+// kotlinTypeHeaderContinues recognizes a narrowly bounded primary-constructor
+// header continuation instead of attaching unrelated declarations after a class.
+func (parser *jvmParser) kotlinTypeHeaderContinues(nameIndex, newline, end, depth int, continued bool) bool {
+	next := nextStructuralToken(parser.tokens, newline+1, end)
+	if next >= end {
+		return false
+	}
+	source := parser.document.Text
+	startOffset := parser.tokens[nameIndex].EndOffset
+	stopOffset := parser.tokens[next].StartOffset
+	if stopOffset < startOffset || stopOffset-startOffset > 4096 ||
+		strings.Count(source[startOffset:stopOffset], "\n") > 8 {
+		return false
+	}
+	if continued && parser.token(next, "{") && parser.tokens[next].Nesting == depth+1 {
+		return true
+	}
+	if parser.tokens[next].Nesting != depth {
+		return false
+	}
+	if parser.token(next, ":") || (continued && parser.token(next, "where")) {
+		return true
+	}
+	cursor := next
+	if parser.token(cursor, "@") {
+		cursor = parser.skipKotlinAnnotations(cursor, end)
+	}
+	for count := 0; count < 4 && cursor < end; count++ {
+		if _, modifier := kotlinModifiers[strings.ToLower(parser.tokens[cursor].Text)]; !modifier {
+			break
+		}
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	return parser.token(cursor, "constructor") &&
+		parser.token(nextStructuralToken(parser.tokens, cursor+1, end), "(")
+}
+
 func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end int, parent *SymbolParent) int {
 	depth := parser.tokens[keyword].Nesting
-	nameIndex := nextIdentifierToken(parser.tokens, keyword+1, end)
-	if nameIndex < 0 {
-		parser.builder.MarkIncomplete()
-		return keyword + 1
+	implicitCompanion := parser.kotlin && nativeKind == "companion-object"
+	nameIndex := keyword
+	name := "Companion" // Kotlin's implicit name, anchored to the authored object keyword.
+	if !implicitCompanion {
+		nameIndex = nextIdentifierToken(parser.tokens, keyword+1, end)
+		if nameIndex < 0 {
+			parser.builder.MarkIncomplete()
+			return keyword + 1
+		}
+		name = parser.tokens[nameIndex].Text
 	}
 	open := -1
 	lineEnd := -1
+	continuedHeader := false
 	for index := nameIndex + 1; index < end; index++ {
 		if parser.tokens[index].Text == "{" && parser.tokens[index].Nesting == depth+1 {
 			open = index
 			break
 		}
 		if parser.kotlin && (parser.tokens[index].Kind == TokenNewline || parser.tokens[index].Kind == TokenEOF) && parser.tokens[index].Nesting == depth {
+			if parser.tokens[index].Kind == TokenNewline &&
+				parser.kotlinTypeHeaderContinues(nameIndex, index, end, depth, continuedHeader) {
+				continuedHeader = true
+				continue
+			}
 			lineEnd = index
 			break
 		}
@@ -373,7 +487,7 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 		}
 	}
 	symbol, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: signatureEnd}, Body: body,
@@ -388,10 +502,71 @@ func (parser *jvmParser) parseType(start, keyword int, nativeKind string, end in
 	} else {
 		parser.collectJavaTypeRelations(symbol.QualifiedName, nameIndex+1, chooseHeaderEnd(open, terminator), depth)
 	}
-	if open >= 0 && kind != SymbolKindEnum {
-		parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+	if open >= 0 {
+		if parser.kotlin && kind == SymbolKindEnum {
+			parser.parseKotlinEnumEntries(open, close, typeParent, symbol.Name)
+		} else if kind != SymbolKindEnum {
+			parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+		}
 	}
 	return terminator + 1
+}
+
+// parseKotlinEnumEntries indexes direct enum names and balanced constructor
+// calls. Annotated entries and per-entry class bodies remain unsupported.
+// A semicolon starts the ordinary enum member scope.
+func (parser *jvmParser) parseKotlinEnumEntries(open, close int, parent *SymbolParent, owner string) {
+	depth := parser.tokens[open].Nesting
+	for index := nextStructuralToken(parser.tokens, open+1, close); index < close; {
+		if parser.ctx.Err() != nil || parser.stopped {
+			return
+		}
+		if parser.tokens[index].Nesting != depth {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		if parser.token(index, ";") {
+			parser.parseScope(index+1, close, parent, true, owner)
+			return
+		}
+		if parser.tokens[index].Kind != TokenIdentifier {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		after := nextStructuralToken(parser.tokens, index+1, close)
+		name := parser.tokens[index]
+		entryEnd := name.EndOffset
+		if after < close && parser.token(after, "(") {
+			argsClose := parser.pairs[after]
+			if parser.tokens[after].Nesting != depth+1 || argsClose <= after ||
+				argsClose >= close || !parser.token(argsClose, ")") ||
+				parser.tokens[argsClose].Nesting != depth {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			entryEnd = parser.tokens[argsClose].EndOffset
+			after = nextStructuralToken(parser.tokens, argsClose+1, close)
+		}
+		if after < close && (parser.tokens[after].Nesting != depth ||
+			(!parser.token(after, ",") && !parser.token(after, ";"))) {
+			parser.builder.MarkIncomplete()
+			return
+		}
+		parser.add(SymbolSpec{
+			Kind: SymbolKindConstant, NativeKind: "enum-value", Name: name.Text, Parent: parent,
+			Declaration: OffsetRange{Start: name.StartOffset, End: entryEnd},
+			NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			Evidence:    SymbolEvidenceStructural,
+		})
+		if after >= close {
+			return
+		}
+		if parser.token(after, ";") {
+			parser.parseScope(after+1, close, parent, true, owner)
+			return
+		}
+		index = nextStructuralToken(parser.tokens, after+1, close)
+	}
 }
 
 func chooseHeaderEnd(open, terminator int) int {
@@ -558,9 +733,14 @@ func (parser *jvmParser) addKotlinPrimaryProperties(parent *SymbolParent, start,
 		if nameIndex < 0 {
 			continue
 		}
+		declarationStart := marker
+		if annotation := nextStructuralToken(parser.tokens, part[0], marker); annotation < marker &&
+			parser.token(annotation, "@") && parser.skipKotlinAnnotations(annotation, part[1]) == marker {
+			declarationStart = annotation
+		}
 		parser.add(SymbolSpec{
 			Kind: SymbolKindProperty, NativeKind: parser.tokens[marker].Text + "-parameter", Name: parser.tokens[nameIndex].Text, Parent: parent,
-			Declaration: OffsetRange{Start: parser.tokens[marker].StartOffset, End: parser.tokens[part[1]-1].EndOffset},
+			Declaration: OffsetRange{Start: parser.tokens[declarationStart].StartOffset, End: parser.tokens[part[1]-1].EndOffset},
 			NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset}, Evidence: SymbolEvidenceStructural,
 		})
 	}
@@ -827,6 +1007,16 @@ func (parser *jvmParser) parseKotlinFunction(start, end int, parent *SymbolParen
 			signatureEnd = declarationEnd
 		}
 		next = terminator + 1
+		if parser.token(previous, "=") && strings.TrimSpace(parser.document.Text[parser.tokens[previous].EndOffset:parser.tokens[terminator].StartOffset]) == "" {
+			if expression, after, ok := parser.kotlinWrappedExpressionLine(start, terminator, end, depth); ok {
+				declarationEnd = expression.End
+				body = &expression
+				next = after
+			} else {
+				// A wrapped expression we cannot bound safely needs direct inspection.
+				parser.builder.MarkIncomplete()
+			}
+		}
 	}
 	kind := SymbolKindFunction
 	if members {
@@ -844,6 +1034,293 @@ func (parser *jvmParser) parseKotlinFunction(start, end int, parent *SymbolParen
 	return next
 }
 
+// A trailing '=' can introduce a complete, single-physical-line Kotlin
+// expression on the next indented line. Do not promote an unrelated peer or
+// claim to parse a multi-line expression, chained call, or flow semantics.
+func (parser *jvmParser) kotlinWrappedExpressionLine(start, newline, end, depth int) (OffsetRange, int, bool) {
+	first := nextStructuralToken(parser.tokens, newline+1, end)
+	if first >= end || parser.tokens[first].Kind == TokenEOF {
+		return OffsetRange{}, 0, false
+	}
+	text := parser.document.Text
+	if kotlinSourceIndent(text, parser.tokens[first].StartOffset) <= kotlinSourceIndent(text, parser.tokens[start].StartOffset) {
+		return OffsetRange{}, 0, false
+	}
+	lineEnd := len(text)
+	if at := strings.IndexByte(text[parser.tokens[first].StartOffset:], '\n'); at >= 0 {
+		lineEnd = parser.tokens[first].StartOffset + at
+	}
+	for index := first; index < end && parser.tokens[index].StartOffset <= lineEnd; index++ {
+		if parser.tokens[index].Kind != TokenNewline {
+			continue
+		}
+		if parser.tokens[index].Nesting != depth {
+			return OffsetRange{}, 0, false
+		}
+		last := previousStructuralToken(parser.tokens, index-1, first)
+		if last < first {
+			return OffsetRange{}, 0, false
+		}
+		switch parser.tokens[last].Text {
+		case "=", ".", ",", "+", "-", "?", ":", "&&", "||", "?:", "->":
+			return OffsetRange{}, 0, false
+		}
+		return OffsetRange{Start: parser.tokens[first].StartOffset, End: parser.tokens[last].EndOffset}, index + 1, true
+	}
+	return OffsetRange{}, 0, false
+}
+
+// kotlinSourceIndent reads only the leading whitespace of the token's physical line.
+func kotlinSourceIndent(source string, offset int) int {
+	lineStart := strings.LastIndexByte(source[:offset], '\n') + 1
+	indent := 0
+	for lineStart+indent < offset && (source[lineStart+indent] == ' ' || source[lineStart+indent] == '\t') {
+		indent++
+	}
+	return indent
+}
+
+// kotlinMultilineGetterExpression accepts only a bounded next-line expression:
+// a chain with explicit continuation prefixes or a balanced if/when block.
+// Raw-line limits prevent scanning an unrelated tail of an oversized source.
+func (parser *jvmParser) kotlinMultilineGetterExpression(getter, equals, newline, end int) (int, int, bool) {
+	source := parser.document.Text
+	if strings.TrimSpace(source[parser.tokens[equals].EndOffset:parser.tokens[newline].StartOffset]) != "" {
+		return 0, 0, false
+	}
+	getterIndent := kotlinSourceIndent(source, parser.tokens[getter].StartOffset)
+	lineStart := parser.tokens[newline].EndOffset
+	firstLine, lastLineEnd := -1, -1
+	control := false
+	previousContinuation := false
+	bounded := false
+	for lines := 0; lineStart < len(source) && lines < 96; lines++ {
+		lineEnd := len(source)
+		if at := strings.IndexByte(source[lineStart:], '\n'); at >= 0 {
+			lineEnd = lineStart + at
+		}
+		line := source[lineStart:lineEnd]
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			indent := len(line) - len(strings.TrimLeft(line, " \t"))
+			if indent <= getterIndent {
+				bounded = true
+				break
+			}
+			if lineEnd-parser.tokens[equals].EndOffset > 16384 ||
+				strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "val ") ||
+				strings.HasPrefix(trimmed, "var ") || strings.HasPrefix(trimmed, "class ") ||
+				strings.HasPrefix(trimmed, "get(") || strings.HasPrefix(trimmed, "set(") {
+				return 0, 0, false
+			}
+			if firstLine < 0 {
+				firstLine = lineStart + indent
+				control = strings.HasPrefix(trimmed, "if ") || strings.HasPrefix(trimmed, "if(") ||
+					strings.HasPrefix(trimmed, "when ") || strings.HasPrefix(trimmed, "when(")
+			} else if !control && !previousContinuation &&
+				!strings.HasPrefix(trimmed, ".") && !strings.HasPrefix(trimmed, "?:") &&
+				!strings.HasPrefix(trimmed, "!!") && !strings.HasPrefix(trimmed, "::") &&
+				!strings.HasPrefix(trimmed, "&&") && !strings.HasPrefix(trimmed, "||") {
+				return 0, 0, false
+			}
+			previousContinuation = false
+			for _, suffix := range []string{".", ",", "+", "-", "?:", "&&", "||", "->"} {
+				if strings.HasSuffix(trimmed, suffix) {
+					previousContinuation = true
+					break
+				}
+			}
+			lastLineEnd = lineEnd
+		}
+		if lineEnd == len(source) {
+			bounded = true
+			break
+		}
+		lineStart = lineEnd + 1
+	}
+	if (!bounded && lineStart < len(source)) || firstLine < 0 || lastLineEnd <= firstLine {
+		return 0, 0, false
+	}
+	first, last := -1, -1
+	hasBodyBraces := false
+	for index := equals + 1; index < end && parser.tokens[index].StartOffset < lastLineEnd; index++ {
+		token := parser.tokens[index]
+		if token.Kind == TokenNewline || token.Kind == TokenDirective {
+			continue
+		}
+		if token.Kind == TokenEOF || token.EndOffset > lastLineEnd ||
+			strings.Contains(source[token.StartOffset:token.EndOffset], "\n") {
+			return 0, 0, false
+		}
+		if first < 0 {
+			first = index
+		}
+		last = index
+	}
+	if first < 0 || parser.tokens[first].StartOffset < firstLine || last < first {
+		return 0, 0, false
+	}
+	switch parser.tokens[last].Text {
+	case "=", ".", ",", "+", "-", "?", ":", "&&", "||", "?:", "->":
+		return 0, 0, false
+	}
+	for index := first; index <= last; index++ {
+		switch parser.tokens[index].Text {
+		case "{", "(", "[":
+			close := parser.pairs[index]
+			if close <= index || close > last {
+				return 0, 0, false
+			}
+			if parser.tokens[index].Text == "{" {
+				hasBodyBraces = true
+			}
+		}
+	}
+	if control && !hasBodyBraces {
+		return 0, 0, false
+	}
+	return parser.tokens[last].EndOffset, last + 1, true
+}
+
+// kotlinPropertyGetter bounds only an explicitly indented, parameterless getter
+// with a single physical expression line or a balanced brace body. It does not
+// infer Kotlin expression continuations or standalone get() calls as accessors.
+func (parser *jvmParser) kotlinPropertyGetter(propertyStart, from, end, depth int) (int, int, bool, bool) {
+	getter := nextStructuralToken(parser.tokens, from, end)
+	if getter >= end || !parser.token(getter, "get") || parser.tokens[getter].Nesting != depth {
+		return 0, 0, false, false
+	}
+	source := parser.document.Text
+	if kotlinSourceIndent(source, parser.tokens[getter].StartOffset) <= kotlinSourceIndent(source, parser.tokens[propertyStart].StartOffset) {
+		return 0, 0, false, false
+	}
+	open := nextStructuralToken(parser.tokens, getter+1, end)
+	if !parser.token(open, "(") || parser.pairs[open] != open+1 {
+		return 0, 0, true, false
+	}
+	bodyStart := nextStructuralToken(parser.tokens, open+2, end)
+	if bodyStart >= end {
+		return 0, 0, true, false
+	}
+	if parser.token(bodyStart, "{") && parser.tokens[bodyStart].Nesting == depth+1 {
+		close := parser.pairs[bodyStart]
+		if close <= bodyStart || close >= end {
+			return 0, 0, true, false
+		}
+		return parser.tokens[close].EndOffset, close + 1, true, true
+	}
+	if !parser.token(bodyStart, "=") || parser.tokens[bodyStart].Nesting != depth {
+		return 0, 0, true, false
+	}
+	if bodyStart+1 < end && parser.tokens[bodyStart+1].Kind == TokenNewline &&
+		parser.tokens[bodyStart+1].Nesting == depth {
+		last, after, ok := parser.kotlinMultilineGetterExpression(getter, bodyStart, bodyStart+1, end)
+		return last, after, true, ok
+	}
+	for index := bodyStart + 1; index < end; index++ {
+		if parser.tokens[index].Kind != TokenNewline {
+			continue
+		}
+		if parser.tokens[index].Nesting != depth {
+			return 0, 0, true, false
+		}
+		// Preserve literal RHS tokens: previousStructuralToken intentionally skips strings.
+		last := index - 1
+		for last > bodyStart && parser.tokens[last].Kind == TokenDirective {
+			last--
+		}
+		if last <= bodyStart || strings.Contains(source[parser.tokens[last].StartOffset:parser.tokens[last].EndOffset], "\n") {
+			return 0, 0, true, false
+		}
+		switch parser.tokens[last].Text {
+		case "=", ".", ",", "+", "-", "?", ":", "&&", "||", "?:", "->":
+			return 0, 0, true, false
+		}
+		following := nextStructuralToken(parser.tokens, index+1, end)
+		if following < end && parser.tokens[following].Nesting == depth {
+			followingIndent := kotlinSourceIndent(source, parser.tokens[following].StartOffset)
+			if followingIndent > kotlinSourceIndent(source, parser.tokens[getter].StartOffset) {
+				return 0, 0, true, false
+			}
+			if followingIndent > kotlinSourceIndent(source, parser.tokens[propertyStart].StartOffset) {
+				// A continuation may align with the getter instead of being deeper.
+				switch parser.tokens[following].Text {
+				case ".", "?.", "?:", "?", "!!", "::", "+", "-", "&&", "||", "(", "[":
+					return 0, 0, true, false
+				}
+			}
+		}
+		return parser.tokens[last].EndOffset, index + 1, true, true
+	}
+	return 0, 0, true, false
+}
+
+// kotlinPropertySetter keeps a directly indented, one-parameter brace setter
+// within its owning property. Expression setters and malformed blocks remain partial.
+func (parser *jvmParser) kotlinPropertySetter(propertyStart, from, end, depth int) (int, int, bool, bool) {
+	setter := nextStructuralToken(parser.tokens, from, end)
+	if setter >= end || !parser.token(setter, "set") || parser.tokens[setter].Nesting != depth {
+		return 0, 0, false, false
+	}
+	if kotlinSourceIndent(parser.document.Text, parser.tokens[setter].StartOffset) <=
+		kotlinSourceIndent(parser.document.Text, parser.tokens[propertyStart].StartOffset) {
+		return 0, 0, false, false
+	}
+	open := nextStructuralToken(parser.tokens, setter+1, end)
+	if !parser.token(open, "(") {
+		return 0, 0, true, false
+	}
+	close := parser.pairs[open]
+	if close <= open+1 || close >= end {
+		return 0, 0, true, false
+	}
+	param := nextIdentifierToken(parser.tokens, open+1, close)
+	if param != open+1 || nextStructuralToken(parser.tokens, param+1, close) != close {
+		return 0, 0, true, false
+	}
+	body := nextStructuralToken(parser.tokens, close+1, end)
+	if !parser.token(body, "{") || parser.tokens[body].Nesting != depth+1 {
+		return 0, 0, true, false
+	}
+	closeBody := parser.pairs[body]
+	if closeBody <= body || closeBody >= end {
+		return 0, 0, true, false
+	}
+	return parser.tokens[closeBody].EndOffset, closeBody + 1, true, true
+}
+
+// kotlinAnnotatedFunctionAt accepts only declaration modifiers before fun.
+// A class annotation or file annotation must never become a method prefix.
+func (parser *jvmParser) kotlinAnnotatedFunctionAt(start, end int) bool {
+	cursor := start
+	for count := 0; cursor < end && count < 12; count++ {
+		if parser.token(cursor, "fun") {
+			return true
+		}
+		if _, ok := kotlinModifiers[strings.ToLower(parser.tokens[cursor].Text)]; !ok {
+			return false
+		}
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	return false
+}
+
+// kotlinAnnotatedPropertyAt accepts only property modifiers before val/var.
+// It must not scan into a value class constructor and misattach class annotations.
+func (parser *jvmParser) kotlinAnnotatedPropertyAt(start, end int) bool {
+	cursor := start
+	for count := 0; cursor < end && count < 12; count++ {
+		if parser.token(cursor, "val") || parser.token(cursor, "var") {
+			return true
+		}
+		if _, ok := kotlinModifiers[strings.ToLower(parser.tokens[cursor].Text)]; !ok {
+			return false
+		}
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	return false
+}
+
 func (parser *jvmParser) kotlinPropertyWithModifiers(start, end int) bool {
 	for index := start; index < end && index < start+12; index++ {
 		if parser.token(index, "val") || parser.token(index, "var") {
@@ -854,6 +1331,49 @@ func (parser *jvmParser) kotlinPropertyWithModifiers(start, end int) bool {
 		}
 	}
 	return false
+}
+
+// kotlinNextLineCallInitializer recognizes a single, bounded, fully paired
+// constructor/function call after an otherwise empty property '=' line.
+// Ambiguous expression chains remain header-only rather than swallowing a
+// subsequent declaration or an unbounded source tail.
+func (parser *jvmParser) kotlinNextLineCallInitializer(propertyStart, equals, newline, end int) (int, int, bool) {
+	source := parser.document.Text
+	if strings.TrimSpace(source[parser.tokens[equals].EndOffset:parser.tokens[newline].StartOffset]) != "" {
+		return 0, 0, false
+	}
+	depth := parser.tokens[propertyStart].Nesting
+	first := nextStructuralToken(parser.tokens, newline+1, end)
+	if first >= end || parser.tokens[first].Kind != TokenIdentifier || parser.tokens[first].Nesting != depth ||
+		kotlinSourceIndent(source, parser.tokens[first].StartOffset) <= kotlinSourceIndent(source, parser.tokens[propertyStart].StartOffset) {
+		return 0, 0, false
+	}
+	open := nextStructuralToken(parser.tokens, first+1, end)
+	if open >= end || !parser.token(open, "(") ||
+		strings.TrimSpace(source[parser.tokens[first].EndOffset:parser.tokens[open].StartOffset]) != "" {
+		return 0, 0, false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end || parser.tokens[close].EndOffset-parser.tokens[equals].EndOffset > 16384 ||
+		strings.Count(source[parser.tokens[equals].EndOffset:parser.tokens[close].EndOffset], "\n") > 96 {
+		return 0, 0, false
+	}
+	lineEnd := len(source)
+	if offset := strings.IndexByte(source[parser.tokens[close].EndOffset:], '\n'); offset >= 0 {
+		lineEnd = parser.tokens[close].EndOffset + offset
+	}
+	if strings.TrimSpace(source[parser.tokens[close].EndOffset:lineEnd]) != "" {
+		return 0, 0, false
+	}
+	following := nextStructuralToken(parser.tokens, close+1, end)
+	if following < end && parser.tokens[following].Nesting == depth &&
+		kotlinSourceIndent(source, parser.tokens[following].StartOffset) > kotlinSourceIndent(source, parser.tokens[propertyStart].StartOffset) {
+		switch parser.tokens[following].Text {
+		case ".", "?.", "?:", "!!", "::", "(", "[":
+			return 0, 0, false
+		}
+	}
+	return parser.tokens[close].EndOffset, close + 1, true
 }
 
 func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParent) int {
@@ -869,6 +1389,19 @@ func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParen
 		return marker + 1
 	}
 	depth := parser.tokens[marker].Nesting
+	// Extension properties name the identifier after the receiver's final dot.
+	// Stop at the type or initializer so dots inside values are not declarations.
+	for index := marker + 1; index < end; index++ {
+		token := parser.tokens[index]
+		if token.Nesting == depth && (token.Kind == TokenNewline || token.Text == ":" || token.Text == "=" || token.Text == "by") {
+			break
+		}
+		if token.Nesting == depth && token.Text == "." {
+			if next := nextStructuralToken(parser.tokens, index+1, end); next < end && parser.tokens[next].Kind == TokenIdentifier {
+				nameIndex = next
+			}
+		}
+	}
 	terminator := end
 	for index := nameIndex + 1; index < end; index++ {
 		if parser.tokens[index].Kind == TokenNewline && parser.tokens[index].Nesting == depth {
@@ -884,6 +1417,57 @@ func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParen
 	if last < nameIndex {
 		last = nameIndex
 	}
+	declarationEnd := parser.tokens[last].EndOffset
+	next := terminator + 1
+	if terminator < end && parser.tokens[terminator].Kind == TokenNewline {
+		if parser.token(last, "=") {
+			if initializerEnd, after, ok := parser.kotlinNextLineCallInitializer(start, last, terminator, end); ok {
+				declarationEnd, next = initializerEnd, after
+			}
+		}
+		var seenGet, seenSet bool
+		for count := 0; count < 2; count++ {
+			following := nextStructuralToken(parser.tokens, next, end)
+			if following >= end || parser.tokens[following].Nesting != depth ||
+				kotlinSourceIndent(parser.document.Text, parser.tokens[following].StartOffset) <=
+					kotlinSourceIndent(parser.document.Text, parser.tokens[start].StartOffset) {
+				break
+			}
+			var accessorEnd, after int
+			var recognized, complete bool
+			switch {
+			case parser.token(following, "get"):
+				if seenGet {
+					parser.builder.MarkIncomplete()
+					break
+				}
+				seenGet = true
+				accessorEnd, after, recognized, complete = parser.kotlinPropertyGetter(start, next, end, depth)
+			case parser.token(following, "set") && parser.token(marker, "var"):
+				if seenSet {
+					parser.builder.MarkIncomplete()
+					break
+				}
+				seenSet = true
+				accessorEnd, after, recognized, complete = parser.kotlinPropertySetter(start, next, end, depth)
+			}
+			if !recognized {
+				break
+			}
+			if !complete {
+				parser.builder.MarkIncomplete()
+				break
+			}
+			declarationEnd, next = accessorEnd, after
+		}
+		following := nextStructuralToken(parser.tokens, next, end)
+		if following < end && parser.tokens[following].Nesting == depth &&
+			(parser.token(following, "get") || parser.token(following, "set")) &&
+			kotlinSourceIndent(parser.document.Text, parser.tokens[following].StartOffset) >
+				kotlinSourceIndent(parser.document.Text, parser.tokens[start].StartOffset) {
+			parser.builder.MarkIncomplete()
+		}
+	}
 	kind := SymbolKindProperty
 	nativeKind := parser.tokens[marker].Text
 	modifiers := collectKnownModifiers(parser.tokens, start, marker, kotlinModifiers)
@@ -893,14 +1477,11 @@ func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParen
 	}
 	parser.add(SymbolSpec{
 		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
-		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[last].EndOffset},
+		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
 		Visibility:  visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
 	})
-	if terminator < end {
-		return terminator + 1
-	}
-	return end
+	return min(next, end)
 }
 
 func (parser *jvmParser) parseKotlinSecondaryConstructor(start, end int, parent *SymbolParent, owner string) int {

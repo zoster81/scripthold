@@ -83,6 +83,10 @@ func buildPythonLogicalLines(tokens []Token) []pythonLogicalLine {
 }
 
 func (parser *pythonParser) parseRange(start, end int, parent *SymbolParent, parentKind string) {
+	directIndent := 0
+	if start < end {
+		directIndent = parser.lines[start].indent
+	}
 	for index := start; index < end && !parser.stopped; {
 		if parser.ctx.Err() != nil {
 			return
@@ -119,6 +123,25 @@ func (parser *pythonParser) parseRange(start, end int, parent *SymbolParent, par
 
 		kind, nativeKind, nameIndex, async := pythonDeclaration(line, parentKind)
 		if kind == "" {
+			if line.indent == directIndent && (parent == nil || parentKind == "class") {
+				dataKind, dataNativeKind, dataNameIndex := pythonDataDeclaration(line, parentKind)
+				if dataKind != "" {
+					name := line.tokens[dataNameIndex]
+					err := parser.builder.addDiscard(SymbolSpec{
+						Kind: dataKind, NativeKind: dataNativeKind, Name: name.Text, Parent: parent,
+						Declaration: OffsetRange{Start: line.startOffset, End: line.endOffset},
+						NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+						Evidence:    SymbolEvidenceStructural,
+					})
+					if operation.KindOf(err) == operation.KindLimit {
+						parser.stopped = true
+						return
+					}
+					if err != nil {
+						parser.builder.MarkIncomplete()
+					}
+				}
+			}
 			index++
 			continue
 		}
@@ -208,6 +231,24 @@ func pythonDeclaration(line pythonLogicalLine, parentKind string) (SymbolKind, s
 	default:
 		return "", "", -1, false
 	}
+}
+
+// pythonDataDeclaration recognizes direct module bindings and class fields only.
+// Function locals, dotted assignments and nested control-flow writes are not declarations here.
+func pythonDataDeclaration(line pythonLogicalLine, parentKind string) (SymbolKind, string, int) {
+	if len(line.tokens) < 3 || line.tokens[0].Kind != TokenIdentifier {
+		return "", "", -1
+	}
+	if line.tokens[1].Text != "=" && line.tokens[1].Text != ":" {
+		return "", "", -1
+	}
+	if parentKind == "class" {
+		return SymbolKindField, "field", 0
+	}
+	if parentKind == "" {
+		return SymbolKindVariable, "variable", 0
+	}
+	return "", "", -1
 }
 
 func (parser *pythonParser) parseImport(line pythonLogicalLine) {

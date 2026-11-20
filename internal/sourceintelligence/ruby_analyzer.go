@@ -75,8 +75,13 @@ func (RubyAnalyzer) Analyze(ctx context.Context, document *SourceDocument, optio
 	if !scan.Complete {
 		builder.MarkIncomplete()
 	}
-	parser := &rubyParser{ctx: ctx, document: document, builder: builder}
-	parser.parse(BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{";"}}))
+	lines := BuildLogicalLines(scan.Tokens, LogicalLineProfile{Separators: []string{";"}})
+	var methodBodies map[int]rubySimpleMethodBody
+	if scan.Complete && len(scan.Diagnostics) == 0 {
+		methodBodies = rubySimpleMethodBodies(lines, maxNesting)
+	}
+	parser := &rubyParser{ctx: ctx, document: document, builder: builder, methodBodies: methodBodies}
+	parser.parse(lines)
 	if err := ctx.Err(); err != nil {
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_ruby_source", document.Path, err)
 	}
@@ -351,6 +356,115 @@ type rubyScope struct {
 	visibility Visibility
 }
 
+// Only spans with a provably paired end may supply Ruby method bodies.
+// The conservative second pass supports bounded if/unless/do nesting, but
+// avoids fabricating ranges for other control forms, DSLs, or inline ends.
+type rubySimpleMethodBody struct{ end int }
+
+func rubySimpleMethodBodies(lines []LogicalLine, maxNesting int) map[int]rubySimpleMethodBody {
+	type scope struct {
+		method bool
+		start  int
+		safe   bool
+	}
+	var scopes []scope
+	bodies := make(map[int]rubySimpleMethodBody)
+	for _, line := range lines {
+		if len(line.Tokens) == 0 {
+			continue
+		}
+		tokens := line.Tokens
+		first := strings.ToLower(tokens[0].Text)
+		if first == "end" {
+			if len(scopes) == 0 {
+				return nil
+			}
+			last := scopes[len(scopes)-1]
+			scopes = scopes[:len(scopes)-1]
+			if last.method && last.safe && tokens[0].EndOffset > last.start {
+				bodies[last.start] = rubySimpleMethodBody{end: tokens[0].EndOffset}
+			}
+			continue
+		}
+		// An inline end cannot be safely paired with a separate declaration.
+		// Stop inferring later bodies, but retain independently closed
+		// method bodies that were already verified before this line.
+		for _, token := range tokens[1:] {
+			if token.Kind == TokenKeyword && strings.EqualFold(token.Text, "end") {
+				return bodies
+			}
+		}
+		method := first == "def" || ((first == "private" || first == "protected" || first == "public") &&
+			len(tokens) > 1 && tokens[1].Text == "def")
+		if first == "private_class_method" {
+			for _, token := range tokens[1:] {
+				if token.Text == "def" {
+					method = true
+					break
+				}
+			}
+		}
+		block := rubyStartsAnonymousBlock(tokens)
+		opens := (method && !rubyEndlessMethod(tokens)) || first == "class" || first == "module" || block
+		if opens {
+			if len(scopes) >= maxNesting {
+				return nil
+			}
+			// Balanced conditional and do blocks may occur inside a method.
+			// Keep its body inferable only for this small, explicit subset;
+			// other scopes (including nested definitions) remain conservative.
+			provenBlock := (first == "if" || first == "unless") && block
+			if !provenBlock && block {
+				for _, token := range tokens {
+					if strings.EqualFold(token.Text, "do") && token.Kind == TokenKeyword {
+						provenBlock = true
+						break
+					}
+				}
+			}
+			if !provenBlock {
+				for i := range scopes {
+					if scopes[i].method {
+						scopes[i].safe = false
+					}
+				}
+			}
+			next := scope{method: method, start: line.StartOffset, safe: method}
+			if method {
+				parenDepth := 0
+				for _, token := range tokens {
+					switch token.Text {
+					case "(":
+						parenDepth++
+					case ")":
+						if parenDepth > 0 {
+							parenDepth--
+						}
+					case "=", "=>":
+						// Defaults inside the parameter list are not endless
+						// methods. Assignment outside it remains unproven.
+						if parenDepth == 0 {
+							next.safe = false
+						}
+					}
+				}
+			}
+			scopes = append(scopes, next)
+			continue
+		}
+		if n := len(scopes); n > 0 && scopes[n-1].method {
+			switch first {
+			case "else", "elsif", "ensure", "rescue", "when", "in":
+				scopes[n-1].safe = false
+			}
+		}
+	}
+	if len(scopes) != 0 {
+		return nil
+	}
+	return bodies
+}
+
 type rubyParser struct {
 	ctx          context.Context
 	document     *SourceDocument
@@ -358,6 +472,7 @@ type rubyParser struct {
 	dependencies []StructuralDependency
 	relations    []StructuralRelation
 	scopes       []rubyScope
+	methodBodies map[int]rubySimpleMethodBody
 	stopped      bool
 }
 
@@ -414,6 +529,12 @@ func (p *rubyParser) parseLine(line LogicalLine) {
 		return
 	}
 	if text == "public" || text == "protected" || text == "private" {
+		// An inline visibility modifier applies only to this method. It must
+		// still open the method scope so the following end balances correctly.
+		if len(tokens) > 1 && tokens[1].Text == "def" {
+			p.parseMethodWithVisibility(line, 1, Visibility(text))
+			return
+		}
 		p.setVisibility(text)
 		return
 	}
@@ -426,19 +547,39 @@ func (p *rubyParser) parseLine(line LogicalLine) {
 }
 
 func (p *rubyParser) parseRequire(tokens []Token) {
-	for _, token := range tokens[1:] {
-		if token.Kind != TokenString {
-			continue
-		}
-		value := rubyStringLiteral(token.Text)
-		if value == "" {
+	if len(tokens) < 2 {
+		return
+	}
+	argument := 1
+	parenthesized := tokens[argument].Text == "("
+	if parenthesized {
+		argument++
+	}
+	if argument >= len(tokens) || tokens[argument].Kind != TokenString {
+		// A string nested in File.join or another expression is not the
+		// require target. Never infer the evaluated module name.
+		return
+	}
+	next := argument + 1
+	if parenthesized {
+		if next >= len(tokens) || tokens[next].Text != ")" {
 			return
 		}
-		rangeValue, err := p.document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
-		if err == nil {
-			p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
-		}
+	} else if next < len(tokens) && (tokens[next].Kind == TokenOperator ||
+		tokens[next].Text == "." || tokens[next].Text == "[" || tokens[next].Text == "(") {
+		// Unparenthesized concatenations and method calls are dynamic.
 		return
+	}
+	token := tokens[argument]
+	value := rubyStringLiteral(token.Text)
+	if value == "" || strings.Contains(value, "#{") || strings.Contains(value, "\\") {
+		// Interpolation and escaped spellings need Ruby evaluation to know
+		// the actual module path, so they cannot be source-known imports.
+		return
+	}
+	rangeValue, err := p.document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
+	if err == nil {
+		p.dependencies = append(p.dependencies, StructuralDependency{Kind: StructuralDependencyImport, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
 	}
 }
 
@@ -529,12 +670,24 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 		classMethod = true
 		cursor += 2
 	}
-	if cursor >= len(tokens) || (tokens[cursor].Kind != TokenIdentifier && tokens[cursor].Kind != TokenKeyword) {
+	if cursor >= len(tokens) {
 		p.markMalformed(line, "ruby-method-name", "Ruby method declaration has no supported name")
 		return
 	}
 	nameIndex := cursor
+	nameEnd := cursor + 1
 	name := tokens[nameIndex].Text
+	if name == "[" && nameEnd < len(tokens) && tokens[nameEnd].Text == "]" {
+		name = "[]"
+		nameEnd++
+		if nameEnd < len(tokens) && tokens[nameEnd].Text == "=" {
+			name += "="
+			nameEnd++
+		}
+	} else if !rubySupportedMethodName(tokens[cursor]) {
+		p.markMalformed(line, "ruby-method-name", "Ruby method declaration has no supported name")
+		return
+	}
 	kind := SymbolKindFunction
 	nativeKind := "function"
 	parent := p.currentParent()
@@ -549,16 +702,74 @@ func (p *rubyParser) parseMethodWithVisibility(line LogicalLine, keyword int, vi
 	if strings.EqualFold(name, "initialize") && parent != nil && owner != "" {
 		kind = SymbolKindConstructor
 		nativeKind = "initialize"
+		// A qualified class declaration names its constructor by the final
+		// class constant, not by repeating the entire qualified owner.
 		name = owner
+		if at := strings.LastIndex(owner, "::"); at >= 0 {
+			name = owner[at+2:]
+		}
 	}
-	_, ok := p.add(SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
+	spec := SymbolSpec{Kind: kind, NativeKind: nativeKind, Name: name, Parent: parent,
 		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
-		NameRange:   OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameIndex].EndOffset},
+		NameRange:   OffsetRange{Start: tokens[nameIndex].StartOffset, End: tokens[nameEnd-1].EndOffset},
 		Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Visibility: visibility, Evidence: SymbolEvidenceStructural,
-		Disambiguator: tokenRangeText(tokens, nameIndex, len(tokens)) + ":" + nativeKind})
-	if ok {
+		Disambiguator: tokenRangeText(tokens, nameIndex, len(tokens)) + ":" + nativeKind}
+	if body, present := p.methodBodies[line.StartOffset]; present {
+		spec.Declaration.End = body.end
+		spec.Body = &OffsetRange{Start: line.EndOffset, End: body.end}
+	}
+	_, ok := p.add(spec)
+	if ok && !rubyEndlessMethod(tokens) {
 		p.scopes = append(p.scopes, rubyScope{kind: "method", parent: parent, owner: owner, visibility: visibility})
 	}
+}
+
+// rubyEndlessMethod recognizes the explicit Ruby 3 form "def name = expr"
+// without confusing a setter name or default arguments with an expression
+// body. It is shared by scope construction and conservative body extraction.
+func rubyEndlessMethod(tokens []Token) bool {
+	def := -1
+	for i, token := range tokens {
+		if token.Text == "def" && token.Kind == TokenKeyword {
+			def = i
+			break
+		}
+	}
+	if def < 0 || def+1 >= len(tokens) {
+		return false
+	}
+	depth := 0
+	for i := def + 2; i < len(tokens); i++ {
+		switch tokens[i].Text {
+		case "(":
+			depth++
+		case ")":
+			if depth > 0 {
+				depth--
+			}
+		case "=":
+			if depth != 0 {
+				continue
+			}
+			// In "def name=(value)" and "def []=(key, value)", the
+			// operator belongs to the method name rather than starting
+			// an endless expression body.
+			if i+1 < len(tokens) && tokens[i+1].Text == "(" &&
+				tokens[i-1].EndOffset == tokens[i].StartOffset {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// Ruby operator methods have explicit names, unlike arbitrary operator expressions.
+func rubySupportedMethodName(token Token) bool {
+	if token.Kind == TokenIdentifier || token.Kind == TokenKeyword {
+		return true
+	}
+	return token.Kind == TokenOperator && token.Text == "<<"
 }
 
 func (p *rubyParser) parseMixin(tokens []Token, keyword int) {

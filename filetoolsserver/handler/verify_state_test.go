@@ -233,6 +233,8 @@ func TestVerifyStateGitOperationalFailuresAndCancellation(t *testing.T) {
 	}
 
 	h = NewHandler([]string{root})
+	// The runner is stubbed; executable preflight only needs an existing regular file.
+	h.verifyGitExecutable = os.Executable
 	h.verifyGitRun = func(context.Context, verificationGitRequest) (internalexecution.Result, error) {
 		return internalexecution.Result{ExitCode: -1, TimedOut: true}, nil
 	}

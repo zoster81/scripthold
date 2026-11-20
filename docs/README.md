@@ -2,6 +2,8 @@
 
 Start with the [project README](../README.md) to install Scripthold and connect an MCP client. Use this page to find the right guide without reading the entire reference library.
 
+**Check which version applies.** [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) identifies the published software. The [Changelog](../CHANGELOG.md#unreleased) distinguishes fixes present only in the development tree. Publishing or committing a fix does not install it in a running server; use the [self-update guide](SELF_UPDATE.md) only for eligible standalone installations. Historical migration guides describe their named versions rather than today's behavior.
+
 ## Use Scripthold
 
 | I want to… | Start here |
@@ -10,6 +12,7 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | Adopt, update, check, or recover a standalone binary | [Verified Self-update](SELF_UPDATE.md) |
 | Find an MCP tool, parameter, example, or error code | [Tool Reference](../TOOLS.md) |
 | Understand the supported source languages and analysis capabilities | [Language Capabilities](LANGUAGE_CAPABILITIES.md) |
+| See which languages passed development-only, real-project navigation checks | [Current original-project qualification](ROADMAP.md#current-original-project-qualification) |
 | Inspect or safely edit Markdown documents | [Markdown Intelligence](MARKDOWN_INTELLIGENCE.md) and the [Markdown tools](../TOOLS.md#markdown_read) |
 | Configure tasks that outlive an MCP request | [Durable Tasks](DURABLE_TASKS.md) |
 | Run the server over HTTP or through a trusted proxy | [HTTP Security](HTTP_SECURITY.md) |
@@ -22,7 +25,8 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | I want to… | Start here |
 |---|---|
 | Understand the project's scope and upstream relationship | [Project Direction](PROJECT_DIRECTION.md) |
-| Find planned work and compatibility boundaries | [Roadmap](ROADMAP.md) |
+| Find planned work, completion criteria, and compatibility boundaries | [Roadmap](ROADMAP.md) and [milestone completion criteria](ROADMAP.md#milestone-completion-criteria) |
+| Resume supervised development safely | [Agent Guide](../AGENTS.md#resuming-a-supervised-development-session), [Roadmap](ROADMAP.md#next-work) and [Development Checklist](DEVELOPMENT_CHECKLIST.md) |
 | Submit a contribution and run the right tests | [Contributing](../CONTRIBUTING.md) and [Development Checklist](DEVELOPMENT_CHECKLIST.md) |
 | Report a security vulnerability privately | [Security Policy](../SECURITY.md) |
 | Prepare, verify, or publish a release | [Publishing Procedure](PUBLISHING.md) |
@@ -31,4 +35,4 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 
 This page is a navigation aid, not a replacement for the detailed contracts. The [Tool Reference](../TOOLS.md) defines tool behavior; [Architecture](ARCHITECTURE.md) and the focused security/task guides define operational boundaries. Keep release history in the [Changelog](../CHANGELOG.md) and future work in the [Roadmap](ROADMAP.md) rather than repeating either elsewhere.
 
-The [Language Capabilities](LANGUAGE_CAPABILITIES.md) matrix is generated from the source-provider registry, not edited by hand. Migration guides describe their named historical versions, which may differ from today's release. Repository [AGENTS.md](../AGENTS.md) files contain contributor instructions, not end-user guidance.
+The [Language Capabilities](LANGUAGE_CAPABILITIES.md) matrix is generated from the source-provider registry, not edited by hand. Registration describes available analysis, not proof of complete project navigation; the [Roadmap](ROADMAP.md#current-original-project-qualification) tracks those development-only checks separately. Migration guides describe their named historical versions, which may differ from today's release. Repository [AGENTS.md](../AGENTS.md) files contain contributor instructions, not end-user guidance.

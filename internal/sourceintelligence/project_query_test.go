@@ -10,6 +10,291 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+// A C++ declaration and a qualified out-of-class definition may share a name
+// without proving the same overload. Navigation can expose an explicit candidate,
+// but must not assert resolved class ownership or an exact signature match.
+func TestProjectQueryCPPExplicitHeaderDefinitionCandidates(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, header, source string
+		wantCandidate        bool
+	}{
+		{
+			name:          "single-authored-method",
+			header:        "class Codec { public: int Read(int n); };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "unmatched-first-overload",
+			header: "class Codec { public: int Read(int n); int Read(double n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(double n) { return 1; }\n",
+		},
+		{
+			name:   "missing-include",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "int Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:   "only-declaration-in-source",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n);\n",
+		},
+		{
+			name:   "mismatched-parameter-type-not-a-candidate",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(double n) { return 0; }\n",
+		},
+		{
+			name:   "renamed-parameter-conservative",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int count) { return count; }\n",
+		},
+		{
+			name:   "different-cv-qualifier",
+			header: "class Codec { public: int Read(int n) const; };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:          "same-cv-qualifier",
+			header:        "class Codec { public: int Read(int n) const; };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) const { return n; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:          "virtual-override-not-in-out-of-class-definition",
+			header:        "class Base { public: virtual int Read(int n) const; }; class Codec : public Base { public: int Read(int n) const override; };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) const { return n; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "different-noexcept-qualifier",
+			header: "class Codec { public: int Read(int n) noexcept; };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:          "matching-overload-among-declarations",
+			header:        "class Codec { public: int Read(int n); int Read(double n); };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "namespace-not-a-class",
+			header: "namespace Codec { int Read(int n); }\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\n",
+		},
+		{
+			name:          "two-definitions-different-overloads",
+			header:        "class Codec { public: int Read(int n); int Read(double n); };\n",
+			source:        "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\nint Codec::Read(double n) { return 0; }\n",
+			wantCandidate: true,
+		},
+		{
+			name:   "duplicate-identical-definition-stays-unlinked",
+			header: "class Codec { public: int Read(int n); };\n",
+			source: "#include \"codec.hpp\"\nint Codec::Read(int n) { return n; }\nint Codec::Read(int n) { return n + 1; }\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "cpp", tc.name)
+			header := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.hpp"), tc.header)
+			implementation := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.cc"), tc.source)
+			id := projectSymbolID(t, header, "Codec.Read")
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{implementation, header}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(header, id), ProjectSelector{}, nil, queryLimits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidateCount := 0
+			for _, record := range result.Records {
+				if record.Target.Path != implementation.Path {
+					continue
+				}
+				candidateCount++
+				if record.Resolution != ResolutionAmbiguous || record.Evidence != SymbolEvidenceStructural ||
+					record.Target.SymbolID == "" || record.Target.QualifiedName != "Codec.Read" ||
+					record.Source.Path != header.Path || record.Source.SymbolID != id {
+					t.Errorf("unsafe candidate relation: %+v", record)
+				}
+			}
+			if (candidateCount == 1) != tc.wantCandidate || candidateCount > 1 {
+				t.Fatalf("candidate count=%d, want candidate=%v; records=%+v", candidateCount, tc.wantCandidate, result.Records)
+			}
+			filtered, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(header, id),
+				ProjectSelector{}, []SymbolEvidence{SymbolEvidenceScopeResolved}, queryLimits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range filtered.Records {
+				if record.Target.Path == implementation.Path {
+					t.Fatalf("scope-only filter leaked a project candidate: %+v", record)
+				}
+			}
+		})
+	}
+}
+
+// Original C++ move-assignment operators have overloads, including deleted
+// copy-assignment members. Only a matching written declarator and a directly
+// resolved include justify a single ambiguous cross-file navigation candidate.
+func TestProjectQueryCPPAssignmentOperatorCandidates(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const header = "class Codec {\npublic:\n Codec& operator=(Codec&& other) noexcept;\n Codec& operator=(const Codec& other) = delete;\n};\n"
+	for _, tc := range []struct {
+		name, source string
+		wantMove     bool
+	}{
+		{"matching-move", "#include \"codec.hpp\"\nCodec& Codec::operator=(Codec&& other) noexcept { return *this; }\n", true},
+		{"mismatched-const-reference", "#include \"codec.hpp\"\nCodec& Codec::operator=(const Codec& other) { return *this; }\n", false},
+		{"missing-include", "Codec& Codec::operator=(Codec&& other) noexcept { return *this; }\n", false},
+		{"duplicate-definitions", "#include \"codec.hpp\"\nCodec& Codec::operator=(Codec&& other) noexcept { return *this; }\nCodec& Codec::operator=(Codec&& other) noexcept { return *this; }\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "cpp", "operators", tc.name)
+			h := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.hpp"), header)
+			s := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.cc"), tc.source)
+			ids := map[int]string{}
+			for _, symbol := range h.Analysis.Analysis.Symbols {
+				if symbol.NameRange.Start.Line != 3 && symbol.NameRange.Start.Line != 4 {
+					continue
+				}
+				if symbol.Kind != SymbolKindOperator || symbol.Name != "operator=" ||
+					symbol.QualifiedName != "Codec.operator=" || symbol.ParentID == "" {
+					t.Fatalf("false C++ assignment member: %+v", symbol)
+				}
+				ids[symbol.NameRange.Start.Line] = symbol.ID
+			}
+			if len(ids) != 2 {
+				t.Fatalf("missing move/deleted assignment overloads: %+v", h.Analysis.Analysis.Symbols)
+			}
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{h, s}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range []int{3, 4} {
+				relations, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(h, ids[line]), ProjectSelector{}, nil, queryLimits())
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := 0
+				for _, rel := range relations.Records {
+					if rel.Target.Path != s.Path {
+						continue
+					}
+					got++
+					if rel.Evidence != SymbolEvidenceStructural || rel.Resolution != ResolutionAmbiguous ||
+						rel.Source.SymbolID != ids[line] || rel.Target.SymbolID == "" ||
+						rel.Target.QualifiedName != "Codec.operator=" {
+						t.Errorf("unsafe operator candidate: %+v", rel)
+					}
+				}
+				want := line == 3 && tc.wantMove
+				if (got == 1) != want || got > 1 {
+					t.Errorf("line=%d candidates=%d want=%v: %+v", line, got, want, relations.Records)
+				}
+			}
+		})
+	}
+}
+
+// An unresolved out-of-class C++ constructor/destructor remains a file-local
+// function. Project navigation may expose only a structurally ambiguous candidate.
+func TestProjectQueryCPPQualifiedLifecycleCandidates(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, header, source        string
+		wantConstruct, wantDestruct bool
+	}{
+		{"one-ctor-one-dtor",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\n", true, true},
+		{"overloaded-constructors",
+			"class Codec { public: Codec(int n); Codec(double n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\n", true, true},
+		{"no-include",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"Codec::Codec(int n) {}\nCodec::~Codec() {}\n", false, false},
+		{"declarations-only",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n);\nCodec::~Codec();\n", false, false},
+		{"invalid-return-type",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nint Codec::Codec(int n) { return n; }\nCodec::~Codec() {}\n", false, true},
+		{"duplicate-destructor-definitions",
+			"class Codec { public: Codec(int n); ~Codec(); };\n",
+			"#include \"codec.hpp\"\nCodec::Codec(int n) {}\nCodec::~Codec() {}\nCodec::~Codec() {}\n", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "cpp", "lifecycle", tc.name)
+			header := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.hpp"), tc.header)
+			source := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "codec.cc"), tc.source)
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{source, header}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, kind := range []struct {
+				value  SymbolKind
+				want   bool
+				native string
+			}{
+				{SymbolKindConstructor, tc.wantConstruct, "qualified-constructor-definition"},
+				{SymbolKindDestructor, tc.wantDestruct, "qualified-destructor-definition"},
+			} {
+				var declaration *NormalizedSymbol
+				for i := range header.Analysis.Analysis.Symbols {
+					s := &header.Analysis.Analysis.Symbols[i]
+					if s.Kind == kind.value {
+						declaration = s
+						break
+					}
+				}
+				if declaration == nil {
+					t.Fatalf("missing %s declaration: %+v", kind.value, header.Analysis.Analysis.Symbols)
+				}
+				relations, err := model.QueryRelations(context.Background(), RelationDefinitions, querySymbolSelector(header, declaration.ID), ProjectSelector{}, nil, queryLimits())
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantQualified := "Codec.Codec"
+				if kind.value == SymbolKindDestructor {
+					wantQualified = "Codec.~Codec"
+				}
+				candidates := 0
+				for _, rel := range relations.Records {
+					if rel.Target.Path != source.Path {
+						continue
+					}
+					candidates++
+					if rel.Evidence != SymbolEvidenceStructural || rel.Resolution != ResolutionAmbiguous ||
+						rel.Source.SymbolID != declaration.ID || rel.Target.SymbolID == "" || rel.Target.QualifiedName != wantQualified {
+						t.Errorf("unsafe %s link: %+v", kind.value, rel)
+					}
+					for _, symbol := range source.Analysis.Analysis.Symbols {
+						if symbol.ID == rel.Target.SymbolID && (symbol.Kind != SymbolKindFunction || symbol.NativeKind != kind.native || symbol.ParentID != "" || symbol.BodyRange == nil) {
+							t.Errorf("not a lexical %s definition: %+v", kind.value, symbol)
+						}
+					}
+				}
+				if (candidates == 1) != kind.want || candidates > 1 {
+					t.Errorf("%s candidate count=%d, want=%v: %+v", kind.value, candidates, kind.want, relations.Records)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectQueryDependenciesDependentsTraceImpactAndCycles(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
@@ -417,6 +702,59 @@ func TestProjectQueryDeterminismLimitsCancellationAndUnsupported(t *testing.T) {
 
 	if _, err := left.QueryRelations(context.Background(), RelationKind("callers"), querySymbolSelector(second, projectSymbolID(t, second, "B")), ProjectSelector{}, nil, limits); operation.KindOf(err) != operation.KindInvalidInput {
 		t.Fatalf("callers error = %v kind=%v", err, operation.KindOf(err))
+	}
+}
+
+func TestCPPUnresolvedQualifierReusesProjectStructuralSearch(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "cpp-qualified")
+	header := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "printer.hpp"),
+		"class printer { public: void print(); };\nnamespace util { void tick(); }\n")
+	implementation := projectResolverFacts(t, CPPAnalyzer{}, filepath.Join(root, "printer.cpp"),
+		"void printer::print() {}\nvoid util::tick() {}\n")
+	model, err := BuildProjectModel(context.Background(), registry,
+		[]ProjectFileFacts{header, implementation}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		wantCount int
+	}{
+		{"printer.print", 2},
+		{"util.tick", 2},
+	} {
+		result, err := model.StructuralSearch(context.Background(),
+			ProjectSearchOptions{Query: tc.name, Match: ProjectSearchExact, MaxResults: 8})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Matches) != tc.wantCount || result.Truncated {
+			t.Fatalf("project structural search %q returned %+v", tc.name, result)
+		}
+		var sawHeader, sawImplementation bool
+		for _, match := range result.Matches {
+			if match.QualifiedName != tc.name {
+				t.Fatalf("project scope was lost in match %+v", match)
+			}
+			switch match.Path {
+			case header.Path:
+				sawHeader = true
+			case implementation.Path:
+				sawImplementation = true
+				if match.Kind != SymbolKindFunction {
+					t.Fatalf("unproven C++ owner classified as a class: %+v", match)
+				}
+			default:
+				t.Fatalf("unexpected project path: %+v", match)
+			}
+		}
+		if !sawHeader || !sawImplementation {
+			t.Fatalf("project search %q lost a distinct file: %+v", tc.name, result.Matches)
+		}
 	}
 }
 

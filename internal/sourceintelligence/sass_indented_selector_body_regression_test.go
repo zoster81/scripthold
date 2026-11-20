@@ -1,0 +1,560 @@
+package sourceintelligence
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Indented Sass selectors own the direct and nested source needed to maintain
+// their layout; siblings and unrelated top-level blocks must remain separate.
+func TestSassIndentedSelectorDeclarationIncludesBody(t *testing.T) {
+	const source = ".hbox\n" +
+		"  +display-box\n" +
+		"  +box-orient\n" +
+		"  & > *\n" +
+		"    +box-flex\n" +
+		"  // a nested source comment\n" +
+		"\n" +
+		".vbox\n" +
+		"  +box-orient(vertical)\n" +
+		"\n" +
+		"#app\n" +
+		"  color: $text\n" +
+		"  @media (max-width: $break-small)\n" +
+		"    width: 250px\n" +
+		"  box-shadow: 0px 10px $shadow\n" +
+		".secondary\n" +
+		"  color: black\n"
+	for _, variant := range []struct{ name, newline string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(variant.name, func(t *testing.T) {
+			result, err := (SassAnalyzer{}).Analyze(context.Background(),
+				sourceDocumentForScanner(strings.ReplaceAll(source, "\n", variant.newline)),
+				testAnalyzeOptions(true, 128))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Analysis.Truncated || !result.Analysis.CoverageComplete {
+				t.Fatalf("valid Sass must remain covered: %+v", result.Analysis)
+			}
+			want := map[string]struct{ start, end int }{
+				".hbox":      {1, 5},
+				"& > *":      {4, 5},
+				".vbox":      {8, 9},
+				"#app":       {11, 15},
+				".secondary": {16, 17},
+			}
+			seen := make(map[string]bool)
+			for _, symbol := range result.Analysis.Symbols {
+				expected, ok := want[symbol.Name]
+				if !ok {
+					continue
+				}
+				seen[symbol.Name] = true
+				if symbol.Kind != SymbolKindSelector ||
+					symbol.DeclarationRange.Start.Line != expected.start ||
+					symbol.DeclarationRange.End.Line != expected.end {
+					t.Errorf("Sass selector %q must own its exact indented block: %+v", symbol.Name, symbol)
+				}
+				if strings.Contains(symbol.Signature, "\n") {
+					t.Errorf("outline signature for %q must stay header-only: %q", symbol.Name, symbol.Signature)
+				}
+			}
+			for name := range want {
+				if !seen[name] {
+					t.Errorf("expected selector %q absent: %+v", name, result.Analysis.Symbols)
+				}
+			}
+		})
+	}
+}
+
+// Nested indented Sass selectors have a lexical owner. Their source identity
+// must not be presented as a peer of the enclosing selector.
+func TestSassNestedSelectorRetainsLexicalParent(t *testing.T) {
+	check := func(t *testing.T, result AnalyzerResult) {
+		t.Helper()
+		var outer, nested *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case ".v-alert--doc":
+				outer = symbol
+			case ".v-alert__content p:last-child":
+				nested = symbol
+			}
+		}
+		if outer == nil || nested == nil {
+			t.Fatalf("authored Sass selector missing: %+v", result.Analysis.Symbols)
+		}
+		if nested.ParentID != outer.ID || nested.ParentQualifiedName != outer.QualifiedName {
+			t.Fatalf("nested Sass selector has incorrect lexical owner: outer=%+v nested=%+v", outer, nested)
+		}
+		if nested.QualifiedName != nested.Name {
+			t.Fatalf("nested Sass exact-name queries must remain compatible: %+v", nested)
+		}
+	}
+	const sass = ".v-alert--doc\n  .v-alert__content p:last-child\n    margin-bottom: 0 !important\n"
+	for _, ending := range []struct{ name, sep string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(ending.name, func(t *testing.T) {
+			result, err := (SassAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("nested.sass", strings.ReplaceAll(sass, "\n", ending.sep)),
+				testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(t, result)
+		})
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_VUE_VUETIFY_TS_ROOT"); root != "" {
+		t.Run("source-original-vuetify-Alert-vue-sass", func(t *testing.T) {
+			path := filepath.Join(root, "Alert.vue")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Vue source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if !strings.Contains(source, "<style lang=\"sass\">") ||
+				!strings.Contains(source, "  .v-alert--doc\n    .v-alert__content p:last-child") {
+				t.Fatal("original Vuetify nested Sass selector oracle changed")
+			}
+			result, err := (VueAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("Alert.vue", source), testAnalyzeOptions(true, 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(t, result)
+		})
+	}
+}
+
+// Child-combinator selectors are declarations in indented Sass, not properties.
+// Keep the authored header and lexical owner even when the header begins with >.
+func TestSassChildCombinatorSelectorsFromOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("style.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		parents := make(map[string]NormalizedSymbol)
+		var h4 []NormalizedSymbol
+		var right []NormalizedSymbol
+		for _, symbol := range result.Analysis.Symbols {
+			switch symbol.Name {
+			case "#title", "#eth-info":
+				parents[symbol.Name] = symbol
+			case "> h4":
+				h4 = append(h4, symbol)
+			case "> #right":
+				right = append(right, symbol)
+			}
+		}
+		if len(parents) != 2 || len(h4) != 2 || len(right) != 1 {
+			t.Fatalf("authored Sass combinator declarations omitted: parents=%v h4=%+v right=%+v symbols=%v",
+				parents, h4, right, sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		ownedBy := func(symbol NormalizedSymbol, parent NormalizedSymbol) bool {
+			return symbol.ParentID == parent.ID && symbol.ParentQualifiedName == parent.QualifiedName &&
+				symbol.QualifiedName == symbol.Name
+		}
+		if !ownedBy(h4[0], parents["#title"]) || !ownedBy(h4[1], parents["#eth-info"]) ||
+			!ownedBy(right[0], parents["#eth-info"]) || h4[0].ID == h4[1].ID {
+			t.Fatalf("Sass combinator parent/identity incorrect: h4=%+v right=%+v parents=%+v", h4, right, parents)
+		}
+	}
+	const fixture = "#title\n  > h4\n    margin: 0\n#eth-info\n  > h4\n    margin: 0\n  > #right\n    text-align: right\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_DANILO_ROOT"); root != "" {
+		t.Run("original-sass-danilo-style", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\n  > h4\n") != 2 ||
+				strings.Count(source, "\n  > #right\n") != 1 {
+				t.Fatal("original Sass combinator oracle changed")
+			}
+			check(t, source)
+		})
+	}
+}
+
+// Authored child-combinator chains remain an independent Sass source-navigation
+// case: recognizing a single > child does not prove multi-step chain support.
+func TestSassChainedChildCombinatorOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("akafael.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parent, chained *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case ".pres-timeline":
+				parent = symbol
+			case "> div > div":
+				chained = symbol
+			}
+		}
+		if parent == nil || chained == nil {
+			t.Fatalf("authored Sass chained child selector absent: parent=%+v chained=%+v", parent, chained)
+		}
+		if chained.ParentID != parent.ID || chained.ParentQualifiedName != parent.QualifiedName ||
+			chained.QualifiedName != chained.Name {
+			t.Fatalf("Sass chained selector source owner/name incorrect: parent=%+v chained=%+v", parent, chained)
+		}
+	}
+	const fixture = ".pres-timeline\n  > div > div\n    padding: 1em\n  .periods-container\n    overflow: hidden\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_AKAFAEL_ROOT"); root != "" {
+		t.Run("source-original-akafael-style", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\n  > div > div \n") != 1 {
+				t.Fatal("original Sass chained selector oracle changed")
+			}
+			check(t, source)
+		})
+	}
+}
+
+// A child-combinator chain must consist entirely of supported bare targets.
+// Rejecting ambiguous syntax avoids inventing selectors from source fragments.
+func TestSassSimpleChildSelectorMalformedAndSupportedChains(t *testing.T) {
+	for _, tc := range []struct {
+		source string
+		valid  bool
+	}{
+		{source: "> h4", valid: true},
+		{source: "> #right", valid: true},
+		{source: "> .card > #title", valid: true},
+		{source: "> div > div ", valid: true},
+		{source: ">\tdiv\t>\tspan", valid: true},
+		{source: "> * > a", valid: true},
+		{source: "> div >", valid: false},
+		{source: "> > div", valid: false},
+		{source: "> div >> span", valid: false},
+		{source: "> div>span", valid: false},
+		{source: ">div", valid: false},
+		{source: "> div > .card:hover", valid: false},
+		{source: "> #{variable}", valid: false},
+		{source: "> div > div, span", valid: false},
+		{source: ">", valid: false},
+		{source: "> ", valid: false},
+	} {
+		t.Run(tc.source, func(t *testing.T) {
+			if got := sassSimpleChildSelector(tc.source); got != tc.valid {
+				t.Errorf("simple Sass child selector %q: recognized=%t, want %t", tc.source, got, tc.valid)
+			}
+		})
+	}
+}
+
+// A comma-separated group of bare element names is one authored Sass selector
+// header, distinct from the subsequent ungrouped element selector.
+func TestSassBareElementGroupFromOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string, expectedLine int) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("danilo.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var group, single *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case "body, html":
+				group = symbol
+			case "body":
+				single = symbol
+			}
+		}
+		if group == nil || single == nil {
+			t.Fatalf("authored grouped or single Sass element selector missing: %v",
+				sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		if group.DeclarationRange.Start.Line != expectedLine ||
+			group.DeclarationRange.End.Line != expectedLine+2 ||
+			group.ParentID != "" || group.QualifiedName != "body, html" ||
+			group.ID == single.ID || single.ParentID != "" {
+			t.Fatalf("Sass bare element group/peer identity incorrect: group=%+v peer=%+v", group, single)
+		}
+	}
+	const fixture = "body, html\n  height: 100%\n  width: 100%\nbody\n  background: black\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source, 1) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_DANILO_ROOT"); root != "" {
+		t.Run("original-sass-danilo-group", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\nbody, html\n  height: 100%\n  width: 100%\n") != 1 {
+				t.Fatal("original Sass grouped selector oracle changed")
+			}
+			check(t, source, 17)
+		})
+	}
+}
+
+func TestSassBareElementGroupRejectsAmbiguousHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		valid  bool
+	}{
+		{"body, html", true},
+		{"body,html, main", true},
+		{"body,\tsection", true},
+		{"body", false},
+		{"body,", false},
+		{",body", false},
+		{"body, , html", false},
+		{"body, .card", false},
+		{"body, #app", false},
+		{"body, html:hover", false},
+		{"body, div > span", false},
+		{"body, #{interpolated}", false},
+		{"color: red, blue", false},
+		{"font-family: Arial, sans-serif", false},
+	} {
+		t.Run(tc.header, func(t *testing.T) {
+			if got := sassBareElementGroup(tc.header); got != tc.valid {
+				t.Errorf("Sass element group %q: recognized=%t want %t", tc.header, got, tc.valid)
+			}
+		})
+	}
+	for _, newline := range []string{"\n", "\r\n"} {
+		source := strings.Join([]string{"body, html", "body", "  color: black", ""}, newline)
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("no-group-body.sass", source), testAnalyzeOptions(true, 32))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, symbol := range result.Analysis.Symbols {
+			if symbol.Name == "body, html" {
+				t.Errorf("bare-element group without an indented body was indexed: %+v", symbol)
+			}
+		}
+	}
+}
+
+// A source-authored escaped pseudo-selector has a full indented Sass rule
+// body; it must remain an independent exact-name edit target.
+func TestSassEscapedPseudoSelectorOriginalSource(t *testing.T) {
+	check := func(t *testing.T, source string, startLine int) {
+		t.Helper()
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			testSourceDocument("original.sass", source), testAnalyzeOptions(true, 256))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pseudo, following *NormalizedSymbol
+		for i := range result.Analysis.Symbols {
+			symbol := &result.Analysis.Symbols[i]
+			switch symbol.Name {
+			case "\\::selection":
+				pseudo = symbol
+			case "#triangle":
+				following = symbol
+			}
+		}
+		if pseudo == nil || following == nil {
+			t.Fatalf("authored Sass escaped selector or following peer missing: %v",
+				sortedSymbolQualifiedNames(result.Analysis.Symbols))
+		}
+		if pseudo.Kind != SymbolKindSelector || pseudo.ParentID != "" ||
+			pseudo.QualifiedName != pseudo.Name ||
+			pseudo.DeclarationRange.Start.Line != startLine ||
+			pseudo.DeclarationRange.End.Line != startLine+2 ||
+			following.ParentID != "" || pseudo.ID == following.ID {
+			t.Fatalf("escaped Sass pseudo-selector must retain its source range and peer boundary: pseudo=%+v peer=%+v", pseudo, following)
+		}
+	}
+	const fixture = "\\::selection\n  color: white\n  background: blue\n#triangle\n  width: 0\n"
+	for _, tc := range []struct{ name, source string }{
+		{"LF", fixture}, {"CRLF", strings.ReplaceAll(fixture, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) { check(t, tc.source, 1) })
+	}
+	if root := os.Getenv("SCRIPTHOLD_REAL_SASS_DANILO_ROOT"); root != "" {
+		t.Run("original-sass-danilo-selection", func(t *testing.T) {
+			path := filepath.Join(root, "style.sass")
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				t.Fatalf("bounded original Sass source unavailable: %v %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(data)
+			if strings.Count(source, "\n\\::selection\n  color: white\n  background: rgba(170,170,170, 0.6)\n") != 1 {
+				t.Fatal("original escaped Sass pseudo-selector oracle changed")
+			}
+			check(t, source, 31)
+		})
+	}
+}
+
+// An escaped pseudo-selector is a bounded source-navigation form, not an
+// invitation to parse arbitrary escaped CSS expressions as declarations.
+func TestSassEscapedPseudoSelectorBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		valid  bool
+	}{
+		{"\\::selection", true},
+		{"\\::before", true},
+		{"\\::selection-alt", true},
+		{"\\::", false},
+		{"\\::9", false},
+		{"\\\\::selection", false},
+		{"\\:selection", false},
+		{"\\:::selection", false},
+		{"\\::selection:hover", false},
+		{"\\::selection .child", false},
+		{"\\::selection()", false},
+		{"\\::#{dynamic}", false},
+		{"\\::selection: red", false},
+	} {
+		t.Run(tc.header, func(t *testing.T) {
+			if got := sassEscapedPseudoSelector(tc.header); got != tc.valid {
+				t.Errorf("escaped Sass pseudo-selector %q recognized=%t want=%t", tc.header, got, tc.valid)
+			}
+		})
+	}
+	for _, tc := range []struct{ name, newline string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := strings.ReplaceAll("\\::selection\n#peer\n  color: red\n", "\n", tc.newline)
+			result, err := (SassAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("no-body.sass", source), testAnalyzeOptions(true, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, symbol := range result.Analysis.Symbols {
+				if symbol.Name == "\\::selection" {
+					t.Fatalf("header without an indented rule body became a selector: %+v", symbol)
+				}
+			}
+			source = strings.ReplaceAll(".outer\n  \\::selection\n    color: white\n.next\n  color: black\n", "\n", tc.newline)
+			result, err = (SassAnalyzer{}).Analyze(context.Background(),
+				testSourceDocument("nested-pseudo.sass", source), testAnalyzeOptions(true, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var outer, nested, next *NormalizedSymbol
+			for index := range result.Analysis.Symbols {
+				symbol := &result.Analysis.Symbols[index]
+				switch symbol.Name {
+				case ".outer":
+					outer = symbol
+				case "\\::selection":
+					nested = symbol
+				case ".next":
+					next = symbol
+				}
+			}
+			if outer == nil || nested == nil || next == nil {
+				t.Fatalf("nested escaped selector or adjacent peer missing: %+v", result.Analysis.Symbols)
+			}
+			if nested.ParentID != outer.ID || nested.ParentQualifiedName != outer.QualifiedName ||
+				nested.QualifiedName != nested.Name || nested.DeclarationRange.Start.Line != 2 ||
+				nested.DeclarationRange.End.Line != 3 || next.ParentID != "" {
+				t.Fatalf("Sass escaped selector owner/peer boundary incorrect: outer=%+v nested=%+v next=%+v", outer, nested, next)
+			}
+		})
+	}
+}
+
+func TestSassSelectorBodyStopsBeforePeerAtSameIndentWithTabs(t *testing.T) {
+	const source = ".outer\n" +
+		"\tcolor: red\n" +
+		"\t.nested\n" +
+		"\t\tcolor: blue\n" +
+		"\t.other\n" +
+		"\t\tcolor: green\n" +
+		".next\n" +
+		"\tcolor: black\n"
+	for _, newline := range []string{"\n", "\r\n"} {
+		result, err := (SassAnalyzer{}).Analyze(context.Background(),
+			sourceDocumentForScanner(strings.ReplaceAll(source, "\n", newline)),
+			testAnalyzeOptions(true, 128))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]int{".outer": 6, ".nested": 4, ".other": 6, ".next": 8}
+		seen := make(map[string]NormalizedSymbol, len(want))
+		for _, symbol := range result.Analysis.Symbols {
+			if end, ok := want[symbol.Name]; ok {
+				seen[symbol.Name] = symbol
+				if symbol.DeclarationRange.End.Line != end {
+					t.Errorf("tab-indented peer should not leak into %s: %+v", symbol.Name, symbol)
+				}
+			}
+		}
+		if len(seen) != len(want) {
+			t.Fatalf("Sass tab-indented selectors missing: %+v", result.Analysis.Symbols)
+		}
+		for _, name := range []string{".nested", ".other"} {
+			if seen[name].QualifiedName != name {
+				t.Errorf("Sass selector exact-name query changed: %+v", seen[name])
+			}
+			if seen[name].ParentID != seen[".outer"].ID ||
+				seen[name].ParentQualifiedName != seen[".outer"].QualifiedName {
+				t.Errorf("%s must be owned by outer Sass selector: %+v", name, seen[name])
+			}
+		}
+		for _, name := range []string{".outer", ".next"} {
+			if seen[name].ParentID != "" || seen[name].ParentQualifiedName != "" {
+				t.Errorf("top-level Sass selector %s acquired a false parent: %+v", name, seen[name])
+			}
+		}
+	}
+}

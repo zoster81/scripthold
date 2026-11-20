@@ -65,7 +65,8 @@ func analyzeCFamily(ctx context.Context, document *SourceDocument, options Analy
 		}
 		lexicalText = masked
 	}
-	variantBaseText := maskCFamilyDirectiveBlockComments(document.Text, lexicalText)
+	lexicalText = maskCFamilyInitialBOM(lexicalText)
+	variantBaseText := maskCFamilyInitialBOM(maskCFamilyDirectiveBlockComments(document.Text, lexicalText))
 	planText := maskCFamilyDirectiveBlockComments(lexicalText, lexicalText)
 	planDocument := document
 	if planText != document.Text {
@@ -153,7 +154,7 @@ func analyzeCFamilySingle(ctx context.Context, document *SourceDocument, options
 	if maxNesting <= 0 {
 		maxNesting = 2048
 	}
-	scanText := maskCFamilyDirectiveBlockComments(lexicalText, lexicalText)
+	scanText := maskCFamilyInitialBOM(maskCFamilyDirectiveBlockComments(lexicalText, lexicalText))
 	projectedText, projectionErr := maskCFamilyStructuralMacroEffects(ctx, document, scanText, profile, maxNesting)
 	if projectionErr != nil {
 		return AnalyzerResult{}, projectionErr
@@ -207,6 +208,15 @@ func analyzeCFamilySingle(ctx context.Context, document *SourceDocument, options
 		return AnalyzerResult{}, operation.Wrap(operation.KindCancelled, "analyze_c_family_source", document.Path, err)
 	}
 	return AnalyzerResult{Analysis: builder.takeResult(), Dependencies: parser.dependencies, Relations: parser.relations}, nil
+}
+
+// A UTF-8 BOM is not a C/C++ token. Replace its bytes, rather than removing
+// them, so source ranges remain aligned with the original document.
+func maskCFamilyInitialBOM(text string) string {
+	if strings.HasPrefix(text, "\ufeff") {
+		return "   " + text[len("\ufeff"):]
+	}
+	return text
 }
 
 func maskCFamilyDirectiveBlockComments(text, lexicalText string) string {
@@ -788,6 +798,13 @@ func cFamilyConditionalState(keyword, rest string, macroVersions map[string]int,
 		}
 		return key, 1
 	case "#if":
+		if name, positive := cFamilyExactDefinedCondition(rest); name != "" {
+			key := "macro:" + strconv.Itoa(cFamilyConditionalIncludeEpoch(name, includeEpoch)) + ":" + strconv.Itoa(macroVersions[name]) + ":" + name
+			if !positive {
+				return key, -1
+			}
+			return key, 1
+		}
 		expression := strings.Join(strings.Fields(rest), " ")
 		if expression == "" {
 			return "", 0
@@ -796,6 +813,32 @@ func cFamilyConditionalState(keyword, rest string, macroVersions map[string]int,
 	default:
 		return "", 0
 	}
+}
+
+// Only a single exact defined(MACRO) expression has the same state as
+// #ifdef MACRO. Composite expressions retain the conservative expression key.
+func cFamilyExactDefinedCondition(expression string) (string, bool) {
+	expression = strings.TrimSpace(expression)
+	positive := true
+	if strings.HasPrefix(expression, "!") {
+		positive = false
+		expression = strings.TrimSpace(expression[1:])
+	}
+	rest, ok := strings.CutPrefix(expression, "defined")
+	if !ok || rest == "" {
+		return "", false
+	}
+	if rest[0] != '(' && rest[0] != ' ' && rest[0] != '\t' {
+		return "", false
+	}
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, "(") && strings.HasSuffix(rest, ")") {
+		rest = strings.TrimSpace(rest[1 : len(rest)-1])
+	}
+	if rest == "" || cFamilyDirectiveMacroName(rest) != rest {
+		return "", false
+	}
+	return rest, positive
 }
 
 func cFamilyConditionalIncludeEpoch(name string, includeEpoch int) int {
@@ -989,7 +1032,10 @@ func collectCFamilyDirectives(document *SourceDocument, tokens []Token) cFamilyD
 			if value := cFamilyIncludeValue(rest); value != "" {
 				rangeValue, err := document.RangeFromUTF8Offsets(token.StartOffset, token.EndOffset)
 				if err == nil {
-					summary.dependencies = append(summary.dependencies, StructuralDependency{Kind: StructuralDependencyInclude, Value: value, Range: rangeValue, Evidence: SymbolEvidenceStructural})
+					summary.dependencies = append(summary.dependencies, StructuralDependency{
+						Kind: StructuralDependencyInclude, Value: value, Range: rangeValue,
+						Evidence: SymbolEvidenceStructural, cFamilyAngleInclude: strings.HasPrefix(rest, "<"),
+					})
 				}
 			}
 		}
@@ -1061,16 +1107,86 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 		if index >= end || parser.tokens[index].Kind == TokenEOF {
 			return
 		}
+		// A conditional C++ linkage wrapper in a C header is a transparent
+		// scope, not the return-type prefix of the first wrapped declaration.
+		// Conditional variants are scanned structurally without macro expansion.
+		if parser.token(index, "extern") {
+			linkage := index + 1
+			for linkage < end && (parser.tokens[linkage].Kind == TokenNewline || parser.tokens[linkage].Kind == TokenDirective) {
+				linkage++
+			}
+			if linkage < end && parser.tokens[linkage].Kind == TokenString &&
+				(parser.token(linkage, "\"C\"") || parser.token(linkage, "\"C++\"")) {
+				open := nextStructuralToken(parser.tokens, linkage+1, end)
+				if open < end && parser.token(open, "{") {
+					close := parser.pairs[open]
+					if close <= open || close >= end {
+						parser.builder.MarkIncomplete()
+						return
+					}
+					parser.parseScope(open+1, close, parent, members, owner)
+					index = close + 1
+					continue
+				}
+			}
+		}
+		if parser.cpp {
+			if next, ok := parser.cppExplicitClassInstantiation(index, end); ok {
+				index = next
+				continue
+			}
+		}
+		if parser.cpp {
+			if next, ok := parser.cppStandaloneUnresolvedMacro(index, end, members, owner); ok {
+				index = next
+				continue
+			}
+			if next, ok := parser.cppUnsupportedConceptDeclaration(index, end); ok {
+				index = next
+				continue
+			}
+			if using, ok := parser.cppTemplateUsingAlias(index, end); ok {
+				if next, parsed := parser.parseUsingAlias(index, using, end, parent); parsed {
+					index = next
+					continue
+				}
+			}
+		}
 		if parser.cpp && parser.token(index, "namespace") {
 			index = parser.parseNamespace(index, end, parent)
 			continue
+		}
+		if parser.cpp && parser.token(index, "static_assert") {
+			open := nextStructuralToken(parser.tokens, index+1, end)
+			if open >= end || !parser.token(open, "(") {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			close := parser.pairs[open]
+			if close <= open || close >= end {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			terminator := nextStructuralToken(parser.tokens, close+1, end)
+			if terminator >= end || !parser.token(terminator, ";") {
+				parser.builder.MarkIncomplete()
+				return
+			}
+			index = terminator + 1
+			continue
+		}
+		if parser.token(index, "typedef") {
+			if next, ok := parser.parseAnonymousAggregateTypedef(index, end, parent); ok {
+				index = next
+				continue
+			}
 		}
 		if keyword, declarationStart, ok := parser.typeDeclarationAt(index, end); ok {
 			index = parser.parseType(declarationStart, keyword, end, parent)
 			continue
 		}
 		if parser.cpp && parser.token(index, "using") {
-			if next, ok := parser.parseUsingAlias(index, end, parent); ok {
+			if next, ok := parser.parseUsingAlias(index, index, end, parent); ok {
 				index = next
 				continue
 			}
@@ -1082,13 +1198,223 @@ func (parser *cFamilyParser) parseScope(start, end int, parent *SymbolParent, me
 		if next, ok := parser.parseFunctionOrVariable(index, end, parent, members, owner); ok {
 			index = next
 			continue
+		} else if parser.cpp && next > index+1 && next <= end && parser.tokens[next-1].Text == ";" {
+			// An unsupported complete declaration (such as a deleted operator)
+			// must not be reinterpreted from its interior as a new declaration.
+			index = next
+			continue
 		}
 		index++
 	}
 }
 
+// An explicit template instantiation such as "template class Box<int>;"
+// refers to an existing C++ class. Neither its template arguments nor its
+// specialization name introduce a source declaration in this file. Match
+// this exact semicolon-terminated form only: template declarations beginning
+// with '<' and class definitions retain their normal parser path.
+func (parser *cFamilyParser) cppExplicitClassInstantiation(start, end int) (int, bool) {
+	cursor := start
+	if parser.token(cursor, "extern") {
+		cursor = nextStructuralToken(parser.tokens, cursor+1, end)
+	}
+	if !parser.token(cursor, "template") {
+		return start, false
+	}
+	keyword := nextStructuralToken(parser.tokens, cursor+1, end)
+	if !parser.token(keyword, "class") && !parser.token(keyword, "struct") && !parser.token(keyword, "union") {
+		return start, false
+	}
+	depth := parser.tokens[start].Nesting
+	seenArguments := false
+	for i := keyword + 1; i < end; i++ {
+		token := parser.tokens[i]
+		if token.Kind == TokenEOF || token.Text == "{" || token.Text == "}" {
+			return start, false
+		}
+		if token.Text == "<" {
+			seenArguments = true
+		}
+		if token.Nesting != depth {
+			continue
+		}
+		if token.Text == "=" {
+			return start, false
+		}
+		if token.Text == ";" {
+			if seenArguments {
+				return i + 1, true
+			}
+			return start, false
+		}
+	}
+	return start, false
+}
+
+// A macro call occupying an entire C++ source line is not a function
+// declaration. Its expansion might introduce scopes, so preserve following
+// authored declarations but explicitly report incomplete structural coverage.
+// Do not assume any specific project macro expands to namespace braces.
+func (parser *cFamilyParser) cppStandaloneUnresolvedMacro(start, end int, members bool, owner string) (int, bool) {
+	token := parser.tokens[start]
+	name := token.Text
+	if token.Kind != TokenIdentifier || len(name) < 3 ||
+		name != strings.ToUpper(name) || !strings.Contains(name, "_") ||
+		(members && name == owner) {
+		return start, false
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if !parser.token(open, "(") || parser.tokens[open].Nesting != token.Nesting+1 {
+		return start, false
+	}
+	if strings.ContainsAny(parser.document.Text[token.EndOffset:parser.tokens[open].StartOffset], "\r\n") {
+		return start, false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		return start, false
+	}
+	after := close + 1
+	if after >= end {
+		return start, false
+	}
+	next := after + 1
+	rangeEnd := parser.tokens[close].EndOffset
+	if parser.token(after, "{") {
+		blockClose := parser.pairs[after]
+		if blockClose <= after || blockClose >= end {
+			parser.builder.MarkIncomplete()
+			return start, false
+		}
+		rangeEnd = parser.tokens[blockClose].EndOffset
+		next = blockClose + 1
+	} else if parser.tokens[after].Kind != TokenNewline && parser.tokens[after].Kind != TokenEOF {
+		return start, false
+	}
+	rangeValue := OffsetRange{Start: token.StartOffset, End: rangeEnd}
+	_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+		Code:     "cpp-unresolved-macro-invocation",
+		Message:  "standalone function-like macro expansion is unknown; following C++ declarations are preserved without inferring macro-generated scope",
+		Severity: DiagnosticWarning, Range: &rangeValue, AffectsCoverage: true,
+	})
+	return next, true
+}
+
+// A complete bounded template head is shared by template aliases and
+// unsupported concept declarations. Leave other templates to their parsers.
+func (parser *cFamilyParser) cppTemplateDeclarationKeyword(start, end int) (int, bool) {
+	if !parser.token(start, "template") {
+		return start, false
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if !parser.token(open, "<") {
+		return start, false
+	}
+	angle := 0
+	for index := open; index < end; index++ {
+		token := parser.tokens[index]
+		switch token.Text {
+		case "<":
+			angle++
+		case ">":
+			angle--
+		case ">>":
+			angle -= 2
+		case "{", ";":
+			return start, false
+		}
+		if angle < 0 || angle > 64 || token.Kind == TokenEOF {
+			return start, false
+		}
+		if angle == 0 {
+			return nextStructuralToken(parser.tokens, index+1, end), true
+		}
+	}
+	return start, false
+}
+
+func (parser *cFamilyParser) cppTemplateUsingAlias(start, end int) (int, bool) {
+	keyword, ok := parser.cppTemplateDeclarationKeyword(start, end)
+	return keyword, ok && parser.token(keyword, "using")
+}
+
+// A concept is a constraint, not a variable. Until a normalized concept kind
+// exists, consume only a proven complete declaration and report partial coverage.
+func (parser *cFamilyParser) cppUnsupportedConceptDeclaration(start, end int) (int, bool) {
+	keyword, ok := parser.cppTemplateDeclarationKeyword(start, end)
+	if !ok || !parser.token(keyword, "concept") {
+		return start, false
+	}
+	name := nextStructuralToken(parser.tokens, keyword+1, end)
+	if name >= end || parser.tokens[name].Kind != TokenIdentifier {
+		return start, false
+	}
+	assignment := nextStructuralToken(parser.tokens, name+1, end)
+	if !parser.token(assignment, "=") {
+		return start, false
+	}
+	depth := parser.tokens[start].Nesting
+	for index := assignment + 1; index < end; index++ {
+		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
+			value := OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[index].EndOffset}
+			_ = parser.builder.AddDiagnostic(DiagnosticSpec{
+				Code:     "cpp-unsupported-concept",
+				Message:  "C++20 concept declarations are not yet represented; no variable was inferred",
+				Severity: DiagnosticWarning, Range: &value, AffectsCoverage: true,
+			})
+			return index + 1, true
+		}
+		if parser.tokens[index].Kind == TokenEOF || parser.tokens[index].Nesting < depth {
+			break
+		}
+	}
+	parser.builder.MarkIncomplete()
+	return start, false
+}
+
 func (parser *cFamilyParser) token(index int, value string) bool {
 	return index >= 0 && index < len(parser.tokens) && parser.tokens[index].Text == value
+}
+
+// parseAnonymousAggregateTypedef accepts a single balanced anonymous
+// struct, union, or enum typedef. It owns its fields and does not reinterpret
+// the alias or members as top-level variables.
+func (parser *cFamilyParser) parseAnonymousAggregateTypedef(start, end int, parent *SymbolParent) (int, bool) {
+	keyword := nextStructuralToken(parser.tokens, start+1, end)
+	if keyword >= end {
+		return start, false
+	}
+	nativeKind := parser.tokens[keyword].Text
+	if nativeKind != "enum" && nativeKind != "struct" && nativeKind != "union" {
+		return start, false
+	}
+	open := nextStructuralToken(parser.tokens, keyword+1, end)
+	if !parser.token(open, "{") || parser.tokens[open].Nesting != parser.tokens[start].Nesting+1 {
+		return start, false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		return start, false
+	}
+	nameIndex := nextStructuralToken(parser.tokens, close+1, end)
+	semicolon := nextStructuralToken(parser.tokens, nameIndex+1, end)
+	if nameIndex >= end || parser.tokens[nameIndex].Kind != TokenIdentifier ||
+		parser.tokens[nameIndex].Nesting != parser.tokens[start].Nesting ||
+		!parser.token(semicolon, ";") || parser.tokens[semicolon].Nesting != parser.tokens[start].Nesting {
+		return start, false
+	}
+	symbol, added := parser.add(SymbolSpec{
+		Kind: SymbolKindAlias, NativeKind: "typedef-" + nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
+		Evidence:    SymbolEvidenceStructural,
+	})
+	if added && nativeKind != "enum" {
+		typeParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+		parser.types[symbol.QualifiedName] = *typeParent
+		parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+	}
+	return semicolon + 1, true
 }
 
 func (parser *cFamilyParser) typeDeclarationAt(start, end int) (keyword, declarationStart int, ok bool) {
@@ -1115,12 +1441,13 @@ func (parser *cFamilyParser) typeDeclarationAt(start, end int) (keyword, declara
 	}
 	for cursor < end {
 		text := strings.ToLower(parser.tokens[cursor].Text)
-		if _, modifier := cFamilyModifiers[text]; modifier && text != "typedef" {
+		if _, modifier := cFamilyModifiers[text]; modifier {
 			cursor++
 			continue
 		}
 		if text == "struct" || text == "class" || text == "union" || text == "enum" {
-			if text == "class" && !parser.cpp {
+			// C++ keywords are case-sensitive; Objective-C uses Class as a type name.
+			if text == "class" && (!parser.cpp || parser.tokens[cursor].Text != "class") {
 				return 0, start, false
 			}
 			if !parser.typeHeadIsDefinitionOrForwardDeclaration(cursor, end) {
@@ -1133,9 +1460,33 @@ func (parser *cFamilyParser) typeDeclarationAt(start, end int) (keyword, declara
 	return 0, start, false
 }
 
+// cppTypeNameIndex skips the common unexpanded DLL export decoration in
+// class/struct/union heads, but never treats a bare macro-shaped name as a decoration.
+func (parser *cFamilyParser) cppTypeNameIndex(keyword, end int) int {
+	cursor := keyword + 1
+	kind := parser.tokens[keyword].Text
+	if kind == "enum" && parser.cpp && cursor < end && (parser.token(cursor, "class") || parser.token(cursor, "struct")) {
+		cursor++
+	}
+	nameIndex := nextIdentifierToken(parser.tokens, cursor, end)
+	if !parser.cpp || nameIndex < 0 || (kind != "class" && kind != "struct" && kind != "union") {
+		return nameIndex
+	}
+	macro := parser.tokens[nameIndex].Text
+	if macro != strings.ToUpper(macro) || (!strings.HasSuffix(macro, "_API") && !strings.HasSuffix(macro, "_EXPORT")) {
+		return nameIndex
+	}
+	next := nextStructuralToken(parser.tokens, nameIndex+1, end)
+	if next >= end || parser.tokens[next].Nesting != parser.tokens[keyword].Nesting ||
+		parser.tokens[next].Kind != TokenIdentifier || parser.token(next, "final") || cFamilyTypeAttribute(parser.tokens[next].Text) {
+		return nameIndex
+	}
+	return next
+}
+
 func (parser *cFamilyParser) typeHeadIsDefinitionOrForwardDeclaration(keyword, end int) bool {
 	depth := parser.tokens[keyword].Nesting
-	nameIndex := nextIdentifierToken(parser.tokens, keyword+1, end)
+	nameIndex := parser.cppTypeNameIndex(keyword, end)
 	if nameIndex < 0 {
 		return true
 	}
@@ -1198,6 +1549,7 @@ func (parser *cFamilyParser) parseNamespace(start, end int, parent *SymbolParent
 			break
 		}
 		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
+			parser.parseNamespaceAlias(start, index, parent)
 			return index + 1
 		}
 	}
@@ -1230,14 +1582,69 @@ func (parser *cFamilyParser) parseNamespace(start, end int, parent *SymbolParent
 	return close + 1
 }
 
+// A namespace alias declares a name. In contrast, "using namespace X"
+// imports a namespace and does not declare a new symbol.
+func (parser *cFamilyParser) parseNamespaceAlias(start, semicolon int, parent *SymbolParent) {
+	name := nextStructuralToken(parser.tokens, start+1, semicolon)
+	if name >= semicolon || parser.tokens[name].Kind != TokenIdentifier {
+		return
+	}
+	equals := nextStructuralToken(parser.tokens, name+1, semicolon)
+	if equals >= semicolon || !parser.token(equals, "=") {
+		return
+	}
+	cursor := nextStructuralToken(parser.tokens, equals+1, semicolon)
+	if cursor >= semicolon {
+		return
+	}
+	if next, ok := parser.namespaceAliasSeparator(cursor, semicolon); ok {
+		cursor = next
+	}
+	for cursor < semicolon {
+		if parser.tokens[cursor].Kind != TokenIdentifier && parser.tokens[cursor].Kind != TokenKeyword {
+			return
+		}
+		next := nextStructuralToken(parser.tokens, cursor+1, semicolon)
+		if next == semicolon {
+			break
+		}
+		afterSeparator, ok := parser.namespaceAliasSeparator(next, semicolon)
+		if !ok {
+			return
+		}
+		cursor = afterSeparator
+		if cursor >= semicolon {
+			return
+		}
+	}
+	_, _ = parser.add(SymbolSpec{
+		Kind: SymbolKindAlias, NativeKind: "namespace-alias", Name: parser.tokens[name].Text, Parent: parent,
+		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+		Evidence:    SymbolEvidenceStructural,
+	})
+}
+
+// The structural scanner may represent C++ "::" as one token or two
+// adjacent ":" tokens. Do not accept a single colon as a namespace path.
+func (parser *cFamilyParser) namespaceAliasSeparator(index, end int) (int, bool) {
+	if parser.token(index, "::") {
+		return nextStructuralToken(parser.tokens, index+1, end), true
+	}
+	if parser.token(index, ":") {
+		second := nextStructuralToken(parser.tokens, index+1, end)
+		if parser.token(second, ":") {
+			return nextStructuralToken(parser.tokens, second+1, end), true
+		}
+	}
+	return index, false
+}
+
 func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolParent) int {
 	depth := parser.tokens[keyword].Nesting
 	nativeKind := strings.ToLower(parser.tokens[keyword].Text)
-	cursor := keyword + 1
-	if nativeKind == "enum" && parser.cpp && cursor < end && (parser.token(cursor, "class") || parser.token(cursor, "struct")) {
-		cursor++
-	}
-	nameIndex := nextIdentifierToken(parser.tokens, cursor, end)
+	nameIndex := parser.cppTypeNameIndex(keyword, end)
 	if nameIndex < 0 {
 		parser.builder.MarkIncomplete()
 		return keyword + 1
@@ -1286,10 +1693,35 @@ func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolPa
 		body = &value
 	}
 	modifiers := collectKnownModifiers(parser.tokens, start, keyword, cFamilyModifiers)
+	lastNameIndex := nameIndex
+	qualifiedName := ""
+	if parser.cpp && open >= 0 {
+		// A definition such as "struct Outer::Inner { ... }" declares Inner,
+		// not Outer. Its owner may only exist in a separate header: retain
+		// the written qualifier without manufacturing an outer class ID.
+		parts := []string{parser.tokens[nameIndex].Text}
+		for cursor := nextStructuralToken(parser.tokens, lastNameIndex+1, open); cursor < open; {
+			next, ok := parser.namespaceAliasSeparator(cursor, open)
+			if !ok || next >= open || parser.tokens[next].Kind != TokenIdentifier ||
+				parser.tokens[next].Nesting != depth {
+				break
+			}
+			lastNameIndex = next
+			parts = append(parts, parser.tokens[next].Text)
+			cursor = nextStructuralToken(parser.tokens, next+1, open)
+		}
+		if len(parts) > 1 {
+			qualifiedName = strings.Join(parts, ".")
+			if parent != nil && parent.QualifiedName != "" &&
+				!strings.HasPrefix(qualifiedName, parent.QualifiedName+".") {
+				qualifiedName = parent.QualifiedName + "." + qualifiedName
+			}
+		}
+	}
 	symbol, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
+		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[lastNameIndex].Text, QualifiedName: qualifiedName, Parent: parent,
 		Declaration: OffsetRange{Start: declarationStart, End: declarationEnd},
-		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
+		NameRange:   OffsetRange{Start: parser.tokens[lastNameIndex].StartOffset, End: parser.tokens[lastNameIndex].EndOffset},
 		Signature:   &OffsetRange{Start: declarationStart, End: signatureEnd}, Body: body,
 		Visibility: visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
 	})
@@ -1298,11 +1730,30 @@ func (parser *cFamilyParser) parseType(start, keyword, end int, parent *SymbolPa
 	}
 	parser.types[symbol.QualifiedName] = SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 	if parser.cpp && open >= 0 {
-		parser.collectCPPBaseRelations(symbol.QualifiedName, nameIndex+1, open, depth)
+		parser.collectCPPBaseRelations(symbol.QualifiedName, lastNameIndex+1, open, depth)
 	}
 	if open >= 0 && nativeKind != "enum" {
 		typeParent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 		parser.parseScope(open+1, close, typeParent, true, symbol.Name)
+	}
+	if open >= 0 && parser.token(start, "typedef") {
+		// A tagged aggregate and its trailing typedef name are two distinct
+		// declarations. Accept only one directly authored alias and semicolon;
+		// ordinary trailing objects and compound declarators retain their path.
+		aliasIndex := nextStructuralToken(parser.tokens, close+1, end)
+		if aliasIndex < end && parser.tokens[aliasIndex].Kind == TokenIdentifier &&
+			parser.tokens[aliasIndex].Nesting == depth {
+			semicolonIndex := nextStructuralToken(parser.tokens, aliasIndex+1, end)
+			if parser.token(semicolonIndex, ";") && parser.tokens[semicolonIndex].Nesting == depth {
+				_, _ = parser.add(SymbolSpec{
+					Kind: SymbolKindAlias, NativeKind: "typedef", Name: parser.tokens[aliasIndex].Text, Parent: parent,
+					Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolonIndex].EndOffset},
+					NameRange:   OffsetRange{Start: parser.tokens[aliasIndex].StartOffset, End: parser.tokens[aliasIndex].EndOffset},
+					Evidence:    SymbolEvidenceStructural,
+				})
+				return semicolonIndex + 1
+			}
+		}
 	}
 	return terminator + 1
 }
@@ -1331,10 +1782,10 @@ func (parser *cFamilyParser) collectCPPBaseRelations(source string, start, end, 
 	}
 }
 
-func (parser *cFamilyParser) parseUsingAlias(start, end int, parent *SymbolParent) (int, bool) {
-	depth := parser.tokens[start].Nesting
+func (parser *cFamilyParser) parseUsingAlias(start, using, end int, parent *SymbolParent) (int, bool) {
+	depth := parser.tokens[using].Nesting
 	semicolon := -1
-	for index := start + 1; index < end; index++ {
+	for index := using + 1; index < end; index++ {
 		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
 			semicolon = index
 			break
@@ -1343,9 +1794,11 @@ func (parser *cFamilyParser) parseUsingAlias(start, end int, parent *SymbolParen
 	if semicolon < 0 {
 		return start + 1, false
 	}
-	nameIndex := nextIdentifierToken(parser.tokens, start+1, semicolon)
+	nameIndex := nextIdentifierToken(parser.tokens, using+1, semicolon)
 	if nameIndex < 0 || !parser.hasToken(nameIndex+1, semicolon, "=") {
-		return semicolon + 1, false
+		// A using-directive or using-declaration imports a name; it does
+		// not introduce a variable. Consume it instead of rescanning tokens.
+		return semicolon + 1, true
 	}
 	_, added := parser.add(SymbolSpec{
 		Kind: SymbolKindAlias, NativeKind: "using-alias", Name: parser.tokens[nameIndex].Text, Parent: parent,
@@ -1362,7 +1815,10 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 	assignmentSeen := false
 	for index := start; index < end; index++ {
 		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == depth {
-			assignmentSeen = true
+			// operator=(...) names an overload, not a variable initializer.
+			if !parser.operatorTokenBefore(index, start) {
+				assignmentSeen = true
+			}
 			continue
 		}
 		if parser.tokens[index].Text == ";" && parser.tokens[index].Nesting == depth {
@@ -1376,8 +1832,36 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 					parser.builder.MarkIncomplete()
 					return end, false
 				}
+				// An '= { ... }' initializer must be followed by a
+				// declaration delimiter. If the semicolon is missing,
+				// do not swallow a following function or invent a variable
+				// from its return statement. This does not affect braced
+				// expressions such as lambdas or typed temporaries.
+				previous := previousStructuralToken(parser.tokens, index-1, start)
+				if previous >= start && parser.token(previous, "=") {
+					following := nextStructuralToken(parser.tokens, close+1, end)
+					if following >= end || (parser.tokens[following].Nesting == depth &&
+						!parser.token(following, ";") && !parser.token(following, ",")) {
+						parser.builder.MarkIncomplete()
+						return close + 1, true
+					}
+				}
 				index = close
 				continue
+			}
+			if parser.cpp && parser.firstFunctionParen(start, index, depth) < 0 {
+				// A C++ declarator such as int count{1}; is a variable,
+				// not a function body. Consume its full initializer before
+				// scanning the next declaration, even inside a class.
+				close := parser.pairs[index]
+				if close > index && close < end {
+					semicolon := nextStructuralToken(parser.tokens, close+1, end)
+					previous := previousStructuralToken(parser.tokens, index-1, start)
+					if previous >= start && parser.tokens[previous].Kind == TokenIdentifier &&
+						semicolon < end && parser.tokens[semicolon].Text == ";" && parser.tokens[semicolon].Nesting == depth {
+						return parser.parseVariable(start, semicolon, index, parent, members)
+					}
+				}
 			}
 			terminator = index
 			break
@@ -1389,9 +1873,31 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 	if terminator < 0 {
 		return start + 1, false
 	}
+	// An unsupported return-type macro followed by a function declarator
+	// is neither a real function named after the macro nor a variable.
+	if parser.invalidWrappedReturnPrefix(start, terminator, depth) &&
+		parser.wrappedFunctionParen(start, terminator, depth) < 0 {
+		if parser.tokens[terminator].Text == "{" {
+			if close := parser.pairs[terminator]; close > terminator {
+				return close + 1, true
+			}
+		}
+		// The unsupported declaration is consumed. Returning false would
+		// rescan its suffix and invent a function or variable from it.
+		return terminator + 1, true
+	}
 	if _, functionPointer := parser.functionPointerDeclarator(start, terminator); !functionPointer {
 		paren := parser.firstFunctionParen(start, terminator, depth)
 		if paren >= 0 {
+			if parser.cpp && parser.tokens[terminator].Text == ";" {
+				// Literal and 'new' arguments cannot begin a function parameter declaration.
+				if close := parser.pairs[paren]; close > paren+1 && (parser.tokens[paren+1].Kind == TokenNumber || parser.tokens[paren+1].Kind == TokenString || parser.tokens[paren+1].Text == "new") {
+					return parser.parseVariable(start, terminator, paren, parent, members)
+				}
+				if parser.cppDirectInitializerExpression(paren) {
+					return parser.parseVariable(start, terminator, paren, parent, members)
+				}
+			}
 			if next, ok := parser.parseFunction(start, paren, terminator, end, parent, members, owner); ok {
 				return next, true
 			}
@@ -1404,12 +1910,61 @@ func (parser *cFamilyParser) parseFunctionOrVariable(start, end int, parent *Sym
 		}
 		return terminator + 1, false
 	}
-	return parser.parseVariable(start, terminator, parent, members)
+	return parser.parseVariable(start, terminator, terminator, parent, members)
+}
+
+// cppDirectInitializerExpression detects a source-written '+' expression in
+// constructor arguments. A '+' inside a default parameter, template argument,
+// or nested declarator is not proof that the outer declaration is a variable.
+// Unproven or oversized lists retain the conservative existing classification.
+func (parser *cFamilyParser) cppDirectInitializerExpression(paren int) bool {
+	close := parser.pairs[paren]
+	const maxTokens = 256
+	if close <= paren || close >= len(parser.tokens) || close-paren > maxTokens {
+		return false
+	}
+	// The scanner records the opening delimiter after pushing it; direct
+	// argument tokens have the same nesting, while bracketed extents do not.
+	depth := parser.tokens[paren].Nesting
+	angleDepth := 0
+	defaultArgument := false
+	for index := paren + 1; index < close; index++ {
+		token := parser.tokens[index]
+		if token.Nesting != depth {
+			continue
+		}
+		switch token.Text {
+		case "<":
+			angleDepth++
+		case ">":
+			if angleDepth > 0 {
+				angleDepth--
+			}
+		case ">>":
+			angleDepth = max(0, angleDepth-2)
+		case ",":
+			if angleDepth == 0 {
+				defaultArgument = false
+			}
+		case "=":
+			if angleDepth == 0 {
+				defaultArgument = true
+			}
+		case "+":
+			if angleDepth == 0 && !defaultArgument {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
+	if paren := parser.wrappedFunctionParen(start, end, depth); paren >= 0 {
+		return paren
+	}
 	for index := start; index < end; index++ {
-		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == depth {
+		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == depth && !parser.operatorTokenBefore(index, start) {
 			return -1
 		}
 		if parser.tokens[index].Text != "(" || parser.tokens[index].Nesting != depth+1 {
@@ -1419,11 +1974,130 @@ func (parser *cFamilyParser) firstFunctionParen(start, end, depth int) int {
 		if previous < 0 {
 			continue
 		}
-		if parser.tokens[previous].Kind == TokenIdentifier || parser.tokens[previous].Text == "]" || parser.tokens[previous].Text == ")" {
+		if parser.tokens[previous].Kind == TokenIdentifier || parser.tokens[previous].Text == "]" || parser.tokens[previous].Text == ")" || parser.operatorTokenBefore(previous, start) ||
+			(parser.cpp && parser.cppExplicitSpecializationName(start, index) >= 0) {
 			return index
 		}
 	}
 	return -1
+}
+
+// Only punctuation immediately following the operator keyword belongs to
+// the overloaded function name; other '=' tokens still start initializers.
+func (parser *cFamilyParser) operatorTokenBefore(index, start int) bool {
+	if !parser.cpp || index <= start {
+		return false
+	}
+	previous := previousStructuralToken(parser.tokens, index-1, start)
+	return previous >= start && parser.token(previous, "operator")
+}
+
+// Detect malformed/unsupported macro-return syntax without inventing a
+// function whose name is the unexpanded return-type macro.
+func (parser *cFamilyParser) invalidWrappedReturnPrefix(start, end, depth int) bool {
+	if !cFamilyReturnMacroName(parser.tokens[start].Text) {
+		return false
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if open >= end || parser.tokens[open].Text != "(" || parser.tokens[open].Nesting != depth+1 {
+		return false
+	}
+	close := parser.pairs[open]
+	if close <= open || close >= end {
+		return false
+	}
+	name := nextStructuralToken(parser.tokens, close+1, end)
+	if name >= end || parser.tokens[name].Nesting != depth || parser.tokens[name].Kind != TokenIdentifier {
+		return false
+	}
+	paren := nextStructuralToken(parser.tokens, name+1, end)
+	return paren < end && parser.tokens[paren].Text == "(" && parser.tokens[paren].Nesting == depth+1
+}
+
+func cFamilyReturnMacroName(name string) bool {
+	upper := strings.ToUpper(name)
+	unseparatedAPI := name == upper && len(upper) > len("API") && strings.HasSuffix(upper, "API")
+	return strings.HasSuffix(upper, "_PUBLIC") || strings.HasSuffix(upper, "_EXPORT") ||
+		strings.HasSuffix(upper, "_API") || unseparatedAPI
+}
+
+// Accept the common unexpanded EXPORT(type) function-return decoration only
+// when it precedes a distinct named function declarator. Macro expansion is
+// not inferred; this identifies the declaration written in the source.
+func (parser *cFamilyParser) wrappedFunctionParen(start, end, depth int) int {
+	macro := parser.tokens[start]
+	if macro.Kind != TokenIdentifier && macro.Kind != TokenKeyword {
+		return -1
+	}
+	if !cFamilyReturnMacroName(macro.Text) {
+		return -1
+	}
+	open := nextStructuralToken(parser.tokens, start+1, end)
+	if open >= end || parser.tokens[open].Text != "(" || parser.tokens[open].Nesting != depth+1 {
+		return -1
+	}
+	close := parser.pairs[open]
+	if close <= open+1 || close >= end {
+		return -1
+	}
+	hasType := false
+	for i := open + 1; i < close; i++ {
+		token := parser.tokens[i]
+		if token.Kind == TokenIdentifier || token.Kind == TokenKeyword {
+			hasType = true
+			continue
+		}
+		if token.Text != "*" && token.Text != "&" {
+			return -1 // Not a simple type expression: do not guess macro semantics.
+		}
+	}
+	if !hasType {
+		return -1
+	}
+	name := nextStructuralToken(parser.tokens, close+1, end)
+	if name >= end || parser.tokens[name].Nesting != depth || parser.tokens[name].Kind != TokenIdentifier {
+		return -1
+	}
+	paren := nextStructuralToken(parser.tokens, name+1, end)
+	if paren >= end || parser.tokens[paren].Text != "(" || parser.tokens[paren].Nesting != depth+1 {
+		return -1
+	}
+	return paren
+}
+
+// cppLexicalDeclaratorKey keeps only a bounded private C++ token spelling.
+// It does not erase parameter names, resolve types, or claim semantic overload
+// identity. Token separators prevent distinct spellings from colliding.
+func cppLexicalDeclaratorKey(tokens []Token, start, closeParen, end int) string {
+	const maxBytes = 512
+	if start < 0 || end > len(tokens) || start >= end {
+		return ""
+	}
+	var result strings.Builder
+	for i := start; i < end; i++ {
+		token := tokens[i]
+		switch token.Kind {
+		case TokenNewline:
+			continue
+		case TokenString, TokenDirective, TokenEOF:
+			return ""
+		}
+		if token.Text == "" {
+			continue
+		}
+		// override/final are in-class virt-specifiers, not part of a
+		// corresponding out-of-class function definition's declarator.
+		if i > closeParen && token.Nesting == tokens[start].Nesting-1 &&
+			(token.Text == "override" || token.Text == "final") {
+			continue
+		}
+		if result.Len()+1+len(token.Text) > maxBytes {
+			return ""
+		}
+		result.WriteByte(0)
+		result.WriteString(token.Text)
+	}
+	return result.String()
 }
 
 func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, parent *SymbolParent, members bool, owner string) (int, bool) {
@@ -1442,6 +2116,11 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		}
 	}
 	nameIndex := previousIdentifierToken(parser.tokens, paren-1, start)
+	if parser.cpp {
+		if specializationName := parser.cppExplicitSpecializationName(start, paren); specializationName >= 0 {
+			nameIndex = specializationName
+		}
+	}
 	if operatorIndex >= 0 {
 		nameIndex = operatorIndex
 	}
@@ -1452,11 +2131,14 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 	effectiveParent := parent
 	effectiveMembers := members
 	effectiveOwner := owner
+	unresolvedQualifier := ""
 	if parser.cpp {
 		if qualifiedParent, qualifiedOwner, ok := parser.qualifiedFunctionOwner(start, nameIndex, parent); ok {
 			effectiveParent = qualifiedParent
 			effectiveMembers = true
 			effectiveOwner = qualifiedOwner
+		} else {
+			unresolvedQualifier = qualifiedOwner
 		}
 	}
 	kind := SymbolKindFunction
@@ -1473,6 +2155,10 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		} else if effectiveMembers && nameIndex > start && parser.tokens[nameIndex-1].Text == "~" && name == effectiveOwner {
 			kind = SymbolKindDestructor
 			nativeKind = "destructor-declaration"
+		} else if effectiveMembers && nameIndex > start && parser.tokens[nameIndex-1].Text == "!" && name == effectiveOwner {
+			// A C++/CLI finalizer is neither a constructor nor a C++ destructor.
+			kind = SymbolKindMethod
+			nativeKind = "finalizer-declaration"
 		} else if effectiveMembers && name == effectiveOwner {
 			kind = SymbolKindConstructor
 			nativeKind = "constructor-declaration"
@@ -1509,7 +2195,11 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 		case SymbolKindFunction:
 			nativeKind = "function-definition"
 		case SymbolKindMethod:
-			nativeKind = "method-definition"
+			if nativeKind == "finalizer-declaration" {
+				nativeKind = "finalizer-definition"
+			} else {
+				nativeKind = "method-definition"
+			}
 		case SymbolKindConstructor:
 			nativeKind = "constructor-definition"
 		case SymbolKindDestructor:
@@ -1518,8 +2208,67 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 			nativeKind = "operator-definition"
 		}
 	}
+	defaulted := false
+	if parser.cpp && body == nil && parser.token(terminator, ";") {
+		last := previousStructuralToken(parser.tokens, terminator-1, closeParen)
+		equals := previousStructuralToken(parser.tokens, last-1, closeParen)
+		defaulted = equals >= 0 && parser.token(last, "default") && parser.token(equals, "=") &&
+			parser.tokens[equals].Nesting == parser.tokens[start].Nesting
+		if defaulted {
+			switch kind {
+			case SymbolKindConstructor:
+				nativeKind = "constructor-defaulted-definition"
+			case SymbolKindDestructor:
+				nativeKind = "destructor-defaulted-definition"
+			case SymbolKindOperator:
+				nativeKind = "operator-defaulted-definition"
+			}
+		}
+	}
+	if parser.cpp && unresolvedQualifier != "" && (body != nil || defaulted) && kind == SymbolKindFunction {
+		// The written spelling distinguishes lifecycle definitions even when the
+		// qualifier's class/namespace identity is unknown across files. Preserve
+		// the conservative function kind and unowned parent. '= default' has no
+		// body, but is a C++ definition rather than a mere declaration.
+		owner := unresolvedQualifier
+		if dot := strings.LastIndexByte(owner, '.'); dot >= 0 {
+			owner = owner[dot+1:]
+		}
+		if name == owner {
+			prefix := tokenRangeText(parser.tokens, start, nameIndex)
+			qualifier := strings.ReplaceAll(unresolvedQualifier, ".", "::") + "::"
+			switch prefix {
+			case qualifier:
+				if defaulted {
+					nativeKind = "qualified-constructor-defaulted-definition"
+				} else {
+					nativeKind = "qualified-constructor-definition"
+				}
+			case qualifier + "~":
+				if defaulted {
+					nativeKind = "qualified-destructor-defaulted-definition"
+				} else {
+					nativeKind = "qualified-destructor-definition"
+				}
+			}
+		}
+	}
 	modifiers := collectKnownModifiers(parser.tokens, start, paren, cFamilyModifiers)
 	nameStart := parser.tokens[nameIndex].StartOffset
+	if parser.cpp && nameIndex > start && parser.token(nameIndex-1, "~") &&
+		(kind == SymbolKindDestructor || strings.HasPrefix(nativeKind, "qualified-destructor-")) {
+		name = "~" + name
+		nameStart = parser.tokens[nameIndex-1].StartOffset
+	}
+	qualifiedName := ""
+	if unresolvedQualifier != "" {
+		// Preserve an explicit single-level C++ qualifier without inventing
+		// class membership: it might name a namespace from another file.
+		qualifiedName = unresolvedQualifier + "." + name
+		if parent != nil && parent.QualifiedName != "" {
+			qualifiedName = parent.QualifiedName + "." + qualifiedName
+		}
+	}
 	nameEnd := parser.tokens[nameIndex].EndOffset
 	if kind == SymbolKindOperator {
 		last := previousStructuralToken(parser.tokens, paren-1, nameIndex)
@@ -1527,57 +2276,143 @@ func (parser *cFamilyParser) parseFunction(start, paren, terminator, end int, pa
 			nameEnd = parser.tokens[last].EndOffset
 		}
 	}
+	cppDeclaratorKey := ""
+	if parser.cpp {
+		keyEnd := terminator
+		depth := parser.tokens[start].Nesting
+		for index := closeParen + 1; index < terminator; index++ {
+			if parser.tokens[index].Nesting == depth &&
+				(parser.token(index, ":") || parser.token(index, "=")) {
+				keyEnd = index // Constructor initializers and =default/delete are not qualifiers.
+				break
+			}
+		}
+		cppDeclaratorKey = cppLexicalDeclaratorKey(parser.tokens, paren, closeParen, keyEnd)
+		last := previousStructuralToken(parser.tokens, terminator-1, closeParen)
+		before := previousStructuralToken(parser.tokens, last-1, closeParen)
+		if parser.token(last, "delete") && parser.token(before, "=") {
+			cppDeclaratorKey = "" // A deleted member cannot have an out-of-class definition.
+		}
+	}
 	_, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: name, Parent: effectiveParent,
+		Kind: kind, NativeKind: nativeKind, Name: name, QualifiedName: qualifiedName, Parent: effectiveParent,
 		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: declarationEnd},
 		NameRange:   OffsetRange{Start: nameStart, End: nameEnd},
 		Signature:   &OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[bodyStartOrTerminator(bodyOpen, terminator)].StartOffset}, Body: body,
 		Visibility: visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
-		Disambiguator: tokenRangeText(parser.tokens, paren, closeParen+1),
+		Disambiguator:    tokenRangeText(parser.tokens, paren, closeParen+1),
+		cppDeclaratorKey: cppDeclaratorKey,
 	})
 	return next, added
 }
 
+// cppExplicitSpecializationName finds the name before a balanced template
+// argument list only for a written "template<> ... Name<...>(...)" function.
+// Ordinary calls, initializers and unproven templates keep existing parsing.
+func (parser *cFamilyParser) cppExplicitSpecializationName(start, paren int) int {
+	if !parser.cpp || !parser.token(start, "template") {
+		return -1
+	}
+	open := nextStructuralToken(parser.tokens, start+1, paren)
+	close := open
+	if !parser.token(open, "<>") {
+		close = nextStructuralToken(parser.tokens, open+1, paren)
+		if !parser.token(open, "<") || !parser.token(close, ">") {
+			return -1
+		}
+	}
+	cursor := previousStructuralToken(parser.tokens, paren-1, start)
+	if !parser.token(cursor, ">") && !parser.token(cursor, ">>") {
+		return -1
+	}
+	angle := 0
+	for index := cursor; index > close; index-- {
+		switch parser.tokens[index].Text {
+		case ">":
+			angle++
+		case ">>":
+			angle += 2
+		case "<":
+			angle--
+		}
+		if angle == 0 {
+			name := previousStructuralToken(parser.tokens, index-1, start)
+			if name > close && parser.tokens[name].Kind == TokenIdentifier {
+				return name
+			}
+			return -1
+		}
+		if angle < 0 || angle > 64 {
+			return -1
+		}
+	}
+	return -1
+}
+
+// Only a written scope adjacent to the function name is collected. Return
+// types can carry unrelated qualifiers. Unknown multi-part qualifiers remain
+// qualified names, never invented parent symbols.
 func (parser *cFamilyParser) qualifiedFunctionOwner(start, nameIndex int, lexicalParent *SymbolParent) (*SymbolParent, string, bool) {
-	separator := -1
-	for index := nameIndex - 1; index > start; index-- {
-		if parser.tokens[index].Text == ":" && parser.tokens[index-1].Text == ":" {
-			separator = index - 1
+	cursor := previousStructuralToken(parser.tokens, nameIndex-1, start)
+	if parser.token(cursor, "~") {
+		cursor = previousStructuralToken(parser.tokens, cursor-1, start)
+	}
+	parts := make([]string, 0, 3)
+	for {
+		separator := -1
+		if parser.token(cursor, "::") {
+			separator = cursor
+		} else if parser.token(cursor, ":") {
+			previous := previousStructuralToken(parser.tokens, cursor-1, start)
+			if parser.token(previous, ":") {
+				separator = previous
+			}
+		}
+		if separator < 0 {
 			break
 		}
-	}
-	if separator < 0 {
-		return nil, "", false
-	}
-	cursor := separator - 1
-	if cursor < start {
-		return nil, "", false
-	}
-	if parser.tokens[cursor].Text == ">" {
-		angle := 1
-		cursor--
-		for cursor >= start && angle > 0 {
-			switch parser.tokens[cursor].Text {
-			case ">":
-				angle++
-			case "<":
-				angle--
+		cursor = previousStructuralToken(parser.tokens, separator-1, start)
+		if parser.token(cursor, ">") || parser.token(cursor, ">>") {
+			angle := 0
+			for cursor >= start {
+				switch parser.tokens[cursor].Text {
+				case ">":
+					angle++
+				case ">>":
+					angle += 2
+				case "<":
+					angle--
+				}
+				cursor = previousStructuralToken(parser.tokens, cursor-1, start)
+				if angle == 0 {
+					break
+				}
+				if angle < 0 || angle > 64 {
+					return nil, "", false
+				}
 			}
-			cursor--
 		}
+		if cursor < start || parser.tokens[cursor].Kind != TokenIdentifier {
+			return nil, "", false
+		}
+		parts = append(parts, parser.tokens[cursor].Text)
+		cursor = previousStructuralToken(parser.tokens, cursor-1, start)
 	}
-	qualifierIndex := previousIdentifierToken(parser.tokens, cursor, start)
-	if qualifierIndex < 0 {
+	if len(parts) == 0 {
 		return nil, "", false
 	}
-	qualifier := parser.tokens[qualifierIndex].Text
+	for left, right := 0, len(parts)-1; left < right; left, right = left+1, right-1 {
+		parts[left], parts[right] = parts[right], parts[left]
+	}
+	qualifier := strings.Join(parts, ".")
+	ownerName := parts[len(parts)-1]
 	candidate := qualifier
 	if lexicalParent != nil && lexicalParent.QualifiedName != "" {
 		candidate = lexicalParent.QualifiedName + "." + qualifier
 	}
 	if parent, ok := parser.types[candidate]; ok {
 		value := parent
-		return &value, qualifier, true
+		return &value, ownerName, true
 	}
 	var match *SymbolParent
 	for qualified, parent := range parser.types {
@@ -1585,15 +2420,15 @@ func (parser *cFamilyParser) qualifiedFunctionOwner(start, nameIndex int, lexica
 			continue
 		}
 		if match != nil {
-			return nil, "", false
+			return nil, qualifier, false
 		}
 		value := parent
 		match = &value
 	}
-	if match == nil {
-		return nil, "", false
+	if match != nil {
+		return match, ownerName, true
 	}
-	return match, qualifier, true
+	return nil, qualifier, false
 }
 func bodyStartOrTerminator(bodyOpen, terminator int) int {
 	if bodyOpen >= 0 {
@@ -1602,9 +2437,12 @@ func bodyStartOrTerminator(bodyOpen, terminator int) int {
 	return terminator
 }
 
-func (parser *cFamilyParser) parseVariable(start, semicolon int, parent *SymbolParent, members bool) (int, bool) {
+func (parser *cFamilyParser) parseVariable(start, semicolon, nameLimit int, parent *SymbolParent, members bool) (int, bool) {
 	if parser.hasToken(start, semicolon, "typedef") {
-		nameIndex := previousIdentifierToken(parser.tokens, semicolon-1, start)
+		nameIndex, functionPointer := parser.functionPointerDeclarator(start, semicolon)
+		if !functionPointer {
+			nameIndex = previousIdentifierToken(parser.tokens, semicolon-1, start)
+		}
 		if nameIndex >= 0 {
 			_, added := parser.add(SymbolSpec{Kind: SymbolKindAlias, NativeKind: "typedef", Name: parser.tokens[nameIndex].Text, Parent: parent,
 				Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
@@ -1612,8 +2450,8 @@ func (parser *cFamilyParser) parseVariable(start, semicolon int, parent *SymbolP
 			return semicolon + 1, added
 		}
 	}
-	limit := semicolon
-	for index := start; index < semicolon; index++ {
+	limit := min(semicolon, nameLimit)
+	for index := start; index < limit; index++ {
 		if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == parser.tokens[start].Nesting {
 			limit = index
 			break
@@ -1626,7 +2464,66 @@ func (parser *cFamilyParser) parseVariable(start, semicolon int, parent *SymbolP
 	if nameIndex < 0 {
 		return semicolon + 1, false
 	}
-	lowerName := strings.ToLower(parser.tokens[nameIndex].Text)
+	nameIndices := []int{nameIndex}
+	if nameLimit == semicolon {
+		// A declaration may introduce several names under one type. Split only
+		// at top-level commas; template, call and initializer commas are not
+		// independent declarators.
+		parts := splitTypeTokenRange(parser.tokens, start, semicolon, parser.tokens[start].Nesting)
+		if len(parts) == 1 {
+			// In an initializer, '<' can be comparison rather than a template
+			// opener. A type before '=' may still contain template commas.
+			firstEqual, firstAngle := -1, -1
+			for index := start; index < semicolon; index++ {
+				if parser.tokens[index].Nesting != parser.tokens[start].Nesting {
+					continue
+				}
+				if firstEqual < 0 && parser.tokens[index].Text == "=" {
+					firstEqual = index
+				}
+				if firstAngle < 0 && parser.tokens[index].Text == "<" {
+					firstAngle = index
+				}
+			}
+			if firstEqual >= 0 && (firstAngle < 0 || firstEqual < firstAngle) {
+				parts = splitCommaTokenRangeAt(parser.tokens, start, semicolon, parser.tokens[start].Nesting)
+			}
+		}
+		if len(parts) > 1 {
+			candidates := make([]int, 0, len(parts))
+			for _, part := range parts {
+				partLimit := part[1]
+				for index := part[0]; index < partLimit; index++ {
+					if parser.tokens[index].Text == "=" && parser.tokens[index].Nesting == parser.tokens[start].Nesting {
+						partLimit = index
+						break
+					}
+				}
+				candidate := previousIdentifierToken(parser.tokens, partLimit-1, part[0])
+				// In a fixed-size array declarator, the identifier before
+				// the bracket owns the declaration, not a dimension name.
+				for index := part[0]; index < partLimit; index++ {
+					if parser.tokens[index].Text == "[" && parser.tokens[index].Nesting == parser.tokens[start].Nesting+1 {
+						candidate = previousIdentifierToken(parser.tokens, index-1, part[0])
+						break
+					}
+				}
+				if candidate < 0 {
+					candidates = nil
+					break
+				}
+				if _, modifier := cFamilyModifiers[strings.ToLower(parser.tokens[candidate].Text)]; modifier {
+					candidates = nil
+					break
+				}
+				candidates = append(candidates, candidate)
+			}
+			if len(candidates) == len(parts) {
+				nameIndices = candidates
+			}
+		}
+	}
+	lowerName := strings.ToLower(parser.tokens[nameIndices[0]].Text)
 	if _, isModifier := cFamilyModifiers[lowerName]; isModifier {
 		return semicolon + 1, false
 	}
@@ -1636,19 +2533,26 @@ func (parser *cFamilyParser) parseVariable(start, semicolon int, parent *SymbolP
 		kind = SymbolKindField
 		nativeKind = "field"
 	}
-	if parser.hasToken(start, nameIndex, "const") || parser.hasToken(start, nameIndex, "constexpr") {
+	if parser.hasToken(start, nameIndices[0], "const") || parser.hasToken(start, nameIndices[0], "constexpr") {
 		if !members {
 			kind = SymbolKindConstant
 			nativeKind = "constant"
 		}
 	}
-	modifiers := collectKnownModifiers(parser.tokens, start, nameIndex, cFamilyModifiers)
-	_, added := parser.add(SymbolSpec{
-		Kind: kind, NativeKind: nativeKind, Name: parser.tokens[nameIndex].Text, Parent: parent,
-		Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
-		NameRange:   OffsetRange{Start: parser.tokens[nameIndex].StartOffset, End: parser.tokens[nameIndex].EndOffset},
-		Visibility:  visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
-	})
+	modifiers := collectKnownModifiers(parser.tokens, start, nameIndices[0], cFamilyModifiers)
+	added := false
+	for _, name := range nameIndices {
+		_, ok := parser.add(SymbolSpec{
+			Kind: kind, NativeKind: nativeKind, Name: parser.tokens[name].Text, Parent: parent,
+			Declaration: OffsetRange{Start: parser.tokens[start].StartOffset, End: parser.tokens[semicolon].EndOffset},
+			NameRange:   OffsetRange{Start: parser.tokens[name].StartOffset, End: parser.tokens[name].EndOffset},
+			Visibility:  visibilityFromModifiers(modifiers), Modifiers: modifiers, Evidence: SymbolEvidenceStructural,
+		})
+		added = added || ok
+		if parser.stopped {
+			break
+		}
+	}
 	return semicolon + 1, added
 }
 

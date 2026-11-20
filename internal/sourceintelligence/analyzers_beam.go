@@ -38,7 +38,7 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	var pending *elixirScope
 	currentModule := func() *SymbolParent {
 		for i := len(scopes) - 1; i >= 0; i-- {
-			if scopes[i].kind == "module" && scopes[i].parent != nil {
+			if (scopes[i].kind == "module" || scopes[i].kind == "implementation") && scopes[i].parent != nil {
 				value := *scopes[i].parent
 				return &value
 			}
@@ -52,43 +52,75 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		}
 		first := strings.ToLower(line.Tokens[0].Text)
 		var declarationScope *elixirScope
-		switch first {
-		case "defmodule":
-			start := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
-			if start >= 0 {
-				end := start + 1
-				for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
-					end += 2
+		inQuote := false
+		for _, scope := range scopes {
+			if scope.kind == "quote" {
+				inQuote = true
+				break
+			}
+		}
+		if !inQuote {
+			switch first {
+			case "defmodule", "defprotocol":
+				start := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
+				if start >= 0 {
+					end := start + 1
+					for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
+						end += 2
+					}
+					name := tokenRangeText(line.Tokens, start, end)
+					if name != "" {
+						kind := SymbolKindModule
+						if first == "defprotocol" {
+							kind = SymbolKindInterface
+						}
+						symbol, ok := state.add(SymbolSpec{Kind: kind, NativeKind: first, Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[start].StartOffset, End: line.Tokens[end-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+						if ok {
+							parent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
+							scope := elixirScope{kind: "module", parent: parent}
+							declarationScope = &scope
+						}
+					}
 				}
-				name := tokenRangeText(line.Tokens, start, end)
-				if name != "" {
-					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "defmodule", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[start].StartOffset, End: line.Tokens[end-1].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-					if ok {
+			case "defimpl":
+				// Only a directly authored single literal target creates a
+				// navigable owner; protocol dispatch and aliases are not resolved.
+				if protocol, target, targetStart, targetEnd, ok := elixirLiteralDefimplHeader(line.Tokens); ok {
+					name := protocol + "." + target
+					symbol, added := state.add(SymbolSpec{
+						Kind: SymbolKindImplementation, NativeKind: "defimpl",
+						Name: name, QualifiedName: name,
+						Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+						NameRange:   OffsetRange{Start: line.Tokens[targetStart].StartOffset, End: line.Tokens[targetEnd-1].EndOffset},
+						Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+						Evidence:    SymbolEvidenceStructural,
+					})
+					if added {
 						parent := &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
-						scope := elixirScope{kind: "module", parent: parent}
+						scope := elixirScope{kind: "implementation", parent: parent}
 						declarationScope = &scope
 					}
 				}
-			}
-		case "def", "defp", "defmacro", "defmacrop", "defguard", "defguardp":
-			idx := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
-			if idx >= 0 {
-				tok := line.Tokens[idx]
-				if _, ok := state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: tok.Text, Parent: currentModule(), Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
-					scope := elixirScope{kind: "callable"}
-					declarationScope = &scope
+			case "def", "defp", "defmacro", "defmacrop", "defguard", "defguardp":
+				idx := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
+				if idx >= 0 {
+					tok := line.Tokens[idx]
+					if _, ok := state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: first, Name: tok.Text, Parent: currentModule(), Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural}); ok {
+						scope := elixirScope{kind: "callable"}
+						declarationScope = &scope
+					}
 				}
-			}
-		case "alias", "import", "require", "use":
-			start := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
-			if start >= 0 {
-				end := start + 1
-				for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
-					end += 2
-				}
-				value := tokenRangeText(line.Tokens, start, end)
-				if value != "" {
-					state.addImportDependency(value, line.Tokens[start].StartOffset, line.Tokens[end-1].EndOffset)
+			case "alias", "import", "require", "use":
+				start := nextIdentifierOrKeywordToken(line.Tokens, 1, len(line.Tokens))
+				if start >= 0 {
+					end := start + 1
+					for end+1 < len(line.Tokens) && line.Tokens[end].Text == "." && (line.Tokens[end+1].Kind == TokenIdentifier || line.Tokens[end+1].Kind == TokenKeyword) {
+						end += 2
+					}
+					value := tokenRangeText(line.Tokens, start, end)
+					if value != "" {
+						state.addImportDependency(value, line.Tokens[start].StartOffset, line.Tokens[end-1].EndOffset)
+					}
 				}
 			}
 		}
@@ -103,6 +135,38 @@ func (ElixirAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		_ = state.builder.AddDiagnostic(DiagnosticSpec{Code: "elixir-unterminated-block", Message: "Elixir source contains one or more blocks without matching end", Severity: DiagnosticWarning, AffectsCoverage: true})
 	}
 	return state.result()
+}
+
+// elixirLiteralDefimplHeader recognizes only a simple authored
+// "defimpl Protocol.Name, for: Target.Name do" form. Lists, macros,
+// multi-target implementations, options and inferred aliases are excluded.
+func elixirLiteralDefimplHeader(tokens []Token) (protocol, target string, targetStart, targetEnd int, ok bool) {
+	if len(tokens) < 6 || !strings.EqualFold(tokens[0].Text, "defimpl") {
+		return "", "", 0, 0, false
+	}
+	literal := func(start int) (string, int, bool) {
+		if start >= len(tokens) || (tokens[start].Kind != TokenIdentifier && tokens[start].Kind != TokenKeyword) {
+			return "", 0, false
+		}
+		end := start + 1
+		for end+1 < len(tokens) && tokens[end].Text == "." &&
+			(tokens[end+1].Kind == TokenIdentifier || tokens[end+1].Kind == TokenKeyword) {
+			end += 2
+		}
+		return tokenRangeText(tokens, start, end), end, true
+	}
+	var next int
+	protocol, next, ok = literal(1)
+	if !ok || next+3 >= len(tokens) || tokens[next].Text != "," ||
+		!strings.EqualFold(tokens[next+1].Text, "for") || tokens[next+2].Text != ":" {
+		return "", "", 0, 0, false
+	}
+	targetStart = next + 3
+	target, targetEnd, ok = literal(targetStart)
+	if !ok || targetEnd+1 != len(tokens) || !elixirStructuralKeywordToken(tokens, targetEnd, "do") {
+		return "", "", 0, 0, false
+	}
+	return protocol, target, targetStart, targetEnd, true
 }
 
 func elixirNextLineOpensGuard(lines []LogicalLine, lineIndex int) bool {
@@ -152,7 +216,12 @@ func elixirStructuralKeywordToken(tokens []Token, index int, value string) bool 
 
 func elixirApplyStructuralTokens(tokens []Token, declarationScope *elixirScope, pending **elixirScope, scopes *[]elixirScope, builder *SymbolBuilder) bool {
 	consumedDeclaration := false
+	quoteOpening := false
 	for index := range tokens {
+		if tokens[index].Kind == TokenKeyword && strings.EqualFold(tokens[index].Text, "quote") &&
+			(index == 0 || tokens[index-1].Text != ".") {
+			quoteOpening = true
+		}
 		switch strings.ToLower(tokens[index].Text) {
 		case "fn":
 			if elixirStructuralKeywordToken(tokens, index, "fn") {
@@ -173,6 +242,11 @@ func elixirApplyStructuralTokens(tokens []Token, declarationScope *elixirScope, 
 			if pending != nil && *pending != nil {
 				*scopes = append(*scopes, **pending)
 				*pending = nil
+				continue
+			}
+			if quoteOpening {
+				*scopes = append(*scopes, elixirScope{kind: "quote"})
+				quoteOpening = false
 				continue
 			}
 			*scopes = append(*scopes, elixirScope{kind: "block"})
@@ -502,7 +576,14 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
-	scan, err := state.scan(options, ErlangScannerProfile(), maskErlangCharacterLiterals(document.Text))
+	source := maskErlangCharacterLiterals(document.Text)
+	if strings.HasPrefix(source, "#!") {
+		lineEnd, _ := physicalLineBounds(source, 0)
+		masked := []byte(source)
+		maskRangePreservingLines(masked, 0, lineEnd)
+		source = string(masked)
+	}
+	scan, err := state.scan(options, ErlangScannerProfile(), source)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
@@ -537,9 +618,19 @@ func (ErlangAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 			switch attribute {
 			case "module":
 				idx := nextIdentifierOrKeywordToken(tokens, open+1, close)
+				if idx < 0 && open+2 == close && tokens[open+1].Kind == TokenString && strings.HasPrefix(tokens[open+1].Text, "'") {
+					idx = open + 1
+				}
 				if idx >= 0 {
 					tok := tokens[idx]
-					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: tok.Text, QualifiedName: tok.Text, Declaration: OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, Evidence: SymbolEvidenceStructural})
+					name := tok.Text
+					if tok.Kind == TokenString {
+						name = quotedTokenStringValue(tok)
+					}
+					if name == "" {
+						continue
+					}
+					symbol, ok := state.add(SymbolSpec{Kind: SymbolKindModule, NativeKind: "module", Name: name, QualifiedName: name, Declaration: OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: tokens[0].StartOffset, End: tokens[len(tokens)-1].EndOffset}, Evidence: SymbolEvidenceStructural})
 					if ok {
 						module = &SymbolParent{ID: symbol.ID, QualifiedName: symbol.QualifiedName}
 					}
@@ -651,9 +742,25 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 			idx := nextIdentifierOrKeywordToken(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
 				tok := scan.Tokens[idx]
-				state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "fn", Name: tok.Text, Declaration: OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}, Evidence: SymbolEvidenceStructural})
+				declaration := OffsetRange{Start: scan.Tokens[start].StartOffset, End: beamDeclarationLineEnd(scan.Tokens, start)}
+				signature := declaration
+				var body *OffsetRange
+				if open, close, ok := gleamFunctionBody(scan.Tokens, pairs, idx); ok {
+					signature.End = scan.Tokens[open].EndOffset
+					declaration.End = scan.Tokens[close].EndOffset
+					value := OffsetRange{Start: scan.Tokens[open].EndOffset, End: scan.Tokens[close].StartOffset}
+					if value.End > value.Start {
+						body = &value
+					}
+					i = close + 1
+				} else {
+					// Gleam @external declarations legitimately have no local body.
+					i++
+				}
+				state.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "fn", Name: tok.Text, Declaration: declaration, NameRange: OffsetRange{Start: tok.StartOffset, End: tok.EndOffset}, Signature: &signature, Body: body, Evidence: SymbolEvidenceStructural})
+			} else {
+				i++
 			}
-			i++
 		case "const":
 			idx := nextIdentifierOrKeywordToken(scan.Tokens, i+1, len(scan.Tokens))
 			if idx >= 0 {
@@ -666,6 +773,50 @@ func (GleamAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opti
 		}
 	}
 	return state.result()
+}
+
+// Recognize only a paired top-level function block. Body-less external
+// declarations must not borrow a later function's body.
+func gleamFunctionBody(tokens []Token, pairs map[int]int, nameIndex int) (int, int, bool) {
+	for index := nameIndex + 1; index < len(tokens); index++ {
+		token := tokens[index]
+		if token.Kind == TokenEOF {
+			break
+		}
+		if token.Text == "{" && token.Nesting == 1 {
+			close, ok := pairs[index]
+			return index, close, ok && close > index
+		}
+		if token.Kind == TokenNewline && token.Nesting == 0 {
+			next := index + 1
+			for next < len(tokens) && tokens[next].Kind == TokenNewline {
+				next++
+			}
+			if next >= len(tokens) {
+				break
+			}
+			if tokens[next].Nesting == 0 && gleamTopLevelDeclarationStart(tokens, next) {
+				break
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func gleamTopLevelDeclarationStart(tokens []Token, index int) bool {
+	if index >= len(tokens) {
+		return false
+	}
+	word := tokens[index].Text
+	if word == "pub" && index+1 < len(tokens) {
+		word = tokens[index+1].Text
+	}
+	switch word {
+	case "fn", "type", "const", "import", "opaque":
+		return true
+	default:
+		return false
+	}
 }
 
 func gleamTypeBody(tokens []Token, pairs map[int]int, nameIndex int) (int, int, bool) {

@@ -2,6 +2,8 @@ package sourceintelligence
 
 import (
 	"context"
+	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -122,16 +124,26 @@ func (FSharpAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	return AnalyzerResult{Analysis: state.builder.Result(), Dependencies: p.dependencies, Relations: p.relations}, nil
 }
 
+type fsharpModuleScope struct {
+	parent   *SymbolParent
+	indent   int
+	indented bool
+}
+
 type fsharpParser struct {
-	ctx          context.Context
-	document     *SourceDocument
-	builder      *SymbolBuilder
-	namespace    *SymbolParent
-	currentType  *SymbolParent
-	typeIndent   int
-	dependencies []StructuralDependency
-	relations    []StructuralRelation
-	stopped      bool
+	ctx           context.Context
+	document      *SourceDocument
+	builder       *SymbolBuilder
+	namespace     *SymbolParent
+	moduleScopes  []fsharpModuleScope
+	bindingIndent int
+	inBinding     bool
+	currentType   *SymbolParent
+	typeParents   map[string]SymbolParent
+	typeIndent    int
+	dependencies  []StructuralDependency
+	relations     []StructuralRelation
+	stopped       bool
 }
 
 func (p *fsharpParser) parse(lines []LogicalLine) {
@@ -141,15 +153,28 @@ func (p *fsharpParser) parse(lines []LogicalLine) {
 		}
 		t := line.Tokens
 		first := strings.ToLower(t[0].Text)
+		for len(p.moduleScopes) > 0 {
+			scope := p.moduleScopes[len(p.moduleScopes)-1]
+			if !scope.indented || line.Indent > scope.indent {
+				break
+			}
+			p.namespace = scope.parent
+			p.moduleScopes = p.moduleScopes[:len(p.moduleScopes)-1]
+		}
+		if p.inBinding && line.Indent <= p.bindingIndent {
+			p.inBinding = false
+		}
 		if p.currentType != nil && line.Indent <= p.typeIndent && (first == "type" || first == "let" || first == "module" || first == "namespace") {
 			p.currentType = nil
 		}
 		switch first {
 		case "namespace", "module":
+			p.inBinding = false
 			p.addContainer(line, first)
 		case "open":
 			p.addDependency(line)
 		case "type":
+			p.inBinding = false
 			p.addType(line)
 		case "abstract":
 			if p.currentType != nil {
@@ -159,31 +184,77 @@ func (p *fsharpParser) parse(lines []LogicalLine) {
 			if p.currentType != nil {
 				p.addMember(line, first)
 			}
+		case "static":
+			if p.currentType != nil && len(t) > 1 && strings.EqualFold(t[1].Text, "member") {
+				p.addMember(line, "member")
+			}
 		case "inherit", "interface":
 			if p.currentType != nil {
 				p.addRelation(line, first)
 			}
 		case "let":
-			if p.currentType == nil {
+			if p.currentType == nil && !p.inBinding {
 				p.addLet(line)
+				p.bindingIndent = line.Indent
+				p.inBinding = true
 			}
 		}
 	}
 }
 func (p *fsharpParser) addContainer(line LogicalLine, kind string) {
-	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
+	tokens := line.Tokens
+	idx := nextIdentifierToken(tokens, 1, len(tokens))
+	for idx >= 0 && (strings.EqualFold(tokens[idx].Text, "internal") ||
+		strings.EqualFold(tokens[idx].Text, "private") ||
+		strings.EqualFold(tokens[idx].Text, "public") ||
+		strings.EqualFold(tokens[idx].Text, "rec")) {
+		idx = nextIdentifierToken(tokens, idx+1, len(tokens))
+	}
 	if idx < 0 {
 		return
 	}
+	end := idx
+	for end+2 < len(tokens) && tokens[end+1].Text == "." && tokens[end+2].Kind == TokenIdentifier {
+		end += 2
+	}
+	name := tokenRangeText(tokens, idx, end+1)
 	sk := SymbolKindNamespace
 	if kind == "module" {
 		sk = SymbolKindModule
 	}
-	s, ok := p.add(SymbolSpec{Kind: sk, NativeKind: kind, Name: line.Tokens[idx].Text, Parent: nil, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.Tokens[idx].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
-	if ok {
-		v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
-		p.namespace = &v
+	var parent *SymbolParent
+	if kind == "module" {
+		parent = p.namespace
 	}
+	s, ok := p.add(SymbolSpec{Kind: sk, NativeKind: kind, Name: name, Parent: parent, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: tokens[idx].StartOffset, End: tokens[end].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+	if !ok {
+		return
+	}
+	v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
+	if kind == "namespace" {
+		p.moduleScopes = nil
+		p.namespace = &v
+		return
+	}
+	// A module abbreviation (module Alias = Other.Module) declares an alias,
+	// but does not make subsequent declarations children of that alias.
+	alias := end+2 < len(tokens) && tokens[end+1].Text == "="
+	if alias {
+		for _, token := range tokens[end+2:] {
+			if token.Kind != TokenIdentifier && token.Text != "." {
+				alias = false
+				break
+			}
+		}
+	}
+	if alias {
+		return
+	}
+	p.moduleScopes = append(p.moduleScopes, fsharpModuleScope{
+		parent: p.namespace, indent: line.Indent,
+		indented: tokens[len(tokens)-1].Text == "=",
+	})
+	p.namespace = &v
 }
 func (p *fsharpParser) addDependency(line LogicalLine) {
 	if len(line.Tokens) < 2 {
@@ -201,13 +272,43 @@ func (p *fsharpParser) addDependency(line LogicalLine) {
 }
 func (p *fsharpParser) addType(line LogicalLine) {
 	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
+	for idx >= 0 && (strings.EqualFold(line.Tokens[idx].Text, "internal") ||
+		strings.EqualFold(line.Tokens[idx].Text, "private") ||
+		strings.EqualFold(line.Tokens[idx].Text, "public") ||
+		strings.EqualFold(line.Tokens[idx].Text, "rec")) {
+		idx = nextIdentifierToken(line.Tokens, idx+1, len(line.Tokens))
+	}
 	if idx < 0 {
 		return
 	}
 	parent := p.namespace
+	name := line.Tokens[idx].Text
+	qualifiedName := name
+	if parent != nil {
+		qualifiedName = parent.QualifiedName + "." + name
+	}
+	for i := idx + 1; i < len(line.Tokens); i++ {
+		if line.Tokens[i].Text == "=" {
+			break
+		}
+		if strings.EqualFold(line.Tokens[i].Text, "with") {
+			if existing, ok := p.typeParents[qualifiedName]; ok {
+				p.currentType = &existing
+			} else {
+				p.currentType = nil
+				p.builder.MarkIncomplete()
+			}
+			p.typeIndent = line.Indent
+			return
+		}
+	}
 	s, ok := p.add(SymbolSpec{Kind: SymbolKindType, NativeKind: "type", Name: line.Tokens[idx].Text, Parent: parent, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.Tokens[idx].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 	if ok {
 		v := SymbolParent{ID: s.ID, QualifiedName: s.QualifiedName}
+		if p.typeParents == nil {
+			p.typeParents = make(map[string]SymbolParent)
+		}
+		p.typeParents[v.QualifiedName] = v
 		p.currentType = &v
 		p.typeIndent = line.Indent
 	}
@@ -215,7 +316,7 @@ func (p *fsharpParser) addType(line LogicalLine) {
 func (p *fsharpParser) addMember(line LogicalLine, native string) {
 	memberAt := -1
 	for i, t := range line.Tokens {
-		if strings.EqualFold(t.Text, "member") {
+		if strings.EqualFold(t.Text, "member") || (native == "override" && i == 0 && strings.EqualFold(t.Text, "override")) {
 			memberAt = i
 			break
 		}
@@ -223,8 +324,40 @@ func (p *fsharpParser) addMember(line LogicalLine, native string) {
 	if memberAt < 0 {
 		return
 	}
+	// F# permits backtick-delimited symbolic member names (for example,
+	// static member ``***``). These are not identifier tokens in the
+	// generic scanner, so use the exact bounded source span after "member".
+	start := line.Tokens[memberAt].EndOffset
+	if memberAt+1 < len(line.Tokens) && strings.EqualFold(line.Tokens[memberAt+1].Text, "inline") {
+		start = line.Tokens[memberAt+1].EndOffset
+	}
+	if start >= 0 && start <= line.EndOffset && line.EndOffset <= len(p.document.Text) {
+		at := start
+		for at < line.EndOffset && (p.document.Text[at] == ' ' || p.document.Text[at] == '\t') {
+			at++
+		}
+		if at+2 <= line.EndOffset && p.document.Text[at:at+2] == "``" {
+			nameStart := at + 2
+			if closeAt := strings.Index(p.document.Text[nameStart:line.EndOffset], "``"); closeAt > 0 {
+				nameEnd := nameStart + closeAt
+				p.add(SymbolSpec{Kind: SymbolKindMethod, NativeKind: native,
+					Name: p.document.Text[nameStart:nameEnd], Parent: p.currentType,
+					Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+					NameRange:   OffsetRange{Start: nameStart, End: nameEnd},
+					Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+					Evidence:    SymbolEvidenceStructural})
+				return
+			}
+		}
+	}
 	name := -1
 	for i := memberAt + 1; i < len(line.Tokens); i++ {
+		if name < 0 && (strings.EqualFold(line.Tokens[i].Text, "inline") ||
+			strings.EqualFold(line.Tokens[i].Text, "private") ||
+			strings.EqualFold(line.Tokens[i].Text, "internal") ||
+			strings.EqualFold(line.Tokens[i].Text, "public")) {
+			continue
+		}
 		if line.Tokens[i].Kind == TokenIdentifier {
 			if i+2 < len(line.Tokens) && line.Tokens[i+1].Text == "." && line.Tokens[i+2].Kind == TokenIdentifier {
 				name = i + 2
@@ -255,11 +388,43 @@ func (p *fsharpParser) addRelation(line LogicalLine, kind string) {
 	}
 }
 func (p *fsharpParser) addLet(line LogicalLine) {
-	idx := nextIdentifierToken(line.Tokens, 1, len(line.Tokens))
+	tokens := line.Tokens
+	bindingAt := 1
+	for bindingAt < len(tokens) {
+		modifier := strings.ToLower(tokens[bindingAt].Text)
+		if modifier != "inline" && modifier != "rec" && modifier != "mutable" &&
+			modifier != "private" && modifier != "internal" && modifier != "public" {
+			break
+		}
+		bindingAt++
+	}
+	// Scanner-owned source tokens distinguish a directly authored symbolic
+	// function name from parameter identifiers; do not search through strings
+	// or comments and accidentally promote their contents to declarations.
+	if bindingAt+2 < len(tokens) &&
+		tokens[bindingAt].Text == "(" && tokens[bindingAt+1].Text == "?" &&
+		tokens[bindingAt+2].Text == ")" &&
+		tokens[bindingAt].EndOffset == tokens[bindingAt+1].StartOffset &&
+		tokens[bindingAt+1].EndOffset == tokens[bindingAt+2].StartOffset {
+		name := tokens[bindingAt+1]
+		p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "let", Name: name.Text, Parent: p.namespace,
+			Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+			NameRange:   OffsetRange{Start: name.StartOffset, End: name.EndOffset},
+			Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+		return
+	}
+	idx := nextIdentifierToken(tokens, bindingAt, len(tokens))
 	if idx < 0 {
 		return
 	}
-	p.add(SymbolSpec{Kind: SymbolKindFunction, NativeKind: "let", Name: line.Tokens[idx].Text, Parent: p.namespace, Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset}, NameRange: OffsetRange{Start: line.Tokens[idx].StartOffset, End: line.Tokens[idx].EndOffset}, Signature: &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
+	kind := SymbolKindFunction
+	if idx+1 < len(tokens) && (tokens[idx+1].Text == ":" || tokens[idx+1].Text == "=") {
+		kind = SymbolKindVariable
+	}
+	p.add(SymbolSpec{Kind: kind, NativeKind: "let", Name: tokens[idx].Text, Parent: p.namespace,
+		Declaration: OffsetRange{Start: line.StartOffset, End: line.EndOffset},
+		NameRange:   OffsetRange{Start: tokens[idx].StartOffset, End: tokens[idx].EndOffset},
+		Signature:   &OffsetRange{Start: line.StartOffset, End: line.EndOffset}, Evidence: SymbolEvidenceStructural})
 }
 func (p *fsharpParser) add(spec SymbolSpec) (NormalizedSymbol, bool) {
 	s, err := p.builder.Add(spec)
@@ -286,6 +451,10 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 		return AnalyzerResult{}, operation.New(operation.KindInvalidInput, "source document is required")
 	}
 	masked := maskCPPCLIModifiers(document.Text)
+	masked, err := maskCPPCLIBlockPropertyDelimiters(ctx, document, masked, options.MaxNesting)
+	if err != nil {
+		return AnalyzerResult{}, err
+	}
 	clone := *document
 	clone.Text = masked
 	clone.lineStarts = buildLineStarts(masked)
@@ -293,12 +462,67 @@ func (CPPCLIAnalyzer) Analyze(ctx context.Context, document *SourceDocument, opt
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
+	classifyCPPCLISimpleProperties(document.Text, source.Analysis.Symbols)
+	classifyCPPCLIBlockProperties(document.Text, source.Analysis.Symbols)
 	analysis, err := reprojectAnalyzerSymbols(ctx, document, source, options, "cpp-cli", AnalyzerCPPCLI, "", 0, nil)
 	if err != nil {
 		return AnalyzerResult{}, err
 	}
 	return AnalyzerResult{Analysis: analysis, Dependencies: source.Dependencies, Relations: source.Relations}, nil
 }
+
+// The shared C++ parser recognizes a simple managed property as a field.
+// Reclassify only an authored property-prefixed field; compound properties
+// and their accessor ownership remain outside this narrow adapter change.
+func classifyCPPCLISimpleProperties(text string, symbols []NormalizedSymbol) {
+	for index := range symbols {
+		symbol := &symbols[index]
+		if symbol.Kind != SymbolKindField {
+			continue
+		}
+		declaration, _, _, _ := symbol.SourceOffsets()
+		if declaration.Start < 0 || declaration.End > len(text) || declaration.Start >= declaration.End {
+			continue
+		}
+		spelling := strings.TrimLeft(text[declaration.Start:declaration.End], " \t\r\n")
+		if len(spelling) <= len("property") || !strings.HasPrefix(spelling, "property") ||
+			(spelling[len("property")] != ' ' && spelling[len("property")] != '\t') ||
+			!strings.HasSuffix(strings.TrimSpace(spelling), ";") {
+			continue
+		}
+		symbol.Kind = SymbolKindProperty
+		symbol.NativeKind = "simple-property"
+	}
+}
+
+// The shared parser sees paired block properties as lexical struct surrogates.
+// Restore authored property semantics without changing their source ranges.
+func classifyCPPCLIBlockProperties(text string, symbols []NormalizedSymbol) {
+	for index := range symbols {
+		symbol := &symbols[index]
+		if symbol.Kind != SymbolKindStruct {
+			continue
+		}
+		declaration, _, _, _ := symbol.SourceOffsets()
+		if declaration.Start < 0 || declaration.End > len(text) || declaration.Start >= declaration.End {
+			continue
+		}
+		spelling := strings.TrimLeft(text[declaration.Start:declaration.End], " \t\r\n")
+		if !strings.HasPrefix(spelling, "property ") && !strings.HasPrefix(spelling, "property\t") {
+			continue
+		}
+		symbol.Kind = SymbolKindProperty
+		symbol.NativeKind = "block-property"
+	}
+}
+
+var (
+	cppCLIAssemblyAttribute     = regexp.MustCompile(`(?mi)^[ \t]*\[assembly[ \t]*:[^\r\n]*\]`)
+	cppCLIStandaloneAttribute   = regexp.MustCompile(`(?m)^[ \t]*\[[A-Za-z_][A-Za-z0-9_:]*(?:\([^\]\r\n]*\))?\][ \t]*\r?$`)
+	cppCLITrailingClassModifier = regexp.MustCompile(`(?i)\bclass[ \t]+[A-Za-z_][A-Za-z0-9_]*((?:[ \t]+(?:sealed|abstract))+)\b`)
+	cppCLIInternalAccessLabel   = regexp.MustCompile(`(?m)^[ \t]*internal[ \t]*:`)
+)
+
 func maskCPPCLIModifiers(text string) string {
 	result := []byte(text)
 	words := []string{"ref", "value", "interface", "sealed", "abstract"}
@@ -326,8 +550,110 @@ func maskCPPCLIModifiers(text string) string {
 			search = end
 		}
 	}
+	// C++/CLI metadata is not a C++ declaration. A standalone managed
+	// attribute must not conceal the following function or expose its body.
+	for _, match := range cppCLIAssemblyAttribute.FindAllStringIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[0], match[1])
+	}
+	for _, match := range cppCLIStandaloneAttribute.FindAllStringIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[0], match[1])
+	}
+	// One or more trailing managed type modifiers (e.g. abstract sealed)
+	// follow the name. Mask the entire suffix; otherwise the C++ parser
+	// treats the remaining modifier as a variable and loses the class scope.
+	for _, match := range cppCLITrailingClassModifier.FindAllStringSubmatchIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[2], match[3])
+	}
+	// The managed-only internal: access label is not a C++ declarator.
+	// Preserve its coordinates without leaking it into the following property.
+	for _, match := range cppCLIInternalAccessLabel.FindAllStringIndex(text, -1) {
+		maskByteRangePreservingLines(result, match[0], match[1])
+	}
 	return string(result)
 }
+
+// Rewrite paired managed property headers into same-offset struct surrogates.
+// The shared C++ parser then retains get/set ownership and body ranges, while
+// the bounded scanner/pairing ignores braces in strings and comments.
+func maskCPPCLIBlockPropertyDelimiters(ctx context.Context, document *SourceDocument, text string, maxNesting int) (string, error) {
+	if !strings.Contains(text, "property") {
+		return text, nil
+	}
+	probe := *document
+	probe.Text = text
+	probe.lineStarts = buildLineStarts(text)
+	if maxNesting <= 0 {
+		maxNesting = 2048
+	}
+	scan, err := ScanSource(ctx, &probe, cFamilyCPPScannerProfile, ScannerLimits{
+		MaxTokens: scannerTokenBudget(text), MaxTokenBytes: 1024 * 1024, MaxNesting: maxNesting,
+	})
+	if err != nil {
+		return "", err
+	}
+	if !scan.Complete {
+		return text, nil
+	}
+	pairs := PairDelimiterTokens(scan.Tokens, nil)
+	result := []byte(text)
+	for index, token := range scan.Tokens {
+		if token.Text != "property" {
+			continue
+		}
+		lineIndex := sort.SearchInts(probe.lineStarts, token.StartOffset+1) - 1
+		if lineIndex < 0 {
+			continue
+		}
+		lineStart := probe.lineStarts[lineIndex]
+		if token.StartOffset-lineStart > 512 || strings.TrimSpace(text[lineStart:token.StartOffset]) != "" {
+			continue // Only a directly authored property header, not an expression.
+		}
+		depth := token.Nesting
+		for next := index + 1; next < len(scan.Tokens) && next-index <= 32; next++ {
+			candidate := scan.Tokens[next]
+			if candidate.StartOffset-token.StartOffset > 512 || candidate.Nesting < depth ||
+				candidate.Kind == TokenEOF || candidate.Kind == TokenDirective {
+				break
+			}
+			if candidate.Text == ";" || candidate.Text == "}" || candidate.Text == "=" || candidate.Text == "(" {
+				break
+			}
+			if candidate.Text != "{" {
+				continue
+			}
+			if candidate.Nesting == depth+1 {
+				if close, ok := pairs[next]; ok && close > next {
+					nameIndex := -1
+					for at := index + 1; at < next; at++ {
+						if scan.Tokens[at].Kind == TokenIdentifier && scan.Tokens[at].Nesting == depth {
+							nameIndex = at
+						}
+					}
+					validName := nameIndex > index+1 &&
+						scan.Tokens[nameIndex].StartOffset-token.StartOffset >= len("struct ") &&
+						previousStructuralToken(scan.Tokens, next-1, index+1) == nameIndex
+					beforeName := previousStructuralToken(scan.Tokens, nameIndex-1, index+1)
+					if validName && beforeName >= index+1 &&
+						(scan.Tokens[beforeName].Text == ":" || scan.Tokens[beforeName].Text == ".") {
+						validName = false
+					}
+					if validName {
+						maskRangePreservingLines(result, token.StartOffset, scan.Tokens[nameIndex].StartOffset)
+						copy(result[token.StartOffset:], "struct")
+					} else {
+						// Preserve the previous conservative mask for ambiguous or
+						// malformed property headers; do not fabricate an owner.
+						maskRangePreservingLines(result, token.StartOffset, candidate.EndOffset)
+						maskRangePreservingLines(result, scan.Tokens[close].StartOffset, scan.Tokens[close].EndOffset)
+					}
+				}
+			}
+			break
+		}
+	}
+	return string(result), nil
+}
+
 func isASCIIIdentifierByte(b byte) bool {
 	return b == '_' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
 }
