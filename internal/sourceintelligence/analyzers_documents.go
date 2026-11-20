@@ -113,7 +113,8 @@ func markupAttributeValue(tag, target string) (string, int, int, bool) {
 		if i >= len(tag) {
 			break
 		}
-		valueStart, valueEnd := i, i
+		valueStart := i
+		var valueEnd int
 		if tag[i] == '"' || tag[i] == '\'' {
 			quote := tag[i]
 			i++

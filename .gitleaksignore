@@ -1,0 +1,3 @@
+# Historical false positive: source-intelligence test oracle contains long symbolic negative names, not credentials.
+# Fingerprint is pinned to a single historical commit, file, rule and line; future findings remain active.
+e10e118070b274ed895d222c1cda13548be51e03:internal/sourceintelligence/semantic_independent_corpus_oracles_test.go:generic-api-key:54

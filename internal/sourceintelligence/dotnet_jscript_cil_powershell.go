@@ -554,7 +554,7 @@ func (p *cilParser) classDecl(line LogicalLine) {
 	}
 }
 func (p *cilParser) member(line LogicalLine, kind SymbolKind, native string) {
-	name := -1
+	var name int
 	if kind == SymbolKindMethod {
 		name = cilMethodNameIndex(line.Tokens)
 	} else {

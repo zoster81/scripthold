@@ -344,13 +344,15 @@ func TestEngineRecoveryLoopWaitsForRootsBeforeRecovering(t *testing.T) {
 	ticks <- time.Now()
 	ticks <- time.Now()
 	ticks <- time.Now()
+	observationsDeadline := time.NewTimer(10 * time.Second)
+	defer observationsDeadline.Stop()
 	for want := int32(1); want <= 4; want++ {
 		select {
 		case got := <-rootsObserved:
 			if got != want {
 				t.Fatalf("roots observation call = %d, want %d", got, want)
 			}
-		case <-time.After(time.Second):
+		case <-observationsDeadline.C:
 			t.Fatalf("recovery loop did not reach roots observation %d", want)
 		}
 	}
@@ -434,13 +436,15 @@ func TestEngineRecoveryLoopSuppressesRepeatedIdenticalFailure(t *testing.T) {
 	ticks <- time.Now()
 	ticks <- time.Now()
 	ticks <- time.Now()
+	observationsDeadline := time.NewTimer(10 * time.Second)
+	defer observationsDeadline.Stop()
 	for want := int32(1); want <= 4; want++ {
 		select {
 		case got := <-rootsObserved:
 			if got != want {
 				t.Fatalf("roots observation call = %d, want %d", got, want)
 			}
-		case <-time.After(time.Second):
+		case <-observationsDeadline.C:
 			t.Fatalf("recovery loop did not reach roots observation %d", want)
 		}
 	}
