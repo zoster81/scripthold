@@ -2,7 +2,7 @@
 
 This file tracks **current and future work only**. Completed changes belong in [`CHANGELOG.md`](../CHANGELOG.md); current behavior and invariants belong in [`ARCHITECTURE.md`](ARCHITECTURE.md), [`TOOLS.md`](../TOOLS.md), and the focused operational guides.
 
-**Navigate this roadmap:** [current state](#current-state) · [active milestone](#active-milestone--source-intelligence-structural-reliability) · [completion criteria](#milestone-completion-criteria) · [qualification evidence](#current-original-project-qualification) · [known limitations](#known-limitations-and-verification-boundaries) · [next work](#next-work).
+**Navigate this roadmap:** [current state](#current-state) · [source-level milestone](#source-intelligence-structural-reliability--source-level-gate-complete) · [completion criteria](#milestone-completion-criteria) · [qualification evidence](#current-original-project-qualification) · [known limitations](#known-limitations-and-verification-boundaries) · [next work](#next-work).
 
 ## Current state
 
@@ -19,21 +19,23 @@ This file tracks **current and future work only**. Completed changes belong in [
 - Require an exact clean commit and the release procedure in [`PUBLISHING.md`](PUBLISHING.md) for public release authority.
 - Do not accumulate implementation diaries or per-phase evidence in this file.
 
-## Active milestone — Source Intelligence structural reliability
+## Source Intelligence structural reliability — source-level gate complete
 
 **Purpose:** Give an LLM a concise, dependable first map of an unfamiliar project, then let it locate and inspect only the source relevant to its task. Source Intelligence is a set of **read-only evidence and navigation tools**, not an agent, compiler or semantic decision engine. The **LLM** interprets the user request, selects queries, evaluates relevant files and decides what to inspect or provisionally exclude. **Scripthold** returns bounded source facts, locations, supported relations, exact excerpts and honest limitations; it neither chooses the edit site nor judges relevance to the user's task. The agent remains free to use `source_*`, `grep_text_files`, or direct reads; spontaneous tool selection is not a qualification target.
 
 **Released baseline (4.0.1):** `source_symbols` provides `digest`, `outline`, `find`, and fingerprint-verified `show`; `source_query` provides supported structural search, relationships, and context. `outline` defaults to `presentation: "tree"`; callers needing the historical top-level `files` and `symbols` request `presentation: "detailed"`. The separate filesystem `tree` tool describes paths, not source-symbol ownership. See the [tool reference](../TOOLS.md#source_symbols) and [capability matrix](LANGUAGE_CAPABILITIES.md) for the actual contracts. Post-release parser fixes in Git are not proof that an already running connector has been updated.
 
-### Approved next phase — evidence-led structural reliability fixes
+### Follow-on maintenance — evidence-led structural reliability
 
-**Next workstream:** Maintain the deduplicated, reproducible backlog derived from completed original-source `source_symbols.outline` comparisons, and select further parser fixes only from independently reproduced current-development defects. Prioritize missing or invented declarations and incorrect ownership, then symbol identity/kind and source ranges. Group cases by actual shared analyzer implementation rather than assuming language-by-language isolation; distinguish supported defects, intentionally unsupported syntax, candidates, and source-oracle corrections. A complete sample audit does not certify a whole language or a defect-free provider.
+**Future defect intake:** Maintain the deduplicated, reproducible backlog derived from original-source `source_symbols.outline` comparisons; reopen parser work only for independently reproduced new current-development defects. Prioritize missing or invented declarations and incorrect ownership, then symbol identity/kind and source ranges. Group cases by actual shared analyzer implementation rather than assuming language-by-language isolation; distinguish supported defects, intentionally unsupported syntax, candidates, and source-oracle corrections. A complete sample audit does not certify a whole language or a defect-free provider.
 
 **Change gate:** For each selected causal cluster, establish a source-first original-project expectation and a genuine failing test on the current development analyzer, implement the minimal compatible fix, and run targeted original-source and handler tests. Requalify affected shared providers plus dependent `source_symbols` and `source_query` operations as regression checks, with broader race, static and full-suite verification as required by the [development checklist](DEVELOPMENT_CHECKLIST.md). Keep interim source provenance, local audit findings and task state in private operator records; only independently reproducible, accepted behavior changes belong in tracked changelog/docs. No release or installed-server update is implied.
 
 ### Milestone completion criteria
 
-The **100-provider project-navigation coverage gate is complete**, but it does not close this reliability milestone. To close the active source-level workstream:
+**Source-level milestone closed on 2026-11-20 (development tree only).** The 100-provider outline audit was followed by a source-first reconciliation of 33 historical supported discrepancy groups against current whole-original regressions, with unsupported or deliberately partial structures and corrected test oracles explicitly separated from genuine defects. Full unfiltered Go tests, static vetting and module verification passed. This certifies the selected bounded structural navigation workstream, **not** all grammar constructs, an installed MCP server, operating systems, transports, security, promotion or a release. Future supported defects require fresh evidence and their own qualification.
+
+The 100-provider project-navigation coverage gate alone did not establish correctness. The source-level close decision applied these criteria:
 
 1. **Resolve the actionable defect backlog.** Reproduce each remaining prioritized structural finding on current development HEAD, then either fix it with a source-first regression or classify it explicitly as unsupported, a corrected oracle, or accepted partial coverage. No unresolved P0/P1 *within the approved supported scope* may be silently treated as passing.
 2. **Prove no regressions in changed shared analyzers.** Run focused original-source declaration/ownership/range comparisons and the applicable handler/index, package, race and static checks. Report exact cases tested and skipped; neither 100 providers nor a passed sample is complete language-grammar certification.

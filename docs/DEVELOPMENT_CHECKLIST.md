@@ -104,7 +104,7 @@ This method checks whether `source_symbols` and `source_query` provide correct, 
 
 **Stop or escalate:** Mark **task-oriented navigation PASS for the tested scope** only when predefined queries on two independent original projects return source-verified evidence sufficient to locate a primary edit region, examine relevant adjacent files/tests, distinguish plausible distractors and retrieve exact source, with honest partial/ambiguous coverage and compact output. The test does not grade an LLM's reasoning or spontaneous tool selection. A broad file list, a successful lookup of an already-known symbol, or one correct isolated file is insufficient. Stop once this is achieved; do not chase compiler-level semantics. Escalate for reproducible wrong edit targets, fabricated links, important missing functionality/dialects, or shared regressions. Preserve security, encoding and public contract checks; never claim that excluded or unindexed files are guaranteed irrelevant.
 
-See [ROADMAP.md](ROADMAP.md#active-milestone--source-intelligence-structural-reliability) for milestone-specific acceptance. Do **not** test spontaneous LLM tool choice or require source tooling to beat grep.
+See [ROADMAP.md](ROADMAP.md#source-intelligence-structural-reliability--source-level-gate-complete) for milestone-specific acceptance. Do **not** test spontaneous LLM tool choice or require source tooling to beat grep.
 
 ## Source Intelligence response-contract qualification (on demand)
 
