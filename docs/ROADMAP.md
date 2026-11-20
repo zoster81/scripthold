@@ -2,6 +2,8 @@
 
 This file tracks **current and future work only**. Completed changes belong in [`CHANGELOG.md`](../CHANGELOG.md); current behavior and invariants belong in [`ARCHITECTURE.md`](ARCHITECTURE.md), [`TOOLS.md`](../TOOLS.md), and the focused operational guides.
 
+**Navigate this roadmap:** [current state](#current-state) · [active milestone](#active-milestone--source-intelligence-structural-reliability) · [completion criteria](#milestone-completion-criteria) · [qualification evidence](#current-original-project-qualification) · [known limitations](#known-limitations-and-verification-boundaries) · [next work](#next-work).
+
 ## Current state
 
 - Public releases: see [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest); **4.0.1** was released through the protected immutable release process on 2026-10-26; post-release semantic fixes remain unreleased.
@@ -35,7 +37,7 @@ The **100-provider project-navigation coverage gate is complete**, but it does n
 
 1. **Resolve the actionable defect backlog.** Reproduce each remaining prioritized structural finding on current development HEAD, then either fix it with a source-first regression or classify it explicitly as unsupported, a corrected oracle, or accepted partial coverage. No unresolved P0/P1 *within the approved supported scope* may be silently treated as passing.
 2. **Prove no regressions in changed shared analyzers.** Run focused original-source declaration/ownership/range comparisons and the applicable handler/index, package, race and static checks. Report exact cases tested and skipped; neither 100 providers nor a passed sample is complete language-grammar certification.
-3. **Reconcile current documentation and evidence.** Keep public behavior in the tool reference, limitations in the capability/architecture guidance, current work here, and unreleased changes in the changelog. Preserve operator-only source inventory, task IDs, runtime details and resumable state outside tracked files.
+3. **Reconcile current documentation and evidence.** Keep public tool behavior in the tool reference, selected source-qualification caveats here, general security/durability boundaries in the architecture guides, and unreleased changes in the changelog. Preserve operator-only source inventory, task IDs, runtime details and resumable state outside tracked files.
 4. **Make an explicit milestone-close decision.** Record supported residual limitations and verify the final development commit is coherent and clean. The standalone MCP, OS/transport, security, release and deployment gates remain separate and must not be presented as passed by source-level checks.
 
 **Release readiness is a separate decision.** An installed 4.0.1 server is not automatically updated by development commits. Promotion requires an explicitly authorized standalone/transport/cross-platform qualification and the [publishing procedure](PUBLISHING.md); release or deployment cannot be inferred from the tests summarized below.
