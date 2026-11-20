@@ -86,6 +86,16 @@ func appendOpenAPIPathMethods(ctx context.Context, document *SourceDocument, lin
 			}
 			if line.indent == current.childIndent && strings.HasPrefix(trimmed, "operationId:") {
 				current.hasID = true
+				// Link Objects and examples can contain operationId references.
+				// Only a direct child of an authored paths.<route>.<verb> is a declaration.
+				name := unquoteSourceValue(strings.TrimSpace(strings.TrimPrefix(trimmed, "operationId:")))
+				if name != "" {
+					trimStart := line.start + strings.Index(line.text, trimmed)
+					nameOffset := strings.Index(trimmed, name)
+					addDocumentDataHardwareSymbol(builder, SymbolKindOperation, "operation", name, nil,
+						OffsetRange{Start: trimStart, End: line.end},
+						OffsetRange{Start: trimStart + nameOffset, End: trimStart + nameOffset + len(name)})
+				}
 			}
 		}
 	}
