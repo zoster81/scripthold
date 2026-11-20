@@ -70,9 +70,8 @@ func TestFlow89SelectedOriginalSupportedDeclarationInventory(t *testing.T) {
 			mapping := make(map[string]bool, len(tc.want))
 			pathsByName := map[string]string{}
 			for _, entry := range tc.want {
-				path, exists := pathsByName[entry.file]
-				if !exists {
-					path = filepath.Join(tc.root, entry.file)
+				if _, exists := pathsByName[entry.file]; !exists {
+					path := filepath.Join(tc.root, entry.file)
 					info, err := os.Lstat(path)
 					if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
 						t.Fatalf("original file missing, non-regular or oversized: %s info=%+v err=%v", path, info, err)

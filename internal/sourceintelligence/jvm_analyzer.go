@@ -1450,8 +1450,6 @@ func (parser *jvmParser) parseKotlinProperty(start, end int, parent *SymbolParen
 				}
 				seenSet = true
 				accessorEnd, after, recognized, complete = parser.kotlinPropertySetter(start, next, end, depth)
-			default:
-				break
 			}
 			if !recognized {
 				break
