@@ -31,7 +31,7 @@ Private operator checkpoints, local test task identifiers and machine-specific h
 
 ## What Scripthold provides
 
-Scripthold 4.x provides 36 tools and 3 guided prompts; see [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) for the latest published version. Clients upgrading from 3.x should follow the [4.0 migration guide](docs/MIGRATION_4.0.md) for the unified confirmation tool. In 4.0.1, the `source_symbols outline` response defaults to a compact tree; pass `presentation: "detailed"` to retain the earlier `files` and `symbols` fields.
+Scripthold 4.x provides 36 tools and 3 guided prompts; see [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) for the latest published version. Clients upgrading from 3.x should follow the [4.0 migration guide](docs/MIGRATION_4.0.md) for the unified confirmation tool. Since 4.0.1, the `source_symbols outline` response defaults to a compact tree; pass `presentation: "detailed"` to retain the earlier `files` and `symbols` fields. Release 4.1.0 adds bounded Source Intelligence improvements and opt-in concise output without changing legacy defaults. Publishing the release does not update a running installation.
 
 - **168 registered text encodings** with content-based detection, UTF-32 LE/BE support, and conservative ambiguity handling.
 - **100 active Source Intelligence providers** for bounded declaration navigation, structural search, selected project relations, and verified context assembly.
