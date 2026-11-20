@@ -4,6 +4,8 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+## 4.1.0 - 2026-11-20
+
 ### Added
 
 - OpenAPI source navigation now indexes `operationId` declarations only when they belong directly to a named HTTP method under `paths`, not when an identically spelled key is a reference in `components.links`, a response Link Object, or a nested schema/example. Methods without an authored `operationId` retain their existing `HTTP VERB /path` fallback navigation. The complete official OpenAPI Specification Link Object example (six HTTP operations, three schemas, four non-declaration link references) and LF/CRLF negative cases verify the distinction through native outline and fingerprint-verified handler navigation.
