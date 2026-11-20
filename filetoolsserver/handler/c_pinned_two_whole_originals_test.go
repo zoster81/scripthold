@@ -15,7 +15,7 @@ import (
 // Whole original Git sources from curl and universal-ctags. C function
 // declarations inside macro replacement lists are not authored source symbols.
 func TestCTwoWholePinnedOriginalFunctionAndMacroInventories(t *testing.T) {
-	root := os.Getenv("SCRIPTHOLD_REAL_C_OUTLINE_ROOT")
+	root := os.Getenv("SCRIPTHOLD_REAL_C_TWO_WHOLE_ROOT")
 	if root == "" {
 		t.Skip("two independently pinned complete C original files not configured")
 	}
