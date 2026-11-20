@@ -25,7 +25,7 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | I want to… | Start here |
 |---|---|
 | Understand the project's scope and upstream relationship | [Project Direction](PROJECT_DIRECTION.md) |
-| Find planned work and compatibility boundaries | [Roadmap](ROADMAP.md) |
+| Find planned work, completion criteria, and compatibility boundaries | [Roadmap](ROADMAP.md) and [milestone completion criteria](ROADMAP.md#milestone-completion-criteria) |
 | Resume supervised development safely | [Agent Guide](../AGENTS.md#resuming-a-supervised-development-session), [Roadmap](ROADMAP.md#next-work) and [Development Checklist](DEVELOPMENT_CHECKLIST.md) |
 | Submit a contribution and run the right tests | [Contributing](../CONTRIBUTING.md) and [Development Checklist](DEVELOPMENT_CHECKLIST.md) |
 | Report a security vulnerability privately | [Security Policy](../SECURITY.md) |

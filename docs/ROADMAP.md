@@ -29,6 +29,17 @@ This file tracks **current and future work only**. Completed changes belong in [
 
 **Change gate:** For each selected causal cluster, establish a source-first original-project expectation and a genuine failing test on the current development analyzer, implement the minimal compatible fix, and run targeted original-source and handler tests. Requalify affected shared providers plus dependent `source_symbols` and `source_query` operations as regression checks, with broader race, static and full-suite verification as required by the [development checklist](DEVELOPMENT_CHECKLIST.md). Keep interim source provenance, local audit findings and task state in private operator records; only independently reproducible, accepted behavior changes belong in tracked changelog/docs. No release or installed-server update is implied.
 
+### Milestone completion criteria
+
+The **100-provider project-navigation coverage gate is complete**, but it does not close this reliability milestone. To close the active source-level workstream:
+
+1. **Resolve the actionable defect backlog.** Reproduce each remaining prioritized structural finding on current development HEAD, then either fix it with a source-first regression or classify it explicitly as unsupported, a corrected oracle, or accepted partial coverage. No unresolved P0/P1 *within the approved supported scope* may be silently treated as passing.
+2. **Prove no regressions in changed shared analyzers.** Run focused original-source declaration/ownership/range comparisons and the applicable handler/index, package, race and static checks. Report exact cases tested and skipped; neither 100 providers nor a passed sample is complete language-grammar certification.
+3. **Reconcile current documentation and evidence.** Keep public behavior in the tool reference, limitations in the capability/architecture guidance, current work here, and unreleased changes in the changelog. Preserve operator-only source inventory, task IDs, runtime details and resumable state outside tracked files.
+4. **Make an explicit milestone-close decision.** Record supported residual limitations and verify the final development commit is coherent and clean. The standalone MCP, OS/transport, security, release and deployment gates remain separate and must not be presented as passed by source-level checks.
+
+**Release readiness is a separate decision.** An installed 4.0.1 server is not automatically updated by development commits. Promotion requires an explicitly authorized standalone/transport/cross-platform qualification and the [publishing procedure](PUBLISHING.md); release or deployment cannot be inferred from the tests summarized below.
+
 ### Current original-project qualification
 
 **Progress in the development tree (not the installed 4.0.1 release):**
