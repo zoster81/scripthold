@@ -20,10 +20,15 @@ func TestCSharpPinnedOriginalWholeSerilogNamespaceNavigation(t *testing.T) {
 		Language: "csharp", Encoding: "utf-8", MaxFiles: 1, MaxSymbols: 64, IncludeSignatures: true,
 	})
 	if err != nil || failed != nil || !outlined.CoverageComplete || outlined.Truncated ||
-		len(outlined.Symbols) != 2 {
+		len(outlined.Symbols) != 8 {
 		t.Fatalf("whole original C# detailed outline: err=%v failed=%+v symbols=%+v", err, failed, outlined.Symbols)
 	}
-	var nsID string
+	var nsID, enumID string
+	memberLines := map[string]int{
+		"Verbose": 26, "Debug": 32, "Information": 38,
+		"Warning": 43, "Error": 49, "Fatal": 55,
+	}
+	seenMembers := make(map[string]bool, len(memberLines))
 	for _, s := range outlined.Symbols {
 		switch s.Name {
 		case "Serilog.Events":
@@ -35,14 +40,24 @@ func TestCSharpPinnedOriginalWholeSerilogNamespaceNavigation(t *testing.T) {
 			nsID = s.ID
 		case "LogEventLevel":
 			if string(s.Kind) != "enum" || s.ParentQualifiedName != "Serilog.Events" ||
-				s.NameRange.Start.Line != 20 {
+				s.NameRange.Start.Line != 20 || s.ParentID != nsID {
 				t.Errorf("real enum owner changed: %+v", s)
 			}
+			enumID = s.ID
+		case "Verbose", "Debug", "Information", "Warning", "Error", "Fatal":
+			if string(s.Kind) != "constant" || s.NativeKind != "enum-value" ||
+				s.ParentQualifiedName != "Serilog.Events.LogEventLevel" || s.ParentID != enumID ||
+				s.QualifiedName != "Serilog.Events.LogEventLevel."+s.Name ||
+				s.NameRange.Start.Line != memberLines[s.Name] || seenMembers[s.Name] {
+				t.Errorf("original enum member changed: %+v", s)
+			}
+			seenMembers[s.Name] = true
 		default:
 			t.Errorf("unplanned whole-original symbol: %+v", s)
 		}
 	}
-	if nsID == "" || len(outlined.Files) != 1 || outlined.Files[0].SourceFingerprint == "" {
+	if nsID == "" || enumID == "" || len(seenMembers) != len(memberLines) ||
+		len(outlined.Files) != 1 || outlined.Files[0].SourceFingerprint == "" {
 		t.Fatal("authored namespace or source fingerprint missing")
 	}
 	failed, found, err := h.SourceSymbols(context.Background(), nil, SourceSymbolsInput{
