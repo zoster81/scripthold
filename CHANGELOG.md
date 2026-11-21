@@ -4,6 +4,10 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+### Fixed
+
+- Durable task stores can now reopen after `MCP_TASK_MAX_CONCURRENCY` changes between coordinated process restarts (for example, 4 to 8 or 12, then back to 4). Worker concurrency is a validated startup setting; existing descriptor bytes, stored task identities, and durable queue/log/runtime/retention policy remain unchanged. Running workers are not reconfigured live, and published 4.1.0 does not include this change.
+
 ### Changed
 
 - Exact `source_query.search` requests with symbol-kind filters now check whether a symbol name matches before checking its kind. This improves sparse exact searches without changing original source spellings, result ordering, continuation, output limits or public JSON. Prefix and contains searches retain their previous filtering order.

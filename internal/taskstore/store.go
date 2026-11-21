@@ -178,7 +178,12 @@ func openStore(root string, publicAllowedDirectories []string, limits Limits, cr
 		return nil, fmt.Errorf("read task descriptor: %w", err)
 	}
 	_, saltErr := hex.DecodeString(desc.Salt)
-	if desc.Format != FormatVersion || len(desc.Salt) != 64 || saltErr != nil || desc.Limits != limits {
+	// Concurrency is a worker scheduling limit, not durable task state.
+	// Keep the original descriptor untouched so old executors can finish.
+	durableLimits := desc.Limits
+	durableLimits.MaxConcurrency = limits.MaxConcurrency
+	if desc.Format != FormatVersion || len(desc.Salt) != 64 || saltErr != nil ||
+		validateLimits(desc.Limits) != nil || durableLimits != limits {
 		return nil, errors.New("unsupported or invalid task store descriptor")
 	}
 	return &Store{root: root, tasksRoot: tasksRoot, descriptor: desc, limits: limits}, nil
