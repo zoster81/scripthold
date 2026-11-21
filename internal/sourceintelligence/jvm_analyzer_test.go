@@ -1,7 +1,9 @@
 package sourceintelligence
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"reflect"
 	"strings"
@@ -12,6 +14,112 @@ import (
 
 var _ SourceAnalyzer = JavaAnalyzer{}
 var _ SourceAnalyzer = KotlinAnalyzer{}
+
+func TestJVMAnalyzerFinalResultOwnershipParity(t *testing.T) {
+	cases := []struct {
+		name, text      string
+		kotlin, members bool
+		maxSymbols      int
+	}{
+		{name: "java-imports-inheritance-and-methods", text: "package demo; import java.util.List; public class Box extends Base { private int value; public int get() { return value; } }", maxSymbols: 128},
+		{name: "kotlin-imports-properties-and-methods", text: "package demo\nimport kotlin.collections.List\nclass Box: Base() { val value: Int = 1; fun get(): Int = value }\n", kotlin: true, maxSymbols: 128},
+		{name: "jsp-java-declaration-members", text: "public int get() { return 1; } public void set(int value) {}\n", members: true, maxSymbols: 128},
+		{name: "java-bounded-symbols", text: "package demo; class First {} class Second {} class Third {}\n", maxSymbols: 2},
+		{name: "kotlin-bounded-symbols", text: "package demo\nclass First {}\nclass Second {}\nclass Third {}\n", kotlin: true, maxSymbols: 2},
+		{name: "java-malformed", text: "package demo; class Broken { void run( {\n", maxSymbols: 128},
+		{name: "java-empty", text: "", maxSymbols: 128},
+		{name: "kotlin-empty", text: "", kotlin: true, maxSymbols: 128},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			document := sourceDocumentForScanner(tc.text)
+			document.Path = "parity.fixture"
+			options := testAnalyzeOptions(true, tc.maxSymbols)
+			language := "java"
+			analyzer := AnalyzerJava
+			profile := JavaScannerProfile()
+			if tc.kotlin {
+				language = "kotlin"
+				analyzer = AnalyzerKotlin
+				profile = KotlinScannerProfile()
+			}
+			builder := NewSymbolBuilder(document, SymbolBuilderOptions{
+				Context: ctx, Language: language, Analyzer: string(analyzer),
+				IncludeSignatures: options.IncludeSignatures, MaxEvidence: SymbolEvidenceStructural,
+				Limits: options.Limits,
+			})
+			if err := builder.checkReady(); err != nil {
+				t.Fatal(err)
+			}
+			scan, err := ScanSource(ctx, document, profile, ScannerLimits{
+				MaxTokens:     scannerTokenBudget(document.Text),
+				MaxTokenBytes: 1024 * 1024, MaxNesting: options.MaxNesting,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, diagnostic := range scan.Diagnostics {
+				value := OffsetRange{Start: diagnostic.StartOffset, End: diagnostic.EndOffset}
+				_ = builder.AddDiagnostic(DiagnosticSpec{Code: language + "-" + diagnostic.Code,
+					Message: diagnostic.Message, Severity: DiagnosticWarning,
+					Range: &value, AffectsCoverage: true})
+			}
+			if !scan.Complete {
+				builder.MarkIncomplete()
+			}
+			parser := &jvmParser{
+				ctx: ctx, document: document, tokens: scan.Tokens,
+				pairs: PairDelimiterTokens(scan.Tokens, nil), builder: builder, kotlin: tc.kotlin,
+			}
+			parser.parseScope(0, len(scan.Tokens), nil, tc.members, "")
+			defensive := AnalyzerResult{Analysis: builder.Result(), Dependencies: parser.dependencies, Relations: parser.relations}
+			owned := builder.takeResult()
+			// The public defensive path emits [] rather than null for an empty document.
+			if owned.Symbols == nil {
+				owned.Symbols = []NormalizedSymbol{}
+			}
+			transferred := AnalyzerResult{Analysis: owned, Dependencies: parser.dependencies, Relations: parser.relations}
+			if !reflect.DeepEqual(defensive, transferred) {
+				t.Fatalf("owned vs defensive mismatch: defensive=%+v transferred=%+v", defensive, transferred)
+			}
+			a, err := json.Marshal(defensive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(transferred)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(a, b) {
+				t.Fatalf("owned JSON differs from defensive JSON: %s vs %s", a, b)
+			}
+			public, err := analyzeJVMFamilyScope(ctx, document, options, tc.kotlin, tc.members)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(defensive, public) {
+				t.Fatalf("public analyzer output differs: public=%+v defensive=%+v", public, defensive)
+			}
+			mutated := false
+			for index := range transferred.Analysis.Symbols {
+				if len(transferred.Analysis.Symbols[index].Modifiers) == 0 {
+					continue
+				}
+				original := defensive.Analysis.Symbols[index].Modifiers[0]
+				transferred.Analysis.Symbols[index].Modifiers[0] = "modified"
+				if defensive.Analysis.Symbols[index].Modifiers[0] != original {
+					t.Fatal("defensive result aliases owned mutable modifiers")
+				}
+				mutated = true
+				break
+			}
+			if tc.name == "java-imports-inheritance-and-methods" && !mutated {
+				t.Fatal("Java class modifier isolation was not exercised")
+			}
+		})
+	}
+}
 
 func TestJavaAnalyzerPackagesImportsTypesMembersAndRelations(t *testing.T) {
 	text := `package demo.core;

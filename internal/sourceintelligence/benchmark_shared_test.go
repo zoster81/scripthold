@@ -1028,6 +1028,55 @@ func BenchmarkRepresentativeFamilyAnalyzers(b *testing.B) {
 	}
 }
 
+// BenchmarkJVMAnalyzerDeclarationScaling measures full Java/Kotlin analysis,
+// including the final owned or defensive symbol result, at fixed source sizes.
+func BenchmarkJVMAnalyzerDeclarationScaling(b *testing.B) {
+	for _, language := range []string{"java", "kotlin"} {
+		for _, declarationCount := range []int{16, 64, 256} {
+			b.Run(fmt.Sprintf("%s/%d", language, declarationCount), func(b *testing.B) {
+				var source strings.Builder
+				source.WriteString("package bench;\n")
+				var analyzer SourceAnalyzer = JavaAnalyzer{}
+				if language == "kotlin" {
+					source.Reset()
+					source.WriteString("package bench\n")
+					analyzer = KotlinAnalyzer{}
+				}
+				for index := 0; index < declarationCount; index++ {
+					if language == "kotlin" {
+						fmt.Fprintf(&source, "class Item%03d { val value: Int = %d; fun get(): Int = value }\n", index, index)
+					} else {
+						fmt.Fprintf(&source, "public class Item%03d { private int value = %d; public int get() { return value; } }\n", index, index)
+					}
+				}
+				document := sourceDocumentForScanner(source.String())
+				document.Path = "benchmark.java"
+				if language == "kotlin" {
+					document.Path = "benchmark.kt"
+				}
+				options := AnalyzeOptions{
+					IncludeSignatures: true, MaxNesting: 256,
+					Limits: SymbolBuilderLimits{MaxSymbols: 4096, MaxSignatureBytes: 8192, MaxDiagnostics: 256},
+				}
+				reference, err := analyzer.Analyze(context.Background(), document, options)
+				if err != nil || !reference.Analysis.CoverageComplete || len(reference.Analysis.Symbols) < declarationCount {
+					b.Fatalf("seed analysis symbols=%d complete=%t err=%v", len(reference.Analysis.Symbols), reference.Analysis.CoverageComplete, err)
+				}
+				wantCount := len(reference.Analysis.Symbols)
+				b.ReportAllocs()
+				b.SetBytes(int64(len(document.Text)))
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					result, err := analyzer.Analyze(context.Background(), document, options)
+					if err != nil || !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != wantCount {
+						b.Fatalf("analysis symbols=%d want=%d complete=%t err=%v", len(result.Analysis.Symbols), wantCount, result.Analysis.CoverageComplete, err)
+					}
+				}
+			})
+		}
+	}
+}
+
 func BenchmarkHDLSignalExtraction(b *testing.B) {
 	var source strings.Builder
 	source.WriteString("module demo;\n")
