@@ -699,6 +699,61 @@ func BenchmarkSharedProjectQueryAndContext(b *testing.B) {
 	})
 }
 
+// BenchmarkProjectDenseSameFileResolution separates the per-reference source
+// lookup from the full model build for files with many local declarations.
+func BenchmarkProjectDenseSameFileResolution(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	descriptor, ok := registry.Resolve("java")
+	if !ok {
+		b.Fatal("java descriptor is unavailable")
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("classes-%d", children), func(b *testing.B) {
+			var source strings.Builder
+			source.WriteString("package demo;\nclass Base {}\n")
+			for index := 0; index < children; index++ {
+				fmt.Fprintf(&source, "class Child%03d extends Base {}\n", index)
+			}
+			facts := benchmarkAnalyzerFacts(b, JavaAnalyzer{}, "project/benchmark/Dense.java", source.String())
+			if len(facts.Analysis.Relations) != children {
+				b.Fatalf("analyzer relationships: got %d want %d", len(facts.Analysis.Relations), children)
+			}
+			limits := ProjectResolverLimits{MaxFiles: 1, MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+					if err != nil || len(model.references) != children {
+						b.Fatalf("project build: references=%d err=%v", len(model.references), err)
+					}
+				}
+			})
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			file := model.files[projectPathKey(facts.Path)]
+			relation := facts.Analysis.Relations[len(facts.Analysis.Relations)-1]
+			if got := model.resolveRelationSource(file, descriptor, relation, nil); got.SymbolID == "" {
+				b.Fatalf("last source could not be resolved: %+v", got)
+			}
+			b.Run("source-lookup", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if got := model.resolveRelationSource(file, descriptor, relation, nil); got.SymbolID == "" {
+						b.Fatal("source lookup missing symbol")
+					}
+				}
+			})
+		})
+	}
+}
+
 // BenchmarkProjectPositionSelectorModelBuild includes immutable model setup
 // to account for the memory and CPU cost of any new lookup index.
 func BenchmarkProjectPositionSelectorModelBuild(b *testing.B) {

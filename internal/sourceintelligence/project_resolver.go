@@ -94,6 +94,11 @@ type projectSymbolRecord struct {
 	nameKey      string
 }
 
+type projectRelationSourceKey struct {
+	languageID string
+	lookup     string
+}
+
 type projectLanguageDescriptorCache struct {
 	registry *LanguageRegistry
 	byName   map[string]LanguageDescriptor
@@ -445,11 +450,38 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
 		descriptor, _ := descriptors.resolve(file.languageID)
+		// For dense files, group source candidates once using the already
+		// sorted canonical symbol records. The map is not retained in the model.
+		var sourceCandidates map[projectRelationSourceKey][]*projectSymbolRecord
+		if len(file.facts.Analysis.Relations) >= 32 && len(model.symbolsByFile[pathKey]) >= 32 {
+			sourceCandidates = make(map[projectRelationSourceKey][]*projectSymbolRecord, len(file.facts.Analysis.Relations))
+			for _, relation := range file.facts.Analysis.Relations {
+				key := projectRelationSourceKey{descriptor.ID, projectSymbolLookupKey(descriptor, relation.Source)}
+				sourceCandidates[key] = nil
+			}
+			records := model.symbolsByFile[pathKey]
+			for index := range records {
+				record := &records[index]
+				if !isRelationEndpointKind(record.symbol.Kind) {
+					continue
+				}
+				nameKey := projectRelationSourceKey{record.languageID, record.nameKey}
+				if _, wanted := sourceCandidates[nameKey]; wanted {
+					sourceCandidates[nameKey] = append(sourceCandidates[nameKey], record)
+				}
+				qualifiedKey := projectRelationSourceKey{record.languageID, record.qualifiedKey}
+				if qualifiedKey != nameKey {
+					if _, wanted := sourceCandidates[qualifiedKey]; wanted {
+						sourceCandidates[qualifiedKey] = append(sourceCandidates[qualifiedKey], record)
+					}
+				}
+			}
+		}
 		for _, relation := range file.facts.Analysis.Relations {
 			if err := ctx.Err(); err != nil {
 				return operation.Wrap(operation.KindCancelled, "resolve_project_reference", file.facts.Path, err)
 			}
-			source := model.resolveRelationSource(file, descriptor, relation)
+			source := model.resolveRelationSource(file, descriptor, relation, sourceCandidates)
 			targets, stage, err := model.resolveRelationTargets(file, descriptor, relation, maxCandidates)
 			if err != nil {
 				return err
@@ -499,15 +531,21 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 	return nil
 }
 
-func (model *ProjectModel) resolveRelationSource(file projectFileRecord, descriptor LanguageDescriptor, relation StructuralRelation) RelationEntity {
+func (model *ProjectModel) resolveRelationSource(file projectFileRecord, descriptor LanguageDescriptor, relation StructuralRelation, sourceCandidates map[projectRelationSourceKey][]*projectSymbolRecord) RelationEntity {
 	lookup := projectSymbolLookupKey(descriptor, relation.Source)
-	candidates := make([]projectSymbolRecord, 0, 2)
-	for _, record := range model.symbolsByFile[file.pathKey] {
-		if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
-			continue
-		}
-		if record.qualifiedKey == lookup || record.nameKey == lookup {
-			candidates = append(candidates, record)
+	var candidates []*projectSymbolRecord
+	if sourceCandidates != nil {
+		candidates = sourceCandidates[projectRelationSourceKey{descriptor.ID, lookup}]
+	} else {
+		records := model.symbolsByFile[file.pathKey]
+		for index := range records {
+			record := &records[index]
+			if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
+				continue
+			}
+			if record.qualifiedKey == lookup || record.nameKey == lookup {
+				candidates = append(candidates, record)
+			}
 		}
 	}
 	if len(candidates) == 1 {

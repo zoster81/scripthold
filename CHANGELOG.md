@@ -10,6 +10,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - `source_symbols.outline` with `presentation: "compact"` skips the ancestor lookup needed only by tree output. This avoids unnecessary temporary allocations while preserving symbol order, public fields, output limits, and the separate tree/detailed presentations.
 - Unfiltered `source_symbols.outline` now reserves only the bounded space needed for analyzed declarations instead of repeatedly growing its result array. This reduces temporary memory use without changing symbols, filters, truncation, fingerprints, or the JSON response.
 - Source-position selectors in `source_query` now reuse a bounded, immutable file-to-reference index built with each project model. This avoids scanning and normalizing unrelated source paths on every relation or context lookup, while preserving source identity, first-match order, fingerprint checks, and public results.
+- Dense per-file project relationship resolution now reuses short-lived, source-specific candidate groups rather than repeatedly scanning every declaration for each reference. This improves project model construction while keeping the same relationship evidence, ordering, ambiguity and output.
 
 ## 4.1.0 - 2026-11-20
 

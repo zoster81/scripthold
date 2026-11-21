@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -484,6 +485,53 @@ func TestProjectPathStemKeyFromCanonicalKeyMatchesLegacy(t *testing.T) {
 		}
 		if got := projectPathStemKey(value); got != want {
 			t.Fatalf("stem key for %q = %q, want %q", value, got, want)
+		}
+	}
+}
+
+func TestProjectResolverDenseSourceCandidatesPreserveLinearSelection(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	source.WriteString("package demo;\nclass Base {}\n")
+	for index := 0; index < 64; index++ {
+		source.WriteString("class Child")
+		source.WriteString(fmt.Sprintf("%03d", index))
+		source.WriteString(" extends Base {}\n")
+	}
+	facts := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "dense", "Child.java"), source.String())
+	if len(facts.Analysis.Relations) != 64 {
+		t.Fatalf("expected 64 structural references, got %d", len(facts.Analysis.Relations))
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, ok := registry.Resolve("java")
+	if !ok {
+		t.Fatal("missing java descriptor")
+	}
+	file := model.files[projectPathKey(facts.Path)]
+	if len(model.references) != len(facts.Analysis.Relations) {
+		t.Fatalf("unexpected structural reference count: got %d", len(model.references))
+	}
+	for _, relation := range facts.Analysis.Relations {
+		want := model.resolveRelationSource(file, descriptor, relation, nil)
+		found := false
+		for _, reference := range model.references {
+			if reference.TargetSpelling != relation.Target || !reflect.DeepEqual(reference.Range, relation.Range) {
+				continue
+			}
+			if !reflect.DeepEqual(reference.Source, want) {
+				t.Fatalf("indexed selection changed source for %+v: got %+v, want %+v", relation, reference.Source, want)
+			}
+			found = true
+			break
+		}
+		if !found {
+			t.Fatalf("source relationship was lost: %+v", relation)
 		}
 	}
 }
