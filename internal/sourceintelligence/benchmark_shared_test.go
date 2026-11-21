@@ -1637,3 +1637,50 @@ func benchmarkDigest(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
 }
+
+// BenchmarkProjectStructuralSearchSparseScaling isolates matching cost from
+// analyzer/model construction and separates sparse hits from broad output.
+func BenchmarkProjectStructuralSearchSparseScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			testCases := []struct {
+				name  string
+				query string
+				match ProjectSearchMatchMode
+				kinds []string
+				want  int
+			}{
+				{name: "exact-late", query: fmt.Sprintf("Child%03d", children-1), match: ProjectSearchExact, want: 1},
+				{name: "exact-missing", query: "MissingClassNoMatch", match: ProjectSearchExact, want: 0},
+				{name: "exact-late-class-only", query: fmt.Sprintf("Child%03d", children-1), match: ProjectSearchExact, kinds: []string{string(SymbolKindClass)}, want: 1},
+				{name: "prefix-all", query: "Child", match: ProjectSearchPrefix, want: children},
+			}
+			for _, testCase := range testCases {
+				b.Run(testCase.name, func(b *testing.B) {
+					options := ProjectSearchOptions{
+						Query: testCase.query, Match: testCase.match, Kinds: testCase.kinds, MaxResults: children + 8,
+					}
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result, err := model.StructuralSearch(context.Background(), options)
+						if err != nil || len(result.Matches) != testCase.want {
+							b.Fatalf("structural search got=%d want=%d err=%v", len(result.Matches), testCase.want, err)
+						}
+					}
+				})
+			}
+		})
+	}
+}
