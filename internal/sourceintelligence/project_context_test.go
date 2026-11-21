@@ -2,7 +2,9 @@ package sourceintelligence
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -59,6 +61,87 @@ func TestProjectContextSymbolTargetExcludesUnrelatedDependentDeclarations(t *tes
 	}
 	if !containsContextSymbol(mixedPlan.Candidates, unrelatedID) {
 		t.Fatalf("mixed context lost explicit path scope: %+v", mixedPlan.Candidates)
+	}
+}
+
+func TestProjectContextOutgoingIndexPreservesLegacyPlansAcrossFiles(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name         string
+		analyzer     SourceAnalyzer
+		extension    string
+		isTypeScript bool
+	}{
+		{"java", JavaAnalyzer{}, "java", false},
+		{"typescript", TypeScriptAnalyzer{}, "ts", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "outgoing", tc.name)
+			baseText := "package demo; public class Base {}\n"
+			if tc.isTypeScript {
+				baseText = "export class Base {}\n"
+			}
+			base := projectResolverFacts(t, tc.analyzer, filepath.Join(root, "Base."+tc.extension), baseText)
+			facts := []ProjectFileFacts{base}
+			for index := 0; index < 70; index++ {
+				source := fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)
+				if tc.isTypeScript {
+					source = fmt.Sprintf("import { Base } from './Base';\nexport class Child%03d extends Base {}\n", index)
+				}
+				fact := projectResolverFacts(t, tc.analyzer, filepath.Join(root, fmt.Sprintf("Child%03d.%s", index, tc.extension)), source)
+				if index == 1 || index == 2 {
+					for pos := range fact.Analysis.Analysis.Symbols {
+						if fact.Analysis.Analysis.Symbols[pos].Kind == SymbolKindClass {
+							fact.Analysis.Analysis.Symbols[pos].ID = "cross-file-duplicate-id"
+						}
+					}
+				}
+				facts = append(facts, fact)
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(model.references) < 70 || len(model.referencesBySource) < 70 {
+				t.Fatalf("expected type references indexed by source: refs=%d paths=%d", len(model.references), len(model.referencesBySource))
+			}
+			// Symbol and path selectors do not require the source-position index.
+			// Disabling it on a shallow model copy restores the original global
+			// outgoing scan without changing the underlying immutable facts.
+			linear := *model
+			linear.referencesBySource = nil
+			name := func(value string) string {
+				if tc.isTypeScript {
+					return value
+				}
+				return "demo." + value
+			}
+			symbol := func(fact ProjectFileFacts, qualified string) ProjectSelector {
+				return ProjectSelector{Kind: ProjectSelectorSymbol, Path: fact.Path, SourceFingerprint: fact.SourceFingerprint, SymbolID: projectSymbolID(t, fact, name(qualified))}
+			}
+			baseSelector := symbol(base, "Base")
+			lateSelector := symbol(facts[len(facts)-1], "Child069")
+			duplicateA := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[2].Path, SourceFingerprint: facts[2].SourceFingerprint, SymbolID: "cross-file-duplicate-id"}
+			duplicateB := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[3].Path, SourceFingerprint: facts[3].SourceFingerprint, SymbolID: "cross-file-duplicate-id"}
+			pathSelector := ProjectSelector{Kind: ProjectSelectorPath, Path: facts[len(facts)-1].Path, SourceFingerprint: facts[len(facts)-1].SourceFingerprint}
+			cases := [][]ProjectSelector{
+				{baseSelector}, {lateSelector}, {duplicateA}, {duplicateB},
+				{pathSelector}, {lateSelector, duplicateA, duplicateB},
+			}
+			for _, policy := range []ProjectContextBodyPolicy{ProjectContextPrefer, ProjectContextSignaturesOnly} {
+				options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 200, MaxDepth: 2, BodyPolicy: policy}
+				for index, targets := range cases {
+					got, gotErr := model.PlanContext(context.Background(), targets, options)
+					want, wantErr := linear.PlanContext(context.Background(), targets, options)
+					if operation.KindOf(gotErr) != operation.KindOf(wantErr) || !reflect.DeepEqual(got, want) {
+						t.Fatalf("%s policy=%s case=%d indexedError=%v legacyError=%v indexed=%+v legacy=%+v", tc.name, policy, index, gotErr, wantErr, got, want)
+					}
+				}
+			}
+		})
 	}
 }
 

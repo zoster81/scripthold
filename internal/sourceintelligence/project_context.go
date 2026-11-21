@@ -338,12 +338,32 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 	for _, record := range records {
 		outgoing[record.symbol.ID] = nil
 	}
-	for index, reference := range planner.model.references {
+	appendOutgoing := func(index int) {
+		reference := planner.model.references[index]
 		if !isInheritanceStructuralKind(reference.StructuralKind) && !isImplementationStructuralKind(reference.StructuralKind) {
-			continue
+			return
 		}
 		if _, wanted := outgoing[reference.Source.SymbolID]; wanted {
 			outgoing[reference.Source.SymbolID] = append(outgoing[reference.Source.SymbolID], index)
+		}
+	}
+	if len(planner.model.references) >= 32 && len(planner.model.referencesBySource) > 0 {
+		// Select each source file once, even when several seeds share it.
+		// Per-file indices retain global reference order. The later path check
+		// still separates identical symbol IDs belonging to different files.
+		seenPaths := make(map[string]struct{}, len(records))
+		for _, record := range records {
+			if _, seen := seenPaths[record.pathKey]; seen {
+				continue
+			}
+			seenPaths[record.pathKey] = struct{}{}
+			for _, index := range planner.model.referencesBySource[record.pathKey] {
+				appendOutgoing(index)
+			}
+		}
+	} else {
+		for index := range planner.model.references {
+			appendOutgoing(index)
 		}
 	}
 

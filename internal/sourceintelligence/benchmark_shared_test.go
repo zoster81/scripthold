@@ -1214,6 +1214,75 @@ func BenchmarkSharedLanguageDetection(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectContextOutgoingReferenceScaling measures the complete
+// context plan separately for narrow and broad inheritance targets. Facts are
+// analyzer-proven and model construction occurs outside timed queries.
+func BenchmarkProjectContextOutgoingReferenceScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children+1), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(model.references) != children {
+				b.Fatalf("expected %d references, got %d", children, len(model.references))
+			}
+			symbolSelector := func(facts ProjectFileFacts, qualifiedName string) ProjectSelector {
+				var id string
+				for _, symbol := range facts.Analysis.Analysis.Symbols {
+					if symbol.QualifiedName == qualifiedName {
+						id = symbol.ID
+						break
+					}
+				}
+				if id == "" {
+					b.Fatalf("missing benchmark symbol %q in %q", qualifiedName, facts.Path)
+				}
+				return ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, SymbolID: id}
+			}
+			base := symbolSelector(facts[0], "demo.Base")
+			late := symbolSelector(facts[len(facts)-1], fmt.Sprintf("demo.Child%03d", children-1))
+			multi := make([]ProjectSelector, 0, min(8, children))
+			for index := 0; index < cap(multi); index++ {
+				multi = append(multi, symbolSelector(facts[len(facts)-1-index], fmt.Sprintf("demo.Child%03d", children-1-index)))
+			}
+			path := ProjectSelector{Kind: ProjectSelectorPath, Path: facts[len(facts)-1].Path, SourceFingerprint: facts[len(facts)-1].SourceFingerprint}
+			options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 512, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+			for _, tc := range []struct {
+				name      string
+				selectors []ProjectSelector
+			}{
+				{"single-late", []ProjectSelector{late}},
+				{"single-base", []ProjectSelector{base}},
+				{"multi-late", multi},
+				{"path-late", []ProjectSelector{path}},
+			} {
+				b.Run(tc.name, func(b *testing.B) {
+					plan, err := model.PlanContext(context.Background(), tc.selectors, options)
+					if err != nil || len(plan.Candidates) == 0 {
+						b.Fatalf("fixture plan: candidates=%d err=%v", len(plan.Candidates), err)
+					}
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						if _, err := model.PlanContext(context.Background(), tc.selectors, options); err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func benchmarkJavaProjectFacts(b *testing.B, children int) []ProjectFileFacts {
 	b.Helper()
 	facts := make([]ProjectFileFacts, 0, children+1)
