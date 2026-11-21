@@ -564,6 +564,106 @@ func BenchmarkSharedProjectResolverBuildAndSnapshotScaling(b *testing.B) {
 	}
 }
 
+// BenchmarkSharedProjectResolverDenseGoScaling separates analysis, immutable
+// model construction, and exact lookup for many declarations in one Go file.
+func BenchmarkSharedProjectResolverDenseGoScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	analyzer := GoAnalyzer{}
+	options := testAnalyzeOptions(false, 8192)
+	for _, declarations := range []int{512, 5000} {
+		var source strings.Builder
+		source.WriteString("package dense\n")
+		for index := 0; index < declarations; index++ {
+			fmt.Fprintf(&source, "func F%04d(value int) int { return value + %d }\n", index, index)
+		}
+		document := sourceDocumentForScanner(source.String())
+		document.Path = "project/benchmark/DenseFunctions.go"
+		document.SourceFingerprint = benchmarkDigest(document.Text)
+		analyzed, err := analyzer.Analyze(context.Background(), document, options)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !analyzed.Analysis.CoverageComplete {
+			b.Fatalf("incomplete Go analysis for %d functions: %+v", declarations, analyzed.Analysis.Diagnostics)
+		}
+		names := make(map[string]bool, declarations)
+		for _, symbol := range analyzed.Analysis.Symbols {
+			if symbol.Kind == SymbolKindFunction {
+				if names[symbol.Name] {
+					b.Fatalf("duplicate function %q in dense benchmark", symbol.Name)
+				}
+				names[symbol.Name] = true
+			}
+		}
+		if len(names) != declarations {
+			b.Fatalf("Go function coverage=%d want=%d, total symbols=%d", len(names), declarations, len(analyzed.Analysis.Symbols))
+		}
+		for index := 0; index < declarations; index++ {
+			if !names[fmt.Sprintf("F%04d", index)] {
+				b.Fatalf("missing authored Go function %d", index)
+			}
+		}
+		facts := []ProjectFileFacts{{
+			Path: document.Path, Language: analyzer.Language(),
+			SourceFingerprint: document.SourceFingerprint, Analysis: analyzed,
+		}}
+		limits := ProjectResolverLimits{
+			MaxFiles: 1, MaxSymbols: 8192, MaxDependencies: 8192,
+			MaxReferences: 8192, MaxCandidatesPerResolution: 64,
+		}
+		pathKey := projectPathKey(document.Path)
+		name := fmt.Sprintf("functions-%d", declarations)
+		b.Run(name+"/analyze-only", func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(document.Text)))
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := analyzer.Analyze(context.Background(), document, options)
+				if err != nil || !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(analyzed.Analysis.Symbols) {
+					b.Fatalf("inconsistent analyzer result: symbols=%d err=%v", len(result.Analysis.Symbols), err)
+				}
+			}
+		})
+		b.Run(name+"/build-only", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(model.symbolsByFile[pathKey]) != len(analyzed.Analysis.Symbols) {
+					b.Fatalf("model symbol coverage=%d want=%d", len(model.symbolsByFile[pathKey]), len(analyzed.Analysis.Symbols))
+				}
+			}
+		})
+		b.Run(name+"/exact-lookup", func(b *testing.B) {
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			query := ProjectSearchOptions{
+				Query: fmt.Sprintf("F%04d", declarations-1), Match: ProjectSearchExact,
+				Kinds: []string{string(SymbolKindFunction)}, MaxResults: 4,
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := model.StructuralSearch(context.Background(), query)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(result.Matches) != 1 || result.Matches[0].Name != query.Query || result.Truncated {
+					b.Fatalf("unexpected dense exact lookup result: %+v", result)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedProjectIndexRefresh(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
