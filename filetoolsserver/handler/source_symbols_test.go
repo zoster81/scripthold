@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1332,6 +1333,62 @@ func TestSourceFileSelectionKeepsLexicographicPrefixWithoutRetainingAllPaths(t *
 		if !reflect.DeepEqual(selected, want[:expectedCount]) || truncated != (len(want) > limit) {
 			t.Fatalf("limit %d: selected=%v truncated=%t; want=%v truncated=%t", limit, selected, truncated, want[:expectedCount], len(want) > limit)
 		}
+	}
+}
+
+func TestBuildSourceSymbolsOutputPreservesBoundedSelectionAndJSON(t *testing.T) {
+	a := sourceintelligence.NormalizedSymbol{ID: "a", Path: "a.go", Name: "Alpha", Kind: sourceintelligence.SymbolKindFunction}
+	b := sourceintelligence.NormalizedSymbol{ID: "b", Path: "a.go", Name: "Beta", Kind: sourceintelligence.SymbolKindFunction}
+	c := sourceintelligence.NormalizedSymbol{ID: "c", Path: "c.go", Name: "Gamma", Kind: sourceintelligence.SymbolKindFunction}
+	d := sourceintelligence.NormalizedSymbol{ID: "d", Path: "c.go", Name: "Delta", Kind: sourceintelligence.SymbolKindMethod}
+	files := []SourceSymbolsFile{
+		{Path: "a.go", Status: "parsed", CoverageComplete: true},
+		{Path: "b.txt", Status: "skipped", ErrorCode: ErrCodeUnsupported},
+		{Path: "c.go", Status: "parsed", CoverageComplete: true},
+	}
+	analyses := []sourceFileAnalysis{
+		{file: files[0], analysis: sourceintelligence.AnalyzerResult{Analysis: sourceintelligence.AnalysisResult{Symbols: []sourceintelligence.NormalizedSymbol{a, b}}}},
+		{file: files[1]},
+		{file: files[2], analysis: sourceintelligence.AnalyzerResult{Analysis: sourceintelligence.AnalysisResult{Symbols: []sourceintelligence.NormalizedSymbol{c, d}}}},
+	}
+	for _, tc := range []struct {
+		name      string
+		operation string
+		kinds     []string
+		query     string
+		max       int
+		want      []sourceintelligence.NormalizedSymbol
+		truncated bool
+	}{
+		{name: "all", operation: "outline", max: 4, want: []sourceintelligence.NormalizedSymbol{a, b, c, d}},
+		{name: "extra-capacity-request", operation: "outline", max: 128, want: []sourceintelligence.NormalizedSymbol{a, b, c, d}},
+		{name: "bounded", operation: "outline", max: 2, want: []sourceintelligence.NormalizedSymbol{a, b}, truncated: true},
+		{name: "one", operation: "outline", max: 1, want: []sourceintelligence.NormalizedSymbol{a}, truncated: true},
+		{name: "zero", operation: "outline", max: 0, truncated: true},
+		{name: "filtered-method", operation: "outline", max: 2, kinds: []string{"method"}, want: []sourceintelligence.NormalizedSymbol{d}},
+		{name: "filtered-truncated", operation: "outline", max: 2, kinds: []string{"function"}, want: []sourceintelligence.NormalizedSymbol{a, b}, truncated: true},
+		{name: "filtered-empty", operation: "outline", max: 128, kinds: []string{"interface"}},
+		{name: "find-exact", operation: "find", max: 2, query: "Delta", want: []sourceintelligence.NormalizedSymbol{d}},
+		{name: "find-empty", operation: "find", max: 2, query: "Absent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := SourceSymbolsInput{Operation: tc.operation, Kinds: tc.kinds, Query: tc.query, Match: "exact"}
+			got := buildSourceSymbolsOutput(tc.operation, input, len(files), false, analyses, tc.max)
+			want := SourceSymbolsOutput{
+				Operation: tc.operation, CoordinateSystem: sourceCoordinateSystem,
+				Files: files, Symbols: tc.want,
+				FilesConsidered: len(files), FilesParsed: 2, FilesSkipped: 1,
+				SymbolCount: len(tc.want), CoverageComplete: false, Truncated: tc.truncated,
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("output changed: got=%+v want=%+v", got, want)
+			}
+			gotJSON, gotErr := json.Marshal(got)
+			wantJSON, wantErr := json.Marshal(want)
+			if gotErr != nil || wantErr != nil || string(gotJSON) != string(wantJSON) {
+				t.Fatalf("public JSON changed: got=%s (%v), want=%s (%v)", gotJSON, gotErr, wantJSON, wantErr)
+			}
+		})
 	}
 }
 

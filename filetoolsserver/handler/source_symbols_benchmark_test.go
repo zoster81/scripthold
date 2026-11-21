@@ -98,6 +98,53 @@ func BenchmarkSourceOutlineProjection(b *testing.B) {
 	}
 }
 
+// BenchmarkSourceSymbolsOutputAssembly isolates result-slice growth from
+// filesystem access, language analysis, and JSON response encoding.
+func BenchmarkSourceSymbolsOutputAssembly(b *testing.B) {
+	for _, count := range []int{64, 1024} {
+		b.Run(fmt.Sprintf("symbols-%d", count), func(b *testing.B) {
+			const files = 4
+			analyses := make([]sourceFileAnalysis, files)
+			for i := range analyses {
+				path := fmt.Sprintf("file-%d.go", i)
+				analyses[i].file = SourceSymbolsFile{Path: path, Status: "parsed", CoverageComplete: true}
+				analyses[i].analysis.Analysis.CoverageComplete = true
+				for j := i; j < count; j += files {
+					analyses[i].analysis.Analysis.Symbols = append(
+						analyses[i].analysis.Analysis.Symbols,
+						sourceintelligence.NormalizedSymbol{
+							ID: fmt.Sprintf("s-%d", j), Path: path,
+							Name: fmt.Sprintf("Function%d", j),
+							Kind: sourceintelligence.SymbolKindFunction,
+						},
+					)
+				}
+			}
+			for _, tc := range []struct {
+				name  string
+				kinds []string
+				want  int
+			}{
+				{name: "unfiltered", want: count},
+				{name: "no-matches", kinds: []string{"method"}, want: 0},
+			} {
+				b.Run(tc.name, func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						output := buildSourceSymbolsOutput("outline", SourceSymbolsInput{
+							Operation: "outline", Kinds: tc.kinds,
+						}, files, false, analyses, count+1)
+						if len(output.Symbols) != tc.want {
+							b.Fatalf("got %d symbols, want %d", len(output.Symbols), tc.want)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 // BenchmarkSourceFileSelection compares the old all-paths-then-slice strategy
 // with bounded retention under the same authorized walk, roots and filters.
 // The fixture is created outside the timed sections and no source is executed.

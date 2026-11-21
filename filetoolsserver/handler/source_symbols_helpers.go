@@ -215,6 +215,21 @@ func buildSourceSymbolsOutput(
 	for _, kind := range input.Kinds {
 		kindFilter[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
 	}
+	if operationName == "outline" && len(kindFilter) == 0 && maxSymbols > 0 {
+		capacity := 0
+		for _, current := range analyses {
+			if current.file.Status != "parsed" {
+				continue
+			}
+			capacity += min(len(current.analysis.Analysis.Symbols), maxSymbols-capacity)
+			if capacity == maxSymbols {
+				break
+			}
+		}
+		if capacity > 0 {
+			output.Symbols = make([]sourceintelligence.NormalizedSymbol, 0, capacity)
+		}
+	}
 	for _, current := range analyses {
 		keepFile := operationName != "find" || input.FileDetails != "relevant" || !current.file.CoverageComplete
 		beforeSymbols := len(output.Symbols)
