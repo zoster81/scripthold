@@ -8,8 +8,77 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+// BenchmarkSourceQuerySelectionFingerprintStages isolates the authorized file
+// preflight and full content fingerprint from a warm SourceQuery on identical
+// inputs. Fingerprint isolation is serial, whereas the handler uses workers;
+// these sub-benchmarks are not additive end-to-end timing components.
+func BenchmarkSourceQuerySelectionFingerprintStages(b *testing.B) {
+	root := b.TempDir()
+	const fileCount = 80
+	for index := 0; index < fileCount; index++ {
+		name := fmt.Sprintf("Item%03d", index)
+		content := fmt.Sprintf("package bench; public class %s { public int value() { return %d; } }\n", name, index)
+		if err := os.WriteFile(filepath.Join(root, name+".java"), []byte(content), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	h := NewHandler([]string{root})
+	limits := h.sourceLimits()
+	roots, files, truncated, failed := h.collectSourceRequestFiles(
+		ctx, "source_query", []string{root}, nil, nil, nil, fileCount, limits,
+	)
+	if failed != nil || len(roots) != 1 || len(files) != fileCount || truncated {
+		b.Fatalf("preflight roots=%d files=%d truncated=%t failed=%+v", len(roots), len(files), truncated, failed)
+	}
+	input := SourceQueryInput{
+		Operation: "search", Paths: []string{root}, Query: "Item079",
+		Mode: "structural", Match: "exact", Language: "java",
+		Encoding: "utf-8", MaxFiles: fileCount, MaxResults: 16,
+	}
+	seedError, seed, seedErr := h.SourceQuery(ctx, nil, input)
+	if seedErr != nil || seedError != nil || seed.Search == nil || len(seed.Search.Matches) != 1 {
+		b.Fatalf("warm seed result=%+v err=%v output=%+v", seedError, seedErr, seed)
+	}
+	b.Run("authorized-preflight-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			nextRoots, nextFiles, nextTruncated, nextFailed := h.collectSourceRequestFiles(
+				ctx, "source_query", []string{root}, nil, nil, nil, fileCount, limits,
+			)
+			if nextFailed != nil || len(nextRoots) != 1 || len(nextFiles) != fileCount || nextTruncated {
+				b.Fatalf("preflight roots=%d files=%d truncated=%t failed=%+v", len(nextRoots), len(nextFiles), nextTruncated, nextFailed)
+			}
+		}
+	})
+	b.Run("bounded-fingerprint-80-serial", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			for _, path := range files {
+				fingerprint, err := filesystem.FingerprintRegularFilePathBounded(ctx, path, limits.MaxFileBytes)
+				if err != nil || fingerprint == "" {
+					b.Fatalf("fingerprint %s: %v", path, err)
+				}
+			}
+		}
+	})
+	b.Run("warm-query-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			toolError, output, err := h.SourceQuery(ctx, nil, input)
+			if err != nil || toolError != nil || output.Index != seed.Index || output.Search == nil || len(output.Search.Matches) != 1 {
+				b.Fatalf("warm query toolError=%+v err=%v output=%+v", toolError, err, output)
+			}
+		}
+	})
+}
 
 func BenchmarkSourceQueryColdWarmAndLookup(b *testing.B) {
 	root := b.TempDir()
