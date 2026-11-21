@@ -522,6 +522,48 @@ func BenchmarkSharedProjectResolverScaling(b *testing.B) {
 	}
 }
 
+// BenchmarkSharedProjectResolverBuildAndSnapshotScaling separates immutable
+// project-model construction from the public, deep-copied reference snapshot.
+func BenchmarkSharedProjectResolverBuildAndSnapshotScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		facts := benchmarkJavaProjectFacts(b, children)
+		limits := ProjectResolverLimits{
+			MaxFiles: len(facts), MaxSymbols: 8192, MaxDependencies: 8192, MaxReferences: 8192, MaxCandidatesPerResolution: 64,
+		}
+		b.Run(fmt.Sprintf("files-%d/build-only", len(facts)), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(model.references) == 0 {
+					b.Fatal("project model returned no references")
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("files-%d/references-snapshot", len(facts)), func(b *testing.B) {
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				snapshot := model.References()
+				if len(snapshot) == 0 {
+					b.Fatal("public reference snapshot is empty")
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedProjectIndexRefresh(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
