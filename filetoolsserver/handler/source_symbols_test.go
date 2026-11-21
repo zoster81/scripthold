@@ -104,6 +104,17 @@ func TestEnforceSourceOutputBudgetExactJSONBoundaries(t *testing.T) {
 				} else if err != nil {
 					t.Fatalf("cap=%d, JSON bytes=%d, unexpected error=%v", maximum, len(encoded), err)
 				}
+				toolResult, completed, completionErr := finishSourceSymbolsOutput(tc.output, maximum)
+				if completionErr != nil {
+					t.Fatalf("cap=%d: unexpected Go error: %v", maximum, completionErr)
+				}
+				if err == nil {
+					if toolResult != nil || !reflect.DeepEqual(completed, tc.output) {
+						t.Fatalf("cap=%d: successful budget result changed: result=%+v output=%+v", maximum, toolResult, completed)
+					}
+				} else if !reflect.DeepEqual(toolResult, errorResultFromError(err)) || !reflect.DeepEqual(completed, SourceSymbolsOutput{}) {
+					t.Fatalf("cap=%d: budget error mapping changed: result=%+v output=%+v", maximum, toolResult, completed)
+				}
 			}
 		})
 	}
