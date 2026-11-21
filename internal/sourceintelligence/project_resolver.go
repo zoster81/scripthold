@@ -142,6 +142,7 @@ type ProjectModel struct {
 	definitionsByReference map[string][]RelationEntity
 	referencesByTarget     map[string][]ProjectReference
 	referencesBySource     map[string][]int
+	referencesBySourceID   map[string][]int
 }
 
 const defaultProjectResolutionCandidates = 64
@@ -534,6 +535,12 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 		}
 	}
 	sortProjectReferences(model.references)
+	// The source-ID index shares sorted reference positions across dense models.
+	// The key intentionally has no file path: identical IDs in different files
+	// must retain the original cross-file query behavior.
+	if len(model.references) >= 64 {
+		model.referencesBySourceID = make(map[string][]int)
+	}
 	// Preserve the exact global reference order without duplicating the records.
 	for index := range model.references {
 		if index&255 == 0 {
@@ -543,6 +550,11 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 		}
 		pathKey := projectPathKey(model.references[index].Source.Path)
 		model.referencesBySource[pathKey] = append(model.referencesBySource[pathKey], index)
+		if model.referencesBySourceID != nil {
+			if symbolID := model.references[index].Source.SymbolID; symbolID != "" {
+				model.referencesBySourceID[symbolID] = append(model.referencesBySourceID[symbolID], index)
+			}
+		}
 	}
 	for key := range model.referencesByTarget {
 		sortProjectReferences(model.referencesByTarget[key])

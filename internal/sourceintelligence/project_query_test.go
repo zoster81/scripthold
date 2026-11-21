@@ -2,6 +2,7 @@ package sourceintelligence
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -418,6 +419,104 @@ func TestProjectQueryReferencesDefinitionsInheritanceAndImplementations(t *testi
 	}
 	if len(definitions.Records) != 1 || definitions.Records[0].Target.SymbolID != baseID || definitions.Records[0].Resolution != ResolutionResolved {
 		t.Fatalf("definitions = %+v", definitions)
+	}
+}
+
+func TestProjectForwardSourceIDIndexPreservesLegacyRelations(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, ext  string
+		analyzer   SourceAnalyzer
+		typeScript bool
+	}{
+		{"java", "java", JavaAnalyzer{}, false},
+		{"typescript", "ts", TypeScriptAnalyzer{}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "source-ids", tc.name)
+			baseText := "package demo; public class Base {}\n"
+			if tc.typeScript {
+				baseText = "export class Base {}\n"
+			}
+			base := projectResolverFacts(t, tc.analyzer, filepath.Join(root, "Base."+tc.ext), baseText)
+			facts := []ProjectFileFacts{base}
+			var duplicateID = "duplicated-across-source-files"
+			for index := 0; index < 70; index++ {
+				source := fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)
+				if tc.typeScript {
+					source = fmt.Sprintf("import { Base } from './Base';\nexport class Child%03d extends Base {}\n", index)
+				}
+				fact := projectResolverFacts(t, tc.analyzer, filepath.Join(root, fmt.Sprintf("Child%03d.%s", index, tc.ext)), source)
+				if index == 1 || index == 2 {
+					for position := range fact.Analysis.Analysis.Symbols {
+						if fact.Analysis.Analysis.Symbols[position].Kind == SymbolKindClass {
+							fact.Analysis.Analysis.Symbols[position].ID = duplicateID
+						}
+					}
+				}
+				facts = append(facts, fact)
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(model.references) != 70 || len(model.referencesBySourceID) == 0 || len(model.referencesBySourceID[duplicateID]) != 2 {
+				t.Fatalf("dense forward index incomplete: references=%d indexedIDs=%d duplicateRefs=%d", len(model.references), len(model.referencesBySourceID), len(model.referencesBySourceID[duplicateID]))
+			}
+			linear := *model
+			linear.referencesBySourceID = nil
+			qualified := func(name string) string {
+				if tc.typeScript {
+					return name
+				}
+				return "demo." + name
+			}
+			baseID := projectSymbolID(t, base, qualified("Base"))
+			lateID := projectSymbolID(t, facts[len(facts)-1], qualified("Child069"))
+			for _, tc2 := range []struct {
+				name string
+				fact ProjectFileFacts
+				id   string
+			}{
+				{"base", base, baseID},
+				{"late", facts[len(facts)-1], lateID},
+				{"duplicate-first", facts[2], duplicateID},
+				{"duplicate-second", facts[3], duplicateID},
+			} {
+				for _, maxResults := range []int{1, 200} {
+					for _, evidence := range [][]SymbolEvidence{nil, {SymbolEvidenceProjectResolved}, {SymbolEvidenceStructural}} {
+						limits := ProjectQueryLimits{MaxResults: maxResults, MaxNodes: 200, MaxEdges: 200, MaxDepth: 2}
+						selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: tc2.fact.Path, SourceFingerprint: tc2.fact.SourceFingerprint, SymbolID: tc2.id}
+						got, gotErr := model.QueryRelations(context.Background(), RelationInheritance, selector, ProjectSelector{}, evidence, limits)
+						want, wantErr := linear.QueryRelations(context.Background(), RelationInheritance, selector, ProjectSelector{}, evidence, limits)
+						if operation.KindOf(gotErr) != operation.KindOf(wantErr) || !reflect.DeepEqual(got, want) {
+							t.Fatalf("%s/%s max=%d evidence=%v indexed=%+v err=%v linear=%+v err=%v", tc.name, tc2.name, maxResults, evidence, got, gotErr, want, wantErr)
+						}
+						gotJSON, err := json.Marshal(got)
+						if err != nil {
+							t.Fatal(err)
+						}
+						wantJSON, err := json.Marshal(want)
+						if err != nil || string(gotJSON) != string(wantJSON) {
+							t.Fatalf("serialized parity %s/%s max=%d: indexed=%s linear=%s err=%v", tc.name, tc2.name, maxResults, gotJSON, wantJSON, err)
+						}
+						if tc2.id == duplicateID && maxResults == 200 && len(evidence) == 0 && len(got.Records) != 2 {
+							t.Fatalf("cross-file duplicate IDs must still produce both relations: %+v", got)
+						}
+					}
+				}
+			}
+			stale := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[2].Path, SourceFingerprint: "stale-fingerprint", SymbolID: duplicateID}
+			limits := ProjectQueryLimits{MaxResults: 10, MaxNodes: 10, MaxEdges: 10, MaxDepth: 2}
+			_, indexedErr := model.QueryRelations(context.Background(), RelationInheritance, stale, ProjectSelector{}, nil, limits)
+			_, legacyErr := linear.QueryRelations(context.Background(), RelationInheritance, stale, ProjectSelector{}, nil, limits)
+			if operation.KindOf(indexedErr) != operation.KindConflict || operation.KindOf(legacyErr) != operation.KindConflict {
+				t.Fatalf("stale source fingerprint parity indexed=%v legacy=%v", indexedErr, legacyErr)
+			}
+		})
 	}
 }
 

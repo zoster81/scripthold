@@ -394,7 +394,25 @@ func (model *ProjectModel) referenceRecordsTo(symbolID string, kind RelationKind
 
 func (model *ProjectModel) referenceRecordsFrom(symbolID string, kind RelationKind, predicate func(string) bool, filter projectEvidenceFilter) []RelationRecord {
 	var result []RelationRecord
-	for _, reference := range model.references {
+	if model.referencesBySourceID == nil {
+		// Retain the direct scan on small models; a per-reference callback
+		// costs more than the scan it replaces for sparse projects.
+		for _, reference := range model.references {
+			if reference.Source.SymbolID != symbolID || !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
+				continue
+			}
+			if len(reference.Targets) == 0 {
+				result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: RelationEntity{Language: reference.Source.Language, QualifiedName: reference.TargetSpelling, Range: cloneRangeValue(reference.Range)}, Evidence: reference.Evidence, Resolution: reference.Resolution})
+				continue
+			}
+			for _, target := range reference.Targets {
+				result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
+			}
+		}
+		return result
+	}
+	for _, index := range model.referencesBySourceID[symbolID] {
+		reference := model.references[index]
 		if reference.Source.SymbolID != symbolID || !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
 			continue
 		}
